@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { GroupFollow } from "./conversation-follow.ts";
 import { KeptFollows } from "./kept-follows.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
-import { SpadeRequestError } from "./spade-requests.ts";
+import { spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { postGroupMessage, stopGroup } from "./spade-teams-api.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { followDeps } from "./use-spade-conversation.ts";

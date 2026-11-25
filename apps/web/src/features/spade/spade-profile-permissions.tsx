@@ -54,7 +54,10 @@ export function ProfilePermissionSwitches(props: { bot: RosterBot }) {
         }}
         under={{
           computer_use: permissions.on.computer_use && (
-            <p data-setting-slot="" className="py-2.5 text-xs leading-relaxed text-muted-foreground">
+            <p
+              data-setting-slot=""
+              className="py-2.5 text-xs leading-relaxed text-muted-foreground"
+            >
               It never uses the apps listed under Computer use in Settings › Spade.
             </p>
           ),

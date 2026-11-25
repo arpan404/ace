@@ -113,17 +113,17 @@ Local HTTP on `SPADE_LISTEN` (loopback). Every request except `/health` carries
 `Authorization: Bearer <token>`; the token is in `<data dir>/token` (mode 0600), written at
 startup, so only processes that can read the person's files can talk to Spade.
 
-| Method and path                             | Body                | Answer                                                                                              |
-| ------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
-| `GET /health`                               |                     | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                                    |
-| `GET /v1/conversations`                     |                     | `[{id, title, updated_at, answering}]`, newest first                                                |
-| `POST /v1/conversations`                    |                     | `410`: each agent has one conversation, created with it ([agents.md](agents.md))                    |
-| `GET /v1/conversations/{id}/events?after=N` |                     | `[{seq, at, event}]` after `seq` N                                                                  |
-| `POST /v1/conversations/{id}/messages`      | `{text, reply_to?}` | `202`; while a reply is open the message steers it; `reply_to`: Messages, ids and replies above     |
-| `POST /v1/conversations/{id}/messages/{m}/reactions` | `{emoji}` | `202`; `DELETE` takes it back; `404` when `m` names no message, `400` for an emoji that's empty, over 16 bytes or has spaces |
-| `POST /v1/conversations/{id}/stop`          |                     | `202`; `404` when nothing is answering                                                              |
-| `POST /v1/conversations/{id}/retry`         | `{reply}`           | `202`: Try again, below; `409` when `reply` isn't the last reply or didn't fail, or a reply is open |
-| `GET /v1/conversations/{id}/live?after=N`   |                     | Server-sent events, below                                                                           |
+| Method and path                                      | Body                | Answer                                                                                                                       |
+| ---------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                        |                     | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                                                             |
+| `GET /v1/conversations`                              |                     | `[{id, title, updated_at, answering}]`, newest first                                                                         |
+| `POST /v1/conversations`                             |                     | `410`: each agent has one conversation, created with it ([agents.md](agents.md))                                             |
+| `GET /v1/conversations/{id}/events?after=N`          |                     | `[{seq, at, event}]` after `seq` N                                                                                           |
+| `POST /v1/conversations/{id}/messages`               | `{text, reply_to?}` | `202`; while a reply is open the message steers it; `reply_to`: Messages, ids and replies above                              |
+| `POST /v1/conversations/{id}/messages/{m}/reactions` | `{emoji}`           | `202`; `DELETE` takes it back; `404` when `m` names no message, `400` for an emoji that's empty, over 16 bytes or has spaces |
+| `POST /v1/conversations/{id}/stop`                   |                     | `202`; `404` when nothing is answering                                                                                       |
+| `POST /v1/conversations/{id}/retry`                  | `{reply}`           | `202`: Try again, below; `409` when `reply` isn't the last reply or didn't fail, or a reply is open                          |
+| `GET /v1/conversations/{id}/live?after=N`            |                     | Server-sent events, below                                                                                                    |
 
 Live stream frames (`event:` name, JSON `data:`):
 
@@ -148,7 +148,7 @@ reply records its cost in the usage ledger. It is information only: Spade has no
 | Variable                | Default | Meaning                                                        |
 | ----------------------- | ------- | -------------------------------------------------------------- |
 | `SPADE_DATA_DIR`        | `data`  | Where `spade.sqlite` and `token` live                          |
-| `SPADE_PARALLEL_TOOLS`  | `16`    | Concurrent foreground tool calls, including early work          |
+| `SPADE_PARALLEL_TOOLS`  | `16`    | Concurrent foreground tool calls, including early work         |
 | `SPADE_HELPERS_AT_ONCE` | `16`    | Helpers of one bot run at once                                 |
 | `SPADE_CONTEXT_TOKENS`  | unset   | Compact before this many prompt tokens even on a larger window |
 | model settings          |         | See README                                                     |

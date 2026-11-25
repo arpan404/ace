@@ -1,14 +1,24 @@
-import { spadeAgentTaskMax, type SpadePanel } from "@ace/ui-core/spade-chat";
+import {
+  spadeAgentTaskMax,
+  spadeEffortShortNames,
+  spadeModelDefaultEffort,
+  spadeModelEfforts,
+  spadeNextModelEffort,
+  splitSpadeModel,
+  type SpadePanel,
+  type SpadeRole,
+} from "@ace/ui-core/spade-chat";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileMachine, ProfileMoveLine } from "./spade-bot-move.tsx";
 import { ProfilePackageLine } from "./spade-bot-package.tsx";
-import { BotRoles } from "./spade-bot-roles.tsx";
+import { BotRoleRows, useBotRoles } from "./spade-bot-roles.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import {
@@ -61,11 +71,34 @@ export function ProfileJob(props: { bot: RosterBot; panels?: ProfilePanels | und
   );
 }
 
-/** The model and machine it runs with, and the models for its other work: the Model page. */
-export function ProfileModel(props: { bot: RosterBot }) {
+/**
+ * The Model page: the model the bot runs with and how hard it thinks (the efforts that model
+ * supports; none, no control), where it runs, and a row per role for its other work.
+ */
+export function ProfileModel(props: { bot: RosterBot; onRole(role: SpadeRole): void }) {
   const { bot } = props;
   const edit = useEditBot(bot);
   const [modelProblem, setModelProblem] = useState<string>();
+  const { roles, change } = useBotRoles(bot);
+  const endpoints = useSpadeModels(true).data?.endpoints ?? [];
+  const efforts = (model: string) => {
+    const at = splitSpadeModel(model);
+    const info = endpoints
+      .find((endpoint) => endpoint.id === at.endpoint)
+      ?.models.find((each) => each.id === at.model);
+    return spadeModelEfforts(info);
+  };
+  const shown = efforts(bot.model);
+  const current = roles.data?.ownEfforts.main ?? roles.data?.mainEffort;
+  const pick = async (model: string) => {
+    if (!/\/./.test(model) || model === bot.model) return;
+    const problem = await edit({ model });
+    setModelProblem(problem);
+    if (problem) return;
+    // A model that supports the effort in use keeps it; one that doesn't gets its own default.
+    const next = spadeNextModelEffort(efforts(model), current);
+    if (next && next !== current) await change({ efforts: { main: next } }).catch(() => undefined);
+  };
   return (
     <>
       <ProfileMoveLine bot={bot} />
@@ -74,21 +107,31 @@ export function ProfileModel(props: { bot: RosterBot }) {
           title="Model"
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
           density="compact"
-          inline
         >
           <SpadeModelPicker
             forBots
             value={bot.model}
-            className="w-44"
-            onChange={(model) => {
-              if (!/\/./.test(model) || model === bot.model) return;
-              void edit({ model }).then(setModelProblem);
-            }}
+            className="w-full"
+            onChange={(model) => void pick(model)}
           />
         </SettingRow>
+        {shown.length > 0 && (
+          <SettingRow title="Thinking" density="compact">
+            <SegmentedControl
+              label="Thinking"
+              className="w-full"
+              value={current ?? spadeModelDefaultEffort(shown) ?? shown[0]!}
+              options={shown.map((effort) => ({
+                value: effort,
+                label: spadeEffortShortNames[effort],
+              }))}
+              onValueChange={(effort) => void change({ efforts: { main: effort } })}
+            />
+          </SettingRow>
+        )}
         <ProfileMachine bot={bot} />
-        <BotRoles bot={bot} />
       </ProfileSection>
+      <BotRoleRows bot={bot} onOpen={props.onRole} />
     </>
   );
 }

@@ -16,7 +16,7 @@ import { ProfileSettings, type SettingsPage } from "./spade-profile-settings.tsx
 import { NewRoutinePage } from "./spade-routine-new.tsx";
 import type { ProfileWorkPlace } from "./spade-profile-work.tsx";
 import { useSpadeWork } from "./use-spade-work.ts";
-import type { SpadeDecision } from "@ace/ui-core/spade-chat";
+import type { SpadeDecision, SpadeDocumentRef } from "@ace/ui-core/spade-chat";
 import { roundButton } from "./spade-profile-parts.tsx";
 import { useShareBot } from "./spade-profile-actions.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -89,6 +89,8 @@ export function SpadeProfile(props: {
   work: ProfileWorkPlace & { decisions: readonly SpadeDecision[] };
   /** Its package's panels, listed in Settings. */
   panels?: ProfilePanels | undefined;
+  /** A document the chat asked to read: shown in the panel's reader, once per `nonce`. */
+  reading?: { document: SpadeDocumentRef; nonce: number } | undefined;
   covering: boolean;
   onClose(): void;
 }) {
@@ -119,11 +121,21 @@ export function SpadeProfile(props: {
   const [newRoutine, setNewRoutine] = useState(false);
   // A file, the terminal, the screen or the browser, open in the panel in place of its tabs.
   const [surface, setSurface] = useState<PanelSurface>();
+  const readingNonce = props.reading?.nonce;
+  const [shownNonce, setShownNonce] = useState<number>();
+  if (props.reading && readingNonce !== shownNonce) {
+    // A new request to read: show it in place of whatever the panel had open.
+    setShownNonce(readingNonce);
+    setSurface({ kind: "document", document: props.reading.document });
+    setNewRoutine(false);
+  }
   const showingSurface = Boolean(surface && !newRoutine && !settings);
   const expand = (open: PanelSurface, at?: ProfileComputerPlace["files"]) =>
     open.kind === "files"
       ? props.computer.onView("files", at ?? open.at)
-      : props.computer.onView(open.kind);
+      : open.kind === "document"
+        ? undefined
+        : props.computer.onView(open.kind);
   return (
     <section
       aria-label={`${bot.name}'s profile`}

@@ -76,9 +76,10 @@ import { SpadeRequestGroup } from "./spade-request-group.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
-import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
+import { Attachments } from "./spade-attachment.tsx";
+import { VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
-import { useMineAccent, useQuoteAccentResolver } from "./spade-accent.ts";
+import { useMineAccent } from "./spade-accent.ts";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeBriefBubble } from "./spade-brief-bubble.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
@@ -88,7 +89,7 @@ import { SpadeStepsLine } from "./spade-steps-line.tsx";
 import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
 import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
-import { DocumentCard, QuoteInset, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
+import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
 
 /** "Inbox wants to email Marta Reyes": the bot's name, then why it needs the person. */
 function needsYouWords(bot: ChatBot): string {
@@ -189,21 +190,16 @@ export function SpadeChat(props: {
   const { view, bot } = props;
   // The person's pill takes the bot's colour when it has one; monochrome Spade uses the theme's.
   const mine = useMineAccent(bot);
-  const resolveQuoteAccent = useQuoteAccentResolver();
-  const accentOf = useCallback(
-    (who: SpadeQuote["who"]) => {
-      if (who.kind === "bot") return resolveQuoteAccent(bot);
-      if (who.kind === "member") {
-        for (const [id, name] of bot.names) {
-          if (name === who.name) {
-            const avatar = bot.others.get(id);
-            if (avatar) return resolveQuoteAccent({ avatar });
-          }
-        }
-      }
-      return undefined;
+  const reactorOf = useCallback(
+    (id: string) => {
+      if (id === "person") return { name: "You" };
+      if (id === "bot") return { name: bot.name, avatar: bot.avatar };
+      return {
+        name: bot.names.get(id) ?? id,
+        avatar: bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
+      };
     },
-    [bot, resolveQuoteAccent],
+    [bot],
   );
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
   const now = useSeconds(false);
@@ -237,14 +233,9 @@ export function SpadeChat(props: {
     [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const [from, drawAll] = useNewestFirst(rows.length);
-  const replies = useReplies(
-    bot.name,
-    props.onReply,
-    drawAll,
-    view.reactions,
-    props.onReact,
-    accentOf,
-  );
+  const replies = useReplies(bot.name, props.onReply, drawAll, view.reactions, props.onReact, {
+    reactorOf,
+  });
   const newBefore = useMemo(() => newDividerIndex(rows, props.seenSeq), [rows, props.seenSeq]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
   const rest =
@@ -583,7 +574,11 @@ const Row = memo(function Row(props: {
             key={item.key}
             item={item}
             when={when}
-            stack={stackPosition(index > 0, index < people.length - 1)}
+            stack={stackPosition(
+              index > 0 && !item.quote,
+              index < people.length - 1 && !people[index + 1]?.item.quote,
+            )}
+            className={item.quote && index > 0 ? "mt-2" : undefined}
           />
         ))}
       </div>
@@ -666,8 +661,7 @@ function RunItem(props: {
       const said = item.text && !item.live ? item.text : undefined;
       const media = (
         <>
-          {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
-          {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
+          <Attachments images={item.images} documents={item.documents} side="bot" />
         </>
       );
       const doc = item.doc;
@@ -704,10 +698,11 @@ function RunItem(props: {
               copy={doc.text}
               speak={undefined}
               reply={reply}
+              quote={item.quote}
               messageIds={props.ids}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
             >
-              <DocumentCard doc={doc} quote={item.quote} />
+              <DocumentCard doc={doc} />
             </BubbleFrame>
             {media}
             {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
@@ -715,9 +710,14 @@ function RunItem(props: {
             {fromChat}
           </div>
         );
-      const long = isLongBubble(item.text, Boolean(item.quote), Boolean(item.end));
+      const long = isLongBubble(item.text, Boolean(item.end));
       return (
-        <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
+        <div
+          className={cn(
+            "flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)",
+            item.quote && "mt-1.5 first:mt-0",
+          )}
+        >
           {/* Its words went back to the bot that wrote, not to the person. */}
           {words ? (
             <BubbleFrame
@@ -726,6 +726,7 @@ function RunItem(props: {
               copy={doc ? doc.text : said && spadePlainText(said)}
               speak={said}
               reply={reply}
+              quote={item.quote}
               messageIds={props.ids}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
               work={item.live ? undefined : handlers.work(item.turn)}
@@ -738,7 +739,6 @@ function RunItem(props: {
                 )}
                 className={botMessageBubble(long, props.stack)}
               >
-                {item.quote && <QuoteInset quote={item.quote} side="bot" />}
                 {item.text && (
                   <SpadeFold fold={item.fold}>
                     <SpadeBubbleText
@@ -1025,30 +1025,31 @@ function Single(props: {
 
 /**
  * One of the person's messages: the line from an ace thread, pictures, files, then the bubble,
- * with any reply quote inset inside its top edge and Reply once it is stored.
+ * with any reply ghost above its top edge and Reply once it is stored.
  */
 function PersonItem(props: {
   item: Extract<SpadeChatItem, { kind: "person" }>;
   when: string | undefined;
   stack?: BubbleStackPosition;
+  className?: string | undefined;
 }) {
   const { item } = props;
   const reply: SpadeQuote | undefined =
     item.id && !item.sending
       ? { id: item.id, who: { kind: "person" }, text: spadeQuoteLine(item.text) }
       : undefined;
-  const long = isLongBubble(item.text, Boolean(item.quote), Boolean(item.invoke || item.voice));
+  const long = isLongBubble(item.text, Boolean(item.invoke || item.voice));
   return (
     <div
       aria-busy={item.sending || undefined}
       className={cn(
         "flex w-full flex-col items-end gap-(--chat-run-gap)",
         item.sending && "opacity-70",
+        props.className,
       )}
     >
       {item.fromThread && <FromThreadLine thread={item.fromThread} />}
-      {item.images.length > 0 && <Pictures images={item.images} side="person" />}
-      {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
+      <Attachments images={item.images} documents={item.documents} side="person" />
       {(item.text || item.invoke) && (
         <BubbleFrame
           side="mine"
@@ -1056,12 +1057,12 @@ function PersonItem(props: {
           copy={spadePlainText(item.text)}
           speak={undefined}
           reply={reply}
+          quote={item.quote}
         >
           <div
             {...part("spade-message", undefined, "user")}
             className={mineMessageBubble(long, props.stack ?? "single")}
           >
-            {item.quote && <QuoteInset quote={item.quote} side="mine" />}
             {item.invoke && <InvokedChip invoked={item.invoke} />}
             {item.text && <SpadeBubbleText text={item.text} side="mine" />}
             {/* A voice message: its transcript, and the recording to play. */}

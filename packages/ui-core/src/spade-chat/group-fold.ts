@@ -5,10 +5,7 @@ import type { SpadeStored } from "./wire.ts";
 import { spadeChatSegments, spadeMessageId } from "./chat-markup.ts";
 import { spadeDocCard, type SpadeDocCard } from "./documents-in-chat.ts";
 import { spadeMayFold } from "./long-messages.ts";
-import {
-  spadeFoldReaction,
-  type SpadeMessageReactions,
-} from "./reactions.ts";
+import { spadeFoldReaction, type SpadeMessageReactions } from "./reactions.ts";
 import {
   spadeQuoteOf,
   spadeReplyToField,

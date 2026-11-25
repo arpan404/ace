@@ -148,9 +148,7 @@ export function LibraryEpisode(props: { bot: RosterBot; id: string; onBack(): vo
         {meta}
         {episode.untrusted && <span className="text-foreground">{" · Untrusted"}</span>}
       </p>
-      {episode.text && (
-        <p className="mt-4 text-ui leading-5.5 text-foreground">{episode.text}</p>
-      )}
+      {episode.text && <p className="mt-4 text-ui leading-5.5 text-foreground">{episode.text}</p>}
       {episode.criteria.length > 0 && (
         <Part label="Done when">
           {episode.criteria.map((criterion) => (

@@ -86,10 +86,7 @@ function usePanelNarrow(
 ): boolean {
   const [narrow, setNarrow] = useState(enabled);
   useLayoutEffect(() => {
-    if (!enabled) {
-      setNarrow(false);
-      return;
-    }
+    if (!enabled) return;
     const element = ref.current;
     if (!element) return;
     const measure = () => {
@@ -299,10 +296,13 @@ export function FileManager(props: {
         void seen.then((saw) => {
           const base = baseFor(saw, entry.name);
           if (!base || !mayWrite()) return;
-          return deletePath(client, bot.id, entry.path, base.revision).then(() => {
-            if (entry.path === focusedGroup(current()).active) setBrowsing(true);
-            refresh();
-          }, failed(`Couldn't delete ${entry.name}`));
+          return deletePath(client, bot.id, entry.path, base.revision).then(
+            () => {
+              if (entry.path === focusedGroup(current()).active) setBrowsing(true);
+              refresh();
+            },
+            failed(`Couldn't delete ${entry.name}`),
+          );
         });
       },
     });
@@ -476,11 +476,7 @@ export function FileManager(props: {
             >
               Upload
             </MenuItem>
-            <MenuItem
-              disabled={!props.writable}
-              reason={reason}
-              onClick={() => setMaking(folder)}
-            >
+            <MenuItem disabled={!props.writable} reason={reason} onClick={() => setMaking(folder)}>
               New folder
             </MenuItem>
           </>

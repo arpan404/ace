@@ -143,18 +143,17 @@ test("a document chip shows its name and pages, and Download saves it under its 
   });
   await openWriter();
   const chip = within(await screen.findByRole("group", { name: "report.pdf" }));
-  chip.getByText("12 pages · 482 KB");
+  chip.getByText("PDF · 12 pages · 482 KB");
   await userEvent.click(chip.getByRole("button", { name: "Download" }));
   await waitFor(() => expect(saved).toEqual([{ href: "blob:spade/1", download: "report.pdf" }]));
   expect(spade.requests.map((request) => request.path)).toContain(
     `/v1/documents/${hash("d")}?name=report.pdf`,
   );
-  // Nothing offers to show the file in a tab of the app's own origin.
-  expect(chip.queryByRole("button", { name: "Open" })).toBeNull();
+  // Open reads it in the panel's own reader, never in a tab of the app's origin.
   expect(opened).not.toHaveBeenCalled();
 });
 
-test("an image a bot's tool showed sits in that reply's bubble with Save", async () => {
+test("an image a bot's tool showed sits in that reply's bubble and opens to download", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     const writer = withWriter(api);
     api.images.set(hash("f"), "image/png");
@@ -185,7 +184,8 @@ test("an image a bot's tool showed sits in that reply's bubble with Save", async
   const replies = await screen.findAllByRole("article", { name: "Writer" });
   const reply = within(replies[replies.length - 1] ?? document.body);
   reply.getByText("Here it is.");
-  await reply.findByRole("button", { name: "Save" });
+  await userEvent.click(await reply.findByRole("button", { name: "Open image" }));
+  within(await screen.findByRole("dialog")).getByRole("link", { name: "Download image" });
   expect(spade.requests.map((request) => request.path)).toContain(`/v1/images/${hash("f")}`);
   // The call itself never shows.
   expect(screen.queryByText(/image_generate/)).toBeNull();

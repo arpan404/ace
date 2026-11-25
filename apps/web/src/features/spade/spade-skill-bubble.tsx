@@ -1,18 +1,16 @@
 import { spadeLineChanges, type SpadeProposal } from "@ace/ui-core/spade-chat";
 import { useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { CardActions } from "./spade-card.tsx";
 
 const code =
   "no-scrollbar -mx-2.5 mt-2.5 max-h-72 overflow-auto rounded-(--chat-code-radius) bg-chat-code px-3 py-2.5 font-mono text-[13px] leading-5 whitespace-pre-wrap";
 
-/** The proposal's answers: words, as pills, at the bubble's size. */
-const word = "rounded-full px-3 text-ui hover:bg-hover";
-
 /**
  * A skill the bot offers (ADR 0130), as its bubble: one sentence, what it learned, the skill
- * folded away (a new one's text, an edit's changed lines), and Save and Discard as words. It is
- * never raised: only questions and requests are. Answered, the words give way to what happened.
+ * folded away (a new one's text, an edit's changed lines), and shared `CardActions` with Save as
+ * the primary filled pill and Discard / Show changes to its left. Answered, the actions give way
+ * to what happened.
  */
 export function SkillProposal(props: {
   proposal: SpadeProposal;
@@ -25,58 +23,85 @@ export function SkillProposal(props: {
   const [answering, setAnswering] = useState<boolean>();
   const editing = proposal.base !== undefined;
   const answer = (save: boolean) => {
+    if (answering !== undefined) return;
     setAnswering(save);
     void props.onAnswer(save).then(() => setAnswering(undefined));
   };
+  const toggleLabel = editing
+    ? open
+      ? "Hide changes"
+      : "Show changes"
+    : open
+      ? "Hide skill"
+      : "Show skill";
   return (
-    <div className={props.className} role="group" aria-label={`Skill ${proposal.name}`}>
-      <p>
-        {editing
-          ? `${props.botName} suggests a change to the skill `
-          : `${props.botName} suggests a new skill, `}
-        <span className="font-mono">{proposal.name}</span>.
-      </p>
-      {proposal.why && <p className="mt-1 text-muted-foreground">{proposal.why}</p>}
-      {open && <SkillText proposal={proposal} />}
-      <div className="-mx-3 mt-1.5 -mb-1 flex flex-wrap items-center gap-1">
-        {proposal.state === "open" ? (
-          <>
-            <Button
-              variant="ghost"
-              className={cn(word, "text-foreground")}
-              disabled={answering !== undefined}
-              onClick={() => answer(true)}
-            >
-              {answering === true ? "Saving…" : "Save"}
-            </Button>
-            <Button
-              variant="ghost"
-              className={word}
-              disabled={answering !== undefined}
-              onClick={() => answer(false)}
-            >
-              {answering === false ? "Discarding…" : "Discard"}
-            </Button>
-          </>
-        ) : (
-          <span className="px-3 text-ui text-muted-foreground">
-            {proposal.state === "saved" ? "Saved to your skills" : "Discarded"}
-          </span>
-        )}
-        <Button
-          variant="ghost"
-          className={word}
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          {editing ? (open ? "Hide changes" : "Show changes") : open ? "Hide skill" : "Show skill"}
-        </Button>
+    <div
+      className={cn(props.className, "@container/card flex flex-col gap-3 outline-none")}
+      role="group"
+      aria-label={`Skill ${proposal.name}`}
+      // Focusable while open so Enter saves from the keyboard, matching approval cards.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+      tabIndex={proposal.state === "open" ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (
+          proposal.state === "open" &&
+          event.key === "Enter" &&
+          event.target === event.currentTarget
+        ) {
+          event.preventDefault();
+          answer(true);
+        }
+      }}
+    >
+      <div className="flex flex-col gap-1">
+        <p>
+          {editing
+            ? `${props.botName} suggests a change to the skill `
+            : `${props.botName} suggests a new skill, `}
+          <span className="font-mono">{proposal.name}</span>.
+        </p>
+        {proposal.why && <p className="text-muted-foreground">{proposal.why}</p>}
         {proposal.source && (
-          <span className="min-w-0 px-3 text-ui wrap-anywhere text-subtle-foreground">
+          <p className="text-xs leading-4 wrap-anywhere text-subtle-foreground">
             Written after reading {proposal.source}
-          </span>
+          </p>
         )}
+        {open && <SkillText proposal={proposal} />}
       </div>
+      <CardActions
+        aside={
+          proposal.state !== "open" ? (
+            <span className="text-ui text-muted-foreground">
+              {proposal.state === "saved" ? "Saved to your skills" : "Discarded"}
+            </span>
+          ) : undefined
+        }
+        secondary={[
+          {
+            key: "toggle",
+            label: toggleLabel,
+            expanded: open,
+            onClick: () => setOpen((o) => !o),
+          },
+          proposal.state === "open" && {
+            key: "discard",
+            label: answering === false ? "Discarding…" : "Discard",
+            tone: "danger",
+            disabled: answering !== undefined,
+            onClick: () => answer(false),
+          },
+        ]}
+        primary={
+          proposal.state === "open"
+            ? {
+                label: answering === true ? "Saving…" : "Save",
+                disabled: answering !== undefined,
+                hint: "enter",
+                onClick: () => answer(true),
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

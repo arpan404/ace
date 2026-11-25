@@ -193,8 +193,8 @@ test("a role following Settings says so until the person picks its model on the 
   });
   await openSettingsPage("Model");
   const panel = await profile();
-  await userEvent.click(await panel.findByText("Models for other work"));
-  const helpers = await panel.findByRole("button", { name: "Helpers" });
+  await userEvent.click(await panel.findByRole("button", { name: /^Helpers/ }));
+  const helpers = await panel.findByRole("button", { name: "Model" });
   const row = within(helpers.closest("[data-setting-slot]") as HTMLElement);
   expect(row.getByText("$0.42 this month")).toBeTruthy();
   expect(row.getByText("Follows Settings")).toBeTruthy();

@@ -99,7 +99,10 @@ export function SpadeGroupChat(props: {
     reactorOf,
   });
   const blocks = useMemo(() => groupClubRows(view.rows), [view.rows]);
-  const newBefore = useMemo(() => newClubDividerIndex(blocks, props.seenSeq), [blocks, props.seenSeq]);
+  const newBefore = useMemo(
+    () => newClubDividerIndex(blocks, props.seenSeq),
+    [blocks, props.seenSeq],
+  );
   const waiting = view.state === "waiting";
   const waiter = spadeGroupWaiting(view, members);
   const shown = waiter ?? view.working;

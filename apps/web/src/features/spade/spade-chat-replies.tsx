@@ -121,11 +121,11 @@ export function ReplyGhost(props: {
         aria-label={`${label}: ${props.quote.text}. Show the message`}
         className={cn(
           // Extra bottom padding leaves room for the reply bubble overlapping by 6px.
-          "max-w-[min(100%,42ch)] min-w-0 cursor-pointer rounded-[16px] px-3 pt-1.5 pb-2.5 text-left text-[13px] leading-[1.38] transition-colors duration-(--motion-fast) focus-ring",
+          "max-w-[min(100%,42ch)] min-w-0 cursor-pointer rounded-[16px] px-3 pt-1.5 pb-2.5 text-left text-[13px] leading-[1.38] transition-[background-color,opacity,color] duration-(--motion-fast) focus-ring",
           mine ? "mr-1.5" : "ml-1.5",
           quotedPerson
-            ? "bg-[color-mix(in_oklab,var(--chat-mine)_34%,transparent)] text-foreground/75 hover:bg-[color-mix(in_oklab,var(--chat-mine)_44%,transparent)]"
-            : "border border-foreground/[0.06] bg-chat-bubble/55 text-muted-foreground hover:bg-chat-bubble/75",
+            ? "bg-chat-mine text-chat-mine-foreground opacity-50 hover:opacity-70"
+            : "border border-foreground/[0.06] bg-chat-bubble/65 text-muted-foreground hover:bg-chat-bubble/85 hover:text-foreground/85",
         )}
       >
         <span className="line-clamp-2 break-words">{props.quote.text}</span>

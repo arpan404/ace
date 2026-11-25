@@ -13,12 +13,15 @@ import {
 } from "@ace/icons";
 import {
   parseSpadePersonality,
+  spadeBotRoleNames,
+  type SpadeRole,
   spadeModelLabel,
   spadeMoney,
   spadePermissionSwitches,
   spadePersonalityWords,
   spadeQuietPersonality,
 } from "@ace/ui-core/spade-chat";
+import { useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileSwitchesAndApps } from "./spade-settings-can-use.tsx";
@@ -34,6 +37,7 @@ import {
   ProfileVoice,
   type ProfilePanels,
 } from "./spade-profile-details.tsx";
+import { RolePage } from "./spade-bot-roles.tsx";
 import { ProfileCases } from "./spade-profile-cases.tsx";
 import { ProfilePage } from "./spade-profile-page.tsx";
 import { ProfileSection, profileRowClass } from "./spade-profile-parts.tsx";
@@ -181,12 +185,21 @@ export function ProfileSettings(props: {
 }) {
   const { bot, page } = props;
   const values = useCategoryValues(bot);
+  const [role, setRole] = useState<SpadeRole>();
+  if (page === "model" && role)
+    return (
+      <ProfilePage title={spadeBotRoleNames[role]} onBack={() => setRole(undefined)}>
+        <div className="flex flex-col gap-5 *:mt-0!">
+          <RolePage bot={bot} role={role} />
+        </div>
+      </ProfilePage>
+    );
   if (page)
     return (
       <ProfilePage title={titleOf(page)} onBack={() => props.onPage(undefined)}>
         <div className="flex flex-col gap-5 *:mt-0!">
           {page === "job" && <ProfileJob bot={bot} panels={props.panels} />}
-          {page === "model" && <ProfileModel bot={bot} />}
+          {page === "model" && <ProfileModel bot={bot} onRole={setRole} />}
           {page === "decides" && <ProfileDecides bot={bot} />}
           {page === "can-use" && <ProfileSwitchesAndApps bot={bot} />}
           {page === "personality" && <ProfilePersonality bot={bot} />}

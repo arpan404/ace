@@ -319,7 +319,10 @@ export function groupClubRows(rows: readonly SpadeGroupRow[]): ClubBlock[] {
       for (let i = 0; i < block.items.length; i++) {
         const entry = block.items[i];
         if (!entry) continue;
-        entry.stack = stackPosition(i > 0, i < block.items.length - 1);
+        entry.stack = stackPosition(
+          i > 0 && !entry.row.quote,
+          i < block.items.length - 1 && !block.items[i + 1]?.row.quote,
+        );
       }
     } else if (block.kind === "member") {
       for (let i = 0; i < block.messages.length; i++) {
@@ -328,8 +331,8 @@ export function groupClubRows(rows: readonly SpadeGroupRow[]): ClubBlock[] {
         const before = block.messages[i - 1];
         const after = block.messages[i + 1];
         message.stack = stackPosition(
-          before !== undefined && !before.doc,
-          after !== undefined && !after.doc,
+          before !== undefined && !before.doc && !message.quote,
+          after !== undefined && !after.doc && !after.quote,
         );
       }
     }

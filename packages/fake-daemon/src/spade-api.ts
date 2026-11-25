@@ -28,6 +28,7 @@ import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 import { FakeSpadeA2aAgents } from "./spade-a2a-agents.ts";
+import { FakeSpadeMedia } from "./spade-media-store.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
 import { FakeSpadeCases } from "./spade-cases.ts";
@@ -78,6 +79,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   spoken: string[] = [];
   /** Stored images by hash with their media type; any other hash answers 404. */
   images = new Map<string, string>();
+  /** Optional real image/document bodies and file modified timestamps for the fake world. */
+  readonly media = new FakeSpadeMedia();
   /** What `POST /v1/transcriptions` answers. */
   transcript = "";
   /** False: this machine has no keychain, so key writes answer 503. */
@@ -845,12 +848,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "conversations" && id)
       return this.conversationRoute(request, id, sub, subId, query, parts[4]);
-    if (root === "images") {
-      const type = id ? this.images.get(id) : undefined;
-      return type
-        ? { status: 200, body: `bytes of ${id}`, contentType: type }
-        : { status: 404, body: "" };
-    }
+    if (root === "images") return this.media.imageAnswer(id, id ? this.images.get(id) : undefined);
     if (root === "transcriptions" && request.method === "POST")
       return this.transcriptionModel
         ? reply({ text: this.transcript })
@@ -862,13 +860,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       this.spoken.push(text);
       return { status: 200, body: `audio of ${text}`, contentType: "audio/mpeg" };
     }
-    // A stored document or recording: its bytes, as text here.
-    if ((root === "documents" || root === "audio") && id && request.method === "GET")
-      return {
-        status: 200,
-        body: `bytes of ${id}`,
-        contentType: root === "audio" ? "audio/webm" : "application/octet-stream",
-      };
+    if (root === "documents" && id && request.method === "GET")
+      return this.media.documentAnswer(id, sub);
+    if (root === "audio" && id && request.method === "GET")
+      return { status: 200, body: `bytes of ${id}`, contentType: "audio/webm" };
     return problem(404, "Not found.");
   }
 
@@ -1045,6 +1040,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         if (folder === path || folder.startsWith(`${path}/`)) folders?.delete(folder);
       return { status: 204 };
     }
+    if (view === "download") {
+      const content = files[path];
+      if (content === undefined) return problem(404, `${path} does not exist`);
+      return this.media.downloadWorkspaceFile(path, content);
+    }
     if (view === "file") {
       const text = files[path];
       if (text === undefined) return problem(404, `${path} does not exist`);
@@ -1062,12 +1062,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!name.startsWith(prefix)) continue;
       const [first = "", ...rest] = name.slice(prefix.length).split("/");
       const folder = rest.length > 0;
+      const entryPath = `${prefix}${first}`;
       entries.set(first, {
         name: first,
-        path: `${prefix}${first}`,
+        path: entryPath,
         kind: folder ? "folder" : "file",
         size: folder ? 0 : text.length,
-        modified_at: null,
+        modified_at: this.media.modifiedAt(agent, entryPath),
       });
     }
     for (const folder of this.folders.get(agent) ?? []) {

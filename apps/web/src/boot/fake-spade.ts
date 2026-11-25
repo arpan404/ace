@@ -20,6 +20,7 @@ import { seedFakeDelegation, seedFakeSurvey } from "./fake-spade-delegation.ts";
 import { seedFakeAccounts } from "./fake-spade-accounts.ts";
 import { seedFakeModelAccess } from "./fake-spade-models.ts";
 import { seedFakeTexting } from "./fake-spade-texting.ts";
+import { seedFakeSpadeChatMedia, seedFakeSpadeWorkspaceMedia } from "./fake-spade-media.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -53,6 +54,7 @@ export function seedFakeSpade(
         name: "Claude Sonnet 5.5",
         context: 200_000,
         capabilities: ["images", "tools"],
+        efforts: ["low", "medium", "high", "max"],
         source: "typed",
       },
       {
@@ -60,6 +62,7 @@ export function seedFakeSpade(
         name: "GPT-6.1 Mini",
         context: 400_000,
         capabilities: ["images", "tools"],
+        efforts: ["low", "medium", "high"],
         source: "typed",
       },
     ],
@@ -74,18 +77,21 @@ export function seedFakeSpade(
       name: "Claude Sonnet 5.5",
       context: 200_000,
       capabilities: ["images", "tools"],
+      efforts: ["low", "medium", "high", "max"],
     },
     {
       id: "anthropic/claude-haiku-5.5",
       name: "Claude Haiku 5.5",
       context: 200_000,
       capabilities: ["images", "tools"],
+      efforts: ["low", "medium", "high"],
     },
     {
       id: "openai/gpt-6.1-mini",
       name: "GPT-6.1 Mini",
       context: 400_000,
       capabilities: ["images", "tools"],
+      efforts: ["low", "medium", "high"],
     },
     { id: "meta/llama-4-scout", name: "Llama 4 Scout", context: 128_000 },
   ]);
@@ -236,6 +242,7 @@ export function seedFakeSpade(
     text: "TAP sent the booking confirmation for TP1351. Reference `QX7K2P`.",
     from_agent: { id: "inbox", name: "Inbox", depth: 1 },
   });
+  seedFakeSpadeChatMedia(here, spade);
   say("Great. Book the cheapest of the three hotels.");
   // The bot reacts to the person's message without a word.
   here.store(spade.conversation, {
@@ -422,6 +429,7 @@ export function seedFakeSpade(
   });
 
   seedComputers(here, now);
+  seedFakeSpadeWorkspaceMedia(here, now);
   // Flights checks fares on its own.
   for (const routine of [
     {

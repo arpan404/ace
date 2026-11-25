@@ -12,7 +12,6 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { Fragment, useRef, useState } from "react";
 import { QuestionPager } from "@/components/question-pager.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useCardFocus } from "./use-card-focus.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
@@ -22,12 +21,8 @@ import { SpadeConnectBubble } from "./spade-connect-bubble.tsx";
 import { SpadeSuggestBubble } from "./spade-suggest-bubble.tsx";
 import {
   botBubble,
+  CardActions,
   CardBody,
-  cardKeyHint,
-  CardFooter,
-  CardPrimary,
-  CardSecondary,
-  CardWord,
   LaterClock,
   NeedsYouLine,
   personBubble,
@@ -266,55 +261,49 @@ function OpenCard(props: {
           )}
         </CardBody>
       )}
-      <CardFooter
-        start={
-          <>
-            {(item.standing === "waiting" || props.onFold) && (
-              <CardWord
-                disabled={sending !== undefined}
-                onClick={() => (props.onFold ? props.onFold() : reply("defer", { defer: true }))}
-              >
-                Answer later
-              </CardWord>
-            )}
-            <CardWord
-              disabled={sending !== undefined}
-              onClick={() => reply("dismiss", { dismiss: true })}
-            >
-              Never mind
-            </CardWord>
-          </>
+      <CardActions
+        secondary={[
+          (item.standing === "waiting" || props.onFold) && {
+            key: "later",
+            label: "Answer later",
+            disabled: sending !== undefined,
+            onClick: () => (props.onFold ? props.onFold() : reply("defer", { defer: true })),
+          },
+          {
+            key: "dismiss",
+            label: "Never mind",
+            disabled: sending !== undefined,
+            onClick: () => reply("dismiss", { dismiss: true }),
+          },
+        ]}
+        companion={
+          loneConfirm
+            ? {
+                label: "No",
+                disabled: sending !== undefined,
+                onClick: () => draft({ kind: "confirm", value: false }),
+              }
+            : undefined
         }
-        end={
-          loneConfirm ? (
-            <>
-              <CardSecondary
-                disabled={sending !== undefined}
-                onClick={() => draft({ kind: "confirm", value: false })}
-              >
-                No
-              </CardSecondary>
-              <CardPrimary
-                disabled={sending !== undefined}
-                onClick={() => draft({ kind: "confirm", value: true })}
-              >
-                Yes
-              </CardPrimary>
-            </>
-          ) : last ? (
-            <CardPrimary disabled={sending !== undefined} onClick={() => send()}>
-              {sending === "send" ? "Sending…" : "Send"}
-              <Kbd
-                aria-hidden
-                keys="mod+enter"
-                resolve={false}
-                variant="on-primary"
-                className={cardKeyHint}
-              />
-            </CardPrimary>
-          ) : (
-            <CardPrimary onClick={advance}>Next</CardPrimary>
-          )
+        primary={
+          loneConfirm
+            ? {
+                label: "Yes",
+                disabled: sending !== undefined,
+                onClick: () => draft({ kind: "confirm", value: true }),
+              }
+            : last
+              ? {
+                  label: sending === "send" ? "Sending…" : "Send",
+                  disabled: sending !== undefined,
+                  hint: "mod+enter",
+                  onClick: () => send(),
+                }
+              : {
+                  label: "Next",
+                  hint: "enter",
+                  onClick: advance,
+                }
         }
       />
     </RaisedCard>

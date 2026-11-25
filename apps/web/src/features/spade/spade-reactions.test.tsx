@@ -54,7 +54,7 @@ test("a reaction the bot made shows under the person's message, and a person's m
   expect(within(mine as HTMLElement).queryByRole("button", { name: "React" })).toBeNull();
 });
 
-test("the bot's reply to a message quotes it inside its bubble, and the quote goes to the original", async () => {
+test("the bot's reply shows the original as a ghost bubble above it, and the ghost goes to the original", async () => {
   const scrolled = vi.fn();
   Element.prototype.scrollIntoView = scrolled;
   await spadeApp("/spade/garden", (api) => {
@@ -64,11 +64,13 @@ test("the bot's reply to a message quotes it inside its bubble, and the quote go
   });
   const chat = within(await feed());
   const quote = await chat.findByRole("button", {
-    name: /Replying to You: When do I plant garlic\?/,
+    name: /Replied to you: When do I plant garlic\?/,
   });
   const bubble = chat.getByText("In October.").closest("[data-part=spade-message]");
-  expect(bubble?.contains(quote)).toBe(true);
-  expect(quote.textContent).toContain("When do I plant garlic?");
+  // The ghost sits above the reply, never inside its bubble.
+  expect(bubble?.contains(quote)).toBe(false);
+  expect(quote.textContent).toBe("When do I plant garlic?");
+  expect(chat.getByText("Replied to you")).toBeTruthy();
   await userEvent.click(quote);
   const original = document.querySelector('[data-spade-message="m1"]');
   expect(scrolled).toHaveBeenCalled();
@@ -89,9 +91,6 @@ test("answers to several messages each quote their own, and the latest answer st
   });
   const chat = within(await feed());
   await chat.findByText("Frost on Friday.");
-  const quotes = chat.getAllByRole("button", { name: /^Replying to You/ });
-  expect(quotes.map((quote) => quote.textContent)).toEqual([
-    "YouPlant garlic?",
-    "YouWater the beans?",
-  ]);
+  const quotes = chat.getAllByRole("button", { name: /^Replied to you:/ });
+  expect(quotes.map((quote) => quote.textContent)).toEqual(["Plant garlic?", "Water the beans?"]);
 });

@@ -1,4 +1,6 @@
+import type { SpadeDocumentRef } from "@ace/ui-core/spade-chat";
 import { BotTerminal } from "./computer/bot-terminal.tsx";
+import { DocumentReader } from "./computer/document-reader.tsx";
 import { DriveLine } from "./computer/drive-line.tsx";
 import { FileManager } from "./computer/file-manager.tsx";
 import type { FilesAt, ProfileComputerPlace } from "./computer/profile-computer.tsx";
@@ -9,13 +11,18 @@ import type { RosterBot } from "./use-spade-roster.ts";
 /** What the panel shows in place of its tabs: a file or the files, or one surface of its computer. */
 export type PanelSurface =
   | { kind: "files"; at: FilesAt }
+  | { kind: "document"; document: SpadeDocumentRef }
   | { kind: "terminal" | "screen" | "browser" };
 
 const names = { terminal: "Terminal", screen: "Screen", browser: "Browser" } as const;
 
 /** "Files", or the open file's own name. */
 export const panelSurfaceTitle = (surface: PanelSurface) =>
-  surface.kind === "files" ? (surface.at.file?.split("/").at(-1) ?? "Files") : names[surface.kind];
+  surface.kind === "files"
+    ? (surface.at.file?.split("/").at(-1) ?? "Files")
+    : surface.kind === "document"
+      ? surface.document.name
+      : names[surface.kind];
 
 /**
  * A file, the terminal, or the screen or browser, inside the side panel: a slim header (back
@@ -44,6 +51,15 @@ export function PanelSurfaceView(props: {
         side={place.side}
         writable={state.mayAct}
         panel={{ onBack: props.onBack, onExpand: (at) => props.onExpand(at) }}
+      />
+    );
+  }
+  if (surface.kind === "document") {
+    return (
+      <DocumentReader
+        key={`${surface.document.sha256}/${surface.document.name}`}
+        document={surface.document}
+        onBack={props.onBack}
       />
     );
   }

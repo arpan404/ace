@@ -967,3 +967,33 @@ async fn an_endpoint_made_with_a_gateway_token_is_all_or_nothing() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn models_list_returns_supported_efforts_when_declared_and_null_otherwise() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let (_, models) = spade.get("/v1/models").await?;
+    let fake = &models["endpoints"][0];
+    assert_eq!(
+        fake["models"][0]["efforts"],
+        json!(["low", "medium", "high", "max"])
+    );
+    // An endpoint added with a model not declaring efforts reports `null`.
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Plain", "format": "openai-chat",
+                    "base_url": "https://plain.example/v1/", "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints/plain/models",
+            json!({ "id": "plain-1", "name": "Plain 1" }),
+        )
+        .await?;
+    assert_eq!(status, 200);
+    let plain = endpoint(&spade, "plain").await?;
+    assert_eq!(plain["models"][0]["efforts"], Value::Null);
+    Ok(())
+}

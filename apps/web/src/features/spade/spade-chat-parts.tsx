@@ -517,9 +517,7 @@ export function BubbleFrame(props: {
         if (held) event.preventDefault();
       }}
     >
-      {props.quote && (
-        <ReplyGhost quote={props.quote} side={props.side} replier={props.replier} />
-      )}
+      {props.quote && <ReplyGhost quote={props.quote} side={props.side} replier={props.replier} />}
       <div
         className={cn(
           "relative z-10 flex w-fit max-w-full min-w-0 items-center",

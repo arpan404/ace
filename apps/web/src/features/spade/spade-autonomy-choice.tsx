@@ -88,10 +88,7 @@ export function AutonomyChoice(props: {
             value={props.value}
             options={modes.map(({ value, label }) => ({ value, label }))}
             onValueChange={pick}
-            className={cn(
-              "h-8 w-full [&>button]:h-7",
-              saving && "pointer-events-none opacity-60",
-            )}
+            className={cn("h-8 w-full [&>button]:h-7", saving && "pointer-events-none opacity-60")}
           />
           <p className="px-0.5 text-xs leading-relaxed text-muted-foreground">{selected.summary}</p>
           {feedback && <div className="text-xs">{feedback}</div>}

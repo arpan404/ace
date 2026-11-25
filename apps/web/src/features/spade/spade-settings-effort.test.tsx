@@ -51,20 +51,46 @@ test("a bot's role follows Settings' thinking until the person sets it on the bo
   });
   await openSettingsPage("Model");
   const panel = within(await screen.findByRole("region", { name: "Flights's profile" }));
-  await userEvent.click(await panel.findByText("Models for other work"));
+  // One row per role, its model and effort in one line; a row opens its page.
+  const row = await panel.findByRole("button", { name: /Helpers/ });
+  expect(row.textContent).toContain("Same as main · High");
+  await userEvent.click(row);
   const helpers = await panel.findByRole("combobox", { name: "Helpers thinking" });
   expect(helpers.textContent).toContain("As in Settings: high thinking");
-  expect(panel.getByRole("combobox", { name: "Its own turns thinking" }).textContent).toContain(
-    "As in Settings: medium thinking",
-  );
 
-  await choose("Its own turns thinking", "No thinking");
+  await choose("Helpers thinking", "No thinking");
   await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/agents/flights/models")).toEqual([{ efforts: { main: "off" } }]),
+    expect(spade.sent("PUT", "/v1/agents/flights/models")).toEqual([
+      { efforts: { helper: "off" } },
+    ]),
   );
+  await waitFor(() => expect(helpers.textContent).toContain("No thinking"));
+});
+
+test("the Thinking control offers the model's efforts and is absent for a model with none", async () => {
+  const { spade } = await spadeApp("/spade/flights?profile=details", (api) => {
+    withFlights(api);
+    const saved = (api.endpoints[0]?.models as object[] | undefined)?.[0];
+    if (saved) Object.assign(saved, { efforts: ["low", "medium", "high"] });
+  });
+  await openSettingsPage("Model");
+  const panel = within(await screen.findByRole("region", { name: "Flights's profile" }));
+  const thinking = await panel.findByRole("group", { name: "Thinking" });
+  expect(
+    within(thinking)
+      .getAllByRole("button")
+      .map((each) => each.textContent),
+  ).toEqual(["Low", "Medium", "High"]);
+  await userEvent.click(within(thinking).getByRole("button", { name: "High" }));
   await waitFor(() =>
-    expect(panel.getByRole("combobox", { name: "Its own turns thinking" }).textContent).toContain(
-      "No thinking",
-    ),
+    expect(spade.sent("PUT", "/v1/agents/flights/models")).toEqual([{ efforts: { main: "high" } }]),
   );
+});
+
+test("no Thinking control shows for a model that declares no efforts", async () => {
+  await spadeApp("/spade/flights?profile=details", withFlights);
+  await openSettingsPage("Model");
+  const panel = within(await screen.findByRole("region", { name: "Flights's profile" }));
+  await panel.findByRole("button", { name: /Helpers/ });
+  expect(panel.queryByRole("group", { name: "Thinking" })).toBeNull();
 });

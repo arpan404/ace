@@ -54,6 +54,7 @@ import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
 import { stopSpeaking } from "./spade-speech.ts";
+import { SpadeAttachmentActionsContext } from "./spade-attachment-actions.ts";
 import { BotVoiceContext, useBotSpeech, useSpokenReplies } from "./use-spoken-replies.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
@@ -64,7 +65,12 @@ import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
 import { panelReveal } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useBotPanels } from "./panels/panels-api.ts";
-import { spadePanelState, spadeWorkingPhrase } from "@ace/ui-core/spade-chat";
+import {
+  spadePanelState,
+  spadeWorkingPhrase,
+  type SpadeDocumentRef,
+} from "@ace/ui-core/spade-chat";
+import type { SpadeAttachmentActions } from "./spade-attachment-actions.ts";
 
 /** A package's panel (ADR 0200 §5.2) loads its sandbox the first time one opens. */
 const BotPanelView = lazy(() =>
@@ -149,6 +155,20 @@ export function Conversation(props: {
       computer: shows,
       ...(files ? { files: files.folder, ...(files.file ? { file: files.file } : {}) } : {}),
     });
+  // A document opened from the chat shows in the side panel's reader (a new nonce each time).
+  const [reading, setReading] = useState<{ document: SpadeDocumentRef; nonce: number }>();
+  const attachmentActions = useMemo<SpadeAttachmentActions>(
+    () => ({
+      openDocument: (document) => {
+        setReading((last) => ({ document, nonce: (last?.nonce ?? 0) + 1 }));
+        go({ profile: "work" });
+      },
+      showInLibrary: () => go({ profile: "library" }),
+    }),
+    // `go` only reads the bot and the router; the actions follow the bot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bot.id, bot.machine.key],
+  );
   const closePanel = () => {
     writePanel(storage(), memoryKey, { ...readPanel(storage(), memoryKey), open: false });
     go({});
@@ -475,6 +495,7 @@ export function Conversation(props: {
           onOpenActivity: () => openComputer("activity"),
         }}
         panels={{ list: panels, onOpen: showPanel }}
+        reading={reading}
         covering={covering}
         onClose={closePanel}
       />
@@ -482,92 +503,94 @@ export function Conversation(props: {
   );
 
   return (
-    <BotVoiceContext value={speech.voice}>
-      <ConversationScreen
-        actions={
-          // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
-          !(panelShown && covering) && (
-            <>
-              {view.questionsForLater > 0 && (
-                <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
-                  {spadeForLaterWords(view.questionsForLater)}
-                </Button>
-              )}
-              {openPanel ? (
-                <IconButton
-                  icon={XIcon}
-                  label={`Close ${openPanel.title}`}
-                  tip="Close"
-                  onClick={() => go({})}
-                />
-              ) : panelShown ? (
-                // The top bar's part above the profile holds its strip: Share and close.
-                <ProfileShareButton bot={bot} />
-              ) : (
-                <>
-                  {/* Its panels, by name: the header is one way in (§5.2). */}
-                  {panels.slice(0, 2).map((each) => (
-                    <Button
-                      key={each.id}
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => showPanel(each.id)}
-                    >
-                      {each.title}
-                    </Button>
-                  ))}
-                </>
-              )}
-            </>
-          )
-        }
-      >
-        <div className="relative flex h-full min-h-0">
-          <div
-            className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
-            aria-hidden={panelShown && covering ? true : undefined}
-          >
-            {chat}
-          </div>
-          {panel && (
+    <SpadeAttachmentActionsContext value={attachmentActions}>
+      <BotVoiceContext value={speech.voice}>
+        <ConversationScreen
+          actions={
+            // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
+            !(panelShown && covering) && (
+              <>
+                {view.questionsForLater > 0 && (
+                  <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
+                    {spadeForLaterWords(view.questionsForLater)}
+                  </Button>
+                )}
+                {openPanel ? (
+                  <IconButton
+                    icon={XIcon}
+                    label={`Close ${openPanel.title}`}
+                    tip="Close"
+                    onClick={() => go({})}
+                  />
+                ) : panelShown ? (
+                  // The top bar's part above the profile holds its strip: Share and close.
+                  <ProfileShareButton bot={bot} />
+                ) : (
+                  <>
+                    {/* Its panels, by name: the header is one way in (§5.2). */}
+                    {panels.slice(0, 2).map((each) => (
+                      <Button
+                        key={each.id}
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => showPanel(each.id)}
+                      >
+                        {each.title}
+                      </Button>
+                    ))}
+                  </>
+                )}
+              </>
+            )
+          }
+        >
+          <div className="relative flex h-full min-h-0">
             <div
-              // Beside the chat the chat keeps a readable column; in a narrow window the profile
-              // takes the window.
-              style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
-              className={cn(
-                "bg-panel",
-                panelReveal,
-                covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
-              )}
+              className={cn("min-w-0 flex-1", panelShown && covering && "invisible")}
+              aria-hidden={panelShown && covering ? true : undefined}
             >
-              {!covering && (
-                <ResizeHandle
-                  label="Profile width"
-                  edge="left"
-                  size={width}
-                  min={panelWidth.min}
-                  max={panelWidth.max}
-                  onResize={setWidth}
-                  onResizeEnd={(next) =>
-                    writePanel(storage(), memoryKey, {
-                      ...readPanel(storage(), memoryKey),
-                      width: next,
-                    })
-                  }
-                  onReset={() => {
-                    setWidth(panelWidth.initial);
-                    writePanel(storage(), memoryKey, {
-                      ...readPanel(storage(), memoryKey),
-                      width: panelWidth.initial,
-                    });
-                  }}
-                />
-              )}
-              {panel}
+              {chat}
             </div>
-          )}
-        </div>
-      </ConversationScreen>
-    </BotVoiceContext>
+            {panel && (
+              <div
+                // Beside the chat the chat keeps a readable column; in a narrow window the profile
+                // takes the window.
+                style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
+                className={cn(
+                  "bg-panel",
+                  panelReveal,
+                  covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
+                )}
+              >
+                {!covering && (
+                  <ResizeHandle
+                    label="Profile width"
+                    edge="left"
+                    size={width}
+                    min={panelWidth.min}
+                    max={panelWidth.max}
+                    onResize={setWidth}
+                    onResizeEnd={(next) =>
+                      writePanel(storage(), memoryKey, {
+                        ...readPanel(storage(), memoryKey),
+                        width: next,
+                      })
+                    }
+                    onReset={() => {
+                      setWidth(panelWidth.initial);
+                      writePanel(storage(), memoryKey, {
+                        ...readPanel(storage(), memoryKey),
+                        width: panelWidth.initial,
+                      });
+                    }}
+                  />
+                )}
+                {panel}
+              </div>
+            )}
+          </div>
+        </ConversationScreen>
+      </BotVoiceContext>
+    </SpadeAttachmentActionsContext>
   );
 }

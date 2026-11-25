@@ -2,7 +2,6 @@ import { formatAge } from "@ace/ui-core/time";
 import { CaretRightIcon, DotsThreeIcon, MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { fileIcon, folderIcon } from "@/components/file-icon.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -19,6 +18,7 @@ import {
 } from "../spade-profile-parts.tsx";
 import { readFolder, type SpadeFileEntry } from "../spade-workspace-api.ts";
 import { NameField } from "./editor/spade-file-tree.tsx";
+import { FileThumb } from "./file-thumb.tsx";
 
 /**
  * Single-level file list for the narrow side panel: search at top, then one folder's entries as
@@ -43,7 +43,9 @@ export function PanelFileList(props: {
   const { bot, folder } = props;
   const client = useSpadeClient();
   const now = useNow();
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState<{ folder: string; value: string }>({ folder, value: "" });
+  const query = search.folder === folder ? search.value : "";
+  const setQuery = (value: string) => setSearch({ folder, value });
   const listing = useQuery({
     queryKey: props.folderKey(folder),
     queryFn: ({ signal }) => readFolder(client, bot.id, folder, { signal }),
@@ -64,11 +66,7 @@ export function PanelFileList(props: {
     <div className={cn("flex min-h-0 flex-1 flex-col", props.className)}>
       <div className="shrink-0 px-4 pt-1 pb-3">
         <div className="flex h-9 items-center gap-2 rounded-xl bg-surface-1 px-3 shadow-[inset_0_0_0_1px_var(--border-soft)] transition-shadow duration-(--motion-fast) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
-          <Icon
-            icon={MagnifyingGlassIcon}
-            size={16}
-            className="shrink-0 text-muted-foreground"
-          />
+          <Icon icon={MagnifyingGlassIcon} size={16} className="shrink-0 text-muted-foreground" />
           <input
             type="search"
             aria-label="Search files"
@@ -146,6 +144,7 @@ export function PanelFileList(props: {
                     </div>
                   ) : (
                     <PanelFileRow
+                      bot={bot.id}
                       entry={entry}
                       now={now}
                       onOpen={() =>
@@ -172,12 +171,13 @@ export function PanelFileList(props: {
 }
 
 function PanelFileRow(props: {
+  bot: string;
   entry: SpadeFileEntry;
   now: number;
   onOpen(): void;
   menu: ReactNode;
 }) {
-  const { entry, now } = props;
+  const { bot, entry, now } = props;
   const folder = entry.kind === "folder";
   return (
     <div
@@ -189,11 +189,7 @@ function PanelFileRow(props: {
         onClick={props.onOpen}
         className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-3.5 py-2.5 text-left outline-none select-none focus-ring-inset"
       >
-        <Icon
-          icon={folder ? folderIcon(entry.path, false) : fileIcon(entry.path)}
-          size={16}
-          className="shrink-0 text-muted-foreground"
-        />
+        <FileThumb bot={bot} entry={entry} />
         <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
           {entry.name}
         </span>
@@ -203,9 +199,7 @@ function PanelFileRow(props: {
               {formatAge(entry.modifiedAt, now)}
             </span>
           )}
-          {folder && (
-            <Icon icon={CaretRightIcon} size={16} className="text-faint-foreground" />
-          )}
+          {folder && <Icon icon={CaretRightIcon} size={16} className="text-faint-foreground" />}
         </span>
       </button>
       <span className="absolute inset-y-0 right-2 flex items-center">

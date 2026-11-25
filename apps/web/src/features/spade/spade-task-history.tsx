@@ -55,7 +55,10 @@ export function TaskHistory(props: { bot: RosterBot }) {
   return (
     <div data-setting-slot="" className="py-2">
       <Disclosure summary="Earlier versions" summaryClassName="text-xs" className="flex flex-col">
-        <ol aria-label="Earlier versions" className="mt-1.5 flex flex-col divide-y divide-border-soft">
+        <ol
+          aria-label="Earlier versions"
+          className="mt-1.5 flex flex-col divide-y divide-border-soft"
+        >
           {earlier.map((version) => (
             <li key={version.seq} className="flex items-start gap-3 py-2 first:pt-1 last:pb-1">
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">

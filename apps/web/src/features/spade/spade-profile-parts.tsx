@@ -89,10 +89,7 @@ export function ProfileEmpty(props: { children: ReactNode; className?: string })
   return (
     <p
       data-setting-slot=""
-      className={cn(
-        "flex min-h-11 items-center text-xs text-muted-foreground",
-        props.className,
-      )}
+      className={cn("flex min-h-11 items-center text-xs text-muted-foreground", props.className)}
     >
       {props.children}
     </p>
@@ -138,7 +135,10 @@ export function ProfileCardSkeleton(props: {
         return (
           <div
             key={index}
-            className={cn("flex items-center gap-3 px-4", twoLines ? "min-h-13 py-3" : "min-h-11 py-2")}
+            className={cn(
+              "flex items-center gap-3 px-4",
+              twoLines ? "min-h-13 py-3" : "min-h-11 py-2",
+            )}
           >
             {props.leading === "thumb" && (
               <Skeleton className="size-6 shrink-0 rounded-sm" style={style} />

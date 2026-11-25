@@ -108,9 +108,7 @@ export function ComputerCard(props: {
               <Icon icon={meta.icon} size={16} />
             </span>
             <span className="min-w-0 flex-1 truncate">{meta.label}</span>
-            {live && (
-              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-done" />
-            )}
+            {live && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-done" />}
             <Icon icon={CaretRightIcon} size={16} className="shrink-0 text-faint-foreground" />
           </button>
         );

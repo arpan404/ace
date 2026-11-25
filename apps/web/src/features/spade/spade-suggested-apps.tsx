@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
+import { CardActions } from "./spade-card.tsx";
 import {
   allowApp,
   connectorsKey,
@@ -228,9 +229,14 @@ function SuggestedApp(props: {
               value={key}
               onChange={(event) => setKey(event.target.value)}
             />
-            <Button size="sm" type="submit" disabled={!key.trim()}>
-              Connect
-            </Button>
+            <CardActions
+              primary={{
+                type: "submit",
+                label: "Connect",
+                disabled: !key.trim(),
+                hint: "enter",
+              }}
+            />
           </div>
         </form>
       )}

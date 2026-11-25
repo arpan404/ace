@@ -47,11 +47,7 @@ export function LibraryRow(props: {
 }) {
   return (
     <li className="flex">
-      <button
-        type="button"
-        onClick={props.onOpen}
-        className={cn(profileRowClass, "min-h-13 py-3")}
-      >
+      <button type="button" onClick={props.onOpen} className={cn(profileRowClass, "min-h-13 py-3")}>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-baseline justify-between gap-2">
             <span className="min-w-0 truncate text-ui font-medium text-foreground">

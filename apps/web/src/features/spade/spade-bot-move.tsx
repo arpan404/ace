@@ -127,20 +127,18 @@ export function ProfileMachine(props: { bot: RosterBot }) {
   const canMove = !moving && !bot.away && !bot.unavailable && targets.length > 0;
   return (
     <>
-      <SettingRow
-        title="Machine"
-        description={actions.problem && <span className="text-destructive">{actions.problem}</span>}
-        density="compact"
-        inline
-      >
-        <span className="flex min-w-0 items-center justify-end gap-1.5">
-          <span className="truncate text-ui text-foreground">{bot.machine.name}</span>
+      <div data-setting-slot="" className="flex flex-col gap-1 py-2.5">
+        <div className="flex min-h-7 items-center gap-3">
+          <span className="shrink-0 text-ui font-medium text-foreground">Machine</span>
+          <span className="min-w-0 flex-1 truncate text-right text-ui text-muted-foreground">
+            {bot.machine.name}
+          </span>
           {canMove && !comeHere && (
             <Menu>
               <MenuTrigger
                 aria-label={`Move ${bot.name} to another machine`}
                 disabled={actions.busy}
-                className="-mr-2 inline-flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground active:bg-active"
+                className="-mr-2 inline-flex h-7 shrink-0 items-center rounded-md px-2 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover active:bg-active"
               >
                 Move to…
               </MenuTrigger>
@@ -157,8 +155,9 @@ export function ProfileMachine(props: { bot: RosterBot }) {
               </MenuContent>
             </Menu>
           )}
-        </span>
-      </SettingRow>
+        </div>
+        {actions.problem && <p className="text-xs text-destructive">{actions.problem}</p>}
+      </div>
       {comeHere && canMove && (
         <div className="py-1">
           <Button
