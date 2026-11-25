@@ -459,17 +459,30 @@ async fn model_step(
     let lead = route.first().cloned().unwrap_or(started_on);
     let images = engine.images_for(&lead);
     let system = engine.system_for(id);
+    // The person's asks close the prompt (ADR 0215 §2), stored where they are read so every
+    // step's prompt is a prefix of the next and the provider keeps its thinking. A helper has no
+    // person: it works from its one task.
+    let mut with_asks: Option<Vec<Event>> = None;
+    if engine.limits.asks && engine.helper_of(id).is_none() {
+        let ledger = engine.asks_of(id, events);
+        if let Some(text) = spade_core::asks::block::due(events, &ledger) {
+            let event = Event::Known(Known::AsksShown { text });
+            match engine.append_events(id, std::slice::from_ref(&event)) {
+                Ok(_) => {
+                    let mut copy = events.to_vec();
+                    copy.push(event);
+                    with_asks = Some(copy);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "could not store the asks block; the step goes on without it")
+                }
+            }
+        }
+    }
+    let events: &[Event] = with_asks.as_deref().unwrap_or(events);
     let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
         .session(id)
         .effort(engine.step_effort(id));
-    // The person's asks close the prompt, after everything stored (ADR 0215 §2). A helper has
-    // no person: it works from its one task.
-    let prompt = match engine.limits.asks && engine.helper_of(id).is_none() {
-        true => spade_core::asks::block::appended(prompt, &engine.asks_of(id, events)),
-        false => prompt,
-    };
-    // Main's lanes that haven't ended close it, so main knows what runs where (ADR 0217 §6).
-    let prompt = engine.with_lanes_block(id, prompt);
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));

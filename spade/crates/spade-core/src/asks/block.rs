@@ -1,8 +1,8 @@
 //! The short block every model call ends with (ADR 0215 §2): standing instructions, open asks
-//! newest first, then new messages not yet sorted. Rebuilt from the ledger for each call and
-//! never stored, so it never changes a byte of the prompt before it.
+//! newest first, then new messages not yet sorted. Built from the ledger and stored where it is
+//! read, so every prompt is a prefix of the next.
 
-use spade_models::{Message, Prompt};
+use crate::event::{Event, Known};
 
 use super::{Ask, Ledger, State};
 
@@ -57,16 +57,22 @@ pub fn text(ledger: &Ledger) -> Option<String> {
     Some(out)
 }
 
-/// `prompt` with the block as its last message, after everything stored: every earlier byte is
-/// what the previous call sent, so the provider's cached prefix still holds.
-pub fn appended(mut prompt: Prompt, ledger: &Ledger) -> Prompt {
-    if let Some(text) = text(ledger) {
-        prompt.messages.push(Message::Person {
-            text,
-            images: Vec::new(),
-        });
+/// The block to store before the next call: `text(ledger)` when it stands and differs from the
+/// latest stored block since the last compaction, so nothing is stored on every step. The block
+/// is stored where it is read, so the prompt the call gets is a prefix of the next one.
+pub fn due(events: &[Event], ledger: &Ledger) -> Option<String> {
+    let text = text(ledger)?;
+    for event in events.iter().rev() {
+        match event {
+            // Nothing before a compaction reads: its earlier blocks were cut with it.
+            Event::Known(Known::ContextCompacted { .. }) => break,
+            Event::Known(Known::AsksShown { text: shown }) => {
+                return (shown != &text).then_some(text);
+            }
+            _ => {}
+        }
     }
-    prompt
+    Some(text)
 }
 
 fn row(ask: &Ask) -> String {

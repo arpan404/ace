@@ -1,8 +1,8 @@
 //! The person's asks (ADR 0215): a ledger the harness keeps of what the person asked, folded
 //! from stored events, so every model call can be reminded of it however long the conversation.
 //! Each message from the person opens an ask; the bot sorts and closes them with the `asks` tool
-//! (`change`), the prompt ends with a short block from the ledger (`block`), and a reply that
-//! would end with an ask open gets one more step first (`check`).
+//! (`change`), the prompt ends with a short block from the ledger (`block`) stored where it is
+//! read, and a reply that would end with an ask open gets one more step first (`check`).
 //!
 //! The fold is incremental: a ledger knows how many events it has read (`through`) and reads only
 //! the ones after; each compaction stores the ledger as it stood, so a fresh fold starts there.
@@ -10,7 +10,7 @@
 //! The public surface, which other harness work builds on (ADR 0215, "The ledger's surface"):
 //! [`Ledger::of`] and [`Ledger::advance`]; what it holds ([`Ledger::asks`], [`Ledger::standing`],
 //! [`Ledger::earlier`], [`Ledger::through`], [`Ledger::open_asks`], [`Ledger::ask`]);
-//! [`change::decide`]; [`block::text`] and [`block::appended`]; [`check::due`] and
+//! [`change::decide`]; [`block::text`] and [`block::due`]; [`check::due`] and
 //! [`check::settled`]; [`steer::due`] and [`steer::mid_turn`]. The rest of the ledger is the
 //! fold's own bookkeeping, kept crate-private.
 

@@ -865,6 +865,11 @@ pub enum Known {
     AsksChecked(crate::asks::Checked),
     /// A steer's first answering step left it unanswered (ADR 0215 §4); read like `asks_checked`.
     AsksReminded(crate::asks::Reminded),
+    /// The asks block as it read before a model call (ADR 0215 amendment, 2026-11-25): stored
+    /// where it is read, so every prompt is a prefix of the next.
+    AsksShown {
+        text: String,
+    },
     /// A copy of the person's asks (ADR 0215), stored every few hundred events so a fold after a
     /// restart reads only what came since.
     AsksNoted(Box<crate::asks::Ledger>),

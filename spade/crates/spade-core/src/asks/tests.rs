@@ -294,6 +294,66 @@ fn with_nothing_open_or_standing_there_is_no_block() -> Result {
 }
 
 #[test]
+fn the_asks_block_is_stored_again_only_when_its_words_change() -> Result {
+    let mut events = vec![person("Draft the summary")];
+    let first = block::due(&events, &Ledger::of(&events)).ok_or("a block")?;
+    assert!(first.contains("m1: \"Draft the summary\""), "{first}");
+    events.push(Event::Known(Known::AsksShown {
+        text: first.clone(),
+    }));
+    assert_eq!(block::due(&events, &Ledger::of(&events)), None);
+    events.push(person("Also pull the Slack numbers"));
+    let changed = block::due(&events, &Ledger::of(&events)).ok_or("a changed block")?;
+    assert_ne!(changed, first);
+    assert!(changed.contains("Also pull the Slack numbers"), "{changed}");
+    Ok(())
+}
+
+#[test]
+fn a_stored_asks_block_reads_at_its_place_in_history() -> Result {
+    let asks = "<asks from=\"spade\">\n- m1: \"Draft the summary\"\n</asks>".to_owned();
+    let events = vec![
+        person("Draft the summary"),
+        Event::Known(Known::AsksShown { text: asks.clone() }),
+        ev(
+            json!({ "type": "step_finished", "reply": "r", "text": "", "calls": [
+                { "id": "c1", "name": "lookup", "arguments": {} } ],
+                "usage": {}, "cost_micros": 0 }),
+        ),
+        ev(
+            json!({ "type": "tool_finished", "reply": "r", "call_id": "c1", "name": "lookup",
+                   "content": "row", "is_error": false }),
+        ),
+    ];
+    let shown = crate::context::messages(&events);
+    assert_eq!(shown.len(), 3, "{shown:?}");
+    // The block reads after the person's words, where it was stored, and before the step it
+    // came ahead of.
+    assert!(
+        matches!(&shown[0], spade_models::Message::Person { text, .. }
+        if text.starts_with("[m1] Draft the summary") && text.ends_with(&asks))
+    );
+    assert!(matches!(&shown[1], spade_models::Message::Spade { .. }));
+    assert!(
+        matches!(&shown[2], spade_models::Message::ToolResult { call_id, .. }
+        if call_id == "c1")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_compaction_cuts_the_older_block_so_it_is_stored_again() -> Result {
+    let mut events = vec![person("Draft the summary")];
+    let text = block::due(&events, &Ledger::of(&events)).ok_or("a block")?;
+    let at = events.len();
+    events.push(Event::Known(Known::AsksShown { text: text.clone() }));
+    // The cut is past the older block: nothing before it reads any more.
+    events.push(compacted(events.len(), Some(Ledger::of(&events[..at]))));
+    assert_eq!(block::due(&events, &Ledger::of(&events)), Some(text));
+    Ok(())
+}
+
+#[test]
 fn the_ledger_keeps_forty_asks_and_counts_older_ones() -> Result {
     let events: Vec<Event> = (0..45).map(|n| person(&format!("ask {n}"))).collect();
     let ledger = Ledger::of(&events);

@@ -376,29 +376,6 @@ fn asks_a_lane_took_leave_mains_ledger_and_its_stop_check() {
 }
 
 #[test]
-fn mains_tasks_block_lists_only_lanes_that_havent_ended() {
-    let lane = |id: &str| Started {
-        lane: id.to_owned(),
-        conversation: id.to_owned(),
-        title: format!("Task <{id}>"),
-        call: "c1.t".to_owned(),
-        asks: vec!["m1".to_owned()],
-        moved_from: None,
-        queued: false,
-    };
-    assert_eq!(block(&[(lane("l1"), State::Done)]), None);
-    let text = block(&[
-        (lane("l1"), State::Working),
-        (lane("l2"), State::Done),
-        (lane("l3"), State::Queued),
-    ])
-    .unwrap_or_default();
-    assert!(text.contains("- l1 (working): Task l1, owns m1"));
-    assert!(text.contains("- l3 (queued)"));
-    assert!(!text.contains("l2"));
-}
-
-#[test]
 fn a_lanes_approval_keeps_main_waiting_until_answered_or_the_lane_moves_on() {
     let asked = e(
         json!({ "type": "approval_requested", "reply": "r1", "call_id": "l1.k1",

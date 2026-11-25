@@ -824,6 +824,15 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     held.push((nudge.clone(), Vec::new()));
                 }
             }
+            // The asks block, stored where it was read (ADR 0215 amendment). It sits before the
+            // call it belongs to, so it reads at its place and is never an arrival.
+            Known::AsksShown { text } => {
+                if pending.is_empty() {
+                    push_person(&mut out, text.clone(), Vec::new());
+                } else {
+                    held.push((text.clone(), Vec::new()));
+                }
+            }
             Known::ComputerHandedBack { text, data } | Known::PersonActivity { text, data } => {
                 let text = if matches!(event, Known::PersonActivity { .. }) {
                     person_activity(text, data)

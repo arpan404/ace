@@ -372,46 +372,6 @@ impl Engine {
 }
 
 impl Engine {
-    /// `prompt` closed by main's tasks block while lanes haven't ended (ADR 0217 §6): one line
-    /// each, read from the events and never from a summary, so a compaction loses none.
-    pub(super) fn with_lanes_block(
-        &self,
-        main: &str,
-        mut prompt: spade_models::Prompt,
-    ) -> spade_models::Prompt {
-        if self.hidden_of(main).is_some() {
-            return prompt;
-        }
-        // From the lanes that haven't ended alone, each read from its own first events.
-        let lanes: Vec<(lane::Started, State)> = self
-            .live_lanes_of(main)
-            .into_iter()
-            .filter_map(|row| {
-                let events = self.load(&row.conversation).ok()?;
-                let link = lane::link(&events)?.clone();
-                let started = lane::Started {
-                    lane: row.conversation.clone(),
-                    conversation: row.conversation.clone(),
-                    title: lane::title(&events).unwrap_or(link.title),
-                    call: link.call,
-                    asks: link.asks,
-                    moved_from: link.moved_from,
-                    queued: false,
-                };
-                Some((started, self.lane_state(&row.conversation)))
-            })
-            .collect();
-        if let Some(text) = lane::block(&lanes) {
-            prompt.messages.push(spade_models::Message::Person {
-                text,
-                images: Vec::new(),
-            });
-        }
-        prompt
-    }
-}
-
-impl Engine {
     /// Notes the files lane `id` wrote that another of its bot's lanes, still working, wrote too
     /// (ADR 0217 §3): `lanes_overlapped` in this lane, read as a plain warning in its next step,
     /// and in main as a line. A note, never a lock. Whether anything was noted.

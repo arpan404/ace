@@ -922,35 +922,6 @@ pub fn told(title: &str) -> String {
     )
 }
 
-/// The block main's prompt ends with while lanes haven't ended (ADR 0217 §6): one line each, so
-/// main knows what runs where and which asks each owns.
-pub fn block(lanes: &[(Started, State)]) -> Option<String> {
-    let live: Vec<String> = lanes
-        .iter()
-        .filter(|(_, state)| state.live())
-        .map(|(started, state)| {
-            let asks = match started.asks.is_empty() {
-                true => String::new(),
-                false => format!(", owns {}", started.asks.join(", ")),
-            };
-            format!(
-                "- {} ({}): {}{asks}",
-                started.lane,
-                state.name(),
-                quoted(&started.title)
-            )
-        })
-        .collect();
-    if live.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "<tasks from=\"spade\">\nActive tasks (update with task_message, inspect with \
-         tasks):\n{}\n</tasks>",
-        live.join("\n")
-    ))
-}
-
 /// Whether the card `call_id` in these events is a lane's, asked here for the person.
 pub fn asked_for_lane(events: &[Event], call_id: &str) -> bool {
     events.iter().any(|e| {
