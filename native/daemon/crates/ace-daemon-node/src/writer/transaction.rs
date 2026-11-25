@@ -35,6 +35,11 @@ fn count(value: f64, name: &str) -> napi::Result<u64> {
 /// Where released after-commit tokens go: the engine's deferred work.
 pub trait AfterCommitSink {
     fn release(&self, tokens: Vec<u64>);
+    /// The committed decisions only, before publication; returns the tokens still to release.
+    fn release_runs(&self, tokens: Vec<u64>) -> Vec<u64> {
+        let _ = tokens;
+        Vec::new()
+    }
     fn drop_tokens(&self, tokens: Vec<u64>);
 }
 
@@ -210,6 +215,29 @@ impl NativeTransactionStack {
             sink.drop_tokens(tokens);
         }
         Ok(finish_json(&finish))
+    }
+
+    /// The committed decisions of a frame's outermost transaction, before its publication: a
+    /// promoted actor is visible to every commit listener, as the TypeScript's eviction was.
+    #[napi(catch_unwind)]
+    pub fn release_runs(&self, frame: f64) -> napi::Result<()> {
+        let id = count(frame, "frame")?;
+        let taken = {
+            let mut state = self.state.borrow_mut();
+            let tokens = state.released.remove(&id).unwrap_or_default();
+            let sink = state.sink.as_ref().and_then(Weak::upgrade);
+            (sink, tokens)
+        };
+        let (sink, tokens) = taken;
+        let Some(sink) = sink else {
+            return Ok(());
+        };
+        let remaining = sink.release_runs(tokens);
+        if !remaining.is_empty() {
+            let mut state = self.state.borrow_mut();
+            state.released.entry(id).or_default().extend(remaining);
+        }
+        Ok(())
     }
 
     /// The shell's committed path calls this after every publish and settlement of the frame's

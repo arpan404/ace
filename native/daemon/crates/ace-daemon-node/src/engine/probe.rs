@@ -30,6 +30,11 @@ pub struct ProbeState {
 }
 
 impl ProbeState {
+    /// The connection Rust probe writes share with the shell's transactions.
+    pub fn connection(&self) -> Arc<Connection> {
+        std::sync::Arc::clone(&self.connection)
+    }
+
     pub fn new(connection: Arc<Connection>) -> ProbeState {
         ProbeState {
             marks: Vec::new(),
@@ -155,10 +160,10 @@ impl NativeEngine {
                         probe.borrow_mut().marks.push(label);
                     }
                     "js" => {
-                        if let Some(callback) = callback.as_ref() {
-                            if let Ok(function) = callback.borrow_back(&task_env) {
-                                let _ = function.call(());
-                            }
+                        if let Some(callback) = callback.as_ref()
+                            && let Ok(function) = callback.borrow_back(&task_env)
+                        {
+                            let _ = function.call(());
                         }
                     }
                     "flush" => {
@@ -185,7 +190,7 @@ impl NativeEngine {
         let callback = self.probe.borrow().callback.clone();
         let connection = Arc::clone(&self.probe.borrow().connection);
         probe_write(
-            &self.engine.core(),
+            self.engine.core(),
             &parsed,
             &env,
             callback.as_ref(),
@@ -299,15 +304,6 @@ impl NativeEngine {
         self.probe.borrow().marks.clone()
     }
 
-    /// `attachSession` is E5.2's: a rejected promise, never a synchronous throw.
-    #[napi]
-    pub fn probe_attach_session(&self) -> napi::Result<()> {
-        Err(engine_error(EngineError::not_ported(
-            "attachSession",
-            "E5.2",
-        )))
-    }
-
     /// The executor's counters, for the seam's busy-loop checks.
     #[napi]
     pub fn probe_stats(&self) -> String {
@@ -349,10 +345,11 @@ fn probe_write(
         if let Some(label) = row.as_deref() {
             write_row(connection, label)?;
         }
-        if runs_js && let Some(callback) = callback {
-            if let Ok(function) = callback.borrow_back(env) {
-                let _ = function.call(());
-            }
+        if runs_js
+            && let Some(callback) = callback
+            && let Ok(function) = callback.borrow_back(env)
+        {
+            let _ = function.call(());
         }
         if let Some(nested) = nested.as_ref() {
             let inner_json = ace_json::to_string(
@@ -385,8 +382,4 @@ fn write_row(connection: &Arc<Connection>, label: &str) -> Result<(), ace_store:
     statement.bind(&[Some(Value::Text(label.to_string()))])?;
     statement.step()?;
     Ok(())
-}
-
-fn engine_error(error: EngineError) -> napi::Error {
-    napi::Error::from_reason(error.to_string())
 }

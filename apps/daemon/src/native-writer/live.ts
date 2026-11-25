@@ -173,6 +173,8 @@ export class NativeLiveBuffer implements LiveBuffer {
     return this.call((buffer) => buffer.overfull(bytes));
   }
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
+    // One snapshot per thread: a newer append replaces the older one and releases its token.
+    this.snapshots.get(thread)?.discarded?.();
     const pairs: number[] = [];
     for (const event of events) pairs.push(event.seq, this.encodings.bytes(event));
     const ms = this.call((buffer) => buffer.append(thread, pairs));
@@ -200,6 +202,7 @@ export class NativeLiveBuffer implements LiveBuffer {
   }
   /** Quarantine: forget a thread's events and snapshot without storing them. */
   discard(thread: ThreadId): void {
+    this.snapshots.get(thread)?.discarded?.();
     const removal = this.removal((buffer) => buffer.discard(thread));
     recordEvidence("live-discard");
     this.settle([thread], removal);
