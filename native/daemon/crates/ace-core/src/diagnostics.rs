@@ -28,15 +28,14 @@ fn publish_notice(
     let agent_id = get(&state.agents, owner_key)?.agent.id.clone();
     let item = Item::Notice {
         base: crate::items::ItemBase {
-            id: id.clone(),
-            agent_id,
-            run_id,
-            created_at,
-            native_id: None,
-            execution_source: None,
-            complete: true,
-            inherited: None,
-            raw_omitted: None,
+            fields: crate::items::ItemFields {
+                id: id.clone(),
+                agent_id,
+                run_id,
+                created_at,
+                complete: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
         level: "warning".to_owned(),

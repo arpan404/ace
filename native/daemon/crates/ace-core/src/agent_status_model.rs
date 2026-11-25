@@ -207,6 +207,7 @@ pub struct ProviderErrorDetails {
 }
 
 impl AgentStatus {
+    // packages/core/src/status.ts:210,231,271,298 and external.ts:9-37 build fresh blockers.
     pub(crate) fn blocked(on: &str, refs: Vec<String>, until: Option<i64>) -> Self {
         Self::Blocked {
             on: on.to_owned(),
@@ -219,6 +220,7 @@ impl AgentStatus {
         }
     }
 
+    // packages/core/src/status.ts:269-287 and external.ts:11 build fresh working statuses.
     pub(crate) fn working(activity: &str, item_id: Option<String>, detail: Option<String>) -> Self {
         Self::Working {
             activity: activity.to_owned(),
@@ -228,6 +230,7 @@ impl AgentStatus {
         }
     }
 
+    // packages/core/src/status.ts:176,213,277,294 and external.ts:26 build silence statuses.
     pub(crate) fn unresponsive(last_signal_at: i64) -> Self {
         Self::Unresponsive {
             last_signal_at,
@@ -235,6 +238,7 @@ impl AgentStatus {
         }
     }
 
+    // packages/core/src/status.ts:189-204,303-306, external.ts:30, and cleanup.ts:156-161 build failures.
     pub(crate) fn failed(error: AgentError) -> Self {
         Self::Failed {
             error,

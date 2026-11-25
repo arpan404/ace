@@ -6,6 +6,7 @@
 
 pub mod ace_tools;
 mod agent_json;
+mod agent_record;
 mod agent_status_model;
 pub mod background_hold;
 pub mod cleanup;

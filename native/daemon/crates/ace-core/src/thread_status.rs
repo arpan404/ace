@@ -83,6 +83,7 @@ pub enum ThreadStatus {
 }
 
 impl ThreadStatus {
+    // packages/core/src/status.ts:352 builds the attention count.
     pub(crate) fn needs_you(interactions: i64) -> Self {
         Self::NeedsYou {
             interactions,
@@ -90,6 +91,7 @@ impl ThreadStatus {
         }
     }
 
+    // packages/core/src/status.ts:365 builds the working count.
     pub(crate) fn working(agents: i64) -> Self {
         Self::Working {
             agents,
@@ -97,6 +99,7 @@ impl ThreadStatus {
         }
     }
 
+    // packages/core/src/status.ts:377,386,402,418 builds a fresh waiting status.
     pub(crate) fn waiting(on: &str) -> Self {
         Self::Waiting {
             on: on.to_owned(),
@@ -108,6 +111,7 @@ impl ThreadStatus {
         }
     }
 
+    // packages/core/src/status.ts:375 builds a fresh limit summary.
     pub(crate) fn limited(until: Option<i64>) -> Self {
         Self::Limited {
             until,
@@ -115,6 +119,7 @@ impl ThreadStatus {
         }
     }
 
+    // packages/core/src/status.ts:329 wraps the destination in a fresh status.
     pub(crate) fn moved(to: MovedTo) -> Self {
         Self::Moved {
             to,
@@ -172,6 +177,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
             if state.is_empty() || state.len() > 64 {
                 return Err(D::Error::custom("invalid thread status"));
             }
+            // packages/protocol/src/thread-status.ts:57-60 wraps the raw future status.
             let raw = ace_json::Raw::from_value(&Json::Object(map));
             return Ok(Self::Unknown {
                 raw,

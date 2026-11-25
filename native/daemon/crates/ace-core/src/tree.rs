@@ -132,6 +132,7 @@ fn insert_placeholder(
         parent_key: parent_key.clone(),
         spawned_by_key: None,
         appended: Vec::new(),
+        extra: Default::default(),
     };
     if record.parent_key.is_some() {
         record.appended("parentKey");
