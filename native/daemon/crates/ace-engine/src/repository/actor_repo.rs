@@ -82,7 +82,13 @@ impl ActorRepo for EngineRepo {
     }
 
     fn clear_incomplete_blobs(&self, core: &Core, thread: &ThreadId) {
-        let _ = core.with_state(|state| state.clear_incomplete_blobs(&core.store, Some(thread)));
+        // No state borrow: the transaction's open can flush a pinned live batch for another
+        // thread, which re-enters the engine. A failure is reported, never swallowed.
+        if let Err(error) =
+            crate::repository::reads::clear_incomplete_blobs_store(&core.store, Some(thread))
+        {
+            core.ports.report(error.to_string());
+        }
     }
 
     fn root_agent_id(&self, core: &Core, thread: &ThreadId) -> Result<Option<String>, EngineError> {
