@@ -8,8 +8,13 @@ pub mod ack;
 pub mod bounded;
 pub mod envelope;
 pub mod error;
+pub mod host;
 
 pub use ack::{Ack, AckBook};
 pub use bounded::{BoundedError, DEFAULT_MAX_BYTES, bounded_check, bounded_json};
 pub use envelope::{CursorLimits, Envelope, limits, normalize, parse, unbatch};
 pub use error::{ACE_CURSOR_RPC, HostErrorWire, SessionError};
+pub use host::{
+    CursorHostConfig, CursorHostCore, HostEffect, MALFORMED, PEER_CLOSED, PORT_CONNECTION,
+    PORT_ERROR_FRAME, PORT_STDERR, PORT_STOP, PORT_STRAY, PROCESS_EXITED,
+};
