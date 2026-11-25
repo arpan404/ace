@@ -61,7 +61,11 @@ pub fn header_json(state: &ThreadState, original: Option<&Value>) -> Result<Stri
                 header.insert(name, Value::from(value));
             } else {
                 // An unknown header field a newer build wrote: kept as raw data where it was.
-                if let Some(value) = original.get(name) {
+                // A field of the state's own shape that the fold cleared stays cleared: a
+                // restarted process must not see the exit the new state already dropped.
+                if let Some(value) = original.get(name)
+                    && !known_field(name)
+                {
                     header.insert(name, Value::from(value));
                 }
                 continue;
@@ -85,6 +89,12 @@ pub fn header_json(state: &ThreadState, original: Option<&Value>) -> Result<Stri
         header.insert("engineSnapshot", Value::from(9u64));
     }
     Ok(ace_json::to_string(&Value::Object(header)))
+}
+
+/// A field of the state's own JSON shape that serialization omits while it is unset: the fold
+/// cleared it, so the stored header must not bring it back.
+fn known_field(name: &str) -> bool {
+    ace_core::state_json::OPTIONAL.contains(&name)
 }
 
 /// The emptied value of a section key, or `None` for a key that is not overridden.
@@ -117,6 +127,18 @@ mod tests {
         assert!(header.contains(r#""agents":{}"#));
         assert!(header.contains(r#""openText":{}"#));
         assert!(header.ends_with(r#""engineSnapshot":9}"#), "{header}");
+    }
+
+    #[test]
+    fn a_field_the_fold_cleared_is_not_restored_from_the_old_header() {
+        // Reopening a snapshot with `processExit`, then a `process.started` clearing it: the next
+        // save must not write the old exit back.
+        let original = ace_json::parse(
+            r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"claude","silenceMs":1000},"processExit":{"unconfirmed":false},"agents":{},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#,
+        )
+        .unwrap();
+        let header = header_json(&state(), Some(&original)).unwrap();
+        assert!(!header.contains("processExit"), "{header}");
     }
 
     #[test]

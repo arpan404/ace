@@ -84,17 +84,29 @@ pub(crate) struct Shell {
     generation: Cell<f64>,
     seq: Cell<f64>,
     ids: Cell<u64>,
+    /// The shell refuses to open a frame: a pending live batch whose flush fails.
+    fail_open: Cell<bool>,
     rolled_back: RefCell<Vec<String>>,
 }
 
 impl Shell {
+    /// A store whose transaction frame cannot open: the read must surface it, not skip it.
+    pub fn failing_store(conn: &Arc<Connection>) -> EngineStore {
+        Shell::make(conn, true)
+    }
+
     pub fn store(conn: &Arc<Connection>) -> EngineStore {
+        Shell::make(conn, false)
+    }
+
+    fn make(conn: &Arc<Connection>, fail_open: bool) -> EngineStore {
         let shell = std::rc::Rc::new(Shell {
             conn: Arc::clone(conn),
             depth: Cell::new(0),
             generation: Cell::new(0.0),
             seq: Cell::new(0.0),
             ids: Cell::new(0),
+            fail_open: Cell::new(fail_open),
             rolled_back: RefCell::new(Vec::new()),
         });
         EngineStore {
@@ -149,6 +161,9 @@ impl Ports for Shell {
         self.depth.get() > 0
     }
     fn open_transaction(&self) -> Result<OpenFrame, PortError> {
+        if self.fail_open.get() {
+            return Err(PortError::Threw("database is locked".to_owned()));
+        }
         let conn = &self.conn;
         let depth = self.depth.get();
         // A nested frame is a savepoint, as the store's stack makes it.

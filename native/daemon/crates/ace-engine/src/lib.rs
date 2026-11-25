@@ -122,6 +122,18 @@ impl EngineError {
         EngineError::NotPorted { what, item }
     }
 
+    /// `skippableAtStartup` (`startup-skip.ts:9`): a busy or full store is retried, and data
+    /// another ace build wrote refuses the whole home; any other unreadable thread is reported
+    /// and skipped so the rest still recover.
+    pub fn skippable_at_startup(&self) -> bool {
+        match self {
+            EngineError::Incompatible { .. } => false,
+            // SQLITE_BUSY (5) and SQLITE_FULL (13): `isStoreRetry` (`store-busy.ts:27`).
+            EngineError::Store(error) => !matches!(error.code, 5 | 13),
+            _ => true,
+        }
+    }
+
     /// The error class the binding puts on the JS error, such as `ACE_ENGINE_CLOSED`.
     pub fn code(&self) -> Option<&'static str> {
         match self {
@@ -603,9 +615,10 @@ impl Core {
                         self.with_state(|state| recovery::recover_thread(state, &thread))??;
                     }
                     Ok(None) => {}
-                    // `skippableAtStartup`: an unreadable thread is reported and skipped.
-                    Err(EngineError::Incompatible { message, .. }) => {
-                        self.ports.report(format!("{thread}: {message}"));
+                    // `skippableAtStartup` (`repository.ts:277`): an unreadable thread is
+                    // reported and skipped; a store retry or another build's data refuses.
+                    Err(error) if error.skippable_at_startup() => {
+                        self.ports.report(format!("{thread}: {error}"));
                     }
                     Err(error) => return Err(error),
                 }
@@ -965,6 +978,27 @@ mod tests {
         fn wake_by_ref(self: &Arc<Self>) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
+    }
+
+    #[test]
+    fn only_a_store_retry_or_another_builds_data_refuses_startup() {
+        // `skippableAtStartup`: a damaged thread is skipped, an incompatible or busy home is not.
+        assert!(EngineError::InvalidState.skippable_at_startup());
+        assert!(EngineError::InvalidRecord.skippable_at_startup());
+        assert!(
+            !EngineError::Incompatible {
+                message: "Unsupported engine snapshot format: expected 9".to_owned(),
+                recovery: "Quit ace, then start it with a fresh ACE_HOME.",
+            }
+            .skippable_at_startup()
+        );
+        let busy = ace_store::Error {
+            kind: ace_store::ErrorKind::Sqlite,
+            code: 5,
+            message: "database is locked".to_owned(),
+            errstr: "database is locked".to_owned(),
+        };
+        assert!(!EngineError::Store(busy).skippable_at_startup());
     }
 
     #[test]

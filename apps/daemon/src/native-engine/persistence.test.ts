@@ -286,7 +286,9 @@ describe.runIf(native)("engine persistence", () => {
               `thread ${index}`,
               JSON.stringify({ state: candidate ? "working" : "done" }),
             );
-            if (candidate) state.run(id, JSON.stringify({ engineSnapshot: 8 }));
+            // A damaged version-9 header: reported and skipped, so the rest recover.
+            if (candidate)
+              state.run(id, JSON.stringify({ engineSnapshot: 9, threadId: id, config: {} }));
           }
         });
       },
@@ -310,6 +312,30 @@ describe.runIf(native)("engine persistence", () => {
       await seam.close();
     }
   }, 30_000);
+
+  test("another build's snapshot version refuses readiness instead of hiding the history", async () => {
+    const home = mkdtempSync(join(tmpdir(), "ace-engine-refuse-"));
+    const seam = await engineSeam({
+      options: { home },
+      afterOpen: (store) => {
+        const workspace = store.createWorkspace(home, "Refuse");
+        store.atomic((db) => {
+          const thread = db.prepare(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES (?, ?, ?, 'claude', ?, 0, 0)",
+          );
+          const state = db.prepare("INSERT INTO thread_state VALUES (?, ?, 0)");
+          thread.run("newer", workspace, "newer", JSON.stringify({ state: "working" }));
+          state.run("newer", JSON.stringify({ engineSnapshot: 8 }));
+        });
+      },
+    });
+    try {
+      // `skippableAtStartup` refuses the home for data another build wrote (`startup-skip.ts:9`).
+      await expect(seam.engine.ready()).rejects.toThrow(/Unsupported engine snapshot format/);
+    } finally {
+      await seam.close();
+    }
+  });
 
   test("an unported collaborator fails at the call", async () => {
     const seam = await engineSeam();

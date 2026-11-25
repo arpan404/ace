@@ -479,6 +479,22 @@ impl Snapshot {
         for runs in self.native_runs.values_mut() {
             runs.committed();
         }
+        self.forget_transcript();
+    }
+
+    /// After a commit the transcript lives in the sections and the store, never twice: the state
+    /// keeps only the live set (open text and live tools), so a long thread's items are bounded
+    /// by the shared budget instead of growing with its history.
+    fn forget_transcript(&mut self) {
+        let keep: std::collections::HashSet<String> = self
+            .state
+            .indexes
+            .open_text
+            .keys()
+            .chain(self.state.indexes.live_tools.keys())
+            .cloned()
+            .collect();
+        self.state.items.retain(|key, _| keep.contains(key));
     }
 
     /// `flush` (`:294`).
@@ -710,5 +726,48 @@ mod reload_tests {
         assert_eq!(runs[0].0, first[0]);
         assert_eq!(runs[0].1, "interrupted");
         assert_eq!(runs[0].2.as_deref(), Some("turn-1"));
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn a_committed_batch_keeps_no_transcript_in_the_state() {
+        // The transcript is the sections' and the store's after a commit; keeping it in the
+        // state as well would hold a long thread's messages outside the shared 8 MiB budget.
+        let conn = home("memory", &header("memory"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        for index in 0..8 {
+            state
+                .apply(
+                    &store,
+                    "memory",
+                    &format!(
+                        r#"[{{"type":"item.upsert","agent":"root","item":"item-{index}","draft":{{"type":"message","role":"assistant","parts":[{{"type":"text","text":"m{index}"}}],"complete":true}}}}]"#
+                    ),
+                    1.0 + index as f64,
+                    None,
+                )
+                .unwrap();
+            let snapshot = state.repo.require_state(&store, "memory").unwrap();
+            assert!(
+                snapshot.borrow().state.items.is_empty(),
+                "batch {index} left a committed item in the state"
+            );
+            assert!(
+                snapshot
+                    .borrow_mut()
+                    .items
+                    .read(&format!("item-{index}"))
+                    .unwrap()
+                    .is_some(),
+                "the stored item is still readable through its section"
+            );
+        }
     }
 }

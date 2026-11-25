@@ -41,15 +41,21 @@ impl NativeEngine {
     /// The bytes of one stored raw blob, or none.
     #[napi]
     pub fn read_raw_blob(&self, id: String) -> napi::Result<Option<Buffer>> {
-        let conn = self.engine.core().store.conn();
+        let core = self.engine.core();
         let key = Value::Text(id);
-        let row = stmt_cache::get_row(conn, READ_BLOB, vec![key.clone()])
-            .map_err(|error| napi::Error::from_reason(error.to_string()))?
-            .or_else(|| {
-                stmt_cache::get_row(conn, READ_OLD_BLOB, vec![key])
-                    .ok()
-                    .flatten()
-            });
+        // `readRawBlob` runs inside `store.atomic` (`repository.ts:545`).
+        let row = core
+            .store
+            .atomic(|tx| {
+                let conn = tx.conn();
+                Ok(
+                    match stmt_cache::get_row(conn, READ_BLOB, vec![key.clone()])? {
+                        Some(row) => Some(row),
+                        None => stmt_cache::get_row(conn, READ_OLD_BLOB, vec![key.clone()])?,
+                    },
+                )
+            })
+            .map_err(engine_error)?;
         let Some(row) = row else {
             return Ok(None);
         };

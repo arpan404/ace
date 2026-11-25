@@ -17,7 +17,7 @@ pub const RELEASE: &str = "DELETE FROM engine_slots WHERE thread_id=?";
 impl Repo {
     /// Whether the thread already holds a slot.
     pub fn reserved_slot(&self, store: &EngineStore, id: &str) -> Result<bool, EngineError> {
-        Ok(stmt_cache::get_row(store.conn(), SLOT, vec![text(id)])?.is_some())
+        store.atomic(|tx| Ok(stmt_cache::get_row(tx.conn(), SLOT, vec![text(id)])?.is_some()))
     }
 
     /// Idle sessions asked to close; their slots no longer count as taken.

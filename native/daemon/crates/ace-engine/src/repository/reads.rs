@@ -60,18 +60,21 @@ impl State {
         Ok(row.and_then(|row| row.get("thread_id").and_then(cell_text).map(str::to_owned)))
     }
 
-    /// `answer` (`:565`): the command a settled interaction answers.
+    /// `answer` (`:565`): the command a settled interaction answers, inside the store's
+    /// transaction so a pending live batch flushes first, as the TypeScript's `store.atomic` does.
     pub fn answer(
         &mut self,
         store: &EngineStore,
         resolution_id: &str,
     ) -> Result<Option<Json>, EngineError> {
-        let row = stmt_cache::get_row(store.conn(), ANSWER, vec![text(resolution_id)])?;
-        Ok(row.and_then(|row| {
-            row.get("payload")
-                .and_then(cell_text)
-                .and_then(|payload| ace_json::parse(payload).ok())
-        }))
+        store.atomic(|tx| {
+            let row = stmt_cache::get_row(tx.conn(), ANSWER, vec![text(resolution_id)])?;
+            Ok(row.and_then(|row| {
+                row.get("payload")
+                    .and_then(cell_text)
+                    .and_then(|payload| ace_json::parse(payload).ok())
+            }))
+        })
     }
 
     /// `reserved` (`:573`).
@@ -80,10 +83,12 @@ impl State {
         store: &EngineStore,
         resolution_id: &str,
     ) -> Result<bool, EngineError> {
-        Ok(
-            stmt_cache::get_row(store.conn(), RESERVED_ANSWER, vec![text(resolution_id)])?
-                .is_some(),
-        )
+        store.atomic(|tx| {
+            Ok(
+                stmt_cache::get_row(tx.conn(), RESERVED_ANSWER, vec![text(resolution_id)])?
+                    .is_some(),
+            )
+        })
     }
 
     /// `cancelled` (`:487`).
@@ -153,12 +158,14 @@ impl State {
         id: &str,
         limit: i64,
     ) -> Result<bool, EngineError> {
-        let rows = stmt_cache::all_rows(
-            store.conn(),
-            INPUT_CAPACITY,
-            vec![text(id), text(id), Value::Integer(limit)],
-        )?;
-        Ok((rows.len() as i64) < limit)
+        store.atomic(|tx| {
+            let rows = stmt_cache::all_rows(
+                tx.conn(),
+                INPUT_CAPACITY,
+                vec![text(id), text(id), Value::Integer(limit)],
+            )?;
+            Ok((rows.len() as i64) < limit)
+        })
     }
 
     /// `workspace` (`:667`).
@@ -167,10 +174,10 @@ impl State {
         store: &EngineStore,
         id: &str,
     ) -> Result<Option<String>, EngineError> {
-        Ok(
-            stmt_cache::get_row(store.conn(), WORKSPACE, vec![text(id)])?
-                .and_then(|row| row.get("path").and_then(cell_text).map(str::to_owned)),
-        )
+        store.atomic(|tx| {
+            Ok(stmt_cache::get_row(tx.conn(), WORKSPACE, vec![text(id)])?
+                .and_then(|row| row.get("path").and_then(cell_text).map(str::to_owned)))
+        })
     }
 
     /// `backend(id)` (`session-metadata.ts:122`): the durable binding, else an `acp` Cursor
@@ -205,5 +212,32 @@ impl State {
             Some(id) => stmt_cache::run(store.conn(), CLEAR_THREAD_BLOBS, vec![text(id)])?,
         };
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn a_point_read_takes_the_stores_transaction_boundary() {
+        // `repository.ts:545`-`:672`: each of these reads runs in `store.atomic`, so a pending
+        // live batch flushes first and a failing store is reported, never read around.
+        let conn = home("reads", &header("reads"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        assert_eq!(
+            state.workspace(&store, "workspace").unwrap().as_deref(),
+            Some("/tmp")
+        );
+        assert!(state.answer(&store, "no-such-command").unwrap().is_none());
+        assert!(!state.answer_reserved(&store, "no-such-command").unwrap());
+        assert!(state.input_capacity(&store, "reads", 10).unwrap());
+        assert!(!state.repo.reserved_slot(&store, "reads").unwrap());
+        let failing = Shell::failing_store(&conn);
+        assert!(state.workspace(&failing, "workspace").is_err());
+        assert!(state.answer(&failing, "no-such-command").is_err());
+        assert!(state.repo.reserved_slot(&failing, "reads").is_err());
     }
 }

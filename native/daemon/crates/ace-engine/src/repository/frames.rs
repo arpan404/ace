@@ -64,16 +64,18 @@ impl State {
             &ace_json::parse(&stored).map_err(|error| EngineError::Records(error.to_string()))?,
         )?;
         let seq = frame.get("seq").and_then(Value::as_i64).unwrap_or(0);
-        let (changes, inserted) = stmt_cache::run(
-            store.conn(),
-            CAPTURE,
-            vec![
-                text(id),
-                text(&generation),
-                SqlValue::Integer(seq),
-                text(&json),
-            ],
-        )?;
+        let (changes, inserted) = store.atomic(|tx| {
+            Ok(stmt_cache::run(
+                tx.conn(),
+                CAPTURE,
+                vec![
+                    text(id),
+                    text(&generation),
+                    SqlValue::Integer(seq),
+                    text(&json),
+                ],
+            )?)
+        })?;
         Ok((changes != 0).then_some(inserted))
     }
 }
