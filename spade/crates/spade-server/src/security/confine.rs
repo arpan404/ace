@@ -41,6 +41,71 @@ impl Security {
 }
 
 impl Confine for Security {
+    fn outside_guard(
+        &self,
+        home: &Path,
+        required: bool,
+    ) -> Result<Option<crate::workspace::shell::OutsideGuard>, String> {
+        use spade_core::autonomy::Mode;
+        if !required
+            && !self
+                .bot_of(home)
+                .is_some_and(|bot| self.autonomy(&bot) == Mode::FullAccess)
+        {
+            return Ok(None);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let ace = self
+                .ace_data
+                .clone()
+                .unwrap_or_else(|| self.home.join(".ace"));
+            let mut secrets = spade_sandbox::credentials::places(&self.home);
+            secrets.extend(self.attestor.path().map(Path::to_path_buf));
+            let real = spade_sandbox::policy::real;
+            let workspace = self.bot_of(home).and_then(|bot| {
+                let expected = real(&self.spade_data).join("workspace").join(bot);
+                (real(home) == expected && !expected.starts_with(real(&ace))).then_some(expected)
+            });
+            let workspace =
+                workspace.ok_or("The outside guard needs the bot's canonical workspace.")?;
+            cap_std::fs::Dir::open_ambient_dir(&workspace, cap_std::ambient_authority())
+                .and_then(|dir| dir.create_dir_all(spade_sandbox::policy::TEMP))
+                .map_err(|error| {
+                    format!("Could not create the guarded temporary directory: {error}")
+                })?;
+            let temp = workspace.join(spade_sandbox::policy::TEMP);
+            if real(&temp) != temp {
+                return Err("The guarded temporary directory cannot be a symlink.".to_owned());
+            }
+            let profile = spade_sandbox::seatbelt::credentials_only(
+                &self.home,
+                &[ace, self.spade_data.clone()],
+                Some(&workspace),
+                &secrets,
+            );
+            Ok(Some(crate::workspace::shell::OutsideGuard {
+                temp,
+                launch: Box::new(move |program, args| {
+                    use std::ffi::OsString;
+                    let mut wrapped = vec![
+                        OsString::from("-p"),
+                        OsString::from(&profile),
+                        program.as_os_str().to_owned(),
+                    ];
+                    wrapped.extend_from_slice(args);
+                    Ok(spade_sandbox::Launch {
+                        program: spade_sandbox::seatbelt::SANDBOX_EXEC.into(),
+                        args: wrapped,
+                        seals_env: false,
+                    })
+                }),
+            }))
+        }
+        #[cfg(not(target_os = "macos"))]
+        Err("Full access cannot launch outside the sandbox on this platform because its credential guard is unavailable.".to_owned())
+    }
+
     fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         let Some(bot) = self.bot_of(home) else {
             return Ok(Confinement::None);
@@ -103,9 +168,11 @@ impl Confine for Security {
                 .and(self.proxy.as_ref())
                 .map(|proxy| proxy.port()),
         });
-        std::fs::create_dir_all(&policy.temp).map_err(|error| {
-            format!("the sandbox's temporary folder could not be made: {error}")
-        })?;
+        cap_std::fs::Dir::open_ambient_dir(&policy.workspace, cap_std::ambient_authority())
+            .and_then(|dir| dir.create_dir_all(spade_sandbox::policy::TEMP))
+            .map_err(|error| {
+                format!("the sandbox's temporary folder could not be made: {error}")
+            })?;
         // Windows reports `contained` only for runs with no network on folders Spade owns; any
         // other run keeps the review path. Decided by the same probe the plugins ask before they
         // start (`review`), so the two never disagree.

@@ -2,7 +2,7 @@ import { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -18,7 +18,7 @@ async function scoutsPermissions() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
+  await openSettingsPage("Can use");
   await profile.findByRole("switch", { name: "Computer use" });
   return profile;
 }

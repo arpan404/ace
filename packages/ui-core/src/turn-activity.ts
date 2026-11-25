@@ -16,6 +16,7 @@ import {
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
 import { formatClock } from "./time.ts";
+import { steerHandingOver } from "./steer-handover.ts";
 import { ledgerOf } from "./thread-ledger.ts";
 import type { StepLabels } from "./tool-labels.ts";
 import { describeStep } from "./work-log.ts";
@@ -260,8 +261,12 @@ export function readTurnActivity(
   const needsYou = tree.needsYou || activity?.tone === "needs-you";
   // A stopped turn whose agents have all ended has no live line, though commands it started may
   // still run: the composer's strip says so and offers to stop them. The person still comes first.
+  // A turn that ended only to let the person's steer in goes on: that is no stop.
   const stopped =
-    (status?.state === "interrupted" || run?.state === "interrupted") && !subagents && !needsYou;
+    (status?.state === "interrupted" || run?.state === "interrupted") &&
+    !subagents &&
+    !needsYou &&
+    !steerHandingOver(reader, rootId);
   const working = !stopped && treeWorking({ needsYou, root, subagents, backgroundCommands });
   const waitingOnSubagents = working && rootWaitsOnSubagents(status, subagents);
   const waitingOn: TurnWait | undefined = waitingOnSubagents
@@ -434,8 +439,11 @@ export function readStoppedTurn(
   const stretch = ledgerOf(reader).currentStretch(reader);
   const runId = reader.thread?.live?.rootRunId ?? stretch.runId;
   const run = runId ? reader.run(runId) : undefined;
+  // A turn that ended only to let the person's steer in wasn't stopped.
+  const interrupted =
+    reader.agent(rootId)?.status.state === "interrupted" || run?.state === "interrupted";
   return {
-    stopped: reader.agent(rootId)?.status.state === "interrupted" || run?.state === "interrupted",
+    stopped: interrupted && !steerHandingOver(reader, rootId),
     watch: [...stretch.watch.map((id) => `item:${id}`), ...(runId ? [`run:${runId}`] : [])],
   };
 }
@@ -487,7 +495,9 @@ function readActivity(
   watch: string[],
 ): TurnActivity | undefined {
   const threadStatus = options.threadStatus ?? reader.thread?.status;
-  if (threadStatus?.state === "waiting" && threadStatus.on === "queue") return undefined;
+  // Waiting on its queue is no live work, unless the turn only ended to let the steer in.
+  if (threadStatus?.state === "waiting" && threadStatus.on === "queue")
+    return steerHandingOver(reader, rootId) ? line("Working", "working") : undefined;
   const agent = reader.agent(rootId);
   const status = agent?.status;
   if (!status) return undefined;

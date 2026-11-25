@@ -64,6 +64,7 @@ async function startDaemonAccounts(cliEnv: Record<string, string>) {
   const registry = await openRegistry(join(dataDir, "accounts.sqlite"));
   const logs: string[] = [];
   const management = new AccountManagement({
+    platform: process.platform,
     registry,
     accounts: new AccountService({ registry, env, now: () => now, timeZone: "UTC" }),
     dataDir,

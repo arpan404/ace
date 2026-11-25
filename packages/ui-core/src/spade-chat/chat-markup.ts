@@ -9,10 +9,12 @@
  */
 
 export interface SpadeChatSegment {
-  kind: "msg" | "doc";
+  kind: "msg" | "doc" | "react";
   text: string;
   /** The earlier message it quotes, as an id (`m12`, `m12.3`). */
   reply?: string;
+  /** A reaction's target message, as an id; the emoji is its `text`. */
+  to?: string;
   /** A document's title. */
   title?: string;
   /** Still arriving: its closing tag hasn't come yet (live text only). */
@@ -27,12 +29,24 @@ const replyId = /^m\d+(\.\d+)?$/;
 
 /** Finished words as messages: a tag cut at the end is words. */
 export function spadeChatSegments(text: string): SpadeChatSegment[] {
-  return segments(text, false);
+  return segments(text, false).filter((segment) => segment.kind !== "react");
 }
 
 /** Words still streaming: a tag still arriving at the end is held back, never drawn. */
 export function spadeLiveChatSegments(text: string): SpadeChatSegment[] {
-  return segments(text, true);
+  return segments(text, true).filter((segment) => segment.kind !== "react");
+}
+
+/** Messages, documents and reactions together, in order (the shared table's view). */
+export function spadeChatParts(text: string, live = false): SpadeChatSegment[] {
+  return segments(text, live);
+}
+
+/** The reactions a bot's finished words make: `<react to="m12">👍</react>`. */
+export function spadeChatReactions(text: string): { to: string; emoji: string }[] {
+  return segments(text, false).flatMap((segment) =>
+    segment.kind === "react" && segment.to ? [{ to: segment.to, emoji: segment.text }] : [],
+  );
 }
 
 /** The words with the markup removed, for places they go as plain text (speech, a copy). */
@@ -47,24 +61,40 @@ export function spadeMessageId(seq: number, index = 0): string {
   return index === 0 ? `m${seq}` : `m${seq}.${index + 1}`;
 }
 
+type Kind = "msg" | "doc";
 type Token =
   | { type: "text"; text: string }
-  | { type: "open"; kind: "msg" | "doc"; attrs: Map<string, string> }
-  | { type: "close"; kind: "msg" | "doc" };
+  | { type: "open"; kind: Kind; attrs: Map<string, string> }
+  | { type: "close"; kind: Kind }
+  /** A whole reaction on one line: `<react to="m12">👍</react>`. */
+  | { type: "react"; attrs: Map<string, string>; emoji: string };
 
 function segments(text: string, live: boolean): SpadeChatSegment[] {
-  const { tokens, cut } = tokenize(text, live);
+  const { tokens } = tokenize(text, live);
   const out: SpadeChatSegment[] = [];
-  let open: { kind: "msg" | "doc"; attrs: Map<string, string>; text: string } | undefined;
+  let open: { kind: Kind; attrs: Map<string, string>; text: string } | undefined;
   let malformed = false;
+  // A reaction inside a message comes out before it.
+  const held: SpadeChatSegment[] = [];
+  const reactions: SpadeChatSegment[] = [];
   tokens.forEach((token, at) => {
-    if (token.type === "text") {
+    if (token.type === "react") {
+      const to = token.attrs.get("to")?.trim();
+      const reaction: SpadeChatSegment = {
+        kind: "react",
+        text: token.emoji.trim(),
+        ...(to && replyId.test(to) ? { to } : {}),
+      };
+      reactions.push(reaction);
+      if (open) held.push(reaction);
+      else out.push(reaction);
+    } else if (token.type === "text") {
       if (open) open.text += token.text;
       else
         out.push({
           kind: "msg",
           text: token.text,
-          ...(live && !cut && at === tokens.length - 1 ? { open: true } : {}),
+          ...(live && at === tokens.length - 1 ? { open: true } : {}),
         });
     } else if (token.type === "open") {
       if (open) malformed = true;
@@ -72,26 +102,33 @@ function segments(text: string, live: boolean): SpadeChatSegment[] {
     } else {
       if (open?.kind !== token.kind) malformed = true;
       else {
-        out.push(segmentOf(open, false));
+        out.push(...held.splice(0), segmentOf(open, false));
         open = undefined;
       }
     }
   });
-  if (open) out.push(segmentOf(open, live));
+  if (open) out.push(...held.splice(0), segmentOf(open, live));
   if (malformed) {
     const words = tokens
       .flatMap((token) => (token.type === "text" ? [token.text.trim()] : []))
       .filter(Boolean)
       .join("\n\n");
-    return words ? [{ kind: "msg", text: words, ...(live ? { open: true } : {}) }] : [];
+    const message: SpadeChatSegment[] = words
+      ? [{ kind: "msg", text: words, ...(live ? { open: true } : {}) }]
+      : [];
+    return [...message, ...reactions.filter(validReaction)];
   }
   // Each segment is this call's own: trimmed in place.
   for (const segment of out) segment.text = segment.text.trim();
-  return capped(out.filter((segment) => segment.text !== ""));
+  return capped(
+    out.filter((segment) =>
+      segment.kind === "react" ? validReaction(segment) : segment.text !== "",
+    ),
+  );
 }
 
 function segmentOf(
-  open: { kind: "msg" | "doc"; attrs: Map<string, string>; text: string },
+  open: { kind: Kind; attrs: Map<string, string>; text: string },
   stillOpen: boolean,
 ): SpadeChatSegment {
   const reply = open.attrs.get("reply")?.trim();
@@ -105,6 +142,10 @@ function segmentOf(
   };
 }
 
+/** A reaction names a message by id and has an emoji. */
+const validReaction = (segment: SpadeChatSegment) =>
+  segment.to !== undefined && segment.text !== "";
+
 /** Messages past twelve join the twelfth; documents past three join the third under a heading. */
 function capped(list: SpadeChatSegment[]): SpadeChatSegment[] {
   const out: SpadeChatSegment[] = [];
@@ -113,7 +154,9 @@ function capped(list: SpadeChatSegment[]): SpadeChatSegment[] {
   let seenMessages = 0;
   let seenDocuments = 0;
   for (const segment of list) {
-    if (segment.kind === "msg") {
+    if (segment.kind === "react") {
+      out.push(segment);
+    } else if (segment.kind === "msg") {
       seenMessages++;
       if (seenMessages > spadeMostMessages) {
         out[messages] = join(out[messages], segment.text, segment.open);
@@ -257,26 +300,57 @@ const tagNames = ["msg", "doc"] as const;
 
 /** A tag at `at`, `partial` when the text ends inside one, or nothing when it is words. */
 function readTag(text: string, at: number): { token: Token; end: number } | "partial" | undefined {
-  const rest = text.slice(at, at + 6);
+  const reaction = readReaction(text, at);
+  if (reaction !== null) return reaction;
   if (text[at + 1] === "/") {
     for (const kind of tagNames) {
       const close = `</${kind}>`;
-      if (text.startsWith(close, at)) return { token: { type: "close", kind }, end: at + 6 };
-      if (at + rest.length === text.length && close.startsWith(rest)) return "partial";
+      if (text.startsWith(close, at))
+        return { token: { type: "close", kind }, end: at + close.length };
+      const rest = text.slice(at);
+      if (rest.length < close.length && close.startsWith(rest)) return "partial";
     }
     return undefined;
   }
   for (const kind of tagNames) {
-    if (at + rest.length === text.length && `<${kind}`.startsWith(rest)) return "partial";
-    if (!text.startsWith(`<${kind}`, at)) continue;
-    const next = text[at + 4];
-    if (next === ">") return { token: { type: "open", kind, attrs: new Map() }, end: at + 5 };
+    const name = `<${kind}`;
+    const rest = text.slice(at, at + name.length);
+    if (at + rest.length === text.length && name.startsWith(rest) && rest.length < name.length + 1)
+      return "partial";
+    if (!text.startsWith(name, at)) continue;
+    const next = text[at + name.length];
+    if (next === ">")
+      return { token: { type: "open", kind, attrs: new Map() }, end: at + name.length + 1 };
     if (next !== " " && next !== "\t") return undefined;
-    const attrs = readAttrs(text, at + 4);
+    const attrs = readAttrs(text, at + name.length);
     if (attrs === "partial" || attrs === undefined) return attrs;
     return { token: { type: "open", kind, attrs: attrs.attrs }, end: attrs.end };
   }
   return undefined;
+}
+
+/** A whole reaction at `at`; null when the text there is no `<react`, so other tags are tried. */
+function readReaction(
+  text: string,
+  at: number,
+): { token: Token; end: number } | "partial" | undefined | null {
+  const rest = text.slice(at, at + 6);
+  if (at + rest.length === text.length && "<react".startsWith(rest)) return "partial";
+  if (!text.startsWith("<react", at)) return null;
+  const next = text[at + 6];
+  let attrs = new Map<string, string>();
+  let from = at + 7;
+  if (next === " " || next === "\t") {
+    const read = readAttrs(text, at + 6);
+    if (read === "partial" || read === undefined) return read;
+    attrs = read.attrs;
+    from = read.end;
+  } else if (next !== ">") return next === undefined ? "partial" : null;
+  const close = text.indexOf("</react>", from);
+  const newline = text.indexOf("\n", from);
+  if (close < 0) return newline < 0 ? "partial" : undefined;
+  if (newline >= 0 && newline < close) return undefined;
+  return { token: { type: "react", attrs, emoji: text.slice(from, close) }, end: close + 8 };
 }
 
 /** Where an unquoted attribute name or value stops. */

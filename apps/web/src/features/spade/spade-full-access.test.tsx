@@ -9,7 +9,7 @@ import { fakeClient, harness } from "@/test/harness.tsx";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -20,16 +20,26 @@ function seed(spade: FakeSpadeApi) {
   spade.addAgent({ id: "scout", name: "Scout" });
 }
 
-/** Scout's Security section on Details, and its "How it decides" choice. */
+/** Scout's How it decides page, and its segmented "How it decides" control. */
 async function scoutsChoice() {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
-  const section = (await profile.findByRole("heading", { name: "Security" })).closest("section");
-  if (!section) throw new Error("no Security section");
-  const security = within(section);
-  return { security, picker: await security.findByRole("combobox", { name: "How it decides" }) };
+  await openSettingsPage("How it decides");
+  const section = (await profile.findByRole("heading", { name: "Decision mode" })).closest(
+    "section",
+  );
+  if (!section) throw new Error("no Decision mode section");
+  const decision = within(section);
+  return {
+    profile,
+    decision,
+    picker: await decision.findByRole("group", { name: "How it decides" }),
+  };
+}
+
+async function chooseSegment(picker: HTMLElement, option: string) {
+  await userEvent.click(within(picker).getByRole("button", { name: option }));
 }
 
 async function choose(picker: HTMLElement, option: string) {
@@ -39,18 +49,37 @@ async function choose(picker: HTMLElement, option: string) {
 
 test("a bot starts on Auto-review, and Full access asks first, then says what still asks and shows in its conversation", async () => {
   const { spade } = await spadeApp("/spade", seed);
-  const { security, picker } = await scoutsChoice();
-  expect(picker.textContent).toContain("Auto-review");
+  const { profile, decision, picker } = await scoutsChoice();
+  expect(
+    within(picker).getByRole("button", { name: "Auto-review" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(
+    decision.getByText(
+      "A reviewer checks each step that changes something and decides for you. You're asked only if it refuses the same step twice, or for the three below.",
+    ),
+  ).toBeTruthy();
+  expect(decision.queryByText(/Runs every step itself/)).toBeNull();
+  // The "Always asks you" group lists the three boundaries that always ask.
+  const alwaysSection = (await profile.findByRole("heading", { name: "Always asks you" })).closest(
+    "section",
+  );
+  if (!alwaysSection) throw new Error("no Always asks you section");
+  expect(within(alwaysSection).getByText("Pay")).toBeTruthy();
+  expect(within(alwaysSection).getByText("Send as you")).toBeTruthy();
+  expect(within(alwaysSection).getByText("Change access")).toBeTruthy();
+  expect(
+    within(alwaysSection).getByText("These always need your approval, even in Full access."),
+  ).toBeTruthy();
 
   // Cancelling the confirmation changes nothing.
-  await choose(picker, "Full access");
+  await chooseSegment(picker, "Full access");
   let dialog = within(await screen.findByRole("dialog"));
   expect(dialog.getByRole("heading").textContent).toBe("Turn on Full access for Scout?");
   await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(spade.sent("PUT", "/v1/agents/scout/security/autonomy")).toEqual([]);
 
-  await choose(picker, "Full access");
+  await chooseSegment(picker, "Full access");
   dialog = within(await screen.findByRole("dialog"));
   expect(dialog.getByText(/still asks before it pays, sends anything in your name/)).toBeTruthy();
   await userEvent.click(dialog.getByRole("button", { name: "Turn on Full access" }));
@@ -61,14 +90,19 @@ test("a bot starts on Auto-review, and Full access asks first, then says what st
   );
   expect(spade.security.autonomy("scout")).toBe("full_access");
   await waitFor(() =>
-    expect(security.getByRole("combobox", { name: "How it decides" }).textContent).toContain(
-      "Full access",
-    ),
+    expect(
+      within(picker).getByRole("button", { name: "Full access" }).getAttribute("aria-pressed"),
+    ).toBe("true"),
   );
-  expect(security.getByText(/never reads your secrets\.$/)).toBeTruthy();
+  expect(
+    decision.getByText(
+      "Runs every step itself, inside or outside the sandbox, with nothing reviewed. Only the three below come to you.",
+    ),
+  ).toBeTruthy();
+  expect(decision.queryByText(/A reviewer checks each step/)).toBeNull();
   // The conversation's pill says so, quietly.
   expect(
-    await screen.findByRole("button", { name: "Scout, Full access: open its profile" }),
+    await screen.findByRole("button", { name: "Open Scout's profile, Full access" }),
   ).toBeTruthy();
 });
 
@@ -78,10 +112,10 @@ test("once the person confirmed Full access for a bot, turning it back on doesn'
     api.security.bot("scout").full_access_confirmed = true;
   });
   const { picker } = await scoutsChoice();
-  await choose(picker, "Full access");
+  await chooseSegment(picker, "Full access");
   await waitFor(() => expect(spade.security.autonomy("scout")).toBe("full_access"));
   expect(screen.queryByRole("dialog")).toBeNull();
-  await choose(picker, "Auto-review");
+  await chooseSegment(picker, "Auto-review");
   await waitFor(() => expect(spade.security.autonomy("scout")).toBe("auto_review"));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(spade.sent("PUT", "/v1/agents/scout/security/autonomy")).toEqual([

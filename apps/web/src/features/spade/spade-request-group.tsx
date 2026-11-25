@@ -1,4 +1,3 @@
-import { useTaskTitle } from "./lanes/lanes-context.ts";
 import {
   spadeAppOfTool,
   spadeAppRequestGroup,
@@ -7,19 +6,9 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { Button } from "@/components/ui/button.tsx";
 import { useRef, useState } from "react";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useAppAlways } from "./spade-app-always.tsx";
-import {
-  CardBody,
-  CardFooter,
-  CardPrimary,
-  CardWhy,
-  CardWord,
-  NeedsYouLine,
-  RaisedCard,
-  cardKeyHint,
-} from "./spade-card.tsx";
+import { CardActions, CardBody, CardWhy, NeedsYouLine, RaisedCard } from "./spade-card.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import type { RequestAnswer } from "./spade-request-bubble.tsx";
 import { ApproversLine } from "./spade-shared-lines.tsx";
@@ -46,8 +35,7 @@ export function SpadeRequestGroup(props: {
   const connection = first ? spadeAppOfTool(first.name)?.connection : undefined;
   const connector = useSpadeConnectors().data?.connectors.find((each) => each.id === connection);
   const app = connector?.name ?? "the app";
-  const task = useTaskTitle(first?.lane);
-  const who = task ? task : first?.helper ? `A helper of ${props.botName}` : props.botName;
+  const who = props.botName;
   const words = spadeAppRequestGroup(
     who,
     app,
@@ -141,31 +129,27 @@ export function SpadeRequestGroup(props: {
         {always.prompt}
       </CardBody>
       <ApproversLine botId={props.botId} />
-      <CardFooter
-        start={
-          <>
-            {forApp && (
-              <CardWord disabled={answering !== undefined} onClick={allowAlways}>
-                {answering === "always" ? "Allowing…" : `Always allow for ${app}`}
-              </CardWord>
-            )}
-            <CardWord disabled={answering !== undefined} onClick={() => answerAll("deny")}>
-              {answering === "deny" ? "Denying…" : items.length > 1 ? "Deny all" : "Deny"}
-            </CardWord>
-          </>
-        }
-        end={
-          <CardPrimary disabled={answering !== undefined} onClick={() => answerAll("allow")}>
-            {answering === "allow" ? "Allowing…" : items.length > 1 ? "Allow all" : "Allow"}
-            <Kbd
-              aria-hidden
-              keys="enter"
-              resolve={false}
-              variant="on-primary"
-              className={cardKeyHint}
-            />
-          </CardPrimary>
-        }
+      <CardActions
+        secondary={[
+          forApp && {
+            key: "always",
+            label: answering === "always" ? "Allowing…" : `Always allow for ${app}`,
+            disabled: answering !== undefined,
+            onClick: allowAlways,
+          },
+          {
+            key: "deny",
+            label: answering === "deny" ? "Denying…" : items.length > 1 ? "Deny all" : "Deny",
+            disabled: answering !== undefined,
+            onClick: () => answerAll("deny"),
+          },
+        ]}
+        primary={{
+          label: answering === "allow" ? "Allowing…" : items.length > 1 ? "Allow all" : "Allow",
+          disabled: answering !== undefined,
+          hint: "enter",
+          onClick: () => answerAll("allow"),
+        }}
       />
     </RaisedCard>
   );

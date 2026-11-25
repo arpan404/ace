@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
@@ -79,14 +80,22 @@ export function LibraryPage(props: { bot: RosterBot; id: string; onBack(): void 
     return (
       <>
         <DocTop onBack={props.onBack} />
-        <div aria-hidden className="h-7 w-2/3 rounded-md bg-hover" />
+        <LoadingRegion label="page" className="flex flex-col gap-3">
+          <Skeleton className="h-6 w-2/3" />
+          <Skeleton className="h-3 w-2/5" />
+          <div className="mt-2 flex flex-col gap-2">
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-11/12" />
+            <Skeleton className="h-3.5 w-3/4" />
+          </div>
+        </LoadingRegion>
       </>
     );
   if (!page.data)
     return (
       <>
         <DocTop onBack={props.onBack} />
-        <ProfileProblem text="Couldn't read the page." onRetry={() => void page.refetch()} />
+        <ProfileProblem card text="Couldn't read the page." onRetry={() => void page.refetch()} />
       </>
     );
   const entry = page.data;
@@ -201,9 +210,9 @@ function Origin(props: { bot: RosterBot; entry: SpadeKnowledgeEntry }) {
       `${writer} wrote it ${day}${detail ? ` · for ${detail}` : ""}`
     );
   return (
-    <p className="mt-1 text-xs leading-[18px] text-subtle-foreground">
+    <p className="mt-1 text-xs leading-4.5 text-muted-foreground">
       {from}
-      {!entry.trusted && <span className="text-muted-foreground">{" · Untrusted"}</span>}
+      {!entry.trusted && <span className="text-foreground">{" · Untrusted"}</span>}
     </p>
   );
 }
@@ -218,7 +227,7 @@ function TitleField(props: {
   const [text, setText] = useState(entry.title);
   const [problem, setProblem] = useState<string>();
   const base = useRef(entry.updatedAt);
-  const type = "text-lg leading-7 font-semibold text-foreground";
+  const type = "text-xl leading-7 font-semibold tracking-title text-foreground";
   if (!editing)
     return (
       <button

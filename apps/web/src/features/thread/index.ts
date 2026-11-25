@@ -1,6 +1,7 @@
 /** One thread: transcript, composer, header actions and interactions. */
 export { Composer, type ComposerHandle, type Draft } from "./composer/composer.tsx";
 export type { MentionMember } from "./composer/composer-props.ts";
+export type { SlashMenu, SlashMenuRow } from "./composer/slash-rows.ts";
 export { useDraftScope } from "./composer/draft-scope.ts";
 /** A thread New thread just started reads this title until the daemon titles it. */
 export { rememberAttachments, rememberTitle, startedTitle } from "./composer/send-store.ts";

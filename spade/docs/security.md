@@ -543,6 +543,10 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
   person allowed this call outside, or the machine has no sandbox. The command is classed by the
   shell classifier and takes ADR 0163's route.
 
+In Full access the ordinary gate never requests approval or runs the reviewer. The
+three person-only effects and credential refusal still apply. Sandboxed runs use the
+proxy's open public-host policy within package and organization limits.
+
 **The gate's decision travels to the launch.** For each call it lets run, the gate records an
 immutable launch token under the call's key: _outside_ (sent outside the sandbox), _contained_
 (decided in the sandbox's light, whether it skipped review because the sandbox held it or was
@@ -554,12 +558,12 @@ the sandbox no longer holds it. Run it again and Spade will ask first." — neve
 call the gate didn't mark counts as _contained_. A setting that changes in between never moves an
 unreviewed call outside.
 
-- **Asking to run outside** (`outside_sandbox: true` on `shell`): a request with
-  `ask: outside_sandbox`. Allow once runs that call outside; Always for this bot runs it and sets
-  the bot's `commands` to `outside`; Deny declines it.
-- **Granted**: a `git_push` or `pr_comment` grant covers its typed tool, matched by
-  `host/owner/name` (a grant written `owner/name` means GitHub); a `tool` grant covers only a tool
-  that declares `read`, `write_local`, `network` or `publish`, never one that declares nothing;
+- **Requesting an outside launch** (`outside_sandbox: true` on `shell`): Full access can
+  authorize the launch directly. Auto-review judges the call after Spade reads what it would
+  run. Person-only effects still require the person's approval.
+- **Granted**: pushes and comments require approval each time, including when a repository
+  grant matches. A `tool` grant covers only a tool that declares `read`, `write_local`, `network`
+  or `publish`;
   an `app` grant (`{kind: "app", app, writes}`, ADR 0202 amendment 5) covers one connected app's
   writes, undeclared ones included, for one bot, made only with the person's stamp.
 - **Unprotected**: sandboxed, but the checkpoint couldn't be taken: reviewed, after the
@@ -665,6 +669,12 @@ organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.
 
 ## Not built yet
 
+- Per-app capability definitions and hard stops enforced at the downstream
+  operation. Full access judges tool calls before dispatch, so effects hidden
+  inside tools or performed in a logged-in browser, ace child, plugin, or bot
+  code can escape that judgment. Ace children use ace's own permissions.
+
+
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
   copies on other volumes don't).
 - Egress for Windows runs without opening the network (ADR 0167 amendment 2, "Networked runs
@@ -679,3 +689,14 @@ organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.
 - ace's plugin import carrying a server's `effects` declaration (ace's `PluginExecution` is
   strict); Spade reads it once it does.
 - `own_only` for `pr_comment` grants (whether the bot opened the pull request).
+
+
+Normal sandboxed commands on macOS and Linux get a workspace-owned `TMPDIR`.
+The shell maps a plain `cd /tmp` to that folder. Host temporary storage stays
+outside the sandbox's filesystem grants.
+
+
+On macOS, a Full access shell command outside the workspace sandbox keeps open
+network access under a Seatbelt profile that denies file access to known
+credential stores. Linux refuses Full access outside launches while its
+credential-file guard is unavailable. The guard covers the listed paths.
