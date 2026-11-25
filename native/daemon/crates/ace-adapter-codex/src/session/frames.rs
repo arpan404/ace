@@ -212,7 +212,8 @@ impl Frames {
         optional: Option<&str>,
     ) -> Result<Emitted, Rejected> {
         let encoded = self.redact(&ace_json::to_string(data));
-        if admit_payload(&encoded) {
+        let admission = admit_payload(&encoded);
+        if admission.is_ok() {
             return Ok(Emitted {
                 frames: vec![Frame {
                     dir,
@@ -220,6 +221,14 @@ impl Frames {
                     text: encoded,
                 }],
                 recover_output: false,
+            });
+        }
+        if admission == Err(Admission::Invalid) {
+            // Only the bound is ever left out; a frame that is not JSON is the
+            // session's own defect and fails it, as a non-`RangeError` does.
+            return Err(Rejected {
+                message: "Invalid provider frame".to_owned(),
+                fail_transport: dir == FrameDir::Recv,
             });
         }
         if optional.is_none() && dir == FrameDir::Recv && self.omittable(data) {
@@ -276,17 +285,29 @@ impl Default for Frames {
     }
 }
 
+/// How `ProviderPayload` refuses a text: its `RangeError` (the byte or
+/// structural bound, which the session may leave out) or a value that is not
+/// JSON at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Admission {
+    Bound,
+    Invalid,
+}
+
 /// `ProviderPayload`'s admission (`payload.ts:14`-`:40`), in the same order:
-/// the byte bound, then `JSON.parse`, then the structural bound. True when the
-/// text is admitted; false is the `RangeError` the session reacts to.
-fn admit_payload(text: &str) -> bool {
+/// the byte bound, then `JSON.parse`, then the structural bound.
+fn admit_payload(text: &str) -> Result<(), Admission> {
     if text.len() > MAX_PAYLOAD_BYTES {
-        return false;
+        return Err(Admission::Bound);
     }
     let Ok(value) = ace_json::parse(text) else {
-        return false;
+        return Err(Admission::Invalid);
     };
-    within_structural_limit(&value)
+    if within_structural_limit(&value) {
+        Ok(())
+    } else {
+        Err(Admission::Bound)
+    }
 }
 
 /// `ProviderPayload`'s node count: one linear pass, every surviving value
@@ -338,7 +359,7 @@ pub fn compact_history_reply(message: &Value) -> Value {
         );
     }
     if result.contains_key("thread") {
-        body.insert("thread", without_history(&thread));
+        body.insert("thread", Value::Object(without_history(&thread)));
         let turns = thread
             .get("turns")
             .and_then(Value::as_array)
@@ -350,14 +371,14 @@ pub fn compact_history_reply(message: &Value) -> Value {
 }
 
 /// A thread's metadata without any turns it carried (`withoutHistory`).
-pub fn without_history(thread: &Map) -> Value {
+pub fn without_history(thread: &Map) -> Map {
     let mut copy = Map::with_capacity(thread.len());
     for (key, value) in thread {
         if key.as_str() != "turns" {
             copy.insert(key.clone(), value.clone());
         }
     }
-    Value::Object(copy)
+    copy
 }
 
 /// `obj(value)`: `{}` unless the value is an object.

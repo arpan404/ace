@@ -196,8 +196,12 @@ impl Session {
         if dir != Direction::Recv {
             return effects;
         }
-        // `:253`-`:300`: the live state the received frame changes.
-        if !thread.is_empty() && !self.known.contains(&thread) && !self.timers.contains_key(&thread)
+        // `:253`-`:300`: the live state the received frame changes. At most 256
+        // recovery timers come from this path (`:277`).
+        if !thread.is_empty()
+            && !self.known.contains(&thread)
+            && !self.timers.contains_key(&thread)
+            && self.timers.len() < super::TIMER_LIMIT
         {
             effects.extend(self.schedule_recovery(&thread));
         }

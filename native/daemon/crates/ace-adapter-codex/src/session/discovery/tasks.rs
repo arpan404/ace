@@ -183,7 +183,8 @@ impl Session {
         match state.pending.pop_front() {
             Some(thread) => {
                 if self.recovered.contains(&thread) || self.discovery.reads.contains_key(&thread) {
-                    // A read already in flight covers this thread.
+                    // A read already in flight covers this thread; the scan does
+                    // not wait on someone else's read.
                     return self.reconcile_continue(task, "");
                 }
                 state.current = Some(thread.clone());

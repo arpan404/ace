@@ -201,12 +201,9 @@ impl Session {
         self.emit_note(&Value::Object(note))
     }
 
-    /// `scheduleRecovery`: one timer per thread, at most 256 of them (`:78`).
+    /// `scheduleRecovery`: one timer per thread (`:78`).
     pub(crate) fn schedule_recovery(&mut self, thread: &str) -> Vec<Effect> {
-        if self.lifetime.is_closed()
-            || self.timers.contains_key(thread)
-            || self.timers.len() >= super::state::TIMER_LIMIT
-        {
+        if self.lifetime.is_closed() || self.timers.contains_key(thread) {
             return Vec::new();
         }
         self.timers.insert(thread.to_owned(), ());

@@ -6,9 +6,9 @@
 use ace_json::{Map, Value};
 use indexmap::IndexSet;
 
-use super::fold::without_history;
 use super::{HistoryReady, Origin, REQUEST_MS, origin_failed};
 use crate::session::frames::Effect;
+use crate::session::frames::without_history;
 use crate::session::routing::parent_of;
 use crate::session::state::{Session, text_of};
 use crate::session::terminals::TerminalRead;

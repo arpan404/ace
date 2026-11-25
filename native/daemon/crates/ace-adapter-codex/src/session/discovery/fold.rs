@@ -130,17 +130,6 @@ impl Session {
     }
 }
 
-/// `withoutHistory`: a thread's metadata without the turns it carried.
-pub(crate) fn without_history(thread: &Map) -> Map {
-    let mut copy = Map::with_capacity(thread.len());
-    for (key, value) in thread {
-        if key.as_str() != "turns" {
-            copy.insert(key.clone(), value.clone());
-        }
-    }
-    copy
-}
-
 fn turns_of(snapshot: &Map) -> Vec<Map> {
     snapshot
         .get("turns")
