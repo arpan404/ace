@@ -31,6 +31,11 @@ export interface NativeUpgradeWiring {
   full(): boolean;
   /** Sockets the native listener opened: no `ws` server owns them, so owners sweep them. */
   sockets: Set<MainSocket>;
+  /**
+   * Ends a socket that registered after its listener's retire sweep: the daemon's shutdown close
+   * (1001 and a bounded terminate), so Rust's own close is not held open by it (T1b.4).
+   */
+  closeSocket?(socket: MainSocket): void;
 }
 
 /** Admission, release and registration for the native loopback listener (ADR 0226, T1a.7). */
@@ -45,6 +50,12 @@ export interface NativeUpgrade {
     reservation: number,
     userAgent: string | null | undefined,
   ): void;
+  /**
+   * The listener is retiring: its sweep runs next, so a `101` that finishes afterwards would
+   * register into the set nobody sweeps again. Such a socket is closed as it registers
+   * (`closeSocket`), because Rust waits for it before its close returns (T1b.4).
+   */
+  retire?(): void;
 }
 
 /** One listener's view of the reservations it admitted: nobody else's are released at its close. */
@@ -75,6 +86,9 @@ export function ownReservations(upgrade: NativeUpgrade): OwnedUpgrade {
       held.delete(reservation);
       upgrade.opened(handle, reservation, userAgent);
     },
+    retire() {
+      upgrade.retire?.();
+    },
     releaseHeld() {
       for (const reservation of held) upgrade.release(reservation);
       held.clear();
@@ -91,6 +105,7 @@ export function ownReservations(upgrade: NativeUpgrade): OwnedUpgrade {
 export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
   const isLocal = wiring.kind === "local";
   const kind = wiring.kind;
+  let retired = false;
   const admit = async (request: TransportAdmitRequest): Promise<TransportAdmitAnswer> => {
     // A queued admission can run after shutdown's sweep. It must take no hold, and a closing
     // listener answers `ws`'s closing-state 503, not admission's empty-body one.
@@ -132,6 +147,12 @@ export function nativeUpgrade(wiring: NativeUpgradeWiring): NativeUpgrade {
       undefined,
       reservation,
     );
+    // The sweep already ran while this `101` was being written: it ends now, so the listener's
+    // close is not held open by a socket no sweep will ever reach.
+    if (retired) wiring.closeSocket?.(socket);
   };
-  return { admit, release, opened };
+  const retire = () => {
+    retired = true;
+  };
+  return { admit, release, opened, retire };
 }

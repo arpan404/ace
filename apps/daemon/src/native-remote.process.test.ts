@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect as connectTls } from "node:tls";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import { SettingsService } from "@ace/settings";
 import { transportParts } from "@ace/provider-kit/native-switches";
@@ -38,10 +38,12 @@ import { externalMcp, type ExternalMcp } from "./external-mcp/server.ts";
 import type { AutomationWebhookService } from "./automation-webhooks.ts";
 import { startNativeRemote } from "./native-remote.ts";
 import { nativeSniListeners } from "./native-sni-listener.ts";
-import type { NativeUpgrade } from "./native-upgrade.ts";
+import { nativeUpgrade, type NativeUpgrade } from "./native-upgrade.ts";
 import { NativeSocket } from "./native-socket.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { Resources } from "./services/resources.ts";
+import type { MainSocket } from "./main-socket.ts";
+import { PreAuthAdmission } from "./socket-admission.ts";
 import type { ServiceContext } from "./services/types.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { Store } from "./store.ts";
@@ -499,7 +501,7 @@ function runtimeListener(clock: {
 }) {
   return nativeSniListeners({
     secret: transportAddon().NativeLoopback.generateSecret(),
-    upgrades: noopUpgrades,
+    upgrades: () => noopUpgrades,
     delay: clock.delay,
     now: clock.now,
     tunnel: { hold: () => () => {} },
@@ -554,26 +556,79 @@ it.runIf(transportParts().has("remote"))(
 );
 
 it.runIf(transportParts().has("remote"))(
-  "an upgrade racing a settings retire never stays open",
+  "an upgrade whose 101 lands after the retire sweep is closed with 1001",
   async () => {
-    const { f, port } = await tailnetDaemon();
-    const upgrade = new WebSocket(`wss://127.0.0.1:${port}`, { rejectUnauthorized: false });
-    upgrade.on("error", () => {});
-    cleanups.push(() => upgrade.terminate());
-    // Retire without waiting for the `101`: whichever side of the registration the upgrade lands
-    // on, the socket ends closed (recorded difference 7).
-    const control = await f.connect();
-    await control.next();
-    control.send({
-      type: "settings.set",
-      requestId: "retire",
-      key: "remote.enabled",
-      value: false,
-      layer: { kind: "global" },
+    // A runtime-only listener: no static one, so nothing outlives the retire. Its upgrades are
+    // the daemon's own, registered through the one socket set and the shutdown's close.
+    const sockets = new Set<MainSocket>();
+    const held: (() => void)[] = [];
+    const upgrade = nativeUpgrade({
+      kind: "remote",
+      preAuth: new PreAuthAdmission({}, systemDeliveryRuntime.delay),
+      allowedOrigins: new Set(),
+      servesRenderer: false,
+      publicPort: () => 0,
+      draining: () => false,
+      full: () => false,
+      wss: new WebSocketServer({ noServer: true }),
+      sockets,
+      closeSocket: (socket) => socket.close(1001, "Daemon shutdown"),
     });
-    expect(await control.next()).toMatchObject({ ok: true });
-    await expect.poll(() => upgrade.readyState, { timeout: 10_000 }).toBe(WebSocket.CLOSED);
-    expect(f.server.remoteUrl).toBeUndefined();
+    const listener = nativeSniListeners({
+      secret: transportAddon().NativeLoopback.generateSecret(),
+      upgrades: () => ({
+        admit: upgrade.admit,
+        release: upgrade.release,
+        // The `101` is written, but its registration waits: the sweep runs in between.
+        opened: (handle, reservation, userAgent) =>
+          held.push(() => upgrade.opened(handle, reservation, userAgent)),
+        retire: () => upgrade.retire?.(),
+      }),
+      delay: systemDeliveryRuntime.delay,
+      now: Date.now,
+      tunnel: { hold: () => () => {} },
+    }).make({
+      tls: identity,
+      requests: (_request, response) => response.writeHead(204).end(),
+      delay: systemDeliveryRuntime.delay,
+      log: () => {},
+    });
+    const port = await listener.listen("127.0.0.1", 0);
+    cleanups.push(() => listener.close());
+    const client = new WebSocket(`wss://127.0.0.1:${port}`, { rejectUnauthorized: false });
+    client.on("error", () => {});
+    cleanups.push(() => client.terminate());
+    const code = once(client, "close").then(([value]) => value);
+    await expect.poll(() => held.length, { timeout: 10_000 }).toBe(1);
+
+    // What remote access turned off does, in order: mark, sweep, close. The listener's own close
+    // waits for the socket still in `Writing`, which the late registration then ends.
+    listener.retire?.();
+    for (const socket of sockets) socket.terminate();
+    const closing = listener.close();
+    held.shift()?.();
+    await closing;
+    expect(await code).toBe(1001);
+    expect(sockets.size).toBe(0);
+  },
+  30_000,
+);
+
+it.runIf(transportParts().has("remote"))(
+  "a run-time listener that closed never binds",
+  async () => {
+    // The listener owns its internal server and port: a bind after close would take both for good.
+    const listener = runtimeListener({
+      now: Date.now,
+      delay: (callback, milliseconds) => {
+        const timer = setTimeout(callback, milliseconds);
+        return () => clearTimeout(timer);
+      },
+    });
+    await listener.close();
+    await expect(listener.listen("127.0.0.1", 0)).rejects.toThrow(/closed before its bind/);
+    // Still closed, and nothing is left listening: a second close settles.
+    await listener.close();
   },
   30_000,
 );

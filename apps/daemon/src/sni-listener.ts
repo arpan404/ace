@@ -84,6 +84,11 @@ export interface SniListener {
    */
   trust?(certificate: TrustedCertificate | undefined): void;
   /**
+   * The listener is about to retire: its sweep runs before `close`. A native upgrade whose `101`
+   * lands after that sweep is closed as it registers instead of surviving the retire (T1b.4).
+   */
+  retire?(): void;
+  /**
    * Stops accepting connections and drops every HTTP one. Upgraded sockets belong to their
    * WebSocket server, which closes them with a close code.
    */

@@ -45,11 +45,11 @@ export function testSniListener(
     });
   }
   let opened: ((socket: MainSocket) => void) | undefined;
-  const upgrades: NativeUpgrade = {
+  const upgrades = (): NativeUpgrade => ({
     admit: async () => ({ decision: "accept", reservation: 0 }),
     release: () => {},
     opened: (handle) => opened?.(new NativeSocket(handle)),
-  };
+  });
   const listener = nativeSniListeners({
     secret: transportAddon().NativeLoopback.generateSecret(),
     upgrades,

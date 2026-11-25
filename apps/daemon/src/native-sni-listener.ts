@@ -18,8 +18,11 @@ const MAX_TIMER_MS = 2_147_483_647;
 export interface NativeSniListenerDeps {
   /** This boot's hop secret, the loopback's: the internal server admits nothing else. */
   secret: string;
-  /** Admission, release and registration for this listener's upgrades (`kind: "remote"`). */
-  upgrades: NativeUpgrade;
+  /**
+   * Admission, release and registration for one listener's upgrades (`kind: "remote"`). Built per
+   * listener, because each listener retires on its own and a late `101` must not outlive it.
+   */
+  upgrades(): NativeUpgrade;
   delay(callback: () => void, milliseconds: number): () => void;
   /** The clock the served certificate's expiry is measured on. */
   now(): number;
@@ -53,10 +56,16 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   // The hop target, as `sniListener` builds one HTTP server per listener: it never listens
   // publicly, and every request arrives from Rust on loopback with this boot's secret.
   const internal = createServer(proxyGuard(deps.secret, options.requests));
+  // The SNI listener's contract leaves the exchange unbounded (`ConnectionLimits::remote_sni`),
+  // so the hop holds neither a request nor a header beside Rust's own `first_head` limit.
+  internal.requestTimeout = 0;
+  internal.headersTimeout = 0;
+  const upgrades = deps.upgrades();
   let handle: NativeRemoteListener | undefined;
   let binding: Promise<number> | undefined;
   let closing: Promise<void> | undefined;
   let closed = false;
+  let retiring = false;
   let certificate: TrustedCertificate | undefined;
   let unsubscribe: (() => void) | undefined;
   let cancelTimer: (() => void) | undefined;
@@ -96,6 +105,8 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
   return {
     http: internal,
     async listen(host, port) {
+      // A retired listener never binds: its close already ran, and the internal server with it.
+      if (closed) throw new Error("The listener was closed before its bind");
       const attempt = (async () => {
         try {
           const internalPort = await bindListener(internal, "127.0.0.1", 0);
@@ -113,7 +124,7 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
               keepAliveMs: limits.keepAlive,
               trustedKeepAliveMs: limits.trustedKeepAlive,
             },
-            upgrade: deps.upgrades,
+            upgrade: upgrades,
             holdPort: (bound) => deps.tunnel.hold(bound),
             log: (error) => options.log(error),
           });
@@ -135,6 +146,11 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
       binding = attempt;
       return attempt;
     },
+    retire: () => {
+      if (retiring) return;
+      retiring = true;
+      upgrades.retire?.();
+    },
     trust: (next) => {
       // The previous certificate's subscription and timer go first: nothing it does reaches Rust.
       stopWatching();
@@ -145,6 +161,8 @@ function nativeSniListener(deps: NativeSniListenerDeps, options: SniListenerOpti
     },
     close() {
       closed = true;
+      retiring = true;
+      upgrades.retire?.();
       stopWatching();
       closing ??= (async () => {
         // A bind still in flight lands first, so what it opened is closed here and not later.

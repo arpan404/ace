@@ -66,6 +66,9 @@ export function remoteDirect(deps: {
     const open = listener;
     listener = undefined;
     if (open && withdrawLinks) deps.clearPending();
+    // Retiring is marked before the sweep: an upgrade still being written lands afterwards, and
+    // must end as it registers rather than outlive the retire and hold the listener's close.
+    if (open) open.retire?.();
     if (open) deps.disconnect();
     stopTrusted();
     if (open) await open.close();

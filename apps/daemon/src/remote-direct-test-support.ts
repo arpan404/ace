@@ -38,8 +38,11 @@ export function gatedDirectListener(
       return {
         http: real.http,
         async listen(host, port) {
+          // The bind starts now and its answer waits on the gate: a slow socket layer, not a
+          // listener that never bound.
+          const binding = real.listen(host, port);
           await gates.bind;
-          const bound = await real.listen(host, port);
+          const bound = await binding;
           ports.push(bound);
           return bound;
         },
@@ -48,6 +51,7 @@ export function gatedDirectListener(
           await real.close();
         },
         trust: (certificate) => real.trust?.(certificate),
+        retire: () => real.retire?.(),
       };
     },
   };

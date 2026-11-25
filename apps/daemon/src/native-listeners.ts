@@ -347,12 +347,16 @@ export async function startNativeListeners(
         ? (clock: ListenerClock) =>
             nativeSniListeners({
               secret: hopSecret,
-              upgrades: nativeUpgrade({
-                ...options.admission,
-                kind: "remote",
-                wss: options.remoteWss,
-                sockets: options.sockets,
-              }),
+              // A listener retires on its own, so its upgrade wiring is its own: a `101` that
+              // lands after its sweep ends at once, as a shutdown's socket does (T1b.4).
+              upgrades: () =>
+                nativeUpgrade({
+                  ...options.admission,
+                  kind: "remote",
+                  wss: options.remoteWss,
+                  sockets: options.sockets,
+                  closeSocket: options.closeSocket,
+                }),
               delay: clock.delay,
               now: clock.now,
               tunnel: options.tunnel,
