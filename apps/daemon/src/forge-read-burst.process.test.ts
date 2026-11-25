@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceId, type ServerMessage } from "@ace/protocol";
+import { DeviceId, ForgePrSearch, type ServerMessage } from "@ace/protocol";
 import type { CommandResult } from "@ace/forge";
 import { repository } from "@ace/forge/testing";
 import { expect, test } from "vitest";
@@ -18,7 +18,7 @@ import { Client, token } from "./socket-test-support.ts";
 // commands are not a read count. The queue owner (WorkspaceReadQueue) bounds
 // logical reads; this helper asserts replies and logs for any burst shape.
 async function runBurst(
-  ops: ("forge.pr.merge-state" | "forge.pr.review-state")[],
+  ops: ("forge.pr.list" | "forge.pr.merge-state" | "forge.pr.review-state")[],
   expectedPeak?: number,
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-forge-burst-"));
@@ -34,7 +34,7 @@ async function runBurst(
     forgeRunner: () => async (): Promise<CommandResult> => {
       running++;
       peak = Math.max(peak, running);
-      if (running === 8) saturated();
+      if (running === Math.min(8, ops.length)) saturated();
       await released;
       running--;
       // GitHub can't be reached: a definite failure with its own code.
@@ -60,9 +60,18 @@ async function runBurst(
       client.send({
         type: "workspace.request",
         requestId: `read-${index}`,
-        operation: { op, workspaceId, repository, number: 7 },
+        operation:
+          op === "forge.pr.list"
+            ? { op, workspaceId, repository, query: ForgePrSearch.parse({}) }
+            : { op, workspaceId, repository, number: 7 },
       });
     await full;
+    client.send({
+      type: "subscribe",
+      subscriptionId: "inbox",
+      scope: { kind: "threads", window: { limit: 20 } },
+    });
+    expect(await client.next()).toMatchObject({ type: "snapshot", subscriptionId: "inbox" });
     release();
     const replies: ServerMessage[] = [];
     for (let index = 0; index < ops.length; index++) replies.push(await client.next());
@@ -85,6 +94,7 @@ async function runBurst(
       logged.map((warning) => ("op" in warning.fields ? warning.fields.op : undefined)).toSorted(),
     ).toEqual(ops.toSorted());
   } finally {
+    release();
     await client.close();
     await server.close();
     await runtime.close();
@@ -92,6 +102,10 @@ async function runBurst(
     await rm(root, { recursive: true, force: true });
   }
 }
+
+test("the inbox snapshot arrives while a pull request list waits for the forge", async () => {
+  await runBurst(["forge.pr.list"]);
+});
 
 test("a PR panel's burst of single-command reads waits its turn at eight", async () => {
   // Each merge-state read is one `gh` command, so twelve of them may hold
