@@ -15,6 +15,10 @@ const MAX_VALUES: usize = 512;
 const MAX_CONFIG_OPTIONS: usize = 64;
 const MAX_MODES: usize = 128;
 const MAX_LABEL_UNITS: usize = 256;
+/// `label = z.string().min(1).max(256)` (`selectors.ts:5`): a zod bound, so code points.
+const MAX_LABEL_CODE_POINTS: usize = 256;
+/// `category: z.string().max(128)` (`selectors.ts:11`): a zod bound, so code points.
+const MAX_CATEGORY_CODE_POINTS: usize = 128;
 const MAX_DESCRIPTION_UNITS: usize = 2048;
 
 /// Unicode `Cc` (control), `Cf` (format), `Zl` (line separator), `Zp` (paragraph separator).
@@ -77,8 +81,8 @@ pub fn display_label(text: &str) -> String {
 
 fn parse_label(value: Option<&Value>) -> Option<String> {
     let text = value?.as_js_str()?;
-    let units = text.len_utf16();
-    if units == 0 || units > MAX_LABEL_UNITS {
+    let code_points = text.as_str().chars().count();
+    if code_points == 0 || code_points > MAX_LABEL_CODE_POINTS {
         return None;
     }
     Some(text.to_string())
@@ -254,7 +258,7 @@ pub fn session_selectors(
             let category = map
                 .get("category")
                 .and_then(Value::as_js_str)
-                .filter(|c| c.len_utf16() <= 128)
+                .filter(|c| c.as_str().chars().count() <= MAX_CATEGORY_CODE_POINTS)
                 .map(ToString::to_string);
             let Some(values) = select_values(options) else {
                 continue;
@@ -482,4 +486,74 @@ pub fn access_mode_offers(
         }
     }
     offers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_selectors;
+    use ace_json::json;
+
+    /// `label` and `category` are zod bounds: code points, so an astral id fits at the
+    /// limit and one past it does not (rule 17).
+    #[test]
+    fn selector_label_and_category_bounds_count_code_points() {
+        let id = "\u{1F600}".repeat(256);
+        assert_eq!(id.chars().count(), 256);
+        assert_eq!(id.encode_utf16().count(), 512);
+        let raw = json!({
+            "configOptions": [{
+                "id": id,
+                "category": "model",
+                "type": "select",
+                "options": [{ "value": "a" }]
+            }]
+        });
+        let selectors = session_selectors(&raw, None, false);
+        assert_eq!(
+            selectors
+                .model
+                .as_ref()
+                .and_then(|m| m.config_id.as_deref()),
+            Some(id.as_str())
+        );
+        let over = "\u{1F600}".repeat(257);
+        let raw = json!({
+            "configOptions": [{
+                "id": over,
+                "category": "model",
+                "type": "select",
+                "options": [{ "value": "a" }]
+            }]
+        });
+        assert!(session_selectors(&raw, None, false).model.is_none());
+
+        // `category: z.string().max(128)`: a kept category keys the option, a dropped one
+        // falls back to the option's own id (here `mode`).
+        let kept = "\u{1F600}".repeat(128);
+        let raw = json!({
+            "configOptions": [{
+                "id": "mode",
+                "category": kept,
+                "type": "select",
+                "options": [{ "value": "plan" }]
+            }]
+        });
+        assert!(
+            session_selectors(&raw, None, false).mode.is_none(),
+            "128 code points are kept, so they key the option"
+        );
+        let dropped = "\u{1F600}".repeat(129);
+        let raw = json!({
+            "configOptions": [{
+                "id": "mode",
+                "category": dropped,
+                "type": "select",
+                "options": [{ "value": "plan" }]
+            }]
+        });
+        assert!(
+            session_selectors(&raw, None, false).mode.is_some(),
+            "129 code points are dropped, so the id keys it"
+        );
+    }
 }

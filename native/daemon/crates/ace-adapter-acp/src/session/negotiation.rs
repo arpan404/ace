@@ -141,7 +141,8 @@ pub fn bridge_subagents(raw: &Value, profile: Option<&CompatibilityProfile>) -> 
         let Some(text) = cap.as_js_str() else {
             return false;
         };
-        if text.len_utf16() > 128 {
+        // `z.string().max(128)` is a zod bound: code points, not UTF-16 units (rule 17).
+        if text.as_str().chars().count() > 128 {
             return false;
         }
         if text.as_str() == "nativeSubagentSessions" {
@@ -512,6 +513,43 @@ mod tests {
     };
     use crate::session::quirks::AcpSessionQuirks;
     use ace_json::{Map, Value, json};
+
+    fn subagent_profile() -> CompatibilityProfile {
+        CompatibilityProfile {
+            id: "codex-acp".to_owned(),
+            agent: "codex".to_owned(),
+            version: "1.0.0".to_owned(),
+            compatible: None,
+            legacy_model: true,
+            deny_selectors: false,
+            deny_resume: false,
+            deny_http_mcp: false,
+            subagent_sessions: true,
+        }
+    }
+
+    /// The AIR capability is `z.string().max(128)`: a 128-emoji capability (256 units) is
+    /// admitted and 129 are not (rule 17).
+    #[test]
+    fn the_air_capability_bound_counts_code_points() {
+        let profile = subagent_profile();
+        let declaration = |extra: String| {
+            json!({
+                "_meta": { "jetbrains": { "air": {
+                    "version": 1,
+                    "capabilities": [extra, "nativeSubagentSessions"]
+                } } }
+            })
+        };
+        assert!(bridge_subagents(
+            &declaration("\u{1F600}".repeat(128)),
+            Some(&profile)
+        ));
+        assert!(!bridge_subagents(
+            &declaration("\u{1F600}".repeat(129)),
+            Some(&profile)
+        ));
+    }
 
     fn gemini_profile() -> CompatibilityProfile {
         CompatibilityProfile {

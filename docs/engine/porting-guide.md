@@ -1345,11 +1345,17 @@ Later, not part of the pilot (owner decision 4).
 
 #### E3-acp.2 Prompts, steering and close
 
+- **Files**: `ace-adapter-acp/src/session/{input.rs,content.rs,commands.rs,resolve.rs}`: the send,
+  its queue and steering (`session.ts:591`-`:797`); the prompts one send becomes and the parts in
+  them (`content.ts:85`, `native-command-inputs.ts:3`); interrupts, selections and the close
+  (`:536`-`:590`, `:856`-`:940`); and the answer to an agent's request with its validation
+  (`:820`-`:841`, `interactions.ts:273`).
 - **Ports**: `send`, `steerNow` (`:644`–`:660`: `fence.current()` then the `_session/steering`
   request in one synchronous step), `interrupt`, `resolve`, `stopTask`, `setModel`, `setMode`,
   `close` (`:901`–`:940`, with the Windows `stopTreeAfterEof` staying TypeScript through the
   facade).
-- **Admission**: as E3-codex.4, with ACP's check (`session.ts:645`).
+- **Admission**: as E3-codex.4, with ACP's check (`session.ts:645`). The race orders are written
+  out at `session/input.rs`'s `send`, one Rust test each in `session/tests/input.rs`.
 
 #### E3-acp.3 Binding, facade, switch and proof
 

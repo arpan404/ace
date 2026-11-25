@@ -4,16 +4,22 @@
 //! selections, settlement, and the session's own lifecycle.
 
 mod capture;
+mod commands;
 mod handshake;
+mod input;
 mod lifecycle;
+mod queue;
+mod resolve;
 mod selections;
 mod settlement;
 
 use ace_adapter_api::frame::FrameDirection;
-use ace_json::Value;
+use ace_json::{JsString, Value, json};
 
-use super::core::{AcpCore, AcpEffect};
+use super::core::{AcpCore, AcpCoreConfig, AcpEffect};
+use super::input::InputSend;
 use super::negotiation::CompatibilityProfile;
+use super::quirks::AcpSessionQuirks;
 
 fn ack_writes(core: &mut AcpCore, effects: &mut Vec<AcpEffect>) {
     let mut i = 0;
@@ -78,4 +84,124 @@ fn gemini_profile() -> CompatibilityProfile {
         deny_http_mcp: false,
         subagent_sessions: false,
     }
+}
+
+/// One turn's identity, as the engine's fence hands it over.
+pub(super) struct TestFence {
+    pub turn: Option<String>,
+    pub current: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ace_adapter_api::session::SteerFence for TestFence {
+    fn turn(&self) -> Option<&str> {
+        self.turn.as_deref()
+    }
+
+    fn current(&self) -> bool {
+        self.current.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// A fence that is current, or already stale, at admission.
+pub(super) fn fence(current: bool) -> crate::session::input::Fence {
+    let (fence, _state) = live_fence(current);
+    fence
+}
+
+/// A fence whose answer can change between admission and the drain.
+pub(super) fn live_fence(
+    current: bool,
+) -> (
+    crate::session::input::Fence,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(current));
+    let fence = TestFence {
+        turn: Some("turn-1".to_owned()),
+        current: state.clone(),
+    };
+    (
+        crate::session::input::Fence::new(std::sync::Arc::new(fence)),
+        state,
+    )
+}
+
+pub(super) fn text(value: &str) -> Value {
+    json!({ "type": "text", "text": value })
+}
+
+pub(super) fn session_core(thread: &str) -> AcpCore {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        thread,
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    core.native_session_id = JsString::from("sess-1");
+    core
+}
+
+pub(super) fn send(
+    core: &mut AcpCore,
+    operation: u64,
+    delivery: ace_adapter_api::session::Delivery,
+    fence: Option<crate::session::input::Fence>,
+) -> Vec<AcpEffect> {
+    let input = vec![text("hello")];
+    let mut effects = Vec::new();
+    core.send(
+        InputSend {
+            operation,
+            input: &input,
+            delivery,
+            command_id: None,
+            origin: None,
+            fence,
+        },
+        &mut effects,
+    );
+    ack_writes(core, &mut effects);
+    effects
+}
+
+/// A core with one prompt in flight, answered by the caller.
+pub(super) fn core_with_prompt(thread: &str) -> (AcpCore, Value) {
+    let mut core = session_core(thread);
+    let sent = send(
+        &mut core,
+        1,
+        ace_adapter_api::session::Delivery::Queue,
+        None,
+    );
+    let id = sent_id(&sent, "session/prompt").unwrap_or_default();
+    assert!(core.prompt_id.is_some(), "the prompt is in flight");
+    (core, id)
+}
+
+/// The id the agent answers, read from the request frame the session just sent.
+pub(super) fn sent_id(effects: &[AcpEffect], method: &str) -> Option<Value> {
+    sent_json_messages(effects)
+        .into_iter()
+        .find(|message| message.get("method").and_then(Value::as_str) == Some(method))
+        .and_then(|message| message.get("id").cloned())
+}
+
+/// The fake agent's `_session/steering` answer (`testing/acp-server.ts:234`-`:237`).
+pub(super) fn steer_reply(id: &Value, outcome: &str) -> Vec<u8> {
+    let result = match outcome {
+        "promptRequired" => json!({ "outcome": outcome, "reason": "noRunningTurn" }),
+        _ => json!({ "outcome": outcome }),
+    };
+    format!(
+        "{}\n",
+        json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_json()
+    )
+    .into_bytes()
+}
+
+pub(super) fn prompt_reply(id: &Value, reason: &str) -> Vec<u8> {
+    format!(
+        "{}\n",
+        json!({ "jsonrpc": "2.0", "id": id, "result": { "stopReason": reason } }).to_json()
+    )
+    .into_bytes()
 }

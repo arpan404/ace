@@ -251,7 +251,7 @@ impl AcpCore {
                         }
                     }
                     Err(err) => {
-                        self.report_selection_error(&err, &active, effects);
+                        self.report_selection_error(&err, &active.pending, effects);
                         if active.swallow {
                             announce = true;
                         } else {
@@ -265,7 +265,7 @@ impl AcpCore {
                     .configuration
                     .apply_select_error(&active.pending, &message);
                 self.push_config_effects(cfg, effects);
-                self.report_selection_error(&err, &active, effects);
+                self.report_selection_error(&err, &active.pending, effects);
                 if active.swallow {
                     announce = true;
                 } else {
@@ -342,22 +342,22 @@ impl AcpCore {
     }
 
     /// `configuration.announceMode()`: the daemon hears the mode that actually runs.
-    fn announce_running_mode(&mut self, effects: &mut Vec<AcpEffect>) {
+    pub(crate) fn announce_running_mode(&mut self, effects: &mut Vec<AcpEffect>) {
         if let Some(effect) = self.configuration.announce_mode() {
             self.push_config_effects(vec![effect], effects);
         }
     }
 
-    fn report_selection_error(
+    pub(crate) fn report_selection_error(
         &mut self,
         error: &SelectError,
-        active: &ActiveSelection,
+        pending: &PendingSelection,
         effects: &mut Vec<AcpEffect>,
     ) {
         if let SelectError::LegacyModelRejected { unsupported, .. } = error {
             let mut note = Map::with_capacity(3);
             note.insert("event", Value::from("acp-legacy-model-rejected"));
-            note.insert("requested", Value::from(active.pending.value.as_str()));
+            note.insert("requested", Value::from(pending.value.as_str()));
             note.insert("unsupported", Value::Bool(*unsupported));
             self.emit_note("diagnostic", Value::Object(note), effects);
         }

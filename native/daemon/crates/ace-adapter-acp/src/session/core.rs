@@ -6,7 +6,7 @@
 //! `PeerEffect::Frame` handler, in frame order, before any subsequent notification or reply in
 //! the same stdout chunk.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use ace_adapter_api::frame::FrameDirection;
 use ace_json::{JsString, Map, Value};
@@ -24,6 +24,7 @@ use super::mcp::McpConfig;
 use super::negotiation::{CompatibilityProfile, ProfileFit};
 use super::open::{OPEN_STALL_MS, OpenState, ResumeTarget};
 use super::protocol::{agent_methods, client_methods};
+use super::queue::{ActivePrompt, BatchState, Job, SteerFlight};
 use super::quirks::AcpSessionQuirks;
 use super::resume_error::{ResumeFailure, ResumeFailureCode};
 use super::routing::SessionRouting;
@@ -66,6 +67,24 @@ impl AcpErrorWire {
     pub fn rpc_error(message: impl Into<String>) -> Self {
         Self {
             code: CODE_RPC_ERROR,
+            message: message.into(),
+        }
+    }
+
+    /// The provider refused before taking any of the input
+    /// (`ace_adapter_api::bridge::queue::INPUT_REJECTED`).
+    pub fn input_rejected(message: impl Into<String>) -> Self {
+        Self {
+            code: ace_adapter_api::bridge::queue::INPUT_REJECTED,
+            message: message.into(),
+        }
+    }
+
+    /// The turn the input was meant to join ended
+    /// (`ace_adapter_api::bridge::queue::STEER_TARGET_LOST`).
+    pub fn steer_target_lost(message: impl Into<String>) -> Self {
+        Self {
+            code: ace_adapter_api::bridge::queue::STEER_TARGET_LOST,
             message: message.into(),
         }
     }
@@ -176,7 +195,7 @@ pub struct AcpCore {
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<String>,
     pub(crate) mcp: Option<McpConfig>,
-    secrets: Vec<String>,
+    pub(crate) secrets: Vec<String>,
 
     pub(crate) peer: RpcPeer,
     stdout_framer: LineFramer,
@@ -188,7 +207,24 @@ pub struct AcpCore {
     pub shells: ShellSettlement,
     pub deadlines: Deadlines,
     pub pending: IndexMap<JsString, PendingInteraction>,
-    cancelling_children: IndexSet<JsString>,
+    pub(crate) cancelling_children: IndexSet<JsString>,
+
+    /// The prompts waiting for a turn (`session.ts:677`-`:700`, `:704`-`:797`).
+    pub(crate) queue: VecDeque<Job>,
+    pub(crate) queued_bytes: usize,
+    /// A prompt of this session's is in flight: nothing else may go out.
+    pub(crate) active: bool,
+    pub(crate) active_prompt: Option<ActivePrompt>,
+    /// Steering requests awaiting their reply, by internal call (`session.ts:644`-`:663`).
+    pub(crate) steering: IndexMap<u64, SteerFlight>,
+    /// A selection is running: no prompt goes out meanwhile (`session.ts:707`).
+    pub(crate) selecting: bool,
+    /// Selections a command asked for, in the order asked (`session.ts:534`-`:540`).
+    pub(crate) selection_queue: VecDeque<super::commands::QueuedSelection>,
+    pub(crate) selection_flight: Option<super::commands::SelectionFlight>,
+    pub(crate) next_batch: u64,
+    /// The promises sends settle, with their prompts (`session.ts:609`, `:671`).
+    pub(crate) batches: IndexMap<u64, BatchState>,
 
     pub native_session_id: JsString,
     pub steer_via_cancel: bool,
@@ -208,7 +244,9 @@ pub struct AcpCore {
     pub(crate) open_stalled: bool,
     pub(crate) open: Option<OpenState>,
     next_internal_id: u64,
-    process_exited: bool,
+    pub(crate) process_exited: bool,
+    /// The MCP lease was ended, once (`session.ts:912`).
+    pub(crate) lease_ended: bool,
 }
 
 impl AcpCore {
@@ -263,6 +301,16 @@ impl AcpCore {
             deadlines: Deadlines::new(),
             pending: IndexMap::new(),
             cancelling_children: IndexSet::new(),
+            queue: VecDeque::new(),
+            queued_bytes: 0,
+            active: false,
+            active_prompt: None,
+            steering: IndexMap::new(),
+            selecting: false,
+            selection_queue: VecDeque::new(),
+            selection_flight: None,
+            next_batch: 1,
+            batches: IndexMap::new(),
             native_session_id: JsString::default(),
             steer_via_cancel: false,
             wanted_mode: None,
@@ -279,6 +327,7 @@ impl AcpCore {
             open: None,
             next_internal_id: 1,
             process_exited: false,
+            lease_ended: false,
         };
         let mut effects = Vec::with_capacity(1);
         let mut start_note = Map::with_capacity(1);
@@ -465,6 +514,8 @@ impl AcpCore {
         self.closed = true;
         self.clear_all_deadlines(&mut effects);
         self.cancel_questions(None, None, &mut effects);
+        self.end_lease(&mut effects);
+        self.reject_queue("ACP process exited", &mut effects);
 
         let peer_effects = self.peer.close("ACP process exited");
         self.apply_peer_effects(peer_effects, &mut effects);
@@ -494,6 +545,19 @@ impl AcpCore {
         effects
     }
 
+    /// `ctx.mcp?.end()` (`session.ts:73`, `:259`, `:912`): the lease ends once, and the
+    /// facade owns it, so it hears it as a context callback.
+    pub(crate) fn end_lease(&mut self, effects: &mut Vec<AcpEffect>) {
+        if self.lease_ended {
+            return;
+        }
+        self.lease_ended = true;
+        effects.push(AcpEffect::Callback {
+            name: "endMcp",
+            json: "[]".to_owned(),
+        });
+    }
+
     pub(crate) fn fail(&mut self, message: &str, effects: &mut Vec<AcpEffect>) {
         if self.closed {
             return;
@@ -509,6 +573,8 @@ impl AcpCore {
         self.emit_note("transport", Value::Object(note), effects);
 
         self.cancel_questions(None, None, effects);
+        self.end_lease(effects);
+        self.reject_queue(&clean_msg, effects);
         let peer_effects = self.peer.stop_requests(&clean_msg);
         self.apply_peer_effects(peer_effects, effects);
         self.fail_open(AcpErrorWire::open_failed(clean_msg.clone()), effects);
@@ -627,7 +693,13 @@ impl AcpCore {
             return;
         }
         if id & INTERNAL_CALL_BIT != 0 {
-            // Internal open call whose open state already settled (e.g. stall timeout).
+            // Internal calls: a steer's reply, a selection's reply, or an open call whose
+            // state already settled (a stall timeout, say).
+            if self.finish_steer(id, mapped.clone(), effects)
+                || self.finish_selection(id, mapped.clone(), effects)
+            {
+                return;
+            }
             return;
         }
         let settled = match mapped {
@@ -692,11 +764,29 @@ impl AcpCore {
         if self.prompt_id.as_ref() != Some(&id) {
             return;
         }
+        if let Some(error) = message.get("error") {
+            // `promptEnd` reads an error reply as the empty reason (`settlement.ts:18`), so
+            // `replied` ends the turn first: the root's grace is cleared, its questions
+            // answered and its implicit children ended (`session.ts:305`). Then the send
+            // rejects with the agent's error (`:771`), and ace's guidance is not spent.
+            let reported = error
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| error.to_json());
+            self.prompt_id = None;
+            self.prompt_ended("", effects);
+            self.prompt_refused(reported, effects);
+            return;
+        }
         let Some((reason, _)) = prompt_end(value) else {
+            // No stop reason: completion is unconfirmed (`session.ts:774`-`:778`).
+            self.fail("ACP prompt completion is unconfirmed", effects);
             return;
         };
         self.prompt_id = None;
         self.prompt_ended(&reason, effects);
+        self.prompt_replied(effects);
     }
 
     /// Close prompt-scoped work immediately when the prompt reply frame arrives (`session.ts:314`–`:333`).
@@ -948,7 +1038,7 @@ impl AcpCore {
         push_deadline_effects(self.deadlines.clear(name), effects);
     }
 
-    fn clear_all_deadlines(&mut self, effects: &mut Vec<AcpEffect>) {
+    pub(crate) fn clear_all_deadlines(&mut self, effects: &mut Vec<AcpEffect>) {
         push_deadline_effects(self.deadlines.clear_all(), effects);
     }
 
