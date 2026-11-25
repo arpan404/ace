@@ -48,18 +48,26 @@ pub fn disarm(core: &Core, thread: &ThreadId) {
 pub fn schedule(core: &Core, thread: &ThreadId) {
     let deps = core.actor_deps.borrow().clone();
     let now = core.ports.now();
-    let started = core.with_state(|state| {
+    let current = core.with_state(|state| {
         state.actors.by_thread.get(thread).map(|actor| {
             (
-                actor.next_deadline(&deps),
+                actor.generation,
                 actor.session_attached,
                 actor.release_requested,
             )
         })
     });
-    let Ok(Some((translator, session_attached, release_requested))) = started else {
+    let Ok(Some((generation, session_attached, release_requested))) = current else {
         return;
     };
+    // The translator is taken out for the call: a JavaScript one can re-enter the engine.
+    let mut taken = deps.take_translator(thread);
+    let translator = match &mut taken {
+        Some((_, crate::actor::deps::ActorTranslator::Js(js))) => js.next_deadline(),
+        Some((_, crate::actor::deps::ActorTranslator::Native(native))) => native.next_deadline(),
+        None => None,
+    };
+    deps.return_translator(thread, generation, taken);
     let view = match deps.repo.schedule_view(core, thread) {
         Ok(Some(view)) => view,
         Ok(None) => return disarm(core, thread),

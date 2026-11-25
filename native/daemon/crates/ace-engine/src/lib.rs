@@ -134,7 +134,9 @@ pub struct State {
     /// The probe's one stub (E5.1): the recovery-candidate scan answers with no rows so
     /// `ready()` can resolve before E5.3 lands. E5.3 deletes it.
     pub probe_empty_candidates: bool,
-    pub actors: actor::Actors,                 // E5.2
+    pub actors: actor::Actors, // E5.2
+    /// A live-buffer flush task is queued on the pump (E5.2 step 16): the coalescing flag.
+    pub live_flush: std::rc::Rc<std::cell::Cell<bool>>,
     pub repo: repository::Repo,                // E5.3
     pub commands: commands::Commands,          // E5.4
     pub sessions: sessions::Sessions,          // E5.6
@@ -153,6 +155,7 @@ impl Default for State {
             flush_depth: 0,
             probe_empty_candidates: false,
             actors: actor::Actors::default(),
+            live_flush: std::rc::Rc::new(std::cell::Cell::new(false)),
             repo: repository::Repo,
             commands: commands::Commands,
             sessions: sessions::Sessions,
@@ -406,6 +409,11 @@ impl Core {
     /// Drops the waker a thread registered when its actor goes away (E5.2 calls this).
     pub fn unregister_waker(&self, thread: &str) {
         self.wakes.borrow_mut().unregister(thread);
+    }
+
+    /// Wakers currently registered: the probe's check that a discarded actor left none.
+    pub fn registered(&self) -> usize {
+        self.wakes.borrow().registered()
     }
 
     /// The flush depth and how many actor seals flush has asked for (the probe's, E5.1).

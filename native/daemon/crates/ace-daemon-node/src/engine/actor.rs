@@ -33,6 +33,10 @@ pub struct ActorRuntime {
     pub helper: RefCell<Option<Rc<Helper>>>,
     /// Each native session's flow mirror.
     pub flows: RefCell<HashMap<String, NativeFlow>>,
+    /// The buffered live writes' snapshots by token: the shell calls `persist` and `committed`
+    /// back for an engine-sourced entry (E5.2 step 16).
+    pub snapshots: Rc<RefCell<HashMap<u64, Rc<dyn LiveSnapshot>>>>,
+    pub next_snapshot: Rc<std::cell::Cell<u64>>,
     /// The probe's log, when `attachSession` installed the probe's dependencies.
     #[cfg(feature = "engine-probe")]
     pub probe: RefCell<Option<Rc<super::probe_actor::ProbeLog>>>,
@@ -64,7 +68,7 @@ pub struct LiveHooks {
     pub live_write_blocked: FunctionRef<(), bool>,
     pub prepare_live_write: FunctionRef<f64, Option<String>>,
     pub buffer_live_write: FunctionRef<String, Option<String>>,
-    pub flush_due: FunctionRef<(), ()>,
+    pub run_scheduled: FunctionRef<(), ()>,
     pub flush_live_writes: FunctionRef<(), ()>,
     pub is_store_retry: FunctionRef<String, bool>,
 }
@@ -73,6 +77,8 @@ pub struct LiveHooks {
 pub struct JsLiveStore {
     ports: Rc<JsPorts>,
     hooks: Rc<RefCell<Option<LiveHooks>>>,
+    snapshots: Rc<RefCell<HashMap<u64, Rc<dyn LiveSnapshot>>>>,
+    next_snapshot: Rc<std::cell::Cell<u64>>,
 }
 
 impl JsLiveStore {
@@ -132,25 +138,36 @@ impl LiveStore for JsLiveStore {
         thread: &str,
         events: &[Value],
         at: f64,
-        _snapshot: Rc<dyn LiveSnapshot>,
+        snapshot: Rc<dyn LiveSnapshot>,
     ) -> Result<(), EngineError> {
+        let token = self.next_snapshot.get() + 1;
+        self.next_snapshot.set(token);
+        self.snapshots.borrow_mut().insert(token, snapshot);
         let text = ace_json::to_string(&ace_json::json!({
             "thread": thread.to_string(),
             "events": Value::Array(events.to_vec().into()),
             "at": at,
+            "token": token,
         }));
         match self.with(|hooks| self.ports.call_port(&hooks.buffer_live_write, text)) {
             Some(Ok(None)) => Ok(()),
             Some(Ok(Some(message))) | Some(Err(PortError::Threw(message))) => {
+                self.snapshots.borrow_mut().remove(&token);
                 Err(EngineError::Port(PortError::Threw(message)))
             }
-            Some(Err(error)) => Err(EngineError::Port(error)),
-            None => Err(EngineError::Port(PortError::Unbound("the live buffer"))),
+            Some(Err(error)) => {
+                self.snapshots.borrow_mut().remove(&token);
+                Err(EngineError::Port(error))
+            }
+            None => {
+                self.snapshots.borrow_mut().remove(&token);
+                Err(EngineError::Port(PortError::Unbound("the live buffer")))
+            }
         }
     }
 
-    fn flush_due(&self) {
-        let _ = self.with(|hooks| self.ports.call_port(&hooks.flush_due, ()));
+    fn run_scheduled(&self) {
+        let _ = self.with(|hooks| self.ports.call_port(&hooks.run_scheduled, ()));
     }
 
     fn flush_live_writes(&self) {
@@ -180,9 +197,14 @@ pub fn runtime(
     idle_ms: f64,
 ) -> (Rc<ActorRuntime>, Rc<RefCell<Option<LiveHooks>>>) {
     let hooks = Rc::new(RefCell::new(None));
+    let snapshots: Rc<RefCell<HashMap<u64, Rc<dyn LiveSnapshot>>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let next_snapshot = Rc::new(std::cell::Cell::new(0));
     let live = Rc::new(JsLiveStore {
         ports: Rc::clone(&ports),
         hooks: Rc::clone(&hooks),
+        snapshots: Rc::clone(&snapshots),
+        next_snapshot: Rc::clone(&next_snapshot),
     });
     let acks = Rc::new(JsAcks {
         ports: Rc::clone(&ports),
@@ -201,6 +223,8 @@ pub fn runtime(
             acks,
             helper: RefCell::new(None),
             flows: RefCell::new(HashMap::new()),
+            snapshots,
+            next_snapshot,
             #[cfg(feature = "engine-probe")]
             probe: RefCell::new(None),
         }),
@@ -213,9 +237,9 @@ impl NativeEngine {
     /// `liveThreadIds()` (`index.ts:1049`).
     #[napi]
     pub fn live_thread_ids(&self) -> Vec<String> {
-        self.engine
-            .core()
-            .with_state(|state| ace_engine::actor::live_thread_ids(state))
+        let core = self.engine.core();
+        ace_engine::actor::promote_all(core);
+        core.with_state(|state| ace_engine::actor::live_thread_ids(state))
             .unwrap_or_default()
     }
 
@@ -223,6 +247,7 @@ impl NativeEngine {
     #[napi]
     pub fn workload(&self) -> napi::Result<String> {
         let core = self.engine.core();
+        ace_engine::actor::promote_all(core);
         let deps = core.actor_deps.borrow().clone();
         let (sessions, frames, bytes) = core
             .with_state(|state| {
@@ -316,12 +341,16 @@ impl NativeEngine {
         let envelope = super::frames::read_envelope(&frame, is_object, certified)?;
         let channel_sdk = super::frames::string_property(&frame, "channel")
             .is_some_and(|channel| channel == "sdk");
-        let measure = match (bytes, measure_error) {
-            (Some(bytes), _) => Measure::Certified {
-                bytes: bytes as usize,
-            },
-            (None, Some(message)) => Measure::Bounded(Err(message)),
-            (None, None) => Measure::Bounded(Ok(0)),
+        let measure = if certified {
+            // Only the shell's certificate admits the count without a bounded re-measure.
+            Measure::Certified {
+                bytes: bytes.unwrap_or(0.0) as usize,
+            }
+        } else {
+            match measure_error {
+                Some(message) => Measure::Bounded(Err(message)),
+                None => Measure::Bounded(Ok(bytes.unwrap_or(0.0) as usize)),
+            }
         };
         let ack = intake::frame(
             core,
@@ -339,9 +368,20 @@ impl NativeEngine {
             Some(call as u64),
         );
         Ok(match ack {
-            intake::Ack::Done => "done".to_string(),
-            intake::Ack::Rejected(message) => format!("rejected:{message}"),
-            intake::Ack::Batch => "batch".to_string(),
+            intake::Ack::Done => {
+                // The shell answers at once; the facade's own call must not dangle.
+                self.ports.settle_call(call as u64, None);
+                "done".to_string()
+            }
+            intake::Ack::Rejected(message) => {
+                // The shell returns its own rejection; this call settles behind it.
+                self.ports.settle_call(call as u64, None);
+                format!("rejected:{message}")
+            }
+            intake::Ack::Batch(call) => match call {
+                Some(call) => format!("batch:{call}"),
+                None => "batch".to_string(),
+            },
             intake::Ack::AfterFlush(receiver) => {
                 let ports = Rc::clone(&self.ports);
                 let core = Rc::clone(core);
@@ -376,6 +416,42 @@ impl NativeEngine {
         task.detach();
     }
 
+    /// The store's live-write quarantine (`index.ts:367`–`:369`): fail the thread's actor.
+    #[napi]
+    pub fn actor_quarantine(&self, env: Env, thread_id: String, message: String) {
+        let _guard = self.ports.enter(env);
+        ace_engine::actor::failure::quarantine(self.engine.core(), &thread_id, &message);
+    }
+
+    /// A buffered engine write's snapshot, inside the flush's transaction (E5.2 step 16).
+    #[napi]
+    pub fn persist_live(&self, token: f64) -> napi::Result<()> {
+        let snapshot = self.actor.snapshots.borrow().get(&(token as u64)).cloned();
+        match snapshot {
+            Some(snapshot) => snapshot.persist().map_err(engine_error),
+            None => Ok(()),
+        }
+    }
+
+    /// After the outermost commit, before the buffer retires the batch: the batch is durable.
+    #[napi]
+    pub fn committed_live(&self, token: f64) {
+        let snapshot = self.actor.snapshots.borrow_mut().remove(&(token as u64));
+        if let Some(snapshot) = snapshot {
+            snapshot.committed();
+        }
+    }
+
+    /// The shell's deadline and retry timer: queue one live-buffer flush on the pump
+    /// (E5.2 step 16). Synchronous; the task runs from a later pump, outside any transaction.
+    #[napi]
+    pub fn actor_flush_due(&self, env: Env) {
+        let _guard = self.ports.enter(env);
+        let core = self.engine.core();
+        let live = Rc::clone(&self.actor.live) as Rc<dyn LiveStore>;
+        ace_engine::frames::live::flush_due(core, &live);
+    }
+
     /// The shell's live-buffer hooks, installed once by `liveStorePort`.
     #[napi]
     pub fn attach_live_store(&self, hooks: Object) -> napi::Result<()> {
@@ -403,9 +479,9 @@ impl NativeEngine {
             buffer_live_write: hooks
                 .get_named_property("bufferLiveWrite")
                 .map_err(|_| napi::Error::from_reason("bufferLiveWrite is missing"))?,
-            flush_due: hooks
-                .get_named_property("flushDue")
-                .map_err(|_| napi::Error::from_reason("flushDue is missing"))?,
+            run_scheduled: hooks
+                .get_named_property("runScheduled")
+                .map_err(|_| napi::Error::from_reason("runScheduled is missing"))?,
             flush_live_writes: hooks
                 .get_named_property("flushLiveWrites")
                 .map_err(|_| napi::Error::from_reason("flushLiveWrites is missing"))?,

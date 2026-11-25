@@ -44,6 +44,50 @@ export interface EngineProbe {
   ): void;
   /** E5.2's scripted session: its context, its abort count, its retirement and its log. */
   attachSession(threadId: string, spec: AttachSpec): Promise<ProbeSession>;
+  /** The next `apply` calls throw a busy error before writing. */
+  failApply(threadId: string, times: number): void;
+  /** The next live `persist` calls throw a busy error. */
+  failPersist(threadId: string, times: number): void;
+  /** Invalidates a provisional actor's reservation before its first poll. */
+  loseReservation(threadId: string): void;
+  /** Seals the pending frame batch now, as a flush would. */
+  seal(threadId: string): void;
+  /** Queues one labelled operation behind the frames sealed before it. */
+  enqueue(threadId: string, label: string): void;
+  /** Queues what `onExit` runs: a retire op behind the batch. */
+  enqueueRetire(threadId: string): void;
+  /** Runs the front op inside an open transaction: the outermost rule must fail it. */
+  runInTransaction(threadId: string): void;
+  /** The actor's generation now. */
+  generation(threadId: string): number;
+  /** Wakers the engine has registered. */
+  registeredWakers(): number;
+  /** One native frame through the native intake, with its acknowledgement. */
+  nativeFrame(
+    threadId: string,
+    generation: number,
+    seq: number,
+    channel: string,
+    data: string,
+  ): Promise<void>;
+  /** One frame through the bridge's own path (payload limits and their warning). */
+  bridgeFrame(
+    threadId: string,
+    generation: number,
+    seq: number,
+    channel: string,
+    data: string,
+  ): void;
+  /** Mirrors the actor's flow into a native gate once, recording `set_paused`. */
+  nativeFlow(threadId: string): void;
+  /** Installs the probe repository and links without creating an actor. */
+  useDeps(threadId: string): void;
+  /** Makes the probe's native translator the thread's translator. */
+  attachNativeTranslator(threadId: string): void;
+  /** What an `onExit` does: retires the generation (the probe's). */
+  retire(threadId: string): void;
+  /** The thread's apply entries, as JSON. */
+  applied(threadId: string): string;
   /** The labels scripted tasks marked, in order. */
   marks(): string[];
   /** The flush depth and how many actor seals flushes have asked for. */
@@ -91,6 +135,8 @@ export interface ProbeActorLog {
   retired: number[];
   snapshots: string[];
   live: unknown[];
+  enqueued: string[];
+  flowed: boolean[];
 }
 
 /** One scripted session. */
@@ -189,7 +235,11 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
     throw new Error("the engine seam needs ACE_ENGINE=native and ACE_STORE=native");
   const home = input.options?.home ?? mkdtempSync(join(tmpdir(), "ace-engine-seam-"));
   const path = join(home, "events.sqlite");
-  const store = new Store(path);
+  const clock = new ManualClock();
+  // The store's live buffer shares the manual clock, so a deadline fires when the test says.
+  const store = new Store(path, console.error, {
+    bufferScheduler: { delay: (callback: () => void, ms: number) => clock.setTimer(callback, ms) },
+  });
   if (input.seed) await input.seed(store);
   if (input.seedWithTypeScript) {
     const { spawnSync } = await import("node:child_process");
@@ -204,13 +254,18 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
     if (child.status !== 0)
       throw new Error(`the TypeScript seed script exited ${String(child.status)}`);
   }
-  const clock = new ManualClock();
   const ports = portLog();
   const options = logged(input.options ?? {}, clock, ports);
   const engine = new Engine(store, options);
   const native = (engine as unknown as NativeEngine).binding;
   if (native === undefined) throw new Error("the engine seam built the TypeScript engine");
-  const probe = probeFor(native, new FrameTable(), engine as unknown as NativeEngine, options);
+  const probe = probeFor(
+    native,
+    new FrameTable(),
+    engine as unknown as NativeEngine,
+    options,
+    clock,
+  );
   probe.emptyCandidates();
   return {
     store,
@@ -242,6 +297,7 @@ function probeFor(
   frames: FrameTable,
   facade: NativeEngine,
   options: Partial<EngineOptions>,
+  clock: ManualClock,
 ): EngineProbe {
   const required = (name: string) => {
     const member = native[name];
@@ -262,6 +318,7 @@ function probeFor(
   const stats = required("probeStats") as () => string;
   const settle = native.settlePromise?.bind(native);
   if (settle === undefined) throw new Error("the engine binding has no settlePromise");
+  const nativeBatches = new Map<string, Promise<void>>();
   return {
     spawn: (lane, script) => {
       call(lane, JSON.stringify(script));
@@ -347,5 +404,43 @@ function probeFor(
         log: () => JSON.parse(logOf(threadId)) as ProbeActorLog,
       };
     },
+    failApply: (thread, times) => required("probeFailApply")(thread, times),
+    failPersist: (thread, times) => required("probeFailPersist")(thread, times),
+    loseReservation: (thread) => required("probeLoseReservation")(thread),
+    seal: (thread) => required("probeSeal")(thread),
+    enqueue: (thread, label) => required("probeEnqueue")(thread, label),
+    enqueueRetire: (thread) => required("probeEnqueueRetire")(thread),
+    runInTransaction: (thread) => required("probeRunInTransaction")(thread),
+    generation: (thread) => required("probeGeneration")(thread) as number,
+    registeredWakers: () => required("probeRegisteredWakers")() as number,
+    nativeFrame(threadId, generation, seq, channel, data) {
+      const open = nativeBatches.get(threadId);
+      if (open !== undefined) {
+        // Decision 4: every frame of an open batch gets that batch's promise.
+        required("probeNativeFrame")(threadId, generation, seq, channel, data, 0);
+        return open;
+      }
+      const pending = facade.frameCall();
+      required("probeNativeFrame")(threadId, generation, seq, channel, data, pending.call);
+      const promise = pending.promise.finally(() => nativeBatches.delete(threadId));
+      nativeBatches.set(threadId, promise);
+      return promise;
+    },
+    bridgeFrame(threadId, generation, seq, channel, data) {
+      required("probeBridgeFrame")(
+        threadId,
+        generation,
+        seq,
+        channel,
+        data,
+        clock.now(),
+        clock.now(),
+      );
+    },
+    nativeFlow: (thread) => required("probeNativeFlow")(thread),
+    useDeps: (thread) => required("probeUseDeps")(thread),
+    attachNativeTranslator: (thread) => required("probeAttachNativeTranslator")(thread),
+    retire: (thread) => required("probeRetire")(thread),
+    applied: (thread) => required("probeApplied")(thread) as string,
   };
 }

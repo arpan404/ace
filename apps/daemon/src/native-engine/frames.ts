@@ -9,12 +9,6 @@ import { isStoreRetry } from "../store-busy.ts";
 import type { Store } from "../store.ts";
 import type { NativeEngineHandle } from "./engine.ts";
 
-/** The snapshot an engine live write carries: E5.3 supplies the real one. */
-const engineSnapshot: BufferedSnapshot = {
-  persist() {},
-  committed() {},
-};
-
 /**
  * Installs the engine's live-buffer hooks over the store's public methods. Returns the
  * unsubscribe the facade's terminal cleanup calls.
@@ -46,18 +40,40 @@ export function liveStorePort(store: Store, native: NativeEngineHandle): () => v
         thread: ThreadId;
         events: EventPayload[];
         at: number;
+        token: number;
+      };
+      // The snapshot is Rust's: the shell calls back for this token, never rebuilding it.
+      const snapshot: BufferedSnapshot = {
+        persist: () => {
+          native.persistLive?.(entry.token);
+        },
+        committed: () => {
+          native.committedLive?.(entry.token);
+        },
       };
       try {
-        store.bufferLiveWrite(entry.thread, entry.events, entry.at, engineSnapshot);
+        store.bufferLiveWrite(entry.thread, entry.events, entry.at, snapshot);
         return null;
       } catch (error) {
         return String((error as Error).message ?? error);
       }
     },
-    // Step 16's pumped flush (`runScheduled`) replaces this with the store's own attempt.
-    flushDue: () => store.flushLiveWrites(),
+    // The pump task the deadline and retry timer ask for (step 16): the scheduled-attempt path,
+    // never `flush()`, so a pinned batch still retries.
+    runScheduled: () => store.streaming.runScheduled(),
     flushLiveWrites: () => store.flushLiveWrites(),
     isStoreRetry: (message: string) => isStoreRetry(new Error(message)),
   });
-  return () => {};
+  // With the engine attached the buffer's own timer asks the pump instead of attempting inline.
+  store.streaming.setEngineFlush(() => {
+    native.actorFlushDue?.();
+  });
+  // Live output the store had to drop stops only that thread's session, visibly.
+  const stopQuarantine = store.onLiveWriteQuarantine((thread, error) => {
+    native.actorQuarantine?.(thread, error.message);
+  });
+  return () => {
+    store.streaming.setEngineFlush(undefined);
+    stopQuarantine();
+  };
 }

@@ -160,20 +160,22 @@ async fn yield_once() {
 
 /// `actor(id)` (`index.ts:528`–`:562`): the actor, created at capacity or inside a transaction.
 pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
+    promote_all(core);
     if core.with_state(|state| state.actors.by_thread.contains_key(thread))? {
-        promote_all(core);
         return Ok(());
     }
-    promote_all(core);
     let deps = core.actor_deps.borrow().clone();
     let limits = core.with_state(|state| state.limits)?;
     let retiring = deps.repo.retiring_count(core)?;
     let room = limits.max_active_threads as usize + retiring;
     let open = core.store.is_open();
+    // Victims in insertion order: outside a transaction they are evicted at the call; inside one
+    // they are pledged and moved aside, so a lookup of one builds a fresh actor (step 7).
     let mut victims: Vec<ThreadId> = Vec::new();
+    let mut skipped: Vec<ThreadId> = Vec::new();
     loop {
         let occupied = core.with_state(|state| state.actors.occupied())?;
-        if occupied < room {
+        if occupied.saturating_sub(victims.len()) < room {
             break;
         }
         let candidate = core.with_state(|state| {
@@ -181,42 +183,25 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
                 .actors
                 .by_thread
                 .iter()
-                .find(|(id, actor)| !actor.provisional && !victims.contains(id))
+                .find(|(id, actor)| {
+                    !actor.provisional && !victims.contains(id) && !skipped.contains(id)
+                })
                 .map(|(id, _)| id.clone())
         })?;
         let Some(candidate) = candidate else {
             break;
         };
         if deps.repo.reserved_slot(core, &candidate)? {
-            // A retiring session keeps its actor until its close completes.
-            let occupied_without = core.with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .keys()
-                    .filter(|id| !victims.contains(id) && *id != thread)
-                    .count()
-            })?;
-            if occupied_without == 0 {
-                break;
-            }
-            // Skip it without pledging: mark it as considered for this loop.
-            victims.push(candidate);
-            if core.with_state(|state| state.actors.occupied())? <= room {
-                break;
-            }
+            // A retiring session keeps its actor until its close completes: skip, never pledge.
+            skipped.push(candidate);
             continue;
         }
         victims.push(candidate);
         if !open {
             break;
         }
-        if victims.len() > limits.max_active_threads as usize {
-            break;
-        }
     }
-    if core.with_state(|state| state.actors.occupied())? >= room && !open {
-        // Outside a transaction each victim is evicted at the call, freeing its slot.
+    if !open {
         for victim in &victims {
             stop(core, victim);
             deps.repo.evict(core, victim);
@@ -227,35 +212,70 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
         if core.with_state(|state| state.actors.occupied())? >= room {
             return Err(EngineError::ActorCapacityExceeded);
         }
+    } else if core
+        .with_state(|state| state.actors.occupied())?
+        .saturating_sub(victims.len())
+        >= room
+    {
+        // Every remaining actor holds a slot: throw at the call, as TypeScript does.
+        return Err(EngineError::ActorCapacityExceeded);
     }
     let released = deps.repo.released_thread(core, thread)?;
     // A fresh actor takes the stored maximum, whichever backend retired the last generation.
     let generation = deps.repo.latest_generation(core, thread)?;
-    let mut actor = Actor::new(thread.clone(), generation);
-    actor.release_requested = released;
-    core.with_state(|state| {
-        state.actors.by_thread.insert(thread.clone(), actor);
+    let seat = core.with_state(|state| {
+        let seat = state.actors.next_seat;
+        state.actors.next_seat += 1;
+        seat
     })?;
-    if open {
+    let mut actor = Actor::new(thread.clone(), generation, seat);
+    actor.release_requested = released;
+    if !open {
         core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-                actor.provisional = true;
-            }
-            state.actors.reserved.insert(thread.clone(), ());
+            state.actors.by_thread.insert(thread.clone(), actor);
         })?;
-        let promotion = Rc::new(state::Promotion {
-            created: thread.clone(),
-            pledges: victims,
-            kept_aside: Vec::new(),
-            state: std::cell::RefCell::new(state::PromotionState::default()),
-            owner: Rc::downgrade(core),
-        });
-        let future = promotion_future(Rc::clone(core), Rc::clone(&promotion));
-        core.defer(crate::executor::Deferred::Spawn(Lane::Work, future));
-        core.record_wake(thread);
+        spawn_mailbox(core, thread);
         return Ok(());
     }
-    spawn_mailbox(core, thread);
+    // Capture the victims' positions, then remove from the highest index down so the captured
+    // positions stay exact. The kept-aside actors are restored there on a rollback.
+    let mut aside: Vec<(usize, Actor)> = Vec::new();
+    let mut positions: Vec<(usize, ThreadId)> = Vec::new();
+    for victim in &victims {
+        if let Some(index) = core.with_state(|state| state.actors.by_thread.get_index_of(victim))? {
+            positions.push((index, victim.clone()));
+        }
+    }
+    positions.sort_unstable_by_key(|(index, _)| std::cmp::Reverse(*index));
+    for (index, victim) in positions {
+        if let Some(victim_actor) =
+            core.with_state(|state| state.actors.by_thread.shift_remove(&victim))?
+        {
+            aside.push((index, victim_actor));
+        }
+    }
+    core.with_state(|state| {
+        state.actors.by_thread.insert(thread.clone(), actor);
+        if let Some(created) = state.actors.by_thread.get_mut(thread) {
+            created.provisional = true;
+        }
+        state.actors.reserved.insert(thread.clone(), ());
+    })?;
+    let promotion = Rc::new(state::Promotion {
+        created: thread.clone(),
+        pledges: victims.clone(),
+        kept_aside: std::cell::RefCell::new(aside),
+        state: std::cell::RefCell::new(state::PromotionState::default()),
+        owner: Rc::downgrade(core),
+    });
+    core.with_state(|state| {
+        for victim in &victims {
+            state.actors.pledges.insert(victim.clone(), ());
+        }
+    })?;
+    let future = promotion_future(Rc::clone(core), Rc::clone(&promotion));
+    core.defer(crate::executor::Deferred::Spawn(Lane::Work, future));
+    core.record_wake(thread);
     Ok(())
 }
 
@@ -274,20 +294,96 @@ fn promotion_future(
             state.done = true;
         }
         let thread = promotion.created.clone();
+        let lost = core
+            .with_state(|state| state.actors.lost.shift_remove(&thread).is_some())
+            .unwrap_or(false);
+        core.with_state(|state| {
+            state.actors.reserved.shift_remove(&thread);
+            for victim in &promotion.pledges {
+                state.actors.pledges.shift_remove(victim);
+            }
+            state.actors.promotions.push(Rc::clone(&promotion));
+        })
+        .ok();
+        if lost {
+            // An invariant break, never a normal path: nothing reads as a false success.
+            let counts = restore_promotion(&core, &promotion);
+            lost_reservation(&core, &thread, counts);
+            return;
+        }
         core.with_state(|state| {
             if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
                 actor.provisional = false;
             }
         })
         .ok();
-        core.with_state(|state| {
-            state.actors.reserved.shift_remove(&thread);
-            state.actors.promotions.push(Rc::clone(&promotion));
-        })
-        .ok();
         spawn_mailbox(&core, &thread);
         complete_promotion(&core, &promotion);
     })
+}
+
+/// A promotion that will not commit: release its reservation, restore the pledged victims at
+/// their old positions, and remove the provisional actor (its acknowledgements still rejecting).
+pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usize, usize) {
+    let created = promotion.created.clone();
+    let discarded = core
+        .with_state(|state| {
+            for victim in &promotion.pledges {
+                state.actors.pledges.shift_remove(victim);
+            }
+            state.actors.reserved.shift_remove(&created);
+            // Only the provisional actor this promotion created is discarded: by now another
+            // promotion's rollback may have restored this thread's committed actor in its place.
+            match state.actors.by_thread.get(&created) {
+                Some(actor) if actor.provisional => state.actors.by_thread.shift_remove(&created),
+                _ => None,
+            }
+        })
+        .ok()
+        .flatten();
+    let mut aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
+    aside.sort_unstable_by_key(|(index, _)| *index);
+    for (index, actor) in aside {
+        let id = actor.id.clone();
+        core.with_state(|state| {
+            let at = index.min(state.actors.by_thread.len());
+            state.actors.by_thread.shift_insert(at, id, actor);
+        })
+        .ok();
+    }
+    // Restored actors go back to their old seats, so a transaction that pledged two victims
+    // restores the same order it found, whatever order its promotions drop in.
+    core.with_state(|state| {
+        state
+            .actors
+            .by_thread
+            .sort_by(|_, left, _, right| left.seat.cmp(&right.seat))
+    })
+    .ok();
+    let mut counts = (0, 0);
+    if let Some(actor) = discarded {
+        counts = (actor.staged.len(), actor.mailbox.len());
+        state::discard_acks(core, actor);
+    }
+    counts
+}
+
+/// A reservation that could not be used at promotion: the actor's work is failed visibly and
+/// the durable work behind it is woken to redeliver through a fresh actor.
+fn lost_reservation(core: &Rc<Core>, thread: &ThreadId, counts: (usize, usize)) {
+    let deps = core.actor_deps.borrow().clone();
+    let (staged, queued) = counts;
+    for _ in 0..staged.max(queued) {
+        core.ports.report(format!(
+            "Engine actor capacity reservation lost for {thread}"
+        ));
+    }
+    if staged == 0 && queued == 0 {
+        core.ports.report(format!(
+            "Engine actor capacity reservation lost for {thread}"
+        ));
+    }
+    deps.links.wake(core, thread);
 }
 
 /// Commit: the pledged victims are evicted (memory only, what TypeScript did at the call).
@@ -296,13 +392,9 @@ fn complete_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
         return;
     }
     let deps = core.actor_deps.borrow().clone();
-    for victim in &promotion.pledges {
-        stop(core, victim);
-        deps.repo.evict(core, victim);
-        core.with_state(|state| {
-            state.actors.by_thread.shift_remove(victim);
-        })
-        .ok();
+    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
+    for (_, actor) in aside {
+        deps.repo.evict(core, &actor.id);
     }
 }
 
@@ -313,6 +405,29 @@ pub fn promote_all(core: &Rc<Core>) {
         .unwrap_or_default();
     for promotion in pending {
         complete_promotion(core, &promotion);
+    }
+}
+
+/// The outermost rule, synchronously, for the probe (seam test 11): one op run inside an open
+/// transaction fails before it can acknowledge on a savepoint's release.
+pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> bool {
+    if !core.store.is_open() {
+        return false;
+    }
+    failure::fail(core, thread, EngineError::NotOutermost);
+    match op {
+        mailbox::Op::Batch(batch) => {
+            mailbox::settle(core, thread, batch.frames.len(), batch.bytes, batch.ack)
+        }
+        mailbox::Op::Run(run) => mailbox::settle(
+            core,
+            thread,
+            run.frames,
+            run.bytes,
+            run.ack.unwrap_or_default(),
+        ),
+        mailbox::Op::Settle(ack) => mailbox::settle_rejected(core, ack),
+        _ => false,
     }
 }
 

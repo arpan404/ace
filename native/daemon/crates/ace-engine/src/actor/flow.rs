@@ -141,7 +141,7 @@ mod tests {
         ];
         for (was_paused, queued, bytes, expected) in cases {
             let limits = limits(16_384, max_bytes);
-            let mut actor = Actor::new("t".to_string(), 0);
+            let mut actor = Actor::new("t".to_string(), 0, 0);
             actor.queued = queued;
             actor.queued_bytes = bytes;
             actor.pressure = was_paused;
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn a_small_frame_limit_moves_both_thresholds() {
         let limits = limits(64, 16 * 1024 * 1024);
-        let mut actor = Actor::new("t".to_string(), 0);
+        let mut actor = Actor::new("t".to_string(), 0, 0);
         actor.queued = 16;
         update_pressure(&mut actor, &limits);
         assert!(actor.pressure, "pause at min(256, 64/4)");

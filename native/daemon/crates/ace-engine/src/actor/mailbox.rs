@@ -128,6 +128,7 @@ fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<
 
 /// `enqueue(run)` (`actor.ts:191`): seal first, then admit the wrapped run.
 pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
+    crate::actor::promote_all(core);
     intake::seal(core, thread);
     if core.store.is_open() {
         stage(core, thread, run);

@@ -33,7 +33,8 @@ pub enum Measure {
 pub enum Ack {
     Done,
     Rejected(String),
-    Batch,
+    /// The frame joined the open batch; its JavaScript acknowledgement's call id, when it has one.
+    Batch(Option<u64>),
     AfterFlush(oneshot::Receiver<()>),
 }
 
@@ -72,6 +73,7 @@ pub fn frame(
     input: FrameInput,
     js_ack: Option<u64>,
 ) -> Ack {
+    crate::actor::promote_all(core);
     catch_up(core, thread);
     let state = core.with_state(|state| {
         state.actors.by_thread.get(thread).map(|actor| {
@@ -142,6 +144,7 @@ pub fn frame(
                 // at once, and the caller returns the batch's.
                 true
             };
+            let batch_call = actor.pending_ack.as_ref().and_then(|ack| ack.js);
             Some((
                 state.flush_depth > 0
                     || actor.queued + actor.pending.len() >= limits.max_queued_frames as usize
@@ -149,11 +152,12 @@ pub fn frame(
                     || actor.pending.len() >= 256
                     || actor.pending_bytes >= 262_144,
                 joined,
+                batch_call,
             ))
         })
         .ok()
         .flatten();
-    let (seal_now, joined) = decision.unwrap_or((false, false));
+    let (seal_now, joined, batch_call) = decision.unwrap_or((false, false, None));
     if joined {
         // This frame joined a batch whose promise is already open: its own resolves at once, and
         // the caller returns the batch's.
@@ -166,7 +170,7 @@ pub fn frame(
     if seal_now {
         seal(core, thread);
     }
-    Ack::Batch
+    Ack::Batch(batch_call)
 }
 
 /// A frame the actor must refuse visibly: the failing op, then the flush its promise waits on.

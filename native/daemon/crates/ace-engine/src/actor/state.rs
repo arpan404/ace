@@ -3,7 +3,7 @@
 //! port and lives in `ActorDeps.translators`, and every read or change is one short `with_state`
 //! closure that copies out what the next step needs.
 
-use crate::actor::deps::{ActorTranslator, BatchAck};
+use crate::actor::deps::BatchAck;
 use crate::actor::mailbox::Op;
 use crate::executor::TaskId;
 use crate::futures::channel::oneshot;
@@ -59,6 +59,8 @@ pub struct ArmedTimer {
 pub struct Actor {
     pub id: ThreadId,
     pub generation: u64,
+    /// The map's insertion order: restored actors return to their old place after a rollback.
+    pub seat: u64,
     pub poisoned: bool,
     pub persistence_failed: bool,
     pub idle_since: Option<f64>,
@@ -93,10 +95,11 @@ pub struct Actor {
 }
 
 impl Actor {
-    pub fn new(id: ThreadId, generation: u64) -> Actor {
+    pub fn new(id: ThreadId, generation: u64, seat: u64) -> Actor {
         Actor {
             id,
             generation,
+            seat,
             poisoned: false,
             persistence_failed: false,
             idle_since: None,
@@ -139,16 +142,6 @@ impl Actor {
         self.generation += 1;
         generation
     }
-
-    /// The translator's own deadline, when one is attached.
-    pub fn next_deadline(&self, deps: &crate::actor::deps::ActorDeps) -> Option<i64> {
-        let mut translators = deps.translators.borrow_mut();
-        let (_, translator) = translators.get_mut(&self.id)?;
-        match translator {
-            ActorTranslator::Js(js) => js.next_deadline(),
-            ActorTranslator::Native(native) => native.next_deadline(),
-        }
-    }
 }
 
 /// Why a promotion is still pending: an actor created in an open transaction, or a victim it
@@ -163,9 +156,48 @@ pub struct PromotionState {
 pub struct Promotion {
     pub created: ThreadId,
     pub pledges: Vec<ThreadId>,
-    pub kept_aside: Vec<Actor>,
+    /// The pledged actors, each with its index in `by_thread`, kept only for a rollback.
+    pub kept_aside: RefCell<Vec<(usize, Actor)>>,
     pub state: RefCell<PromotionState>,
     pub owner: std::rc::Weak<Core>,
+}
+
+/// A dropped promotion never committed: the reservation is released, the pledged victims go
+/// back untouched, and the provisional actor is discarded (E5.2 step 7).
+impl Drop for Promotion {
+    fn drop(&mut self) {
+        if self.state.borrow().done {
+            return;
+        }
+        if let Some(core) = self.owner.upgrade() {
+            let _ = crate::actor::restore_promotion(&core, self);
+        }
+    }
+}
+
+/// Nothing a discarded actor held resolves: its acknowledgements reject, as a failed commit does.
+/// A JavaScript acknowledgement is settled through its facade call, exactly as `settle` does.
+pub(crate) fn discard_acks(core: &Core, actor: Actor) {
+    let mut acks: Vec<BatchAck> = Vec::new();
+    if let Some(ack) = actor.pending_ack {
+        acks.push(ack);
+    }
+    for op in actor.mailbox {
+        match op {
+            Op::Batch(batch) => acks.push(batch.ack),
+            Op::Settle(ack) => acks.push(ack),
+            _ => {}
+        }
+    }
+    for mut ack in acks {
+        let js = ack.js;
+        ack.reject("Provider frame failed to commit");
+        if let Some(call) = js {
+            let deps = core.actor_deps.borrow().clone();
+            deps.acks
+                .settle(call, Some("Provider frame failed to commit".to_string()));
+        }
+    }
 }
 
 /// The thread actors. Insertion order is the TypeScript `Map`'s.
@@ -174,12 +206,18 @@ pub struct Actors {
     pub by_thread: IndexMap<ThreadId, Actor>,
     /// Slots held by actors created in a transaction that has not committed.
     pub reserved: IndexMap<ThreadId, ()>,
-    /// Committed promotions, completed in commit order by the next sync entry or poll.
+    /// Victims pledged by an uncommitted creation; the promotion keeps the actors aside.
+    pub pledges: IndexMap<ThreadId, ()>,
+    /// Commit-or-polled promotions, completed in commit order by the next sync entry or poll.
     pub promotions: Vec<Rc<Promotion>>,
+    /// Reservations the probe invalidated before their first poll (seam test 17d).
+    pub lost: IndexMap<ThreadId, ()>,
     /// Flushes that asked every actor to seal its pending frame batch (the probe's count).
     pub seals: u32,
     /// The next staged slot's id.
     pub next_slot: u64,
+    /// The next actor's insertion order.
+    pub next_seat: u64,
 }
 
 impl Actors {

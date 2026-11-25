@@ -65,6 +65,10 @@ export interface NativeEngineHandle {
   ): string;
   actorPaused?(threadId: string): boolean;
   actorWait?(threadId: string, call: number): void;
+  actorFlushDue?(): void;
+  actorQuarantine?(threadId: string, message: string): void;
+  persistLive?(token: number): void;
+  committedLive?(token: number): void;
   attachTranslatorHelper?(helper: (thread: string, request: string) => string): void;
   attachLiveStore?(hooks: Record<string, unknown>): void;
   [member: string]: unknown;
@@ -474,7 +478,15 @@ export class NativeEngine implements EngineSurface {
     throw incomplete("adoptMachineHandoff", "E5.9");
   }
   workload(..._args: Parameters<EngineSurface["workload"]>): ReturnType<EngineSurface["workload"]> {
-    throw incomplete("workload", "E5.2");
+    const raw = JSON.parse(this.member("workload", "E5.2")() as string) as Record<string, number>;
+    return {
+      activeSessions: raw["activeSessions"] ?? 0,
+      queues: {
+        "engine.frames": raw["engine.frames"] ?? 0,
+        "engine.frameBytes": raw["engine.frameBytes"] ?? 0,
+        "engine.queuedSends": raw["engine.queuedSends"] ?? 0,
+      },
+    };
   }
   providerProcesses(
     ..._args: Parameters<EngineSurface["providerProcesses"]>
@@ -487,9 +499,10 @@ export class NativeEngine implements EngineSurface {
     throw incomplete("backgroundPorts", "E5.6");
   }
   rootAgent(
-    ..._args: Parameters<EngineSurface["rootAgent"]>
+    ...args: Parameters<EngineSurface["rootAgent"]>
   ): ReturnType<EngineSurface["rootAgent"]> {
-    throw incomplete("rootAgent", "E5.2");
+    const value = this.member("rootAgent", "E5.2")(args[0]) as string | null | undefined;
+    return value ?? undefined;
   }
   activeRun(
     ..._args: Parameters<EngineSurface["activeRun"]>
@@ -630,7 +643,7 @@ export class NativeEngine implements EngineSurface {
   liveThreadIds(
     ..._args: Parameters<EngineSurface["liveThreadIds"]>
   ): ReturnType<EngineSurface["liveThreadIds"]> {
-    throw incomplete("liveThreadIds", "E5.2");
+    return this.member("liveThreadIds", "E5.2")() as ThreadId[];
   }
   async continueImported(
     ..._args: Parameters<EngineSurface["continueImported"]>
