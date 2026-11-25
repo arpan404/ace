@@ -290,5 +290,24 @@ mod memory_tests {
                 "the stored item is still readable through its section"
             );
         }
+        // Historical runs stay in their section too: only what an agent points at is resident.
+        for turn in 0..5 {
+            state
+                .apply(
+                    &store,
+                    "memory",
+                    &format!(
+                        r#"[{{"type":"turn.started","agent":"root","trigger":"user","nativeTurnId":"turn-{turn}"}}]"#
+                    ),
+                    20.0 + turn as f64,
+                    None,
+                )
+                .unwrap();
+        }
+        let snapshot = state.repo.require_state(&store, "memory").unwrap();
+        assert!(
+            snapshot.borrow().state.runs.len() <= 2,
+            "runs are bounded by what the agents point at"
+        );
     }
 }

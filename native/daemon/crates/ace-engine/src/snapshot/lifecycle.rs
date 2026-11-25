@@ -69,15 +69,24 @@ impl Snapshot {
     /// keeps only the live set (open text and live tools), so a long thread's items are bounded
     /// by the shared budget instead of growing with its history.
     fn forget_transcript(&mut self) {
+        // The transcript is the sections' and the store's, never a second copy in the state: a
+        // live item's body can be larger than the whole record budget. Reads load it back.
+        self.state.items.clear();
+        // Runs keep only an agent's live and last turn: historical runs (and the ones its
+        // `nativeRuns` ids name) live in their section and load when a batch names them.
         let keep: std::collections::HashSet<String> = self
             .state
-            .indexes
-            .open_text
-            .keys()
-            .chain(self.state.indexes.live_tools.keys())
-            .cloned()
+            .agents
+            .values()
+            .flat_map(|record| {
+                record
+                    .active_run
+                    .iter()
+                    .chain(record.last_run.iter())
+                    .cloned()
+            })
             .collect();
-        self.state.items.retain(|key, _| keep.contains(key));
+        self.state.runs.retain(|key, _| keep.contains(key));
     }
 
     /// `flush` (`:294`).
