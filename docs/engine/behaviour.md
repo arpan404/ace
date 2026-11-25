@@ -151,7 +151,11 @@ store. One mailbox per thread orders frames, ticks and engine operations.
 5. **Translation once.** A sealed batch is translated exactly once; a retry after a rollback
    reuses the facts (translators keep state) and rewrites only the Cursor frame records that
    rolled back (`actor.ts:358`–`:366`, `translateBatch` at `:448`). Usage facts gain the frame's
-   account; attachment echoes are resolved (`translateFrame`, `actor.ts:492`).
+   account; attachment echoes are resolved (`translateFrame`, `actor.ts:492`). The native engine
+   caches the translator's output _before_ the echoes: the TypeScript caches the batch only once
+   the echoes succeed, so a retryable attachment-lookup failure translates a frame twice, which a
+   native translator with state or a consumed JavaScript frame handle cannot survive. The native
+   engine retries only the enrichment, and the facts it commits are the same.
 6. **Stream or commit.** A batch of only `item.delta` and `signal` facts on an established item,
    at most 256 facts and 512 KiB, with no deadline due and no process exit, goes to the store's
    live buffer without a transaction of its own (`EngineRepository.stream`,
@@ -527,6 +531,22 @@ ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twic
   every reader (`process.ts`, `line-reader.ts:31`, `flow-control.ts:2`).
 - **JSON-RPC** over stdio is one peer per process with bounded pending requests, timers and
   method-not-found replies (`JsonRpcPeer`, `jsonrpc.ts:61`).
+- **A channel callback that unwinds poisons its host** (native only, E3-codex.2): a panic in the
+  shell's sink is a bug, not a protocol event, so the host catches it once at the drain. The child
+  is stopped directly, never through the queue, and a stop decided before the poison counts even
+  when its own delivery is what unwound — and never on a child whose pipes have closed: a leader's
+  exit alone leaves a tree that still holds them. A stop that unwinds never counts as landed, so
+  its owner can ask again.
+  A stop in flight is joined by a later retire, a landed one is not repeated, and only a stop the
+  shell could not confirm may be asked for again. Every call still pending fails with the host error, and
+  every channel gets an exit — one each, since effects already decided keep their place in the
+  queue. A write still queued is dropped, never sent to a child that is being stopped: the call its
+  line carried has already failed. After the poison each delivery has its own catch: a second panic
+  skips that effect, logs it, and the rest still arrives. A stop that did not land leaves the host
+  stoppable: its owner's next retire hands the child another stop, since the poison's exits are the
+  channels', not the process's. The pool starts a replacement host. TypeScript has no equivalent: a
+  throwing JavaScript callback there is an uncaught error, with no defined recovery and no
+  replacement host.
 
 ## 16. The adapters
 
@@ -694,3 +714,28 @@ Counts: engine 173 (a 149, b 24); core 40 (a 39, — 1); test kit 5 (a 5); Codex
 Claude 50 (a 42, — 8); Cursor 48 (a 26, b 8, — 14); OpenCode 41 (a 35, b 4, — 2); ACP 35
 (a 33, b 2); Pi 20 (a 18, b 2); process layer 82 (a 29, b 15, — 38). In all 555 files: 428
 (a), 64 (b), 0 (c), 63 (—).
+
+## 20. Differences the Rust port records
+
+Behaviour the TypeScript daemon has today that the Rust port does not copy, because the
+TypeScript behaviour is a defect (owner decision, 2026-11-24: bugs found in the TypeScript
+daemon are fixed in the Rust port only, never on main). Each has a native-only test beside the
+Rust that replaces it; when the TypeScript engine is deleted, this section becomes the changelog
+of those fixes.
+
+| Area              | TypeScript today                                                                                                                                                                                                  | Rust                                                                                                                                                                                                                                                                           | Test                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Rollback sync     | One global `snapshotGeneration` (`repository.ts:204`): a resident snapshot spared by one sync while a live write is pinned is never checked against a later generation, so a rolled-back state can stay resident. | The generation is kept **per snapshot**. A pinned snapshot keeps its old stamp and is checked again after its own commit (E5.3 step 8, `repository/residency.rs`).                                                                                                             | `repository::save`'s rollback cases.                                                  |
+| Quarantine        | A quarantined live write evicts the snapshot only through its actor (`actor.ts:276`), so a thread with no actor keeps the discarded buffer's state resident at the stored `seq`.                                  | The engine's quarantine listener evicts and releases the snapshot whether or not an actor exists, then tells the actor (`repository/residency.rs::quarantined`).                                                                                                               | `persistence.test.ts`, "a quarantined thread with no actor reloads its stored state". |
+| Restarted thought | Closing a streaming thought after a restart relies on the core's proxy reads: `state.items[key]` loads the record when `turn.ended` reads the open-text index.                                                    | The enumerated index sections' records are loaded with the index (`snapshot/mod.rs::load_indexes`), so a thought streaming before a restart closes when its turn ends.                                                                                                         | `snapshot::tests::a_thought_still_streaming_at_restart_closes_when_its_turn_ends`.    |
+| Record budget     | A state read (`state()`) caches nothing: every section is a lazy proxy, so a reloaded thread's budget is empty until core reads a record.                                                                         | The index sections core enumerates are read at load (they are the live set, never the transcript), so a reloaded snapshot's budget holds those few short rows. The bounded limit (8192 entries / 8 MiB, `records/budget.rs`) and every other section's laziness are unchanged. | `persistence.test.ts`, the rolled-back fold case.                                     |
+
+### Startup retry classification, and the JavaScript message gap
+
+`skippableAtStartup` refuses a store retry: SQLite's primary busy (5), locked (6) and full (13)
+codes, masked off the extended code the store reports, are retried, never skipped. The store's own
+`"Store is busy"` and a pinned live batch that is retrying arrive as port errors, and are retried
+too. A JavaScript error that reaches Rust as a message alone (`ports.rs` keeps only the reason
+text) cannot be classified by code: a JavaScript `"database is locked"` is reported and retried as
+a damaged thread would be skipped. Recorded here as a gap; closing it needs the port error to
+carry SQLite's code.

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { ToolsRequest, type ToolsReply } from "./device-tools-wire.ts";
 import { scrcpyServerJar } from "./scrcpy-jar.ts";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError } from "./sdk.ts";
 import { installServeSim } from "./serve-sim-install.ts";
 
@@ -17,7 +18,7 @@ const failure = (error: unknown): ToolsReply["error"] =>
     : {
         code: "tool_missing",
         message: error instanceof Error ? error.message : String(error),
-        hint: "Check the network and download the device tools again from Devices.",
+        hint: catalogHint("downloadHint"),
       };
 let reply: ToolsReply;
 try {

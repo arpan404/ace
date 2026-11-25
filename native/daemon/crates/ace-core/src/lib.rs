@@ -34,6 +34,7 @@ pub mod reconciled_item;
 mod record_json;
 pub mod reduce;
 pub mod runs;
+pub mod section;
 pub mod state;
 pub mod state_json;
 pub mod status;

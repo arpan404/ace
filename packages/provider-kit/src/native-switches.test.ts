@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import {
   canonicalWriterParts,
+  devicePlatformSwitchRefusal,
   engineSwitchRefusal,
   explicitTransportPhases,
   NativeSwitchConflict,
@@ -199,6 +200,22 @@ test.each<SessionRefusalCase>([
 ])("$name", ({ sessions, store, supervisor, cross, refusal }) => {
   expect(sessionSwitchRefusal({ sessions, store, supervisor, cross })).toBe(refusal);
 });
+
+test.each([
+  { platform: false, supervisor: false, refusal: undefined },
+  { platform: false, supervisor: true, refusal: undefined },
+  { platform: true, supervisor: true, refusal: undefined },
+  {
+    platform: true,
+    supervisor: false,
+    refusal: "ACE_DEVICE_PLATFORM needs ACE_SUPERVISOR=native",
+  },
+])(
+  "the device platform's supervisor need: $platform/$supervisor",
+  ({ platform, supervisor, refusal }) => {
+    expect(devicePlatformSwitchRefusal({ platform, supervisor })).toBe(refusal);
+  },
+);
 
 interface EngineRefusalCase {
   name: string;

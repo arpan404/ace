@@ -139,7 +139,9 @@ pub struct LiveIndexes {
     #[serde(rename = "liveTools")]
     pub live_tools: IndexMap<String, bool>,
     /// Thoughts, replies and compactions the provider is still streaming into.
-    #[serde(rename = "openText")]
+    /// Absent from snapshots written before the index existed; persistence starts it empty
+    /// (`snapshot.ts:115`).
+    #[serde(rename = "openText", default)]
     pub open_text: IndexMap<String, bool>,
     #[serde(rename = "pendingInteractions")]
     pub pending_interactions: IndexMap<String, bool>,

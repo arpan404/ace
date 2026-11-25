@@ -9,7 +9,7 @@
 //! E5.1 splits `transaction` into `open` and `close` so the Rust engine can run its body inside
 //! the same context a JavaScript caller gets (before the body, to after its last step), and
 //! releases each committed transaction's after-commit wakes after that transaction's own
-//! publication — even when a listener throws.
+//! publication - even when a listener throws.
 
 import { appendFileSync } from "node:fs";
 import { nativeCall, nativeHandle, sqliteError } from "@ace/provider-kit/sqlite";
@@ -42,6 +42,7 @@ interface NativeStack {
   noteEvents(len: number): void;
   succeed(frame: number): string;
   fail(frame: number): string;
+  releaseRuns(frame: number): void;
   releaseWakes(frame: number): void;
   detachSink(): number[];
 }
@@ -347,6 +348,13 @@ export class NativeTransactions {
     const pass = new SettlementPass((error) => this.host.onError(error));
     const report: FailureReport = (error) => pass.report(error);
     try {
+      // The engine's committed decisions (a promoted actor, an evicted victim) are visible to
+      // every commit listener, which is the order the TypeScript's eviction at the call had.
+      try {
+        nativeCall(() => this.stack.releaseRuns(frame));
+      } catch (error) {
+        pass.report(error as Error);
+      }
       // A publishing outer outcome settles first; a reservation (non-publishing) settles last,
       // after the usage listeners, exactly as the TypeScript's two guards do.
       if (outcome?.publishes) pass.step(() => outcome.committed(report));

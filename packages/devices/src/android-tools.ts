@@ -1,14 +1,10 @@
 import { join } from "node:path";
 import { findExecutable } from "@ace/provider-kit/discovery";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
+import { type AndroidTools, answered, nativeDevices } from "./native-devices-addon.ts";
 import { androidSdkRoots } from "./sdk-roots.ts";
 
-/** The Android tools ace runs, by absolute path. */
-export type AndroidTools = {
-  /** From an Android SDK's platform-tools, else the `adb` on PATH (a distribution's package). */
-  adb?: string | undefined;
-  /** The Android Emulator, from an Android SDK. */
-  emulator?: string | undefined;
-};
+export type { AndroidTools };
 
 /**
  * Where ace finds adb and the emulator. An SDK holding both wins, so they come from one install;
@@ -32,6 +28,13 @@ export async function findAndroidTools(input: {
       return { adb, emulator };
     }),
   );
+  // The choice is the platform's: an SDK holding both, then the first of each, then PATH's adb.
+  if (devicePlatformBackend() === "native") {
+    const pathAdb = roots.some((root) => root.adb) ? undefined : await find("adb");
+    return answered<AndroidTools>(() =>
+      nativeDevices().devicePlatformChooseAndroidTools(roots, pathAdb),
+    );
+  }
   const paired = roots.find((root) => root.adb && root.emulator);
   if (paired) return paired;
   const emulator = roots.find((root) => root.emulator)?.emulator;
