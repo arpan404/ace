@@ -368,15 +368,39 @@ fn a_second_id_is_taken_when_the_queue_needs_one_of_its_own() {
     );
 }
 
+/// A part too large for one frame: the request that carries it is over the
+/// bound before Codex is ever asked.
+fn oversized() -> Vec<Value> {
+    parts(&"x".repeat(crate::session::frames::MAX_PAYLOAD_BYTES))
+}
+
+/// The refusal the session's own veto gives the frame a command's request would
+/// be: the real admission of the exact value the peer would send, so the message
+/// under test is the one Codex's writer path gives, never a copy of it.
+fn refused(session: &Session, effect: &Effect) -> String {
+    let (_, method, params) = request(effect);
+    let mut frame = Map::new();
+    frame.insert("jsonrpc", Value::from("2.0"));
+    frame.insert("id", Value::from(1.0));
+    frame.insert("method", Value::from(method.to_owned()));
+    frame.insert("params", params);
+    match session.admit(ace_supervisor::peer::Direction::Send, &Value::Object(frame)) {
+        crate::session::host::Admission::Failed(message) => message,
+        other => panic!("the frame is over the bound: {other:?}"),
+    }
+}
+
 #[test]
-fn a_steer_too_large_for_one_frame_is_refused_before_it_is_written_and_never_retried() {
+fn a_steer_over_the_frame_bound_is_a_plain_failure_never_steer_lost_and_never_retried() {
     let mut session = running();
-    let text = parts("huge");
+    let text = oversized();
     let effects = session.send(send(40, &text, Delivery::Steer, None, &message_id));
-    let (call, ..) = request(&effects[0]);
-    let effects = session.settled(call, Err("Provider payload exceeds byte limit"));
+    let (call, method, _) = request(&effects[0]);
+    assert_eq!(method, "turn/steer");
+    let message = refused(&session, &effects[0]);
+    let effects = session.settled(call, Err(&message));
     let failure = settled(&effects[0]);
-    assert_eq!(failure.message, "Provider payload exceeds byte limit");
+    assert_eq!(failure.message, message);
     assert_ne!(
         failure.code,
         ace_adapter_api::bridge::queue::STEER_TARGET_LOST
@@ -387,23 +411,24 @@ fn a_steer_too_large_for_one_frame_is_refused_before_it_is_written_and_never_ret
 }
 
 #[test]
-fn a_queued_message_too_large_for_one_frame_settles_with_the_frames_own_error() {
+fn a_queued_message_over_the_frame_bound_settles_without_a_queue_refresh() {
     let mut session = running();
-    let text = parts("huge");
+    let text = oversized();
     let effects = session.send(send(41, &text, Delivery::Queue, None, &message_id));
-    let (call, ..) = request(&effects[0]);
-    let effects = session.settled(call, Err("Provider payload exceeds byte limit"));
-    assert_eq!(
-        settled(&effects[0]).message,
-        "Provider payload exceeds byte limit"
-    );
+    let (call, method, _) = request(&effects[0]);
+    assert_eq!(method, "thread/queue/add");
+    let message = refused(&session, &effects[0]);
+    let effects = session.settled(call, Err(&message));
+    // The refusal is the whole answer: no queue read follows it.
+    assert_eq!(effects.len(), 1);
+    assert_eq!(settled(&effects[0]).message, message);
     assert!(session.commands.flights.is_empty());
 }
 
 #[test]
-fn a_turn_start_too_large_for_one_frame_settles_with_the_frames_own_error() {
+fn a_turn_start_over_the_frame_bound_settles_after_its_launch_options() {
     let mut session = session();
-    let text = parts("huge");
+    let text = oversized();
     let effects = session.send(send(42, &text, Delivery::Steer, None, &message_id));
     assert!(matches!(effects[0], Effect::LaunchOptions { id: 42, .. }));
     let effects = session.launch_ready(
@@ -415,9 +440,9 @@ fn a_turn_start_too_large_for_one_frame_settles_with_the_frames_own_error() {
     );
     let (call, method, _) = request(&effects[1]);
     assert_eq!(method, "turn/start");
-    let effects = session.settled(call, Err("Provider payload exceeds byte limit"));
-    assert_eq!(
-        settled(&effects[0]).message,
-        "Provider payload exceeds byte limit"
-    );
+    let message = refused(&session, &effects[1]);
+    let effects = session.settled(call, Err(&message));
+    assert_eq!(effects.len(), 1);
+    assert_eq!(settled(&effects[0]).message, message);
+    assert!(session.commands.starts.is_empty());
 }
