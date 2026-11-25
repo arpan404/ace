@@ -176,7 +176,7 @@ pub enum Item {
 }
 
 /// The identity and liveness fields every item carries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ItemBase {
     pub id: String,
     #[serde(rename = "agentId")]
@@ -199,6 +199,9 @@ pub struct ItemBase {
     /// Sent to a client whose hello asked for raw on demand; never stored.
     #[serde(rename = "rawOmitted", skip_serializing_if = "Option::is_none")]
     pub raw_omitted: Option<bool>,
+    /// Fields a newer build wrote; the raw record keeps them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 fn default_true() -> bool {

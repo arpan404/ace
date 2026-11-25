@@ -748,5 +748,5 @@ with `JSON.stringify`, so a newer build's fields survive every in-place fold. Ru
 on the type: `Agent`, `Run`, `Attachment`, `RetryInfo` and `LimitedInfo` have
 `#[serde(flatten)] extra`, written with the object and kept through a rewrite. Objects the
 reducer rebuilds start empty, and the one TS spread (`runs.ts:135`, `{ ...record.limited, message }`)
-copies the old `extra`. The remaining record types (`Item` variants, `ToolCall`, `ToolResult`,
-`ToolDetail`, `ContentPart`, the statuses) still need the same field.
+copies the old `extra`. The remaining record types (`ToolCall`, `ToolResult`, `ToolDetail`, `ContentPart`, the
+statuses) still need the same field.

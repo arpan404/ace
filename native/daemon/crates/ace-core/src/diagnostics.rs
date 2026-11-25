@@ -37,6 +37,7 @@ fn publish_notice(
             complete: true,
             inherited: None,
             raw_omitted: None,
+            ..Default::default()
         },
         level: "warning".to_owned(),
         command_id: None,

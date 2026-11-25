@@ -390,3 +390,41 @@ fn a_stripped_type_drops_an_unknown_field_and_an_array_may_change_type() {
     .unwrap();
     assert!(decode::decode_record::<Item>(&image).is_ok());
 }
+
+#[test]
+fn an_items_unknown_field_survives_an_in_place_write_and_a_reload() {
+    let conn = database();
+    stmt_cache::run(
+        &conn,
+        "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+        vec![
+            Value::Text("t".to_owned()),
+            Value::Text("items".to_owned()),
+            Value::Text("i".to_owned()),
+            Value::Text(
+                r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"message","role":"assistant","parts":[{"type":"text","text":"hi"}],"futureItem":{"a":1}}"#
+                    .to_owned(),
+            ),
+        ],
+    )
+    .unwrap();
+    let budget = Rc::new(RefCell::new(RecordBudget::default()));
+    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
+    let mut item = items.read("i").unwrap().expect("the item");
+    let Item::Message { base, .. } = &mut item else {
+        panic!("a message")
+    };
+    base.complete = true;
+    items.write("i", item);
+    items.persist().unwrap();
+    // A reload through a fresh dictionary reads the field back.
+    let reloaded = items.read("i").unwrap().expect("the stored item");
+    let Item::Message { base, .. } = reloaded else {
+        panic!("a message")
+    };
+    assert_eq!(
+        base.extra.get("futureItem").cloned(),
+        Some(serde_json::json!({"a": 1})),
+        "the unknown field survived"
+    );
+}
