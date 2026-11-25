@@ -135,11 +135,13 @@ test("closing drops waiting and idle connections at once and leaves WebSockets t
   const idle = await idleKeepAlive(listener.port);
   const ws = await openWebSocket(listener.port);
 
+  // Ingress and every HTTP connection go at once. A native listener's own close also waits for
+  // the upgraded socket to drain, so the close code below is sent before that close settles.
   const dropped = [closesWithin(silentTcp, 1000), closesWithin(idle, 1000)];
   const started = Date.now();
-  await listener.close();
-  expect(Date.now() - started).toBeLessThan(500);
+  const closing = listener.close();
   for (const elapsed of await Promise.all(dropped)) expect(elapsed).toBeDefined();
+  expect(Date.now() - started).toBeLessThan(500);
 
   // The WebSocket server still owns its socket, so clients get its close code, not 1006.
   expect(ws.readyState).toBe(WebSocket.OPEN);
@@ -147,6 +149,7 @@ test("closing drops waiting and idle connections at once and leaves WebSockets t
   for (const client of listener.server.clients()) client.close(1001, "Daemon shutdown");
   const [code] = await closed;
   expect(code).toBe(1001);
+  await closing;
 
   // The port is free again.
   const again = testSniListener({
