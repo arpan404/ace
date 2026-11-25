@@ -2,9 +2,10 @@
 //! The redacted copy of one frame (`session.ts:86`-`:87`): node count, elision, the MCP bearer
 //! replaced in the text, then the byte bound. This is the order `new
 //! ProviderPayload(redactMcpCredential(elidedJson(data), ctx.aceMcp))` observes; the node count
-//! may run first because neither elision nor redaction changes the tree's shape.
+//! may run first because neither elision nor redaction changes the tree's shape. The elision is
+//! written while serializing, so a large line is never cloned.
 
-use ace_adapter_api::util::elided_json;
+use ace_adapter_api::util::elided_text;
 use ace_json::Value;
 use thiserror::Error;
 
@@ -24,21 +25,19 @@ pub enum CaptureError {
     Bytes,
 }
 
-/// The frame's redacted text, or the bound it crossed. The line itself is not cloned: the
-/// elision helper copies only a tree whose text is large enough to carry attachment bytes.
+/// The frame's redacted text, or the bound it crossed. The tree is never cloned: the elision
+/// happens while the one serialization writes.
 pub fn capture(value: &Value, bearer: Option<&str>) -> Result<String, CaptureError> {
     if !within_structural_limit(value) {
         return Err(CaptureError::Structural);
     }
-    let mut text = elided_json(value);
-    if let Some(bearer) = bearer {
+    let mut text = elided_text(value);
+    if let Some(bearer) = bearer
+        && text.contains(bearer)
+    {
         text = text.replace(bearer, CREDENTIAL);
     }
-    // `ProviderPayload` checks `string.length` (UTF-16 units) before `Buffer.byteLength`,
-    // then the byte count. UTF-8 never uses fewer bytes than units, so both agree on the bound.
-    if text.encode_utf16().count() > MAX_PAYLOAD_BYTES {
-        return Err(CaptureError::Bytes);
-    }
+    // `ProviderPayload`'s unit is the UTF-8 byte count (`Buffer.byteLength`).
     if text.len() > MAX_PAYLOAD_BYTES {
         return Err(CaptureError::Bytes);
     }

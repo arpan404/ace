@@ -62,4 +62,6 @@ pub struct WireConfig {
     pub bearer: Option<String>,
     /// What the initialize request declares, in order (event, callback ids).
     pub hooks: Vec<(String, Vec<String>)>,
+    /// A resumed session confirmed itself already (`session.ts:79`), so no callback fires.
+    pub resume: bool,
 }
