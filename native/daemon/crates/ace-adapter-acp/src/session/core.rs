@@ -774,9 +774,18 @@ impl AcpCore {
             return;
         }
         if let Some(error) = message.get("error") {
-            // `await reply` throws (`session.ts:771`): the send rejects with the agent's
-            // error, ace's guidance is not spent (`:772`), and the session lives on.
-            self.prompt_refused(error.to_json(), effects);
+            // `promptEnd` reads an error reply as the empty reason (`settlement.ts:18`), so
+            // `replied` ends the turn first: the root's grace is cleared, its questions
+            // answered and its implicit children ended (`session.ts:305`). Then the send
+            // rejects with the agent's error (`:771`), and ace's guidance is not spent.
+            let reported = error
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| error.to_json());
+            self.prompt_id = None;
+            self.prompt_ended("", effects);
+            self.prompt_refused(reported, effects);
             return;
         }
         let Some((reason, _)) = prompt_end(value) else {

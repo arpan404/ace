@@ -5,8 +5,8 @@ use ace_adapter_api::session::Delivery;
 use ace_json::{JsString, Value, json};
 
 use super::{
-    core_with_prompt, live_fence, prompt_reply, send, sent_id, sent_json_messages, session_core,
-    settlements, steer_reply,
+    ack_writes, core_with_prompt, live_fence, prompt_reply, send, sent_id, sent_json_messages,
+    session_core, settlements, steer_reply,
 };
 use crate::session::core::{AcpCore, AcpCoreConfig, AcpEffect};
 use crate::session::input::InputSend;
@@ -239,6 +239,63 @@ fn the_command_identity_is_published_before_the_prompt_it_belongs_to() {
 /// A prompt's JSON-RPC error rejects its send with that error and keeps ace's guidance
 /// unspent: TS's `await reply` throws (`session.ts:771`) and marks the guidance after it
 /// (`:772`).
+/// An error reply runs `promptEnded("")` before its send rejects (`settlement.ts:18`,
+/// `session.ts:305`): the root's cancellation grace is cleared, so the next queued prompt
+/// is not failed by a deadline the failed turn armed.
+#[test]
+fn an_error_reply_clears_the_root_grace_before_the_next_prompt() {
+    use ace_adapter_api::session::InterruptTarget;
+
+    let (mut core, prompt) = core_with_prompt("t-error-grace");
+    // A prompt waits behind this turn.
+    core.steer_via_cancel = true;
+    let _queued = send(&mut core, 70, Delivery::Steer, None);
+    // A stop arms the grace the failed turn has to clear.
+    let mut stop = Vec::new();
+    let result = core.interrupt(
+        InterruptTarget {
+            agent: None,
+            cascade: false,
+        },
+        &mut stop,
+    );
+    assert!(result.is_ok());
+    ack_writes(&mut core, &mut stop);
+    let Some(key) = core.deadlines.wire_key("root").map(str::to_owned) else {
+        panic!("the stop armed the root grace");
+    };
+
+    // The agent answers this turn with an error; the queued prompt goes out next.
+    let error = json!({
+        "jsonrpc": "2.0",
+        "id": prompt,
+        "error": { "code": -32001, "message": "rate limited" }
+    });
+    let after = core.stdout_bytes(format!("{}\n", error.to_json()).as_bytes());
+    let failed = settlements(&after, 1);
+    assert_eq!(failed.len(), 1);
+    assert_eq!(
+        failed[0].as_ref().err(),
+        Some(&("ACE_ACP_RPC_ERROR".to_owned(), "rate limited".to_owned())),
+        "the send carries the agent's message, not the whole error"
+    );
+    assert!(
+        core.prompt_id.is_some(),
+        "the queued prompt is in flight now"
+    );
+
+    // The cleared grace cannot fire against the new prompt.
+    let fired = core.timer(&key);
+    assert!(!core.closed, "the old deadline must not fail the session");
+    assert!(
+        fired
+            .iter()
+            .all(|effect| !matches!(effect, AcpEffect::Fatal { .. })),
+        "{fired:?}"
+    );
+    assert!(core.prompt_id.is_some(), "the new prompt still runs");
+}
+
 #[test]
 fn a_prompt_error_reply_rejects_the_send_and_keeps_the_guidance() {
     let mut config = AcpCoreConfig::new("t-prompt-error", "/work", AcpSessionQuirks::generic());

@@ -209,10 +209,8 @@ impl AcpCore {
             return;
         };
         self.active = false;
-        self.prompt_id = None;
-        // The turn died with its prompt: its tools ended with it (`session.ts:781`-`:784`).
-        let root = self.native_session_id.clone();
-        self.shells.prompt_ended(&root, "");
+        // Its turn already ended through `prompt_ended("")`, which ends its tools too
+        // (`session.ts:781`-`:784`).
         let message = self.redact_message(&message);
         self.settle_job(active.batch, Err(AcpErrorWire::rpc_error(message)), effects);
         self.drain(effects);
