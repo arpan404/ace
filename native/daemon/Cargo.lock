@@ -134,6 +134,7 @@ dependencies = [
  "ace-adapter-opencode",
  "ace-adapter-pi",
  "ace-core",
+ "ace-devices",
  "ace-engine",
  "ace-git",
  "ace-json",
@@ -151,6 +152,16 @@ dependencies = [
  "thiserror",
  "tokio",
  "zeroize",
+]
+
+[[package]]
+name = "ace-devices"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

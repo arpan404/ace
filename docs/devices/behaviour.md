@@ -240,3 +240,25 @@ cost above. Nothing here was measured against a real Simulator or device.
 | `devices-setting`                                                                                                                                                | b     | `devices-setting.ts` and `lazy-devices.ts`: the stored switch and lazy start                                                                             |
 
 Counts: 46 (a) files (5 of them live), 41 (b) (1 live), 0 (c).
+
+## 6. Intended differences in the Rust port
+
+The Rust platform is held to §3, with these deliberate differences, each proven in Rust:
+
+- **A value the schemas reject is a typed `DeviceError`, not a raw `ZodError`.** Today
+  `DevicePlatform.install` (`platform.ts:528`), `openApp` (`:554`) and `openUrl` (`:595`) parse the
+  path, app id and URL with Zod inside the operation, so a relative path, a malformed app id or a
+  URL without a scheme surfaces as a `ZodError` that carries no `DeviceFailure` code. With
+  `ACE_DEVICE_PLATFORM=native` the same input is refused as `invalid_data`, with a message and a
+  hint, before any SDK command runs (`ace-devices/src/platform/lifecycle.rs`). The device surface
+  is `DeviceFailure`, so callers gain the code they needed to branch on; nothing is accepted that
+  the schemas rejected.
+- **A physical Android device's location is decided before appearance is applied.** Today
+  `configure` (`platform.ts:623`–`:635`) sets night mode and only then refuses the location on a
+  phone, leaving the appearance changed on a request that failed. The Rust platform decides the
+  whole request first (`lifecycle::configure`), so a refused configuration changes nothing.
+- **An unreadable `wm size` override refuses the read instead of falling back to the physical
+  size.** `androidDimensions` (`commands.ts:115`–`:129`) takes `override ?? physical`, so a
+  malformed override line fails the read (as a `ZodError`) rather than reporting the physical
+  size; `ace-devices`' `commands::android_dimensions` keeps that outcome and returns it as
+  `invalid_data` with today's message and hint.

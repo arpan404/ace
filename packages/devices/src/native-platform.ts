@@ -205,7 +205,7 @@ export class NativeDevicePlatform extends DevicePlatformBase {
     const { frameEncoder: encoder, toolsDirectory: directory } = this.options;
     if (this.options.platform !== "darwin" || !encoder || !directory) return undefined;
     const addon = nativePlatform();
-    if (addon.devicePlatformConsolePort(serial) === null) return undefined;
+    if (!addon.devicePlatformConsolePort(serial)) return undefined;
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.options.env))
       if (value !== undefined) env[key] = value;
