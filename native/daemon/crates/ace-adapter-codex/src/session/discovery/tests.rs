@@ -360,6 +360,55 @@ fn a_joined_read_that_fails_leaves_its_scan_unfinished_and_retries() {
 }
 
 #[test]
+fn a_failed_read_fails_only_the_scan_that_awaits_it() {
+    let mut session = session();
+    session.recovered.insert("root-1".to_owned());
+    // Two scans, each waiting on a different thread's read.
+    let effects = session.reconcile_loaded("discovery:a");
+    let call = call_of(&effects[0]).expect("the first list call");
+    let started = session.settled(call, Ok(&json("{\"data\":[\"child-1\"]}")));
+    let first = started
+        .iter()
+        .find(|effect| method_of(effect) == Some("thread/read"))
+        .and_then(call_of)
+        .expect("the first scan reads child-1");
+    let effects = session.reconcile_loaded("discovery:b");
+    let call = call_of(&effects[0]).expect("the second list call");
+    let started = session.settled(call, Ok(&json("{\"data\":[\"child-2\"]}")));
+    let second = started
+        .iter()
+        .find(|effect| method_of(effect) == Some("thread/read"))
+        .and_then(call_of)
+        .expect("the second scan reads child-2");
+    assert!(session.discovery.reads.contains_key("child-1"));
+    assert!(session.discovery.reads.contains_key("child-2"));
+    // child-1's read fails: only its own scan is failed and retried.
+    let effects = session.settled(first, Err("child-1 refused"));
+    assert!(effects.contains(&Effect::ArmTimer {
+        key: "discovery:a".to_owned(),
+        ms: 2_000.0
+    }));
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ArmTimer { key, .. } if key == "discovery:b"
+    )));
+    assert!(session.discovery.reads.contains_key("child-2"));
+    assert!(session.discovery.tasks.contains_key("discovery:b"));
+    // The second scan is untouched, and finishes with its own read.
+    let effects = session.settled(second, Ok(&thread_read("child-2", "idle", "")));
+    let finished = effects.iter().find_map(note).expect("the second scan ends");
+    assert_eq!(
+        finished.get("event").and_then(Value::as_str),
+        Some("discovery-finished")
+    );
+    assert_eq!(
+        finished.get("task").and_then(Value::as_str),
+        Some("discovery:b")
+    );
+    assert!(!session.discovery.tasks.contains_key("discovery:b"));
+}
+
+#[test]
 fn a_queue_refresh_counts_every_page_and_reports_the_total() {
     let mut session = session();
     let effects = session.refresh_queue("root-1");
