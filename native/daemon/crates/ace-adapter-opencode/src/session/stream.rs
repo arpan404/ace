@@ -7,36 +7,32 @@
 //! Two stages, in the pipe order the TypeScript runs them:
 //!
 //! 1. [`Bounded`] elides heavy strings in the raw bytes with `openCodeElision`
-//!    (`observation.ts:11`) and bounds each event: the bytes emitted since the
-//!    last blank line, over `maxProviderPayloadBytes`, fail with
-//!    "OpenCode event exceeds byte limit". A CR counts as a byte, as the
-//!    TypeScript's `++bytes` runs before its CR check; it only never closes a
-//!    line.
+//!    (`observation.ts:11`) and bounds each piece: the bytes emitted since the
+//!    last blank line, over `maxProviderPayloadBytes`, fail with "OpenCode
+//!    event exceeds byte limit". A CR counts as a byte, as the TypeScript's
+//!    `++bytes` runs before its CR check; it only never closes a line.
 //! 2. [`Framer`] is the SDK's framing exactly: streaming UTF-8 decode, the
 //!    16 Mi UTF-16-unit buffer bound, CR normalization with a trailing CR held
 //!    back, blocks split on a blank line, `data:` lines joined by `\n`, and one
-//!    `JSON.parse` per event. Every chunk that is not the end counts as
-//!    activity, which the server core notes to its tenants.
+//!    `JSON.parse` per event.
 //!
-//! No TypeScript test covers the SDK's parser or its 16 Mi-unit bound, so the
-//! tables in `stream/tests.rs` are the port's own proof (E3-opencode.1). The
-//! rules table names each SDK statement with its line in that chunk.
+//! The SDK reads `boundedSse`'s output, so its unit is the piece, not the body
+//! chunk: no TypeScript test covers that parser or its 16 Mi-unit bound, so the
+//! tables in `stream/tests.rs` are the port's proof (E3-opencode.1).
 
 use ace_adapter_api::util::{ElisionLimits, JsonElider};
 use ace_json::Value;
 
 use super::error::StreamError;
 
-/// `openCodeElision` (`observation.ts:11`): base64 under 16 KiB passes
-/// untouched; readable text keeps 256 KiB.
+/// `openCodeElision` (`observation.ts:11`): base64 under 16 KiB passes; text keeps 256 KiB.
 const ELISION: ElisionLimits = ElisionLimits {
     hold_bytes: 16 * 1024,
     text_bytes: 256 * 1024,
 };
 /// `maxEventBytes`, which is `maxProviderPayloadBytes` (`observation.ts:19`).
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
-/// The SDK's `maxSseEventBytes = 16 * 1024 * 1024`, counted in UTF-16 units
-/// (`buffer.length`, rule 17).
+/// The SDK's `maxSseEventBytes`, counted in UTF-16 units (`buffer.length`, rule 17).
 const MAX_SSE_EVENT_UNITS: usize = 16 * 1024 * 1024;
 
 /// `boundedSse`: elide heavy strings, then bound each event's bytes.
@@ -66,14 +62,13 @@ impl Bounded {
         self.elider.push_pieces(raw, out, ends);
     }
 
-    /// The end of the body: the elider flushes an open string for the parser to
-    /// refuse, as its own pieces.
+    /// The elider's flush at the end of the body, as its own pieces.
     fn finish(&mut self, out: &mut Vec<u8>, ends: &mut Vec<usize>) {
         self.elider.end_pieces(out, ends);
     }
 
     /// `observation.ts:63`-`:70`. A blank line resets the count; a CR takes a
-    /// byte but neither opens nor closes one.
+    /// byte but never closes a line.
     fn count(&mut self, emitted: &[u8]) -> Result<(), StreamError> {
         for &byte in emitted {
             self.bytes += 1;
@@ -167,9 +162,8 @@ impl Decoder {
     }
 }
 
-/// The SDK's SSE framing (`sse`, the generator body). One connection's buffer
-/// and decoder; `reset` starts the next connection fresh, as a new async
-/// iterator does.
+/// The SDK's SSE framing (`sse`): one connection's buffer and decoder. `reset`
+/// starts the next connection, as a new iterator does.
 #[derive(Default)]
 struct Framer {
     decoder: Decoder,
@@ -299,20 +293,16 @@ fn is_js_whitespace(character: char) -> bool {
     )
 }
 
-/// One step downstream, in the order the SDK's reader produced it: every
-/// non-final read is an activity (`onActivity`, `server.ts:399`-`:403`) before
-/// that piece is decoded, and the piece's events follow.
-#[derive(Debug)]
+/// One step downstream in the SDK reader's order: an activity per non-final
+/// read, then that piece's events.
 pub enum Step {
     Activity,
     Event(Value),
 }
 
-/// One server's SSE body: the elision bound, then the SDK's framing. Chunks are
-/// `Buffer`s; every event is parsed once here and handed on as a value.
-///
-/// The SDK reads `boundedSse`'s output, so it sees one read per elided piece,
-/// not one per body chunk; a chunk the elider holds entirely is no read at all.
+/// One server's SSE body: the elision bound, then the SDK's framing. The SDK
+/// reads `boundedSse`'s output, so it sees one read per elided piece, not one
+/// per body chunk; a chunk the elider holds entirely is no read at all.
 pub struct EventStream {
     bounded: Bounded,
     framer: Framer,
@@ -339,8 +329,7 @@ impl EventStream {
     }
 
     /// One body chunk: its pieces in order, each with its activity first. On
-    /// failure the stream is dead until [`EventStream::reset`]; the steps before
-    /// the failure are already in `steps`.
+    /// failure the stream is dead until `reset`; earlier steps are in `steps`.
     pub fn push(&mut self, bytes: &[u8], steps: &mut Vec<Step>) -> Result<(), StreamError> {
         self.scratch.clear();
         self.ends.clear();
@@ -350,7 +339,7 @@ impl EventStream {
 
     /// The end of the body. The elider's flush pieces are reads like any other
     /// (each counts as activity), and the SDK's final empty read appends the
-    /// last block's blank line; then the stream is ready for the next connection.
+    /// last block's blank line; then the next connection starts fresh.
     pub fn end(&mut self, steps: &mut Vec<Step>) -> Result<(), StreamError> {
         self.scratch.clear();
         self.ends.clear();

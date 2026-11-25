@@ -9,16 +9,13 @@
 //! Each tenant's effects are published to its own [`EventQueue`] while the
 //! caller holds the server's state lock, so one input's effects never
 //! interleave with another's and each tenant sees them in TypeScript order.
-//! Tenant decisions (ownership, frames, shells) are E3-opencode.2's.
 //!
-//! What stays TypeScript (E3-opencode.4): the fetch and the body reader, the
-//! silence timer, the reconnect loop and its pause, and the awaited resync and
-//! prepareReplay of a pass. [`ChunkOutcome::recover`] is how an event asks the
-//! shell for it.
+//! What stays TypeScript (E3-opencode.4): the fetch and body reader, the
+//! silence timer, the reconnect loop, and a pass's awaited resync and
+//! prepareReplay. [`ChunkOutcome::recover`] asks the shell for that pass.
 
-use ace_adapter_api::FrameDirection;
-use ace_adapter_api::bridge::{EventQueue, SessionEvent};
-use ace_json::{Map, Value};
+use ace_adapter_api::bridge::EventQueue;
+use ace_json::Value;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
@@ -27,6 +24,7 @@ use crate::translate::cache::RecentMap;
 use crate::translate::redaction::sanitize;
 
 use super::error::{SecretError, StreamError};
+use super::notes::{ACTIVITY, BUFFERED, RESTARTED, publish, text as note};
 use super::routes::Routes;
 use super::stream::{EventStream, Step};
 
@@ -40,14 +38,8 @@ const SEQUENCES: usize = 1024;
 /// `ServerSecrets`: `z.array(z.string().min(1).max(4096)).max(32)`.
 const MAX_SECRETS: usize = 32;
 const MAX_SECRET_CHARS: usize = 4096;
-/// The activity note's channel (`server.ts:402`).
-const ACTIVITY: &str = "transport.activity";
-/// The two recovery notes the server emits itself (`server.ts:447`, `:451`).
-const RESTARTED: &str = "recovery.restarted";
-const BUFFERED: &str = "recovery.buffered";
 
-/// One session on a server, as the per-event path needs it. E3-opencode.2
-/// implements it over the session's own state, publishing what it decides.
+/// One session on a server, as the per-event path needs it (E3-opencode.2).
 pub trait Tenant: Send + Sync {
     /// The tenant's ordered queue, where this core publishes its notes.
     fn queue(&self) -> &EventQueue;
@@ -94,6 +86,9 @@ struct Buffered {
 pub struct ServerCore {
     stream: EventStream,
     routes: Routes,
+    /// `options.secrets`: the list `ServerSecrets.parse` validated.
+    declared: Vec<String>,
+    /// The redaction set: `declared` plus the server's authorization (`server.ts:221`).
     secrets: Vec<String>,
     tenants: IndexMap<TenantId, Arc<dyn Tenant>>,
     next_tenant: TenantId,
@@ -114,6 +109,7 @@ impl ServerCore {
         Ok(Self {
             stream: EventStream::new(),
             routes: Routes::new(),
+            declared: secrets.clone(),
             secrets,
             tenants: IndexMap::new(),
             next_tenant: 0,
@@ -128,16 +124,30 @@ impl ServerCore {
         })
     }
 
-    /// `addSecret`: the list is validated, and the secret is added to the
-    /// redaction set once (`server.ts:144`-`:152`).
+    /// `addSecret` (`server.ts:144`-`:152`): the declared list is validated with
+    /// the entry appended, duplicates included, then the redaction set takes it.
     pub fn add_secret(&mut self, secret: String) -> Result<(), SecretError> {
-        let mut candidate = self.secrets.clone();
-        candidate.push(secret.clone());
-        check_secrets(&candidate)?;
+        let mut declared = self.declared.clone();
+        declared.push(secret.clone());
+        check_secrets(&declared)?;
+        self.declared = declared;
         if !self.secrets.contains(&secret) {
             self.secrets.push(secret);
         }
         Ok(())
+    }
+
+    /// `this.secrets = [...options.secrets, password]` (`server.ts:221`): the
+    /// authorization is redacted but never counted against `ServerSecrets`.
+    pub fn add_authorization(&mut self, authorization: String) {
+        if !self.secrets.contains(&authorization) {
+            self.secrets.push(authorization);
+        }
+    }
+
+    /// The redaction set, for a caller redacting outside a chunk.
+    pub fn secrets(&self) -> &[String] {
+        &self.secrets
     }
 
     /// `subscribe`: a session joins, bounded at 128, and every cached route is
@@ -262,9 +272,8 @@ impl ServerCore {
         outcome
     }
 
-    /// `activity()` (`server.ts:399`-`:403`): one read's activity, noted to every
-    /// tenant. The facade calls this once when a connection starts (`:407`) and
-    /// then through the SDK's `onActivity`, arming its silence timer per call.
+    /// `activity()` (`server.ts:399`-`:403`): one read's activity, to every tenant.
+    /// The facade calls it at connection start (`:407`) and per `onActivity`.
     pub fn activity(&mut self) {
         self.note_all(ACTIVITY, "{}".to_owned());
     }
@@ -288,10 +297,7 @@ impl ServerCore {
 
     /// `consumeEvents`' loop body, one statement at a time.
     fn apply(&mut self, native: &Value, outcome: &mut ChunkOutcome) -> Result<(), StreamError> {
-        let data = {
-            let secrets: Vec<&str> = self.secrets.iter().map(String::as_str).collect();
-            sanitize(native, &secrets)
-        };
+        let data = sanitize(native, &self.secrets);
         let value: &Value = data.as_ref();
         let event = parse_native_event(value)?;
         self.sequence = self.sequence.saturating_add(1);
@@ -324,11 +330,19 @@ impl ServerCore {
         }
         if self.recovering {
             let bytes = ace_json::to_string(value).len();
+            // The buffer takes the sanitized value, moving it when the secret
+            // scrub already had to copy (the last read of `event` is above).
+            let text = note(&[
+                ("id", Value::from(event.id)),
+                ("type", Value::from(event.typ)),
+                ("watermark", Value::from(watermark)),
+            ]);
             self.buffered_bytes += bytes;
             self.buffered.push(Buffered {
-                data: value.clone(),
+                data: data.into_owned(),
                 watermark,
             });
+            let at = self.buffered.len() - 1;
             if self.buffered.len() > MAX_BUFFERED_EVENTS || self.buffered_bytes > MAX_BUFFERED_BYTES
             {
                 // Memory stays bounded; a fresh snapshot covers what is dropped.
@@ -341,13 +355,8 @@ impl ServerCore {
                 }
                 return Ok(());
             }
-            let text = note(&[
-                ("id", Value::from(event.id)),
-                ("type", Value::from(event.typ)),
-                ("watermark", Value::from(watermark)),
-            ]);
             for tenant in &targets {
-                tenant.buffered(value, watermark);
+                tenant.buffered(&self.buffered[at].data, watermark);
                 publish(tenant.as_ref(), BUFFERED, text.clone());
             }
         } else {
@@ -384,26 +393,6 @@ fn check_secrets(secrets: &[String]) -> Result<(), SecretError> {
         return Err(SecretError::Length);
     }
     Ok(())
-}
-
-/// A note's text, `JSON.stringify`d with `ace_json` so a string field escapes
-/// exactly as JavaScript escapes it.
-fn note(fields: &[(&str, Value)]) -> String {
-    let mut map = Map::new();
-    for (key, value) in fields {
-        map.insert((*key).to_owned(), value.clone());
-    }
-    ace_json::to_string(&Value::Object(map))
-}
-
-/// One note on a tenant's queue; the queue assigns its seq.
-fn publish(tenant: &dyn Tenant, channel: &'static str, text: String) {
-    tenant.queue().publish(vec![SessionEvent::Frame {
-        seq: 0,
-        dir: FrameDirection::Note,
-        channel: channel.to_owned(),
-        text,
-    }]);
 }
 
 #[cfg(test)]

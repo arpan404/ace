@@ -67,20 +67,20 @@ impl Routes {
         };
         // An empty key is never cached: `if (key && accepted.length)`.
         let cached = if key.is_empty() {
-            Vec::new()
+            None
         } else {
-            self.owners.get(&key).cloned().unwrap_or_default()
+            self.owners.get(&key).cloned()
         };
-        // No cached answer selects over every tenant, as `(cached ?? [...consumers])`.
-        let mut accepted = if cached.is_empty() {
-            self.keep_all(tenants, data, watermark)
-        } else {
-            self.keep(&cached, tenants, data, watermark)
+        let accepted = match &cached {
+            Some(ids) => self.keep(ids, tenants, data, watermark),
+            None => self.keep_all(tenants, data, watermark),
         };
-        if !cached.is_empty() && accepted.is_empty() {
-            // The cached owners no longer match: select over every tenant, as
-            // the TypeScript's `delete` then recursive call does.
-            accepted = self.keep_all(tenants, data, watermark);
+        if cached.is_some() && accepted.is_empty() {
+            // The cached owners no longer match. Delete the entry and select
+            // again, as `routes.ts:19` does, so the next event asks every
+            // tenant exactly as a cache miss would.
+            self.owners.delete(&key);
+            return self.select(data, watermark, tenants);
         }
         if !key.is_empty() && !accepted.is_empty() {
             self.owners

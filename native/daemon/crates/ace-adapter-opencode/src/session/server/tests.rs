@@ -7,7 +7,7 @@ use ace_json::{Value, json};
 use std::sync::Arc;
 
 use super::{MAX_TENANTS, ServerCore, SubscribeError};
-use crate::session::error::StreamError;
+use crate::session::error::{SecretError, StreamError};
 use crate::session::testing::{Call, Fake};
 
 /// One event of the shape `boundaries.ts` admits.
@@ -391,6 +391,53 @@ fn an_unsubscribed_tenant_receives_nothing_more() {
     server.unsubscribe(id);
     server.chunk(delta("a", "two").as_bytes());
     assert_eq!(a.calls().len(), 1);
+}
+
+#[test]
+fn the_declared_secret_bound_counts_duplicates_and_excludes_the_authorization() {
+    let declared: Vec<String> = (0..32).map(|index| format!("sk-{index}")).collect();
+    let mut server = ServerCore::new(declared.clone()).expect("32 declared secrets");
+    server.add_authorization("auth-proof-1".to_owned());
+    assert_eq!(
+        server.secrets().len(),
+        33,
+        "the authorization is redacted too"
+    );
+
+    // A 33rd entry is refused even when it duplicates one already declared.
+    assert_eq!(
+        server.add_secret("sk-0".to_owned()),
+        Err(SecretError::TooMany)
+    );
+    assert_eq!(server.secrets().len(), 33);
+    assert!(ServerCore::new(vec!["s".to_owned(); 33]).is_err());
+    // The rule bounds count code points: 4096 emoji pass, 4097 do not.
+    assert!(ServerCore::new(vec!["😀".repeat(4096)]).is_ok());
+    assert_eq!(
+        ServerCore::new(vec!["😀".repeat(4097)]).err(),
+        Some(SecretError::Length)
+    );
+    assert_eq!(
+        ServerCore::new(vec![String::new()]).err(),
+        Some(SecretError::Length)
+    );
+
+    // The authorization is redacted from an event although it was never
+    // declared, and the declared list keeps its 32 entries.
+    let a = Arc::new(Fake::session("a"));
+    server.subscribe(a.clone()).expect("tenant");
+    server.chunk(
+        event(
+            "e1",
+            "session.text.delta",
+            json!({ "sessionID": "a", "text": "auth-proof-1" }),
+        )
+        .as_bytes(),
+    );
+    let Some(Call::Receive(text)) = a.calls().first().cloned() else {
+        panic!("the tenant received one event");
+    };
+    assert!(!text.contains("auth-proof-1"), "{text}");
 }
 
 #[test]

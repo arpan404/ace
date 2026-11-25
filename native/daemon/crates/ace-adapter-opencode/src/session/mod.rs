@@ -4,6 +4,7 @@
 //! recovery and HTTP effects.
 
 pub mod error;
+pub mod notes;
 pub mod routes;
 pub mod server;
 pub mod stream;

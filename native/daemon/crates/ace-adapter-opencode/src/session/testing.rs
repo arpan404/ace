@@ -5,6 +5,7 @@
 use ace_adapter_api::FrameDirection;
 use ace_adapter_api::bridge::{EventQueue, ReadGate, SessionEvent};
 use ace_json::Value;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::server::Tenant;
@@ -32,6 +33,8 @@ pub(crate) struct Fake {
     /// `tracing` is set, so the other tables see calls alone.
     tracing: bool,
     trace: Mutex<Vec<String>>,
+    /// How many times the core asked this tenant whether it accepts an event.
+    accepts_calls: AtomicUsize,
 }
 
 impl Fake {
@@ -42,6 +45,7 @@ impl Fake {
             queue: EventQueue::new(ReadGate::new()),
             tracing: false,
             trace: Mutex::new(Vec::new()),
+            accepts_calls: AtomicUsize::new(0),
         }
     }
 
@@ -94,6 +98,10 @@ impl Fake {
                 .and_then(Value::as_str)
                 == Some(name)
         })
+    }
+
+    pub(crate) fn accepts_calls(&self) -> usize {
+        self.accepts_calls.load(Ordering::SeqCst)
     }
 
     pub(crate) fn calls(&self) -> Vec<Call> {
@@ -153,6 +161,7 @@ impl Tenant for Fake {
     }
 
     fn accepts(&self, data: &Value, watermark: u64) -> bool {
+        self.accepts_calls.fetch_add(1, Ordering::SeqCst);
         (self.accept)(data, watermark)
     }
 

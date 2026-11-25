@@ -29,14 +29,30 @@ pub enum StreamError {
 }
 
 impl StreamError {
-    /// The identity the TypeScript throws. The SDK's failures are its
-    /// `ClientError` codes; the other two are `Error`s with this text.
-    pub fn code(self) -> &'static str {
+    /// The `ClientError` reason the SDK raises, or `None` where the TypeScript
+    /// throws a plain `Error` (the event bound) or a `ZodError` (the envelope
+    /// check, `boundaries.ts`).
+    pub fn code(self) -> Option<&'static str> {
         match self {
-            StreamError::EventBytes => "EventTooLarge",
-            StreamError::SseEventTooLarge => "SseEventTooLarge",
-            StreamError::MalformedResponse => "MalformedResponse",
-            StreamError::Envelope(_) => "Envelope",
+            StreamError::SseEventTooLarge => Some("SseEventTooLarge"),
+            StreamError::MalformedResponse => Some("MalformedResponse"),
+            StreamError::EventBytes | StreamError::Envelope(_) => None,
+        }
+    }
+
+    /// The TypeScript's message. `ClientError`'s is its reason alone unless it
+    /// has a cause; `MalformedResponse`'s cause is V8's `JSON.parse` text,
+    /// which this does not reproduce, and a `ZodError` has no single line.
+    pub fn message(self) -> String {
+        match self {
+            StreamError::EventBytes => String::from("OpenCode event exceeds byte limit"),
+            StreamError::SseEventTooLarge => String::from("SseEventTooLarge"),
+            StreamError::MalformedResponse => String::from("MalformedResponse"),
+            StreamError::Envelope(field) => {
+                // `NativeEvent.parse` threw a ZodError; the failed field is what
+                // this build can name, and the daemon's log carries the text.
+                format!("OpenCode event failed its native envelope check: {field}")
+            }
         }
     }
 }
@@ -49,13 +65,17 @@ impl From<BoundaryError> for StreamError {
     }
 }
 
-/// `ServerSecrets.parse` refused the redaction list (`server.ts:66`).
+/// `ServerSecrets.parse` refused the declared list (`server.ts:66`, `:144`).
+/// The TypeScript throws a ZodError, which has no single-line message, so these
+/// name the rule that failed; the count is the declared list's, duplicates
+/// included, and never the authorization added at `:221`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SecretError {
-    /// `z.array(...).max(32)`.
+    /// More than 32 declared entries (`z.array(...).max(32)`).
     #[error("OpenCode session secrets exceed 32 entries")]
     TooMany,
-    /// `z.string().min(1).max(4096)`, whose bounds count code points (rule 17).
+    /// A declared entry outside `z.string().min(1).max(4096)`; the bounds count
+    /// code points (rule 17).
     #[error("OpenCode session secret is outside 1..=4096 characters")]
     Length,
 }
