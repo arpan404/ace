@@ -292,3 +292,6 @@ in `ace-devices` only, and today's TypeScript is left as it was (owner rule):
 - **Every D3.1 path reaches Rust.** `DevicePlatform.list`, `boot`, `shutdown` and the tools
   download plan are `ace-devices` decisions; Android capture takes `wm size` from
   `commands::android_dimensions`, so the documented `sizeUndecoded` refusal is reachable.
+- **A listed Simulator's name stays a JavaScript string.** The listed entry crosses the binding
+  as JSON text and the record's name is a `JsString`, so a lone surrogate the SDK printed is
+  listed and returned in the same UTF-16 units (`platform/list.rs`).
