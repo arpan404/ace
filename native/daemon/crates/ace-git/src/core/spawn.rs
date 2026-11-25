@@ -95,9 +95,7 @@ pub async fn sleep_with(scheduler: &dyn TimeoutScheduler, milliseconds: u64) {
             n.notify_one();
         }),
     );
-    while !done.load(Ordering::Acquire) {
-        notify.notified().await;
-    }
+    crate::core::wake::wait_for_flag(&done, &notify).await;
 }
 
 /// Ordered stream and lifecycle events produced by a [`ProcessChild`].
@@ -679,12 +677,15 @@ pub async fn kill_tree(ports: &ProcessPorts, child: Arc<dyn ProcessChild>) {
             }),
         );
         loop {
+            let expired = notify.notified();
+            tokio::pin!(expired);
+            expired.as_mut().enable();
             if timed_out.load(Ordering::Acquire) {
                 break;
             }
             tokio::select! {
                 biased;
-                _ = notify.notified() => break,
+                _ = &mut expired => break,
                 ev = events.recv() => match ev {
                     Some(ProcessEvent::SpawnError { .. }) => {
                         cancel.cancel();
@@ -739,11 +740,20 @@ pub async fn drain_process_exit(scheduler: &dyn TimeoutScheduler, child: &dyn Pr
             n.notify_waiters();
         }),
     );
-    while !child.exited() && !done.load(Ordering::Acquire) {
+    loop {
+        let exited = exit_notify.notified();
+        tokio::pin!(exited);
+        exited.as_mut().enable();
+        let expired = timer_notify.notified();
+        tokio::pin!(expired);
+        expired.as_mut().enable();
+        if child.exited() || done.load(Ordering::Acquire) {
+            break;
+        }
         tokio::select! {
             biased;
-            _ = exit_notify.notified() => {}
-            _ = timer_notify.notified() => {}
+            _ = &mut exited => {}
+            _ = &mut expired => {}
         }
     }
     cancel.cancel();

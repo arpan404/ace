@@ -187,6 +187,17 @@ impl CallCancel {
     pub async fn notified(&self) {
         self.notify.notified().await;
     }
+
+    /// Resolves once the call is aborted or the service closed, registering
+    /// before it reads either flag so the wakeup is never lost.
+    pub async fn cancelled(&self) {
+        crate::core::wake::wait_until(|| self.is_aborted() || self.is_closed(), &self.notify).await;
+    }
+
+    /// Resolves once the service closed. An abort alone does not.
+    pub async fn closed(&self) {
+        crate::core::wake::wait_until(|| self.is_closed(), &self.notify).await;
+    }
 }
 
 /// Configuration for [`GitCliCore`].
@@ -312,6 +323,11 @@ impl GitCliCore {
             }),
         );
         let result = loop {
+            // The timer registers before its flag is read, and `closed()`
+            // registers before it reads the close flag, so neither wakeup is lost.
+            let timer = timer_notify.notified();
+            tokio::pin!(timer);
+            timer.as_mut().enable();
             if cancel.is_closed() {
                 break Err(GitError::new(GitErrorCode::GitClosed, "Git service closed"));
             }
@@ -320,16 +336,8 @@ impl GitCliCore {
             }
             tokio::select! {
                 biased;
-                _ = cancel.notified() => {
-                    if cancel.is_closed() {
-                        break Err(GitError::new(GitErrorCode::GitClosed, "Git service closed"));
-                    }
-                }
-                _ = timer_notify.notified() => {
-                    if done.load(Ordering::Acquire) {
-                        break Ok(());
-                    }
-                }
+                _ = cancel.closed() => {}
+                _ = &mut timer => {}
             }
         };
         handle.cancel();
@@ -349,7 +357,11 @@ impl GitCliCore {
             cancel.close();
         }
         while self.active_calls.load(Ordering::Acquire) > 0 {
-            self.active_zero.notified().await;
+            crate::core::wake::wait_until(
+                || self.active_calls.load(Ordering::Acquire) == 0,
+                &self.active_zero,
+            )
+            .await;
         }
         let drains: Vec<tokio::task::JoinHandle<()>> = self
             .drains
@@ -524,6 +536,11 @@ impl GitCliCore {
         let mut stdin_rx = opts.stdin_rx.take();
 
         while failure.is_none() && enough.is_none() && close_result.is_none() {
+            // The timer registers before its flag is read, and `cancelled()`
+            // registers before it reads abort and close, so neither wakeup is lost.
+            let expired = timer_notify.notified();
+            tokio::pin!(expired);
+            expired.as_mut().enable();
             if deadline_hit.load(Ordering::Acquire) {
                 failure = Some(
                     GitError::new(
@@ -552,8 +569,8 @@ impl GitCliCore {
 
             tokio::select! {
                 biased;
-                _ = cancel.notified() => {}
-                _ = timer_notify.notified() => {}
+                _ = cancel.cancelled() => {}
+                _ = &mut expired => {}
                 cmd = async {
                     match stdin_rx.as_mut() {
                         Some(rx) => rx.recv().await,
@@ -580,8 +597,8 @@ impl GitCliCore {
                             if let Some(ref cb) = opts.callbacks {
                                 tokio::select! {
                                     biased;
-                                    _ = cancel.notified() => {}
-                                    _ = timer_notify.notified() => {}
+                                    _ = cancel.cancelled() => {}
+                                    _ = expired_stop(&deadline_hit, &budget_hit, &timer_notify) => {}
                                     res = cb.on_stdout(chunk) => {
                                         if let Err(err) = res {
                                             failure = Some(err);
@@ -620,8 +637,8 @@ impl GitCliCore {
                         {
                             tokio::select! {
                                 biased;
-                                _ = cancel.notified() => {}
-                                _ = timer_notify.notified() => {}
+                                _ = cancel.cancelled() => {}
+                                _ = expired_stop(&deadline_hit, &budget_hit, &timer_notify) => {}
                                 res = cb.on_stderr(chunk.clone()) => {
                                     if let Err(err) = res {
                                         failure = Some(err);
@@ -886,6 +903,16 @@ impl GitCliCore {
     pub fn job_alive(&self, pid: u32) -> bool {
         self.stopped_jobs.job_alive(pid) || global_stopped_jobs().job_alive(pid)
     }
+}
+
+/// Resolves once the deadline or the work budget fired, registering before it
+/// reads either flag so the wakeup is never lost.
+async fn expired_stop(deadline: &AtomicBool, budget: &AtomicBool, notify: &Notify) {
+    crate::core::wake::wait_until(
+        || deadline.load(Ordering::Acquire) || budget.load(Ordering::Acquire),
+        notify,
+    )
+    .await;
 }
 
 /// Exact UTF-8 scalar output (`textOutput` in `cli.ts`): strict UTF-8, strip one trailing `\n`.

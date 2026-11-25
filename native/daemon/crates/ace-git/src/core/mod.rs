@@ -21,3 +21,4 @@ pub mod serial;
 pub mod spawn;
 pub mod temp_index;
 pub mod transport;
+pub mod wake;
