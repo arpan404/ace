@@ -76,8 +76,14 @@ function summarize(
   };
 }
 
+/** Repairs a folder just before work runs in it, for a CLI that damages its own account home. */
+export interface RegistryHooks {
+  prepareHome?: (instance: ProviderInstance) => Promise<void>;
+}
+
 export class AccountRegistry {
   private readonly quotaListeners = new Set<(id: string) => void>();
+  private readonly prepareHome?: (instance: ProviderInstance) => Promise<void>;
   subscribeQuota(listener: (id: string) => void): () => void {
     this.quotaListeners.add(listener);
     return () => this.quotaListeners.delete(listener);
@@ -104,9 +110,10 @@ export class AccountRegistry {
   private signInMethod;
   private setSignInMethod;
   private clearSignInMethod;
-  constructor(db: DatabaseSync, managedDataDir?: string) {
+  constructor(db: DatabaseSync, managedDataDir?: string, hooks: RegistryHooks = {}) {
     this.db = db;
     this.managedDataDir = managedDataDir;
+    this.prepareHome = hooks.prepareHome;
     db.exec("PRAGMA busy_timeout = 3000");
     db.exec(
       "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, instance TEXT NOT NULL, quota TEXT NOT NULL)",
@@ -187,9 +194,12 @@ export class AccountRegistry {
     if (this.checks.has(instance.id)) throw new Error("Account folder hasn't answered yet");
     const problem = this.readAccount(instance.id)?.quota.blockers.homeUnavailable;
     if (problem) throw new Error(problem);
-    if (!instance.managed) return;
-    if (!this.managedDataDir) throw new Error("Managed account needs its daemon data root");
-    await assertManagedHome(this.managedDataDir, instance);
+    if (instance.managed) {
+      if (!this.managedDataDir) throw new Error("Managed account needs its daemon data root");
+      await assertManagedHome(this.managedDataDir, instance);
+    }
+    // The home is usable as far as ace knows; the injector repairs what a CLI changed since.
+    await this.prepareHome?.(instance);
   }
   /** A user-requested Cursor sign-in can repair a missing private folder without a restart. */
   async restoreCursorHome(id: string): Promise<void> {
@@ -752,6 +762,7 @@ export async function openRegistryIndex(
   signal?: AbortSignal,
   managedDataDir: string = dirname(path),
   homeChecks: HomeCheckOptions = {},
+  hooks: RegistryHooks = {},
 ): Promise<AccountRegistry> {
   assertTestHomeIsolation(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -764,7 +775,7 @@ export async function openRegistryIndex(
   const stat = await lstat(path);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
-  const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir);
+  const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir, hooks);
   // Home checks keep running behind the caller; canonicalizeHomes handles its own failures.
   void registry.canonicalizeHomes(signal, homeChecks).catch(() => undefined);
   return registry;
@@ -779,8 +790,9 @@ export async function openRegistry(
   path: string,
   managedDataDir: string = dirname(path),
   homeChecks: HomeCheckOptions = {},
+  hooks: RegistryHooks = {},
 ): Promise<AccountRegistry> {
-  const registry = await openRegistryIndex(path, undefined, managedDataDir, homeChecks);
+  const registry = await openRegistryIndex(path, undefined, managedDataDir, homeChecks, hooks);
   await registry.firstPass;
   return registry;
 }
