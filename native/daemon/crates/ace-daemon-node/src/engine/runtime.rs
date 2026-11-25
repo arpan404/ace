@@ -206,7 +206,7 @@ pub fn runtime(
         ports: Rc::clone(&ports),
     });
     let deps = Rc::new(ActorDeps::new(
-        Rc::new(Unported),
+        Rc::new(ace_engine::repository::actor_repo::EngineRepo),
         Rc::new(Unported),
         Rc::clone(&live) as Rc<dyn LiveStore>,
         Rc::clone(&acks) as Rc<dyn FrameAcks>,

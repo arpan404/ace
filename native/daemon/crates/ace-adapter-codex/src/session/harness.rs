@@ -677,8 +677,14 @@ impl HostSink for HostEffects {
                 }
             }
             HostEffect::Exited { tenant, exit } => {
-                if let Some(handlers) = self.handlers.lock().expect("tenant handlers").get(&tenant)
-                {
+                // The session leaves with its exit: forget its channel, so
+                // nothing decided after the exit is delivered there.
+                let handlers = self
+                    .handlers
+                    .lock()
+                    .expect("tenant handlers")
+                    .remove(&tenant);
+                if let Some(handlers) = handlers {
                     handlers.exited(&exit);
                 }
             }

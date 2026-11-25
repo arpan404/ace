@@ -30,12 +30,39 @@ pub(super) struct Publication {
 
 impl Publication {
     /// Queues one effect, counting the payload it holds.
-    fn hold(&mut self, effect: HostEffect, payload: Option<usize>) {
+    pub(super) fn hold(&mut self, effect: HostEffect, payload: Option<usize>) {
         if let Some(bytes) = payload {
             self.entries += 1;
             self.bytes += bytes;
         }
         self.queue.push_back(Queued { effect, payload });
+    }
+
+    /// Takes a queued child stop out of the order: the host's cleanup hands it
+    /// over directly, since the delivery that would have is what unwound.
+    pub(super) fn take_retire(&mut self) -> Option<(Retirement, bool)> {
+        let at = self
+            .queue
+            .iter()
+            .position(|queued| matches!(queued.effect, HostEffect::Retire { .. }))?;
+        let queued = self.queue.remove(at)?;
+        self.release(&queued);
+        match queued.effect {
+            HostEffect::Retire { reason, awaited } => Some((reason, awaited)),
+            _ => None,
+        }
+    }
+
+    /// How many effects wait, and the bytes they hold.
+    #[cfg(test)]
+    pub(super) fn backlog(&self) -> (usize, usize) {
+        (self.entries, self.bytes)
+    }
+
+    /// How many effects wait.
+    #[cfg(test)]
+    pub(super) fn depth(&self) -> usize {
+        self.queue.len()
     }
 
     /// The effect left the queue: its reservation goes with it.
@@ -124,6 +151,10 @@ pub const INTAKE_BYTES_RESUME: usize = 1024 * 1024;
 /// from inside a call (acknowledging a write, reporting a failed stop), whose
 /// effects follow.
 pub trait HostSink: Send + Sync {
+    /// One decided effect, in the host's order. A shell forgets a channel when
+    /// it applies that channel's `Exited`: like TS's closed tenant (`deliver`,
+    /// `host.ts:169`), nothing decided after the exit reaches it, so a reply
+    /// produced after its channel left is dropped there rather than delivered.
     fn effect(&self, host: &Host, effect: HostEffect);
     /// Stops the child now, outside the publication order. The host's own
     /// cleanup hands this over directly: a sink that unwound must never keep
@@ -221,6 +252,7 @@ impl Host {
             held: true,
         };
         let mut skipped = 0;
+        let mut unsent = 0;
         loop {
             let next = {
                 let mut publication = self.publication();
@@ -242,6 +274,9 @@ impl Host {
                                 "native host: {skipped} effect(s) skipped after a sink unwind"
                             );
                         }
+                        if unsent > 0 {
+                            eprintln!("native host: {unsent} write(s) dropped after a sink unwind");
+                        }
                         return;
                     }
                 }
@@ -250,16 +285,37 @@ impl Host {
                 let mut publication = self.publication();
                 self.pace(&mut publication);
             }
+            let lost_stop = match &next.1 {
+                HostEffect::Retire { reason, awaited } => Some((*reason, *awaited)),
+                _ => None,
+            };
+            let queued_stop = if lost_stop.is_some() {
+                self.claim_stop()
+            } else {
+                None
+            };
+            if matches!(next.1, HostEffect::Write { .. }) && self.poisoned() {
+                // The child is being stopped and the call this line carried has
+                // already failed: sending it would put work on a dying process.
+                unsent += 1;
+                continue;
+            }
             let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 next.0.effect(self, next.1);
             }));
+            if let Some(generation) = queued_stop {
+                // The shell took the stop: it landed unless the shell reported a
+                // failure while taking it or it unwound, and a poison then owes
+                // the stop only when the stop itself is what unwound.
+                self.finish_stop(generation, unwound.is_err());
+            }
             if unwound.is_err() {
                 if self.poisoned() {
                     // After the poison each effect stands alone: this one is
                     // skipped and logged, and the rest keeps its order.
                     skipped += 1;
                 } else {
-                    self.poison();
+                    self.poison(lost_stop);
                 }
                 continue;
             }
@@ -281,12 +337,18 @@ impl Host {
     ///
     /// TS has no equivalent: a throwing callback there is an uncaught error
     /// (`docs/engine/behaviour.md`).
-    fn poison(&self) {
+    ///
+    /// `lost_stop` is the stop the sink unwound on, when that effect was the
+    /// stop itself: only then is a stop owed even though nothing is queued.
+    fn poison(&self, lost_stop: Option<(Retirement, bool)>) {
         let (publish, stop) = {
             let mut inner = self.lock();
             if inner.poisoned {
                 return;
             }
+            // A child that already exited is gone: stopping it again could only
+            // signal a pid that has been reused.
+            let exited = inner.child_exited;
             inner.poisoned = true;
             // Calls the peer still holds fail; a call already settled has its
             // settlement queued, and keeps it.
@@ -296,7 +358,7 @@ impl Host {
             // unwound must not keep the process alive, and its stop may be
             // exactly what is queued behind the effect that unwound.
             inner.retire(Retirement::RpcFailed, true);
-            let stop = inner.take_retire();
+            let mut stop = inner.take_retire();
             let exit = HostExit {
                 reason: ExitReason::Exit,
                 code: None,
@@ -311,22 +373,73 @@ impl Host {
                 let payload = effect.payload_bytes();
                 publication.hold(effect, payload);
             }
+            if stop.is_none() {
+                stop = publication.take_retire();
+            }
+            // A stop is owed only when one was decided: the effect that unwound
+            // was the stop itself, or one was still queued. Otherwise the child
+            // was already stopped or has exited, and it is never signalled again.
+            let stop = if exited { None } else { lost_stop.or(stop) };
             self.pace(&mut publication);
             (self.claim(&mut publication), stop)
         };
         if let Some((reason, awaited)) = stop {
-            let sink = self.publication().sink.clone();
-            if let Some(sink) = sink
-                && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    sink.stop(self, reason, awaited);
-                }))
-                .is_err()
-            {
-                eprintln!("native host: the child's stop unwound in the sink");
-            }
+            self.stop_child(reason, awaited);
         }
         if publish {
             self.publish();
+        }
+    }
+
+    /// Hands one child stop to the shell directly, outside the publication
+    /// order, and never lets an unwind there escape: the host's cleanup must
+    /// not depend on a sink that may be the thing that unwound.
+    ///
+    /// One stop at a time: a caller that arrives while one is in flight joins
+    /// it, and none is issued once one landed or the child exited. A stop the
+    /// shell could not confirm (`stop_failed`) may be asked for again.
+    pub(super) fn stop_child(&self, reason: Retirement, awaited: bool) {
+        let Some(generation) = self.claim_stop() else {
+            return;
+        };
+        let sink = self.publication().sink.clone();
+        let unwound = sink.is_some_and(|sink| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                sink.stop(self, reason, awaited);
+            }))
+            .is_err()
+        });
+        if unwound {
+            eprintln!("native host: the child's stop unwound in the sink");
+        }
+        self.finish_stop(generation, unwound);
+    }
+
+    /// Claims the stop being made: its generation, or `None` when one is in
+    /// flight, one landed, or the child is gone. A stop the shell could not
+    /// confirm leaves `Failed`, which may be claimed again.
+    fn claim_stop(&self) -> Option<u64> {
+        let mut inner = self.lock();
+        if inner.child_exited || !matches!(inner.stop_state, StopState::None | StopState::Failed) {
+            return None;
+        }
+        inner.stop_generation += 1;
+        inner.stop_state = StopState::InFlight;
+        Some(inner.stop_generation)
+    }
+
+    /// Writes one stop's outcome, and only its own: a later stop has another
+    /// generation, and a `stop_failed` already recorded the truth.
+    fn finish_stop(&self, generation: u64, unwound: bool) {
+        let mut inner = self.lock();
+        if inner.stop_state == StopState::InFlight && inner.stop_generation == generation {
+            // A stop that unwound never landed; one the shell reported failed
+            // stays failed.
+            inner.stop_state = if unwound {
+                StopState::Failed
+            } else {
+                StopState::Landed
+            };
         }
     }
 

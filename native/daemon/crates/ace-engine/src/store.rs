@@ -22,6 +22,12 @@ impl Tx<'_> {
             .append_events(json)
             .map_err(EngineError::Port)
     }
+
+    /// The connection this transaction runs on, for the engine's own statements (E5.3): the
+    /// same connection the store's shell opened the frame on.
+    pub fn conn(&self) -> &std::sync::Arc<ace_store::Connection> {
+        &self.store.conn
+    }
 }
 
 /// The store seam: the shell's transaction context, any transaction's one lifecycle.
@@ -29,6 +35,8 @@ pub struct EngineStore {
     pub(crate) ports: Rc<dyn Ports>,
     pub(crate) stack: Rc<dyn EngineStack>,
     pub(crate) outermost: Cell<bool>,
+    /// The connection every transaction frame and the engine's own statements run on (E5.3).
+    pub(crate) conn: std::sync::Arc<ace_store::Connection>,
 }
 
 impl EngineStore {
@@ -84,5 +92,73 @@ impl EngineStore {
 
     pub(crate) fn detach(&self) -> Vec<u64> {
         self.stack.detach()
+    }
+
+    /// The connection the shell's transaction frames run on (E5.3).
+    pub fn conn(&self) -> &std::sync::Arc<ace_store::Connection> {
+        &self.conn
+    }
+
+    /// `clock.now()`: the engine's clock, for a synchronous entry that needs a time.
+    pub fn now(&self) -> f64 {
+        self.ports.now()
+    }
+
+    /// `store.headSeq()`: the sequence the store has written so far.
+    pub fn head_seq(&self) -> Result<f64, EngineError> {
+        self.ports.head_seq().map_err(EngineError::Port)
+    }
+
+    /// `store.hasLiveWrite(id)`: a buffered live write is pending for the thread.
+    pub fn has_live_write(&self, id: &str) -> Result<bool, EngineError> {
+        self.ports.has_live_write(id).map_err(EngineError::Port)
+    }
+
+    /// `store.rollbackGeneration()`: a number, bumped on every rollback.
+    pub fn rollback_generation(&self) -> Result<f64, EngineError> {
+        self.ports.rollback_generation().map_err(EngineError::Port)
+    }
+
+    /// `options.ids` / the Rust id service: one ace id of `kind`.
+    pub fn next_id(&self, kind: &str) -> String {
+        self.ports.next_id(kind)
+    }
+
+    /// `store.getThread(id)`: the thread row as JSON, or none (`provider-facts.ts:59`).
+    pub fn get_thread(&self, id: &str) -> Result<Option<String>, EngineError> {
+        self.ports.get_thread(id).map_err(EngineError::Port)
+    }
+
+    /// `store.prepareLiveWrite(bytes)` (E5.2's buffer).
+    pub fn prepare_live_write(&self, bytes: f64) -> Result<(), EngineError> {
+        self.ports
+            .prepare_live_write(bytes)
+            .map_err(EngineError::Port)
+    }
+
+    /// `store.bufferLiveWrite(id, events, now, callbacks)` (E5.2's buffer).
+    pub fn buffer_live_write(
+        &self,
+        id: &str,
+        events_json: &str,
+        at: f64,
+        token: u64,
+    ) -> Result<(), EngineError> {
+        self.ports
+            .buffer_live_write(id, events_json, at, token)
+            .map_err(EngineError::Port)
+    }
+
+    /// `store.capRaw(raw, threadId)` (E5.2).
+    pub fn cap_raw(&self, thread: &str, raw: &str) -> Result<String, EngineError> {
+        self.ports.cap_raw(thread, raw).map_err(EngineError::Port)
+    }
+
+    /// `store.appendEvents(threadId, payloads, at)`: the store's one event writer, inside the
+    /// open transaction (`repository.ts:322`). Engine SQL never writes event rows (Decision 1).
+    pub fn write_events(&self, id: &str, payloads_json: &str, at: f64) -> Result<(), EngineError> {
+        self.ports
+            .write_events(id, payloads_json, at)
+            .map_err(EngineError::Port)
     }
 }
