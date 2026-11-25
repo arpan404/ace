@@ -749,7 +749,11 @@ async fn a_settings_read_failure_keeps_a_muted_bots_notice_for_a_safe_retry() ->
     assert_eq!(status, 200, "{body}");
     let mut stream = listen(&spade).await?;
     let db = spade_store::Store::connect(spade.database())?;
-    db.set_setting("reach", Some("invalid JSON"))?;
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES ('reach', 'invalid JSON')
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [],
+    )?;
     spade.say(&conversation, "Prepare the release").await?;
     spade
         .wait_for_count(&conversation, "question_asked", 2)
@@ -761,7 +765,7 @@ async fn a_settings_read_failure_keeps_a_muted_bots_notice_for_a_safe_retry() ->
         "{failed:?}"
     );
 
-    db.set_setting("reach", None)?;
+    db.execute("DELETE FROM settings WHERE key = 'reach'", [])?;
     clock.pass_window().await?;
     let retried = until_notice(&mut stream, |n| n["category"] == "needs_you").await;
     assert!(
