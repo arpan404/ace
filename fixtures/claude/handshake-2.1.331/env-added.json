@@ -1,0 +1,6 @@
+{
+  "added": {
+    "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1"
+  },
+  "note": "PWD follows the cwd option; OLDPWD is dropped. Nothing else changes."
+}

@@ -11,7 +11,9 @@ use crate::errors::SupervisorError;
 use crate::identity::ProcessIdentity;
 #[cfg(not(windows))]
 use crate::identity::ProcessOwner;
-use crate::retry::{GuardedTick, inventory_backoff_ms, inventory_retry_ms};
+#[cfg(not(windows))]
+use crate::retry::inventory_retry_ms;
+use crate::retry::{GuardedTick, inventory_backoff_ms};
 use ace_store::{Connection, OpenOptions, Value};
 use std::collections::HashSet;
 use std::sync::Arc;

@@ -655,6 +655,13 @@ wrong; at worst a leader is held unreaped or a record stays unresolved:
     host becomes its own small bundle (or a `bun build --compile` program) started only for Cursor
     sessions.
 
+  **The owner, 2026-11-25: start the Claude session now.** It is briefed as E3-claude.1 to .6 in
+  the porting guide; the inventory of SDK uses and their wire messages, the frame contract, the
+  crate's API (`agent-stream-json`) and the open questions are in
+  [claude-session.md](../engine/claude-session.md). The metadata host and the history fork stay
+  JavaScript children for now. Claude's §8 E3 cross-mode list is
+  `engine/claude-restart-resume.process`, one new test, pending the owner's leave (E3-claude.6).
+
 - **`@ace/core` in the browser (former question 2)**: `ace-core` is built to WebAssembly as well
   (`ace-core-wasm`, a thin `wasm-bindgen` crate beside the napi binding, no logic of its own), and
   `fake-daemon` loads the `@ace/core` facade over it. One reducer, two loaders; no TypeScript
