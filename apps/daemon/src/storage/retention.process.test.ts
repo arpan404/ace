@@ -10,12 +10,14 @@ import {
 } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { afterEach, expect, test } from "vitest";
+import { createThreadState } from "@ace/core";
 import { prepareBuiltinSkills } from "@ace/plugins";
 import { storageFixture } from "./test-support.ts";
 import { StorageInventory } from "./inventory.ts";
 import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
 import { builtinSkillProcessLease } from "../builtin-skill-processes.ts";
 import { Engine } from "../engine/index.ts";
+import { engineSchemaVersion } from "../engine/schema-version.ts";
 
 const fixtures: Awaited<ReturnType<typeof storageFixture>>[] = [];
 afterEach(async () => {
@@ -95,26 +97,46 @@ test("pinned and human-waiting descendants protect their whole archived tree", a
   ).toBe(true);
 });
 
-test("an archived thread with missing queue metadata is protected while other candidates are planned", async () => {
+test("a tree without engine state is cleanable while unreadable ownership still protects", async () => {
   const f = await setup();
   const engine = new Engine(f.store);
   try {
     await engine.ready();
     f.services.engine = engine;
-    const missing = f.thread("no-queue-metadata");
+    const root = f.thread("stateless-root");
+    const child = f.thread("stateless-child");
+    f.store.atomic((db) => {
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS delegation_participants(thread_id TEXT PRIMARY KEY,root_id TEXT)",
+      );
+      const insert = db.prepare("INSERT INTO delegation_participants VALUES (?,?)");
+      insert.run(root.id, root.id);
+      insert.run(child.id, root.id);
+    });
     const known = f.thread("readable-queue");
     f.store.statement("INSERT INTO engine_queue(thread_id) VALUES (?)").run(known.id);
+    // The engine was ready before this state was written, so its queue row stays missing like
+    // a partial write: hasState is true, but ownership cannot be read.
+    const unreadable = f.thread("state-without-queue");
+    const state = createThreadState({
+      threadId: unreadable.id,
+      config: { provider: "codex", silenceMs: 1000 },
+    });
+    f.store
+      .statement("INSERT INTO thread_state(thread_id,state,seq) VALUES (?,?,1)")
+      .run(unreadable.id, JSON.stringify({ ...state, engineSnapshot: engineSchemaVersion }));
     const plan = await f.storage.plan("owner", {
       op: "cleanup.plan",
       kinds: ["threads"],
       forceItems: [],
     });
-    expect(plan.items.find((item) => item.label === missing.title)).toMatchObject({
+    const item = (label: string) => plan.items.find((entry) => entry.label === label);
+    expect(item(root.title)).toMatchObject({ disposition: "remove" });
+    expect(item(child.title)).toMatchObject({ disposition: "remove" });
+    expect(item(known.title)).toMatchObject({ disposition: "remove" });
+    expect(item(unreadable.title)).toMatchObject({
       disposition: "protect",
       reasons: ["owner_unavailable"],
-    });
-    expect(plan.items.find((item) => item.label === known.title)).toMatchObject({
-      disposition: "remove",
     });
   } finally {
     await engine.close();
