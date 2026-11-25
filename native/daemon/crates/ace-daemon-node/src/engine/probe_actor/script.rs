@@ -9,6 +9,7 @@ use ace_engine::ports::PortError;
 use ace_engine::{Core, EngineError, ThreadId};
 use ace_json::Value;
 use ace_store::Connection;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -81,6 +82,7 @@ impl LiveSnapshot for ProbeSnapshot {
 
 /// The probe's links: every call recorded, nothing caused.
 pub(super) struct ProbeLinks {
+    pub(super) sessions: Rc<RefCell<super::ProbeThreads>>,
     pub(super) log: Rc<ProbeLog>,
 }
 
@@ -88,8 +90,9 @@ impl ActorLinks for ProbeLinks {
     fn wake(&self, _core: &Core, _thread: &ThreadId) {
         *self.log.wakes.borrow_mut() += 1;
     }
-    fn abort_session(&self, _core: &Core, _thread: &ThreadId, _drop_session: bool) {
-        *self.log.aborted.borrow_mut() += 1;
+    fn abort_session(&self, _core: &Core, thread: &ThreadId, _drop_session: bool) {
+        let sessions = self.sessions.borrow();
+        *sessions.logs.get(thread).unwrap_or(&self.log).aborted.borrow_mut() += 1;
     }
     fn expire(&self, _core: &Core, _thread: &ThreadId, generation: u64) {
         self.log.expired.borrow_mut().push(generation);

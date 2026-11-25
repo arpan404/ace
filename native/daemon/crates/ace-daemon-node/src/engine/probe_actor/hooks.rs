@@ -167,6 +167,20 @@ impl NativeEngine {
         self.engine.core().registered() as u32
     }
 
+    #[napi]
+    pub fn probe_stop_actor(&self, env: Env, thread_id: String) {
+        let _guard = self.ports.enter(env);
+        ace_engine::actor::stop(self.engine.core(), &thread_id);
+    }
+
+    #[napi]
+    pub fn probe_stopping_count(&self) -> u32 {
+        self.engine
+            .core()
+            .with_state(|state| state.actors.stopping.len() as u32)
+            .unwrap_or(0)
+    }
+
     /// One frame through the native path's intake, with the binding's own batch promise.
     #[napi]
     #[allow(clippy::too_many_arguments)]
@@ -324,6 +338,7 @@ impl NativeEngine {
         }) as Rc<dyn ActorRepo>;
         let links = Rc::new(ProbeLinks {
             log: Rc::clone(&log),
+            sessions: Rc::clone(&self.probe_threads),
         }) as Rc<dyn ActorLinks>;
         let deps = Rc::new(ActorDeps::new(
             repo,

@@ -7,6 +7,44 @@ import { bareSeam, frame, native, tick, track, translator } from "./actor-suppor
 const thread = (id: string): ThreadId => id as ThreadId;
 
 describe.runIf(native)("evicted actor effects", () => {
+  test("late frames from an evicted session drop even at the replacement's generation", async () => {
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    try {
+      const original = await seam.probe.attachSession("a", { translator: translator() });
+      await seam.probe.attachSession("b", { translator: translator() });
+      const replacement = await seam.probe.attachSession("a", { translator: translator() });
+      await Promise.all([original.context.onFrame(frame(0)), seam.engine.flush()]);
+      expect(replacement.log().applied).toEqual([]);
+      expect(seam.probe.liveFrames()).toBe(0);
+      await Promise.all([replacement.context.onFrame(frame(1)), seam.engine.flush()]);
+      expect(replacement.log().applied.map((entry) => entry.facts)).toEqual([1]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an evicted session's flow ignores the replacement's backlog", async () => {
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1, maxQueuedFrames: 4 } });
+    try {
+      const original = await seam.probe.attachSession("a", { translator: translator() });
+      await seam.probe.attachSession("b", { translator: translator() });
+      const replacement = await seam.probe.attachSession("a", { translator: translator() });
+      const frameAck = track(replacement.context.onFrame(frame(0)));
+      const oldPaused = original.context.outputFlow.paused();
+      const oldWait = track(original.context.outputFlow.wait());
+      const newWait = track(replacement.context.outputFlow.wait());
+      await tick();
+      expect(replacement.context.outputFlow.paused()).toBe(true);
+      expect(frameAck.done).toBe(false);
+      expect(newWait.done).toBe(false);
+      expect(oldPaused).toBe(false);
+      expect(oldWait.done).toBe(true);
+      await seam.engine.flush();
+    } finally {
+      await seam.close();
+    }
+  });
+
   test("a queued retirement leaves the replacement generation intact", async () => {
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     try {

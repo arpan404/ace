@@ -38,6 +38,7 @@ impl NativeEngine {
         }) as Rc<dyn ActorRepo>;
         let links = Rc::new(ProbeLinks {
             log: Rc::clone(&log),
+            sessions: Rc::clone(&self.probe_threads),
         }) as Rc<dyn ActorLinks>;
         let deps = Rc::new(ActorDeps::new(
             repo,

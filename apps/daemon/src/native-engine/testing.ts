@@ -91,6 +91,8 @@ export interface EngineProbe {
   generation(threadId: string): number;
   /** Wakers the engine has registered. */
   registeredWakers(): number;
+  stopActor(threadId: string): void;
+  stoppingCount(): number;
   /** One native frame through the native intake, with its acknowledgement. */
   nativeFrame(
     threadId: string,

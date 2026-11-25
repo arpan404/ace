@@ -165,6 +165,8 @@ export function probeFor(
     runInTransaction: (thread) => required("probeRunInTransaction")(thread),
     generation: (thread) => required("probeGeneration")(thread) as number,
     registeredWakers: () => required("probeRegisteredWakers")() as number,
+    stopActor: (thread) => required("probeStopActor")(thread),
+    stoppingCount: () => required("probeStoppingCount")() as number,
     liveFrames: () => facade.frames.size,
     nativeFrame(threadId, generation, seq, channel, data) {
       const open = nativeBatches.get(threadId);
