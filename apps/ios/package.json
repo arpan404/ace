@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "bundle": "bun run --filter @ace/editor build && cp ../../packages/editor/pkg/editor_wasm_bg.wasm Resources/editor_wasm_bg.wasm && bun build bridge/main.ts --target browser --format iife --minify --outfile Resources/client.js",
+    "bundle": "bun run --filter @ace/editor build && cp ../../packages/editor/pkg/editor_wasm_bg.wasm Resources/editor_wasm_bg.wasm && bun scripts/build-bridge.ts",
     "bundle:heap": "bun scripts/bundle-heap.ts",
     "markit": "bun scripts/fetch-markit.ts",
     "generate": "bun run theme && bun run keymap && bun run marks && bun run icons && bun run faces && bun run markit && bun run bundle && bun run mermaid && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
