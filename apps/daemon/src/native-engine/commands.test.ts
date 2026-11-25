@@ -66,6 +66,7 @@ describe.runIf(native)("turn-end queue events", () => {
   test("retiring inputs persists the snooze wake and queue update before the run ends", async () => {
     const seam = await engineSeam();
     try {
+      await seam.engine.ready();
       seam.probe.passThroughCollaborators();
       const { store } = seam;
       const workspace = store.createWorkspace(seam.home, "E5.4a");
@@ -98,9 +99,11 @@ describe.runIf(native)("turn-end queue events", () => {
         [{ type: "turn.started", agent: "root", trigger: "user", nativeTurnId: "turn-1" }],
         1_000,
       );
-      store.appendEvents(id, [
-        { type: "thread.client.updated", changes: { snoozedUntil: 10_000 } },
-      ], 1_100);
+      store.appendEvents(
+        id,
+        [{ type: "thread.client.updated", changes: { snoozedUntil: 10_000 } }],
+        1_100,
+      );
       const before = store.headSeq();
       seam.probe.apply(
         id,
@@ -111,7 +114,10 @@ describe.runIf(native)("turn-end queue events", () => {
       const stored = store.atomic((db) =>
         db
           .prepare(
-            "SELECT type FROM events WHERE thread_id=? AND seq>? AND type IN ('thread.client.updated','queue.updated','run.ended') ORDER BY seq",
+            `SELECT type FROM events WHERE thread_id=? AND seq>? AND (
+              type IN ('queue.updated','run.ended') OR
+              (type='thread.client.updated' AND json_extract(payload,'$.changes.snoozeWoke.on')='needs_you')
+            ) ORDER BY seq`,
           )
           .all(id, before)
           .map((row) => row.type),
