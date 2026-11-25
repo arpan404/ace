@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError } from "./sdk.ts";
 
 /**
@@ -26,11 +27,7 @@ async function verified(path: string, sha256: string): Promise<boolean> {
   }
 }
 const unavailable = (message: string) =>
-  new DeviceError(
-    "tool_missing",
-    message,
-    "ace downloads scrcpy-server on first use. Check the network, or set ACE_SCRCPY_SERVER to a verified copy.",
-  );
+  new DeviceError("tool_missing", message, catalogHint("scrcpyHint"));
 
 /**
  * The pinned server already in place (`ACE_SCRCPY_SERVER`, or ace's downloaded copy), verified

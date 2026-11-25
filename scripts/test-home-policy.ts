@@ -148,6 +148,12 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_SCRCPY_VIDEO !== undefined
       ? { ACE_SCRCPY_VIDEO: ambient.ACE_SCRCPY_VIDEO }
       : {}),
+    ...(ambient.ACE_DEVICE_PLATFORM !== undefined
+      ? { ACE_DEVICE_PLATFORM: ambient.ACE_DEVICE_PLATFORM }
+      : {}),
+    ...(ambient.ACE_DEVICE_PLATFORM_ADDON !== undefined
+      ? { ACE_DEVICE_PLATFORM_ADDON: ambient.ACE_DEVICE_PLATFORM_ADDON }
+      : {}),
     ...(ambient.ACE_DEVICE_INVENTORY !== undefined
       ? { ACE_DEVICE_INVENTORY: ambient.ACE_DEVICE_INVENTORY }
       : {}),
