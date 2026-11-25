@@ -16,7 +16,9 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{DELIVERY_BYTES, Inner, OPEN, Queued, Shared, SocketEvents, SocketHandle};
+use super::{
+    CLOSE_TIMEOUT, DELIVERY_BYTES, Inner, OPEN, Queued, Shared, SocketEvents, SocketHandle,
+};
 use crate::deflate::{Body, Deflate};
 use crate::driver::UpgradeIo;
 use crate::frame::assemble::{Message, conclude};
@@ -269,7 +271,38 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     {
         stats.inflated_in();
     }
+    // A failure does not outrun the messages that arrived before it: `ws` runs
+    // the consumer's handler synchronously, so a reply to a message delivered
+    // just before the error is queued, and written, ahead of the close frame
+    // (`websocket.js:1335-1411`). Nothing more is read meanwhile.
+    if ending.error.is_some() {
+        settled(&shared, &mut woken).await;
+    }
     shared.end(ending);
+}
+
+/// Waits until the messages delivered before a failure have been handled and
+/// what their handlers queued has reached the wire, or until [`CLOSE_TIMEOUT`],
+/// whichever comes first. A socket that delivered nothing has no handler reply
+/// to order the close behind, so it does not wait at all.
+async fn settled(shared: &Shared, woken: &mut mpsc::Receiver<()>) {
+    if !shared.delivering() {
+        return;
+    }
+    let deadline = tokio::time::sleep(CLOSE_TIMEOUT);
+    tokio::pin!(deadline);
+    loop {
+        if !shared.settling() {
+            return;
+        }
+        tokio::select! {
+            biased;
+            _ = shared.over.cancelled() => return,
+            _ = shared.stop.cancelled() => return,
+            _ = &mut deadline => return,
+            _ = woken.recv() => {}
+        }
+    }
 }
 
 /// A frame failure, with the peer's end in mind: a tail that never arrived is

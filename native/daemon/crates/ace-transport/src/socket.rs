@@ -131,6 +131,18 @@ struct Shared {
 }
 
 impl Shared {
+    /// Whether a message handed to JavaScript has not been handled yet.
+    fn delivering(&self) -> bool {
+        self.waiting_messages.load(Ordering::Relaxed) > 0
+            || self.waiting_bytes.load(Ordering::Relaxed) > 0
+    }
+
+    /// Whether a delivery is still unhandled, or a queued frame has not reached
+    /// the wire: what an error's close waits for once there is one.
+    fn settling(&self) -> bool {
+        self.delivering() || self.buffered.load(Ordering::Relaxed) > 0
+    }
+
     fn readable(&self) -> bool {
         !self.paused.load(Ordering::Relaxed)
             && self.waiting_bytes.load(Ordering::Relaxed) <= DELIVERY_BYTES
@@ -231,6 +243,11 @@ impl Shared {
         debit(&self.buffered, charge);
         if control {
             debit(&self.control_bytes, memory);
+        }
+        // The last queued frame leaving the wire is what an error's close waits
+        // for before it is reported, so the reader has to hear about it.
+        if self.buffered.load(Ordering::Relaxed) == 0 {
+            self.wake();
         }
     }
 

@@ -21,6 +21,7 @@ use crate::frame::assemble::MAX_FRAGMENTS;
 
 mod close;
 mod eof;
+mod protocol;
 
 type Client = WebSocketStream<DuplexStream>;
 

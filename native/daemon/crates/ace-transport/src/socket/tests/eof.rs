@@ -21,7 +21,7 @@ use crate::socket::CLOSED;
 
 /// Reads the raw client side until the server closes its half, failing rather
 /// than hanging.
-async fn assert_dropped<R: tokio::io::AsyncRead + Unpin>(client: &mut R) {
+pub(super) async fn assert_dropped<R: tokio::io::AsyncRead + Unpin>(client: &mut R) {
     let mut byte = [0u8; 1];
     let read = tokio::time::timeout(Duration::from_secs(2), client.read(&mut byte))
         .await
@@ -47,6 +47,14 @@ fn spent_credit_frames() -> Vec<u8> {
         bytes.extend_from_slice(&empty);
     }
     bytes
+}
+
+/// Hands back every delivery `spent_credit` made, as a consumer that read them
+/// would, so an error's close is not held to the close timeout.
+fn return_credit(handle: &super::SocketHandle) {
+    for _ in 0..DELIVERY_MESSAGES {
+        handle.delivered(MESSAGE_OVERHEAD);
+    }
 }
 
 /// Spends the reader's whole inbound credit, so it holds nothing more for
@@ -268,7 +276,7 @@ async fn a_peer_that_drops_inside_a_frame_reports_no_error_before_1006() {
 #[tokio::test]
 async fn a_header_past_the_payload_bounds_ends_with_its_own_1009() {
     let (server, mut client) = tokio::io::duplex(1 << 16);
-    let (_handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
     spent_credit(&mut events, &mut client).await;
 
     // A text frame declaring 2 MiB, past the 1 MiB bound, with only a few of
@@ -286,6 +294,9 @@ async fn a_header_past_the_payload_bounds_ends_with_its_own_1009() {
         .await
         .expect("the peer drops without a close frame");
 
+    // The close waits for the deliveries the paused reader made, so hand them
+    // back as a consumer would before it is reported.
+    return_credit(&handle);
     match next(&mut events).await {
         SocketEvent::Error { code, .. } => assert_eq!(code, "too_big", "the size is refused"),
         other => panic!("expected the payload bound's error, got {other:?}"),
@@ -303,7 +314,7 @@ async fn a_header_past_the_payload_bounds_ends_with_its_own_1009() {
 #[tokio::test]
 async fn a_continuation_with_no_message_in_flight_ends_with_its_own_1002() {
     let (server, mut client) = tokio::io::duplex(1 << 16);
-    let (_handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
     spent_credit(&mut events, &mut client).await;
 
     // A continuation with nothing to continue, its payload cut short.
@@ -317,6 +328,7 @@ async fn a_continuation_with_no_message_in_flight_ends_with_its_own_1002() {
         .await
         .expect("the peer drops without a close frame");
 
+    return_credit(&handle);
     match next(&mut events).await {
         SocketEvent::Error { code, .. } => assert_eq!(code, "protocol", "the frame has no message"),
         other => panic!("expected the protocol error, got {other:?}"),
@@ -379,7 +391,7 @@ async fn a_stray_continuation_without_its_length_still_closes_with_1002() {
         .await
         .expect("the peer drops without a close frame");
 
-    handle.delivered(MESSAGE_OVERHEAD);
+    return_credit(&handle);
     match next(&mut events).await {
         SocketEvent::Error { code, .. } => assert_eq!(code, "protocol", "the opcode is refused"),
         other => panic!("expected the protocol error, got {other:?}"),
