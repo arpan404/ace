@@ -85,6 +85,14 @@ impl Correlations {
         Ok(store)
     }
 
+    /// The same store over a connection whose DDL the opener already ran: the repository's
+    /// `attachments.get` (E5.3) reads through it without repeating the statements.
+    pub fn on(conn: &Arc<Connection>) -> Correlations {
+        Correlations {
+            conn: Arc::clone(conn),
+        }
+    }
+
     /// Upsert each attachment in schema order, refusing the batch before writing anything.
     pub fn remember(
         &self,

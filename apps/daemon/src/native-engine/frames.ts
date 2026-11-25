@@ -71,9 +71,10 @@ export function liveStorePort(store: Store, native: NativeEngineHandle): () => v
   store.streaming.setEngineFlush(() => {
     native.actorFlushDue?.();
   });
-  // Live output the store had to drop stops only that thread's session, visibly.
+  // The store's quarantine notification (E5.3 step 8): its pin is already removed, so the
+  // engine evicts that snapshot and tells the actor, whether or not one exists.
   const stopQuarantine = store.onLiveWriteQuarantine((thread, error) => {
-    native.actorQuarantine?.(thread, error.message);
+    native.liveQuarantined?.(thread, String(error.message ?? error));
   });
   return () => {
     store.streaming.setEngineFlush(undefined);

@@ -26,9 +26,6 @@ pub struct State {
     pub lifecycle: Lifecycle,
     /// `flushDepth` (`index.ts:1407`): how many `flush` calls are inside.
     pub flush_depth: u32,
-    /// The probe's one stub (E5.1): the recovery-candidate scan answers with no rows so
-    /// `ready()` can resolve before E5.3 lands. E5.3 deletes it.
-    pub probe_empty_candidates: bool,
     pub actors: actor::Actors, // E5.2
     /// A live-buffer flush task is queued on the pump (E5.2 step 16): the coalescing flag.
     pub live_flush: std::rc::Rc<std::cell::Cell<bool>>,
@@ -48,10 +45,9 @@ impl Default for State {
             workers: workers::WorkerSet::default(),
             lifecycle: Lifecycle::default(),
             flush_depth: 0,
-            probe_empty_candidates: false,
             actors: actor::Actors::default(),
             live_flush: std::rc::Rc::new(std::cell::Cell::new(false)),
-            repo: repository::Repo,
+            repo: repository::Repo::default(),
             commands: commands::Commands,
             sessions: sessions::Sessions,
             recovery: recovery::Recovery,
