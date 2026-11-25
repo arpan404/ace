@@ -170,10 +170,11 @@ impl ActorDeps {
         }
     }
 
-    /// The production dependencies: unported owners, each failing at its own call.
+    /// The production dependencies: E5.3's repository, and unported owners failing at their own
+    /// call.
     pub fn production(live: Rc<dyn LiveStore>, idle_ms: f64) -> ActorDeps {
         ActorDeps::new(
-            Rc::new(Unported),
+            Rc::new(crate::repository::actor_repo::EngineRepo),
             Rc::new(Unported),
             live,
             Rc::new(UnportedAcks),

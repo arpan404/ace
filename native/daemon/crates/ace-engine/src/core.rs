@@ -97,6 +97,87 @@ impl Core {
         Ok(f(&mut state))
     }
 
+    /// `repo.apply` (`repository.ts:413`): the fold in the store's transaction, with the borrow
+    /// released around the transaction's open, which can flush a pinned live batch and re-enter
+    /// this engine through `persist`/`committed`.
+    pub fn apply(
+        &self,
+        id: &str,
+        facts_json: &str,
+        now: f64,
+        generation: Option<f64>,
+    ) -> Result<(), EngineError> {
+        let outcome = self.store.atomic(|_tx| {
+            // The snapshot loads inside the transaction, as `repository.ts:413` reads it there;
+            // opening the frame (which can flush a pinned batch) therefore holds no borrow.
+            self.with_state(|state| {
+                let snapshot = state.repo.require_state(&self.store, id)?;
+                state.fold_frame(&self.store, id, &snapshot, facts_json, now, generation)
+            })?
+        });
+        if let Err(error) = outcome {
+            let _ = self.with_state(|state| state.repo.evict(&self.store, id));
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// `repo.stream` (`repository.ts:363`): the live batch's refusals and fold inside one state
+    /// borrow, then the store's buffer outside it, since buffering can flush and the flush
+    /// re-enters this engine.
+    pub fn stream(&self, id: &str, facts_json: &str, now: f64) -> Result<bool, EngineError> {
+        let prepared =
+            self.with_state(|state| state.prepare_stream(&self.store, id, facts_json, now))??;
+        let Some(prepared) = prepared else {
+            return Ok(false);
+        };
+        // The pin is registered before admission: the buffer may flush synchronously while
+        // admitting, and the flush settles this token.
+        self.with_state(|state| {
+            state.repo.live.insert(
+                prepared.token,
+                crate::repository::stream::Pin {
+                    snapshot: Rc::clone(&prepared.snapshot),
+                    events: prepared.events.clone(),
+                },
+            );
+        })?;
+        if let Err(error) = self
+            .store
+            .prepare_live_write(prepared.bytes)
+            .and_then(|()| {
+                self.store
+                    .buffer_live_write(id, &prepared.events, now, prepared.token)
+            })
+        {
+            let _ = self.with_state(|state| state.repo.live.remove(&prepared.token).is_some());
+            return Err(error);
+        }
+        Ok(true)
+    }
+
+    /// The live buffer's `persist(token)` (E5.3 step 8): the pinned snapshot's rows.
+    pub fn live_persist(&self, token: u64) -> Result<(), EngineError> {
+        self.with_state(|state| state.live_persist(&self.store, token))?
+    }
+
+    /// The live buffer's `committed(token)`: the pin settles its snapshot and the repository
+    /// records the commit.
+    pub fn live_committed(&self, token: u64) -> Result<(), EngineError> {
+        self.with_state(|state| state.live_committed(&self.store, token))?
+    }
+
+    /// The store's quarantine notification for one thread (E5.3 step 8): the pin is already
+    /// removed, so the snapshot is evicted and released, then the actor is told.
+    pub fn quarantined(&self, thread: &str, message: &str) -> Result<(), EngineError> {
+        let evicted = self.with_state(|state| state.quarantined(&self.store, thread));
+        // The actor is told however the eviction went: its session is stopped either way.
+        if let Some(core) = self.self_rc() {
+            crate::actor::failure::quarantine(&core, &thread.to_owned(), message);
+        }
+        evicted?
+    }
+
     /// A strong handle to this engine, for a synchronous entry that starts work.
     pub fn self_rc(&self) -> Option<Rc<Core>> {
         self.self_weak.borrow().upgrade()
@@ -213,13 +294,6 @@ impl Core {
         }
     }
 
-    /// The probe's stub: the recovery-candidate scan answers with no rows (E5.3 deletes this).
-    pub fn probe_empty_candidates(&self) {
-        if let Ok(mut state) = self.state.try_borrow_mut() {
-            state.probe_empty_candidates = true;
-        }
-    }
-
     /// The readiness sequence of `index.ts:466`–`:487`.
     pub(crate) async fn ready_steps(&self) -> Result<(), EngineError> {
         if self.inputs.any_ready_port() {
@@ -229,28 +303,36 @@ impl Core {
                 .map_err(EngineError::Port)?;
             self.with_state(sessions::prepare_silence)??;
             self.with_state(recovery::prepare)??;
-            loop {
-                let slice =
-                    self.with_state(|state| repository::recovery_candidates(state, 256))??;
-                if slice.is_empty() {
-                    break;
-                }
-                for thread in slice {
-                    self.with_state(|state| recovery::recover_thread(state, &thread))??;
-                }
+        }
+        let mut scan = repository::candidates::Scan::new(String::new());
+        loop {
+            let step = self.store.atomic(|tx| scan.step(tx.conn()))?;
+            let Some(step) = step else {
+                // Nothing final yet: the event loop runs between scan steps.
+                yield_once().await;
+                continue;
+            };
+            if step.done {
+                break;
             }
-        } else {
-            // The synchronous `recover()` of the TypeScript; a fresh home has no candidates.
-            loop {
-                let slice =
-                    self.with_state(|state| repository::recovery_candidates(state, 256))??;
-                if slice.is_empty() {
-                    break;
+            for thread in step.threads {
+                let loaded = self.with_state(|state| state.repo.state(&self.store, &thread))?;
+                match loaded {
+                    Ok(Some(_)) => {
+                        self.with_state(|state| recovery::recover_thread(state, &thread))??;
+                    }
+                    Ok(None) => {}
+                    // `skippableAtStartup` (`repository.ts:277`): an unreadable thread is
+                    // reported and skipped; a store retry or another build's data refuses.
+                    Err(error) if error.skippable_at_startup() => {
+                        self.ports.report(format!("{thread}: {error}"));
+                    }
+                    Err(error) => return Err(error),
                 }
-                for thread in slice {
-                    self.with_state(|state| recovery::recover_thread(state, &thread))??;
-                }
+                yield_once().await;
             }
+            let after = scan.after().to_owned();
+            scan.restart(after);
         }
         self.with_state(|state| {
             state.lifecycle = Lifecycle::Ready;

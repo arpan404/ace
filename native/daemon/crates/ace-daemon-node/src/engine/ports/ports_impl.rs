@@ -110,6 +110,59 @@ impl Ports for JsPorts {
         self.call(&self.append_events, json.to_string())
     }
 
+    fn write_events(&self, thread: &str, payloads_json: &str, at: f64) -> Result<(), PortError> {
+        self.call(
+            &self.write_events,
+            FnArgs {
+                data: (thread.to_owned(), payloads_json.to_owned(), at),
+            },
+        )
+    }
+
+    fn head_seq(&self) -> Result<f64, PortError> {
+        self.call(&self.head_seq, ())
+    }
+
+    fn has_live_write(&self, thread: &str) -> Result<bool, PortError> {
+        self.call(&self.has_live_write, thread.to_owned())
+    }
+
+    fn rollback_generation(&self) -> Result<f64, PortError> {
+        self.call(&self.rollback_generation, ())
+    }
+
+    fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
+        self.call(&self.get_thread, thread.to_owned())
+    }
+
+    fn cap_raw(&self, thread: &str, raw: &str) -> Result<String, PortError> {
+        self.call(
+            &self.cap_raw,
+            FnArgs {
+                data: (raw.to_owned(), thread.to_owned()),
+            },
+        )
+    }
+
+    fn prepare_live_write(&self, bytes: f64) -> Result<(), PortError> {
+        self.call(&self.prepare_live_write, bytes)
+    }
+
+    fn buffer_live_write(
+        &self,
+        thread: &str,
+        events_json: &str,
+        at: f64,
+        token: u64,
+    ) -> Result<(), PortError> {
+        self.call(
+            &self.buffer_live_write,
+            FnArgs {
+                data: (thread.to_owned(), events_json.to_owned(), at, token as f64),
+            },
+        )
+    }
+
     fn frame_call(&self) -> Option<u64> {
         self.call(&self.frame_call, ()).ok().map(|call| call as u64)
     }

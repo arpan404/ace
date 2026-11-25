@@ -217,6 +217,53 @@ pub trait Ports {
     }
     /// `options.onNamingPrompt` (E5.4).
     fn on_naming_prompt(&self, _thread: &str, _json: &str) {}
+    // ---- The engine's persistence seams (E5.3) ----
+    /// `store.appendEvents(threadId, payloads, at)`: the store's one event writer, run inside
+    /// the open transaction. The engine never writes event rows itself (Decision 1).
+    fn write_events(&self, _thread: &str, _payloads_json: &str, _at: f64) -> Result<(), PortError> {
+        Err(PortError::Unbound("writeEvents"))
+    }
+    /// `store.headSeq()`: one number, no JSON.
+    fn head_seq(&self) -> Result<f64, PortError> {
+        Err(PortError::Unbound("headSeq"))
+    }
+    /// `store.hasLiveWrite(threadId)`: whether a buffered live write is pending.
+    fn has_live_write(&self, _thread: &str) -> Result<bool, PortError> {
+        Err(PortError::Unbound("hasLiveWrite"))
+    }
+    /// `store.rollbackGeneration()`: one number, no JSON. Bumped by every rollback.
+    fn rollback_generation(&self) -> Result<f64, PortError> {
+        Err(PortError::Unbound("rollbackGeneration"))
+    }
+    /// `store.getThread(id)`: the thread row as JSON (`provider-facts.ts:59`).
+    fn get_thread(&self, _thread: &str) -> Result<Option<String>, PortError> {
+        Err(PortError::Unbound("getThread"))
+    }
+    /// `store.capRaw(raw, threadId)` (E5.2).
+    fn cap_raw(&self, _thread: &str, _raw: &str) -> Result<String, PortError> {
+        Err(PortError::Unbound("capRaw"))
+    }
+    /// `store.bufferLiveWrite(id, events, now, {persist, committed})` (E5.2 owns the buffer).
+    /// E5.3 owns only the callbacks, which run as binding entries keyed by the returned token.
+    fn buffer_live_write(
+        &self,
+        _thread: &str,
+        _events_json: &str,
+        _at: f64,
+        _token: u64,
+    ) -> Result<(), PortError> {
+        Err(PortError::Unbound("bufferLiveWrite"))
+    }
+    /// `store.prepareLiveWrite(bytes)` (E5.2).
+    fn prepare_live_write(&self, _bytes: f64) -> Result<(), PortError> {
+        Err(PortError::Unbound("prepareLiveWrite"))
+    }
+    /// The engine's listener on the store's quarantine notification (E5.2's discard path).
+    /// The shell calls back into [`crate::Core::quarantined`].
+    fn subscribe_quarantine(&self, _token: u64) -> Result<(), PortError> {
+        Err(PortError::Unbound("subscribeQuarantine"))
+    }
+
     /// `options.aceToolAction` (E5.3).
     fn ace_tool_action(&self) -> Result<PortObject, PortError> {
         Err(PortError::Unbound("aceToolAction"))

@@ -10,15 +10,18 @@ use std::rc::Rc;
 
 /// `quarantine(message)` (`actor.ts:268`): the store dropped this thread's live output.
 pub fn quarantine(core: &Rc<Core>, thread: &ThreadId, message: &str) {
-    let poisoned = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .is_some_and(|actor| actor.poisoned)
-        })
-        .unwrap_or(true);
+    // `actor.get(id)?.quarantine(error)`: a thread with no actor has no session to stop and no
+    // transcript to notice, so the notification ends here.
+    let poisoned = match core.with_state(|state| {
+        state
+            .actors
+            .by_thread
+            .get(thread)
+            .map(|actor| actor.poisoned)
+    }) {
+        Ok(Some(poisoned)) => poisoned,
+        _ => return,
+    };
     if !poisoned {
         fail(
             core,

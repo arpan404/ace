@@ -2,18 +2,26 @@
 //! The engine's wiring into the executor and the transaction stack: the pump's notifier, the
 //! shared stack handle, the after-commit sink and the turn's budget.
 
+use ace_engine::EngineStack;
 use ace_engine::executor::{Budget, Notified, Notifier};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use super::transaction;
-use super::{PumpHandle, StackState};
-use ace_engine::EngineStack;
+use crate::writer::transaction::{self, StackState};
 use napi::Status;
+use napi::threadsafe_function::ThreadsafeFunction;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
-use std::time::Duration;
 
+/// The pump's threadsafe function: strong by default, dynamically ref'd and unref'd by the
+/// facade's holder count, with an unbounded queue (at most one call is ever pending).
+type PumpTsfn = ThreadsafeFunction<(), (), (), Status, false, false, 0>;
+
+/// The one threadsafe function, shared with the notifier and released at close.
+pub(crate) type PumpHandle = Arc<Mutex<Option<PumpTsfn>>>;
+
+/// The notifier over the shell's pump entry: the second holder of the one threadsafe function.
 pub(crate) struct Bell {
     pub(crate) pump: PumpHandle,
 }

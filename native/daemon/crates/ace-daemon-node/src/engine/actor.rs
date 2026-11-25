@@ -13,7 +13,7 @@ use napi::bindgen_prelude::{FnArgs, FunctionRef, JsObjectValue, Object};
 use napi_derive::napi;
 use std::rc::Rc;
 
-pub use super::runtime::{ActorRuntime, LiveHooks, runtime};
+pub use super::runtime::{ActorRuntime, LiveHooks};
 use super::{NativeEngine, engine_error};
 
 /// What the actor needs from the shell, shared by every actor of one engine.

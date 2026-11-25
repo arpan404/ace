@@ -26,6 +26,7 @@ import {
   type Settled,
 } from "./contracts.ts";
 import { UnportedMembers } from "./unported.ts";
+import { openEngineData } from "./open.ts";
 
 export type { NativeEngineHandle, NativeTransactionShell } from "./contracts.ts";
 export { incomplete };
@@ -59,6 +60,8 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     super();
     recordEvidence();
     this.frames = new FrameTable(() => (options.clock ?? systemClock).now());
+    // The opener: the TypeScript repository's schema setup, in today's order (E5.3 step 1).
+    openEngineData(store, options, () => (options.clock ?? systemClock).now());
     this.registry = options.registry ?? new AdapterRegistry();
     const shell = store.nativeTransactionShell;
     if (!shell) throw new Error("ACE_ENGINE needs ACE_STORE_WRITER=…,transactions");
@@ -69,6 +72,9 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     const host: PortHost = {
       frameCall: () => this.alloc(),
       releaseFrames: (handles) => this.frames.releaseHandles(handles),
+      livePersist: (token) => native?.livePersist?.(token),
+      liveCommitted: (token) => native?.liveCommitted?.(token),
+      liveQuarantined: (thread, message) => native?.liveQuarantined?.(thread, message),
       settleCall: (call, error) => this.settle(call, error),
       rejectPending: () => this.rejectPending(),
       finishClose: () => this.finishClose(),
@@ -91,7 +97,13 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
       );
       native?.registryChanged?.(entries);
     });
-    const bindings = engineBindings({ options, registryJson: entries, store: shell, host });
+    const bindings = engineBindings({
+      options,
+      registryJson: entries,
+      store,
+      shell,
+      host,
+    });
     const pump = () => {
       if (native?.pump?.() === "rearm") setImmediate(pump);
     };
@@ -323,6 +335,16 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     ..._args: Parameters<EngineSurface["liveThreadIds"]>
   ): ReturnType<EngineSurface["liveThreadIds"]> {
     return this.member("liveThreadIds", "E5.2")() as ThreadId[];
+  }
+  override hasState(id: ThreadId): boolean {
+    return this.member("hasState", "E5.3")(id) as boolean;
+  }
+  override retainsAttachment(id: ThreadId, hash: string): boolean {
+    return this.member("retainsAttachment", "E5.3")(id, hash) as boolean;
+  }
+  override readRawBlob(id: string): Uint8Array | undefined {
+    const bytes = this.member("readRawBlob", "E5.3")(id) as Uint8Array | null;
+    return bytes ?? undefined;
   }
 }
 

@@ -13,7 +13,8 @@ use serde::ser::{SerializeMap, Serializer};
 use crate::state::ThreadState;
 
 /// The fields the fold may add after creation, in the order the TypeScript usually sets them.
-const OPTIONAL: [&str; 10] = [
+/// The optional fields, in the order the fold usually sets them (`state_json.rs`).
+pub const OPTIONAL: [&str; 10] = [
     "rootKey",
     "processExit",
     "lastTransportSignalAt",

@@ -42,7 +42,6 @@ export function probeFor(
   const claim = required("probeClaim") as () => string;
   const turnLog = required("probeTurns") as () => string;
   const woken = required("probeWoken") as () => string[];
-  const emptyCandidates = required("probeEmptyCandidates") as () => void;
   const stats = required("probeStats") as () => string;
   const settle = native.settlePromise?.bind(native);
   if (settle === undefined) throw new Error("the engine binding has no settlePromise");
@@ -71,7 +70,26 @@ export function probeFor(
       return parseTurns(turnLog());
     },
     woken,
-    emptyCandidates,
+    apply: (threadId: string, facts: readonly unknown[], now: number) =>
+      required("probeApply")(threadId, JSON.stringify(facts), now),
+    applyRolledBack: (threadId: string, facts: readonly unknown[], now: number) =>
+      required("probeApplyRolledBack")(threadId, JSON.stringify(facts), now),
+    passThroughCollaborators: () => {
+      required("probePassThroughCollaborators")();
+    },
+    stream: (threadId: string, facts: readonly unknown[], now: number) =>
+      required("probeStream")(threadId, JSON.stringify(facts), now) as boolean,
+    budget: () =>
+      JSON.parse(required("probeBudget")() as string) as {
+        entries: number;
+        bytes: number;
+        evictions: number;
+      },
+    resident: () => required("probeResident")() as number,
+    holds: (threadId: string) => required("probeHolds")(threadId) as boolean,
+    rollbackGeneration: () => required("probeRollbackGeneration")() as number,
+    quarantine: (threadId: string) => required("probeQuarantine")(threadId),
+    candidatePages: () => JSON.parse(required("probeCandidatePages")() as string) as string[][],
     async stats() {
       const parsed = JSON.parse(stats()) as {
         polls: number;

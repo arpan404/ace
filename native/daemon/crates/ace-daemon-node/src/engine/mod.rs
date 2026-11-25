@@ -28,6 +28,8 @@ pub mod ports;
 pub mod probe;
 #[cfg(feature = "engine-probe")]
 pub mod probe_actor;
+#[cfg(feature = "engine-probe")]
+pub mod probe_repository;
 pub mod queue;
 pub mod records;
 pub mod recovery;
@@ -42,31 +44,20 @@ pub mod steering;
 pub mod transitions;
 mod wiring;
 
-use ace_engine::Engine;
+#[cfg(feature = "engine-probe")]
+use crate::writer::transaction::StackState;
 use ace_engine::executor::{Lane, Pump};
 use ace_engine::ports::Ports;
+use ace_engine::{Engine, Inputs};
+use napi::Env;
 use napi::bindgen_prelude::FunctionRef;
-use napi::threadsafe_function::ThreadsafeFunction;
-use napi::{Env, Status};
 use napi_derive::napi;
 use ports::JsPorts;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use wiring::{InstantBudget, PumpHandle, Sink};
 
-use wiring::{InstantBudget, Sink};
-
-use crate::writer::transaction::{self, StackState};
-use std::sync::{Arc, Mutex};
-
-/// The pump's threadsafe function: strong by default, dynamically ref'd and unref'd by the
-/// facade's holder count, with an unbounded queue (at most one call is ever pending).
-type PumpTsfn = ThreadsafeFunction<(), (), (), Status, false, false, 0>;
-
-/// The one threadsafe function, shared with the notifier and released at close.
-pub(crate) type PumpHandle = Arc<Mutex<Option<PumpTsfn>>>;
-
-/// The notifier over the shell's pump entry: the second holder of the one threadsafe function.
 #[napi]
 pub struct NativeEngine {
     engine: Rc<Engine>,

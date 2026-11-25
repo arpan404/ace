@@ -30,6 +30,12 @@ export interface NativeEngineHandle {
   registryChanged?(json: string): void;
   timerFired?(key: number): void;
   settlePromise?(id: number, ok: boolean, message?: string): void;
+  /** The live buffer's token callbacks (E5.3 step 8). */
+  livePersist?(token: number): void;
+  liveCommitted?(token: number): void;
+  liveQuarantined?(thread: string, message: string): void;
+  /** One live batch through the repository's `stream` (E5.3's probe). */
+  probeStream?(id: string, factsJson: string, now: number): boolean;
   onLimitPolicy?(id: number, listener: (id: string) => void): void;
   dropLimitPolicy?(id: number): void;
   pumpStats?(): { turns: number; polls: number; longestPollUs: number; slowPolls: number };

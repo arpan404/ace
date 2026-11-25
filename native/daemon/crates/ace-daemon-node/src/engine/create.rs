@@ -2,14 +2,15 @@
 //! Building the engine over one connection: the bindings object, the ports, the stack sink and
 //! the actor runtime. A child module of `engine`, so it can build `NativeEngine` directly.
 
-use super::actor::runtime;
+use super::runtime::runtime;
 use super::wiring::{Bell, SharedStack};
 use super::*;
 use crate::NativeDatabase;
 use crate::engine::ports::JsPorts;
-use ace_engine::Inputs;
+use crate::writer::transaction;
 use napi::bindgen_prelude::{JsObjectValue, Object};
 use std::rc::{Rc, Weak};
+use std::sync::{Arc, Mutex};
 
 #[napi]
 impl NativeDatabase {
@@ -78,6 +79,30 @@ impl NativeDatabase {
                 .get_named_property("appendEvents")
                 .map_err(|_| napi::Error::from_reason("appendEvents is missing"))?,
             bindings
+                .get_named_property("writeEvents")
+                .map_err(|_| napi::Error::from_reason("writeEvents is missing"))?,
+            bindings
+                .get_named_property("headSeq")
+                .map_err(|_| napi::Error::from_reason("headSeq is missing"))?,
+            bindings
+                .get_named_property("hasLiveWrite")
+                .map_err(|_| napi::Error::from_reason("hasLiveWrite is missing"))?,
+            bindings
+                .get_named_property("rollbackGeneration")
+                .map_err(|_| napi::Error::from_reason("rollbackGeneration is missing"))?,
+            bindings
+                .get_named_property("getThread")
+                .map_err(|_| napi::Error::from_reason("getThread is missing"))?,
+            bindings
+                .get_named_property("capRaw")
+                .map_err(|_| napi::Error::from_reason("capRaw is missing"))?,
+            bindings
+                .get_named_property("prepareLiveWrite")
+                .map_err(|_| napi::Error::from_reason("prepareLiveWrite is missing"))?,
+            bindings
+                .get_named_property("bufferLiveWrite")
+                .map_err(|_| napi::Error::from_reason("bufferLiveWrite is missing"))?,
+            bindings
                 .get_named_property("frameCall")
                 .map_err(|_| napi::Error::from_reason("frameCall is missing"))?,
             bindings
@@ -117,6 +142,7 @@ impl NativeDatabase {
             inputs,
             &registry_json,
             Box::new(bell),
+            self.connection(),
             deps,
         )
         .map_err(engine_error)?;
