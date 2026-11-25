@@ -272,3 +272,73 @@ fn two_status_reads_in_flight_both_settle() {
         &json(r#"[{"name":"b","status":"unknown"}]"#)
     );
 }
+
+#[test]
+fn a_reload_sends_the_empty_params_codex_expects() {
+    let mut session = session();
+    let effects = session.mcp_reconnect(73, "root-1");
+    let (call, method, params) = request(&effects[0]);
+    assert_eq!(method, "config/mcpServer/reload");
+    assert_eq!(params, json("{}"));
+    let effects = session
+        .mcp_settled(call, Ok(&json("{}")))
+        .expect("a reload");
+    assert!(settled(&effects[0]).is_null());
+}
+
+#[test]
+fn a_command_server_may_take_empty_arguments() {
+    let mut session = session();
+    let effects = session.mcp_add(
+        74,
+        "root-1",
+        "docs",
+        &json(r#"{"transport":"command","command":"docs-mcp","args":[""]}"#),
+    );
+    let (_, method, params) = request(&effects[0]);
+    assert_eq!(method, "config/value/write");
+    assert_eq!(
+        params.get("value"),
+        Some(&json(r#"{"command":"docs-mcp","args":[""]}"#))
+    );
+}
+
+#[test]
+fn an_endpoint_is_what_codexs_url_would_accept() {
+    let mut session = session();
+    for url in [
+        "HTTPS://example.invalid/mcp",
+        "  https://example.invalid/mcp  ",
+        "https://example.invalid/mcp?",
+        "https://example.invalid/mcp#",
+    ] {
+        let effects = session.mcp_add(
+            75,
+            "root-1",
+            "remote",
+            &json(&format!(r#"{{"transport":"http","url":{url:?}}}"#)),
+        );
+        assert!(
+            matches!(effects[0], Effect::Request { .. }),
+            "{url} is an endpoint"
+        );
+    }
+    for url in [
+        "https://example.invalid/mcp?x=1",
+        "https://example.invalid/mcp#frag",
+        "https://user@example.invalid/mcp",
+        "ftp://example.invalid/mcp",
+        "https://",
+    ] {
+        let effects = session.mcp_add(
+            76,
+            "root-1",
+            "remote",
+            &json(&format!(r#"{{"transport":"http","url":{url:?}}}"#)),
+        );
+        assert!(
+            matches!(effects[0], Effect::Settle { result: Err(_), .. }),
+            "{url} is no endpoint"
+        );
+    }
+}

@@ -32,7 +32,7 @@ impl Server {
                 let command = bounded(text(input.get("command")))
                     .ok_or_else(|| "MCP server command must be 1 to 2048 characters".to_owned())?;
                 let args = match input.get("args") {
-                    None | Some(Value::Null) => Vec::new(),
+                    None => Vec::new(),
                     Some(value) => value
                         .as_array()
                         .filter(|args| args.len() <= ARGS_MAX)
@@ -41,9 +41,15 @@ impl Server {
                         })?
                         .iter()
                         .map(|arg| {
-                            bounded(arg.as_str()).ok_or_else(|| {
-                                "MCP server arguments must be at most 2048 characters".to_owned()
-                            })
+                            // An empty argument is an argument: only its length
+                            // is bounded (`z.string().max(2048)`).
+                            arg.as_str()
+                                .filter(|arg| arg.chars().count() <= TEXT_MAX)
+                                .map(|arg| arg.to_owned())
+                                .ok_or_else(|| {
+                                    "MCP server arguments must be at most 2048 characters"
+                                        .to_owned()
+                                })
                         })
                         .collect::<Result<Vec<String>, String>>()?,
                 };
@@ -109,15 +115,27 @@ fn text(value: Option<&Value>) -> Option<&str> {
     value.and_then(Value::as_str)
 }
 
-/// `http:`/`https:`, with no credentials, query or fragment.
+/// `new URL(...)`: an `http` or `https` endpoint (the scheme's case is not
+/// significant, and surrounding whitespace is trimmed) with no credentials, no
+/// search and no fragment. A bare trailing `?` or `#` names an empty search or
+/// fragment, which the URL API accepts.
 fn is_endpoint(url: &str) -> bool {
-    let rest = match url.strip_prefix("http://") {
-        Some(rest) => rest,
-        None => match url.strip_prefix("https://") {
-            Some(rest) => rest,
-            None => return false,
-        },
+    let url = url.trim();
+    let rest = ["http://", "https://"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|prefix| prefix.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    let Some(rest) = rest else {
+        return false;
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    !authority.is_empty() && !authority.contains('@') && !rest.contains('?') && !rest.contains('#')
+    if authority.is_empty() || authority.contains('@') {
+        return false;
+    }
+    let search = rest
+        .split_once('?')
+        .map(|(_, after)| after.split('#').next().unwrap_or_default());
+    let hash = rest.split_once('#').map(|(_, after)| after);
+    search.is_none_or(str::is_empty) && hash.is_none_or(str::is_empty)
 }

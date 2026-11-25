@@ -149,7 +149,7 @@ impl Session {
                 },
             },
         );
-        vec![reload_request(call, thread)]
+        vec![reload_request(call)]
     }
 
     /// `enable`/`disable`: the server's own `enabled` key, then a reload.
@@ -257,7 +257,7 @@ impl Session {
                 step: next,
             },
         );
-        vec![reload_request(call, &thread)]
+        vec![reload_request(call)]
     }
 }
 
@@ -274,13 +274,12 @@ fn write_request(call: u64, key_path: &str, value: &Value) -> Effect {
     }
 }
 
-fn reload_request(call: u64, thread: &str) -> Effect {
-    let mut params = Map::new();
-    params.insert("threadId", Value::from(thread.to_owned()));
+/// `reload`: `{}`, as Codex's own request takes no parameters.
+fn reload_request(call: u64) -> Effect {
     Effect::Request {
         call,
         method: "config/mcpServer/reload".to_owned(),
-        params: Value::Object(params),
+        params: Value::Object(Map::new()),
         timeout_ms: Some(REQUEST_MS),
     }
 }
