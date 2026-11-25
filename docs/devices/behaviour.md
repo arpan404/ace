@@ -511,6 +511,7 @@ switch off, `packages/devices/src` is today's TypeScript, unchanged.
 | `scrcpy-protocol` (video), `scrcpy-video`   | `platform/scrcpy/video/mod.rs`      | not yet: the capture's socket reader runs it in-process (U2)                                   |
 | `scrcpy-jar`                                | `platform/scrcpy/jar/mod.rs`        | not yet: the pin, verification and one download; the tools install shares them                 |
 | `scrcpy-server`                             | `platform/scrcpy/server/mod.rs`     | not yet: the push/forward/spawn plan, port, greeting and startup errors; sockets are the shell |
+| `scrcpy-capture` (route, frame, errors)     | `platform/scrcpy/capture/mod.rs`    | not yet: one part; the socket loop and handshakes are still the shell's                        |
 
 The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
 Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
@@ -519,6 +520,13 @@ TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `av
 length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
+
+`scrcpy/capture/mod.rs` keeps the capture's first decisions: whether a profile change is worth
+restarting the server (a new size or frame rate always; a lone bit rate only at 1.5x after 10 s),
+the profile a run asks for (`scrcpyMaxSize` over the transport), whether ace-media reads the
+video socket itself, the display a frame of a size shows, the frame the daemon forwards (the
+producer stamp's sequence and capture time), and the capture's own errors with their codes and
+next steps. The socket loops, handshakes, retries and media forwarding are the next parts.
 
 `scrcpy/server/mod.rs` keeps the device side of a capture before any socket exists: the remote
 jar's name, the push and forward commands with today's byte caps and deadlines, the removed

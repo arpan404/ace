@@ -38,6 +38,15 @@ struct ProducerStamp {
     timestamp: f64,
 }
 
+/// `encodeProducerStamp`: tag 1, its 24-byte body, big endian.
+pub fn encode_producer_stamp(sequence: u64, timestamp: f64, scale: f64) -> Vec<u8> {
+    let mut out = vec![0, 1, 0, 24];
+    out.extend(sequence.to_be_bytes());
+    out.extend(timestamp.to_be_bytes());
+    out.extend(scale.to_be_bytes());
+    out
+}
+
 fn read_producer_stamp(extension: &[u8]) -> Option<ProducerStamp> {
     let mut offset = 0usize;
     while offset + 4 <= extension.len() {
