@@ -184,6 +184,7 @@ dependencies = [
  "ace-adapter-api",
  "ace-core",
  "ace-json",
+ "ace-projection",
  "ace-store",
  "async-task",
  "base64 0.22.1",
@@ -191,10 +192,12 @@ dependencies = [
  "futures",
  "indexmap",
  "lru",
+ "regress",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror",
+ "url",
 ]
 
 [[package]]

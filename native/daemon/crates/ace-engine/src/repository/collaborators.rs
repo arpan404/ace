@@ -38,7 +38,7 @@ pub struct QueueInfo {
 /// A pending in-flight input (E5.4's `pending.handedOver`).
 #[derive(Debug, Clone)]
 pub struct PendingInfo {
-    pub id: u32,
+    pub id: i64,
     pub command_id: String,
     pub continuation: bool,
 }
@@ -177,7 +177,7 @@ pub trait InputFacts: ProbeGate {
         self.not_ported("a queue update", "E5.4", ())
     }
     /// `queue.prune`.
-    fn queue_prune(&mut self, _id: u32) -> Result<(), EngineError> {
+    fn queue_prune(&mut self, _id: i64) -> Result<(), EngineError> {
         self.not_ported("a queue prune", "E5.4", ())
     }
     /// `queue.hasUncertain`.
@@ -220,13 +220,13 @@ pub trait InputFacts: ProbeGate {
     ) -> Result<Option<Value>, EngineError> {
         self.not_ported("an ace wait fact", "E5.4", None)
     }
-    /// `goalChange`.
+    /// `goalChange`: `None` is the provider's absent goal, `Some(Null)` its null.
     fn goal_change(
         &mut self,
-        _current: Option<&str>,
-        _goal: Option<&str>,
+        _current: Option<&Value>,
+        _goal: Option<&Value>,
     ) -> Result<Option<Value>, EngineError> {
-        self.not_ported("a provider goal change", "E5.4", None)
+        self.not_ported("a provider goal change", "E5.4a", None)
     }
     /// `rootRunStart`: the trigger and whether the run takes the handed input.
     fn root_run_start(
@@ -419,7 +419,6 @@ impl FrameFacts for State {
         )
     }
 }
-impl InputFacts for State {}
 impl SessionFacts for State {}
 impl AccessFacts for State {}
 impl RecoveryFacts for State {}
