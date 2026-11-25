@@ -146,3 +146,18 @@ it("a linked device's read includes alerts recorded only for the other id, each 
   const phone = f.service.feed(f.phone, undefined, undefined, [relay]);
   expect(phone.entries.map((entry) => entry.notification.status)).toEqual(["failed"]);
 });
+
+it("a device's feed reports the newest cursor it holds, not the inbox head", async () => {
+  const f = fixture();
+  f.start();
+  f.end();
+  await f.flush();
+  const phone = f.service.feed(f.phone, 0);
+  expect(phone.seen).toBe(phone.entries[0]?.cursor);
+  // A desktop holds none of the inbox: its head moved, its own cursor did not.
+  const desktop = f.service.feed(f.desktop, 0);
+  expect(desktop.cursor).toBeGreaterThan(0);
+  expect(desktop.seen).toBe(0);
+  // With nothing newer, a phone's own cursor is where it stopped reading.
+  expect(f.service.feed(f.phone, phone.cursor).seen).toBe(phone.cursor);
+});

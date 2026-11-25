@@ -27,6 +27,16 @@ pub enum TakeOverError {
 }
 
 impl Engine {
+    /// Gives the engine the bots' workspaces so deleted conversations prune their `web_fetch`
+    /// snapshot index entries.
+    pub fn set_workspaces(&self, workspaces: crate::workspace::Workspaces) {
+        let _ = self.workspaces.set(workspaces);
+    }
+
+    pub(crate) fn workspaces(&self) -> Option<&crate::workspace::Workspaces> {
+        self.workspaces.get()
+    }
+
     /// Gives the engine the bots' computers. Call before work opens: a bot the person had when
     /// Spade stopped stays paused.
     pub fn set_computers(&self, computers: Arc<Computers>) {

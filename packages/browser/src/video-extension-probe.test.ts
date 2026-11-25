@@ -1,7 +1,27 @@
 import { runInNewContext } from "node:vm";
 import { expect, test } from "vitest";
 import { videoExtensionFiles } from "./video-extension.gen.ts";
+import { videoExtensionManifest, videoExtensionVersion } from "./video-extension.ts";
 import { refreshPictureMs } from "./video-pacing.ts";
+
+// Chrome only replaces an unpacked extension whose version changed: the manifest's version is
+// the bundle's hash, so a new build is a real update while the key still fixes the extension id.
+test("the manifest version changes with the bundle and is a Chrome version", () => {
+  const version = videoExtensionVersion(videoExtensionFiles);
+  expect(version).toMatch(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+  expect(
+    version
+      .split(".")
+      .map(Number)
+      .every((part) => part <= 65_535),
+  ).toBe(true);
+  expect(videoExtensionManifest().version).toBe(version);
+  const changed = {
+    ...videoExtensionFiles,
+    "worker.js": `${videoExtensionFiles["worker.js"] ?? ""}\n// another build`,
+  };
+  expect(videoExtensionVersion(changed)).not.toBe(version);
+});
 
 /*
  * The video extension's offscreen document (the bundle the daemon installs) against a fake

@@ -138,7 +138,7 @@ fn the_persons_words_errors_answers_and_short_results_never_age() {
         "an error"
     );
     assert_eq!(shown[2], "short");
-    assert!(shown[3].starts_with("[Aged out"), "{:.60}", shown[3]);
+    assert!(shown[3].starts_with("[Aged:"), "{:.60}", shown[3]);
 }
 
 #[test]

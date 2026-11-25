@@ -7,11 +7,9 @@ mod support;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use spade_core::question::DEFERRED;
 use spade_testkit::{Script, Seen};
 use support::{Result, Spade, types};
-
-const DEFERRED: &str = "The person will answer later. Go on without it where you can, or end \
-your reply saying what waits on it. Their answer will arrive as a <question_answer>.";
 
 fn title() -> Script {
     Script::reply("").plain(r#"{"title":"Trip"}"#)
@@ -453,5 +451,118 @@ async fn a_call_that_breaks_a_rule_is_refused_saying_which_and_nothing_waits() -
         .and_then(|e| e["content"].as_str())
         .unwrap_or_default();
     assert!(why.contains("no kind \"slider\""), "{why}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn ask_user_with_stated_default_or_blocking_false_carries_on_and_late_answer_arrives_later()
+-> Result {
+    let with_default = json!({
+        "questions": [{
+            "prompt": "Report format?",
+            "kind": "choice",
+            "options": ["Markdown", "HTML"],
+            "default": "Markdown",
+        }],
+    });
+    let with_flag = json!({
+        "questions": [{
+            "prompt": "Any extra notes?",
+            "kind": "text",
+        }],
+        "blocking": false,
+    });
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .call("q-def", "ask_user", with_default)
+                .call("q-nb", "ask_user", with_flag),
+            Script::reply("Proceeded with Markdown; let me know if you want HTML."),
+            title(),
+            Script::reply("Switching the report to HTML now."),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (bot, chat) = ids(&spade, "Writer").await?;
+    spade.say(&chat, "Draft the weekly report").await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    // Neither call blocked the reply; both finished with non-blocking tool output.
+    let def_out = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "q-def")
+        .and_then(|e| e["content"].as_str())
+        .unwrap_or_default();
+    assert!(
+        def_out.contains("Default: Markdown"),
+        "tool output confirms stated default: {def_out}"
+    );
+    let flag_out = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "q-nb")
+        .and_then(|e| e["content"].as_str())
+        .unwrap_or_default();
+    assert!(
+        flag_out.contains("Asked without waiting"),
+        "blocking: false returns immediately: {flag_out}"
+    );
+    assert_eq!(agent(&spade, &bot).await?["state"], "idle");
+    assert_eq!(for_later(&spade, &bot, &chat).await?, (json!(2), json!(2)));
+
+    // Stored question exposes `default` on the questions endpoint.
+    let (_, listed) = spade
+        .get(&format!("/v1/conversations/{chat}/questions"))
+        .await?;
+    let q_def = listed["questions"]
+        .as_array()
+        .and_then(|qs| qs.iter().find(|q| q["call_id"] == "q-def"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(q_def["standing"], "deferred");
+    assert_eq!(q_def["questions"][0]["default"], "Markdown");
+
+    // Late answer arrives later like a message and starts a new reply.
+    spade.wait_for(&chat, "renamed").await?;
+    let (status, _) = answer(&spade, &chat, "q-def", json!({ "answers": ["HTML"] })).await?;
+    assert_eq!(status, 202);
+    spade.wait_for_count(&chat, "reply_finished", 2).await?;
+    let shown = last_call(&spade).join("\n");
+    assert!(
+        shown.contains("<question_answer call=\"q-def\">\nReport format?\nAnswer: HTML"),
+        "{shown}"
+    );
+    assert_eq!(for_later(&spade, &bot, &chat).await?, (json!(1), json!(1)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn explicit_blocking_true_still_blocks_even_when_default_is_stated() -> Result {
+    let blocking_with_default = json!({
+        "questions": [{
+            "prompt": "Deploy target?",
+            "kind": "choice",
+            "options": ["staging", "production"],
+            "default": "staging",
+        }],
+        "blocking": true,
+    });
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("q-blk", "ask_user", blocking_with_default),
+            Script::reply("Deploying to staging."),
+            title(),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (bot, chat) = ids(&spade, "Deployer").await?;
+    spade.say(&chat, "Deploy now").await?;
+    spade.wait_for(&chat, "question_asked").await?;
+    let state = agent(&spade, &bot).await?;
+    assert_eq!(state["state"], "waiting");
+    assert_eq!(state["waiting_for"], "question");
+    let (status, _) = answer(&spade, &chat, "q-blk", json!({ "answers": ["staging"] })).await?;
+    assert_eq!(status, 202);
+    spade.wait_for(&chat, "reply_finished").await?;
     Ok(())
 }

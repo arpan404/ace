@@ -17,7 +17,9 @@ import Testing
 
         #expect(move == 0)
         #expect(geometry.top(of: "b") == 301)
-        #expect(geometry.contentHeight == 1001 + 2700)
+        // The rows laid out before (1001) plus three joining at their estimate (3 x 900).
+        let farEdge: CGFloat = 1001 + 2700
+        #expect(geometry.contentHeight == farEdge)
     }
 
     @Test func newerRowsTradedForASpacerOfTheirHeightLeaveTheReaderStill() {
@@ -101,5 +103,56 @@ import Testing
         #expect(geometry.indices(from: 250, to: 800) == 1..<3)
         #expect(geometry.firstIndex(reaching: 301) == 2)
         #expect(geometry.firstIndex(reaching: 2000) == nil)
+    }
+
+    private let blanks: Set<String> = ["spacer.after", "room.edge"]
+
+    private func anchor(_ geometry: TranscriptStackGeometry, from minY: CGFloat, to maxY: CGFloat,
+                        keeping ids: [String], followsEnd: Bool = false) -> String? {
+        geometry.readerAnchor(from: minY, to: maxY, keeping: Set(ids), followsEnd: followsEnd,
+                              isRow: { $0.count == 1 }, isBlank: { blanks.contains($0) })
+    }
+
+    @Test func anOlderPageLandingDuringAFlingExtendsTheEdgeWithoutShiftingVisibleRows() {
+        var geometry = measured([("tail", 1), ("c", 900), ("b", 500), ("room.edge", 8)])
+        let ids = ["tail", "c", "b", "z", "room.edge"]
+        let held = anchor(geometry, from: 609, to: 1409, keeping: ids)
+        let move = geometry.replace(ids, declared: ["room.edge": 8], estimate: { _ in 600 }, keeping: held)
+
+        #expect(held == "c")
+        #expect(move == 0)
+        #expect(geometry.top(of: "c") == 1)
+        #expect(geometry.top(of: "b") == 901)
+        #expect(geometry.contentHeight == 2009)
+    }
+
+    @Test func aReaderAwayFromTheEndIsAnchoredOnTheFirstRowOnScreenThenOnWhatIsDrawn() {
+        let geometry = measured([("tail", 1), ("pending", 80), ("spacer.after", 900), ("b", 500)])
+
+        #expect(anchor(geometry, from: 0, to: 1100, keeping: geometry.ids) == "b")
+        #expect(anchor(geometry, from: 0, to: 60, keeping: geometry.ids) == "tail")
+        // Following the end, its first entry on screen holds, blank or not.
+        #expect(anchor(geometry, from: 1000, to: 1500, keeping: geometry.ids, followsEnd: true) == "b")
+        #expect(anchor(geometry, from: 700, to: 1400, keeping: geometry.ids, followsEnd: true) == "spacer.after")
+    }
+
+    @Test func aSpacerResizedInPlaceKeepsTheReadersRowStill() {
+        var geometry = measured([("tail", 1), ("spacer.after", 5000), ("b", 500)])
+        let held = anchor(geometry, from: 4800, to: 5600, keeping: geometry.ids)
+        let move = geometry.resize(declared: ["spacer.after": 6200], keeping: held)
+
+        #expect(move == 1200)
+        #expect(geometry.top(of: "b") == 6201)
+        // Heights already laid out change nothing.
+        #expect(geometry.resize(declared: ["spacer.after": 6200], keeping: held) == nil)
+    }
+
+    @Test func aRoomResizedInPlaceBeforeTheReaderMovesTheOffsetByItsChange() {
+        var geometry = measured([("room.keyboard", 0), ("tail", 1), ("b", 500), ("a", 200)])
+        let held = anchor(geometry, from: 300, to: 700, keeping: geometry.ids)
+        let move = geometry.resize(declared: ["room.keyboard": 320], keeping: held)
+
+        #expect(held == "b")
+        #expect(move == 320)
     }
 }

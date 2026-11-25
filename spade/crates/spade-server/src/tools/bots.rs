@@ -60,7 +60,7 @@ impl Tool for BotsList {
             },
             risk: Risk::Read,
             untrusted_output: false,
-            deferred: false,
+            deferred: true,
             background: false,
         }
     }
@@ -101,7 +101,7 @@ impl Tool for BotMessage {
             risk: Risk::Write,
             // Its answer can carry what the bot read on the web.
             untrusted_output: true,
-            deferred: false,
+            deferred: true,
             background: true,
         }
     }

@@ -1,6 +1,7 @@
 import { spadeEffortNames, spadeEfforts, type SpadeEffort } from "@ace/ui-core/spade-chat";
 import { useState } from "react";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { fault, Refusal } from "./spade-settings-rows.tsx";
 
 /** The empty choice: the role follows what is above it (Settings, or its default). */
@@ -18,6 +19,7 @@ export function EffortSelect(props: {
   value: SpadeEffort | undefined;
   /** The first choice's words, such as "Follow Settings" or "Default: medium thinking". */
   none: string;
+  className?: string | undefined;
   save(effort: SpadeEffort | null): Promise<unknown>;
 }) {
   const [refusal, setRefusal] = useState<string>();
@@ -26,6 +28,7 @@ export function EffortSelect(props: {
     { value: follow, label: props.none },
     ...spadeEfforts.map((effort) => ({ value: effort, label: spadeEffortNames[effort] })),
   ];
+  const current = pending ?? props.value ?? follow;
   const choose = async (next: SpadeEffort | typeof follow) => {
     setRefusal(undefined);
     setPending(next);
@@ -38,11 +41,11 @@ export function EffortSelect(props: {
     }
   };
   return (
-    <span className="inline-flex flex-col items-end gap-1">
+    <span className={cn("inline-flex flex-col items-end gap-1", props.className && "w-full")}>
       <Select
         label={`${props.title} thinking`}
-        className="w-48"
-        value={pending ?? props.value ?? follow}
+        className={cn(props.className ?? "w-52", current === follow && "text-muted-foreground")}
+        value={current}
         options={options}
         disabled={pending !== undefined}
         onValueChange={(next) => void choose(next)}

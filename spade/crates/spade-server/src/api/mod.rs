@@ -210,6 +210,10 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
+        .route(
+            "/keys/{endpoint}/gateway",
+            put(set_gateway_key).delete(delete_gateway_key),
+        )
         .route("/usage/search", get(search_usage::read))
         .route("/ace", get(ace_state).put(set_grant).delete(forget_grant))
         .route(
@@ -789,6 +793,41 @@ async fn delete_key(State(state): State<AppState>, Path(endpoint): Path<String>)
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => problem(StatusCode::NOT_FOUND, "no key stored for that endpoint"),
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct GatewayKey {
+    token: String,
+}
+
+/// Stores the token an authenticated gateway asks for with an endpoint's calls (Cloudflare AI
+/// Gateway's `cf-aig-authorization`), in the keychain: never in the endpoint's stored headers
+/// (ADR 0119).
+async fn set_gateway_key(
+    State(state): State<AppState>,
+    Path(endpoint): Path<String>,
+    Json(body): Json<GatewayKey>,
+) -> Response {
+    let engine = state.engine.clone();
+    off_thread(
+        move || match engine.set_gateway_token(&endpoint, Some(&body.token)) {
+            Ok(_) => StatusCode::NO_CONTENT.into_response(),
+            Err(error) => endpoints::endpoint_problem(&error),
+        },
+    )
+    .await
+}
+
+async fn delete_gateway_key(
+    State(state): State<AppState>,
+    Path(endpoint): Path<String>,
+) -> Response {
+    let engine = state.engine.clone();
+    off_thread(move || match engine.set_gateway_token(&endpoint, None) {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => endpoints::endpoint_problem(&error),
     })
     .await
 }

@@ -100,7 +100,7 @@ async fn an_instruction_given_at_the_start_is_still_in_front_of_the_model_forty_
         step40.contains("s1 (from \"m1\")") && step40.contains("Never email the client directly"),
         "{step40}"
     );
-    assert!(step40.contains("Open, newest first:\n- m1"), "{step40}");
+    assert!(step40.contains("Open (newest first):\n- m1"), "{step40}");
     // The ask closed, the standing instruction stays.
     let step41 = last(&spade, 40);
     assert!(
@@ -166,7 +166,7 @@ async fn a_steer_reads_as_an_open_marked_ask_and_a_reply_leaving_it_open_gets_on
     assert_eq!(steer_id, "m6", "the test's message ids");
     let second = last(&spade, 1);
     assert!(
-        second.contains("- m6, sent while you worked: \"Only mornings\""),
+        second.contains("- m6, steer: \"Only mornings\""),
         "{second}"
     );
 
@@ -300,7 +300,7 @@ async fn asks_updates_survive_a_compaction_and_a_restart() -> Result {
         "a closed part is gone: {after}"
     );
     assert!(
-        after.contains("New, not sorted yet:\n- m") && after.contains("how is it going?"),
+        after.contains("Unsorted:\n- m") && after.contains("how is it going?"),
         "{after}"
     );
     Ok(())
@@ -499,8 +499,8 @@ async fn two_steers_in_a_row_both_read_as_steers_and_both_are_open_asks() -> Res
     assert_eq!(steers, 2, "{second:?}");
     let block = last(&spade, 1);
     assert!(
-        block.contains("m7, sent while you worked: \"Make it Thursday, not Friday\"")
-            && block.contains("m6, sent while you worked: \"Also post it on Slack\""),
+        block.contains("m7, steer: \"Make it Thursday, not Friday\"")
+            && block.contains("m6, steer: \"Also post it on Slack\""),
         "{block}"
     );
     assert_eq!(count(&events, "asks_reminded"), 0);

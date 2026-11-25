@@ -125,11 +125,40 @@ impl Engine {
         };
         // Only what the stop names: another worker may have closed the reply and started a new
         // one, with jobs of its own, since the stop was stored.
-        let stopped_jobs = jobs::stop_named(self, id, reply, jobs);
+        let (cancelled, quietened) = jobs::cancel_named(self, id, reply, jobs);
         // The callees of the contract calls those jobs made stop their turn for them (ADR 0200 §7).
         self.stop_calls(id, jobs);
-        // The helpers those jobs ran stop too, and no queued one starts (ADR 0152).
-        self.stop_helpers(id, reply, jobs);
+        // The helpers those jobs ran stop too, and no queued one starts (ADR 0152). A research
+        // job's parts end before its result is published, so nothing of it outlives it.
+        let parts = self.stop_helpers(id, reply, jobs);
+        let stopped_jobs = cancelled.len() + quietened;
+        let mut now: Vec<String> = Vec::new();
+        let mut later: Vec<(String, Vec<String>)> = Vec::new();
+        for job in cancelled {
+            match parts.iter().find(|(owner, _)| owner == &job) {
+                Some((_, conversations)) => later.push((job, conversations.clone())),
+                None => now.push(job),
+            }
+        }
+        jobs::stopped(self, id, &now);
+        if !later.is_empty() {
+            match tokio::runtime::Handle::try_current() {
+                Ok(runtime) => {
+                    let (engine, id, later) = (self.clone(), id.to_owned(), later);
+                    runtime.spawn(async move {
+                        for (job, conversations) in later {
+                            engine.wait_parts_ended(&conversations).await;
+                            jobs::stopped(&engine, &id, std::slice::from_ref(&job));
+                        }
+                    });
+                }
+                // Nowhere to wait: publish now, as before; a restart closes any part left.
+                Err(_) => {
+                    let all: Vec<String> = later.into_iter().map(|(job, _)| job).collect();
+                    jobs::stopped(self, id, &all);
+                }
+            }
+        }
         // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.
         if !turn && reply.is_some() && stored {
             self.spawn_turn(id);

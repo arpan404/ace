@@ -86,16 +86,16 @@ async fn the_first_message_becomes_the_bots_task_and_the_bot_names_itself() -> R
     let named = agent(&spade, &id).await?;
     assert_eq!(named["name"], "Ivy");
     assert_eq!(named["avatar"]["body"], "fox");
-    // The first turn read the task and was told to name itself; the scaffold says how a new hire
-    // answers.
+    // The first turn read the task and was told to name itself and onboard the job.
     let seen = spade.fake.seen();
     let first = system(&seen[0].body);
     assert!(
         first.contains("<task>\nSort my inbox every morning\n</task>"),
         "{first}"
     );
+    assert!(first.contains("profile_update"), "{first}");
     assert!(first.contains("have no name yet"), "{first}");
-    assert!(first.contains("capable new hire"), "{first}");
+    assert!(first.contains("ask_user"), "{first}");
     Ok(())
 }
 

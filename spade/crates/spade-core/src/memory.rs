@@ -160,8 +160,7 @@ pub fn index(notes: &[Note]) -> String {
         return String::new();
     }
     format!(
-        "Notes you keep (from earlier conversations; the person can see and edit them). Use \
-memory_search for more, and memory_save, memory_update and memory_forget to keep them right:\n\
+        "Saved notes (use memory_search/save/update/forget to read or maintain them):\n\
 <memory>\n{lines}</memory>"
     )
 }

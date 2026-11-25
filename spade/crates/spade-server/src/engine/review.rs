@@ -16,6 +16,7 @@ use tokio::sync::watch;
 use super::Engine;
 use super::autonomy::line;
 use super::judge::Judged;
+use super::stream_calls::{ReviewResult, Work};
 use spade_core::autonomy::escalate::Stop;
 
 /// Longest a review may take before the call goes to the person.
@@ -51,6 +52,7 @@ pub(super) async fn call(
     reuse_review: bool,
     reuse_person: bool,
     stop: &mut watch::Receiver<bool>,
+    work: &mut Work<'_>,
 ) -> Reviewed {
     let model = engine.review_model(id);
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
@@ -111,6 +113,9 @@ pub(super) async fn call(
                 .as_deref()
                 .is_some_and(|key| review::memo_allowed(unchanged, reply, key)))
     {
+        if work.early() {
+            return Reviewed::Stopped;
+        }
         return match super::autonomy::record_rule(
             engine,
             id,
@@ -131,11 +136,40 @@ pub(super) async fn call(
             Err(_) => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
         };
     }
-    engine.set_status(id, Some(CHECKING.to_owned()));
+    let refused = if prior == review::Prior::Refused {
+        Verdict::Escalate
+    } else {
+        Verdict::Refuse
+    };
     let prompt = review::prompt(&case).session(id).effort(effort);
-    let (verdict, reason, cost, judged) =
-        match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
-            .await
+    let reviewed = Event::Known(Known::CallReviewed {
+        memo,
+        reply: reply.to_owned(),
+        call_id: call.id.clone(),
+        name: name.to_owned(),
+        verdict: refused,
+        reason: String::new(),
+        model: model.clone(),
+        cost_micros: 0,
+        bound,
+        acts_in: None,
+        launch: Some(launch),
+        raised: None,
+    });
+    let early = work.early();
+    let judge = async {
+        if !early {
+            engine.set_status(id, Some(CHECKING.to_owned()));
+        }
+        let (verdict, reason, cost, judged) = match super::judge::judge::<Judgment>(
+            engine,
+            id,
+            &model,
+            &prompt,
+            REVIEW_TIMEOUT,
+            stop,
+        )
+        .await
         {
             // Stored as the line the person reads, so a restart asks with the same words.
             Judged::Answer(judgment, cost) => {
@@ -144,8 +178,8 @@ pub(super) async fn call(
                     Verdict::Allow => judgment.reason.trim().to_owned(),
                     _ => line(Stop::SecondReview(&judgment.reason)),
                 };
-                let verdict = if verdict == Verdict::Escalate && prior != review::Prior::Refused {
-                    Verdict::Refuse
+                let verdict = if verdict == Verdict::Escalate {
+                    refused
                 } else {
                     verdict
                 };
@@ -158,30 +192,17 @@ pub(super) async fn call(
                 cost,
                 false,
             ),
-            Judged::Stopped => return Reviewed::Stopped,
+            Judged::Stopped => return None,
         };
-    // The check is over: until the call starts or the person is asked, the bot is thinking, not
-    // still checking (a stale "Checking a step" showed after an approval).
-    engine.set_status(id, Some(super::roster::THINKING.to_owned()));
-    let reviewed = Event::Known(Known::CallReviewed {
-        memo: if judged { memo } else { None },
-        reply: reply.to_owned(),
-        call_id: call.id.clone(),
-        name: name.to_owned(),
-        verdict,
-        reason: reason.clone(),
-        model,
-        cost_micros: cost,
-        bound,
-        acts_in: None,
-        launch: Some(launch),
-        raised: None,
-    });
-    match engine.record_unless_stopped(id, reply, &reviewed) {
-        Ok(true) => of(verdict, reason),
-        Ok(false) => Reviewed::Stopped,
-        // Not stored: the person decides rather than the call running unrecorded.
-        Err(_) => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
+        if !early {
+            engine.set_status(id, Some(super::roster::THINKING.to_owned()));
+        }
+        Some((verdict, reason, cost, judged))
+    };
+    match work.review(engine, id, &prompt, reviewed, judge).await {
+        ReviewResult::Decided(verdict, reason) => of(verdict, reason),
+        ReviewResult::Stopped => Reviewed::Stopped,
+        ReviewResult::Unstored => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
     }
 }
 

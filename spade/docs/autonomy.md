@@ -233,8 +233,8 @@ is `host/owner/name`; `owner/name` means GitHub, and grants match the host too.
 --push dest` (after the person's own URL rewriting) is `https` or ssh to the host and repository
   named. Without a sandbox on the machine it doesn't run.
 - `pr_comment {repo, number, body}` and `issue_comment {repo, number, body}`: `gh … comment
---repo host/owner/name --body-file -` in Spade's folder, the body on stdin. A `pr_comment` grant
-  covers the first (`own_only` grants cover nothing yet).
+--repo host/owner/name --body-file -` in Spade's folder, the body on stdin. Both ask for approval
+  on every call, including when a repository grant matches.
 - `send_message {app: messages | mail, to, body, subject?}`: macOS only; Spade's own AppleScript
   file, with who and what as its arguments.
 

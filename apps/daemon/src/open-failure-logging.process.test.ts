@@ -16,6 +16,10 @@ test.each(["codex", "opencode"] as const)(
     prepareDaemonHome(home);
     vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
     vi.stubEnv("ACE_MAINTENANCE", "0");
+    // The agent harness's marker and a secret that happens to spell a provider name: the
+    // structured provider field stays readable while the same word in text is still scrubbed.
+    vi.stubEnv("AI_AGENT", "opencode");
+    vi.stubEnv("CURSOR_API_KEY", "opencode");
     const executable = join(home, "opencode");
     if (provider === "opencode")
       await writeFile(
@@ -55,7 +59,7 @@ else process.exit(9);
             code: "invalid_model",
             title: "Cannot open",
             detail:
-              'model_unavailable: Cannot select model: {"credentials":{"login":"opaque-login-value"}}',
+              'model_unavailable: Cannot select model: {"credentials":{"login":"opaque-login-value"},"note":"opencode"}',
           };
         },
       },
@@ -177,7 +181,7 @@ else process.exit(9);
             provider,
             code: "invalid_model",
             title: "Cannot open",
-            detail: expect.stringContaining("model_unavailable"),
+            detail: expect.stringMatching(/model_unavailable: .*"note":"<ENV>"/),
             model: provider === "opencode" ? "synthetic-cloud/unavailable-model" : null,
             instance: null,
           }),

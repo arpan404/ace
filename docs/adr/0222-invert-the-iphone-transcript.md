@@ -62,10 +62,35 @@ the second option above.
    links, stale state). A fling doesn't re-evaluate rows already drawn.
 4. **UIKit reports the scroll.** Phases come from the scroll view's delegate. The release
    velocity comes from `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)`, so a
-   device trace (`-ace-fling-trace`) records it. Row frames come from the layout.
+   device trace (`-ace-fling-trace`) records it. Row frames come from the layout. The pure
+   `TranscriptScrollSequence` turns those callbacks and the touch watcher's into phases and
+   decides when a window change held for the reader lands: after the finger lifts or the fling
+   rests, with its geometry reported before the feed hears `.idle`, and before an animated jump
+   picks its target. A finger down is `.tracking`, which only holds window changes; the feed
+   treats the drag (`.interacting`) as the reader taking over, so a tap moves nothing. A tap
+   during the feed's own animated scroll leaves `.animating` in place.
 5. **VoiceOver reads the cells on screen oldest first.** Three-finger swipes page in the
    direction they read. The feed keeps the `transcript` identifier; UI tests find it as a
    collection view.
 
 The eager or lazy stack choice (ADR 0157) no longer applies to this feed: the collection view
 only builds cells near the viewport.
+
+## Amendment: the older edge ends at the loaded rows (2026-11-24)
+
+In the iPhone recording over the relay, the scroll indicator kept moving through two blank
+stretches of roughly two seconds while the time pill stayed on the last row it had seen.
+Evicted older rows contributed their retained height to a transparent cell. With a large
+enough cell, a fling could put the whole viewport beyond the oldest loaded row while a page
+was still in flight or waiting for the reader to stop.
+
+The collection ends at the loaded older edge. UIKit decelerates and rebounds there, and an
+older page adds space beyond that edge. The fling still prefetches from the loaded edge
+using the greater of 2.5 screens or the projected travel plus one screen. The release
+direction survives the rebound, so reaching the edge still requests a page if a prior read
+was settling. Newer evictions keep their measured spacer so they can land during an older
+append without moving the reader's rows. Replies that would shift visible rows still wait.
+
+Swift tests check that the feed's older scroll limit keeps a loaded row in view after
+eviction, that an append extends the range without shifting visible rows, and that paging
+uses the distance to the loaded edge.

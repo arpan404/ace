@@ -4,7 +4,7 @@ import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
 import { stagedDiscovery } from "../provider-discovery.ts";
-import { logError, logFields } from "@ace/diagnostics";
+import { logError, logFields, logProviderKind } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
@@ -360,7 +360,8 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         "Selected model unavailable",
         logFields([
           ["code", "model_unavailable"],
-          ["provider", provider],
+          // The provider kind is ace's own closed enum, not provider text.
+          ["provider", logProviderKind(provider)],
           ["model", model],
           ["instance", instance ?? null],
         ]),
@@ -480,7 +481,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         "Provider session opening failed",
         logFields([
           ["thread", thread],
-          ["provider", details.provider],
+          ["provider", logProviderKind(details.provider)],
           ["model", route?.model ?? details.model ?? null],
           ["instance", route?.instance ?? null],
           ["backend", route?.backend ?? null],

@@ -5,6 +5,7 @@ import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { readAgents } from "./spade-api.ts";
 import { botNames, ConnectorSettings } from "./spade-connector-settings.tsx";
+import { SpadeFace } from "./spade-face.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { OutsideAgentSettings } from "./spade-outside-agents.tsx";
 import { pluginsKey, readBotPlugins } from "./spade-plugin-api.ts";
@@ -13,6 +14,20 @@ import { addSkillToAce, readSkillStore, type SpadeStoredSkill } from "./spade-sk
 import { agentsKey } from "./use-spade-roster.ts";
 
 const storeKey = ["spade", "skill-store"] as const;
+
+/** Small overlapping bot faces placed inline next to bot names. */
+export function InlineBotFaces(props: { bots: readonly SpadeAgent[] }) {
+  if (props.bots.length === 0) return null;
+  return (
+    <span aria-hidden className="inline-flex shrink-0 items-center -space-x-1">
+      {props.bots.slice(0, 4).map((bot) => (
+        <span key={bot.id} className="inline-flex rounded-full ring-1 ring-surface-1">
+          <SpadeFace avatar={bot.avatar} size={16} />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /**
  * Settings › Spade › Apps: the apps Spade is connected to, the outside agents added like apps
@@ -34,12 +49,13 @@ export function SpadeAppsSettings() {
     return <SpadeNotRunning sentence={line.sentence} canTurnOn={line.canTurnOn} />;
   const bots = agents.data ?? [];
   const names = new Map(bots.map((bot) => [bot.id, bot.name]));
+  const botsById = new Map(bots.map((bot) => [bot.id, bot]));
   return (
     <>
-      <ConnectorSettings ready={line.ready} names={names} />
+      <ConnectorSettings ready={line.ready} names={names} botsById={botsById} />
       {line.ready && <OutsideAgentSettings />}
       {line.ready && <PluginSection bots={bots} />}
-      {line.ready && <SkillSection names={names} />}
+      {line.ready && <SkillSection names={names} botsById={botsById} />}
     </>
   );
 }
@@ -58,12 +74,12 @@ function PluginSection(props: { bots: readonly SpadeAgent[] }) {
       retry: false,
     })),
   });
-  const plugins = new Map<string, { plugin: SpadePlugin; users: string[] }>();
+  const plugins = new Map<string, { plugin: SpadePlugin; users: SpadeAgent[] }>();
   pages.forEach((page, at) => {
     const bot = props.bots[at];
     for (const plugin of page.data?.plugins ?? []) {
       const entry = plugins.get(plugin.name) ?? { plugin, users: [] };
-      if (plugin.allowed && bot) entry.users.push(bot.name);
+      if (plugin.allowed && bot) entry.users.push(bot);
       plugins.set(plugin.name, entry);
     }
   });
@@ -75,11 +91,16 @@ function PluginSection(props: { bots: readonly SpadeAgent[] }) {
           key={plugin.name}
           title={plugin.name}
           description={
-            !plugin.enabledInAce
-              ? "Turned off in ace"
-              : users.length
-                ? users.join(", ")
-                : "No bot uses it"
+            !plugin.enabledInAce ? (
+              "Turned off in ace"
+            ) : users.length ? (
+              <span className="inline-flex items-center gap-1.5">
+                <InlineBotFaces bots={users} />
+                <span>{users.map((bot) => bot.name).join(", ")}</span>
+              </span>
+            ) : (
+              "No bot uses it"
+            )
           }
           density="compact"
         />
@@ -92,7 +113,10 @@ function PluginSection(props: { bots: readonly SpadeAgent[] }) {
  * Skills the bots use or wrote, each with those bots, and Add to ace's library
  * for one written in Spade while ace is running. Shows nothing when there are none.
  */
-function SkillSection(props: { names: ReadonlyMap<string, string> }) {
+function SkillSection(props: {
+  names: ReadonlyMap<string, string>;
+  botsById: ReadonlyMap<string, SpadeAgent>;
+}) {
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
   const store = useQuery({
@@ -108,7 +132,13 @@ function SkillSection(props: { names: ReadonlyMap<string, string> }) {
   return (
     <SettingSection label="Skills" anchor="skills">
       {shown.map((skill) => (
-        <SkillRow key={skill.id} skill={skill} ace={ace} names={props.names} />
+        <SkillRow
+          key={skill.id}
+          skill={skill}
+          ace={ace}
+          names={props.names}
+          botsById={props.botsById}
+        />
       ))}
     </SettingSection>
   );
@@ -130,6 +160,7 @@ function SkillRow(props: {
   skill: SpadeStoredSkill;
   ace: boolean;
   names: ReadonlyMap<string, string>;
+  botsById: ReadonlyMap<string, SpadeAgent>;
 }) {
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -148,10 +179,29 @@ function SkillRow(props: {
     }
   };
   const line = skillLine(props.skill, props.names);
+  const seen = new Set<string>();
+  const relatedBots: SpadeAgent[] = [];
+  for (const id of [...props.skill.usedBy, ...props.skill.writtenBy]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const bot = props.botsById.get(id);
+    if (bot) relatedBots.push(bot);
+  }
   return (
     <SettingRow
       title={props.skill.name}
-      description={refusal ? <Refusal>{refusal}</Refusal> : line || props.skill.description}
+      description={
+        refusal ? (
+          <Refusal>{refusal}</Refusal>
+        ) : line ? (
+          <span className="inline-flex items-center gap-1.5">
+            <InlineBotFaces bots={relatedBots} />
+            <span>{line}</span>
+          </span>
+        ) : (
+          props.skill.description
+        )
+      }
       density="compact"
     >
       {props.ace && props.skill.origin === "spade" && (

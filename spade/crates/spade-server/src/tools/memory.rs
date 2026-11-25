@@ -59,8 +59,7 @@ impl Tool for MemoryTool {
                     "memory_save",
                     "Save a note to remember beyond this conversation: a fact about the person, a \
                      standing preference, a lasting decision. One short self-contained sentence. \
-                     Set about_person for facts about the person every bot should know. The \
-                     person can see and edit notes.",
+                     about_person shares it with every bot. The person can see and edit notes.",
                     json!({ "type": "object",
                             "properties": {
                                 "text": string("The note, up to 500 characters."),
@@ -108,9 +107,9 @@ impl Tool for MemoryTool {
             MemoryCall::HistorySearch => (
                 spec(
                     "history_search",
-                    "Search this conversation's full stored history by keyword, including parts \
-                     that were summarised away and the summaries themselves, back to its first \
-                     day. Each match has its position and date; read one with history_read.",
+                    "Search this conversation's whole stored history by keyword, including what \
+                     was summarised away and the summaries themselves, back to its first day. \
+                     Each match has its position and date; read it with history_read.",
                     json!({ "type": "object",
                             "properties": {
                                 "query": string("Words to look for."),
@@ -144,7 +143,8 @@ impl Tool for MemoryTool {
             risk,
             // History holds what pages and emails said; read back, it is as untrusted as then.
             untrusted_output,
-            deferred: false,
+            // Rewriting or deleting a note is rare in a conversation: found with tool_search.
+            deferred: matches!(self.call, MemoryCall::Update | MemoryCall::Forget),
             background: false,
         }
     }
@@ -174,42 +174,40 @@ impl Tool for MemoryTool {
 pub struct AskUser;
 
 /// What the model reads about `ask_user`.
-const ASK_ABOUT: &str = "Ask the person one to five questions, shown as a card they answer. \
-Pick the kind that fits each question: `choice` (one of 2-10 options; `other: true` lets them \
-write their own), `choices` (several options, `min`/`max` picks), `confirm` (yes or no), \
-`number` (`min`, `max`, `unit`), `date` (`time: true` to ask the time as well) or `text`. Ask \
-everything you need in one call rather than one question at a time. By default your turn pauses \
-until they answer; you read each prompt with its answer. The person may choose Answer later: \
-then the call says so at once, and you go on without it where you can or end your reply saying \
-what waits on it; their answer arrives later as a <question_answer>. Set `wait: false` to ask \
-without pausing at all, for preferences that shape later work, never for something your next \
-step depends on. The person may also dismiss the card. A call that breaks a rule is refused \
-saying which; fix it and ask again.";
+const ASK_ABOUT: &str = "Ask the person one to five questions as a card they answer. Kinds: \
+`choice` (2-10 options; `other: true` also takes a typed answer), `choices` (several, `min`/`max` \
+picks), `confirm`, `number` (`min`, `max`, `unit`), `date` (`time: true` asks the time too) or \
+`text`. Ask everything in one call. A blocking call pauses until they answer, choose Answer \
+later, or dismiss. Use `blocking: false` (alias `wait: false`) for preferences or optional \
+confirmations. If every question states a `default`, the call is non-blocking unless you set \
+`blocking: true`. Continue with the stated defaults. Later answers arrive as <question_answer>. \
+A call that breaks a rule says which; fix it and ask again.";
 
 impl Tool for AskUser {
     fn def(&self) -> ToolDef {
         let option = json!({ "type": "object",
             "properties": {
                 "label": string("What the option says, briefly."),
-                "detail": string("Optional: one line more about it.") },
+                "detail": string("Optional: one line more.") },
             "required": ["label"] });
         let question = json!({ "type": "object",
             "properties": {
-                "id": string("Optional: your own name for the question."),
+                "id": string("Optional: your name for it."),
                 "prompt": string("The question, briefly."),
                 "kind": { "type": "string",
                           "enum": ["text", "choice", "choices", "confirm", "number", "date"] },
                 "options": { "type": "array", "items": option,
-                             "description": "choice and choices: 2 to 10 options." },
+                             "description": "choice/choices: 2-10." },
                 "other": { "type": "boolean",
-                           "description": "choice and choices: the card always lets them answer in their own words; set this to also take a message they type in the chat as their answer." },
+                           "description": "choice/choices: the card already takes free text; set this to also take a message typed in the chat." },
                 "min": { "type": "number",
-                         "description": "choices: fewest picks (default 1). number: the least." },
+                         "description": "choices: fewest picks (default 1); number: the least." },
                 "max": { "type": "number",
-                         "description": "choices: most picks. number: the most." },
-                "unit": string("number: the unit, like nights or kg."),
+                         "description": "choices: most picks; number: the most." },
+                "unit": string("number: like nights or kg."),
                 "time": { "type": "boolean", "description": "date: ask the time too." },
-                "placeholder": string("text: a hint shown in the empty field.") },
+                "placeholder": string("text: a hint in the empty field."),
+                "default": { "description": "Value to use while awaiting an answer. Must match the question's kind." } },
             "required": ["prompt", "kind"] });
         ToolDef {
             spec: spec(
@@ -219,9 +217,9 @@ impl Tool for AskUser {
                         "properties": {
                             "questions": { "type": "array", "items": question,
                                            "minItems": 1, "maxItems": 5 },
-                            "wait": { "type": "boolean",
-                                      "description": "false: ask without pausing; the answer \
-                                                      arrives later. Default true." } },
+                            "blocking": { "type": "boolean",
+                                          "description": "True waits for an answer. False continues at once. Defaults to false when every question has a default, otherwise true." },
+                            "wait": { "type": "boolean", "description": "Alias for blocking." } },
                         "required": ["questions"] }),
             ),
             risk: Risk::Read,

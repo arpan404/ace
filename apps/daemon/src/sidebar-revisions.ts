@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { WorkspaceId } from "@ace/protocol";
 /**
  * Row revisions cover direct SQL and other writers, not just published domain events.
  * Every insert or update of a threads row takes a fresh, never-reused revision; a delete
@@ -15,6 +16,29 @@ import type { DatabaseSync } from "node:sqlite";
  */
 /** Removed ids kept for the live sidebar; a reader further behind rebuilds instead. */
 export const sidebarRemovalLog = 4096;
+
+/**
+ * Who to tell when a workspace gains or loses chat membership. Its threads join or leave every
+ * project's window (ADR 0099) with no thread write to deliver, so live lists re-read what they
+ * hold. In-process only: nothing durable, nothing on the wire.
+ */
+export class ChatMembership {
+  private readonly listeners = new Set<(workspaceId: WorkspaceId) => void>();
+  on(listener: (workspaceId: WorkspaceId) => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+  /** After the change committed: in every window, that workspace's threads are chats or not. */
+  changed(workspaceId: WorkspaceId): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(workspaceId);
+      } catch {
+        /* Delivery cannot undo the classification. */
+      }
+    }
+  }
+}
 
 const revisionTriggers = [
   "sidebar_thread_insert",

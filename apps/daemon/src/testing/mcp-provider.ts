@@ -309,13 +309,22 @@ if (provider === "opencode") {
         url = server.url;
         authorization = server.http_headers.Authorization;
       } else {
-        for (const server of z.array(z.unknown()).parse(request["mcpServers"]))
-          validateNativeMcpConfig("acp", server);
+        const servers = z.array(z.record(z.string(), z.unknown())).parse(request["mcpServers"]);
+        // The fixtures' ACP schema covers HTTP servers only; a stdio bridge has no HTTP proof.
+        for (const server of servers)
+          if (server["type"] === "http") validateNativeMcpConfig("acp", server);
         const config = z
           .array(AcpServer)
-          .parse(request["mcpServers"])
+          .parse(servers.filter((server) => server["type"] === "http"))
           .find((server) => server.name === "ace");
-        if (!config) throw new Error("Missing ACP MCP server");
+        if (!config) {
+          const bridge = servers.some(
+            (server) => server["name"] === "ace" && typeof server["command"] === "string",
+          );
+          if (!bridge) throw new Error("Missing ACP MCP server");
+          write({ id: message.id, result: { sessionId: "native" } });
+          continue;
+        }
         url = config.url;
         authorization = config.headers.find((header) => header.name === "Authorization")?.value;
         if (!authorization) throw new Error("Missing ACP MCP authority");

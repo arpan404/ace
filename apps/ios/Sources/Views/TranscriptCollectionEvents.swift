@@ -8,15 +8,10 @@ struct TranscriptEntry {
     let key: AnyHashable
     /// A transcript row: the feed hears where it lays out, and when it comes and goes.
     var isRow = false
+    /// Blank room of a known height (a spacer, the keyboard's room): laid out at it as the window
+    /// changes, and never what keeps the reader's place.
+    var height: CGFloat?
     let content: () -> AnyView
-}
-
-/// What the scroll view is doing, as SwiftUI's `ScrollPhase` names it.
-enum TranscriptScrollPhase: Sendable {
-    case idle, tracking, interacting, decelerating, animating
-
-    /// A finger is down or a fling it started is running: the reader's own motion.
-    var isReaders: Bool { self == .tracking || self == .interacting || self == .decelerating }
 }
 
 /// The scroll view's geometry in its own (physical) coordinates.

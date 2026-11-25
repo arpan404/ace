@@ -219,19 +219,35 @@ function EntryRow(props: {
   disabled: boolean;
   onAct(): void;
 }) {
+  const removed = props.description === "Default, removed";
   return (
-    <li>
-      <SettingRow title={props.entry} description={props.description} density="compact" inline>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={`${props.action} ${props.entry}`}
-          disabled={props.disabled}
-          onClick={props.onAct}
+    <li className="flex min-h-9 items-center justify-between gap-3 border-b border-border-soft py-1.5 last:border-b-0">
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          className={
+            removed
+              ? "truncate font-mono text-xs text-subtle-foreground line-through"
+              : "truncate font-mono text-xs text-foreground"
+          }
         >
-          {props.action}
-        </Button>
-      </SettingRow>
+          {props.entry}
+        </span>
+        {props.description && (
+          <span className="shrink-0 rounded-sm bg-secondary/70 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            {props.description}
+          </span>
+        )}
+      </span>
+      <Button
+        size="sm"
+        variant="ghost"
+        aria-label={`${props.action} ${props.entry}`}
+        disabled={props.disabled}
+        className="shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={props.onAct}
+      >
+        {props.action}
+      </Button>
     </li>
   );
 }

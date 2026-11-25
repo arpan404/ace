@@ -561,9 +561,9 @@ unreviewed call outside.
 - **Requesting an outside launch** (`outside_sandbox: true` on `shell`): Full access can
   authorize the launch directly. Auto-review judges the call after Spade reads what it would
   run. Person-only effects still require the person's approval.
-- **Granted**: a `git_push` or `pr_comment` grant covers its typed tool, matched by
-  `host/owner/name` (a grant written `owner/name` means GitHub); a `tool` grant covers only a tool
-  that declares `read`, `write_local`, `network` or `publish`, never one that declares nothing;
+- **Granted**: pushes and comments require approval each time, including when a repository
+  grant matches. A `tool` grant covers only a tool that declares `read`, `write_local`, `network`
+  or `publish`;
   an `app` grant (`{kind: "app", app, writes}`, ADR 0202 amendment 5) covers one connected app's
   writes, undeclared ones included, for one bot, made only with the person's stamp.
 - **Unprotected**: sandboxed, but the checkpoint couldn't be taken: reviewed, after the

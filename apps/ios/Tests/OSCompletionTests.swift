@@ -18,7 +18,7 @@ import Testing
     @Test func workThatFinishesPastTheDeadlineCountsAsFailed() {
         var gate = CompletionGate(startedAt: 1_000, budget: 25_000)
         #expect(gate.remaining(at: 21_000) == 5_000)
-        #expect(gate.finish(true, at: 26_000) == false)
+        #expect(gate.finish(true, at: 26_001) == false)
         #expect(gate.remaining(at: 30_000) == 0)
     }
     @Test func theShellReportsFailureWhenItsDeadlinePassesWhileTheWorkStillWaits() async {

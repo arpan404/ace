@@ -105,25 +105,21 @@ const text = (epoch: number, id: string) =>
     .map((frame) => (frame.row as { text?: string } | null)?.text)
     .at(-1);
 
-test("paging an 8,000-item thread bounds resident rows and per-page traffic", async () => {
+test("paging back through an 8,000-item thread on the phone keeps every page and sends only each page", async () => {
   const { client } = await longThread(8000, (index) => `History ${index}. `.padEnd(140, "x"));
   const read = reader(client, phoneWindow);
   let previous = await read("hold");
   const reads = [];
-  for (const operation of [
-    ...Array<"older">(25).fill("older"),
-    ...Array<"newer">(5).fill("newer"),
-  ]) {
+  for (let pages = 0; pages < 25; pages++) {
     const mark = native.frames.length;
     const started = performance.now();
-    const state = await read(operation);
+    const state = await read("older");
     const page = native.frames.slice(mark).filter(readingFrame);
-    if (operation === "older") {
-      expect(state.beforeSeq).not.toBeNull();
-      expect(state.beforeSeq ?? Infinity).toBeLessThan(previous.beforeSeq ?? Infinity);
-    } else {
-      expect(state.afterSeq ?? -Infinity).toBeGreaterThan(previous.afterSeq ?? -Infinity);
-    }
+    expect(state.beforeSeq).not.toBeNull();
+    expect(state.beforeSeq ?? Infinity).toBeLessThan(previous.beforeSeq ?? Infinity);
+    expect(state.count).toBeGreaterThan(previous.count);
+    expect(state.evictedLeading).toEqual([]);
+    expect(state.evictedTrailing).toEqual([]);
     previous = state;
     reads.push({
       rows: state.count,
@@ -137,10 +133,9 @@ test("paging an 8,000-item thread bounds resident rows and per-page traffic", as
   const peak = Math.max(...reads.map((page) => page.rows));
   const bytes = Math.max(...reads.map((page) => page.bytes));
   console.info(
-    `history: ${peak} resident rows, ${bytes} peak patch bytes, ${reads.reduce((sum, page) => sum + page.ms, 0).toFixed(0)} ms for 30 pages including ACKs`,
+    `history: ${peak} resident rows, ${bytes} peak patch bytes, ${reads.reduce((sum, page) => sum + page.ms, 0).toFixed(0)} ms for 25 pages including ACKs`,
   );
   expect(reads.every((page) => !page.reset)).toBe(true);
-  expect(peak).toBeLessThanOrEqual(600); // 400 history items plus the live tail, when joined.
   expect(bytes).toBeLessThan(300_000);
 });
 

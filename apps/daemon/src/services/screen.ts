@@ -206,6 +206,8 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,
+        // A viewer on this machine gets its video at the top rate from the first picture.
+        local: context.local === true,
         // Its pictures come only from ace-media (D1, X3), on the client's media connection.
         delivery: {
           owner: () => mediaOwner(context),

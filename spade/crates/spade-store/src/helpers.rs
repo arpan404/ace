@@ -46,8 +46,9 @@ pub(crate) const LANE_COPIES: &str = "
     );
 ";
 
-/// A helper as stored. The profile is kept as it was when the helper started, so its prompt
-/// rebuilds to the same bytes after a restart even if the profile changed or went away.
+/// A helper as stored. The profile is kept as it was when the helper started, so what it may run
+/// stays what it was after a restart even if the profile changed or went away. `system` is the
+/// prompt text it was made with, pinned so a restart rebuilds the same bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredHelper {
     /// The helper's own conversation.
@@ -59,7 +60,8 @@ pub struct StoredHelper {
     /// The bot's reply that started it, so Stop on that reply stops it.
     pub reply: String,
     pub profile: String,
-    /// Its standing instructions.
+    /// Spade's own instructions and what makes it a helper, as they were when it was made.
+    /// Empty only for a helper an intermediate build stored without them.
     pub system: String,
     pub reads_only: bool,
     /// The tools a plugin agent's profile narrowed it to, by name.
@@ -377,6 +379,11 @@ pub(crate) fn delete_of(tx: &rusqlite::Transaction<'_>, parent: &str) -> rusqlit
         tx.execute(
             "DELETE FROM conversations WHERE id = ?1",
             params![conversation],
+        )?;
+        // What it was offered goes with it (spade/docs/harness.md, Tools).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![spade_core::tools::snapshot::key(&conversation)],
         )?;
     }
     Ok(())

@@ -259,10 +259,10 @@ fn the_block_lists_standing_then_open_newest_first_then_new() -> Result {
     let text = block::text(&Ledger::of(&events)).ok_or("a block")?;
     let standing = text.find("s1 (from \"m1\")").ok_or("standing")?;
     let waiting = text
-        .find("m4, sent while you worked, waiting on the person")
+        .find("m4, steer, waiting on the person")
         .ok_or("waiting steer")?;
     let open = text.find("m2: \"Draft the summary\"").ok_or("open")?;
-    let new = text.find("New, not sorted yet:\n- m6").ok_or("new")?;
+    let new = text.find("Unsorted:\n- m6").ok_or("new")?;
     assert!(standing < waiting && waiting < open && open < new, "{text}");
     // The person's words can't close the block.
     assert_eq!(text.matches("</asks>").count(), 1, "{text}");
@@ -274,7 +274,7 @@ fn the_block_lists_twelve_asks_and_counts_the_rest() -> Result {
     let events: Vec<Event> = (0..15).map(|n| person(&format!("ask {n}"))).collect();
     let text = block::text(&Ledger::of(&events)).ok_or("a block")?;
     assert_eq!(text.matches("\n- m").count(), 12, "{text}");
-    assert!(text.contains("…and 3 older asks"), "{text}");
+    assert!(text.contains("+3 older"), "{text}");
     assert!(text.contains("m15: \"ask 14\""), "{text}");
     Ok(())
 }
@@ -558,7 +558,7 @@ fn two_steers_in_a_row_are_both_watched_and_both_named() -> Result {
     assert_eq!(reminded.steers, ["m4", "m5"]);
     let text = block::text(&Ledger::of(&events)).ok_or("a block")?;
     assert!(
-        text.contains("m5, sent while you worked") && text.contains("m4, sent while you worked"),
+        text.contains("m5, steer") && text.contains("m4, steer"),
         "{text}"
     );
     Ok(())

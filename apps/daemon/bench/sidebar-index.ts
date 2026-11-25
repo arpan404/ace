@@ -21,6 +21,7 @@ function facts(index: number, overrides: Partial<SidebarFacts> = {}): SidebarFac
     workspace: workspaces[index % workspaces.length] ?? null,
     deleted: false,
     archived: index % 17 === 0,
+    chat: false,
     // History is settled; 40 threads are live, as on a busy machine.
     settled: !(index < 400 && index % 10 === 0),
     counted: true,

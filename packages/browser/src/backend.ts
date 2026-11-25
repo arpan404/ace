@@ -382,6 +382,11 @@ export interface BrowserBackendPage {
    */
   video?(): VideoHost | undefined;
   viewport(): { width: number; height: number };
+  /**
+   * The page's CSS size and scale for live video (`source.page`), where it differs from
+   * `viewport` (a headless tab at page zoom or emulating a device). Absent: the viewport.
+   */
+  pageSize?(): { width: number; height: number; scale: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
   /**
    * Take a device's size and scale (`emulate`) in a way the backend keeps with its own sizing

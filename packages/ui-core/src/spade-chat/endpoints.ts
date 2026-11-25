@@ -57,6 +57,11 @@ export interface SpadeEndpoint {
    * with no key, or while the keychain hasn't answered.
    */
   keySource: "keychain" | "environment" | undefined;
+  /**
+   * Whether a gateway token waits in Spade's keychain for this endpoint's calls (an
+   * authenticated gateway's `cf-aig-authorization`). Never the token itself.
+   */
+  gatewayTokenSet: boolean;
   /** The models the person saved or the preset knows. */
   models: SpadeModelInfo[];
   /**
@@ -178,6 +183,7 @@ const endpointShape = z.object({
   // Null while the keychain hasn't answered; missing (an older Spade) reads as no key.
   key_set: z.boolean().nullable().catch(false).default(false),
   key_source: optionalText,
+  gateway_token_set: z.boolean().catch(false).default(false),
   models: z.unknown().optional(),
   provider: optionalText,
   auth: z.enum(["key", "none", "chatgpt"]).nullish().catch(undefined),
@@ -209,6 +215,7 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
     needsKey: endpoint.needs_key,
     local: endpoint.local,
     keySet: endpoint.key_set ?? undefined,
+    gatewayTokenSet: endpoint.gateway_token_set,
     keySource:
       endpoint.key_source === "keychain" || endpoint.key_source === "environment"
         ? endpoint.key_source
@@ -435,6 +442,20 @@ export function spadeEndpointUsable(
 ): boolean {
   if (endpoint.auth === "chatgpt") return endpoint.account?.signedIn === true;
   return !endpoint.needsKey || endpoint.keySet === true;
+}
+
+/**
+ * Whether an endpoint is a gateway's OpenAI-compatible layer (Cloudflare AI Gateway's
+ * `.../compat/`), which asks for its own token beside the provider's key.
+ */
+export function spadeIsGatewayCompat(baseUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(baseUrl.trim());
+  } catch {
+    return false;
+  }
+  return url.pathname.replace(/\/+$/, "").endsWith("/compat");
 }
 
 /** Whether any endpoint can be used now. */

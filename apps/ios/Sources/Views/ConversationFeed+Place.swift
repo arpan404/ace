@@ -313,16 +313,17 @@ extension ConversationFeed {
         }
     }
 
-    /// Approaching a resident edge loads another page. A fling into retained space keeps
-    /// loading after the finger lifts, until real rows cover the viewport again.
+    /// Approach the loaded edge with a page already in flight. A gesture that reached the older
+    /// edge can still request its page at rest if another read was settling during the fling.
     func pageIfNeeded(_ proxy: TranscriptSurface) {
         guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
-            !reading.landing.holdsPlace else { return }
-        let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
-        guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
+              !reading.landing.holdsPlace, intent.metrics.viewport > 0 else { return }
+        let needsNewer = extent.needsNewerContent(bottom: intent.metrics.bottom)
+        let reachedOlder = !intent.animating && intent.direction < 0 && intent.metrics.top <= 1
+        guard needsNewer || (!intent.consumed && (intent.active || reachedOlder)) else { return }
         let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom,
                                viewport: intent.metrics.viewport, minimumAhead: AceDesign.Size.tap,
-                               direction: intent.direction)
+                               direction: intent.direction, flingReach: intent.flingReach)
         if edge == .older, reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder {
             intent.consumed = true
             reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID())

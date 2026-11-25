@@ -4,6 +4,7 @@ import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
 import { Screencast } from "./cdp.ts";
 import type { CaptureViewer, ViewerSink } from "./viewer-sink.ts";
+import { fitVideoPage } from "./video-page-fit.ts";
 import { screencastSettings } from "./capture-policy.ts";
 import { LiveVideo, type LiveVideoSource } from "./live-video.ts";
 
@@ -61,6 +62,9 @@ export class LiveCapture {
   private viewport: () => { width: number; height: number };
   private tab: () => string | undefined;
   private scale: () => number;
+  private pageSize: () => { width: number; height: number; scale: number } | undefined;
+  /** CSS pixels per fitted video pixel the person's input scales back by (1 while it fits). */
+  private factor = 1;
   private closed = false;
   private generation = 0;
   /** Started by the session: capture may run. */
@@ -93,6 +97,11 @@ export class LiveCapture {
     scale: () => number = () => 1,
     /** The shown tab's video encoder; absent where the backend has none (no pictures). */
     videoSource: () => LiveVideoSource | undefined = () => undefined,
+    /**
+     * The page's CSS size and scale for the video, where it differs from the viewport (a headless
+     * tab at page zoom or emulating a device): what `source.page` carries. Absent: the viewport.
+     */
+    pageSize: () => { width: number; height: number; scale: number } | undefined = () => undefined,
   ) {
     this.videoSource = videoSource;
     this.video = new LiveVideo({ now, statusChanged: () => this.videoStatus() });
@@ -103,6 +112,7 @@ export class LiveCapture {
     this.onFrame = onFrame;
     this.privacy = privacy;
     this.viewport = viewport;
+    this.pageSize = pageSize;
   }
   /** Told whenever `video.status()` changes (the video can't start, or plays again). */
   onVideoStatus(listener: () => void): void {
@@ -115,6 +125,10 @@ export class LiveCapture {
   /** Someone is shown the live video now. */
   watched(): boolean {
     return this.video.watched();
+  }
+  /** CSS pixels per fitted video pixel the shown tab's input scales back by. */
+  inputScale(): number {
+    return this.factor;
   }
   /** Runs a change to the video's viewers, and says if that started or ended all watching. */
   private viewersChange(change: () => void): void {
@@ -248,13 +262,24 @@ export class LiveCapture {
     this.video.resume();
   }
   private stepVideo(): void {
-    let viewport: { width: number; height: number };
+    let size: { width: number; height: number; scale?: number };
     try {
-      viewport = this.viewport();
+      // The video plans against the page's CSS size, which a headless tab reports where it
+      // differs from the viewport (page zoom, an emulated device). The viewport still sizes
+      // the screencast and pictures.
+      size = this.pageSize() ?? this.viewport();
     } catch {
       return;
     }
-    this.video.tick(viewport);
+    // The header carries the fitted size (what the client takes) at the scale keeping the
+    // planned pixels; the person's input scales back by the factor.
+    const fitted = fitVideoPage({
+      width: size.width,
+      height: size.height,
+      scale: size.scale ?? this.video.shape().scale,
+    });
+    this.factor = fitted.factor;
+    this.video.tick({ width: fitted.width, height: fitted.height, scale: fitted.scale });
     // A capture fed by pictures needs the screencast, at its size.
     const pictures = this.video.pictures();
     const key = pictures ? `${pictures.width}x${pictures.height}` : "";

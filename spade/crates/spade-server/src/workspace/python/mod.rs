@@ -450,12 +450,12 @@ impl Tool for PythonTool {
     fn def(&self) -> ToolDef {
         shown_def(
             PYTHON,
-            "Runs Python 3 in your workspace folder: code, or the script at path with args (it \
-             runs as read when you call; modules beside it import if you wrote them with \
-             workspace_write). It has pandas, numpy, matplotlib (saves to files; no windows), \
-             openpyxl, python-docx, pypdf and requests, and nothing else can be installed. \
-             Answers the exit code, the output and the files it made or changed; images it saved \
-             are shown. Same sandbox, timeout_s and 30-second background rule as shell.",
+            "Run Python 3 in your workspace folder: code, or the script at path with args (run \
+             as read; modules beside it import if you wrote them with workspace_write). It has \
+             pandas, numpy, matplotlib (saves files; no windows), openpyxl, python-docx, pypdf and \
+             requests; nothing else can be installed. Answers the exit code, the output and the \
+             files it made or changed; images it saved are shown. Same sandbox, timeout_s and \
+             30-second background rule as shell.",
             json!({ "type": "object",
                     "properties": { "code": { "type": "string" },
                                     "path": { "type": "string" },

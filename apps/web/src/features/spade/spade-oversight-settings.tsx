@@ -1,6 +1,6 @@
 import { spadeMoney, type SpadeOversight } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import {
@@ -65,7 +65,13 @@ function ReviewDefaultRow(props: {
   return (
     <SettingRow
       title="Review every bot's writes"
-      description={refusal && <Refusal>{refusal}</Refusal>}
+      description={
+        refusal ? (
+          <Refusal>{refusal}</Refusal>
+        ) : (
+          "Check writes with the review model before they run"
+        )
+      }
       htmlFor={id}
       density="compact"
       inline
@@ -88,7 +94,7 @@ function ReviewDefaultRow(props: {
 }
 
 /** What every bot spent together this month and today, read live: information only (ADR 0166). */
-export function SpendingSection(props: { settings: OversightSettings }) {
+export function SpendingSection(props: { settings: OversightSettings; footer?: ReactNode }) {
   const { oversight } = props.settings;
   const label = "Spending, every bot together";
   if (oversight.isPending)
@@ -105,19 +111,27 @@ export function SpendingSection(props: { settings: OversightSettings }) {
           error={oversight.error}
           retry={() => void oversight.refetch()}
         />
+        {props.footer}
       </SettingSection>
     );
   const data = oversight.data;
   return (
     <SettingSection label={label} anchor="spending">
-      <SettingRow
-        title="This month"
-        description={`${spadeMoney(data.todayMicros)} today`}
-        density="compact"
-        inline
-      >
-        <span className="text-ui text-foreground tabular-nums">{spadeMoney(data.monthMicros)}</span>
-      </SettingRow>
+      <div className="grid grid-cols-2 gap-6 py-3.5">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-subtle-foreground">This month</span>
+          <span className="text-lg font-semibold tracking-tight text-foreground tabular-nums">
+            {spadeMoney(data.monthMicros)}
+          </span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-subtle-foreground">Today</span>
+          <span className="text-lg font-semibold tracking-tight text-foreground tabular-nums">
+            {spadeMoney(data.todayMicros)}
+          </span>
+        </div>
+      </div>
+      {props.footer}
     </SettingSection>
   );
 }

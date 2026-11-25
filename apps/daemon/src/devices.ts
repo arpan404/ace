@@ -144,7 +144,7 @@ export class Devices {
     );
     this.linkAccount = db.prepare("UPDATE devices SET account_link = ? WHERE id = ?");
     this.linkedTo = db.prepare(
-      `SELECT * FROM devices WHERE account_link = ? AND ${live} ORDER BY id`,
+      `SELECT * FROM devices WHERE account_link = ? AND ${live} ORDER BY last_seen_at DESC, id`,
     );
     this.stamp = db.prepare("UPDATE devices SET install_id = ? WHERE id = ?");
     // Records an install left behind before it said who it is: the same name, never used since
@@ -290,6 +290,8 @@ export class Devices {
     const given = Buffer.from(link.proof, "base64url");
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false;
     this.linkAccount.run(accountId, link.deviceId);
+    // The hello that proved it is the pairing's use, so the linked-id cap drops it last.
+    this.touch(link.deviceId, at);
     return true;
   }
   /**
@@ -309,7 +311,7 @@ export class Devices {
   }
   /**
    * The other ids `id` is one device with (`sameInstall`), while their records are active: the
-   * account device and every pairing it proved. Empty for a device nothing links.
+   * account device and every pairing it proved, the most recently seen first. Empty for a device nothing links.
    */
   linked(id: string, at: number): DeviceId[] {
     const row = this.byId.get(id);
