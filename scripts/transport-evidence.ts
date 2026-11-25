@@ -100,6 +100,8 @@ interface Window {
   name: string;
   start: number;
   end: number;
+  /** Both its `case` and its `case-end` arrived: an unclosed window proves nothing. */
+  ended: boolean;
 }
 
 /** What one case's own markers and its listener instances give a rule to check. */
@@ -234,21 +236,23 @@ function caseWindows(lines: readonly EvidenceLine[]): Window[] {
   let open: Window | undefined;
   for (const [index, line] of lines.entries()) {
     if (line.event === "case") {
-      // A case whose end never came (a crash) still has a window; a new case starts a new one.
+      // A case whose end never came (a crash) keeps its window, unended: its lines are the
+      // case's, but nothing is credited until the end marker proves the case finished.
       if (open !== undefined) open.end = index;
       open = {
         ...(line.id === undefined ? {} : { id: line.id }),
         name: line.name ?? "(unnamed)",
         start: index,
         end: lines.length,
+        ended: false,
       };
       windows.push(open);
       continue;
     }
-    if (line.event === "case-end" && open !== undefined && line.id === open.id) {
-      open.end = index;
-      open = undefined;
-    }
+    if (line.event !== "case-end" || open === undefined || line.id !== open.id) continue;
+    open.end = index;
+    open.ended = true;
+    open = undefined;
   }
   return windows;
 }
@@ -387,6 +391,9 @@ function ownedBy(
     const key = `${String(line.pid)}:${String(line.instance)}`;
     const listener = byKey.get(key);
     if (listener === undefined) continue;
+    // Only a listener this case bound is this case's work: a delta from one an earlier case
+    // opened is background traffic, not proof of this case (T1b.5).
+    if (listener.bindAt <= start || listener.bindAt >= end) continue;
     if (line.event === "handled") {
       const counts = owned.get(key) ?? noCounts();
       for (const counter of Object.keys(counts) as (keyof Owned)[])
@@ -395,8 +402,7 @@ function ownedBy(
       continue;
     }
     if (line.event !== "close") continue;
-    // A close is a running total: it belongs to this case only when the whole listener did.
-    if (listener.bindAt <= start || listener.bindAt >= end) continue;
+    // A close is a running total: it belongs to this case because the whole listener did.
     const counts = owned.get(key) ?? noCounts();
     for (const counter of Object.keys(counts) as (keyof Owned)[]) {
       const total = line[counter] ?? 0;
@@ -527,6 +533,18 @@ export function caseEvidence(
       continue;
     }
     const window = pairing.window;
+    // A window with a start and no end is a case whose markers never closed: its lines may run
+    // into the next case's, so nothing in it is proof.
+    if (!window.ended) {
+      rows.push({
+        name: test.title,
+        verdict: "NONE",
+        listeners: "no case-end marker",
+        detail: "its case-end marker never arrived, so its window has no end",
+      });
+      findings.push(`${test.title}: its case-end marker never arrived`);
+      continue;
+    }
     const view: WindowView = {
       name: window.name,
       lines: lines.slice(window.start + 1, window.end),
