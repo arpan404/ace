@@ -437,10 +437,7 @@ impl ToolFactsRead {
                     self.waiting_for = Some(key);
                     return Vec::new();
                 }
-                Cached::Start => {
-                    self.main = Some(pager);
-                    return Vec::new();
-                }
+                Cached::Start => return self.adopt_load(pager, catalog_cache),
             }
         }
         match catalog_cache.read(&key, self.wake) {
@@ -458,6 +455,19 @@ impl ToolFactsRead {
                 started
             }
         }
+    }
+
+    /// Takes a load as this read's own. One that already landed (it ran beside
+    /// the config read) fills the cache and settles this read at once.
+    fn adopt_load(&mut self, pager: Pager, catalog_cache: &mut CodexCatalogCache) -> Vec<Effect> {
+        let done = pager.done.clone();
+        if let (Some(done), Some(key)) = (done, pager.key.clone()) {
+            catalog_cache.settle(&key, done.clone());
+            self.facts.catalog = done;
+            return self.finish(ToolFactsOutcome::Facts(self.facts.clone()));
+        }
+        self.main = Some(pager);
+        Vec::new()
     }
 
     fn finish(&mut self, outcome: ToolFactsOutcome) -> Vec<Effect> {
