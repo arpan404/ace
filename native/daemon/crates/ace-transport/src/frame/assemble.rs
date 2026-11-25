@@ -173,6 +173,8 @@ impl<B: MessageBody> Assembler<B> {
         if opcode.is_control() {
             return Ok(());
         }
+        // `ws` counts a fragment per data frame, empty ones included
+        // (`receiver.js:504`).
         self.fragments += 1;
         if self.fragments > self.limits.max_fragments {
             return Err(CloseCode::TooManyFragments);

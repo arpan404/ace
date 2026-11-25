@@ -19,6 +19,15 @@ use super::{Frame, FrameError, FrameLimits};
 /// consumed from it, so a frame does not allocate its own read buffer.
 pub(crate) const READ_CHUNK: usize = 8 * 1024;
 
+/// What the end of the connection found at the front of the buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Front {
+    /// The whole frame is buffered: parsing it needs no read.
+    Whole,
+    /// Only part of it is buffered, and the rest can never arrive.
+    Partial,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
     /// The two fixed bytes.
@@ -82,30 +91,69 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
         self.buffer.len()
     }
 
-    /// Whether one whole frame waits in the buffer, so parsing it needs no
-    /// read. A cancelled parse can leave the reader inside a frame, so the
-    /// state and the header already read say what is still missing; an
-    /// unreadable header is that header's error, not a short buffer.
-    pub(crate) fn has_buffered_frame(&self) -> Result<bool, FrameError> {
+    /// At the peer's end: whether a whole frame waits in the buffer, judging a
+    /// frame that can never complete by the rules an arriving one meets. A
+    /// partial header is no frame, and nothing can complete it; a refused one
+    /// keeps its own error and close code instead of a bare end.
+    ///
+    /// A whole frame is left unjudged: the parser judges it as it reads, and
+    /// judging it here too would count its fragment twice (`receiver.js:504`).
+    pub(crate) fn front_frame(&mut self) -> Result<Front, FrameError> {
         match self.state {
-            State::First => match frame_length(&self.buffer, self.allow_rsv1)? {
-                Some(whole) => Ok(whole <= self.buffer.len()),
-                None => Ok(false),
+            State::First => match head(&self.buffer, self.allow_rsv1)? {
+                // Fewer bytes than a header: no frame, and no tail to come.
+                None => Ok(Front::Partial),
+                Some(front) if front.whole <= self.buffer.len() => Ok(Front::Whole),
+                Some(front) => {
+                    self.judge(&front)?;
+                    Ok(Front::Partial)
+                }
             },
+            // A cancelled parse already took the header through `check`, and,
+            // once the extended length was in, through `accept`.
             State::Extended => {
                 let Some(first) = self.first else {
-                    return Ok(false);
+                    return Ok(Front::Partial);
                 };
                 let extended = extended_len(first.short);
                 let Some(header) = self.buffer.get(..extended) else {
-                    return Ok(false);
+                    return Ok(Front::Partial);
                 };
                 let length = payload_length(first.short, header)?;
-                Ok(self.buffer.len() >= extended.saturating_add(4).saturating_add(length))
+                if self.buffer.len() >= extended.saturating_add(4).saturating_add(length) {
+                    return Ok(Front::Whole);
+                }
+                self.length = length;
+                self.admit()?;
+                Ok(Front::Partial)
             }
-            State::Mask => Ok(self.buffer.len() >= self.length.saturating_add(4)),
-            State::Payload => Ok(self.buffer.len() >= self.length),
+            State::Mask => {
+                if self.buffer.len() >= self.length.saturating_add(4) {
+                    Ok(Front::Whole)
+                } else {
+                    Ok(Front::Partial)
+                }
+            }
+            State::Payload => {
+                if self.buffer.len() >= self.length {
+                    Ok(Front::Whole)
+                } else {
+                    Ok(Front::Partial)
+                }
+            }
         }
+    }
+
+    /// Takes the front frame's header through the same rules the parser applies
+    /// as a frame arrives: first what the message already in flight allows,
+    /// then its size and fragment count.
+    fn judge(&mut self, front: &Head) -> Result<(), FrameError> {
+        self.assembler
+            .check(front.first.opcode, front.first.fin, front.first.rsv1)
+            .map_err(FrameError::from)?;
+        self.first = Some(front.first);
+        self.length = front.length;
+        self.admit()
     }
 
     /// Fills the buffer without parsing anything, so a reader that is not
@@ -313,15 +361,24 @@ fn unmask(payload: &mut [u8], mask: [u8; 4]) {
     }
 }
 
-/// The whole length of the frame at the front of `bytes` - both header bytes,
-/// any extended length, the mask and the payload - or `None` while those
-/// header bytes are still incomplete. A header that cannot be parsed is its
-/// error, not a short buffer.
-fn frame_length(bytes: &[u8], allow_rsv1: bool) -> Result<Option<usize>, FrameError> {
-    let Some(head) = bytes.get(..2) else {
+/// The frame at the front of a buffer: its parsed header and the lengths the
+/// buffer must hold for the frame to be whole.
+struct Head {
+    first: First,
+    /// The payload length the header declares.
+    length: usize,
+    /// Both header bytes, any extended length, the mask and the payload.
+    whole: usize,
+}
+
+/// Reads the header of the frame at the front of `bytes`, or `None` while it is
+/// still short of its extended length. Only the header is read here: the rules
+/// that depend on the message in flight are [`FrameReader::judge`]'s.
+fn head(bytes: &[u8], allow_rsv1: bool) -> Result<Option<Head>, FrameError> {
+    let Some(short) = bytes.get(..2) else {
         return Ok(None);
     };
-    let first = parse_first([head[0], head[1]], allow_rsv1)?;
+    let first = parse_first([short[0], short[1]], allow_rsv1)?;
     let extended = extended_len(first.short);
     let length = if extended == 0 {
         usize::from(first.short)
@@ -331,10 +388,12 @@ fn frame_length(bytes: &[u8], allow_rsv1: bool) -> Result<Option<usize>, FrameEr
         };
         payload_length(first.short, header)?
     };
-    Ok(Some(
-        2usize
+    Ok(Some(Head {
+        first,
+        length,
+        whole: 2usize
             .saturating_add(extended)
             .saturating_add(4)
             .saturating_add(length),
-    ))
+    }))
 }

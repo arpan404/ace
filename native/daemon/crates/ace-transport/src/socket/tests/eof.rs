@@ -16,6 +16,7 @@ use super::{
     DELIVERY_MESSAGES, MESSAGE_OVERHEAD, SocketEvent, SocketEvents, masked_frame, masked_part,
     next, pair,
 };
+use crate::frame::assemble::MAX_FRAGMENTS;
 use crate::socket::CLOSED;
 
 /// Reads the raw client side until the server closes its half, failing rather
@@ -177,6 +178,133 @@ async fn a_close_buffered_while_paused_keeps_its_code_after_the_peers_fin() {
 }
 
 #[tokio::test]
+async fn a_peer_that_drops_inside_a_frame_reports_no_error_before_1006() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    let frame = masked_frame(0x1, b"truncated");
+    client
+        .write_all(&frame[..8])
+        .await
+        .expect("a partial frame is written");
+    client
+        .shutdown()
+        .await
+        .expect("the peer drops without a close frame");
+
+    // Nothing precedes the close, as `ws` ends its receiver and emits 1006.
+    assert_close_1006(&mut events).await;
+    assert_eq!(handle.ready_state(), CLOSED);
+    assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
+async fn a_header_past_the_payload_bounds_ends_with_its_own_1009() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (_handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    spent_credit(&mut events, &mut client).await;
+
+    // A text frame declaring 2 MiB, past the 1 MiB bound, with only a few of
+    // its bytes sent: the header alone is what the rules refuse.
+    let mut frame = vec![0x81, 0x80 | 127];
+    frame.extend_from_slice(&(2 * 1024 * 1024u64).to_be_bytes());
+    frame.extend_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+    frame.extend_from_slice(&[0x41; 8]);
+    client
+        .write_all(&frame)
+        .await
+        .expect("the header and a few bytes are written");
+    client
+        .shutdown()
+        .await
+        .expect("the peer drops without a close frame");
+
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "too_big", "the size is refused"),
+        other => panic!("expected the payload bound's error, got {other:?}"),
+    }
+    assert_close_1006(&mut events).await;
+    let (opcode, payload) = super::server_frame(&mut client).await;
+    assert_eq!(
+        (opcode, payload.as_slice()),
+        (0x8, [0x03, 0xf1].as_slice()),
+        "the refused frame closes with 1009"
+    );
+    assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
+async fn a_continuation_with_no_message_in_flight_ends_with_its_own_1002() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (_handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    spent_credit(&mut events, &mut client).await;
+
+    // A continuation with nothing to continue, its payload cut short.
+    let frame = masked_frame(0x0, &[9u8; 64]);
+    client
+        .write_all(&frame[..20])
+        .await
+        .expect("a partial continuation is written");
+    client
+        .shutdown()
+        .await
+        .expect("the peer drops without a close frame");
+
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol", "the frame has no message"),
+        other => panic!("expected the protocol error, got {other:?}"),
+    }
+    assert_close_1006(&mut events).await;
+    let (opcode, payload) = super::server_frame(&mut client).await;
+    assert_eq!(
+        (opcode, payload.as_slice()),
+        (0x8, [0x03, 0xea].as_slice()),
+        "the stray continuation closes with 1002"
+    );
+    assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
+async fn a_fragment_past_the_limit_ends_with_its_own_1008() {
+    let (server, mut client) = tokio::io::duplex(1 << 18);
+    let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    spent_credit(&mut events, &mut client).await;
+
+    // One message split into every fragment `ws` allows, none of them final,
+    // so nothing is delivered, then the fragment past the limit cut short by
+    // the peer's end.
+    let mut bytes = masked_part(0x1, false, b"");
+    for _ in 0..MAX_FRAGMENTS - 1 {
+        bytes.extend(masked_part(0x0, false, b""));
+    }
+    let over = masked_part(0x0, true, &[7u8; 64]);
+    bytes.extend_from_slice(&over[..20]);
+    client
+        .write_all(&bytes)
+        .await
+        .expect("the fragments are written");
+    client
+        .shutdown()
+        .await
+        .expect("the peer drops without a close frame");
+
+    // The credit bought the fragments, which deliver nothing, and then the
+    // header past the limit is refused before its tail can be missed.
+    handle.delivered(MESSAGE_OVERHEAD);
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol", "the limit is refused"),
+        other => panic!("expected the fragment limit's error, got {other:?}"),
+    }
+    assert_close_1006(&mut events).await;
+    let (opcode, payload) = super::server_frame(&mut client).await;
+    assert_eq!(
+        (opcode, payload.as_slice()),
+        (0x8, [0x03, 0xf0].as_slice()),
+        "the fragment past the limit closes with 1008"
+    );
+    assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
 async fn a_partial_frame_buffered_while_paused_still_ends_with_1006() {
     let (server, mut client) = tokio::io::duplex(1 << 16);
     let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
@@ -195,10 +323,7 @@ async fn a_partial_frame_buffered_while_paused_still_ends_with_1006() {
         .await
         .expect("the peer drops without a close frame");
 
-    match next(&mut events).await {
-        SocketEvent::Error { code, .. } => assert_eq!(code, "io", "the frame cannot complete"),
-        other => panic!("expected the truncated frame's error, got {other:?}"),
-    }
+    // ws reports a tail that never arrived as a bare close: nothing on `error`.
     assert_close_1006(&mut events).await;
     assert_eq!(handle.ready_state(), CLOSED);
     assert_dropped(&mut client).await;
@@ -235,10 +360,6 @@ async fn a_message_before_a_partial_frame_is_delivered_then_the_socket_ends() {
             assert!(!binary);
         }
         other => panic!("expected the buffered message, got {other:?}"),
-    }
-    match next(&mut events).await {
-        SocketEvent::Error { code, .. } => assert_eq!(code, "io", "the frame cannot complete"),
-        other => panic!("expected the truncated frame's error, got {other:?}"),
     }
     assert_close_1006(&mut events).await;
     assert_eq!(handle.ready_state(), CLOSED);

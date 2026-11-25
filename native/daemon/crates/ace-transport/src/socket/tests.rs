@@ -415,39 +415,6 @@ async fn a_control_reply_keeps_its_place_behind_queued_data() {
     ));
 }
 
-#[tokio::test]
-async fn more_than_16384_fragments_closes_with_1008() {
-    let (server, mut client) = tokio::io::duplex(1 << 16);
-    let (_handle, mut events) = open(Box::new(server), None, None);
-    let mut bytes = masked_part(0x1, false, b"");
-    for _ in 0..MAX_FRAGMENTS {
-        bytes.extend(masked_part(0x0, false, b""));
-    }
-    client
-        .write_all(&bytes)
-        .await
-        .expect("the fragments are written");
-
-    match next(&mut events).await {
-        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol"),
-        other => panic!("expected a fragment-limit error, got {other:?}"),
-    }
-    match next(&mut events).await {
-        SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
-        other => panic!("expected Close 1006, got {other:?}"),
-    }
-    let mut answer = [0u8; 4];
-    client
-        .read_exact(&mut answer)
-        .await
-        .expect("the close frame arrives");
-    assert_eq!(
-        answer,
-        [0x88, 0x02, 0x03, 0xf0],
-        "the close frame carries 1008"
-    );
-}
-
 /// The next unmasked server frame: opcode and payload.
 async fn server_frame<R: tokio::io::AsyncRead + Unpin>(read: &mut R) -> (u8, Vec<u8>) {
     let mut head = [0u8; 2];
@@ -477,6 +444,80 @@ async fn server_frame<R: tokio::io::AsyncRead + Unpin>(read: &mut R) -> (u8, Vec
         .await
         .expect("the payload is read");
     (opcode, payload)
+}
+/// One message split into `count` empty fragments: a text start, continuations
+/// and a final one.
+fn fragmented_message(count: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(count * 6);
+    for index in 0..count {
+        let opcode = if index == 0 { 0x1 } else { 0x0 };
+        bytes.extend(masked_part(opcode, index + 1 == count, b""));
+    }
+    bytes
+}
+
+#[tokio::test]
+async fn the_fragment_bound_accepts_exactly_what_ws_accepts() {
+    // ws counts every data frame - the first, the last and empty ones alike -
+    // and refuses only once the count passes the bound (`receiver.js:504`,
+    // reset on the final frame at `:589`). N fragments are accepted; the test
+    // below refuses N+1.
+    for count in [MAX_FRAGMENTS - 1, MAX_FRAGMENTS] {
+        let (server, client) = tokio::io::duplex(1 << 18);
+        let (_handle, mut events) = open(Box::new(server), None, None);
+        let (mut read, mut write) = tokio::io::split(client);
+        let bytes = fragmented_message(count);
+        write
+            .write_all(&bytes)
+            .await
+            .expect("the fragments are written");
+
+        match next(&mut events).await {
+            SocketEvent::Message { data, .. } => assert!(
+                data.is_empty(),
+                "{count} fragments complete one empty message"
+            ),
+            other => panic!("{count} fragments are within the bound, got {other:?}"),
+        }
+        // A ping behind the message proves the reader took every fragment and
+        // did not close: frames are handled in order.
+        write
+            .write_all(&masked_frame(0x9, b""))
+            .await
+            .expect("the ping is written");
+        let (opcode, _) = server_frame(&mut read).await;
+        assert_eq!(opcode, 0xa, "the socket stays open after {count} fragments");
+    }
+}
+
+#[tokio::test]
+async fn a_message_one_fragment_past_the_bound_closes_with_1008() {
+    let (server, mut client) = tokio::io::duplex(1 << 18);
+    let (_handle, mut events) = open(Box::new(server), None, None);
+    let bytes = fragmented_message(MAX_FRAGMENTS + 1);
+    client
+        .write_all(&bytes)
+        .await
+        .expect("the fragments are written");
+
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol"),
+        other => panic!("expected a fragment-limit error, got {other:?}"),
+    }
+    match next(&mut events).await {
+        SocketEvent::Close { code, .. } => assert_eq!(code, 1006),
+        other => panic!("expected Close 1006, got {other:?}"),
+    }
+    let mut answer = [0u8; 4];
+    client
+        .read_exact(&mut answer)
+        .await
+        .expect("the close frame arrives");
+    assert_eq!(
+        answer,
+        [0x88, 0x02, 0x03, 0xf0],
+        "the close frame carries 1008"
+    );
 }
 
 #[tokio::test]

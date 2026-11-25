@@ -20,6 +20,7 @@ use super::{DELIVERY_BYTES, Inner, OPEN, Queued, Shared, SocketEvents, SocketHan
 use crate::deflate::{Body, Deflate};
 use crate::driver::UpgradeIo;
 use crate::frame::assemble::{Message, conclude};
+use crate::frame::read::Front;
 use crate::frame::{Frame, FrameError, FrameLimits, FrameReader, FrameWriter, Opcode};
 use crate::stats::Stats;
 
@@ -201,22 +202,18 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     let mut ended = false;
     let ending = loop {
         let readable = shared.readable();
-        if !readable {
-            // Nothing ends before the buffer is parsed, and parsing waits for
-            // credit: a paused reader keeps what arrived instead of dropping it.
-            if ended {
-                if source.buffered_bytes() == 0 {
-                    break Ending::lost();
-                }
-                // Only a whole frame is worth waiting for credit: a tail that
-                // can never arrive ends the socket here instead of holding it
-                // open forever.
-                match source.has_buffered_frame() {
-                    Ok(true) => {}
-                    Ok(false) => break Ending::failed(FrameError::incomplete()),
-                    Err(error) => break Ending::failed(error),
-                }
+        if ended {
+            // The peer's end is recorded, so what the buffer holds is all that
+            // will ever arrive: nothing ends before it is parsed, and a frame
+            // whose tail can never come is judged and ended here instead of
+            // left for credit that would parse nothing.
+            match source.front_frame() {
+                Ok(Front::Whole) => {}
+                Ok(Front::Partial) => break Ending::lost(),
+                Err(error) => break Ending::failed(error),
             }
+        }
+        if !readable {
             // No credit: no frame is read or delivered, but the connection is
             // still watched, so a peer that drops is seen here.
             match wait(&shared, &mut source, &mut woken, ended).await {
@@ -257,7 +254,7 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
                         Err(ending) => break ending,
                     }
                 }
-                Some(Err(error)) => break Ending::failed(error),
+                Some(Err(error)) => break failed(error, ended),
                 None => break Ending::lost(),
             },
             _ = woken.recv() => {}
@@ -273,6 +270,21 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
         stats.inflated_in();
     }
     shared.end(ending);
+}
+
+/// A frame failure, with the peer's end in mind: a tail that never arrived is
+/// that end, which `ws` reports as a bare close and nothing on `error`
+/// (`websocket.js:1255-1296`), so no error precedes it.
+fn failed(error: FrameError, ended: bool) -> Ending {
+    let quiet = match &error {
+        FrameError::Io(source) => ended || source.kind() == std::io::ErrorKind::UnexpectedEof,
+        _ => false,
+    };
+    if quiet {
+        Ending::lost()
+    } else {
+        Ending::failed(error)
+    }
 }
 
 /// Why a reader without credit stopped waiting.
