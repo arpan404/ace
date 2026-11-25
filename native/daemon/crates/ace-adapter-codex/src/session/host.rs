@@ -355,6 +355,9 @@ struct Detaching {
     retirement: Retirement,
     /// Why the channel is leaving, so its waiting calls settle with it.
     reason: String,
+    /// This detach's number: only the current attempt's replies count, so a
+    /// late answer from a failed close never releases a retried one.
+    attempt: u64,
     phase: Leaving,
 }
 
@@ -374,7 +377,7 @@ enum OwnPurpose {
     /// A detached channel's unsubscribes.
     Unsubscribe { tenant: u64 },
     /// A close's `turn/interrupt`; its answer starts the release.
-    Interrupt { tenant: u64 },
+    Interrupt { tenant: u64, attempt: u64 },
 }
 
 /// The message just received, for the dispatch effect that follows it
@@ -431,6 +434,7 @@ struct Inner {
     detaching: IndexMap<u64, Detaching>,
     next_own: u64,
     next_hold: u64,
+    next_attempt: u64,
     ready: Handshake,
     idle_armed: bool,
     out: Vec<HostEffect>,

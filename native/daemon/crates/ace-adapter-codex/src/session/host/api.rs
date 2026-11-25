@@ -35,6 +35,7 @@ impl Host {
                 detaching: IndexMap::new(),
                 next_own: 0,
                 next_hold: 0,
+                next_attempt: 0,
                 ready: Handshake::Initializing,
                 idle_armed: false,
                 out: Vec::new(),
@@ -314,13 +315,28 @@ impl Host {
         // while the channel still owns its threads, so its completion lands in
         // the channel's queue before the exit. The threads are released once
         // every interrupt is answered, as the session's close awaits them.
-        let interrupts = inner.interrupt_turns(tenant);
+        inner.next_attempt += 1;
+        let attempt = inner.next_attempt;
+        let interrupts = match inner.interrupt_turns(tenant, attempt) {
+            Ok(interrupts) => interrupts,
+            Err(message) => {
+                // An interrupt the peer would not even take cannot stop the
+                // turn: nothing detaches, and the close reports it.
+                inner.out.push(HostEffect::DetachFailed {
+                    tenant,
+                    reason: retirement,
+                    message,
+                });
+                return inner.take();
+            }
+        };
         inner.detaching.insert(
             tenant,
             Detaching {
                 remaining: interrupts,
                 retirement,
                 reason: reason.to_owned(),
+                attempt,
                 phase: Leaving::Interrupts,
             },
         );

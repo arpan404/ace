@@ -15,31 +15,41 @@ impl Inner {
 
     /// A close's `turn/interrupt` for every turn the channel still runs
     /// (`session.ts`'s close, `session-commands.ts:198`): each names its thread
-    /// and its turn. Answers how many were sent, so the release waits for them.
-    pub(super) fn interrupt_turns(&mut self, tenant: u64) -> usize {
+    /// and its turn. Answers how many were sent, so the release waits for them;
+    /// an interrupt the peer refuses to enqueue is the close's failure.
+    pub(super) fn interrupt_turns(&mut self, tenant: u64, attempt: u64) -> Result<usize, String> {
         let mut sent = 0;
         for (thread, turn) in self.live_turns(tenant) {
-            if let Some(id) = self.own_request(
+            let Some(id) = self.own_request(
                 "turn/interrupt",
                 &[("threadId", &thread), ("turnId", &turn)],
                 INTERRUPT_MS,
-            ) {
-                self.own.insert(id, OwnPurpose::Interrupt { tenant });
-                sent += 1;
-            }
+            ) else {
+                return Err("the app-server refused the interrupt".to_owned());
+            };
+            self.own
+                .insert(id, OwnPurpose::Interrupt { tenant, attempt });
+            sent += 1;
         }
-        sent
+        Ok(sent)
     }
 
     /// One interrupt answered. Only a confirmed stop releases the channel: a
     /// refusal or a deadline leaves the turn running, so the channel and its
     /// work stay attached and the close reports the failure (`session.ts`'s
     /// close).
-    pub(super) fn interrupt_answered(&mut self, tenant: u64, result: &Result<Value, PeerError>) {
+    pub(super) fn interrupt_answered(
+        &mut self,
+        tenant: u64,
+        attempt: u64,
+        result: &Result<Value, PeerError>,
+    ) {
         let Some(state) = self.detaching.get_mut(&tenant) else {
             return;
         };
-        if state.phase != Leaving::Interrupts {
+        // A reply to an earlier attempt is not this close's: a failed close
+        // leaves its interrupts outstanding, and a retry starts over.
+        if state.phase != Leaving::Interrupts || state.attempt != attempt {
             return;
         }
         if let Err(error) = result {

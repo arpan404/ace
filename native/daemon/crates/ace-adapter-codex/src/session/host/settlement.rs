@@ -115,7 +115,9 @@ impl Inner {
         match purpose {
             OwnPurpose::Read { thread, hold } => self.read_settled(&thread, hold, result),
             OwnPurpose::Unsubscribe { tenant } => self.unsubscribed(tenant),
-            OwnPurpose::Interrupt { tenant } => self.interrupt_answered(tenant, &result),
+            OwnPurpose::Interrupt { tenant, attempt } => {
+                self.interrupt_answered(tenant, attempt, &result)
+            }
         }
     }
 }

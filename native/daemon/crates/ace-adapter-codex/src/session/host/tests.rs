@@ -952,8 +952,11 @@ fn seen_for(events: &crate::session::harness::Events, tenant: u64, thread: &str)
         .filter(|event| {
             matches!(
                 event,
-                Event::Frame { tenant: who, data, .. }
-                    if *who == tenant
+                Event::Frame {
+                    tenant: who,
+                    dir: ace_supervisor::peer::Direction::Recv,
+                    data,
+                } if *who == tenant
                         && data
                             .get("params")
                             .and_then(|params| params.get("threadId"))
@@ -1327,5 +1330,147 @@ fn a_late_stop_failure_does_not_undo_the_leaders_drain() {
     assert!(
         !host.paused(),
         "a dead leader's drain is not undone by a late failure"
+    );
+}
+
+/// An interrupt the peer refuses to enqueue cannot stop the turn: nothing
+/// detaches, and the close reports it (`session.ts`'s close).
+#[test]
+fn an_interrupt_the_peer_refuses_to_enqueue_fails_the_close() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    busy_thread(&host, 1, "t");
+    // Fill the peer's pending table, so the close's own request is refused.
+    for id in 100..1124 {
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "t"})),
+            id,
+            Timeout::Disabled,
+        )
+        .expect("a call with no deadline is queued");
+    }
+
+    let (effects, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    assert!(
+        line_id(&lines, "turn/interrupt", Some("t")).is_none(),
+        "the interrupt never reached the peer"
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            HostEffect::DetachFailed {
+                tenant: 1,
+                message,
+                ..
+            } if message.contains("refused the interrupt")
+        )),
+        "the close reports the refused interrupt: {effects:#?}"
+    );
+    assert_eq!(host.tenant_count(), 1, "the channel stays attached");
+}
+
+/// A reply to a failed close's interrupt is not the retry's: the retried close
+/// waits for its own interrupts, and only then releases the channel.
+#[test]
+fn a_late_reply_from_a_failed_detach_never_counts_for_the_retry() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    busy_thread(&host, 1, "t1");
+    busy_thread(&host, 1, "t2");
+
+    // The first close: t1's interrupt is refused, so t2's stays outstanding.
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let first_t1 = line_id(&lines, "turn/interrupt", Some("t1")).expect("t1's interrupt");
+    let first_t2 = line_id(&lines, "turn/interrupt", Some("t2")).expect("t2's interrupt");
+    let (effects, _) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": id_to_value(&first_t1),
+            "error": {"code": -32602.0, "message": "no turn to stop"},
+        }))),
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::DetachFailed { tenant: 1, .. }))
+    );
+    assert_eq!(host.tenant_count(), 1);
+
+    // The retry asks again.
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let second_t1 = line_id(&lines, "turn/interrupt", Some("t1")).expect("t1's retry");
+    let second_t2 = line_id(&lines, "turn/interrupt", Some("t2")).expect("t2's retry");
+    assert_ne!(first_t1, second_t1);
+
+    // The old close's t2 answer is not the retry's.
+    let (_, lines) = pump(&host, host.line(&reply(&first_t2, ace_json::json!({}))));
+    assert!(
+        line_id(&lines, "thread/unsubscribe", Some("t1")).is_none(),
+        "a stale answer never releases the channel"
+    );
+    // One of the retry's two still outstanding is not enough either.
+    let (_, lines) = pump(&host, host.line(&reply(&second_t1, ace_json::json!({}))));
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_none());
+
+    // Both of the retry's interrupts answered: now it releases.
+    let (_, lines) = pump(&host, host.line(&reply(&second_t2, ace_json::json!({}))));
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_some());
+}
+
+/// A channel that leaves while the leader dies keeps its routes until the pipe
+/// barrier, so the frames the pipes still carry reach it.
+#[test]
+fn a_detaching_tenant_still_receives_its_final_frames() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+
+    // The channel leaves with an unsubscribe in flight.
+    let (_, lines) = pump(&host, host.detach(1, Retirement::Idle, "idle"));
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
+    // The leader dies: the teardown settles the unsubscribe, and the channel
+    // waits for the barrier with its routes.
+    let (_, _) = pump(
+        &host,
+        host.exit(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+
+    let (_, _) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "item/completed",
+            "params": {"threadId": "t", "item": {"type": "agentMessage", "id": "last"}},
+        }))),
+    );
+    assert_eq!(
+        seen_for(&events, 1, "t"),
+        1,
+        "the leaving channel still gets its final frames"
+    );
+
+    let (effects, _) = pump(
+        &host,
+        host.closed(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, HostEffect::Exited { tenant: 1, .. }))
+            .count(),
+        1,
+        "and one exit, at the barrier"
     );
 }

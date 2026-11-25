@@ -91,6 +91,15 @@ impl Inner {
     /// `:360`).
     pub(super) fn channel_detached(&mut self, tenant: u64, retirement: Retirement) {
         self.detaching.shift_remove(&tenant);
+        if self.exiting {
+            // The pipes may still carry this channel's frames, and no exit is
+            // published before the pipe barrier: it keeps its routes until
+            // `exited` has delivered them, then leaves with one exit.
+            if !self.departed.contains(&tenant) {
+                self.departed.push(tenant);
+            }
+            return;
+        }
         let Some(mut entry) = self.tenants.shift_remove(&tenant) else {
             return;
         };
@@ -109,12 +118,6 @@ impl Inner {
             pid: self.pid,
             output_drained: true,
         };
-        if self.exiting {
-            // No exit is published before the pipe barrier: the channel's exit
-            // goes out with every other one, once the pipes are done.
-            self.departed.push(tenant);
-            return;
-        }
         self.out.push(HostEffect::Exited { tenant, exit });
         self.vacated(retirement == Retirement::Shutdown);
     }
@@ -138,7 +141,12 @@ impl Inner {
                 self.dispatch_none(item);
             }
         }
+        // The channels that left while the pipes were still draining are gone
+        // now, after their final frames; each is published once.
         for tenant in std::mem::take(&mut self.departed) {
+            self.tenants.shift_remove(&tenant);
+            self.gate.release(tenant);
+            self.router.release(&tenant);
             self.out.push(HostEffect::Exited {
                 tenant,
                 exit: exit.clone(),
