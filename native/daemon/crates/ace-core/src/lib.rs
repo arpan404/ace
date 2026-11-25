@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The fact reducer (ADR 0223 §2, E4). Ports the `packages/core/src/`
+//! The fact reducer (ADR 0223 section 2, E4). Ports the `packages/core/src/`
 //! closure, one Rust module per TypeScript module. Pure: no I/O, no clock,
 //! no napi. All JSON parsing and emitting goes through `json_io`, so the
 //! eventual `ace-json` switch touches one module.
 
 pub mod ace_tools;
 mod agent_json;
+mod agent_status_model;
 pub mod background_hold;
 pub mod cleanup;
 pub mod deadlines;

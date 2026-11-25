@@ -742,11 +742,9 @@ carry SQLite's code.
 
 ### Unknown fields in stored records
 
-The TypeScript never strips a stored record: `parseRecord` validates with `safeParse` and returns
-the raw value (`apps/daemon/src/engine/records.ts:15`-`:19`), and the raw value is written back
-with `JSON.stringify`, so a newer build's fields survive every in-place fold. Rust carries them
-on the type: `Agent`, `Run`, `Attachment`, `RetryInfo` and `LimitedInfo` have
-`#[serde(flatten)] extra`, written with the object and kept through a rewrite. Objects the
-reducer rebuilds start empty, and the one TS spread (`runs.ts:135`, `{ ...record.limited, message }`)
-copies the old `extra`. The remaining record types (`ToolCall`, `ToolResult`, `ToolDetail`, `ContentPart`, the
-statuses) still need the same field.
+TypeScript's `parseRecord` validates a stored record with `safeParse` and returns the raw value
+(`apps/daemon/src/engine/records.ts:15`-`:19`). `JSON.stringify` writes that value back with
+its unknown fields intact. Rust keeps those fields on stored objects and on tagged variants
+with fields. In-place folds and object spreads carry the extras, including the spreads of
+`record.limited` and `record.retry` into an agent's blocked status. A replacement starts with
+its own fields. Rust unit variants carry only their tags.
