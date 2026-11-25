@@ -12,3 +12,5 @@ pub struct Liveness;
 pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
     true
 }
+
+pub mod stop_scope;

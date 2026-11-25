@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Ported by E5.4c as a synchronous receipt dependency; owned by E5.9.
 //!
-//! `transition-state.ts:87`-`:196` (`guarded`, `guardOwner`, `guard`, `get`, `set`): the
-//! metadata rows every create and send writes and the guard an in-flight transition holds.
-//! `releaseGuards` is E5.4d's, `delivered` and `selection` stay E5.9's, and the selection a
-//! thread remembers with the handoff grant is in `transitions::remembered`.
+//! `transition-state.ts:87`-`:196` (`guarded`, `guardOwner`, `guard`, `releaseGuards`, `get`,
+//! `set`): the metadata rows every create and send writes and the guard an in-flight
+//! transition holds. `delivered` and `selection` stay E5.9's, and the selection a thread
+//! remembers with the handoff grant is in `transitions::remembered`.
 
 use ace_json::Value;
 use ace_store::stmt_cache;
@@ -15,6 +15,8 @@ use crate::{EngineStore, State};
 
 const GUARD_OWNER: &str = "SELECT command_id FROM engine_transition_guards WHERE thread_id=?";
 const GUARD: &str = "INSERT INTO engine_transition_guards VALUES (?, ?)";
+const GUARDED: &str = "SELECT thread_id FROM engine_transition_guards WHERE command_id=?";
+const RELEASE_GUARDS: &str = "DELETE FROM engine_transition_guards WHERE command_id=?";
 const GET: &str = "SELECT value FROM engine_transitions WHERE thread_id=?";
 const SET: &str = "INSERT INTO engine_transitions VALUES (?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET value=excluded.value";
@@ -52,6 +54,24 @@ impl State {
         store.atomic(|tx| {
             stmt_cache::run(tx.conn(), GUARD, vec![text(id), text(command_id)])?;
             Ok(())
+        })
+    }
+
+    /// `TransitionState.releaseGuards` (`:102`): every guard the command holds, released, with
+    /// the threads they held returned in row order.
+    pub fn transition_release_guards(
+        &mut self,
+        store: &EngineStore,
+        command_id: &str,
+    ) -> Result<Vec<String>, EngineError> {
+        store.atomic(|tx| {
+            let rows = stmt_cache::all_rows(tx.conn(), GUARDED, vec![text(command_id)])?;
+            let threads: Vec<String> = rows
+                .iter()
+                .filter_map(|row| row.get("thread_id").and_then(cell_text).map(str::to_owned))
+                .collect();
+            stmt_cache::run(tx.conn(), RELEASE_GUARDS, vec![text(command_id)])?;
+            Ok(threads)
         })
     }
 
@@ -96,6 +116,43 @@ mod tests {
 
     fn value(text: &str) -> Value {
         ace_json::parse(text).expect("json")
+    }
+
+    #[test]
+    fn releasing_a_commands_guards_returns_and_deletes_every_thread_it_held() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        for id in ["t2", "t3"] {
+            conn.exec(&format!(
+                "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ('{id}', 'workspace', 'Thread', 'claude', '{{\"state\":\"new\"}}', 0, 0)"
+            ))
+            .expect("thread");
+        }
+        for (thread, command) in [("t", "cmd"), ("t2", "cmd"), ("t3", "other")] {
+            conn.exec(&format!(
+                "INSERT INTO engine_transition_guards VALUES ('{thread}', '{command}')"
+            ))
+            .expect("guard");
+        }
+        let released = state
+            .transition_release_guards(&store, "cmd")
+            .expect("release");
+        assert_eq!(released, ["t", "t2"]);
+        assert!(!state.transition_guarded(&store, "t").expect("guarded"));
+        assert_eq!(
+            state
+                .transition_guard_owner(&store, "t3")
+                .expect("owner")
+                .as_deref(),
+            Some("other")
+        );
+        assert!(
+            state
+                .transition_release_guards(&store, "cmd")
+                .expect("empty")
+                .is_empty()
+        );
     }
 
     #[test]
