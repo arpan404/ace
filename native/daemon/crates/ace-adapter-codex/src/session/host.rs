@@ -64,6 +64,8 @@ const INITIALIZE_MS: f64 = 30_000.0;
 const OWN_ID_BASE: u64 = 1 << 63;
 /// A close's `turn/interrupt` deadline, the session's own (`session-commands.ts`).
 const INTERRUPT_MS: f64 = 10_000.0;
+/// A close's background-terminal reads and stops (`stopShells`, `:183`).
+const TERMINALS_MS: f64 = 10_000.0;
 /// The idle deadline's facade key.
 pub const IDLE_TIMER: &str = "host:idle";
 /// A shared host's pending-request bound (`host.ts:256`).
@@ -366,11 +368,13 @@ struct Detaching {
     phase: Leaving,
 }
 
-/// How far a leaving channel has gone: its turns are interrupted, then its
-/// threads released and unsubscribed.
+/// How far a leaving channel has gone: its turns are interrupted, its
+/// background terminals stopped, then its threads released and unsubscribed
+/// (`session-commands.ts`'s `interruptOne`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Leaving {
     Interrupts,
+    Terminals,
     Unsubscribes,
 }
 
@@ -383,6 +387,10 @@ enum OwnPurpose {
     Unsubscribe { tenant: u64 },
     /// A close's `turn/interrupt`; its answer starts the release.
     Interrupt { tenant: u64, attempt: u64 },
+    /// One thread's background terminals, read by a close (`stopShells`).
+    ShellList { tenant: u64, thread: JsString },
+    /// One background terminal's stop (`stopShells`).
+    ShellStop { tenant: u64 },
 }
 
 /// The message just received, for the dispatch effect that follows it

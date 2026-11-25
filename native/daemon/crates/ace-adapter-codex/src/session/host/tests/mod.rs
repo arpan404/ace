@@ -77,6 +77,24 @@ pub(super) fn line_id(lines: &[String], method: &str, thread: Option<&str>) -> O
     })
 }
 
+/// The ids of the lines written for `method`, in the order they went out.
+pub(super) fn line_ids(lines: &[String], method: &str) -> Vec<RpcId> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let value = ace_json::parse(line).ok()?;
+            if value.get("method").and_then(Value::as_str) != Some(method) {
+                return None;
+            }
+            match value.get("id") {
+                Some(Value::String(text)) => Some(RpcId::Text(text.clone())),
+                Some(Value::Number(number)) => number.as_f64().map(RpcId::Number),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// A host with no child whose handshake completed: every effect stays with
 /// the caller, so the order of settlements and exits is exactly what the host
 /// queued.

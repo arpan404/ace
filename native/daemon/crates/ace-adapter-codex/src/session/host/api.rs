@@ -118,7 +118,9 @@ impl Host {
         handlers: Arc<dyn ChannelHandlers>,
     ) -> Result<Vec<HostEffect>, HostError> {
         let mut inner = self.lock();
-        if inner.exit.is_some() || inner.retiring {
+        // A leader that has died takes no new channel, even while its pipes
+        // still drain (`#attach`: a process that exited never opens one).
+        if inner.leader.is_some() || inner.exit.is_some() || inner.retiring {
             return Err(HostError::Unavailable);
         }
         if inner.config.dedicated && !inner.tenants.is_empty() {

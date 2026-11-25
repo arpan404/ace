@@ -131,6 +131,9 @@ impl Inner {
                 Flush::One(tenant) => {
                     let delivered = self.deliver(tenant, Direction::Recv, item.data(), None);
                     if delivered {
+                        // A turn that started while its thread was held is live
+                        // now: a close must interrupt it too.
+                        self.track_active(item.data());
                         self.dispatch_one(tenant, &item);
                     } else {
                         self.dispatch_none(&item);

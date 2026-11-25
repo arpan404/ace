@@ -7,6 +7,18 @@ use super::*;
 use crate::session::harness::{Event, Recorder};
 use crate::session::pool::initialize;
 
+/// Records a running turn for a thread the channel already owns.
+fn busy_turn(host: &Host, thread: &str) {
+    let _ = pump(
+        host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "turn/started",
+            "params": {"threadId": thread, "turn": {"id": format!("turn-{thread}")}},
+        }))),
+    );
+}
+
 /// `host-retire.test.ts`: "retiring a Windows host whose shells outlived the
 /// stop fails for the session waiting on it". The stop is handed to the shell
 /// once, as one a caller waits on, and a stop that does happen ends the
@@ -375,9 +387,24 @@ fn a_late_reply_from_a_failed_detach_never_counts_for_the_retry() {
     let (_, lines) = pump(&host, host.line(&reply(&second_t1, ace_json::json!({}))));
     assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_none());
 
-    // Both of the retry's interrupts answered: now it releases.
+    // Both of the retry's interrupts answered: the close moves on to the
+    // threads' terminals, and leaves only once they are stopped.
     let (_, lines) = pump(&host, host.line(&reply(&second_t2, ace_json::json!({}))));
-    assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_some());
+    let lists = line_ids(&lines, "thread/backgroundTerminals/list");
+    assert_eq!(lists.len(), 2, "one list per thread");
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_none());
+    let mut written = Vec::new();
+    for list in &lists {
+        let (_, more) = pump(
+            &host,
+            host.line(&reply(list, ace_json::json!({"data": []}))),
+        );
+        written.extend(more);
+    }
+    assert!(
+        line_id(&written, "thread/unsubscribe", Some("t1")).is_some(),
+        "the last terminal step releases the thread: {written:?}"
+    );
 }
 
 /// A close against a full write queue: the peer cannot take the interrupt, so
@@ -462,4 +489,168 @@ fn a_refused_second_interrupt_still_hands_over_the_claimed_write() {
         "the claimed write still goes out, so stdin is not stalled: {lines:?}"
     );
     assert_eq!(host.tenant_count(), 1, "the channel stays attached");
+}
+
+/// A turn that started while its thread was held starts for real when the hold
+/// is released; the close must interrupt it too (`track_active`).
+#[test]
+fn a_turn_replayed_from_a_hold_is_interrupted_by_the_close() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    // A second channel, so an unowned thread is held for its ancestry rather
+    // than handed to the only one.
+    let _ = host.attach(2, Recorder::new(2, Arc::clone(&events)));
+    claim_thread(&host, 1, "parent");
+    busy_turn(&host, "parent");
+
+    // The child speaks before its parent reveals it: held, then flushed.
+    let (_, lines) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "turn/started",
+            "params": {"threadId": "child", "turn": {"id": "turn-child"}},
+        }))),
+    );
+    let read = line_id(&lines, "thread/read", Some("child")).expect("the ancestry read");
+    let _ = pump(
+        &host,
+        host.line(&reply(
+            &read,
+            ace_json::json!({"thread": {"id": "child", "parentThreadId": "parent"}}),
+        )),
+    );
+    assert_eq!(
+        seen_for(&events, 1, "child"),
+        1,
+        "the held start was replayed"
+    );
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    assert!(
+        line_id(&lines, "turn/interrupt", Some("parent")).is_some(),
+        "the parent's turn is interrupted: {lines:?}"
+    );
+    assert!(
+        line_id(&lines, "turn/interrupt", Some("child")).is_some(),
+        "and so is the replayed child's: {lines:?}"
+    );
+}
+
+/// A close stops the channel's background terminals, in TS's order: the turn's
+/// interrupt, then each thread's terminals, then the unsubscribe
+/// (`stopShells`, `session-commands.ts:183`).
+#[test]
+fn a_close_stops_the_channels_background_terminals_before_it_unsubscribes() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+    busy_turn(&host, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
+    assert!(
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).is_none(),
+        "the terminals are read after the turn stops"
+    );
+
+    let (_, lines) = pump(&host, host.line(&reply(&interrupt, ace_json::json!({}))));
+    let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
+        .expect("the thread's terminals are read");
+
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": [{"processId": "p1"}, {"processId": "p2"}]}),
+        )),
+    );
+    let stops: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.contains("thread/backgroundTerminals/terminate"))
+        .collect();
+    assert_eq!(stops.len(), 2, "one stop per terminal: {stops:?}");
+    assert!(stops[0].contains("\"processId\":\"p1\""));
+    assert!(stops[1].contains("\"processId\":\"p2\""));
+    let stop_ids = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    assert!(
+        line_id(&lines, "thread/unsubscribe", Some("t")).is_none(),
+        "the thread leaves only after its terminals stop"
+    );
+
+    let (_, lines) = pump(&host, host.line(&reply(&stop_ids[0], ace_json::json!({}))));
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_none());
+    let (_, lines) = pump(&host, host.line(&reply(&stop_ids[1], ace_json::json!({}))));
+    assert!(
+        line_id(&lines, "thread/unsubscribe", Some("t")).is_some(),
+        "the last terminal stopped: the thread is unsubscribed"
+    );
+}
+
+/// A terminal the close cannot stop is the close's failure: the channel and
+/// its work stay attached (`interruptOne` collects the failure).
+#[test]
+fn a_terminal_the_close_cannot_stop_fails_the_close() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+    busy_turn(&host, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
+    let (_, lines) = pump(&host, host.line(&reply(&interrupt, ace_json::json!({}))));
+    let list =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the terminal list");
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": [{"processId": "p1"}]}),
+        )),
+    );
+    let stop = line_ids(&lines, "thread/backgroundTerminals/terminate")[0].clone();
+
+    let (effects, _) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": id_to_value(&stop),
+            "error": {"code": -32603.0, "message": "no such terminal"},
+        }))),
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            HostEffect::DetachFailed {
+                tenant: 1,
+                message,
+                ..
+            } if message.contains("background terminals")
+        )),
+        "the close reports the terminal it could not stop: {effects:#?}"
+    );
+    assert_eq!(host.tenant_count(), 1, "the channel stays attached");
+}
+
+/// A leader that has died takes no new channel, even while its pipes drain
+/// (`#attach`: a process that exited never opens one).
+#[test]
+fn an_attach_after_the_leaders_death_is_refused() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    let _ = pump(
+        &host,
+        host.exit(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    assert_eq!(
+        host.attach(2, Recorder::new(2, Arc::clone(&events))).err(),
+        Some(HostError::Unavailable)
+    );
 }
