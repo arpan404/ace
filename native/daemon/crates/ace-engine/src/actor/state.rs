@@ -61,6 +61,8 @@ pub struct Actor {
     pub generation: u64,
     /// The map's insertion order: restored actors return to their old place after a rollback.
     pub seat: u64,
+    /// This actor instance's identity: an evicted actor's task must not act on its replacement.
+    pub instance: u64,
     pub poisoned: bool,
     pub persistence_failed: bool,
     pub idle_since: Option<f64>,
@@ -100,6 +102,7 @@ impl Actor {
             id,
             generation,
             seat,
+            instance: 0,
             poisoned: false,
             persistence_failed: false,
             idle_since: None,
@@ -183,6 +186,13 @@ pub(crate) fn discard_acks(core: &Core, actor: Actor) {
     for shared in actor.staged.values() {
         *shared.borrow_mut() = crate::actor::mailbox::Staged::Discarded;
     }
+    // Frames this actor will never translate release the shell's objects with it.
+    crate::actor::intake::release_handles(core, &actor.pending);
+    for op in actor.mailbox.iter() {
+        if let Op::Batch(batch) = op {
+            crate::actor::intake::release_handles(core, &batch.frames);
+        }
+    }
     let mut acks: Vec<BatchAck> = Vec::new();
     if let Some(ack) = actor.pending_ack {
         acks.push(ack);
@@ -219,6 +229,8 @@ pub struct Actors {
     pub next_slot: u64,
     /// The next actor's insertion order.
     pub next_seat: u64,
+    /// The next actor instance's identity.
+    pub next_instance: u64,
 }
 
 impl Actors {

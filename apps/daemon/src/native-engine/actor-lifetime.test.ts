@@ -260,4 +260,69 @@ describe.runIf(native)("the native actor and frames", () => {
       await seam.close();
     }
   });
+
+  test("a commit listener sees the promoted actor and its evicted victim", async () => {
+    // (a) `index.ts:528`-`:562`; `transaction.ts:354`-`:381`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    seam.probe.useDeps("t1");
+    try {
+      seam.engine.rootAgent(thread("a"));
+      const seen: string[][] = [];
+      const stop = seam.store.subscribe(() => {
+        seen.push(seam.engine.liveThreadIds());
+      });
+      try {
+        seam.store.atomic(() => {
+          seam.engine.rootAgent(thread("c"));
+        });
+      } finally {
+        stop();
+      }
+      // Publication saw the commit's decision: c promoted, a evicted.
+      expect(seen).toEqual([["c"]]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an eviction at the call settles the batch it had sealed", async () => {
+    // (a) `resource-limits`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    const session = await seam.probe.attachSession("a", { translator: translator() });
+    try {
+      const ack = track(session.context.onFrame(frame(0)));
+      seam.probe.seal("a");
+      seam.engine.rootAgent(thread("b"));
+      await tick();
+      expect(ack.done).toBe(true);
+      expect(ack.error).toBe("Provider frame failed to commit");
+      expect(seam.engine.liveThreadIds()).toEqual(["b"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an evicted actor's task never folds its batch into the replacement", async () => {
+    // (a) `reliability`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    const session = await seam.probe.attachSession("a", { translator: translator() });
+    try {
+      seam.probe.failApply("a", 1);
+      const ack = track(session.context.onFrame(frame(0)));
+      seam.clock.advance(seam.clock.time + 1);
+      await tick();
+      // The batch is parked on the store's retry; now evict a and recreate it, same generation.
+      expect(ack.done).toBe(false);
+      seam.engine.rootAgent(thread("b"));
+      seam.engine.rootAgent(thread("a"));
+      // The lookups themselves apply a tick; the evicted batch must not add another.
+      const before = session.log().applied.length;
+      seam.clock.advance(seam.clock.time + 100);
+      await tick(24);
+      expect(ack.error).toBe("Provider frame failed to commit");
+      expect(session.log().applied.length).toBe(before);
+    } finally {
+      await seam.close();
+    }
+  });
 });

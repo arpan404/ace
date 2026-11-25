@@ -48,6 +48,19 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     spawn_mailbox(core, &thread);
 }
 
+/// A non-transactional eviction: the actor leaves the map at once and everything it held is
+/// settled, exactly as a transaction's pledged victims are (the TypeScript's `stop()`).
+pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
+    let deps = core.actor_deps.borrow().clone();
+    let actor = core
+        .with_state(|state| state.actors.by_thread.shift_remove(thread))
+        .ok()
+        .flatten();
+    if let Some(actor) = actor {
+        stop_aside(core, &deps, actor);
+    }
+}
+
 /// Stops an actor that a promotion moved aside: what `stop()` does, for one that is no longer
 /// in the map.
 fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, mut actor: state::Actor) {

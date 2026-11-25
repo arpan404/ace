@@ -44,6 +44,14 @@ export class FrameTable {
   release(handle: number): void {
     this.frames.delete(handle);
   }
+  /** Handles the engine released in one batch: those frames will never translate. */
+  releaseHandles(handles: readonly number[]): void {
+    for (const handle of handles) this.frames.delete(handle);
+  }
+  /** Frames still held: a batch that never settles would leak one. */
+  get size(): number {
+    return this.frames.size;
+  }
 
   /**
    * The binding's one call per batch. For each handle in order it calls the session's
@@ -159,6 +167,11 @@ export function actorContext(
       if (answer.startsWith("rejected:")) {
         frames.release(handle);
         return Promise.reject(new Error(answer.slice("rejected:".length)));
+      }
+      if (answer.startsWith("flush:")) {
+        // The frame was refused, never translated: its object goes with the promise.
+        frames.release(handle);
+        return threads.promiseOf(Number(answer.slice("flush:".length))) ?? Promise.resolve();
       }
       // A batch or a refused frame the flush settles: the batch's own promise, by call id.
       const settled = answer.slice(answer.indexOf(":") + 1);

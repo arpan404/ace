@@ -219,6 +219,9 @@ impl ActorRepo for ProbeRepo {
         _thread: &ThreadId,
         _hash: &str,
     ) -> Result<Option<Value>, EngineError> {
+        self.log
+            .attachment_lookups
+            .set(self.log.attachment_lookups.get() + 1);
         if self.log.fail_attachment.get() > 0 {
             self.log
                 .fail_attachment

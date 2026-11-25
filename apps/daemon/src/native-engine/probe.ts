@@ -146,6 +146,7 @@ export function probeFor(
     runInTransaction: (thread) => required("probeRunInTransaction")(thread),
     generation: (thread) => required("probeGeneration")(thread) as number,
     registeredWakers: () => required("probeRegisteredWakers")() as number,
+    liveFrames: () => facade.frames.size,
     nativeFrame(threadId, generation, seq, channel, data) {
       const open = nativeBatches.get(threadId);
       if (open !== undefined) {
@@ -167,16 +168,8 @@ export function probeFor(
       nativeBatches.set(threadId, tracked);
       return tracked;
     },
-    bridgeFrame(threadId, generation, seq, channel, data) {
-      required("probeBridgeFrame")(
-        threadId,
-        generation,
-        seq,
-        channel,
-        data,
-        clock.now(),
-        clock.now(),
-      );
+    bridgeFrame(threadId, generation, seq, channel, data, started = clock.now()) {
+      required("probeBridgeFrame")(threadId, generation, seq, channel, data, clock.now(), started);
     },
     nativeFlow: (thread) => required("probeNativeFlow")(thread),
     useDeps: (thread) => required("probeUseDeps")(thread),

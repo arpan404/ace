@@ -83,9 +83,16 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
         })
     });
     let Ok(Some((stopped, current, poisoned, overflowed))) = state else {
+        // A native session's acknowledgement resolves: the frame was dropped, not failed.
+        if let Some(sender) = native_ack.take() {
+            let _ = sender.send(Ok(()));
+        }
         return Ack::Done;
     };
     if stopped || generation != current {
+        if let Some(sender) = native_ack.take() {
+            let _ = sender.send(Ok(()));
+        }
         return Ack::Done;
     }
     if poisoned {
@@ -193,6 +200,20 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     Ack::Batch(batch_call)
 }
 
+/// Releases the shell's frame objects a batch will never translate.
+pub(crate) fn release_handles(core: &Core, frames: &[Pending]) {
+    let handles: Vec<u32> = frames
+        .iter()
+        .filter_map(|pending| match &pending.frame {
+            FrameRef::Js { handle, .. } => Some(*handle),
+            FrameRef::Native(_) => None,
+        })
+        .collect();
+    if !handles.is_empty() {
+        core.actor_deps.borrow().clone().acks.release(&handles);
+    }
+}
+
 /// A native session's acknowledgement for a frame that never became a batch: its gate fails.
 fn refuse(ack: Option<oneshot::Sender<Result<(), String>>>, message: &str) {
     if let Some(sender) = ack {
@@ -292,6 +313,8 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
         })
         .unwrap_or(true);
     if refused {
+        // The batch never translates, so the shell's frame objects are released with it.
+        release_handles(core, &op.frames);
         push_settle(core, thread, op.ack);
         return;
     }
@@ -308,6 +331,7 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
         .flatten()
         .unwrap_or(true);
     if over {
+        release_handles(core, &op.frames);
         core.with_state(|state| {
             if let Some(actor) = state.actors.by_thread.get_mut(thread) {
                 actor.overflowed = true;

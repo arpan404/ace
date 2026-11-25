@@ -18,9 +18,23 @@ use std::task::Poll;
 pub async fn run_when_writable(
     core: &Rc<Core>,
     thread: &ThreadId,
+    instance: u64,
     run: &mut RunFn,
 ) -> Result<(), EngineError> {
     loop {
+        // A retry resumes after an eviction: the batch belongs to the actor that queued it.
+        let alive = core
+            .with_state(|state| {
+                state
+                    .actors
+                    .by_thread
+                    .get(thread)
+                    .is_some_and(|actor| actor.instance == instance)
+            })
+            .unwrap_or(false);
+        if !alive {
+            return Ok(());
+        }
         let poisoned = core
             .with_state(|state| {
                 state
@@ -78,6 +92,21 @@ pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: 
             call,
             reject.then(|| "Provider frame failed to commit".to_string()),
         );
+        return true;
+    }
+    false
+}
+
+/// An op whose actor was replaced under it: its acknowledgement rejects, and nothing is charged
+/// to the actor that now owns the thread.
+pub fn settle_orphaned(core: &Core, ack: BatchAck) -> bool {
+    let mut ack = ack;
+    let js = ack.js;
+    ack.reject("Provider frame failed to commit");
+    if let Some(call) = js {
+        let deps = core.actor_deps.borrow().clone();
+        deps.acks
+            .settle(call, Some("Provider frame failed to commit".to_string()));
         return true;
     }
     false
@@ -235,9 +264,9 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
             };
             deps.return_translator(thread, generation, taken);
             facts.push(ace_json::json!({"type": "tick"}));
-            if let Err(error) = fold::apply(core, thread, &facts) {
-                crate::actor::failure::fail(core, thread, error);
-            }
+            // A busy store retries the tick, as the TypeScript's `runWhenWritable` does; any
+            // other failure reaches the mailbox's own failure path.
+            fold::apply(core, thread, &facts)?;
             let idle_ms = deps.idle_ms;
             let release = core
                 .with_state(|state| {

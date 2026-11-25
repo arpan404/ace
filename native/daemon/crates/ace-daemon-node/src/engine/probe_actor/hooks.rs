@@ -286,14 +286,14 @@ impl NativeEngine {
         // The real path's acknowledgement: a rejected batch fails the session's read gate.
         let log = self.probe_threads.borrow().logs.get(&thread_id).cloned();
         let task = core.executor.spawn(Lane::Work, async move {
-            if let Ok(result) = completion.await {
-                let entry = match result {
-                    Ok(()) => "ok".to_string(),
-                    Err(message) => format!("rejected:{message}"),
-                };
-                if let Some(log) = log {
-                    log.native_acks.borrow_mut().push(entry);
-                }
+            let entry = match completion.await {
+                Ok(Ok(())) => "ok".to_string(),
+                Ok(Err(message)) => format!("rejected:{message}"),
+                // A dropped sender is observable: a dropped frame must resolve, not cancel.
+                Err(_) => "canceled".to_string(),
+            };
+            if let Some(log) = log {
+                log.native_acks.borrow_mut().push(entry);
             }
         });
         task.detach();

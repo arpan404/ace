@@ -39,6 +39,10 @@ pub trait FrameAcks {
     /// One promise for a batch this frame starts; `None` before the shell registers any.
     fn alloc(&self) -> Option<u64>;
     fn settle(&self, call: u64, reject: Option<String>);
+    /// JavaScript frame handles a batch will never translate: the shell releases the objects.
+    fn release(&self, handles: &[u32]) {
+        let _ = handles;
+    }
 }
 
 /// Before the shell registers its promises, a settlement is reported, never silent.
@@ -48,6 +52,8 @@ impl FrameAcks for UnportedAcks {
     fn alloc(&self) -> Option<u64> {
         None
     }
+
+    fn release(&self, _handles: &[u32]) {}
 
     fn settle(&self, _call: u64, reject: Option<String>) {
         if let Some(message) = reject {

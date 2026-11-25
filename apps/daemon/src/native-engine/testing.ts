@@ -88,6 +88,7 @@ export interface EngineProbe {
     seq: number,
     channel: string,
     data: string,
+    started?: number,
   ): void;
   /** Mirrors the actor's flow into a native gate once, recording `set_paused`. */
   nativeFlow(threadId: string): void;
@@ -99,6 +100,8 @@ export interface EngineProbe {
   retire(threadId: string): void;
   /** The thread's apply entries, as JSON. */
   applied(threadId: string): string;
+  /** JavaScript frame objects the shell still holds: a refused batch must release its own. */
+  liveFrames(): number;
   /** The labels scripted tasks marked, in order. */
   marks(): string[];
   /** The flush depth and how many actor seals flushes have asked for. */
@@ -150,6 +153,8 @@ export interface ProbeActorLog {
   flowed: boolean[];
   /** Each real native-path acknowledgement: `ok` or `rejected:<message>`. */
   nativeAcks: string[];
+  /** Every attachment lookup: a retried busy lookup shows two. */
+  attachmentLookups: number;
   /** The facts each apply received, in order. */
   facts: Record<string, unknown>[];
   /** What the fold did, in order. */
@@ -159,7 +164,7 @@ export interface ProbeActorLog {
   /** Each Cursor record call's entries. */
   journal: {
     beginsTurn?: boolean;
-    frame?: { channel?: string; seq?: number; dir?: string };
+    frame?: { channel?: string; seq?: number; dir?: string; t?: number };
   }[];
   /** Each Cursor record call: whether a transaction was open. */
   journalInTransaction: boolean[];

@@ -115,6 +115,10 @@ impl transaction::AfterCommitSink for Sink {
         self.after.release(&tokens);
     }
 
+    fn release_runs(&self, tokens: Vec<u64>) -> Vec<u64> {
+        self.after.release_runs(&tokens)
+    }
+
     fn drop_tokens(&self, tokens: Vec<u64>) {
         self.after.drop_tokens(&tokens);
     }
@@ -247,6 +251,9 @@ impl NativeDatabase {
             bindings
                 .get_named_property("frameCall")
                 .map_err(|_| napi::Error::from_reason("frameCall is missing"))?,
+            bindings
+                .get_named_property("releaseFrames")
+                .map_err(|_| napi::Error::from_reason("releaseFrames is missing"))?,
             bindings
                 .get_named_property("settleCall")
                 .map_err(|_| napi::Error::from_reason("settleCall is missing"))?,

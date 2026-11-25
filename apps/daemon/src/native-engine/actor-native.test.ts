@@ -322,6 +322,8 @@ describe.runIf(native)("the native actor and frames", () => {
       expect(ack.done).toBe(true);
       expect(ack.error).toBeUndefined();
       expect(translations).toBe(1);
+      // The busy lookup was retried, not swallowed: one failure and one answer.
+      expect(session.log().attachmentLookups).toBe(2);
       expect(session.log().applied.length).toBe(1);
     } finally {
       await seam.close();
@@ -347,6 +349,54 @@ describe.runIf(native)("the native actor and frames", () => {
       // The apply nested inside the batch's one transaction.
       expect(log.applied[0]?.outermost).toBe(false);
       expect(log.applied[0]?.committed).toBe(true);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a native frame's journal keeps its delivery time", async () => {
+    // (a) `native-session-bridge.ts:157`
+    const { seam, session } = await seamWithSession();
+    try {
+      seam.probe.attachNativeTranslator("t1");
+      seam.probe.useCursorRoute("t1");
+      seam.probe.bridgeFrame(
+        "t1",
+        0,
+        0,
+        "sdk",
+        JSON.stringify({ kind: "send" }),
+        seam.clock.now() - 250,
+      );
+      seam.probe.seal("t1");
+      await seam.engine.flush();
+      // The bridge stamps the delivery time; the journal keeps the frame the translator saw.
+      expect(session.log().journal[0]?.frame?.t).toBe(250);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a native frame of a stale generation acknowledges success, not cancellation", async () => {
+    // (a) `signal-batching`
+    const { seam, session } = await seamWithSession();
+    try {
+      seam.probe.bridgeFrame("t1", 9, 0, "stdio", JSON.stringify({ type: "x" }));
+      await tick(24);
+      expect(session.log().nativeAcks).toEqual(["ok"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a malformed frame releases its handle after the flush", async () => {
+    // (a) `frame-envelope`
+    const { seam, session } = await seamWithSession();
+    try {
+      const malformed = track(session.context.onFrame({ ...frame(0), seq: -1 }));
+      await seam.engine.flush();
+      expect(malformed.done).toBe(true);
+      expect(seam.probe.liveFrames()).toBe(0);
     } finally {
       await seam.close();
     }

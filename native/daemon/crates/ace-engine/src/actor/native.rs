@@ -89,28 +89,32 @@ pub fn native_frame_ack(
     set_paused: Rc<dyn Fn(bool)>,
     native_ack: Option<oneshot::Sender<Result<(), String>>>,
 ) -> Ack {
-    let text = frame.data.get();
-    match check_payload(text) {
-        Ok(_) => {}
-        Err(message) => {
-            // The bridge handles the constructor's throw with one warning line and skips the
-            // frame: no acknowledgement, no flow mirror, no effect on the actor.
-            core.ports
-                .report(format!("native session frame event failed: {message}"));
-            if let Some(sender) = native_ack {
-                let _ = sender.send(Ok(()));
+    let bytes = {
+        let text = frame.data.get();
+        match check_payload(text) {
+            Ok(_) => text.len(),
+            Err(message) => {
+                // The bridge handles the constructor's throw with one warning line and skips the
+                // frame: no acknowledgement, no flow mirror, no effect on the actor.
+                core.ports
+                    .report(format!("native session frame event failed: {message}"));
+                if let Some(sender) = native_ack {
+                    let _ = sender.send(Ok(()));
+                }
+                return Ack::Done;
             }
-            return Ack::Done;
         }
-    }
+    };
     let t = (now - started).round().max(0.0);
+    // The bridge stamps the frame with its delivery time before it translates or captures it.
+    let mut frame = frame;
+    frame.t = t as i64;
     let envelope = Envelope {
         seq: crate::frames::envelope::Field::Number(frame.seq as f64),
         t: crate::frames::envelope::Field::Number(t),
         ..Envelope::from(&frame)
     };
     let sdk = frame.channel == "sdk";
-    let bytes = text.len();
     let ack = intake::frame(
         core,
         thread,

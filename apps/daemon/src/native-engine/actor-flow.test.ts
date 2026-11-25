@@ -252,6 +252,8 @@ describe.runIf(native)("the native actor and frames", () => {
       await seam.engine.flush();
       expect(session.aborted()).toBe(1);
       expect(session.log().applied.at(-1)?.facts).toBe(3);
+      // The refused batch released its frame objects with its acknowledgement.
+      expect(seam.probe.liveFrames()).toBe(0);
     } finally {
       await seam.close();
     }
@@ -294,6 +296,29 @@ describe.runIf(native)("the native actor and frames", () => {
       const applied = session.log().applied;
       // The tick fired before the frame arrived, so it folds first, then the frame's batch.
       expect(applied.map((entry) => entry.facts)).toEqual([1, 2, 1]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a tick whose apply is busy retries instead of poisoning the actor", async () => {
+    // (a) `actor-timer`
+    let clock = 0;
+    const { seam, session } = await seamWithSession({ deadline: () => clock + 1000 });
+    try {
+      clock = seam.clock.now();
+      void session.context.onFrame(frame(0));
+      await seam.engine.flush();
+      seam.probe.failApply("t1", 1);
+      seam.clock.advance(clock + 1000);
+      await tick();
+      seam.clock.advance(seam.clock.time + 100);
+      await seam.engine.flush();
+      expect(session.log().applied.map((entry) => entry.facts)).toEqual([1, 2]);
+      // Not poisoned: the next frame still folds.
+      void session.context.onFrame(frame(1));
+      await seam.engine.flush();
+      expect(session.log().applied.map((entry) => entry.facts)).toEqual([1, 2, 1]);
     } finally {
       await seam.close();
     }

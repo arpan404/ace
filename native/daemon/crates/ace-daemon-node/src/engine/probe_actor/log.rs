@@ -56,6 +56,8 @@ pub struct ProbeLog {
     pub journal_in_transaction: RefCell<Vec<bool>>,
     /// `attachment` lookups that throw a retryable store error before answering.
     pub fail_attachment: Cell<u32>,
+    /// Every `attachment` lookup, so a swallowed error is visible as a missing retry.
+    pub attachment_lookups: Cell<u32>,
     /// A non-retryable failure before writing, for the native acknowledgement's rejection.
     pub fail_apply_fatal: Cell<u32>,
     /// The repository reports a Cursor SDK thread, so the journal path runs.
@@ -90,6 +92,7 @@ impl Default for ProbeLog {
             journal: RefCell::new(Vec::new()),
             journal_in_transaction: RefCell::new(Vec::new()),
             fail_attachment: Cell::new(0),
+            attachment_lookups: Cell::new(0),
             fail_apply_fatal: Cell::new(0),
             cursor_route: Cell::new(false),
         }
@@ -143,6 +146,7 @@ impl ProbeLog {
             "enqueued": Value::Array(self.enqueued.borrow().iter().map(|label| Value::String(label.clone().into())).collect::<Vec<Value>>().into()),
             "flowed": Value::Array(self.flowed.borrow().iter().map(|paused| Value::Bool(*paused)).collect::<Vec<Value>>().into()),
             "facts": Value::Array(self.facts.borrow().clone().into()),
+            "attachmentLookups": f64::from(self.attachment_lookups.get()) as u64,
             "nativeAcks": Value::Array(self.native_acks.borrow().iter().map(|entry| Value::String(entry.clone().into())).collect::<Vec<Value>>().into()),
             "order": Value::Array(self.order.borrow().iter().map(|entry| Value::String(entry.clone().into())).collect::<Vec<Value>>().into()),
             "opsOutermost": Value::Array(self.ops_outermost.borrow().iter().map(|value| Value::Bool(*value)).collect::<Vec<Value>>().into()),

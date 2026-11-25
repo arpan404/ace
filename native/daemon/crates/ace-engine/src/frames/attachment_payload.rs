@@ -4,6 +4,7 @@
 //! the TypeScript's, because `replace` has effects: a container pushes its children forward and
 //! the stack pops the last first, so siblings are visited last first.
 
+use crate::EngineError;
 use ace_json::{JsString, Value};
 
 /// What a node of the rewritten payload is.
@@ -28,8 +29,8 @@ struct Task<'a> {
 /// Rewrite every string in `value` through `replace`, keeping each container's order.
 pub fn attachment_payload(
     value: &Value,
-    replace: &mut dyn FnMut(&str, &JsString) -> JsString,
-) -> Value {
+    replace: &mut dyn FnMut(&str, &JsString) -> Result<JsString, EngineError>,
+) -> Result<Value, EngineError> {
     let mut nodes: Vec<Node> = Vec::new();
     let mut stack: Vec<Task<'_>> = vec![Task {
         source: value,
@@ -53,7 +54,7 @@ pub fn attachment_payload(
         }
         match task.source {
             Value::String(text) => {
-                nodes.push(Node::Leaf(Value::String(replace(&task.key, text))));
+                nodes.push(Node::Leaf(Value::String(replace(&task.key, text)?)));
             }
             Value::Array(items) => {
                 nodes.push(Node::Array(vec![usize::MAX; items.len()]));
@@ -108,24 +109,25 @@ pub fn attachment_payload(
         built[id] = Some(value);
     }
     if root == usize::MAX {
-        return Value::Null;
+        return Ok(Value::Null);
     }
-    built[root].take().unwrap_or(Value::Null)
+    Ok(built[root].take().unwrap_or(Value::Null))
 }
 
 #[cfg(test)]
 mod tests {
     use super::attachment_payload;
+    use crate::EngineError;
     use ace_json::{JsString, Value, json};
 
-    fn marks(key: &str, value: &JsString) -> JsString {
-        JsString::from(format!("{key}:{}", value.as_str()))
+    fn marks(key: &str, value: &JsString) -> Result<JsString, EngineError> {
+        Ok(JsString::from(format!("{key}:{}", value.as_str())))
     }
 
     #[test]
     fn a_string_in_an_array_gets_the_empty_key() {
         let value = json!(["a", "b"]);
-        let replaced = attachment_payload(&value, &mut marks);
+        let replaced = attachment_payload(&value, &mut marks).expect("no lookup error");
         assert_eq!(
             ace_json::to_string(&replaced),
             "[\":a\",\":b\"]".to_string()
@@ -138,8 +140,9 @@ mod tests {
         let mut order = Vec::new();
         let replaced = attachment_payload(&value, &mut |key, text| {
             order.push(format!("{key}={}", text.as_str()));
-            JsString::from(text.as_str())
-        });
+            Ok(JsString::from(text.as_str()))
+        })
+        .expect("no lookup error");
         assert_eq!(
             order,
             vec![
@@ -161,7 +164,8 @@ mod tests {
         for _ in 0..100_000 {
             value = Value::Array(vec![value].into());
         }
-        let replaced = attachment_payload(&value, &mut |_key, text| text.clone());
+        let replaced = attachment_payload(&value, &mut |_key, text| Ok(text.clone()))
+            .expect("no lookup error");
         let mut depth = 0;
         let mut node = &replaced;
         while let Value::Array(items) = node {
