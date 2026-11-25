@@ -129,9 +129,10 @@ describe.runIf(native)("turn-end queue events", () => {
   });
 });
 
-async function seededQueue() {
+async function seededQueue(options: Record<string, unknown> = {}, storedResetAt?: number) {
   let thread = "";
   const seam = await engineSeam({
+    options: options as never,
     afterOpen: (store) => {
       const workspace = store.createWorkspace(process.cwd(), "E5.4d");
       const created = createDevThread(store, workspace);
@@ -152,7 +153,14 @@ async function seededQueue() {
           JSON.stringify({ ...state, engineSnapshot: 9 }),
           store.headSeq(),
         );
-        db.prepare("INSERT INTO engine_queue (thread_id) VALUES (?)").run(thread);
+        db.prepare("INSERT INTO engine_queue (thread_id, reset_at, limited) VALUES (?, ?, 1)").run(
+          thread,
+          storedResetAt ?? null,
+        );
+        db.prepare("INSERT INTO engine_sessions (thread_id, cwd, backend) VALUES (?, ?, NULL)").run(
+          thread,
+          process.cwd(),
+        );
       });
     },
   });
@@ -237,7 +245,9 @@ describe.runIf(native)("E5.4d's refusals and rollback", () => {
     try {
       const revision = seam.engine.queue(thread as never).revision;
       seam.engine.bindOwnershipFence(((id: string) =>
-        id === thread ? { commandId: "pause", ok: false, error: "thread_moved" } : undefined) as never);
+        id === thread
+          ? { commandId: "pause", ok: false, error: "thread_moved" }
+          : undefined) as never);
       expect(
         seam.engine.handler.handle(
           {
@@ -251,6 +261,102 @@ describe.runIf(native)("E5.4d's refusals and rollback", () => {
       expect(seam.engine.queue(thread as never).revision).toBe(revision);
     } finally {
       await seam.close();
+    }
+  });
+
+  test("the account's reset holds the queue and arms the timer when none is stored", async () => {
+    const reset = Date.now() + 60_000;
+    const { seam, thread } = await seededQueue({ recovery: { resetAt: () => reset } });
+    try {
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "limit",
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: thread,
+              expectedRevision: seam.engine.queue(thread as never).revision,
+              action: "resume_at_reset",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(seam.engine.queue(thread as never)).toMatchObject({
+        paused: true,
+        reason: "limit",
+        resumeAt: reset,
+      });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a stale stored reset is refused when the account reports none", async () => {
+    const { seam, thread } = await seededQueue({ recovery: { resetAt: () => null } }, 1_000);
+    try {
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "limit",
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: thread,
+              expectedRevision: seam.engine.queue(thread as never).revision,
+              action: "resume_at_reset",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "limit", ok: false, error: "reset_time_unknown" });
+      expect(seam.engine.queue(thread as never).paused).toBe(false);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("migrate_now needs moveTarget to have been given", async () => {
+    const absent = await seededQueue();
+    try {
+      expect(
+        absent.seam.engine.handler.handle(
+          {
+            id: "migrate",
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: absent.thread,
+              expectedRevision: absent.seam.engine.queue(absent.thread as never).revision,
+              action: "migrate_now",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "migrate", ok: false, error: "migration_unavailable" });
+    } finally {
+      await absent.seam.close();
+    }
+    const present = await seededQueue({ recovery: { moveTarget: () => "acct-2" } });
+    try {
+      expect(
+        present.seam.engine.handler.handle(
+          {
+            id: "migrate",
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: present.thread,
+              expectedRevision: present.seam.engine.queue(present.thread as never).revision,
+              action: "migrate_now",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toMatchObject({ ok: true });
+    } finally {
+      await present.seam.close();
     }
   });
 });
