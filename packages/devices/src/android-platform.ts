@@ -53,6 +53,8 @@ export class AndroidPlatform {
   private readonly hardware = new Map<string, DeviceHardware>();
   private blocked: DeviceError[] = [];
   private noEmulator = false;
+  private lastAvdStdout: string | undefined;
+  private lastAdbStdout: string | undefined;
   diagnostics() {
     return [
       ...(this.duplicate
@@ -98,15 +100,19 @@ export class AndroidPlatform {
   resolve() {
     return resolveAndroidSDK(this.options);
   }
-  async list(): Promise<Device[]> {
+  async list(scope: "all" | "avds" | "adb" = "all"): Promise<Device[]> {
     const { adb, emulator } = await this.resolve();
+    const readAvds = scope === "all" || scope === "avds" || this.lastAvdStdout === undefined;
+    const readAdb = scope === "all" || scope === "adb" || this.lastAdbStdout === undefined;
     const [installed, connected] = await Promise.all([
-      emulator ? this.run(emulator, ["-list-avds"], 256 * 1024) : undefined,
-      this.run(adb, ["devices", "-l"], 128 * 1024),
+      readAvds && emulator ? this.run(emulator, ["-list-avds"], 256 * 1024) : undefined,
+      readAdb ? this.run(adb, ["devices", "-l"], 128 * 1024) : undefined,
     ]);
+    if (readAvds) this.lastAvdStdout = installed?.stdout ?? "";
+    if (readAdb && connected !== undefined) this.lastAdbStdout = connected.stdout;
     this.noEmulator =
       !emulator && this.options.platform === "linux" && this.options.arch === "arm64";
-    const transports = adbTransports(connected.stdout);
+    const transports = adbTransports(this.lastAdbStdout ?? "");
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
@@ -136,7 +142,7 @@ export class AndroidPlatform {
     ]);
     const bootingSerials = new Set([...this.pendingBoots].map((id) => this.ownedSerials.get(id)));
     const listed = androidInventory({
-      avds: avdNames(installed?.stdout ?? ""),
+      avds: avdNames(this.lastAvdStdout ?? ""),
       // An emulator ace is booting shows as the AVD it is, not as an offline transport.
       emulators: named.filter(
         ({ serial, state }) => !(state === "offline" && bootingSerials.has(serial)),

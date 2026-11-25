@@ -33,7 +33,11 @@ import { enqueueDeviceInput, enqueueSharedInput } from "./input-queue.ts";
 import { DeviceCowork } from "./device-cowork.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
+import { homedir } from "node:os";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
+import { NativeDeviceInventoryWatch, type InventoryReadScope } from "./native-inventory.ts";
+import { DevicePlatform } from "./platform.ts";
 import { SimAgentState } from "./sim-state.ts";
 import { oneOffFrame } from "./one-off-screenshot.ts";
 import { StillTooLarge } from "./simulator-frames.ts";
@@ -72,7 +76,8 @@ export class DevicesService {
   private reads = 0;
   private inventoryViews = 0;
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
-  private readonly inventory: InventoryWatch;
+  private readonly sourceReads = new Set<Promise<unknown>>();
+  private readonly inventory: InventoryWatch | NativeDeviceInventoryWatch;
   private readonly cowork: DeviceCowork | undefined;
   constructor(options: DevicesOptions) {
     this.options = options;
@@ -84,16 +89,50 @@ export class DevicesService {
           })
         : undefined;
     this.enabled = options.enabled ?? true;
-    this.inventory = new InventoryWatch({
-      read: () => this.list(),
-      after: options.runtime.after,
-      intervalMs: options.inventoryIntervalMs ?? 4000,
-      log: options.log,
-    });
+    this.inventory =
+      deviceInventoryBackend() === "native"
+        ? new NativeDeviceInventoryWatch({
+            readSource: (scope, liveness) => this.readInventorySource(scope, liveness),
+            after: options.runtime.after,
+            intervalMs: options.inventoryIntervalMs ?? 4000,
+            log: options.log,
+            watchConfig: () =>
+              typeof options.platform.inventoryWatchConfig === "function"
+                ? options.platform.inventoryWatchConfig()
+                : { platform: process.platform, home: homedir(), env: options.env },
+          })
+        : new InventoryWatch({
+            read: () => this.list(),
+            after: options.runtime.after,
+            intervalMs: options.inventoryIntervalMs ?? 4000,
+            log: options.log,
+          });
   }
   /** The inventory, joining a read already in flight. */
   async settleInventory(): Promise<void> {
-    await this.listing?.devices.catch(() => {});
+    await Promise.allSettled([this.listing?.devices, ...this.sourceReads]);
+  }
+  private readInventorySource(scope: InventoryReadScope, liveness: boolean): Promise<Inventory> {
+    const task = this.runInventorySource(scope, liveness);
+    this.sourceReads.add(task);
+    void task.finally(() => this.sourceReads.delete(task)).catch(() => {});
+    return task;
+  }
+  private async runInventorySource(
+    scope: InventoryReadScope,
+    liveness: boolean,
+  ): Promise<Inventory> {
+    const platform = this.options.platform;
+    const canScope =
+      scope !== "all" &&
+      typeof platform.listSource === "function" &&
+      platform.list === DevicePlatform.prototype.list;
+    const devices = canScope
+      ? await this.refreshWith(() => platform.listSource(scope), false)
+      : liveness
+        ? await this.freshList()
+        : await this.list();
+    return { devices, issues: platform.diagnostics() };
   }
   async list(): Promise<Device[]> {
     if (!this.listing) {
@@ -118,10 +157,16 @@ export class DevicesService {
       await current.devices.catch(() => {});
     }
   }
-  private async refresh(): Promise<Device[]> {
+  private refresh(): Promise<Device[]> {
+    return this.refreshWith(() => this.options.platform.list(), true);
+  }
+  private async refreshWith(
+    read: () => Promise<Device[]>,
+    publishInventory: boolean,
+  ): Promise<Device[]> {
     if (this.closed)
       throw new DeviceError("busy", "Devices service is closed", "Reconnect to the daemon.");
-    const devices = await this.options.platform.list();
+    const devices = await read();
     if (devices.length > 1024)
       throw new DeviceError("limit", "Device inventory limit", "Remove unused simulators or AVDs.");
     const inventory = new Map(devices.map((device) => [device.id, device]));
@@ -158,7 +203,8 @@ export class DevicesService {
         void this.refreshPosture(session).catch(() => {});
       }
     }
-    this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
+    if (publishInventory)
+      this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
     return devices;
   }
   private async session(id: string): Promise<DeviceSession> {
@@ -1074,6 +1120,7 @@ export class DevicesService {
     this.closed = true;
     this.enabled = false;
     this.watching();
+    if (this.inventory instanceof NativeDeviceInventoryWatch) this.inventory.close();
     const results = await Promise.allSettled([
       ...[...this.sessions.values()].map(async (session) => {
         const resources = await Promise.allSettled([this.stop(session), session.logs.close()]);
