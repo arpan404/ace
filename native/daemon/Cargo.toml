@@ -24,4 +24,9 @@ expect_used = "deny"
 [profile.release]
 lto = true
 codegen-units = 1
-strip = true
+# No cargo strip. On macOS, rustc 1.95 strips with its bundled rust-objcopy, which can lay
+# out the symbol string pool so that macOS 27's dyld refuses the dylib ("mis-aligned
+# LINKEDIT string pool"). It depends on the library's contents: the device inventory (D2)
+# build hit it while earlier builds of this branch loaded. The addon is loaded straight from
+# target/release, so it stays unstripped; packaging, when it ships, strips with Apple's strip.
+strip = false
