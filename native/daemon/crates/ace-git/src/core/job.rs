@@ -311,50 +311,106 @@ impl Drop for GitJob {
 #[cfg(windows)]
 mod system_windows {
     use super::*;
-    use ace_supervisor::contain::{KillOnCloseJob, SystemJobApi};
+    use ace_supervisor::contain::{RetainedJob as SupervisorJob, SystemJobApi};
+    use ace_supervisor::identity::{ProcessOwner, process_identity};
+    use ace_supervisor::wintree::{
+        SystemWindowsTree as SupervisorTree, WindowsRecord, WindowsTreeOps,
+    };
 
-    pub struct SupervisorRetainedJob(Mutex<KillOnCloseJob<SystemJobApi>>);
+    fn start_uid(record: &WindowsRecord) -> (String, String) {
+        (record.start.clone(), record.uid.clone())
+    }
 
-    impl RetainedJob for SupervisorRetainedJob {
-        fn assign(&self, pid: u32) -> Result<(), String> {
+    /// The supervisor's required job: `create` fails loudly, and `release` clears the limits
+    /// (so members outlive the job) before closing it, which is what a normal Git exit keeps.
+    pub struct SupervisorRetainedJob(Mutex<SupervisorJob<SystemJobApi>>);
+
+    impl SupervisorRetainedJob {
+        fn with<R>(
+            &self,
+            run: impl FnOnce(
+                &mut SupervisorJob<SystemJobApi>,
+            ) -> Result<R, ace_supervisor::errors::SupervisorError>,
+        ) -> Result<R, String> {
             let mut guard = self.0.lock().map_err(|_| "job lock poisoned".to_owned())?;
-            guard.assign(pid).map_err(|e| e.to_string())
-        }
-
-        fn terminate(&self) -> Result<(), String> {
-            let mut guard = self.0.lock().map_err(|_| "job lock poisoned".to_owned())?;
-            guard.terminate().map_err(|e| e.to_string())
-        }
-
-        fn active_count(&self) -> Result<u32, String> {
-            let guard = self.0.lock().map_err(|_| "job lock poisoned".to_owned())?;
-            guard.active_count().map_err(|e| e.to_string())
-        }
-
-        fn release(&self) -> Result<(), String> {
-            let mut guard = self.0.lock().map_err(|_| "job lock poisoned".to_owned())?;
-            guard.dispose().map_err(|e| e.to_string())
-        }
-
-        fn dispose(&self) -> Result<(), String> {
-            let mut guard = self.0.lock().map_err(|_| "job lock poisoned".to_owned())?;
-            guard.dispose().map_err(|e| e.to_string())
+            run(&mut guard).map_err(|error| error.to_string())
         }
     }
 
-    pub struct SystemWindowsTree;
+    impl RetainedJob for SupervisorRetainedJob {
+        fn assign(&self, pid: u32) -> Result<(), String> {
+            self.with(|job| job.assign(pid))
+        }
+
+        fn terminate(&self) -> Result<(), String> {
+            self.with(|job| job.terminate())
+        }
+
+        fn active_count(&self) -> Result<u32, String> {
+            self.with(|job| job.active_count())
+        }
+
+        fn release(&self) -> Result<(), String> {
+            self.with(|job| job.release())
+        }
+
+        fn dispose(&self) -> Result<(), String> {
+            self.with(|job| job.dispose())
+        }
+    }
+
+    /// The supervisor's real tree runtime: one Toolhelp snapshot, per-PID identity, and a stop
+    /// that ends only proven members, as `windowsTreeRuntime` does in `process-identity.ts`.
+    pub struct SystemWindowsTree(SupervisorTree);
 
     impl WindowsTreeRuntime for SystemWindowsTree {
-        fn state(&self, _recorded: &[WindowsProcessRecord]) -> Result<WindowsTreeState, String> {
-            Ok(WindowsTreeState::default())
+        fn state(&self, recorded: &[WindowsProcessRecord]) -> Result<WindowsTreeState, String> {
+            let records: Vec<WindowsRecord> = recorded
+                .iter()
+                .map(|member| WindowsRecord {
+                    pid: member.pid,
+                    start: member.start.clone(),
+                    uid: member.uid.clone(),
+                })
+                .collect();
+            let state = self.0.state(&records).map_err(|error| error.to_string())?;
+            let to_record = |member: &WindowsRecord| {
+                let (start, uid) = start_uid(member);
+                WindowsProcessRecord {
+                    pid: member.pid,
+                    start,
+                    uid,
+                }
+            };
+            Ok(WindowsTreeState {
+                live: state.live.iter().map(to_record).collect(),
+                discovered: state.discovered.iter().map(to_record).collect(),
+            })
         }
 
-        fn terminate(&self, _member: &WindowsProcessRecord) -> Result<(), String> {
-            Ok(())
+        fn terminate(&self, member: &WindowsProcessRecord) -> Result<(), String> {
+            let record = WindowsRecord {
+                pid: member.pid,
+                start: member.start.clone(),
+                uid: member.uid.clone(),
+            };
+            self.0
+                .terminate(&record)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
         }
 
-        fn identify(&self, _pid: u32) -> Option<(String, String)> {
-            None
+        fn identify(&self, pid: u32) -> Option<(String, String)> {
+            match process_identity(pid) {
+                Ok(Some(identity)) => Some((
+                    identity.start,
+                    match identity.owner {
+                        ProcessOwner::Sid(sid) => sid,
+                        ProcessOwner::Uid(uid) => uid.to_string(),
+                    },
+                )),
+                _ => None,
+            }
         }
     }
 
@@ -362,12 +418,12 @@ mod system_windows {
 
     impl GitJobPorts for SystemGitJobPorts {
         fn create_job(&self) -> Result<Arc<dyn RetainedJob>, String> {
-            let job = KillOnCloseJob::create(SystemJobApi).map_err(|e| e.to_string())?;
+            let job = SupervisorJob::create(SystemJobApi).map_err(|error| error.to_string())?;
             Ok(Arc::new(SupervisorRetainedJob(Mutex::new(job))))
         }
 
         fn tree(&self) -> Arc<dyn WindowsTreeRuntime> {
-            Arc::new(SystemWindowsTree)
+            Arc::new(SystemWindowsTree(SupervisorTree::new()))
         }
     }
 }

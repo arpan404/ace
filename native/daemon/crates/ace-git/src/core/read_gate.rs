@@ -267,7 +267,7 @@ mod tests {
         };
         signal.abort();
         let outcome = waiting.await.expect("waiting");
-        let error = outcome.err().expect("cancelled");
+        let error = outcome.expect_err("cancelled");
         assert_eq!(error.code, GitErrorCode::GitCancelled);
         let _ = release_first.send(());
         busy.await.expect("busy");
