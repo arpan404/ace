@@ -150,9 +150,10 @@ export function nativeAndroidTree(xml: string, options: unknown): NativeTree {
 }
 
 export function nativeAndroidFind(tree: NativeTree, options: unknown): NativeTree {
-  return deviceAnswer(() =>
+  // The addon answers the tree itself, not an envelope: a bad tree is its caller's bug.
+  return JSON.parse(
     nativeDevices().devicePlatformAndroidFind(JSON.stringify(tree), JSON.stringify(options)),
-  );
+  ) as NativeTree;
 }
 
 export function nativeAndroidTarget(tree: NativeTree, ref: string): NativeNode {
@@ -230,9 +231,10 @@ export function nativeSimulatorLayout(
   raw: unknown,
   screen: { width: number; height: number; orientation?: string },
 ) {
-  return deviceAnswer<{ width: number; height: number; turn: 0 | 90 | 180 | 270 }>(() =>
+  // The addon answers the layout itself, not an envelope.
+  return JSON.parse(
     nativeDevices().devicePlatformSimulatorLayout(JSON.stringify(raw), JSON.stringify(screen)),
-  );
+  ) as { width: number; height: number; turn: 0 | 90 | 180 | 270 };
 }
 
 export function nativeSimulatorTarget(tree: NativeTree, ref: string): NativeNode {

@@ -104,7 +104,14 @@ function position(buffer: Buffer, offset: number, x: number, y: number, screen: 
 }
 
 export function encodeControl(message: ControlMessage): Buffer {
-  if (nativeInput) return nativeDevices().devicePlatformScrcpyEncode(nativeControl(message));
+  if (nativeInput) {
+    // The server's own refusal is a `RangeError`, as `utf8` throws it today.
+    try {
+      return nativeDevices().devicePlatformScrcpyEncode(nativeControl(message));
+    } catch (error) {
+      throw new RangeError(error instanceof Error ? error.message : String(error));
+    }
+  }
   switch (message.type) {
     case "keycode": {
       const buffer = Buffer.alloc(14);

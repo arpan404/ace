@@ -301,6 +301,10 @@ export function nativeDevices(): DevicesAddon {
 /** One export's answer: its value, or the refusal the caller raises as a `DeviceError`. */
 export function answered<T>(invoke: () => string): T {
   const answer = JSON.parse(invoke()) as Answer<T>;
+  // A bare value here is a wiring bug, never a device fact: say which, not "refused without a
+  // message". Every refusal the addon answers carries a catalog word.
+  if (typeof answer?.ok !== "boolean")
+    throw new Error("ace-devices: the addon answered without an answer envelope");
   if (!answer.ok || answer.error) throw new Refused(answer.error);
   return answer.value as T;
 }

@@ -10,17 +10,31 @@ use sha2::{Digest, Sha256};
 use crate::platform::android_ui::{ActInput, Bounds, Node, Tree, TreeOptions};
 use crate::platform::{Error, Refusal};
 
-/// Degrees clockwise a viewer turns a picture to show it upright.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// Degrees clockwise a viewer turns a picture to show it upright. It crosses as its number, as
+/// today's `FrameRotation` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Turn {
-    #[serde(rename = "0")]
     None,
-    #[serde(rename = "90")]
     Quarter,
-    #[serde(rename = "180")]
     Half,
-    #[serde(rename = "270")]
     ThreeQuarters,
+}
+
+impl Turn {
+    pub fn degrees(self) -> u16 {
+        match self {
+            Self::None => 0,
+            Self::Quarter => 90,
+            Self::Half => 180,
+            Self::ThreeQuarters => 270,
+        }
+    }
+}
+
+impl Serialize for Turn {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u16(self.degrees())
+    }
 }
 
 /// serve-sim's announced orientation as the turn a viewer needs; unknown names keep the picture.

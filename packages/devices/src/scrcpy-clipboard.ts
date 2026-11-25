@@ -230,14 +230,18 @@ class NativeClipboard {
   /** Sends one message; a send that throws settles what it belonged to, as today's code does. */
   #send(message: ControlMessage, read: number | null): void {
     if (message.type === "setClipboard") {
+      // The addon writes a `bigint` as its digits; the socket and the promise key want a bigint.
+      const sequence = BigInt(String(message.sequence));
+      message.sequence = sequence;
       const write = this.#writes.find((each) => each.sequence === undefined);
-      if (write) write.sequence = message.sequence;
+      if (write) write.sequence = sequence;
     }
     try {
       this.#options.send(message);
     } catch (error) {
       if (message.type === "setClipboard") {
         this.#step({ kind: "sendFailed", sequence: Number(message.sequence) });
+        // (`message.sequence` is a bigint by now; the event takes its number form.)
         const index = this.#writes.findIndex((each) => each.sequence === message.sequence);
         const write = index >= 0 ? this.#writes.splice(index, 1)[0] : undefined;
         write?.reject(error);

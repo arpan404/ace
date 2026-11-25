@@ -60,6 +60,15 @@ function rustSources(directory: string): { file: string; text: string }[] {
 }
 const rust = rustSources(join(root, "native/daemon/crates"));
 
+// A refusal a person reads always says something: a blank message is the "refused without a
+// message" failure, so it fails here rather than at a device call.
+for (const [key, word] of Object.entries(catalog.platform)) {
+  for (const field of ["code", "message", "hint"] as const)
+    if (!word[field]?.trim()) {
+      failed++;
+      console.error(`devices catalog: ${key} has a blank ${field}`);
+    }
+}
 for (const [key, word] of Object.entries(catalog.platform)) {
   for (const field of ["message", "hint"] as const) {
     const literal = word[field];
@@ -83,6 +92,15 @@ for (const [key, literal] of Object.entries(catalog.tools ?? {})) {
       );
     }
   }
+}
+// A refusal a person reads always says something: a blank message is the "refused without a
+// message" failure, so it fails here rather than at a device call.
+for (const [key, word] of Object.entries(catalog.platform)) {
+  for (const field of ["code", "message", "hint"] as const)
+    if (!word[field]?.trim()) {
+      failed++;
+      console.error(`devices catalog: ${key} has a blank ${field}`);
+    }
 }
 for (const [key, word] of Object.entries(catalog.platform)) {
   for (const field of ["message", "hint"] as const) {
