@@ -239,6 +239,29 @@ fn an_unread_config_keeps_every_tool_listed_whatever_the_catalog() {
     );
 }
 
+#[test]
+fn a_catalog_slug_is_bounded_in_utf16_code_units_as_zod_counts_them() {
+    // 400 CJK characters: 400 UTF-16 code units, 1,200 UTF-8 bytes.
+    let slug = "\u{6f22}".repeat(400);
+    let mut calls = Calls::new();
+    let (mut pager, _) = super::catalog::Pager::start(&mut calls, None);
+    let page = ace_json::parse(&format!(
+        "{{\"data\":[{{\"id\":\"{slug}\",\"model\":\"{slug}\"}}]}}"
+    ))
+    .expect("fixture parses");
+    assert!(pager.page(&mut calls, Some(&page)).is_empty());
+    assert_eq!(pager.done, Some(Some(vec![slug.clone(), slug.clone()])));
+    let mut calls = Calls::new();
+    let (mut pager, _) = super::catalog::Pager::start(&mut calls, None);
+    let too_long = "\u{6f22}".repeat(513);
+    let page = ace_json::parse(&format!(
+        "{{\"data\":[{{\"id\":\"{too_long}\",\"model\":\"{too_long}\"}}]}}"
+    ))
+    .expect("fixture parses");
+    assert!(pager.page(&mut calls, Some(&page)).is_empty());
+    assert_eq!(pager.done, Some(None));
+}
+
 /// An app-server that answers from `config` and a one-page catalog, or never
 /// when stalled (`tool-facts.test.ts`'s fake).
 #[derive(Default)]

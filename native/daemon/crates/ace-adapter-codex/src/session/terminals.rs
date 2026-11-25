@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use ace_json::{Map, Value};
 
 use super::frames::{Calls, Effect, FrameDir, Frames};
+use super::state::utf16_len;
 
 /// A terminal page's bound (`TerminalPage`, `background-terminals.ts:2`).
 const TERMINALS_PER_PAGE: usize = 256;
@@ -152,10 +153,14 @@ fn parse_page(result: Result<&Value, &str>) -> Result<Page, String> {
         let process_id = entry
             .get("processId")
             .and_then(Value::as_str)
-            .filter(|id| !id.is_empty() && id.len() <= PROCESS_ID_MAX)
+            // `zod`'s `.min(1).max(1024)` counts UTF-16 code units.
+            .filter(|id| !id.is_empty() && utf16_len(id) <= PROCESS_ID_MAX)
             .ok_or_else(|| "Invalid Codex terminal page".to_owned())?;
+        // `z.string().optional()`: an empty id names no item, and the
+        // discovery fold's `if (terminal.itemId)` treats it as absent.
         let item_id = match entry.get("itemId") {
             None => None,
+            Some(Value::String(item)) if item.as_str().is_empty() => None,
             Some(Value::String(item)) => Some(item.as_str().to_owned()),
             Some(_) => return Err("Invalid Codex terminal page".to_owned()),
         };
@@ -167,7 +172,7 @@ fn parse_page(result: Result<&Value, &str>) -> Result<Page, String> {
     let next_cursor = match body.get("nextCursor") {
         None | Some(Value::Null) => None,
         Some(Value::String(cursor)) if !cursor.as_str().is_empty() => {
-            if cursor.as_str().len() > CURSOR_MAX {
+            if utf16_len(cursor.as_str()) > CURSOR_MAX {
                 return Err("Invalid Codex terminal page".to_owned());
             }
             Some(cursor.as_str().to_owned())
@@ -318,6 +323,47 @@ mod tests {
             read.outcome(),
             Some(&Err("Codex terminal pagination capacity reached".to_owned()))
         );
+    }
+
+    #[test]
+    fn a_terminal_with_an_empty_item_id_has_no_owning_item() {
+        let mut calls = Calls::new();
+        let (mut read, _) = TerminalRead::start("t1", &mut calls);
+        read.settled(&mut calls, Ok(&page(&[("p1", Some(""))], None)));
+        assert_eq!(
+            read.outcome(),
+            Some(&Ok(vec![Terminal {
+                process_id: "p1".to_owned(),
+                item_id: None,
+            }]))
+        );
+    }
+
+    #[test]
+    fn a_process_id_is_bounded_in_utf16_code_units_as_zod_counts_them() {
+        let mut calls = Calls::new();
+        let (mut read, _) = TerminalRead::start("t1", &mut calls);
+        // 600 CJK characters: 600 UTF-16 code units, 1,800 UTF-8 bytes.
+        let id = "\u{6f22}".repeat(600);
+        read.settled(
+            &mut calls,
+            Ok(
+                &ace_json::parse(&format!("{{\"data\":[{{\"processId\":\"{id}\"}}]}}"))
+                    .expect("fixture parses"),
+            ),
+        );
+        assert!(matches!(read.outcome(), Some(Ok(_))));
+        let mut calls = Calls::new();
+        let (mut read, _) = TerminalRead::start("t1", &mut calls);
+        let id = "\u{6f22}".repeat(PROCESS_ID_MAX + 1);
+        read.settled(
+            &mut calls,
+            Ok(
+                &ace_json::parse(&format!("{{\"data\":[{{\"processId\":\"{id}\"}}]}}"))
+                    .expect("fixture parses"),
+            ),
+        );
+        assert!(read.outcome().is_some_and(|outcome| outcome.is_err()));
     }
 
     #[test]

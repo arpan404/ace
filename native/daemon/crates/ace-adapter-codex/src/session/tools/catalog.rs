@@ -8,6 +8,7 @@ use crate::session::frames::{Calls, Effect};
 
 use super::cache::Catalog;
 use super::{CatalogSource, CodexToolFacts};
+use crate::session::state::utf16_len;
 
 /// Enough for any catalog Codex ships or fetches (`maxPages`).
 const MAX_PAGES: u64 = 10;
@@ -80,7 +81,7 @@ impl Pager {
                 self.done = Some(None);
                 return Vec::new();
             };
-            if model.len() > 512 || id.len() > 512 {
+            if utf16_len(model) > 512 || utf16_len(id) > 512 {
                 self.done = Some(None);
                 return Vec::new();
             }
@@ -99,7 +100,7 @@ impl Pager {
                 self.done = Some(Some(std::mem::take(&mut self.slugs)));
                 Vec::new()
             }
-            Some(cursor) if cursor.len() > 4096 || self.pages >= MAX_PAGES => {
+            Some(cursor) if utf16_len(&cursor) > 4096 || self.pages >= MAX_PAGES => {
                 self.done = Some(None);
                 Vec::new()
             }
@@ -133,7 +134,7 @@ impl Config {
         let bounded = |key: &str, max: usize| -> Option<Option<String>> {
             match config.get(key) {
                 None | Some(Value::Null) => Some(None),
-                Some(Value::String(text)) if text.as_str().len() <= max => {
+                Some(Value::String(text)) if utf16_len(text.as_str()) <= max => {
                     Some(Some(text.as_str().to_owned()))
                 }
                 Some(_) => None,
@@ -152,7 +153,7 @@ impl Config {
                         .and_then(|entry| entry.get("model_catalog_url"))
                     {
                         None | Some(Value::Null) => None,
-                        Some(Value::String(text)) if text.as_str().len() <= 4096 => {
+                        Some(Value::String(text)) if utf16_len(text.as_str()) <= 4096 => {
                             Some(text.as_str().to_owned())
                         }
                         _ => return None,
