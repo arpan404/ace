@@ -134,6 +134,7 @@ dependencies = [
  "ace-adapter-opencode",
  "ace-adapter-pi",
  "ace-core",
+ "ace-engine",
  "ace-git",
  "ace-json",
  "ace-projection",
@@ -141,6 +142,7 @@ dependencies = [
  "ace-supervisor",
  "ace-transport",
  "bytes",
+ "getrandom 0.4.3",
  "napi",
  "napi-build",
  "napi-derive",
@@ -157,13 +159,13 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-core",
+ "ace-json",
  "ace-store",
  "async-task",
  "concurrent-queue",
  "futures",
  "lru",
  "serde",
- "serde_json",
  "thiserror",
 ]
 

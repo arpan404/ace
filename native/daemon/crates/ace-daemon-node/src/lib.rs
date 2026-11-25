@@ -77,6 +77,11 @@ fn fail(error: Error) -> napi::Error {
 #[napi]
 pub struct NativeDatabase {
     connection: Arc<Connection>,
+    /// The one transaction stack this connection owns (E5.1); the TypeScript shell and the
+    /// Rust engine share it, so either may nest inside the other's transaction.
+    transaction: std::cell::RefCell<
+        Option<std::rc::Rc<std::cell::RefCell<writer::transaction::StackState>>>,
+    >,
 }
 
 impl NativeDatabase {
@@ -85,6 +90,21 @@ impl NativeDatabase {
     #[allow(dead_code)]
     pub(crate) fn connection(&self) -> &Arc<Connection> {
         &self.connection
+    }
+
+    /// The connection's transaction stack state, created on first use.
+    pub(crate) fn transaction_state(
+        &self,
+    ) -> std::rc::Rc<std::cell::RefCell<writer::transaction::StackState>> {
+        let mut slot = self.transaction.borrow_mut();
+        if let Some(state) = slot.as_ref() {
+            return std::rc::Rc::clone(state);
+        }
+        let state = std::rc::Rc::new(std::cell::RefCell::new(
+            writer::transaction::StackState::default(),
+        ));
+        *slot = Some(std::rc::Rc::clone(&state));
+        state
     }
 }
 
@@ -100,7 +120,10 @@ impl NativeDatabase {
             },
         )
         .map_err(fail)?;
-        Ok(NativeDatabase { connection })
+        Ok(NativeDatabase {
+            connection,
+            transaction: std::cell::RefCell::new(None),
+        })
     }
 
     #[napi(catch_unwind)]

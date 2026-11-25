@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The transaction stack behind `ACE_STORE_WRITER=transactions` (task 5.5). Depth, savepoints,
-//! `BEGIN IMMEDIATE`, `RELEASE`, savepoint recovery, the doomed flag, rollback, settlement
-//! positions and the publication order live in `ace_store::writer::transaction`. This shell
-//! holds the `Event` objects and the settlement callbacks, applies the returned `events_len`
-//! and `steps` exactly as given, and holds no position of its own.
+//! The transaction stack behind `ACE_STORE_WRITER=transactions` (task 5.5; E5.1's shared stack).
+//! Depth, savepoints, `BEGIN IMMEDIATE`, `RELEASE`, savepoint recovery, the doomed flag,
+//! rollback, settlement positions and the publication order live in
+//! `ace_store::writer::transaction`. This shell holds the `Event` objects and the settlement
+//! callbacks, applies the returned `events_len` and `steps` exactly as given, and holds no
+//! position of its own.
+//!
+//! E5.1 splits `transaction` into `open` and `close` so the Rust engine can run its body inside
+//! the same context a JavaScript caller gets (before the body, to after its last step), and
+//! releases each committed transaction's after-commit wakes after that transaction's own
+//! publication — even when a listener throws.
 
 import { appendFileSync } from "node:fs";
 import { nativeCall, nativeHandle, sqliteError } from "@ace/provider-kit/sqlite";
-import type { DatabaseSync, NativeSqliteFailure } from "@ace/provider-kit/sqlite";
+import type { DatabaseSync } from "@ace/provider-kit/sqlite";
+import type { NativeSqliteFailure } from "@ace/provider-kit/sqlite";
 import type { Event } from "@ace/protocol";
 import {
   SettlementPass,
@@ -35,6 +42,8 @@ interface NativeStack {
   noteEvents(len: number): void;
   succeed(frame: number): string;
   fail(frame: number): string;
+  releaseWakes(frame: number): void;
+  detachSink(): number[];
 }
 
 /** The methods this shell uses on the addon's database handle. */
@@ -75,7 +84,23 @@ interface Context {
   outcomes: Map<number, TransactionOutcome>;
 }
 
+/**
+ * A transaction between `open` and `close`: the shell's frame handle (null when a history
+ * install runs the body without a transaction), the context it belongs to, its own outcome id
+ * and whether it opened the top level.
+ */
+export interface OpenFrame {
+  token: number;
+  frame: number | null;
+  context: Context | null;
+  own: number | undefined;
+  outcome: TransactionOutcome | undefined;
+  top: boolean;
+}
+
 export class NativeTransactions {
+  /** The database this shell's stack runs on, for the engine's bindings. */
+  readonly db: DatabaseSync;
   private readonly stack: NativeStack;
   private readonly host: TransactionHost;
   /** Whether this store has written its evidence line (the proof's evidence file). */
@@ -86,6 +111,9 @@ export class NativeTransactions {
    * listener that appends starts a fresh top-level transaction as it does in the TypeScript.
    */
   private readonly contexts: Context[] = [];
+  /** The open frames the Rust engine's ports hold between `open` and `close`. */
+  private readonly openFrames = new Map<number, OpenFrame>();
+  private nextOpen = 1;
   private nextOutcome = 1;
   /** The first nested exception that doomed the transaction (the TypeScript `doomed`). */
   private doomCause: unknown;
@@ -98,6 +126,7 @@ export class NativeTransactions {
     if (!handle) throw new Error("ACE_STORE=native needs the store addon");
     this.stack = nativeCall(() => handle.transactionStack());
     this.host = options.host;
+    this.db = options.db;
   }
 
   /** Whether this store has a top-level or nested transaction open. */
@@ -113,12 +142,49 @@ export class NativeTransactions {
     nativeCall(() => this.stack.noteEvents(context.events.length));
   }
 
+  /** The engine's `appendEvents` port: a batch of events as JSON text, appended once. */
+  appendEvents(json: string): void {
+    this.append(JSON.parse(json) as Event[]);
+  }
+
   transaction<T>(run: () => T, outcome?: TransactionOutcome): T {
+    const frame = this.open(outcome);
+    if (frame.frame === null) return run();
+    let value: T | undefined;
+    let thrown: unknown;
+    let threw = false;
+    try {
+      value = run();
+      if (value instanceof Promise) throw new Error("Store transactions must be synchronous");
+    } catch (error) {
+      threw = true;
+      thrown = error;
+    }
+    // Exactly the TypeScript's precedence: `finishTop`/`finishNested` run before the body's
+    // error is rethrown, so a rollback handling failure is what escapes.
+    this.close(frame, threw ? { threw: true, error: thrown } : { threw: false });
+    if (threw) throw thrown;
+    return value as T;
+  }
+
+  /**
+   * Flush, the history check, the context push (when it opens the top), the outcome's
+   * registration, `stack.begin`, the evidence line and `beginThreads`.
+   */
+  open(outcome?: TransactionOutcome): OpenFrame {
     this.host.flush();
     if (this.host.installingHistory()) {
-      // installHistory drains the buffer before it begins; a live write retries after it.
+      // installHistory drains the buffer before it begins; a live write retries after it. The
+      // bypass opens no frame and remembers nothing, so no map entry can outlive it.
       if (outcome) throw new Error("Store is busy");
-      return run();
+      return {
+        token: 0,
+        frame: null,
+        context: null,
+        own: undefined,
+        outcome: undefined,
+        top: false,
+      };
     }
     const top = this.contexts.length === 0;
     if (top) this.contexts.push({ events: [], outcomes: new Map() });
@@ -133,35 +199,51 @@ export class NativeTransactions {
       if (top) this.contexts.pop();
       throw error;
     }
-    let value: T | undefined;
-    let thrown: unknown;
-    let threw = false;
+    const open = this.remember({ frame, context, own, outcome, top });
     try {
       this.recordEvidence();
       if (top) this.host.beginThreads();
-      value = run();
-      if (value instanceof Promise) throw new Error("Store transactions must be synchronous");
     } catch (error) {
-      threw = true;
-      thrown = error;
+      this.close(open, { threw: true, error });
+      throw error;
     }
+    return open;
+  }
+
+  /** `finishCall`, then the nested or top finish, then the transaction's wake release. */
+  close(
+    frame: OpenFrame | number,
+    result: { threw: false } | { threw: true; error: unknown },
+  ): void {
+    const open = typeof frame === "number" ? this.openFrames.get(frame) : frame;
+    if (open === undefined) return;
+    this.openFrames.delete(open.token);
+    if (open.frame === null) return;
+    const { frame: id, context, own, outcome, top } = open;
+    if (context === null) return;
     let finish: NativeFinish;
-    if (threw) {
-      finish = this.finishCall(frame, false);
+    if (result.threw) {
+      finish = this.finishCall(id, false);
       // The frame's own outcome never settled on a failure: the caller sees the error.
       if (own !== undefined) context.outcomes.delete(own);
-      if (!top && finish.ending === "rolledBack") this.rememberDoom(thrown);
+      if (!top && finish.ending === "rolledBack") this.rememberDoom(result.error);
     } else {
-      finish = this.finishCall(frame, true);
+      finish = this.finishCall(id, true);
       if (!top && finish.error !== null && finish.ending === "rolledBack")
         this.rememberDoom(sqliteError(finish.error));
     }
-    const failure = finish.error === null || threw ? undefined : this.finishError(finish.error);
-    if (top) this.finishTop(finish, context, own, outcome);
+    const failure =
+      finish.error === null || result.threw ? undefined : this.finishError(finish.error);
+    if (top) this.finishTop(finish, context, own, outcome, id);
     else this.finishNested(finish, context);
-    if (threw) throw thrown;
+    if (result.threw) return;
     if (failure !== undefined) throw failure;
-    return value as T;
+  }
+
+  private remember(open: Omit<OpenFrame, "token">): OpenFrame {
+    const frame: OpenFrame = { token: this.nextOpen++, ...open };
+    this.openFrames.set(frame.token, frame);
+    return frame;
   }
 
   private register(context: Context, outcome: TransactionOutcome): number {
@@ -190,6 +272,7 @@ export class NativeTransactions {
     context: Context,
     own: number | undefined,
     outcome: TransactionOutcome | undefined,
+    frame: number,
   ): void {
     try {
       if (finish.ending === "committed") {
@@ -202,7 +285,7 @@ export class NativeTransactions {
         // The SQL transaction is over: a listener that writes now opens a new top-level one.
         this.pop(context);
         this.resetDoom();
-        this.publishSteps(finish, context, own, outcome);
+        this.publishSteps(finish, context, own, outcome, frame);
       } else {
         if (finish.rolledBack) this.host.topRolledBack();
         // Rust has reset its stack: close the JS side before a callback can re-enter and write.
@@ -259,36 +342,47 @@ export class NativeTransactions {
     context: Context,
     own: number | undefined,
     outcome: TransactionOutcome | undefined,
+    frame: number,
   ): void {
     const pass = new SettlementPass((error) => this.host.onError(error));
     const report: FailureReport = (error) => pass.report(error);
-    // A publishing outer outcome settles first; a reservation (non-publishing) settles last,
-    // after the usage listeners, exactly as the TypeScript's two guards do.
-    if (outcome?.publishes) pass.step(() => outcome.committed(report));
-    if (own !== undefined) context.outcomes.delete(own);
-    for (const step of finish.steps) {
-      if (step.kind === "publish") {
-        pass.step(() => this.host.publish(context.events.slice(step.from, step.to), report));
-        continue;
+    try {
+      // A publishing outer outcome settles first; a reservation (non-publishing) settles last,
+      // after the usage listeners, exactly as the TypeScript's two guards do.
+      if (outcome?.publishes) pass.step(() => outcome.committed(report));
+      if (own !== undefined) context.outcomes.delete(own);
+      for (const step of finish.steps) {
+        if (step.kind === "publish") {
+          pass.step(() => this.host.publish(context.events.slice(step.from, step.to), report));
+          continue;
+        }
+        if (step.id === own) continue;
+        const settled = context.outcomes.get(step.id);
+        context.outcomes.delete(step.id);
+        if (settled === undefined) continue;
+        settleOutcomes([{ outcome: settled }], step.how, (error) => this.host.onError(error), pass);
       }
-      if (step.id === own) continue;
-      const settled = context.outcomes.get(step.id);
-      context.outcomes.delete(step.id);
-      if (settled === undefined) continue;
-      settleOutcomes([{ outcome: settled }], step.how, (error) => this.host.onError(error), pass);
-    }
-    for (const listener of this.host.usage()) {
-      try {
-        listener();
-      } catch (error) {
+      for (const listener of this.host.usage()) {
         try {
-          this.host.onError(error);
-        } catch {
-          /* committed */
+          listener();
+        } catch (error) {
+          try {
+            this.host.onError(error);
+          } catch {
+            /* committed */
+          }
         }
       }
+      if (outcome && !outcome.publishes) pass.step(() => outcome.committed(report));
+    } finally {
+      // The frame's wakes run only now, after every publish and settlement of its own
+      // transaction: a listener or settlement that throws never strands them.
+      try {
+        nativeCall(() => this.stack.releaseWakes(frame));
+      } catch (error) {
+        this.host.onError(error);
+      }
     }
-    if (outcome && !outcome.publishes) pass.step(() => outcome.committed(report));
     pass.rethrow();
   }
 

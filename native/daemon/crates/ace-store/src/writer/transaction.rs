@@ -68,6 +68,12 @@ pub struct Finish {
     pub error: Option<FinishError>,
     /// Bump `rollbackGeneration` and drop the read and sidebar caches.
     pub rolled_back: bool,
+    /// The after-commit tokens this finish releases, in the order they joined (top-level commit
+    /// only). Never in `finish_json`: they stay on the caller's side.
+    pub released: Vec<u64>,
+    /// The after-commit tokens this finish drops: a nested rollback drops those that joined since
+    /// its frame began, and a top-level rollback drops all of them.
+    pub dropped: Vec<u64>,
 }
 
 /// One open frame: its depth, savepoint, and the positions it began at.
@@ -77,6 +83,7 @@ pub struct Frame {
     savepoint: Option<String>,
     events_len: usize,
     settlements_len: usize,
+    tokens_len: usize,
     own: Option<SettlementId>,
 }
 
@@ -102,6 +109,8 @@ pub struct TransactionStack {
     doomed: Option<Error>,
     events_len: usize,
     settlements: Vec<Settlement>,
+    /// After-commit tokens in the order they joined the outermost transaction.
+    tokens: Vec<u64>,
 }
 
 impl TransactionStack {
@@ -130,6 +139,7 @@ impl TransactionStack {
                 savepoint: Some(savepoint),
                 events_len: self.events_len,
                 settlements_len: self.settlements.len(),
+                tokens_len: self.tokens.len(),
                 own,
             });
         }
@@ -141,8 +151,19 @@ impl TransactionStack {
             savepoint: None,
             events_len: 0,
             settlements_len: self.settlements.len(),
+            tokens_len: 0,
             own,
         })
+    }
+
+    /// Inside an open transaction: `token` joins the after-commit list at the current frame and
+    /// returns true. Outside one: returns false, and the caller releases at once.
+    pub fn after_commit(&mut self, token: u64) -> bool {
+        if !self.open {
+            return false;
+        }
+        self.tokens.push(token);
+        true
     }
 
     /// The caller's event list grew to `len` (events written inside the open transaction).
@@ -191,6 +212,8 @@ impl TransactionStack {
                     reports: Vec::new(),
                     error: None,
                     rolled_back: false,
+                    released: std::mem::take(&mut self.tokens),
+                    dropped: Vec::new(),
                 }
             }
             Err(error) => {
@@ -223,6 +246,8 @@ impl TransactionStack {
                     reports: Vec::new(),
                     error: None,
                     rolled_back: false,
+                    released: Vec::new(),
+                    dropped: Vec::new(),
                 }
             }
             Err(error) => {
@@ -235,6 +260,7 @@ impl TransactionStack {
                     self.doom(error.clone());
                 }
                 let steps = self.settle_since(frame.settlements_len);
+                let dropped = self.tokens.split_off(frame.tokens_len);
                 self.events_len = frame.events_len;
                 Finish {
                     ending: nested_ending(recovered),
@@ -243,6 +269,8 @@ impl TransactionStack {
                     reports,
                     error: Some(FinishError::Sqlite(error)),
                     rolled_back: true,
+                    released: Vec::new(),
+                    dropped,
                 }
             }
         }
@@ -265,6 +293,7 @@ impl TransactionStack {
             self.doom(cause);
         }
         let steps = self.settle_since(frame.settlements_len);
+        let dropped = self.tokens.split_off(frame.tokens_len);
         self.events_len = frame.events_len;
         self.depth = frame.depth.saturating_sub(1);
         Finish {
@@ -274,6 +303,8 @@ impl TransactionStack {
             reports,
             error: None,
             rolled_back: true,
+            released: Vec::new(),
+            dropped,
         }
     }
 
@@ -290,6 +321,8 @@ impl TransactionStack {
             reports,
             error,
             rolled_back: true,
+            released: Vec::new(),
+            dropped: std::mem::take(&mut self.tokens),
         }
     }
 
@@ -420,6 +453,8 @@ pub fn atomic<T>(
                     reports: Vec::new(),
                     error: Some(FinishError::Sqlite(error)),
                     rolled_back: false,
+                    released: Vec::new(),
+                    dropped: Vec::new(),
                 },
             );
         }
@@ -544,3 +579,186 @@ impl fmt::Display for FinishError {
 }
 
 impl std::error::Error for FinishError {}
+
+/// The after-commit list beside the settlements: a token is released by an outermost commit or
+/// dropped by a rollback, exactly once, ever. New behaviour: nothing in the TypeScript store
+/// deferred work on the transaction stack before E5.1, so no case moved here.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Connection, OpenOptions};
+
+    fn connection() -> std::sync::Arc<Connection> {
+        Connection::open(
+            ":memory:",
+            OpenOptions {
+                read_only: false,
+                timeout_ms: 0,
+            },
+        )
+        .expect("open in-memory store")
+    }
+
+    fn table() -> std::sync::Arc<Connection> {
+        let connection = connection();
+        connection
+            .exec("CREATE TABLE t (v INTEGER)")
+            .expect("table");
+        connection
+    }
+
+    /// Every token in exactly one of the two lists, exactly once.
+    fn assert_once(finish: &Finish, released: &[u64], dropped: &[u64]) {
+        assert_eq!(finish.released, released, "released");
+        assert_eq!(finish.dropped, dropped, "dropped");
+        let mut seen: Vec<u64> = finish
+            .released
+            .iter()
+            .chain(finish.dropped.iter())
+            .copied()
+            .collect();
+        seen.sort_unstable();
+        let mut expected: Vec<u64> = released.iter().chain(dropped.iter()).copied().collect();
+        expected.sort_unstable();
+        assert_eq!(seen, expected, "each token once");
+    }
+
+    #[test]
+    fn a_token_outside_a_transaction_joins_nothing() {
+        let mut stack = TransactionStack::new();
+        assert!(!stack.after_commit(1));
+        assert!(stack.tokens.is_empty());
+    }
+
+    #[test]
+    fn a_top_level_commit_releases_the_tokens_in_join_order() {
+        let connection = table();
+        let mut stack = TransactionStack::new();
+        let frame = stack.begin(&connection, None).expect("begin");
+        assert!(stack.after_commit(7));
+        assert!(stack.after_commit(3));
+        let finish = stack.succeed(&connection, frame);
+        assert_once(&finish, &[7, 3], &[]);
+        assert!(stack.tokens.is_empty());
+    }
+
+    #[test]
+    fn a_top_level_rollback_drops_the_tokens() {
+        let connection = table();
+        let mut stack = TransactionStack::new();
+        let frame = stack.begin(&connection, None).expect("begin");
+        assert!(stack.after_commit(7));
+        let finish = stack.fail(&connection, frame);
+        assert_once(&finish, &[], &[7]);
+        assert!(stack.tokens.is_empty());
+    }
+
+    #[test]
+    fn a_nested_release_keeps_the_token_pending_for_the_outermost_commit() {
+        let connection = table();
+        let mut stack = TransactionStack::new();
+        let outer = stack.begin(&connection, None).expect("begin");
+        let inner = stack.begin(&connection, None).expect("savepoint");
+        assert!(stack.after_commit(5));
+        let finish = stack.succeed(&connection, inner);
+        assert_once(&finish, &[], &[]);
+        assert_eq!(stack.tokens, vec![5]);
+        let finish = stack.succeed(&connection, outer);
+        assert_once(&finish, &[5], &[]);
+    }
+
+    #[test]
+    fn a_nested_rollback_drops_only_the_tokens_that_joined_since_its_begin() {
+        let connection = table();
+        let mut stack = TransactionStack::new();
+        let outer = stack.begin(&connection, None).expect("begin");
+        assert!(stack.after_commit(1));
+        let inner = stack.begin(&connection, None).expect("savepoint");
+        assert!(stack.after_commit(2));
+        let sibling = stack.begin(&connection, None).expect("savepoint");
+        assert!(stack.after_commit(3));
+        let finish = stack.fail(&connection, sibling);
+        assert_once(&finish, &[], &[3]);
+        assert_eq!(stack.tokens, vec![1, 2]);
+        let finish = stack.fail(&connection, inner);
+        assert_once(&finish, &[], &[2]);
+        assert_eq!(stack.tokens, vec![1]);
+        let finish = stack.succeed(&connection, outer);
+        assert_once(&finish, &[1], &[]);
+    }
+
+    /// The table: each way a transaction ends, and what happens to tokens joined inside it.
+    #[test]
+    fn every_ending_releases_or_drops_each_token_exactly_once() {
+        // (name, inner finish, outer commit, released at the inner finish, dropped at the inner
+        // finish, released at the outer finish, dropped at the outer finish)
+        #[allow(clippy::type_complexity)]
+        let cases: [(&str, Option<bool>, bool, &[u64], &[u64], &[u64], &[u64]); 5] = [
+            ("top commit", None, true, &[], &[], &[1], &[]),
+            ("top rollback", None, false, &[], &[], &[], &[1]),
+            (
+                "nested commit then top commit",
+                Some(true),
+                true,
+                &[],
+                &[],
+                &[1],
+                &[],
+            ),
+            (
+                "nested rollback then top commit",
+                Some(false),
+                true,
+                &[],
+                &[1],
+                &[],
+                &[],
+            ),
+            (
+                "nested rollback then top rollback",
+                Some(false),
+                false,
+                &[],
+                &[1],
+                &[],
+                &[],
+            ),
+        ];
+        for (name, inner, outer_commit, inner_released, inner_dropped, released, dropped) in cases {
+            let connection = table();
+            let mut stack = TransactionStack::new();
+            let outer = stack.begin(&connection, None).expect("begin");
+            match inner {
+                None => assert!(stack.after_commit(1), "{name}"),
+                Some(_) => {
+                    let frame = stack.begin(&connection, None).expect("savepoint");
+                    assert!(stack.after_commit(1), "{name}");
+                    let finish = if inner == Some(true) {
+                        stack.succeed(&connection, frame)
+                    } else {
+                        stack.fail(&connection, frame)
+                    };
+                    assert_once(&finish, inner_released, inner_dropped);
+                }
+            }
+            let finish = if outer_commit {
+                stack.succeed(&connection, outer)
+            } else {
+                stack.fail(&connection, outer)
+            };
+            assert_once(&finish, released, dropped);
+        }
+    }
+
+    #[test]
+    fn finish_json_never_shows_the_tokens() {
+        let connection = table();
+        let mut stack = TransactionStack::new();
+        let frame = stack.begin(&connection, None).expect("begin");
+        assert!(stack.after_commit(9));
+        let finish = stack.succeed(&connection, frame);
+        let json = finish_json(&finish);
+        assert!(!json.contains("released"), "{json}");
+        assert!(!json.contains("dropped"), "{json}");
+    }
+}

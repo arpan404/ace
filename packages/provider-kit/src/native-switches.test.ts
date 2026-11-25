@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import {
   canonicalWriterParts,
+  engineSwitchRefusal,
   explicitTransportPhases,
   NativeSwitchConflict,
   resolveSwitches,
@@ -197,6 +198,80 @@ test.each<SessionRefusalCase>([
   },
 ])("$name", ({ sessions, store, supervisor, cross, refusal }) => {
   expect(sessionSwitchRefusal({ sessions, store, supervisor, cross })).toBe(refusal);
+});
+
+interface EngineRefusalCase {
+  name: string;
+  engine: boolean;
+  store: boolean;
+  writer: readonly StoreWriterPart[];
+  cross: CrossSwitch | undefined;
+  refusal: string | undefined;
+}
+
+/**
+ * A native engine needs the native store and its Rust transaction stack, and never a cross boot
+ * on the store or its writer: a boot without that stack cannot host the engine.
+ */
+test.each<EngineRefusalCase>([
+  {
+    name: "a named engine without the native store",
+    engine: true,
+    store: false,
+    writer: ["fold", "sequences", "events", "columns", "live", "transactions"],
+    cross: undefined,
+    refusal: "ACE_ENGINE needs ACE_STORE=native",
+  },
+  {
+    name: "a named engine without the writer's transactions",
+    engine: true,
+    store: true,
+    writer: ["fold", "sequences", "events", "columns", "live"],
+    cross: undefined,
+    refusal: "ACE_ENGINE needs ACE_STORE_WRITER=…,transactions",
+  },
+  {
+    name: "a named engine under the writer's cross switch",
+    engine: true,
+    store: true,
+    writer: ["fold", "sequences", "events", "columns", "live", "transactions"],
+    cross: "ACE_STORE_WRITER",
+    refusal: "ACE_NATIVE_CROSS=ACE_STORE_WRITER cannot run with ACE_ENGINE",
+  },
+  {
+    name: "a named engine under the store's cross switch",
+    engine: true,
+    store: true,
+    writer: ["fold", "sequences", "events", "columns", "live", "transactions"],
+    cross: "ACE_STORE",
+    refusal: "ACE_NATIVE_CROSS=ACE_STORE cannot run with ACE_ENGINE",
+  },
+  {
+    name: "store and writer both missing, which names the store first",
+    engine: true,
+    store: false,
+    writer: [],
+    cross: undefined,
+    refusal: "ACE_ENGINE needs ACE_STORE=native",
+  },
+  {
+    name: "the cross gate naming the engine switch without a native store",
+    engine: false,
+    store: false,
+    writer: [],
+    cross: "ACE_ENGINE",
+    refusal: "ACE_ENGINE needs ACE_STORE=native",
+  },
+  {
+    name: "everything the engine needs is present",
+    engine: true,
+    store: true,
+    writer: ["fold", "sequences", "events", "columns", "live", "transactions"],
+    cross: undefined,
+    refusal: undefined,
+  },
+])("$name", ({ engine, store, writer, cross, refusal }) => {
+  expect(engineSwitchRefusal({ engine, store, writer: new Set(writer), cross })).toBe(refusal);
 });
 
 /** The variables a fresh switch module reads at load: the gate's and the writer's own. */
