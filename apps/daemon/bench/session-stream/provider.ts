@@ -20,7 +20,7 @@ export interface BenchTranslator {
 export type BenchMode = "A" | "B" | "C" | "D";
 
 export interface BenchProvider {
-  readonly id: "pi" | "acp";
+  readonly id: "pi" | "acp" | "codex";
   /** Frames one turn delivers: the fake's lines plus the frames the session itself sends. */
   readonly framesPerTurn: number;
   /** The addon export the sessions mode needs; without it the run is refused, loudly. */

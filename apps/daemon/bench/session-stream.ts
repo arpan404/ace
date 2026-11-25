@@ -20,7 +20,7 @@
  * reports the median D/A ratio. A provider may be default-on only when that median is <= 1.00
  * and D's median frames per second is at least A's (the owner's rule, E3.0d step 6).
  *
- *   bun apps/daemon/bench/session-stream.ts [--provider pi|acp] [--rounds 3] [--output file]
+ *   bun apps/daemon/bench/session-stream.ts [--provider pi|acp|codex] [--rounds 3] [--output file]
  *   bun --expose-gc apps/daemon/bench/session-stream.ts --mode A [--output file]
  *
  * It never starts a real CLI and spends no quota. It is not a test and runs in no test tier.
@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { acp } from "./session-stream/acp.ts";
+import { codex } from "./session-stream/codex.ts";
 import { pi } from "./session-stream/pi.ts";
 import type { BenchMode, BenchProvider } from "./session-stream/provider.ts";
 
@@ -49,8 +50,8 @@ const LOAD_LIMIT = 60;
 
 const script = fileURLToPath(import.meta.url);
 
-/** Every provider the bench can drive; a `codex.ts` joins this map with E3-codex.5. */
-const PROVIDERS: Readonly<Record<string, BenchProvider>> = { pi, acp };
+/** Every provider the bench can drive. */
+const PROVIDERS: Readonly<Record<string, BenchProvider>> = { pi, acp, codex };
 const SWITCH_KEYS = [
   "ACE_TRANSLATORS",
   "ACE_STORE",
@@ -77,7 +78,7 @@ const ModeResultSchema = z.object({
 type ModeResult = z.infer<typeof ModeResultSchema>;
 
 const EvidenceLine = z.object({
-  provider: z.enum(["pi", "acp"]),
+  provider: z.enum(["pi", "acp", "codex"]),
   backend: z.literal("native"),
   pid: z.number().int(),
 });
