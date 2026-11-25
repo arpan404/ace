@@ -161,6 +161,7 @@ test("an added OpenCode account whose data folder loses its owner's access while
   // same inode, and every later command in it fails with EACCES.
   await chmod(data, 0o600);
   await f.models.refresh({ instance: account.id });
+  expect(f.models.list({ instance: account.id }).instances[0]?.error).toBeUndefined();
   expect(listed()).toContain("opencode-go/muse-spark-1.3-contributor");
   expect(await ownerMode(data)).toBe(0o700);
 });
