@@ -9,7 +9,7 @@
 //! E5.1 splits `transaction` into `open` and `close` so the Rust engine can run its body inside
 //! the same context a JavaScript caller gets (before the body, to after its last step), and
 //! releases each committed transaction's after-commit wakes after that transaction's own
-//! publication — even when a listener throws.
+//! publication - even when a listener throws.
 
 import { appendFileSync } from "node:fs";
 import { nativeCall, nativeHandle, sqliteError } from "@ace/provider-kit/sqlite";
