@@ -12,11 +12,10 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use spade_core::digest::schedule::{self, Settings};
 use spade_core::digest::{self, Digest, polish, render};
-use spade_core::escalation::{self, Level};
+use spade_core::escalation;
 use spade_core::event::Known;
-use spade_core::reach::batch::{AskKind, PendingAsk, TreeRoot};
-use spade_core::reach::notable::{engaged, notable};
-use spade_core::reach::{self, Approvals, Category};
+use spade_core::reach::notable::notable;
+use spade_core::reach::{self, Category};
 use spade_core::{Event, routing::Role};
 use spade_store::{NewDigest, StoreError, StoredDigest, StoredEvent};
 use tokio::sync::{Notify, broadcast};
@@ -70,7 +69,9 @@ pub enum DigestError {
 impl Engine {
     /// Notices from now on: digests as they are stored, and events with an escalation level.
     pub fn subscribe_notices(&self) -> broadcast::Receiver<Value> {
-        self.digests.notices.subscribe()
+        let receiver = self.digests.notices.subscribe();
+        self.kick_reach_batcher();
+        receiver
     }
 
     /// Sends a notice for each of `events` worth telling the person: those with a level, and a
@@ -87,6 +88,13 @@ impl Engine {
             let Event::Known(known) = &stored.event else {
                 continue;
             };
+            if matches!(
+                known,
+                Known::ApprovalRequested { .. } | Known::QuestionAsked { .. }
+            ) {
+                self.kick_reach_batcher();
+                continue;
+            }
             let found = if matches!(
                 known,
                 Known::ReplyFinished { .. } | Known::JobFinished { .. }
@@ -108,37 +116,6 @@ impl Engine {
             }
             // A helper's hidden conversation has no agent: its asks are its bot's.
             let Some(agent) = &agent else { return };
-            let engaged = found.category == Category::NeedsYou
-                && found.level == Some(Level::Ask)
-                && history_of(self, id, &mut history).is_some_and(|(events, stamps)| {
-                    let at_ms: Vec<i64> = stamps.iter().map(|(_, at)| *at).collect();
-                    engaged(&events, &at_ms, self.now_ms() - reach::ENGAGED_MS)
-                });
-            if found.category == Category::NeedsYou
-                && let (Some(kind), Some(level), Some(request)) =
-                    (ask_kind(known), found.level, found.request.clone())
-            {
-                let root = self.tree_root_for(id, agent);
-                self.queue_needs_you(
-                    root,
-                    PendingAsk {
-                        id: format!("event:{id}:{}", stored.seq),
-                        agent: agent.id.clone(),
-                        name: agent.name.clone(),
-                        conversation: id.to_owned(),
-                        seq: stored.seq,
-                        at_ms: stored.at_ms,
-                        kind,
-                        level,
-                        request,
-                        text: found.text,
-                        engaged,
-                        bot_on: true,
-                        approvals: Approvals::Notify,
-                    },
-                );
-                continue;
-            }
             let mut notice = json!({
                 "kind": "event", "agent": agent.id, "name": agent.name, "conversation": id,
                 "seq": stored.seq, "at": stored.at_ms,
@@ -157,29 +134,9 @@ impl Engine {
                 name: agent.name.clone(),
                 category: found.category,
                 level: found.level,
-                engaged,
+                engaged: false,
                 text: found.text,
             });
-        }
-    }
-
-    /// The tree's root bot for `conversation` (`agent` itself when it is not a worker).
-    fn tree_root_for(&self, conversation: &str, agent: &spade_store::Agent) -> TreeRoot {
-        let root_agent = self
-            .worker_ancestors(conversation)
-            .last()
-            .and_then(|root_conv| self.store.agent_for_conversation(root_conv).ok().flatten());
-        match root_agent {
-            Some(root) => TreeRoot {
-                agent: root.id,
-                name: root.name,
-                conversation: root.conversation,
-            },
-            None => TreeRoot {
-                agent: agent.id.clone(),
-                name: agent.name.clone(),
-                conversation: conversation.to_owned(),
-            },
         }
     }
 
@@ -544,14 +501,6 @@ fn history_of(
         *history = engine.load_stamped(id).ok();
     }
     history.clone()
-}
-
-fn ask_kind(known: &Known) -> Option<AskKind> {
-    match known {
-        Known::ApprovalRequested { .. } => Some(AskKind::Approval),
-        Known::QuestionAsked { .. } => Some(AskKind::Question),
-        _ => None,
-    }
 }
 
 fn digest_json(row: &StoredDigest) -> Value {

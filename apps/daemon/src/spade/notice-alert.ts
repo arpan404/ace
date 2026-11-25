@@ -25,7 +25,7 @@ const SpadeNotice = z.looseObject({
   request: z.string().min(1).max(200).optional().catch(undefined),
   digest: z.number().int().nonnegative().optional().catch(undefined),
   text: words(300).catch(""),
-  items: z.array(SpadeNoticeItem).max(50).optional().catch(undefined),
+  items: z.array(SpadeNoticeItem).optional().catch(undefined),
 });
 
 /** The alert's title by what the notice is about; the bot's name for the rest. */
@@ -49,17 +49,15 @@ export function alertFromSpadeNotice(data: string, threadId: ThreadId): Notifica
   const parsed = SpadeNotice.safeParse(raw);
   if (!parsed.success || parsed.data.reach !== "now") return undefined;
   const notice = parsed.data;
-  const items = notice.items
-    ?.map((item) => ({
+  const items = notice.items?.slice(0, 50).map((item) => ({
       agent: item.agent,
       ...(item.conversation ? { conversation: item.conversation } : {}),
       ...(item.request ? { request: item.request } : {}),
-    }))
-    .slice(0, 50);
+    }));
   // If a batch's items all belong to one conversation, deep-link directly to that owner.
   const firstItem = items?.[0];
   const singleOwner =
-    firstItem?.conversation && items.every((item) => item.conversation === firstItem.conversation)
+    firstItem?.conversation && notice.items?.every((item) => item.conversation === firstItem.conversation)
       ? firstItem
       : undefined;
   const targetAgent = singleOwner?.agent ?? notice.agent;

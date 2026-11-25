@@ -5,6 +5,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub trait Clock: Send + Sync {
     /// Milliseconds since the Unix epoch.
     fn now_ms(&self) -> i64;
+
+    /// Monotonic time for the needs-you coalescing window.
+    fn batch_now(&self) -> std::time::Instant {
+        std::time::Instant::now()
+    }
 }
 
 pub trait Ids: Send + Sync {

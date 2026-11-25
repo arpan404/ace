@@ -3,22 +3,17 @@
 //! the interruption budget), this records what was sent and what waits, and the timer sends one
 //! summary when quiet ends. What waited goes into the bot's next digest and the morning brief.
 
-use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use spade_core::reach::batch::{self, PendingAsk, TreeRoot};
 use spade_core::reach::notice::{self as bot_notice, Rate};
 use spade_core::reach::{
     self, AgentReach, Category, Decision, Moment, Notice, Reach, Settings, Why, settings,
 };
 use spade_store::StoreError;
 use tokio::sync::Notify;
-use tokio::time::Instant;
 
 use super::Engine;
 
@@ -40,18 +35,12 @@ fn notify_key(agent: &str) -> String {
     format!("reach:notify:{agent}")
 }
 
-struct PendingTree {
-    root: TreeRoot,
-    items: Vec<PendingAsk>,
-    deadline: Instant,
-}
+mod batcher;
 
 #[derive(Default)]
 pub(super) struct Shared {
     /// Held and sent are read, changed and written under it.
     lock: Mutex<()>,
-    /// Pending `needs_you` asks per tree root waiting briefly to coalesce into one notice.
-    pending: Mutex<HashMap<String, PendingTree>>,
     batch_kick: Arc<Notify>,
 }
 
@@ -104,11 +93,15 @@ impl Engine {
         &self,
         key: &str,
     ) -> Result<T, StoreError> {
-        Ok(self
-            .store
-            .setting(key)?
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default())
+        self.store.setting(key)?.map_or_else(
+            || Ok(T::default()),
+            |raw| {
+                serde_json::from_str(&raw).map_err(|source| StoreError::SettingJson {
+                    key: key.to_owned(),
+                    source,
+                })
+            },
+        )
     }
 
     fn write_json(&self, key: &str, value: &impl Serialize) -> Result<(), StoreError> {
@@ -195,9 +188,13 @@ impl Engine {
 
     /// Minutes after midnight now, in the person's zone.
     pub(super) fn minute_now(&self) -> u16 {
-        let zoned = Timestamp::from_millisecond(self.now_ms())
+        self.reach_minute_in(self.now_ms(), &self.zone())
+    }
+
+    fn reach_minute_in(&self, now: i64, zone: &jiff::tz::TimeZone) -> u16 {
+        let zoned = Timestamp::from_millisecond(now)
             .unwrap_or(Timestamp::UNIX_EPOCH)
-            .to_zoned(self.zone());
+            .to_zoned(zone.clone());
         u16::try_from(i32::from(zoned.hour()) * 60 + i32::from(zoned.minute())).unwrap_or(0)
     }
 
@@ -370,177 +367,6 @@ impl Engine {
             text,
         });
         Ok(())
-    }
-
-    /// Starts the background coalescer that batches rapid `needs_you` notices per bot tree.
-    pub(super) fn start_reach_batcher(self: &Arc<Self>) {
-        let weak = Arc::downgrade(self);
-        let kick = self.reach.batch_kick.clone();
-        tokio::spawn(async move {
-            loop {
-                let Some(engine) = weak.upgrade() else { return };
-                let (ready, next) = engine.take_ready_batches();
-                for batch in ready {
-                    engine.flush_needs_you_tree(batch.root, batch.items);
-                }
-                drop(engine);
-                match next {
-                    Some(deadline) => {
-                        tokio::select! {
-                            () = tokio::time::sleep_until(deadline) => {}
-                            () = kick.notified() => {}
-                        }
-                    }
-                    None => kick.notified().await,
-                }
-            }
-        });
-    }
-
-    /// Queues one pending approval or question under its tree root so several arriving together
-    /// coalesce into one grouped notice; flushes immediately when the background timer isn't
-    /// running.
-    pub(super) fn queue_needs_you(&self, root: TreeRoot, item: PendingAsk) {
-        if !self.digests.running.load(Ordering::SeqCst) {
-            self.flush_needs_you_tree(root, vec![item]);
-            return;
-        }
-        let deadline = Instant::now() + Duration::from_millis(batch::WINDOW_MS);
-        {
-            let mut pending = self.reach.pending.lock().unwrap_or_else(|p| p.into_inner());
-            let entry = pending
-                .entry(root.agent.clone())
-                .or_insert_with(|| PendingTree {
-                    root,
-                    items: Vec::new(),
-                    deadline,
-                });
-            if !entry.items.iter().any(|existing| existing.id == item.id) {
-                entry.items.push(item);
-            }
-        }
-        self.reach.batch_kick.notify_one();
-    }
-
-    fn take_ready_batches(&self) -> (Vec<PendingTree>, Option<Instant>) {
-        let now = Instant::now();
-        let mut pending = self.reach.pending.lock().unwrap_or_else(|p| p.into_inner());
-        let due_keys: Vec<String> = pending
-            .iter()
-            .filter(|(_, batch)| batch.deadline <= now)
-            .map(|(key, _)| key.clone())
-            .collect();
-        let mut ready = Vec::with_capacity(due_keys.len());
-        for key in due_keys {
-            if let Some(batch) = pending.remove(&key) {
-                ready.push(batch);
-            }
-        }
-        let next = pending.values().map(|batch| batch.deadline).min();
-        (ready, next)
-    }
-
-    fn flush_needs_you_tree(&self, root: TreeRoot, mut items: Vec<PendingAsk>) {
-        if items.is_empty() {
-            return;
-        }
-        let planned = match self.plan_and_record_batch(&root, &mut items) {
-            Ok(planned) => planned,
-            Err(error) => {
-                tracing::error!(%error, "could not record a batched notice; sending as it is");
-                let fallback = batch::plan(
-                    &Settings::default(),
-                    &root,
-                    &items,
-                    Moment {
-                        now_ms: self.now_ms(),
-                        minute: self.minute_now(),
-                        sent: &[],
-                    },
-                );
-                for one in fallback {
-                    self.send_planned(one);
-                }
-                return;
-            }
-        };
-        for one in planned {
-            self.send_planned(one);
-        }
-    }
-
-    fn plan_and_record_batch(
-        &self,
-        root: &TreeRoot,
-        items: &mut [PendingAsk],
-    ) -> Result<Vec<batch::Planned>, StoreError> {
-        let settings = self.reach_settings()?;
-        for item in items.iter_mut() {
-            let own = self.bot_reach(&item.agent);
-            item.bot_on = own.notify.unwrap_or(true);
-            item.approvals = own.approvals.unwrap_or(settings.approvals);
-        }
-        let _held = self.reach.lock.lock().unwrap_or_else(|p| p.into_inner());
-        let now = self.now_ms();
-        let mut sent: Vec<i64> = self.read_json(SENT)?;
-        reach::keep_sent(&mut sent, now);
-        let planned = batch::plan(
-            &settings,
-            root,
-            items,
-            Moment {
-                now_ms: now,
-                minute: self.minute_now(),
-                sent: &sent,
-            },
-        );
-        let mut sent_changed = false;
-        let mut held_new: Vec<Held> = Vec::new();
-        for one in &planned {
-            if one.decision.counts {
-                sent.push(now);
-                sent_changed = true;
-            }
-            if let (Reach::Held, Some(why)) = (one.decision.reach, one.decision.why) {
-                held_new.push(Held {
-                    id: one.id.clone(),
-                    agent: one.agent.clone(),
-                    name: one.name.clone(),
-                    at_ms: now,
-                    category: Category::NeedsYou,
-                    text: one.text.clone(),
-                    why,
-                    summarized: false,
-                    digested: false,
-                });
-            }
-        }
-        if sent_changed {
-            self.write_json(SENT, &sent)?;
-        }
-        if !held_new.is_empty() {
-            let mut held: Vec<Held> = self.read_json(HELD)?;
-            held.extend(held_new);
-            trim_held(&mut held);
-            self.write_json(HELD, &held)?;
-        }
-        Ok(planned)
-    }
-
-    fn send_planned(&self, planned: batch::Planned) {
-        self.send_notice(
-            Outgoing {
-                notice: planned.notice,
-                id: planned.id,
-                agent: planned.agent,
-                name: planned.name,
-                category: Category::NeedsYou,
-                level: Some(planned.level),
-                engaged: false,
-                text: planned.text,
-            },
-            planned.decision,
-        );
     }
 }
 

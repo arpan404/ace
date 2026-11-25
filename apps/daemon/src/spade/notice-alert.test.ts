@@ -111,4 +111,23 @@ describe("Spade notices as ace's alerts", () => {
       ],
     });
   });
+  it("keeps the first 50 item targets and honors the root when a later item has another owner", () => {
+    const items = Array.from({ length: 51 }, (_, index) => ({
+      agent: index < 50 ? "a-worker" : "a-other",
+      conversation: index < 50 ? "c-worker" : "c-other",
+      request: `q${index}`,
+    }));
+    const alert = alertFromSpadeNotice(
+      notice({ kind: "needs_you_batch", text: "51 questions waiting.", items }),
+      host,
+    );
+    expect(alert?.message).toBe("51 questions waiting.");
+    expect(alert?.spade).toEqual({
+      agent: "a1",
+      conversation: "c1",
+      category: "needs_you",
+      items: items.slice(0, 50),
+    });
+  });
+
 });

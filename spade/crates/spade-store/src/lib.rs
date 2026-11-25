@@ -17,6 +17,7 @@ mod org_audit;
 mod outside;
 mod oversight;
 mod panels;
+mod pending_asks;
 mod routines;
 mod schema;
 mod seen;
@@ -71,6 +72,11 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("the storage lock was poisoned by a crash")]
     Poisoned,
+    #[error("setting {key} could not be decoded: {source}")]
+    SettingJson {
+        key: String,
+        source: serde_json::Error,
+    },
     /// Only its arrival moves an arriving move on (ADR 0187).
     #[error("move {0} is arriving; only its arrival moves it on")]
     Arriving(String),
@@ -433,6 +439,12 @@ pub(crate) fn append_in(
             "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
             params![conversation, seq, now_ms, event.to_json().to_string()],
         )?;
+        if matches!(
+            event,
+            Event::Known(Known::ApprovalRequested { .. } | Known::QuestionAsked { .. })
+        ) {
+            pending_asks::enqueue(tx, conversation, seq)?;
+        }
         match event {
             Event::Known(Known::Renamed { title }) => tx.execute(
                 "UPDATE conversations SET updated_ms = ?2, title = ?3 WHERE id = ?1",
