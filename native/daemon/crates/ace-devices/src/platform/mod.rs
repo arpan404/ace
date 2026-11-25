@@ -9,11 +9,13 @@
 pub mod boot;
 pub mod budget;
 pub mod commands;
+pub mod device_input;
 pub mod emulator;
 pub mod http;
 pub mod identity;
 pub mod lifecycle;
 pub mod list;
+pub mod scrcpy;
 pub mod sdk;
 pub mod serve_sim;
 pub mod simulators;
