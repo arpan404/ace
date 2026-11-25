@@ -146,6 +146,11 @@ function untilCancelled<T>(work: Promise<T>, signal: AbortSignal | undefined): P
   });
 }
 
+/** The TypeScript answer for a default guarded call (`nonExecutingEnv`). */
+function nonExecutingPolicy(): { env: Record<string, string>; args: string[] } {
+  return { env: nonExecutingEnv(), args: [] };
+}
+
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
@@ -634,7 +639,7 @@ export class GitCli {
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
-      env: nonExecutingEnv(),
+      env: await this.nonExecutingPolicyEnv(),
       signal,
     });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
@@ -686,14 +691,21 @@ export class GitCli {
       : guarded
         ? nonExecutingEnv(keys)
         : hooklessEnv(keys);
+    const prepared = await this.policyFor(
+      {
+        keys,
+        guarded,
+        hookless,
+        transport: transport
+          ? { protocols: transport.protocols, sshCommand: settings.sshCommand }
+          : null,
+      },
+      () => ({ env, args: guarded || transport ? ["-c", "protocol.allow=never"] : [] }),
+    );
     return this.executeRaw(
       cwd,
-      [
-        ...(guarded || transport ? ["-c", "protocol.allow=never"] : []),
-        ...(transport ? credentialHelperArgs(settings.helpers) : []),
-        ...args,
-      ],
-      { ...options, env: { ...options.env, ...env } },
+      [...prepared.args, ...(transport ? credentialHelperArgs(settings.helpers) : []), ...args],
+      { ...options, env: { ...options.env, ...prepared.env } },
     );
   }
 
@@ -763,6 +775,32 @@ export class GitCli {
     return files;
   }
 
+  /**
+   * The execution policy for one call (G2c): the core decides the environment
+   * and guard arguments when `ACE_GIT=core` is on, `typescript` otherwise.
+   */
+  private policyFor(
+    input: {
+      keys: string;
+      guarded: boolean;
+      hookless: boolean;
+      transport: { protocols: readonly string[]; sshCommand?: string | undefined } | null;
+    },
+    typescript: () => { env: Record<string, string>; args: string[] },
+  ): Promise<{ env: Record<string, string>; args: string[] }> {
+    if (this.nativeCore === undefined) return Promise.resolve(typescript());
+    return this.nativeCore.preparePolicy(input, typescript);
+  }
+
+  /** `nonExecutingEnv()`, decided by the core when it is on. */
+  private async nonExecutingPolicyEnv(): Promise<Record<string, string>> {
+    const prepared = await this.policyFor(
+      { keys: "", guarded: true, hookless: false, transport: null },
+      nonExecutingPolicy,
+    );
+    return prepared.env;
+  }
+
   private executionKeys(cwd: string, options: CallOptions): Promise<string> {
     // A directory pinned by descriptor may sit behind a path that no longer leads to it.
     if (options.directoryFd !== undefined) return this.queryExecutionKeys(cwd, options);
@@ -780,7 +818,7 @@ export class GitCli {
       cwd,
       ["-c", "protocol.allow=never", ...executionKeyQuery],
       {
-        env: { ...options.env, ...nonExecutingEnv() },
+        env: { ...options.env, ...(await this.nonExecutingPolicyEnv()) },
         allowFailure: true,
         captureBytes: 1_048_576,
         signal: options.signal,
@@ -801,9 +839,9 @@ export class GitCli {
     cwd: string,
     options: CallOptions,
   ): Promise<{ helpers: GitCredentialHelper[]; sshCommand: string | undefined }> {
-    const query = (args: string[]) =>
+    const query = async (args: string[]) =>
       this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
-        env: nonExecutingEnv(),
+        env: await this.nonExecutingPolicyEnv(),
         allowFailure: true,
         captureBytes: 1_048_576,
         signal: options.signal,

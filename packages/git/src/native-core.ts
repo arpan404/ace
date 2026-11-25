@@ -326,6 +326,69 @@ export class NativeCoreCli {
     }
   }
 
+  /**
+   * The execution policy for one Git call (G2c): the guarded or hookless
+   * environment and the arguments that precede the command. `typescript`
+   * answers the cross gate's off leg unchanged.
+   */
+  preparePolicy(
+    input: {
+      keys?: string;
+      guarded?: boolean;
+      hookless?: boolean;
+      transport?: { protocols: readonly string[]; sshCommand?: string | undefined } | null;
+    },
+    typescript: () => { env: Record<string, string>; args: string[] },
+  ): Promise<{ env: Record<string, string>; args: string[] }> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "preparePolicy", part, selected, completed: "typescript" });
+      return Promise.resolve(typescript());
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        this.handle.prepareCall(
+          JSON.stringify({
+            keys: input.keys ?? "",
+            guarded: input.guarded === true,
+            hookless: input.hookless === true,
+            transport:
+              input.transport === null || input.transport === undefined
+                ? null
+                : {
+                    protocols: [...input.transport.protocols],
+                    sshCommand: input.transport.sshCommand,
+                  },
+          }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "preparePolicy", part, selected, completed: "native" });
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const value = JSON.parse(json ?? "{}") as {
+              env: [string, string][];
+              args: string[];
+            };
+            resolve({ env: Object.fromEntries(value.env), args: value.args });
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "preparePolicy", part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
+  }
+
   /** Runs one lease operation in the core and maps its answer back to `GitService`'s shape. */
   runLeaseOp(
     op: string,

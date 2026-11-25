@@ -533,6 +533,49 @@ impl NativeGitCore {
         });
         Ok(())
     }
+
+    /// Prepares one Git call's execution policy (G2c): the environment and the
+    /// arguments that precede the command, from the caller's scope.
+    #[napi(catch_unwind)]
+    pub fn prepare_call(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(map) = wire::object(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(GitError::new(
+                    GitErrorCode::InvalidArgument,
+                    "invalid policy request",
+                )))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let transport = match map.get("transport") {
+            Some(ace_json::Value::Object(transport)) => Some((
+                wire::strings(transport, "protocols").unwrap_or_default(),
+                wire::string(transport, "sshCommand"),
+            )),
+            _ => None,
+        };
+        let call = ace_git::core::policy::CallPolicy {
+            guarded: wire::flag(&map, "guarded"),
+            hookless: wire::flag(&map, "hookless"),
+            transport,
+            keys: wire::string(&map, "keys").unwrap_or_default(),
+        };
+        let reply = ace_git::core::policy::prepare(&call)
+            .map(|prepared| ace_git::core::policy::prepared_to_json(&prepared));
+        match reply {
+            Ok(json) => {
+                let _ = settle.call(Ok(json), ThreadsafeFunctionCallMode::NonBlocking);
+            }
+            Err(error) => {
+                let _ = settle.call(
+                    Err(failed(ace_git::error::Error::from(error))),
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Ensures `unwind` stays wired into this module's helper surface.

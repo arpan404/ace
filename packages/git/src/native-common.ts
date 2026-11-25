@@ -70,6 +70,8 @@ export interface NativeGitCoreHandle {
   replyPort(reqId: number, replyJson: string): void;
   /** One lease operation (`mutationState`, `heal`, ...) with its JSON arguments. */
   leaseOp(op: string, argsJson: string, settle: NativeJsonSettle): void;
+  /** The execution policy for one Git call (G2c): its environment and guard arguments. */
+  prepareCall(reqJson: string, settle: NativeJsonSettle): void;
   pushSpawnEvent(
     spawnId: number,
     kind: string,
