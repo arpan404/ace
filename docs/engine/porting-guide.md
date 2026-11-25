@@ -224,7 +224,7 @@ kill-on-drop), `rustix`, `windows-sys`, `sysinfo`, `procfs`, `libproc`, `tokio-u
 A native session runs a provider's process protocol in Rust behind the same `ProviderSession`
 (ADR 0223 §7) while the TypeScript engine still runs. The tasks below are the briefs: E3.0 (four
 foundations every provider needs), then E3-pi, then E3-codex, then E3-acp, each task one builder
-round. OpenCode and Cursor are outlines only, briefed later. Claude has no E3 item: its session
+round. OpenCode and Cursor are briefed after them. Claude has no E3 item: its session
 moves in the providers work (ADR 0223, "Decided by the orchestrator").
 
 ### Should E3 build now?
@@ -1370,21 +1370,506 @@ Later, not part of the pilot (owner decision 4).
   `engine/acp-resume-failure.process`, `engine/acp-selection.process`.
 - **Bench**: `session-stream.ts` with the ACP fake.
 
-### E3-opencode and E3-cursor (outlines; briefed after E3-acp)
+### E3-opencode: OpenCode (HTTP and SSE to a pooled `opencode serve`)
 
-- **OpenCode**: HTTP and SSE to a pooled `opencode serve`. Rust takes the server pool, the SSE
-  reader (`ace_supervisor::sse`, `eventsource-stream` over `reqwest` without TLS) and the
-  per-event session state; the request client is `reqwest`. The prompt check stays after the
-  admission lock and the session barrier (`adapter-opencode/src/prompts.ts:52`–`:57`), with the
-  check and the request in one synchronous step. Its plugins (`agent-env-plugin/`,
-  `mcp-ready-plugin/`) stay TypeScript, loaded by OpenCode. The server's stdout is diverted like
-  any child's. The flow gate pauses the SSE read. Cross-mode: `ancestry-recovery.process`,
-  `server-pool-recovery.process`.
-- **Cursor**: Rust speaks the host wire (`host.ts`'s side of `host-wire.ts`) over the E3-codex.1
-  peer to the host child, which stays TypeScript (`host-entry.ts`, `@cursor/sdk`). Frames and
-  records commit in one transaction on the engine side, so this item waits for E5.3. Cross-mode:
-  `checkpoint-recovery.process`, `recovered-seam.process`, `engine/cursor-*.process`.
-- **Claude**: none here (ADR 0223, decided by the orchestrator; the owner moved it to the
+Later, not part of the pilot (owner decision 4). Build after E3-acp.3 is on
+`ace/daemon-rust-rewrite`: these items use its per-provider bench modules (`f8552ecd4a`,
+`apps/daemon/bench/session-stream/provider.ts`) and E3-codex.5's `SessionEvent::Port` and
+`BridgeHooks.port`. All paths below are in `packages/adapter-opencode/src/` unless named.
+
+**What the code says that the outline didn't** (planner, 2026-11-25):
+
+1. **HTTP stays on the injected fetch in E3.** The test harness injects `runtime.fetch` for every
+   request (`testing/v2-session.ts:111`–`:131`). Nine adapter files and
+   `apps/daemon/src/engine/opencode-switch.process.test.ts:24` wrap that fetch to hold, fail or
+   rewrite one reply, and that includes the event stream: `metadata-errors.process.test.ts:69`–`:90`
+   answers `/api/event` with a 503. A `reqwest` client would bypass every one of them. So in E3
+   each request and the event stream still go through `observedFetch` (`observation.ts:82`) over
+   `runtime.fetch`, in TypeScript. Rust takes the stream's body bytes, the way a Pi session takes a
+   diverted pipe. `reqwest` leaves `ace-adapter-opencode/Cargo.toml`, and `eventsource-stream`
+   stays unused (owner question 1). Rust HTTP comes later with the control item (E3-opencode.6),
+   when the fetch can be an engine port.
+2. **The pool and the process lifecycle stay TypeScript.** `server-pool.ts` and
+   `OpenCodeServer.start` (`server.ts:210`) await discovery, the spawn, the readiness line,
+   `/api/info`, `/openapi.json` and the handshake, and none of that runs per event. The server's
+   stdout carries one readiness line (`owned-server.ts:44`–`:74`) and is otherwise never read
+   (`server.ts:282`). So it is not diverted: diverting it would move nothing that matters. The
+   plugins OpenCode loads (`agent-env-plugin/`, `mcp-ready-plugin/`) stay TypeScript too.
+3. **The parser to port is the SDK's, not `ace_supervisor::sse`.** `client.event.subscribe`
+   frames the stream itself (`@opencode/client` 2.0.22, `dist/chunks/service-contender-50fct660.js`,
+   its `sse` function; read it, write the Rust fresh). `ace_supervisor::sse` ports
+   `sse-parser.ts`, whose field rules differ. Its rules are listed in E3-opencode.1.
+4. **Per-event state is shared between sessions.** One server's stream feeds every session on it:
+   routing, durable sequences and the recovery buffer are per server (`server.ts:409`–`:463`). So
+   the Rust side is a server core with one tenant per session, the same shape as the Codex host.
+   A server is native or TypeScript for its whole life, so native and TypeScript sessions never
+   share one: the native sessions get a twin pool (E3-opencode.4). Without that, a reopened root
+   whose backend flipped would land on a server of the other kind.
+5. **The outline's cross-mode files open no store.** `ancestry-recovery.process` and
+   `server-pool-recovery.process` are adapter files. No root boots, so the gate reports "no
+   restart". No engine file runs an OpenCode session across a store reopen:
+   `opencode-switch.process` and `opencode-mcp.process` never reopen, and
+   `open-text-restart.process` opens no session. See owner question 2.
+
+**The split.** Rust takes everything one SSE event touches synchronously: framing, elision,
+sanitizing, routing, durable sequences, the recovery buffer, ownership, pending interactions,
+shells, recovery evidence, the ancestry probe registry, the opening buffer, the session's private
+translator and every frame. It also takes the two awaiting walks that event state drives, the
+recovery pass and the ancestry lookup. Their requests are effects, and the replies come back as
+inputs, as Codex's discovery does (`ace-adapter-codex/src/session/discovery.rs:1`–`:8`).
+TypeScript keeps the fetch, the process, the pool, the server's retry loop, the prompts, the
+commands, MCP locations, the catalog, the shell environment and cleanup. It reads Rust state
+only through synchronous handle calls that return plain values.
+
+Rule 1 holds without moving the prompts. OpenCode's check reads only the engine's fence, after the
+admission lock and the barrier (`prompts.ts:51`–`:57`; ADR 0223 §7 rule 1). So `prompts.ts` and
+`admission.ts` run unchanged with native ports, and the check and the request still start in one
+synchronous JavaScript step.
+
+**Hot path, for every item.** The ACP session benched at 1.44× TypeScript CPU (median D/A, three
+rounds, `f8552ecd4a`). Most of that is per-frame work in Rust: `capture_frame` serializes the value
+and `validate_payload` parses its own output again (`ace-adapter-acp/src/session/frames.rs:76`–`:95`),
+and then JavaScript parses it a third time. For OpenCode the budget per event is:
+
+- one `Buffer` crossing per body chunk, with no JSON and no decoding in JavaScript;
+- one parse of the event in Rust, and one walk that sanitizes (copy on write, E1's
+  `translate::redaction::sanitize`);
+- one serialization, the frame's text;
+- the bridge's one crossing per batch.
+
+Routing, ownership, evidence and the private translator all read that one parsed value. The
+payload bound is checked on the value, by node count and the serialized text's length, never by
+parsing the text again.
+
+#### E3-opencode.1 The event stream and the server core (sans-IO)
+
+- **Files**: create `native/daemon/crates/ace-adapter-opencode/src/session/{mod.rs,stream.rs,server.rs,routes.rs,error.rs}`
+  and `ace-adapter-api/src/payload.rs` (`pub mod payload;`). Delete `src/session.rs` (the E0
+  stub) and declare `pub mod session;`. In `Cargo.toml`, remove `reqwest` (point 1).
+- **Reuse, never port again**: `ace_adapter_api::util::elision` (the `JsonElider` port),
+  `translate::redaction::sanitize`, `translate::boundaries::{parse_native_event, event_session}`
+  and `translate::cache::{RecentMap, RecentSet}` (E1).
+- **Ports**:
+  1. `boundedSse` (`observation.ts:54`–`:80`): the elider with `openCodeElision` (`:11`) over the
+     raw bytes, then the event bound: bytes since the last blank line, CR not counted, over
+     `maxProviderPayloadBytes` → `"OpenCode event exceeds byte limit"` (`:63`–`:70`).
+  2. The SDK's framing, exactly: decode as UTF-8 in streaming mode. Add the chunk to the buffer,
+     then fail with `SseEventTooLarge` when the **whole buffer's UTF-16 length** is over 16 MiB
+     (16 × 1024 × 1024 units, rule 17). Hold back a trailing `\r` while not at the end. Turn
+     `\r\n`, then each lone `\r`, into `\n`. At the end, a non-empty buffer gets `\n\n`. Split
+     blocks on `\n\n`. A block's data is its lines that start with `data:`, each with
+     `slice(5).trimStart()`, joined by `\n`. An empty data string yields nothing. Data that
+     `JSON.parse` refuses fails the stream (`MalformedResponse`). Every chunk that is not the end
+     counts as activity.
+  3. The body of `consumeEvents`' loop (`server.ts:413`–`:454`), per event:
+     - `sanitize(native, secrets)`, then the `NativeEvent` check (`boundaries.ts:3`–`:22`; zod
+       bounds count code points);
+     - `watermark = ++sequence`; `server.connected` sets `established` and, while recovering,
+       asks for a recovery run;
+     - `routes.select` (`routes.ts:6`–`:31`), whose `accepts` is the tenant's (E3-opencode.2);
+     - the durable gap (`:426`–`:437`) begins recovery at `watermark - 1`;
+     - while recovering, buffer the event (4,096 events, 8 MiB, `:438`–`:453`): on overflow, drop the
+       buffer, mark it stale and note `recovery.restarted` to the targets; otherwise call
+       `buffered` and note `recovery.buffered` to each target. Not recovering, call `receive`.
+  4. The server's recovery state: `beginRecovery` (`:385`–`:390`), `restartRecovery`
+     (`:537`–`:543`), the replay of the buffer to every tenant and `finalizeSnapshots`/`recovered`
+     (`recoverOnce`, `:552`–`:560`), the 128-tenant bound (`subscribe`, `:148`–`:156`, which also
+     clears the routes), and the `transport.activity` note to every tenant on each activity
+     (`:399`–`:403`).
+  5. `payload.rs`: `ProviderPayload`'s bound on a value, with no parse. It fails over 1 MiB of
+     UTF-8 text, or when the node count (every value, containers included, keys not counted,
+     `provider-kit/src/payload.ts:22`–`:40`) passes 32,768, with that file's messages.
+- **Shape**: `ServerCore::chunk(&mut self, bytes: &[u8]) -> ChunkOutcome { established: bool, failed: Option<StreamError>, recover: bool }`
+  and `end()`. Each tenant's effects are published to its own `EventQueue` under the server's
+  lock, in the order the TypeScript produced them, one input at a time (as `HostSink` does in
+  E3-codex.2).
+- **Exact**: the SDK framing above, including its UTF-16 bound; `++sequence` before routing; the
+  stale and overflow rules; the error strings.
+- **Hot path**: `chunk` is the per-event path. It parses each event once, and the tenant receives
+  the parsed value by reference (E3-opencode.2), never as text.
+- **Tests**: `#[cfg(test)]` tables for the framing and the event bound (new behaviour: no
+  TypeScript test covers the SDK's parser, so the commit says so). The adapter files prove it in
+  E3-opencode.4. No (b) file moves here: `redaction`'s cases moved with E1.
+- **Must not**: use `ace_supervisor::sse` or `eventsource-stream`; add HTTP; read a clock; parse a
+  frame's text you built.
+- **Reviewer checks**: each SDK rule has a table row, the 16 Mi-unit bound included, with an emoji
+  on either side of it; `consumeEvents`' statements map one for one.
+
+#### E3-opencode.2 The tenant: one session's per-event state and its frames
+
+- **Files**: `ace-adapter-opencode/src/session/{tenant.rs,frames.rs,ownership.rs,ancestry.rs,evidence.rs,coverage.rs}`.
+- **Ports**:
+  - From `session.ts`: `emit` (`:321`–`:335`), `owns` (`:336`–`:365`), `receive` (`:366`–`:412`),
+    `reconcileLocation` (`:413`–`:419`), the `disconnected`, `reconcile`, `buffered` and
+    `recovered` handlers (`:166`–`:197`), and the opening buffer (128 events or 8 MiB, `:369`).
+  - `ownership.ts` whole (`SessionOwnership`, 1,024 sessions, 2,048 shells).
+  - `ancestry.ts`'s synchronous half: `prove` up to its lookup (`:32`–`:93`; 8 probes, 32 events
+    each, 1 MiB), `observePending`, `needsSnapshots`, `shells`, `needsShellSnapshots`,
+    `reconciled` and `finish`.
+  - `recovery-evidence.ts` whole, and `text-coverage.ts`.
+- **`emit`, in Rust, in this order**: the closed filter (`:323`, only `exited` and `stop-failed`
+  lifecycle notes pass); `sanitize` with the server's secrets; serialize once; replace the MCP
+  bearer with `[REDACTED]` in the text (`:328`–`:331`); check the bound (`payload.rs`); publish
+  the `Frame`; while recovering, `evidence.message` for `snapshot.message`; then the private
+  translator.
+- **The private translator** is `translate::Translator`. It is called through the crate's
+  `pub(crate) fn frame` (`translate/channels.rs:17`) on the parsed value, with its facts written
+  to a scratch buffer that is cleared and never parsed. It answers `liveShell`, `taskOwner`,
+  `isSettled` and `liveMessages` without a crossing. It receives `now = 0.0`: the TypeScript
+  passed `t`, but the tenant has no clock. Check that `now` reaches none of the state those four
+  answers read; if it does, stop and report. Nothing in `translate/` changes.
+- **What TypeScript did inline that is now an effect**: `admitEnvironment` for a newly joined
+  child (`:98`–`:101`), the `session.moved` refetch (`:345`–`:362`), the ancestry lookup
+  (E3-opencode.3), `server.reconcileNow()` (`:122`, `:150`, `:418`) and `catalog.changed` for
+  its six types (`extension-catalog.ts:100`–`:107`). Each is a `Port` event published at the
+  point the TypeScript called it, in order with the frames. Each starts with an await or only
+  marks work as dirty, so starting it one batch later changes nothing a test can see.
+  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock.
+- **The flow gate**: the tenant's `ReadGate` has no pump. The facade waits on each session's
+  `outputFlow` between body chunks, as `server.ts:413` waits between events (E3-opencode.4).
+  `port.fail()` changes nothing observable, because TypeScript ignores `onFrame`'s promise here
+  (`:334`).
+- **Exact** (rule 17): `sanitize`'s 1,048,576 and `.slice` count UTF-16 units
+  (`redaction.ts:18`). Evidence's
+  `chunk.text.length` and `coveredPrefix` count UTF-16 units (`recovery-evidence.ts:91`–`:99`),
+  and its delta budget counts UTF-8 bytes (`:51`). Ownership's `SessionInfo` bounds are zod's
+  (code points). All maps are `IndexMap`s, removed from with `shift_remove`.
+- **(b)**: none. `mcp-locations`, `permission-policy` and `native-content` stay with their
+  TypeScript modules (E1 owns `native-content`).
+- **Hot path**: `receive` and `owns` run per event on the value from E3-opencode.1. TypeScript
+  parsed `NativeEvent` three times per event (`server.ts:415`, `ownership.ts:85`,
+  `session.ts:376`). Here it is parsed once, and its fields are borrowed.
+- **Must not**: build a frame outside `emit`; reach the network or a clock; mirror ownership in
+  TypeScript.
+- **Reviewer checks**: `receive`'s statement order against `:366`–`:412`; the bearer replaced
+  after serialization, never before; each effect at its TypeScript call site.
+
+#### E3-opencode.3 Recovery and the ancestry lookup, with HTTP as effects
+
+- **Files**: `ace-adapter-opencode/src/session/{recovery.rs,history.rs,lookup.rs,http.rs}`.
+- **Ports**: `recovery.ts` whole (`recoverSessions`: 64-deep visits, 64 pages, the inbox and
+  interaction ownership checks, `snapshot.*` frames, the shell reads with their watermarks);
+  `history.ts` (`HistoryReader`); `readSnapshots`, `prepareReplay` (8 passes) and
+  `finalizeSnapshots` (`session.ts:514`–`:572`); `resync`'s single in-flight read (`:508`–`:513`);
+  the ancestry lookup loop (`ancestry.ts:94`–`:128`: 16 hops, cycle check, fork or root ends it,
+  admit oldest first, replay or fail); the `session.moved` refetch.
+- **`http.rs`**: one request is `Port { name: "http", json: { id, op, params } }`. `op` is the SDK
+  call by name (`session.get`, `session.list`, `session.message.get`, `message.list`,
+  `permission.list`, `session.form.list`, `session.inbox.list`, `session.active`, `shell.list`,
+  `shell.get`). The facade answers `reply(id, ok, json)`. A refusal answers `ok: false` with
+  `{ message, status? }`; `status` is the HTTP status the scoped observer saw (`session.ts:533`–`:546`,
+  so a shell's 404 is an absence). Every awaited step of the TypeScript is a stage of one
+  machine. A reply after the tenant closed is dropped.
+- **Exact**: the order of reads and frames inside one visit; `started = watermark()` taken
+  before the reads it fences (`recovery.ts:83`, `:111`, `:138`, `:158`); the thrown messages,
+  which a recovery failure carries (`ConsumerFailure`, `server.ts:59`–`:65`, still classified in
+  TypeScript by `transientFailure`).
+- **Hot path**: none per event. A request crosses twice, as its params and its reply's body.
+  Bodies up to 768 KiB are framed (`observation.ts:22`), so the reply goes in as text once, and
+  Rust's frame uses that parse.
+- **Must not**: issue a request any way but the effect; retry inside Rust (the server's retry
+  loop is TypeScript's).
+- **Reviewer checks**: each `await` in `recoverSessions` is one stage, in order; a pass started
+  while one is in flight joins it.
+
+#### E3-opencode.4 Binding, facades, the twin pool and the switch
+
+- **Files**: `ace-daemon-node/src/session_opencode.rs`;
+  `packages/adapter-opencode/src/native-session.ts` and a new `native-server.ts`; `index.ts` (one
+  line); `server-pool.ts` (step 3).
+- **Steps**, in order:
+  1. **Binding**: `OpenCodeServerNative`, one per native server: a constructor taking the
+     server's secrets as JSON; `chunk(bytes: Buffer)`, `end()`, `restartRecovery()`,
+     `beginRecovery()`, `replay()`, `recovering()`, `stale()`, `watermark()` and `addSecret`. Add `OpenCodeSessionNative` per
+     tenant (constructor `(server, config_json, events)`; `frame(dir, channel, json)` for
+     TypeScript-built frames; `reply(id, ok, json)`; `barrier(id)`, settled when recovery ends;
+     the ownership reads the TypeScript composition needs, each returning a plain value or JSON
+     (`root`, `directory(id)`, `hasSession`, `descendants`, `shells`, `pending(key)`, `liveShell`,
+     `taskOwner`, `isSettled`); `close()`; and `set_paused`/`fail`/`drain`). Use `catch_unwind`
+     everywhere, and JSON as text only (rule 7).
+  2. **`native-server.ts`**: copy `OpenCodeServer` (`server.ts:69`–`:586`) as
+     `NativeOpenCodeServer`, and make only these replacements:
+     1. `consumeEvents` makes the SDK's exact request itself through `observedFetch`
+        (`GET /api/event`, the server client's headers, `server.ts:192`–`:204`). It reads the body
+        with `getReader()` and hands each chunk to `chunk`.
+     2. Per chunk: the silence timer (25 s, `:399`–`:403`), then `waitForOutput` for every
+        consumer, as `:413` does per event.
+     3. `established`, the handshake and `failed` come from `ChunkOutcome`, and so does a
+        stream failure, which goes to today's reconnect.
+     4. `routes`, `sequences`, `buffered*` and `recoveryStale` are deleted; their reads become
+        handle calls.
+     5. `recoverOnce` calls `resync` and `prepareReplay` on each tenant as promises the bridge
+        settles, then `replay()`.
+  3. **`server-pool.ts`**, the only edits:
+     1. `export type PooledServer = Pick<OpenCodeServer, "ready" | "close" | "release" | "addSecret" | "installedAs">`;
+     2. make the class `ServerPool<S extends PooledServer = OpenCodeServer>`, with a second
+        constructor parameter `make: (options: ServerOptions) => S`, defaulting to
+        `new OpenCodeServer(options)`;
+     3. the two `new OpenCodeServer(` become `this.make(`;
+     4. `native?: { close(): Promise<void> }`, and `await this.native?.close()` first in `close`.
+
+     The off path is byte-identical at runtime. The facade keeps a `WeakMap` from a TypeScript
+     pool to its native twin, `new ServerPool(options, (o) => new NativeOpenCodeServer(o))`, as
+     E3-codex.5 does (`host-pool.ts`).
+
+  4. **`native-session.ts`**: `openNativeOpenCodeSession(ctx, pool, options)` is
+     `index.ts:22`–`:67`'s `openSession` over the twin, with `OpenCodeSession` copied and only
+     these replacements:
+     1. every `emit` from TypeScript (notes, `http` frames from the scoped observers) is
+        `handle.frame` after the closed filter;
+     2. `prompts.observe` runs in the `http` observer, before `handle.frame`;
+     3. `SessionPrompts` is constructed with ports over the handle (`session`, `directory`,
+        `barrier` = `admissionBarrier` over `bridge.expect(handle.barrier(id))`, `uncertain`);
+     4. `interrupt`, `resolve`, `stopTask`, `configure` and `cleanupOwned`'s loop read ownership
+        and pending through the handle, in the same synchronous step as today;
+     5. `reportExit` is `handle.frame(exited)` and then a `Callback` for `onExit`, and close
+        awaits `bridge.drainedPromise` before `server.release()`;
+     6. `hooks.port` runs `http` through the scoped client (`SessionPrompts` and the catalog keep
+        theirs) and the other ports by name;
+     7. the evidence line of E3.0d step 3.
+  5. **The switch**, the one line in `index.ts`, as the first statement of `openSession`:
+     `if (sessionBackend("opencode") === "native") return (await import("./native-session.ts")).openNativeOpenCodeSession(ctx, pool, options);`
+- **Proof** (alone, three modes, with `ACE_SESSIONS=opencode`): `v2-session.process`,
+  `v2-transport.process`, `v2-lifecycle.process`, `session-close.process`,
+  `prompt-refusal.process`, `open-failure.process`, `metadata-errors.process`. The rest is
+  E3-opencode.5.
+- **Hot path**: `chunk` takes a `Buffer` (napi `&[u8]`), never a string. Nothing crosses per
+  event except the batch. Mode B also runs the session's private translator in JavaScript today.
+  Here it doesn't cross at all.
+- **Must not**: edit `session.ts`, `server.ts`, `prompts.ts` or any test; let a native tenant
+  subscribe to a TypeScript server, or the reverse; start a fetch from Rust.
+- **Reviewer checks**: a hunk-by-hunk diff of both copies against their originals shows only the
+  listed replacements; the `server-pool.ts` diff is the four edits; `chunk` is the only per-event
+  call.
+
+#### E3-opencode.5 The proof, the bench and the cross-mode run
+
+- **Proof** (each alone, three modes): the 29 OpenCode session files of behaviour.md §19
+  (`v2-session.process` … `provider-settings.process`). The translator files are not session
+  files. Add every daemon file that opens an OpenCode session,
+  `git grep -l "createOpenCodeAdapter" -- 'apps/daemon/src/*.test.ts'` (today `opencode-switch`,
+  `attachment-echo`, `provider-permissions`, `recorded-ask`, `delegation-transports`,
+  `history-replies`, `client-model-defaults`, `opencode-mcp`, `provider-availability`,
+  `provider-mcp`, `provider-usage`, `browser-provider-mcp`, `opencode-browser-login`,
+  `opencode-free-models.server`, `agent-control/models`).
+- **(b)**: none move (E3-opencode.2).
+- **Bench**: `apps/daemon/bench/session-stream/opencode.ts`, a `BenchProvider` (widen its `id` to
+  `"pi" | "acp" | "opencode"`, one line in `provider.ts`). Its fake is the real test server:
+  discovery points at `testing/cli-v2.mjs`, as `testing/v2-session.ts:112`–`:131` does, so the
+  module does not spawn itself with `--fake`. Each turn publishes, through the server's
+  `/test/events` route, 2,000 `session.text.delta` events and one `session.execution.succeeded`
+  in the shapes `v2-transport.process.test.ts:79` and `:163` use. `framesPerTurn` counts the
+  `sse`, `http` and `transport.activity` frames one turn delivers. Every mode keeps the four
+  modes, the evidence check and E3.0d step 6.
+- **Cross-mode**: none until owner question 2 is settled. If the owner allows one new test,
+  write `engine/opencode-restart-resume.process.test.ts` the way E3-pi.2b does. It runs over
+  `testing/cli-v2.mjs` with boots 0, 1 and 2 by `new Store(h.path)`, and asserts the stored
+  native session id, the resumed `session.get` and the continuation each boot. Then run
+  `bun scripts/native-cross.ts ACE_SESSIONS` on it.
+- **Must not**: edit a test; count a file that reports "no restart" as cross-mode proof.
+
+#### E3-opencode.6 Control and HTTP in Rust (with E5.6, not before)
+
+The prompts, the commands, the MCP locations, the catalog, the environment gate, cleanup, the
+server's retry loop and the requests move to Rust as `impl ace_adapter_api::Session`. The fetch
+becomes an engine port, so the tests' injected fetch still answers. Then `reqwest` comes back,
+without TLS. Briefed with E5.6.
+
+### E3-cursor: Cursor (the host wire to a TypeScript SDK host child)
+
+Later, not part of the pilot (owner decision 4). Build after E3-codex.5 and E3-acp.3 are on
+`ace/daemon-rust-rewrite`: it uses their peer fix (`a922ca4188`), the `Port` event and the bench
+modules. Paths are in `packages/adapter-cursor/src/` unless named.
+
+**What the code says that the outline didn't** (planner, 2026-11-25):
+
+1. **E5.3 is not a dependency of E3.** With the TypeScript engine, the commit is still
+   `ctx.onFrame`'s promise (`apps/daemon/src/engine/sessions.ts:684`–`:698`), and the host's
+   acknowledgement waits for it (`host.ts:146`–`:169`). The native session acknowledges when the
+   facade reports each frame's outcome. That is one cheap crossing per frame (a number, plus a
+   string only on failure), and E5.6 removes it.
+2. **A failed commit does not stop intake for Cursor.** The bridge calls `port.fail()` when
+   `onFrame` rejects (E3.0c step 6). Cursor's TypeScript instead answers the host's request with
+   the error (`host.ts:165`–`:169`), or stops the host for a notification (`:170`–`:189`), and
+   keeps reading the host's lines in both cases. So the facade wraps `onFrame`: it reports the
+   outcome and hands the bridge a promise that never rejects.
+3. **Diagnostic prose stays TypeScript.** Every message built from host or SDK text goes through
+   `safeCursorErrorMessage` (`sdk-failure.ts:17`–`:33`, `@ace/redaction`'s `createTextRedactor`),
+   and the failure codes come from `discoveryFailureCode`/`discoveryFailureReason`. Neither has a
+   Rust port, and porting `@ace/redaction` (1,500 lines) is out of scope. So stderr lines, stray
+   stdout lines, the peer's connection error and error-frame messages go to the facade as `Port`
+   events, and the facade keeps `CursorHost`'s diagnostic fields (`host.ts:71`–`:76`). None of
+   this is on the per-frame path.
+4. **The outline's adapter cross-mode files open no store.** `checkpoint-recovery.process` and
+   `recovered-seam.process` boot no root. Of `engine/cursor-*.process`, only
+   `cursor-second-crash.process` runs the real `openCursorSession` in two boots of one root:
+   boot two in its child (`cursor-real-host-child.ts`) and boot three in the test
+   (`:117`–`:124`). `cursor-busy-store.process` runs it only in its reopening boot. The other
+   files reopen with hand-written adapters, or not at all.
+
+#### E3-cursor.1 The host wire core (sans-IO, over the E3-codex.1 peer)
+
+- **Files**: create `native/daemon/crates/ace-adapter-cursor/src/session/{mod.rs,host.rs,envelope.rs,bounded.rs,ack.rs,error.rs}`.
+  Delete `src/session.rs` (the E0 stub), and declare `pub mod session;`.
+- **Ports**: `CursorHost`'s daemon side (`host.ts:85`–`:206`): the peer's limits (`:130`–`:135`:
+  16 pending requests, `maxFrameBytes`, `maxPendingBytes`, the timeouts per method), the
+  malformed-line rule (`:137`–`:144`: JSON, or text holding `"jsonrpc":`, fails the host with
+  `"Cursor SDK host sent a malformed message"`; any other line is stray output, at most 64),
+  `receiveFrame` and both its callers (`:146`–`:189`), the login-url check (`:172`–`:177`:
+  `https://`, at most 8,192 UTF-16 units), and `boundedJson` (`provider-kit/src/ipc.ts:4`–`:58`)
+  as a walk over a parsed value. From `contracts.ts`: `Envelope` and `Limits` as `ace-json`
+  lookups. From `frame-batch.ts`: `unbatch` (`:144`–`:148`).
+- **Exact**:
+  - `boundedJson`'s checks in its order, with its messages. A string's and a key's **UTF-16
+    length** are compared with the remaining **UTF-8** budget (`:18`, `:50`, rule 17). Nodes
+    count containers, leaves and keys (`:15`, `:44`), up to 32,768 nodes and depth 64.
+  - `Envelope`'s bounds count code points (`identity` max 512, `kind` max 128, `eventSeq` max
+    10⁸, `pendingEvents` up to 64 of the hex pattern).
+  - The order inside `receiveFrame`: the bound, `Envelope`, the generation check
+    (`"SDK generation mismatch"`), the commit, then the error-frame message.
+  - A request is answered `{ committed: true }` only after every frame it carries is committed
+    (`Promise.all`). The first failure **in arrival order** becomes the error reply
+    `ace could not store a Cursor SDK frame: <facade's reason>`.
+- **The frame text**:
+  - For a non-batch frame, it is the raw span of `params`. That equals `boundedJson(params)`,
+    because the host wrote the line with `boundedJson` (`host-wire.ts:85`), and for parsed JSON
+    that is `JSON.stringify`.
+  - A batch's inner frames went through zod's `Envelope` (`frame-batch.ts:146`), so their text
+    is each value with `Envelope`'s keys first, in schema order (`schemaVersion`, `operationId`,
+    `commandId`, `generation`, `segment`, `agentId`, `runId`, `kind`, `body`, `raw`, `eventSeq`,
+    `eventOffset`, `pendingEvents`; an absent optional key stays absent), then the other keys in
+    their order (rule 8).
+  - If a proof file shows a frame whose text differs, stop and report. Never serialize again to
+    hide it.
+- **Shape**: `CursorHostCore` over `RpcPeer`. Its inputs are `stdout_bytes`, `stderr_bytes`,
+  `committed(seq)`, `refused(seq, reason)`, `request(method, params, id, timeout)`, `timer(key)`
+  and `finish()`. Its effects are `Frame`, `Write`, `Settle`, the `Port`s of point 3 (`stderr`,
+  `stray`, `connection`, `errorFrame`, `stop`), `ArmTimer`/`CancelTimer` and `Drained`.
+- **The stray-line hold**: a stray line's `host-output` frame takes its place in line order
+  (`host.ts:143` emits it before the next line is read). So the core publishes
+  `Port { name: "stray" }` and holds every later event of this session until the facade's
+  `note(host-output)` arrives. The facade answers synchronously inside the same delivery, so the
+  hold lasts one batch. Held events count toward the queue's bound.
+- **(b)**: `frame-batch`'s `unbatch` cases move to `envelope.rs`. Its `FrameBatch` cases stay:
+  `FrameBatch` runs in the host child, which stays TypeScript. The six (b) host process files
+  are owner question 3.
+- **Hot path**:
+  - one parse per line (the peer's), and one bound walk on that value;
+  - a non-batch frame's text is borrowed;
+  - a batch serializes each inner frame once;
+  - `committed(seq)` is a plain `f64`, with no JSON.
+
+  TypeScript, by comparison, did `boundedJson` plus `JSON.parse` per frame and again per inner
+  frame (`session.ts:93`–`:98`).
+
+- **Must not**: redact or classify host prose in Rust; acknowledge before the commit; read a
+  clock.
+- **Reviewer checks**: `boundedJson`'s branch order and messages; the batch key order, tested
+  with an inner frame whose keys arrive out of schema order (new behaviour, so the commit says
+  so); every commit outcome is answered once.
+
+#### E3-cursor.2 The session core: state, commands, admission and exit
+
+- **Files**: `ace-adapter-cursor/src/session/{core.rs,commands.rs,frames.rs,io.rs}`; and
+  `ace-adapter-api/src/bridge/queue.rs` gains `EventQueue::starting_at(pace, first: u64)` and
+  `reserve_seq(&self) -> u64`, both under the queue's lock.
+- **Ports**: `openCursorSession`'s per-frame and command state (`session.ts:45`–`:327`):
+  - `seq`, which starts at 1 and is shared by frames and the fallback operation id
+    (`:59`–`:82`, `:116`, `:260`), so it uses `starting_at(1)` and `reserve_seq`;
+  - `operation`, `segment`, `active`, `uncertain`, `terminal`, `control`, `deliberate`, `exited`
+    and `closing`;
+  - `receive` (`:105`–`:139`), where `onCapabilities` and then `onSessionIdentity` are
+    `Callback`s before the frame (§8);
+  - the frames the session builds (`frame()`, `:58`–`:83`: the envelope in that key order,
+    through `bounded.rs`);
+  - `open` with the recovery snapshot note (`:195`–`:221`);
+  - `configure`, `send`, `interrupt` and `close` (`:182`–`:194`, `:222`–`:303`) as machines over
+    the host's requests.
+- **Admission** (rule 1, Cursor's form). The fence matters only when a steer finds the turn
+  active (`:247`–`:249`).
+  1. The facade runs `assertSteerTarget(delivery, fence)` in a `try` and keeps any error.
+  2. In the same synchronous step, it calls `handle.send(..., steerLost: boolean)`.
+  3. Under the state lock, the core makes today's checks in their order (`:232`–`:242`:
+     closing or exited, uncertain, control, the input bound) and reads `active`.
+  4. If it is a steer, the turn is active and `steerLost` is set, the core refuses with
+     `ACE_STEER_TARGET_LOST`, and the facade rethrows the error it kept.
+  5. Otherwise it writes the `send cancel` frame and the `cancel` request in that step.
+  - A host refusal of `send` is `InputRejected` (`:271`–`:274`). Any other failure sets
+    `uncertain` from `terminal`, and the error is rethrown.
+- **The exit**: on the supervisor's `close`, the core publishes `Port { name: "exited" }`. The
+  facade answers `handle.exit(code, signal, reason, detail?)` once `proc.exited` resolves
+  (`reason` is the TypeScript supervisor's, `detail` is the facade's `failureMessage`). Then the
+  core publishes the `host-exit` frame (`:156`–`:171`), a `Callback` for `onExit` with
+  `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units), and `Drained`.
+- **The stop**: the host's stop stays TypeScript (`host.ts:254`–`:267`, Windows'
+  `stopTreeAfterEof`), asked for by `Port { name: "stop" }`.
+- **(b)**: `tool-guidance` stays: it is open-time text, built in the facade.
+- **Hot path**: `receive`'s per-frame branch reads the parsed envelope's `kind`, `operationId`,
+  `segment` and `body.status`. Nothing crosses besides the frame.
+- **Must not**: change `assertSteerTarget`'s placement for a queued send or an idle steer; resend
+  after an uncertain failure.
+- **Reviewer checks**: the race orders of a steer during `cancel`, written out at `send`, with one
+  Rust test each; the operation id fallback consumes a `seq` exactly as `:260` does.
+
+#### E3-cursor.3 Binding, facade, switch, proof and bench
+
+- **Files**: `ace-daemon-node/src/session_cursor.rs`, `packages/adapter-cursor/src/native-session.ts`,
+  `session.ts` (one line: the first statement of `openCursorSession`, `:45`), and
+  `apps/daemon/bench/session-stream/cursor.ts`.
+- **Facade**: copy `openCursorSession` and `CursorHost`'s diagnostic fields and `request` catch
+  (`host.ts:207`–`:244`), with these replacements:
+  - spawn through `options.spawn` with `nativeOutput`;
+  - every command is one binding call plus `bridge.expect`. Register `ACE_CURSOR_RPC: Error`: the
+    peer's message is the reply's error JSON, which `refusedByHost` and `discoveryFailureCode`
+    read (`host-refusal.ts:9`–`:15`);
+  - the `onFrame` wrapper of point 2, which calls `handle.committed(frame.seq)`, or
+    `handle.refused(frame.seq, reason)` with the reason `host.ts:151`–`:158` builds;
+  - `hooks.port` for the diagnostics ports;
+  - the evidence line of E3.0d step 3.
+
+  `adapter.ts` (slots, discovery, mirroring, MCP lease, limits, the recovery snapshot) is
+  unchanged around it.
+
+- **Proof** (alone, three modes, with `ACE_SESSIONS=cursor`): the 16 Cursor session (a) files of
+  behaviour.md §19 (`session.process` … `sandbox-lifetime.process`); the translator (a) files run
+  unchanged. Add every daemon file that opens the real session,
+  `git grep -l "openCursorSession\|realHostAdapter" -- 'apps/daemon/src/*.test.ts'` (today
+  `engine/cursor-busy-store`, `engine/cursor-second-crash` and `engine/provider-permissions`).
+- **Cross-mode**, both ways, through `scripts/native-cross.ts ACE_SESSIONS`:
+  `engine/cursor-second-crash.process.test.ts` and `engine/cursor-busy-store.process.test.ts`.
+  Both fork a child that inherits `ACE_NATIVE_CROSS_LOG`, so their boots are logged. These are
+  static reads, not gate runs: a file the gate reports as "no restart" leaves the list, and the
+  PR says so.
+- **Bench**: `cursor.ts`, a `BenchProvider` (`id` widened to include `"cursor"`). Its fake host
+  entry is the module itself with `--fake`, written the way `session.process.test.ts:10`–`:22`
+  writes one, and passed as the host's `entry`. Each turn is 125 `frame` requests of kind
+  `batch`, 16 `delta` text frames each (2,000 frames), each request awaiting its ack as
+  `FrameBatch.flush` does (`frame-batch.ts:128`–`:140`), then a `result` frame
+  `{ status: "finished" }`.
+- **Hot path**: the facade's per-frame work is the bridge's `ProviderPayload` parse and one
+  `committed` call. If the D/A ratio is over 1.00, profile those two before anything else.
+- **Must not**: edit a test, `host-entry.ts`, `host-runtime.ts` or `host-wire.ts`; port
+  `@ace/redaction`.
+- **Reviewer checks**: as E3-pi.2; a failed commit leaves the host read on and answered once; the
+  stray-line hold keeps `host-output` in line order.
+
+### Owner questions (E3-opencode and E3-cursor, 2026-11-25)
+
+1. **OpenCode HTTP.** In E3, requests stay on the injected fetch (point 1) and `reqwest` is removed
+   until E3-opencode.6. Is that acceptable, or should E3 wait until the fetch is an engine port?
+2. **OpenCode restart test.** No test reopens a root with an OpenCode session. May E3-opencode.5
+   add one, `engine/opencode-restart-resume.process.test.ts`, as owner decision 1 allowed for Pi?
+3. **Cursor's (b) host files.** `host-ack`, `host-frame-storage`, `host-stderr`, `host-stop`,
+   `host-stray-output` and `sdk-admission` drive `CursorHost` against the real child. Three of
+   them build it through `runtimeFixture`, whose entry text comes from a function the support
+   file doesn't export. Moving their cases to Rust tests means either exporting that function (an
+   edit to a test-support file) or keeping these six on the TypeScript `CursorHost` until it is
+   deleted, with the session (a) files covering the native host. Which?
+4. **`ProviderPayload`'s bound** gets a value-based port in `ace-adapter-api/src/payload.rs`
+   (E3-opencode.1). Should ACP's `validate_payload`, which parses again, move onto it as a
+   follow-up? That is the likeliest part of ACP's 1.44×.
+
+- **Claude** has no E3 item (ADR 0223, decided by the orchestrator; the owner moved it to the
   providers work).
 
 ### Reviewing an E3 task
