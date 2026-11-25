@@ -7,10 +7,10 @@ import { createInterface } from "node:readline";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
 import type { BenchProvider, BenchTranslator } from "./provider.ts";
 
-/** One turn: 2,000 agent message deltas, then the item's end and the turn's end. */
+/** One turn: 2,000 agent message deltas, then the item's end. */
 const DELTAS = 2_000;
-/** The turn/start send, its started frame, the item, the completion and the reply. */
-const SESSION_FRAMES = 5;
+/** The turn/start send, its submitting note, the item and the reply. */
+const SESSION_FRAMES = 4;
 
 function send(data: unknown): void {
   process.stdout.write(JSON.stringify(data) + "\n");
@@ -83,11 +83,6 @@ function runFake(): void {
       case "turn/start": {
         const turnId = "bench-turn";
         const threadId = String(params["threadId"] ?? "bench");
-        send({
-          jsonrpc: "2.0",
-          method: "turn/started",
-          params: { threadId, turn: { id: turnId } },
-        });
         for (let index = 0; index < DELTAS; index++)
           send({
             jsonrpc: "2.0",
@@ -103,14 +98,9 @@ function runFake(): void {
             item: { id: "answer", type: "agentMessage", text: "bench answer", phase: "final_answer" },
           },
         });
-        send({
-          jsonrpc: "2.0",
-          method: "turn/completed",
-          params: { threadId, turn: { id: turnId, status: "completed" } },
-        });
-        // The reply follows the turn's frames, as Pi's and ACP's fakes do: a send that resolves
-        // then means every frame of that turn was written.
-        send({ jsonrpc: "2.0", id, result: { turn: { id: turnId } } });
+        // No turn id keeps the session from holding the turn active: every prompt starts a new
+        // turn, so the ten turns emit the same frames (no discovery reads in the window).
+        send({ jsonrpc: "2.0", id, result: { turn: {} } });
         return;
       }
       case "turn/steer":
@@ -121,6 +111,9 @@ function runFake(): void {
         return;
       case "thread/backgroundTerminals/list":
         send({ jsonrpc: "2.0", id, result: { data: [] } });
+        return;
+      case "thread/unsubscribe":
+        send({ jsonrpc: "2.0", id, result: {} });
         return;
       default:
         if (frame.method !== undefined)
@@ -174,11 +167,13 @@ export const codex: BenchProvider = {
   session:
     () =>
     async (ctx: SessionContext): Promise<ProviderSession> => {
-      const [{ createCodexAdapter }, { spawnSupervised }] = await Promise.all([
+      const [{ createCodexAdapter, CodexHostPool }, { spawnSupervised }] = await Promise.all([
         import("@ace/adapter-codex"),
         import("@ace/provider-kit/process"),
       ]);
+      const hosts = new CodexHostPool();
       const adapter = createCodexAdapter({
+        hosts,
         cli: {
           installed: true,
           path: "synthetic-codex",
@@ -195,7 +190,30 @@ export const codex: BenchProvider = {
             }),
         },
       });
-      return adapter.openSession(ctx);
+      const session = await adapter.openSession(ctx);
+      // The catalog and usage replies follow the open; let them land before the measurement.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      // One warm-up turn, outside the measured window.
+      await session.send([{ type: "text", text: "bench warm-up" }], "queue");
+      // The benchmark does not measure shutdown; a close that never confirms must not hang it.
+      const close = session.close.bind(session);
+      session.close = async (reason) => {
+        // A bench measures turns, never shutdown: if a shared host's stop does not confirm,
+        // the numbers are already written and the process still has to end.
+        const guard = setTimeout(() => process.exit(0), 3_000);
+        guard.unref?.();
+        try {
+          await Promise.race([
+            close(reason),
+            new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+          ]);
+          // The adapter's pool owns the shared app-server; the bench must not leave it running.
+          await hosts.close();
+        } finally {
+          clearTimeout(guard);
+        }
+      };
+      return session;
     },
 };
 
