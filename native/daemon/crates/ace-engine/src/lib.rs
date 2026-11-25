@@ -87,6 +87,16 @@ pub enum EngineError {
     Closing,
     #[error("Engine closed")]
     Closed,
+    #[error("Engine actor capacity exceeded")]
+    ActorCapacityExceeded,
+    #[error("acknowledgement reached with a transaction open")]
+    NotOutermost,
+    #[error("Invalid stored raw blob id")]
+    InvalidRawBlobId,
+    #[error("Invalid stored raw blob")]
+    InvalidStoredRawBlob,
+    #[error("Invalid stored attachment")]
+    InvalidStoredAttachment,
 }
 
 impl EngineError {
@@ -344,6 +354,11 @@ pub struct Core {
     probe_close_stall: RefCell<Option<LocalBoxFuture<'static, ()>>>,
     /// The engine's own long-lived tasks, so `shut` cancels them.
     tasks: RefCell<Vec<async_task::Task<(), TaskId>>>,
+    /// The actor's dependencies (E5.2 correction 6): one field, set at construction and replaced
+    /// by the probe.
+    pub actor_deps: RefCell<Rc<actor::ActorDeps>>,
+    /// A weak handle to itself, so a synchronous entry can start work on a local task.
+    self_weak: RefCell<Weak<Core>>,
 }
 
 impl Core {
@@ -355,6 +370,11 @@ impl Core {
             .try_borrow_mut()
             .map_err(|_| EngineError::Reentrant)?;
         Ok(f(&mut state))
+    }
+
+    /// A strong handle to this engine, for a synchronous entry that starts work.
+    pub fn self_rc(&self) -> Option<Rc<Core>> {
+        self.self_weak.borrow().upgrade()
     }
 
     pub fn lifecycle(&self) -> Lifecycle {
@@ -409,7 +429,7 @@ impl Core {
         *self.probe_close_stall.borrow_mut() = Some(stall);
     }
 
-    fn record_wake(&self, thread: &str) {
+    pub(crate) fn record_wake(&self, thread: &str) {
         // The waker comes out with the borrow released, so a wake never runs under it.
         let waker = self.wakes.borrow_mut().record(thread);
         if let Some(waker) = waker {
@@ -441,14 +461,20 @@ impl Core {
         loop {
             // index.ts:1414 and :1416: seal and flush the actors before and after the worker
             // wait, so a batch arriving during the wait is drained by this same flush.
-            actor::flush_all(self, exclude).await?;
+            if let Some(core) = self.self_rc() {
+                actor::flush_all(&core, exclude).await?;
+            }
             let waiters = self.worker_waiters(exclude);
             if !waiters.is_empty() {
                 futures::future::join_all(waiters).await;
-                actor::flush_all(self, exclude).await?;
+                if let Some(core) = self.self_rc() {
+                    actor::flush_all(&core, exclude).await?;
+                }
                 continue;
             }
-            actor::flush_all(self, exclude).await?;
+            if let Some(core) = self.self_rc() {
+                actor::flush_all(&core, exclude).await?;
+            }
             if self.executor.idle(exclude) && self.quiescent(exclude) {
                 return Ok(());
             }
@@ -548,6 +574,7 @@ impl Engine {
         inputs: Inputs,
         registry_json: &str,
         notifier: Box<dyn executor::Notifier>,
+        actor_deps: Rc<actor::ActorDeps>,
     ) -> Result<Engine, EngineError> {
         let limits = limits::resolve(inputs.limits)?;
         let idle_ms = limits::validate_idle_ms(inputs.idle_ms.unwrap_or(0.0))?;
@@ -579,7 +606,10 @@ impl Engine {
             wakes: RefCell::new(Wakes::default()),
             probe_close_stall: RefCell::new(None),
             tasks: RefCell::new(Vec::new()),
+            actor_deps: RefCell::new(actor_deps),
+            self_weak: RefCell::new(Weak::new()),
         });
+        *core.self_weak.borrow_mut() = Rc::downgrade(&core);
         let weak: Weak<dyn DeferredHost> = Rc::downgrade(&core) as Weak<dyn DeferredHost>;
         after.attach(weak);
         core.with_state(|state| {
@@ -758,7 +788,7 @@ async fn close_task(core: Rc<Core>) {
 }
 
 /// Yields once: the next poll returns `Ready`, after the pump has run what was queued.
-async fn yield_once() {
+pub(crate) async fn yield_once() {
     let mut yielded = false;
     futures::future::poll_fn(|cx| {
         if yielded {
@@ -798,6 +828,12 @@ async fn close_sequence(core: Rc<Core>) -> CloseOutcome {
             Err(_) => outcome.readiness = Some(EngineError::Closed),
         }
     }
+    core.phase.set("actor flush");
+    if let Some(rc) = core.self_rc()
+        && let Err(error) = actor::close_flush(&rc).await
+    {
+        outcome.module = Some(error);
+    }
     core.phase.set("recovery close");
     if let Ok(Err(error)) = core.with_state(recovery::close) {
         outcome.module = Some(error);
@@ -807,6 +843,8 @@ async fn close_sequence(core: Rc<Core>) -> CloseOutcome {
         core.phase.set("probe close");
         stall.await;
     }
+    core.phase.set("actor stop");
+    actor::close_stop(&core);
     core.phase.set("join");
     if !core.admission_closed.replace(true) {
         let drained = core.executor.close_admission();
