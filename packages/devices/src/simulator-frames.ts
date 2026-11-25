@@ -1,4 +1,5 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
+import { catalogWord } from "./catalog.ts";
 import { jpegComplete } from "./jpeg.ts";
 import { DeviceError } from "./sdk.ts";
 import { deviceImageStream } from "./stream-control.ts";
@@ -87,12 +88,10 @@ export class SimulatorFrames {
       const revision = this.revision;
       const settings = this.settings;
       // A cut-short frame would show an agent a screen that isn't there: refused.
-      if (!jpegComplete(source.bytes))
-        throw new DeviceError(
-          "invalid_data",
-          "The Simulator sent an incomplete picture",
-          "Retry; if it persists, restart the device view.",
-        );
+      if (!jpegComplete(source.bytes)) {
+        const word = catalogWord("simulatorIncompletePicture");
+        throw new DeviceError(word.code, word.message, word.hint);
+      }
       if (this.stopped || revision !== this.revision) continue;
       const fits =
         source.width <= settings.maxWidth &&

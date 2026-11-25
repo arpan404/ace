@@ -494,22 +494,33 @@ The pure formats and parsers land first under the same switch; the capture units
 them. `ACE_DEVICE_PLATFORM=native` will answer these decisions from `ace-devices`; with the
 switch off, `packages/devices/src` is today's TypeScript, unchanged.
 
-| TypeScript                                          | Rust                                | Wired                                          |
-| --------------------------------------------------- | ----------------------------------- | ---------------------------------------------- |
-| `@ace/browser/h264` (`avcConfig`, `annexB`)         | `platform/h264.rs`                  | not yet (the capture path is U3)               |
-| `@ace/browser/h264` (`spsDimensions`)               | `platform/h264.rs`                  | not yet                                        |
-| `simulator-avcc`                                    | `platform/simulator_avcc.rs`        | not yet                                        |
-| `jpeg`                                              | `platform/jpeg.rs`                  | not yet                                        |
-| `mjpeg`                                             | `platform/mjpeg.rs`                 | not yet                                        |
-| `simulator-rotation`                                | `platform/simulator_rotation.rs`    | not yet (the capture's orientation read is U3) |
-| `simulator-source-rate`                             | `platform/simulator_source_rate.rs` | not yet                                        |
-| `recording-limits`                                  | `platform/recording_limits.rs`      | not yet                                        |
-| `simulator-frames`, `simulator-jpeg`, `media-paths` | -                                   | not yet (their stream decisions are U2-U3)     |
-| `log-line`                                          | -                                   | not yet (U5)                                   |
+| TypeScript                                  | Rust                                | Wired                                                                                      |
+| ------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `@ace/browser/h264` (`avcConfig`, `annexB`) | `platform/h264.rs`                  | not yet (the capture path is U3)                                                           |
+| `@ace/browser/h264` (`spsDimensions`)       | `platform/h264.rs`                  | not yet                                                                                    |
+| `simulator-avcc`                            | `platform/simulator_avcc.rs`        | not yet                                                                                    |
+| `jpeg`                                      | `platform/jpeg.rs`                  | not yet                                                                                    |
+| `mjpeg`                                     | `platform/mjpeg.rs`                 | not yet                                                                                    |
+| `simulator-rotation`                        | `platform/simulator_rotation.rs`    | not yet (the capture's orientation read is U3)                                             |
+| `simulator-source-rate`                     | `platform/simulator_source_rate.rs` | not yet                                                                                    |
+| `recording-limits`                          | `platform/recording_limits.rs`      | not yet                                                                                    |
+| `simulator-frames`                          | `platform/simulator_frames/mod.rs`  | not yet: the state machine returns effects, the capture's clock, timer and promises are U3 |
+| `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                               |
+| `simulator-jpeg`, `media-paths`             | -                                   | not yet (their stream decisions are U2-U3)                                                 |
 
-The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), which `jpeg.ts` reads
-too, so neither side spells them; nothing else in U1 renders a device word. `h264.rs` keeps the
+The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
+Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
+read too, so neither side spells them. `h264.rs` keeps the
 TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `avcConfig`'s
 length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
+
+`simulator_frames/mod.rs` keeps the TypeScript's scheduling rule (a publish waits out the stream's
+frame interval), its single latest picture, its revision (a settings change drops the picture
+being handed on), its 64-still cap and the 2160-pixel height bound; it never reads a clock it
+was not passed, and `step` is the microtask the class's `drain` ran. Nothing crosses the addon
+per frame: the state machine is library code for the Rust capture (U3), so no benchmark against
+`bench/frames.ts` is due until that wiring lands. `log_line.rs` reads a line only up to 65,536
+UTF-16 units and shows up to 4,096, cutting an emoji where `.slice` cuts it (a lone surrogate),
+and strips the same ANSI sequences Node's `stripVTControlCharacters` does.
