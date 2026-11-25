@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { expiredSnapshots, snapshotRetention, type KeptSnapshot } from "./snapshot-retention.ts";
+import {
+  deviceRetention,
+  expiredSnapshots,
+  snapshotRetention,
+  type KeptSnapshot,
+} from "./snapshot-retention.ts";
 
 const day = 24 * 60 * 60 * 1000;
 const now = 100 * day;
@@ -37,4 +42,22 @@ test("past the byte cap settled threads go before anything still working, never 
     { key: "inbox", kind: "record" as const, used: now - 1, bytes: 4, settled: false },
   ];
   expect(expiredSnapshots(kept, now, policy).toSorted()).toEqual(["inbox", "old-settled"]);
+});
+
+test("the phone's device cache keeps what it read however old and however many", () => {
+  const kept = [
+    thread("a-year-ago", now - 365 * day, true),
+    ...Array.from({ length: 500 }, (_, index) => thread(`s${index}`, now - index, true)),
+  ];
+  expect(expiredSnapshots(kept, now, deviceRetention)).toEqual([]);
+});
+
+test("past its byte cap, the device cache lets the least recently used settled thread go first", () => {
+  const half = deviceRetention.maxBytes / 2;
+  const kept = [
+    thread("busy-old", now - 3 * day, false, half),
+    thread("settled-old", now - 2 * day, true, half),
+    thread("settled-new", now - day, true, half),
+  ];
+  expect(expiredSnapshots(kept, now, deviceRetention)).toEqual(["settled-old"]);
 });
