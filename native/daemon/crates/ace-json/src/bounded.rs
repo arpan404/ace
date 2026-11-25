@@ -8,7 +8,7 @@
 //! nodes (values plus an object's own keys, in visit order) pass 32,768, depth passes 64, an
 //! array is longer than 32,768 minus the nodes counted so far, or a number is not finite.
 
-use crate::Value;
+use crate::{JsString, Value};
 
 /// The structural budgets (`NODES` and `DEPTH` in `ipc.ts`).
 const NODES: usize = 32_768;
@@ -48,7 +48,7 @@ fn walk(
             }
             crate::write_number(out, number.value());
         }
-        Value::String(text) => crate::write_js_string(out, text),
+        Value::String(text) => write_string(out, text, max_bytes)?,
         Value::Array(items) => {
             if items.len() > NODES - *nodes {
                 return Err(BudgetError);
@@ -72,7 +72,7 @@ fn walk(
                 if index > 0 {
                     out.push(',');
                 }
-                crate::write_js_string(out, key);
+                write_string(out, key, max_bytes)?;
                 out.push(':');
                 walk(item, depth + 1, nodes, out, max_bytes)?;
             }
@@ -85,10 +85,32 @@ fn walk(
     Ok(())
 }
 
+fn write_string(out: &mut String, text: &JsString, max_bytes: usize) -> Result<(), BudgetError> {
+    // The UTF-8 display length plus quotes is a lower bound, including for lone surrogates
+    // (written as escapes). Refuse oversized input before the writer reserves or copies it.
+    if text.as_str().len().saturating_add(2) > max_bytes.saturating_sub(out.len()) {
+        return Err(BudgetError);
+    }
+    crate::write_js_string(out, text);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Value;
+
+    #[test]
+    fn oversized_strings_and_keys_are_refused_before_copying() {
+        let big = "é".repeat(512 * 1024);
+        let mut object = crate::Map::new();
+        object.insert(big.clone(), Value::Null);
+        for value in [Value::from(big), Value::Object(object)] {
+            let mut out = String::new();
+            assert_eq!(walk(&value, 0, &mut 0, &mut out, 64), Err(BudgetError));
+            assert!(out.len() <= 64, "oversized text was copied into the output");
+        }
+    }
 
     #[test]
     fn the_byte_budget_is_the_serialized_utf8_text() {

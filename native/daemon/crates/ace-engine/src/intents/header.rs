@@ -138,6 +138,10 @@ impl IntentHeader {
         let trigger = optional_text(row, "trigger")?
             .map(|trigger| member(&TRIGGERS, trigger, "trigger"))
             .transpose()?;
+        let resolution_id = optional_text(row, "resolution_id")?;
+        if resolution_id.as_deref() == Some("") {
+            return Err(unreadable("resolution_id"));
+        }
         Ok(IntentHeader {
             id,
             thread_id: non_empty(row, "thread_id")?,
@@ -149,7 +153,7 @@ impl IntentHeader {
             ack_target,
             delivery,
             acknowledged: flag(row, "acknowledged"),
-            resolution_id: optional_text(row, "resolution_id")?.filter(|value| !value.is_empty()),
+            resolution_id,
             resolution_generation,
             submitted_generation,
             trigger,
@@ -212,6 +216,18 @@ pub fn headers(
 mod tests {
     use super::*;
     use crate::repository::testsupport::{header, home};
+
+    #[test]
+    fn an_empty_resolution_id_is_unreadable() {
+        let conn = home("header-resolution", &header("header-resolution"));
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,resolution_id)
+             VALUES ('answer','header-resolution','interaction.resolve','{}','pending','')",
+        )
+        .unwrap();
+        let error = headers(&conn, Some("header-resolution"), None).unwrap_err();
+        assert!(error.to_string().contains("resolution_id"));
+    }
 
     #[test]
     fn awaiting_decodes_as_the_typescripts_triple_equals_one() {

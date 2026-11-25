@@ -111,17 +111,16 @@ impl Core {
             // The snapshot loads inside the transaction, as `repository.ts:413` reads it there;
             // opening the frame (which can flush a pinned batch) therefore holds no borrow.
             let fold = self.with_state(|state| {
-                let snapshot = state.repo.require_state(&self.store, id)?;
-                state.fold_frame(&self.store, id, &snapshot, facts_json, now, generation)
+                state.fold_frame(&self.store, id, facts_json, now, generation)
             })?;
             if fold.is_err() {
                 let _ = self.with_state(|state| state.deferred_queue.clear());
             }
-            fold?;
-            // The queue's event writer runs with the borrow released, so a store write hook may
-            // re-enter the engine (E5.4a round 2).
+            let folded = fold?;
+            // Queue writes precede the fold's save in the same transaction. Release the state
+            // borrow for the queue writer so its store hooks can re-enter.
             self.flush_deferred()?;
-            Ok(())
+            self.with_state(|state| folded.save(state, &self.store, id, now))?
         });
         if let Err(error) = outcome {
             let _ = self.with_state(|state| state.repo.evict(&self.store, id));

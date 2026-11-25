@@ -52,3 +52,6 @@ base64 = "0.22"
 # provider's own adapter sends (E5.4b), so the two stay one copy.
 ace-adapter-claude = { path = "../ace-adapter-claude" }
 ace-adapter-pi = { path = "../ace-adapter-pi" }
+# JavaScript regex and WHATWG URL semantics for stored command validation (E5.4a round 3).
+regress = { version = "0.12", features = ["utf16"] }
+url = "2"
