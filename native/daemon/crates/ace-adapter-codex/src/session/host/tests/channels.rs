@@ -243,6 +243,61 @@ fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
     )));
 }
 
+/// `host.ts:469`-`:473`: only a dropped *reply* rejects a pending call. A
+/// server request that reuses a client call's numeric id is not that reply.
+#[test]
+fn a_dropped_server_request_never_rejects_a_client_call_with_the_same_id() {
+    let host = Shell::start(HostConfig::shared(initialize(), 1_000.0));
+    let _ = host.pump(|| {});
+    let events = Arc::new(crate::session::harness::Events::default());
+    host.attach(1, Recorder::new(1, Arc::clone(&events)))
+        .expect("a channel attaches before the handshake");
+    let (_, lines) = host.pump(|| {
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "owned"})),
+            7,
+            Timeout::After(1_000.0),
+        )
+        .expect("the request is queued");
+    });
+    let sent = lines
+        .iter()
+        .find(|line| line.contains("thread/read"))
+        .expect("the request was written");
+    let wire_id = ace_json::parse(sent)
+        .ok()
+        .and_then(|value| value.get("id").and_then(Value::as_f64))
+        .map(RpcId::Number)
+        .expect("the wire id");
+    let (effects, _) = host.pump(|| {
+        host.dropped(&DroppedLine {
+            bytes: 20_000_000,
+            phase: DroppedPhase::Line,
+            // A request, not a reply, that happens to carry the same id.
+            attributed: crate::session::dropped::LineAttribution {
+                id: Some(wire_id),
+                thread_id: None,
+                response: false,
+            },
+        });
+    });
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::Settle { id: 7, .. })),
+        "the client call keeps its own settlement"
+    );
+    assert!(events.snapshot().iter().any(|event| matches!(
+        event,
+        Event::Dropped {
+            tenant: 1,
+            bytes: 20_000_000
+        }
+    )));
+}
+
 /// `foreign`: a thread another channel owns is not this channel's to claim,
 /// and neither is one a channel let go.
 #[test]
