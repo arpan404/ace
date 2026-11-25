@@ -33,6 +33,11 @@ import { DevicePlatformBase } from "./platform-base.ts";
 import { DeviceError, deviceAnswer } from "./sdk.ts";
 
 export class NativeDevicePlatform extends DevicePlatformBase {
+  /** The native platform is the only one that passes its injected clock to probes. */
+  protected override nativeProbes(): boolean {
+    return true;
+  }
+
   override async simulatorDevice(input: Device): Promise<Device> {
     return this.#selected(input, false);
   }

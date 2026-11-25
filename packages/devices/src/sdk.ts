@@ -97,10 +97,11 @@ export function armEmulatorNote(): DeviceError {
   const word = catalogWord("armEmulatorNote");
   return new DeviceError(word.code, word.message, word.hint);
 }
-/** The injected scheduler in `probeOutput`'s order, when the caller gave one. */
+/** The injected scheduler in `probeOutput`'s order, when the native platform gave one. */
 function probeSchedule(
   options: SDKOptions,
 ): ((run: () => void, ms: number) => () => void) | undefined {
+  if (devicePlatformBackend() !== "native") return undefined;
   const after = options.after;
   return after ? (run, ms) => after(ms, run) : undefined;
 }

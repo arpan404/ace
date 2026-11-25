@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import { catalogWord, type CatalogWord } from "./catalog.ts";
 import { type DeviceError, resolveAndroidSDK, resolveXcode } from "./sdk.ts";
 
@@ -94,3 +95,29 @@ test("Linux tells arm64 and other architectures apart", async () => {
   );
   expect(other).toEqual(word("adbMissingLinux"));
 });
+
+test.skipIf(devicePlatformBackend() === "native")(
+  "with the platform switch off the Xcode probe gets no scheduler",
+  async () => {
+    let schedule: unknown = "unset";
+    const probe = async (
+      _command: string,
+      _args: readonly string[],
+      options?: { schedule?: unknown },
+    ) => {
+      schedule = options?.schedule;
+      return { stdout: "/Applications/Xcode.app/Contents/Developer\n", stderr: "", code: 0 };
+    };
+    await resolveXcode({
+      platform: "darwin",
+      home: root,
+      env: { PATH: tools },
+      probe,
+      after: (ms, run) => {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      },
+    });
+    expect(schedule).toBeUndefined();
+  },
+);

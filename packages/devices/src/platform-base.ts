@@ -355,8 +355,14 @@ export class DevicePlatformBase {
       );
     return this.android.captureDimensions(device);
   }
+  /** Whether this platform passes its injected clock to probes; only the native one does, so
+   * the switch-off class keeps today's timers byte for byte. */
+  protected nativeProbes(): boolean {
+    return false;
+  }
   /** The platform's injected clock, in the order `probeOutput` takes it. */
   private probeSchedule(): ((run: () => void, ms: number) => () => void) | undefined {
+    if (!this.nativeProbes()) return undefined;
     const after = this.options.after;
     return after ? (run, ms) => after(ms, run) : undefined;
   }
