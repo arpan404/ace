@@ -356,10 +356,18 @@ impl Session {
                 for child in blocked {
                     effects.extend(self.read_failed(&child, message));
                 }
-                // `reconcileLoaded` awaits each read: one that failed fails the
-                // whole scan, which records it and retries (`:268`-`:283`).
+                // `reconcileLoaded` awaits each read: the scan waiting on this
+                // one fails with it and retries (`:268`-`:283`); a scan
+                // waiting on another read is untouched.
                 for task in &tasks {
-                    effects.extend(self.reconcile_failed(task, message));
+                    let awaits = self
+                        .discovery
+                        .tasks
+                        .get(task)
+                        .is_some_and(|state| state.current.as_deref() == Some(thread));
+                    if awaits {
+                        effects.extend(self.reconcile_failed(task, message));
+                    }
                 }
             }
         }
