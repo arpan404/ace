@@ -62,8 +62,12 @@ export function admitSteer(repo: EngineRepository, command: Command, id: ThreadI
       options: {},
       ...repo.session(id),
     };
+  // A steer only splits off a selection into a turn this boot knows is live. While the thread's
+  // blockers are still warming, quiescent would answer false for a thread main reads as idle; a
+  // plain queued send is main's answer then, and the delivery path re-decides once it is rebuilt.
+  const live = repo.readiness.rebuilt(id) && !repo.quiescent(repo.requireState(id));
   const selection =
-    capabilities?.steer && !repo.quiescent(repo.requireState(id)) && repo.reserve(id)
+    capabilities?.steer && live && repo.reserve(id)
       ? resolveSwitch(
           repo,
           id,

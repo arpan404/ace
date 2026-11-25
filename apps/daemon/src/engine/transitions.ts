@@ -69,7 +69,12 @@ export class ThreadTransitions {
   }
   async execute(actor: ThreadActor, intent: Intent): Promise<void> {
     const p = intent.command.payload;
+    // Admission could not wait for this boot's readiness rebuild; decide the live-tree question
+    // here, before anything is changed, exactly as main's synchronous admission did.
     if (p.type === "thread.merge") {
+      await this.repo.readiness.whenRebuilt(actor.id);
+      if (!this.repo.quiescent(this.repo.requireState(actor.id)))
+        throw new Error("fork_tree_is_live");
       const fork = this.repo.store.getThread(p.threadId);
       if (fork?.lineage?.parentThreadId !== actor.id) throw new Error("Fork lineage changed");
       validateCitations(
