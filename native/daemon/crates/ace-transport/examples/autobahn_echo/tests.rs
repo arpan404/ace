@@ -13,8 +13,9 @@ use tokio::time::timeout;
 const PATTERN: &[u8] = b"BAsd7&jh23";
 /// 9.1.2's size.
 const LARGE: usize = 256 * 1024;
-/// The suite's largest case, 9.1.6.
-const LARGEST: usize = 16 * 1024 * 1024;
+/// The largest message the cargo tests send; the suite's 16 MiB case (9.1.6) is
+/// the scratch server's, and would only slow these down under load.
+const LARGEST: usize = 4 * 1024 * 1024;
 
 async fn connect(compressed: bool) -> TcpStream {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -149,14 +150,14 @@ async fn echoes_256_kib_text_messages_past_the_inbound_credit_with_deflate() {
 }
 
 #[tokio::test]
-async fn echoes_16_mib_text_messages_past_the_inbound_credit() {
+async fn echoes_4_mib_text_messages_past_the_inbound_credit() {
     timeout(Duration::from_secs(30), large_echo(false, LARGEST, 2))
         .await
         .unwrap();
 }
 
 #[tokio::test]
-async fn echoes_16_mib_text_messages_past_the_inbound_credit_with_deflate() {
+async fn echoes_4_mib_text_messages_past_the_inbound_credit_with_deflate() {
     timeout(Duration::from_secs(30), large_echo(true, LARGEST, 2))
         .await
         .unwrap();
@@ -210,24 +211,27 @@ async fn drops_a_socket_on_tcp_eof_inside_a_frame_after_echoing() {
 }
 
 #[tokio::test]
-async fn refuses_a_message_past_the_fragment_bound_the_reference_keeps() {
-    // 16,385 fragments of one message: one past `ws`'s 16,384, which the
-    // reference server in the comparison keeps, so both legs must refuse it.
+async fn echoes_the_suites_4_mib_fragment_case() {
+    // 9.3.1/9.4.1: 4 MiB in 64-byte fragments and the suite's closing empty
+    // fragment, 65,537 frames. The daemon's 16,384 refuses it, and a harness
+    // kept at 65,536 refused it in the T1b.5 run; both legs now raise the bound
+    // together, and `ws` accepting N frames is what fixes the number.
     let mut client = connect(false).await;
-    let mut bytes = masked_fragment(0x1, false, b"");
-    for _ in 0..16_384 {
-        bytes.extend(masked_fragment(0x0, false, b""));
+    let payload: Vec<u8> = PATTERN.iter().copied().cycle().take(LARGEST).collect();
+    let mut bytes = Vec::with_capacity(LARGEST + 6 * 65_537);
+    for (index, chunk) in payload.chunks(64).enumerate() {
+        let opcode = if index == 0 { 0x1 } else { 0x0 };
+        bytes.extend(masked_fragment(opcode, false, chunk));
     }
-    client.write_all(&bytes).await.unwrap();
-
-    let mut answer = [0u8; 4];
-    timeout(Duration::from_secs(10), client.read_exact(&mut answer))
+    bytes.extend(masked_fragment(0x0, true, b""));
+    timeout(Duration::from_secs(60), client.write_all(&bytes))
         .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        answer,
-        [0x88, 0x02, 0x03, 0xf0],
-        "a message past the fragment bound closes with 1008"
-    );
+        .expect("the fragments are written")
+        .expect("the peer reads them");
+    timeout(
+        Duration::from_secs(60),
+        expect_echo(&mut client, &payload, false),
+    )
+    .await
+    .expect("the message is echoed");
 }
