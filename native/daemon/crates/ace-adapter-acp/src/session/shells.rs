@@ -3,9 +3,9 @@
 //!
 //! Every rule lives in the translator's pure settlement (`translate::shell_settlement`),
 //! which `translate/` owns. This adds only what a session has and the translator does
-//! not: the root it compares tools against (the translator's root is empty and it has no
-//! setter), the merged tool data a follow-up update omits -- `tool_detail` reads the
-//! merged tool there (`shell-settlement.ts:41`) -- and `JsString` owners.
+//! not: the root id it hands that settlement as soon as it is known, the merged tool data
+//! a follow-up update omits -- `tool_detail` reads the merged tool there
+//! (`shell-settlement.ts:41`) -- and `JsString` owners.
 
 use ace_json::{JsString, Map, Value};
 use indexmap::IndexMap;
@@ -33,7 +33,10 @@ impl ShellSettlement {
         }
     }
 
+    /// The session's root, once `session/new` names it. Tools already reported keep the
+    /// owner the agent gave them, so the root's earlier work still matches.
     pub fn set_root(&mut self, root: JsString) {
+        self.settlement.set_root(root.as_str());
         self.root = root;
     }
 
@@ -61,7 +64,6 @@ impl ShellSettlement {
         let key = tool_key(&owner, &id);
         let mut merged = self.data.get(&key).cloned().unwrap_or_default();
         merge_tool_data(&mut merged, update_val);
-        let owner = self.masked(&owner);
         // The update as the translator reads it: this update's own fields, over the tool
         // data merged so far, so a follow-up that omits `kind` keeps its class.
         let mut forwarded_update = update.clone();
@@ -81,15 +83,14 @@ impl ShellSettlement {
     }
 
     pub fn knows(&self, owner: &JsString, id: &JsString) -> bool {
-        self.settlement
-            .knows(self.masked(owner).as_str(), id.as_str())
+        self.settlement.knows(owner.as_str(), id.as_str())
     }
 
     /// The person answered (or ace cancelled) the request for a tool: a refusal settles
     /// it, an allow starts it (`shell-settlement.ts:77`).
     pub fn answered(&mut self, owner: &JsString, id: &JsString, refused: bool) {
         self.settlement
-            .answered(self.masked(owner).as_str(), id.as_str(), refused);
+            .answered(owner.as_str(), id.as_str(), refused);
     }
 
     pub fn prompt_started(&mut self) {
@@ -98,8 +99,7 @@ impl ShellSettlement {
 
     /// `reason` is the prompt's stop reason, or `""` when the prompt failed.
     pub fn prompt_ended(&mut self, owner: &JsString, reason: &str) {
-        self.settlement
-            .prompt_ended(self.masked(owner).as_str(), reason);
+        self.settlement.prompt_ended(owner.as_str(), reason);
     }
 
     pub fn survived(&self, key: &str) -> bool {
@@ -114,19 +114,6 @@ impl ShellSettlement {
     /// Work the agent does after its prompt answered: new input waits for it, never refused.
     pub fn busy(&self) -> bool {
         self.settlement.busy()
-    }
-
-    /// The translator's root is the empty string and it has no setter, so this compares an
-    /// owner against this session's real root, as TS does (`shell-settlement.ts:24`). Only
-    /// the root is forwarded as ""; every other owner takes a leading marker, so an owner
-    /// of "" is never mistaken for root work. The mapping is injective, so two owners never
-    /// share a translator key.
-    fn masked(&self, owner: &JsString) -> JsString {
-        if *owner == self.root {
-            JsString::default()
-        } else {
-            JsString::from(format!("\u{1}{owner}"))
-        }
     }
 }
 
@@ -180,6 +167,30 @@ mod tests {
         assert!(!shells.blocked());
         assert!(!shells.busy());
         assert!(shells.knows(&JsString::from("root"), &JsString::from("sh-ag")));
+    }
+
+    #[test]
+    fn a_root_tool_reported_before_the_root_is_named_settles_after_it() {
+        let mut shells = ShellSettlement::new(QuirksKind::Generic);
+        // Antigravity names the session in an update before `session/new` answers
+        // (`session.ts:222`), and reports a shell there.
+        shells.receive(&json!({
+            "sessionId": "agy-1",
+            "update": { "sessionUpdate": "tool_call", "toolCallId": "sh-early", "kind": "execute", "status": "in_progress" }
+        }));
+        shells.set_root(JsString::from("agy-1"));
+        shells.receive(&json!({
+            "sessionId": "agy-1",
+            "update": { "sessionUpdate": "tool_call_update", "toolCallId": "sh-early", "status": "completed" }
+        }));
+        assert!(
+            !shells.knows(&JsString::from("agy-1"), &JsString::from("sh-early")),
+            "the update found the tool it first reported"
+        );
+        // A cancelled prompt has nothing left to cancel: the early tool was that one.
+        shells.prompt_started();
+        shells.prompt_ended(&JsString::from("agy-1"), "cancelled");
+        assert!(!shells.blocked());
     }
 
     #[test]
