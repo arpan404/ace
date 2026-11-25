@@ -144,6 +144,231 @@
       "code": "not_supported",
       "message": "Android emulators aren't available on Linux arm64",
       "hint": "Google publishes the Android Emulator for x86-64 Linux only. Android phones on USB and devices on the network work here through adb."
+    },
+    "iosRecentsKey": {
+      "code": "not_supported",
+      "message": "iOS Simulator has no Recents key",
+      "hint": "A slow swipe up from the bottom edge opens the app switcher; or open_app the app you want."
+    },
+    "iosBackKey": {
+      "code": "not_supported",
+      "message": "iOS has no Back key",
+      "hint": "Use a gesture or the app's back control."
+    },
+    "androidActionKey": {
+      "code": "not_supported",
+      "message": "Android has no Action button",
+      "hint": "The Action button is on iPhone 15 Pro and later; on Android, open_app or use the app's own control."
+    },
+    "watchSideKey": {
+      "code": "not_supported",
+      "message": "Only Apple Watch has a side key",
+      "hint": "On a phone or tablet the side or top button is the power key."
+    },
+    "androidClipboardLiveView": {
+      "code": "not_supported",
+      "message": "The Android clipboard needs ace's live view of the emulator",
+      "hint": "Start the device view (sim_start), then retry; adb has no clipboard command that works on every emulator."
+    },
+    "inputOutsideScreen": {
+      "code": "invalid_data",
+      "message": "Input is outside the device screen",
+      "hint": "Use a point inside the current frame."
+    },
+    "pasteTooLong": {
+      "code": "limit",
+      "message": "Text is too long to paste",
+      "hint": "Type shorter text."
+    },
+    "pasteTimedOut": {
+      "code": "command_failed",
+      "message": "Android paste timed out",
+      "hint": "Retry the text."
+    },
+    "clipboardWriteTimedOut": {
+      "code": "command_failed",
+      "message": "Android clipboard write timed out",
+      "hint": "Retry the text."
+    },
+    "clipboardReadWaiting": {
+      "code": "busy",
+      "message": "A clipboard read is already waiting",
+      "hint": "Retry shortly."
+    },
+    "androidControlRestarted": {
+      "code": "busy",
+      "message": "Android control restarted during a clipboard read",
+      "hint": "Retry."
+    },
+    "simulatorTreeMalformed": {
+      "code": "invalid_data",
+      "message": "Simulator accessibility tree is malformed",
+      "hint": "Read the UI tree again; restart the live view if it keeps failing."
+    },
+    "simulatorTreeUnreadable": {
+      "code": "invalid_data",
+      "message": "Simulator accessibility tree is malformed",
+      "hint": "Read the UI tree again."
+    },
+    "simulatorTargetStale": {
+      "code": "stale_ref",
+      "message": "Simulator UI target is stale or no longer visible",
+      "hint": "Read the UI tree again before acting."
+    },
+    "simulatorActionUnsupported": {
+      "code": "not_supported",
+      "message": "Simulator UI target does not support this action",
+      "hint": "Read supported actions from the current tree."
+    },
+    "simulatorSizeUnknown": {
+      "code": "not_found",
+      "message": "Simulator screen size is not known yet",
+      "hint": "Wait for the live view's first frame, then read the tree again."
+    },
+    "simulatorAxUnavailable": {
+      "code": "command_failed",
+      "message": "Simulator accessibility is unavailable",
+      "hint": "Unlock the Simulator and wait for an app to be frontmost, then read the tree again."
+    },
+    "simulatorAxBudget": {
+      "code": "limit",
+      "message": "Simulator accessibility tree exceeds its budget",
+      "hint": "Reduce the app's UI tree."
+    },
+    "simulatorAxTimeout": {
+      "code": "timeout",
+      "message": "Simulator accessibility read timed out",
+      "hint": "Read the UI tree again."
+    },
+    "simulatorNoFold": {
+      "code": "not_supported",
+      "message": "This device doesn't fold",
+      "hint": "Only foldable simulators, such as the iPhone Duo, have a posture."
+    },
+    "deviceNoFold": {
+      "code": "not_supported",
+      "message": "This device doesn't fold",
+      "hint": "Only foldable simulators and emulators, such as the iPhone Duo, have a posture."
+    },
+    "simulatorFoldFailed": {
+      "code": "not_supported",
+      "message": "This simulator couldn't be folded",
+      "hint": "Fold it from Xcode's device tool; this Xcode may have changed how folding works."
+    },
+    "androidNoFold": {
+      "code": "not_supported",
+      "message": "This device doesn't fold",
+      "hint": "Only foldable emulators, such as a Pixel Fold, have a posture."
+    },
+    "androidFoldFailed": {
+      "code": "not_supported",
+      "message": "This emulator couldn't be folded",
+      "hint": "Fold it from the emulator's extended controls; this emulator may be too old."
+    },
+    "androidTreeBudget": {
+      "code": "limit",
+      "message": "Android UI dump exceeds the XML budget",
+      "hint": "Reduce the app's UI tree."
+    },
+    "androidXmlMalformed": {
+      "code": "invalid_data",
+      "message": "Malformed Android UI XML",
+      "hint": "Refresh the device tree."
+    },
+    "androidXmlDeclaration": {
+      "code": "invalid_data",
+      "message": "Unexpected XML declaration",
+      "hint": "Refresh the device tree."
+    },
+    "androidHierarchyDuplicate": {
+      "code": "invalid_data",
+      "message": "Duplicate UI hierarchy",
+      "hint": "Refresh the device tree."
+    },
+    "androidNodeUnclosed": {
+      "code": "invalid_data",
+      "message": "Unclosed Android UI node",
+      "hint": "Refresh the device tree."
+    },
+    "androidNodeOutsideHierarchy": {
+      "code": "invalid_data",
+      "message": "UI node outside hierarchy",
+      "hint": "Refresh the device tree."
+    },
+    "androidTreeUnbalanced": {
+      "code": "invalid_data",
+      "message": "Unbalanced Android UI tree",
+      "hint": "Refresh the device tree."
+    },
+    "androidNestingBudget": {
+      "code": "limit",
+      "message": "Android UI nesting exceeds the parser budget",
+      "hint": "Reduce the app's UI nesting."
+    },
+    "androidXmlIncomplete": {
+      "code": "invalid_data",
+      "message": "Incomplete Android UI XML",
+      "hint": "Refresh the device tree."
+    },
+    "androidEntityInvalid": {
+      "code": "invalid_data",
+      "message": "Invalid Android UI entity",
+      "hint": "Refresh the device tree."
+    },
+    "androidAttributesMalformed": {
+      "code": "invalid_data",
+      "message": "Malformed Android UI attributes",
+      "hint": "Refresh the device tree."
+    },
+    "androidBoundsInvalid": {
+      "code": "invalid_data",
+      "message": "Invalid Android UI bounds",
+      "hint": "Refresh the device tree."
+    },
+    "androidTargetStale": {
+      "code": "stale_ref",
+      "message": "Android UI target is stale or no longer visible",
+      "hint": "Read the UI tree again before acting."
+    },
+    "androidActionUnsupported": {
+      "code": "not_supported",
+      "message": "Android UI target does not support this action",
+      "hint": "Read supported actions from the current tree."
+    },
+    "androidUiQueueFull": {
+      "code": "busy",
+      "message": "Device UI read queue is full",
+      "hint": "Wait for another UI read to complete."
+    },
+    "simulatorTreeOnAndroid": {
+      "code": "not_supported",
+      "message": "Simulator tree uses the screen session",
+      "hint": "Use the device service's Simulator tree operation."
+    },
+    "androidHelperStartFailed": {
+      "code": "command_failed",
+      "message": "Android UI helper did not start",
+      "hint": "Read the UI tree again; ace falls back to uiautomator."
+    },
+    "androidHelperExited": {
+      "code": "command_failed",
+      "message": "Android UI helper exited",
+      "hint": "Read the UI tree again; ace falls back to uiautomator."
+    },
+    "androidHelperTimedOut": {
+      "code": "command_failed",
+      "message": "Android UI helper timed out",
+      "hint": "Read the UI tree again; ace falls back to uiautomator."
+    },
+    "androidInputEnded": {
+      "code": "command_failed",
+      "message": "Android input transport ended or refused input",
+      "hint": "Reconnect the emulator and take control again."
+    },
+    "simulatorTooManyFingers": {
+      "code": "not_supported",
+      "message": "iOS Simulator input supports at most two fingers",
+      "hint": "Use pointerId 0 or 1."
     }
   },
   "adbTransports": {
@@ -172,6 +397,10 @@
     "downloadHint": "Check the network and download the device tools again from Devices.",
     "againHint": "Download the device tools again from Devices.",
     "scrcpyHint": "ace downloads scrcpy-server on first use. Check the network, or set ACE_SCRCPY_SERVER to a verified copy.",
-    "downloadTimeout": "The device tools download took too long"
+    "downloadTimeout": "The device tools download took too long",
+    "simulatorPasteTimeoutHint": "Check that the Simulator is booted and responding, then retry.",
+    "simulatorPasteFailedHint": "Check that the Simulator is booted, then retry.",
+    "androidNoKeyHint": "Use the app's own controls instead.",
+    "iosNoKeyHint": "Use the Simulator Device menu or the app's navigation."
   }
 }
