@@ -996,17 +996,19 @@ impl AcpCore {
         }
     }
 
-    /// An outbound frame that cannot be captured ends only the call it carried: `#send`
+    /// An outbound *request* that cannot be captured ends only the call it carried: `#send`
     /// throws before the write (`jsonrpc.ts:285`), and its rejection settles that promise
-    /// (`:229`). A notification has no promise, so its failure reaches `onError` and fails
-    /// the session (`:244`).
+    /// (`:229`). A notification has no promise (`:244`), and a reply answers an agent's
+    /// request (`:344`-`:369`), so both failures reach `onError` and fail the session. A
+    /// reply carries an `id` too, which is why `method` decides.
     fn fail_send_capture(&mut self, value: &Value, message: &str, effects: &mut Vec<AcpEffect>) {
-        match value_rpc_id(object(value).get("id")) {
-            Some(id) => {
+        let message_frame = object(value);
+        match value_rpc_id(message_frame.get("id")) {
+            Some(id) if message_frame.contains_key("method") => {
                 let rejection = self.peer.reject_request(&id, PeerError::new(message));
                 self.apply_peer_effects(rejection, effects);
             }
-            None => self.fail_capture(message, effects),
+            _ => self.fail_capture(message, effects),
         }
     }
 
