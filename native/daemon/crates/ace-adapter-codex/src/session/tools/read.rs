@@ -111,6 +111,13 @@ impl ToolFactsRead {
         self.aborted = true;
     }
 
+    /// Whether `call` is one this read waits on.
+    pub fn awaits(&self, call: u64) -> bool {
+        (call == self.config_call && !self.config_arrived)
+            || self.early.as_ref().is_some_and(|pager| pager.call == call)
+            || self.main.as_ref().is_some_and(|pager| pager.call == call)
+    }
+
     /// One call's reply, or its failure.
     pub fn settled(
         &mut self,

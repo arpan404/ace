@@ -233,6 +233,8 @@ export interface NativeSpawnSpec {
   contain: boolean;
   /** The process's output budget: what the native pumps read ahead never exceeds it. */
   maxOutputBytes?: number;
+  /** The line limit a diverted session's framer applies to its own lines. */
+  maxLineBytes?: number;
   /** A Rust session's consumer for this child's pipes (E3.0b). */
   nativeOutput?: NativeOutputTarget;
 }
@@ -328,6 +330,10 @@ export class NativeChildProcess
     let handle: NativeChildHandle | undefined;
     let failure: Error | undefined;
     try {
+      if (spec.nativeOutput !== undefined && spec.maxLineBytes !== undefined)
+        (spec.nativeOutput as { setLineLimit?: (limit: number) => void }).setLineLimit?.(
+          spec.maxLineBytes,
+        );
       handle = addon().supervisorSpawn(
         JSON.stringify({
           command: spec.command,

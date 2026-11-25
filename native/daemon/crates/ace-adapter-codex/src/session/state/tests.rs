@@ -255,8 +255,9 @@ fn a_turn_that_never_correlates_retires_the_transport_at_its_deadline() {
         timeout.get("threadId").and_then(Value::as_str),
         Some("root-1")
     );
-    // The session's own transport stops after the note.
-    assert!(effects.contains(&Effect::Cleanup));
+    // The session's own transport stops after the note; its cleanup waits for
+    // the stop to be confirmed (behaviour.md section 20).
+    assert!(!effects.contains(&Effect::Cleanup));
     assert!(effects.iter().any(|effect| matches!(
         effect,
         Effect::Detach {
@@ -503,7 +504,7 @@ fn a_refused_frame_reports_the_hosts_reason_before_the_transport_fails() {
     };
     assert_eq!(*dir, FrameDir::Stderr);
     assert_eq!(text, "\"Provider payload exceeds byte limit\"");
-    assert!(effects.contains(&Effect::Cleanup));
+    assert!(!effects.contains(&Effect::Cleanup));
     assert!(effects.iter().any(|effect| matches!(
         effect,
         Effect::Detach {
@@ -513,7 +514,7 @@ fn a_refused_frame_reports_the_hosts_reason_before_the_transport_fails() {
             reason: super::super::host::Retirement::RpcFailed,
         }
     )));
-    assert!(session.is_closed() || effects.contains(&Effect::Cleanup));
+    assert!(session.is_closed());
 }
 
 #[test]
@@ -529,7 +530,7 @@ fn a_frame_over_the_bound_retires_the_channel_instead_of_publishing_it() {
             .iter()
             .any(|effect| matches!(effect, Effect::Frame { .. }))
     );
-    assert!(effects.contains(&Effect::Cleanup));
+    assert!(!effects.contains(&Effect::Cleanup));
     assert!(effects.iter().any(|effect| matches!(
         effect,
         Effect::Detach {

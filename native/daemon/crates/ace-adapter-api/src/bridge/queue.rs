@@ -44,6 +44,12 @@ pub enum SessionEvent {
     CancelTimer {
         key: String,
     },
+    /// A port the facade must run and answer (`stop`, `launch`): the session's
+    /// async I/O that only the shell owns, asked in the session's own order.
+    Port {
+        name: &'static str,
+        json: String,
+    },
     /// The session cannot go on: the facade closes it, unexpected.
     Fatal {
         message: String,
@@ -106,6 +112,11 @@ impl Serialize for SessionEvent {
             SessionEvent::CancelTimer { key } => {
                 event.serialize_element("cancelTimer")?;
                 event.serialize_element(key)?;
+            }
+            SessionEvent::Port { name, json } => {
+                event.serialize_element("port")?;
+                event.serialize_element(name)?;
+                event.serialize_element(json)?;
             }
             SessionEvent::Fatal { message } => {
                 event.serialize_element("fatal")?;
@@ -306,6 +317,7 @@ impl SessionEvent {
             },
             SessionEvent::ArmTimer { key, .. } => key.len(),
             SessionEvent::CancelTimer { key } => key.len(),
+            SessionEvent::Port { name, json } => name.len() + json.len(),
             SessionEvent::Fatal { message } => message.len(),
             SessionEvent::Drained => 0,
         }

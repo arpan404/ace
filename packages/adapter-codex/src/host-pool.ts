@@ -33,6 +33,8 @@ const initialize = {
  */
 export class CodexHostPool {
   readonly idleMs: number;
+  /** The native twin's close, when `ACE_SESSIONS=codex` made one (E3-codex.5). */
+  native?: { close(): Promise<void> };
   readonly #hosts = new Map<string, CodexHost>();
   readonly #starting = new Map<string, Promise<CodexHost>>();
   constructor(options: { idleMs?: number } = {}) {
@@ -42,6 +44,7 @@ export class CodexHostPool {
   }
   /** Stop every app-server, whatever sessions remain on it. */
   async close(): Promise<void> {
+    await this.native?.close();
     await Promise.all([...this.#hosts.values()].map((host) => host.retire()));
   }
   async host(key: string, start: (retired: () => void) => Promise<CodexHost>): Promise<CodexHost> {
