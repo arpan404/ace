@@ -59,7 +59,8 @@ export default defineConfig({
               "./scripts/test-home-global-setup.ts",
               "./tools/web-perf/src/browser-test-setup.ts",
             ],
-            setupFiles: ["./scripts/test-home-setup.ts"],
+            // The second writes T1b.5's per-case evidence when ACE_TRANSPORT_EVIDENCE names a file.
+            setupFiles: ["./scripts/test-home-setup.ts", "./scripts/transport-evidence-case.ts"],
             include: [
               "packages/*/src/**/*.test.ts",
               "packages/*/bench/**/*.test.ts",
@@ -109,7 +110,7 @@ export default defineConfig({
               "./scripts/history-binary-setup.ts",
               "./tools/web-perf/src/browser-test-setup.ts",
             ],
-            setupFiles: ["./scripts/test-home-setup.ts"],
+            setupFiles: ["./scripts/test-home-setup.ts", "./scripts/transport-evidence-case.ts"],
           },
         },
         ...(onBun
