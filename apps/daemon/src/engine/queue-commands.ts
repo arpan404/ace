@@ -1,6 +1,5 @@
 import {
   admitSteer,
-  aimSteerAtRun,
   queueSteerSelection,
   reaimSteerAtRun,
   recordSteerAim,
@@ -71,10 +70,12 @@ export function handleQueue(
       // The turn running as the person chooses it is the one they meant: choosing Steer again on a
       // message that already fell back replaces its dead target, never aims it at it again.
       const editedPayload = Command.parse({ ...entry.command, payload });
+      // Only choosing Steer aims the message: any other edit keeps the payload target it was
+      // admitted with, as it keeps its recorded aim.
       const aimed =
         p.delivery === "steer"
           ? reaimSteerAtRun(dependencies.repo, editedPayload, p.threadId)
-          : aimSteerAtRun(dependencies.repo, editedPayload, p.threadId);
+          : editedPayload;
       const steer = admitSteer(dependencies.repo, aimed, p.threadId);
       const edited = steer.send;
       dependencies.repo.queue.edit(entry.id, edited);

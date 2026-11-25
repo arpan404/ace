@@ -1,6 +1,14 @@
 import { expect, test } from "vitest";
-import { Command, type ThreadId } from "@ace/protocol";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Command, CommandId, ThreadId } from "@ace/protocol";
+import { Store } from "@ace/daemon";
 import { transitionHarness } from "./transition-test-support.ts";
+import { createEngineThread } from "./create-thread.ts";
+import { handleQueue } from "./queue-commands.ts";
+import { EngineRepository } from "./repository.ts";
+import { activeRootRun } from "./steer-selection.ts";
 
 type Harness = ReturnType<typeof transitionHarness>;
 
@@ -234,4 +242,105 @@ test("the person's choice to steer an agent's message survives a restart", async
   } finally {
     await h.close();
   }
+});
+interface SteerThread {
+  repo: EngineRepository;
+  store: Store;
+  id: ThreadId;
+  /** The turn running while the queue commands below apply. */
+  run: string;
+  dependencies: Parameters<typeof handleQueue>[1];
+}
+
+/**
+ * A thread with one turn running, driven by its queue commands alone. The lanes never run here, so
+ * the stored intent and its aim are read exactly as the command left them.
+ */
+async function withSteerThread(take: (thread: SteerThread) => void): Promise<void> {
+  const home = mkdtempSync(join(tmpdir(), "ace-steer-aims-"));
+  const store = new Store(join(home, "state.sqlite"));
+  try {
+    const repo = new EngineRepository(store);
+    const id = ThreadId.parse("steer-aim-thread");
+    createEngineThread(repo, {
+      id,
+      workspaceId: store.createWorkspace(home, "Fixture"),
+      title: "Steer aim",
+      selection: { provider: "codex", options: {} },
+      cwd: home,
+      at: 1,
+      silenceMs: 100,
+    });
+    // A live session that steers by cancelling, as an ACP one does.
+    repo.steersByCancel = () => true;
+    repo.apply(
+      id,
+      [{ type: "turn.started", agent: "root", nativeTurnId: "b", trigger: "user" }],
+      2,
+    );
+    const run = activeRootRun(repo, id);
+    if (!run) throw new Error("Expected a running turn");
+    take({
+      repo,
+      store,
+      id,
+      run,
+      dependencies: {
+        repo,
+        clock: { now: () => 3, setTimer: () => () => {} },
+        ports: {},
+        sync: () => {},
+        schedule: () => {},
+        wake: () => {},
+      },
+    });
+  } finally {
+    await store.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test("a text-only edit never aims a steer at the turn running now", async () => {
+  await withSteerThread(({ repo, id, dependencies }) => {
+    const intent = repo.add(
+      Command.parse({
+        id: "opening-steer",
+        deviceId: "device",
+        payload: {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "late steer" }],
+          delivery: "steer",
+        },
+      }),
+      id,
+    );
+    // Admitted while the session was still opening: it names no turn, payload or aim.
+    repo.steerAims.record(intent, null);
+    expect(repo.pending.steerTarget(intent)).toBeUndefined();
+    expect(
+      handleQueue(
+        Command.parse({
+          id: "edit-steer",
+          deviceId: "device",
+          payload: {
+            type: "queue.edit",
+            threadId: id,
+            expectedRevision: repo.queue.get(id).revision,
+            messageId: "opening-steer",
+            input: [{ type: "text", text: "late steer, edited" }],
+          },
+        }),
+        dependencies,
+      ),
+    ).toMatchObject({ ok: true });
+    // The edit changed the text only: it neither names the turn running now nor replaces the aim
+    // recorded at admission, so the steer still goes back to the queue instead of cancelling it.
+    expect(repo.pending.steerTarget(intent)).toBeUndefined();
+    expect(repo.steerAims.aim(intent)).toBeNull();
+    expect(repo.pending.delivery(id, CommandId.parse("opening-steer"))).toMatchObject({
+      status: "pending",
+      delivery: "steer",
+    });
+  });
 });
