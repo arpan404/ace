@@ -357,7 +357,15 @@ mod tests {
     fn a_window_keeps_the_emulators_gpu_choice_unless_the_person_names_one() {
         assert_eq!(
             boot_args("Pixel_API_35", 5554, true, "darwin", None),
-            vec!["-avd", "Pixel_API_35", "-port", "5554", "-grpc", "8554", "-grpc-use-token"]
+            vec![
+                "-avd",
+                "Pixel_API_35",
+                "-port",
+                "5554",
+                "-grpc",
+                "8554",
+                "-grpc-use-token"
+            ]
         );
         assert_eq!(
             boot_args("Pixel_API_35", 5554, true, "win32", Some("none")),

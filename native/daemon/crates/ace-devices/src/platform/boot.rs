@@ -69,11 +69,13 @@ pub fn android_boot(facts: &AndroidFacts) -> Result<AndroidBoot, Error> {
         return Err(Refusal::word("deviceServiceClosed").into());
     }
     if !facts.emulator_found {
-        return Err(if facts.platform == "linux" && facts.arch.as_deref() == Some("arm64") {
-            Refusal::word("armEmulatorNote").into()
-        } else {
-            Refusal::word("androidEmulatorMissing").into()
-        });
+        return Err(
+            if facts.platform == "linux" && facts.arch.as_deref() == Some("arm64") {
+                Refusal::word("armEmulatorNote").into()
+            } else {
+                Refusal::word("androidEmulatorMissing").into()
+            },
+        );
     }
     if facts.pending || facts.running >= 4 {
         return Err(Refusal::word("androidBootBusy").into());
@@ -122,14 +124,14 @@ pub fn android_boot(facts: &AndroidFacts) -> Result<AndroidBoot, Error> {
 /// power-off that decides it. A phone is refused by its name, so the shell keeps that refusal.
 pub fn shutdown(platform: Platform) -> Vec<Step> {
     match platform {
-        Platform::Ios => vec![Step::new(
-            StepKind::Simctl,
-            vec!["shutdown".to_string()],
-        )],
+        Platform::Ios => vec![Step::new(StepKind::Simctl, vec!["shutdown".to_string()])],
         Platform::Android => vec![
             Step::new(
                 StepKind::Adb,
-                ["emu", "kill"].iter().map(|part| part.to_string()).collect(),
+                ["emu", "kill"]
+                    .iter()
+                    .map(|part| part.to_string())
+                    .collect(),
             ),
             Step::new(
                 StepKind::Adb,
@@ -181,7 +183,11 @@ mod tests {
                 UDID
             ]
         );
-        assert!(ios_boot(&format!("ios:{UDID}"), false).expect("shutdown").boot);
+        assert!(
+            ios_boot(&format!("ios:{UDID}"), false)
+                .expect("shutdown")
+                .boot
+        );
     }
 
     #[test]

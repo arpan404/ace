@@ -25,14 +25,12 @@ fn answered<T: Serialize>(
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
     match caught {
         Ok(Ok(value)) => Ok(format!("{{\"ok\":true,\"value\":{}}}", text(&value)?)),
-        Ok(Err(ace_devices::platform::Error::Refused(refusal))) => Ok(format!(
-            "{{\"ok\":false,\"error\":{}}}",
-            text(&refusal)?
-        )),
-        Ok(Err(ace_devices::platform::Error::Failed(failure))) => Ok(format!(
-            "{{\"ok\":false,\"error\":{}}}",
-            text(&failure)?
-        )),
+        Ok(Err(ace_devices::platform::Error::Refused(refusal))) => {
+            Ok(format!("{{\"ok\":false,\"error\":{}}}", text(&refusal)?))
+        }
+        Ok(Err(ace_devices::platform::Error::Failed(failure))) => {
+            Ok(format!("{{\"ok\":false,\"error\":{}}}", text(&failure)?))
+        }
         Ok(Err(ace_devices::platform::Error::Invalid(detail))) => {
             Err(napi::Error::from_reason(format!("ace-devices: {detail}")))
         }

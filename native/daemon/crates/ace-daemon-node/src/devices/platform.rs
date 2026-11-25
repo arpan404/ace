@@ -226,20 +226,22 @@ pub fn device_platform_emulator_grpc_file(
             });
         };
         let file = ace_devices::platform::emulator::DiscoveryFile { name, text };
-        Ok(match ace_devices::platform::emulator::grpc_file(port, &file) {
-            ace_devices::platform::emulator::GrpcMatch::NotThisDevice => Match {
-                matched: false,
-                grpc: None,
+        Ok(
+            match ace_devices::platform::emulator::grpc_file(port, &file) {
+                ace_devices::platform::emulator::GrpcMatch::NotThisDevice => Match {
+                    matched: false,
+                    grpc: None,
+                },
+                ace_devices::platform::emulator::GrpcMatch::Unusable => Match {
+                    matched: true,
+                    grpc: None,
+                },
+                ace_devices::platform::emulator::GrpcMatch::Endpoint(grpc) => Match {
+                    matched: true,
+                    grpc: Some(grpc),
+                },
             },
-            ace_devices::platform::emulator::GrpcMatch::Unusable => Match {
-                matched: true,
-                grpc: None,
-            },
-            ace_devices::platform::emulator::GrpcMatch::Endpoint(grpc) => Match {
-                matched: true,
-                grpc: Some(grpc),
-            },
-        })
+        )
     })
 }
 
@@ -342,10 +344,8 @@ pub fn device_platform_android_dimensions(output: String) -> napi::Result<String
         height: u32,
     }
     answered(|| {
-        ace_devices::platform::commands::android_dimensions(&output).map(|(width, height)| Size {
-            width,
-            height,
-        })
+        ace_devices::platform::commands::android_dimensions(&output)
+            .map(|(width, height)| Size { width, height })
     })
 }
 

@@ -97,7 +97,12 @@ pub fn simulator_record(
         id: format!("ios:{udid}"),
         platform: "ios".to_string(),
         name: name.to_string(),
-        state: if state == "Booted" { "booted" } else { "shutdown" }.to_string(),
+        state: if state == "Booted" {
+            "booted"
+        } else {
+            "shutdown"
+        }
+        .to_string(),
         runtime: Some(simulator_runtime(runtime)),
         serial: None,
         model: device_type.map(str::to_string),
@@ -167,7 +172,10 @@ mod tests {
         ])
         .expect("list");
         assert_eq!(answer.devices.len(), 2);
-        assert_eq!(answer.devices[0].id, "ios:11111111-1111-4111-8111-111111111111");
+        assert_eq!(
+            answer.devices[0].id,
+            "ios:11111111-1111-4111-8111-111111111111"
+        );
         assert_eq!(answer.devices[0].state, "booted");
         assert_eq!(answer.devices[0].runtime.as_deref(), Some("iOS 18.0"));
         assert!(answer.missing.is_empty());
