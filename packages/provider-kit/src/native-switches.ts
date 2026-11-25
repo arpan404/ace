@@ -207,6 +207,34 @@ const sessionRefusal = sessionSwitchRefusal({
 if (sessionRefusal !== undefined) throw new Error(sessionRefusal);
 
 /**
+ * Why `ACE_ENGINE` cannot run, or `undefined` when it can (E5.1). The native engine shares the
+ * store's Rust transaction stack, which only the writer's `transactions` part turns on, and a
+ * boot without the Rust stack cannot host it.
+ */
+export function engineSwitchRefusal(input: {
+  engine: boolean;
+  store: boolean;
+  writer: ReadonlySet<StoreWriterPart>;
+  cross: CrossSwitch | undefined;
+}): string | undefined {
+  const named = input.engine || input.cross === "ACE_ENGINE";
+  if (named && !input.store) return "ACE_ENGINE needs ACE_STORE=native";
+  if (named && !input.writer.has("transactions"))
+    return "ACE_ENGINE needs ACE_STORE_WRITER=…,transactions";
+  if (named && (input.cross === "ACE_STORE_WRITER" || input.cross === "ACE_STORE"))
+    return `ACE_NATIVE_CROSS=${input.cross} cannot run with ACE_ENGINE`;
+  return undefined;
+}
+
+const engineRefusal = engineSwitchRefusal({
+  engine,
+  store,
+  writer: writerPartsValue,
+  cross: crossSwitch,
+});
+if (engineRefusal !== undefined) throw new Error(engineRefusal);
+
+/**
  * `ACE_GIT=<parts>` (ADR 0224 §1, G0): a comma list of the git parts served
  * natively: `refs`, `core`, `reads`, `writes`, `checkpoints`, `snapshot-hash`,
  * `status-gix`. Unknown words refuse to start, as does a part without its

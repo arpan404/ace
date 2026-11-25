@@ -139,6 +139,10 @@ export function isolatedTestEnvironment(
       : {}),
     ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
     ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
+    // The native engine's first-build evidence file, beside the store writer's (E5.1).
+    ...(ambient.ACE_ENGINE_EVIDENCE !== undefined
+      ? { ACE_ENGINE_EVIDENCE: ambient.ACE_ENGINE_EVIDENCE }
+      : {}),
     ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
     // The devices switches (ADR 0225): a run with one on proves the native phase.
     ...(ambient.ACE_SCRCPY_VIDEO !== undefined

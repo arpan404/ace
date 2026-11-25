@@ -593,6 +593,13 @@ export class Store {
   rollbackGeneration(): number {
     return this.rolledBack;
   }
+  /**
+   * The transaction shell's open/close halves, for the native engine's Rust-opened transactions
+   * (E5.1). Present exactly when `ACE_STORE_WRITER` turned `transactions` on.
+   */
+  get nativeTransactionShell(): NativeTransactions | undefined {
+    return this.nativeTransactions;
+  }
   /** Whether a store transaction is open, on either the TypeScript or the native stack. */
   private get transactionsOpen(): boolean {
     return this.nativeTransactions

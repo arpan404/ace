@@ -21,6 +21,9 @@ ace-adapter-opencode = { path = "../ace-adapter-opencode" }
 # ace-adapter-cursor: the Cursor translator shell calls into its JSON API.
 ace-adapter-cursor = { path = "../ace-adapter-cursor" }
 ace-store = { path = "../ace-store" }
+# ace-engine: the native engine behind ACE_ENGINE (E5.1); the binding only translates its
+# facade, ports and threadsafe-function pump. It shares this crate's connection and stack.
+ace-engine = { path = "../ace-engine" }
 # ace-adapter-codex: the Codex translator behind the exported translator name (E1).
 ace-adapter-codex = { path = "../ace-adapter-codex" }
 # ace-core: facts cross the binding as JSON; the type names the spliced body.
@@ -36,6 +39,8 @@ ace-adapter-api = { path = "../ace-adapter-api" }
 bytes = { version = "1.12" }
 # thiserror: one typed error enum for the crate, mapped to JS errors.
 thiserror = { version = "2" }
+# getrandom: the Rust port of timeOrderedIds' random bits (E5.1), from the OS CSPRNG.
+getrandom = { version = "0.4" }
 # zeroize: an inbound message's vector is wiped after it is copied for
 # JavaScript, so the bytes a client sent do not outlive the delivery.
 zeroize = { version = "1" }
@@ -64,6 +69,10 @@ ace-projection = { path = "../ace-projection" }
 serde = { version = "1", features = ["derive"] }
 # serde_json: the one serde_json entry for the addon; the translators no longer use it.
 serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+
+[features]
+# The test seam's probe hooks (E5.1 step 12); release packaging never sets it.
+engine-probe = []
 
 [build-dependencies]
 napi-build = "2"
