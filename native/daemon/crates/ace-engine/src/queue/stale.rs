@@ -83,8 +83,8 @@ pub fn retire_uncertain_inputs(
 
 fn retire(conn: &Arc<ace_store::Connection>, rows: &[u32]) -> Result<bool, EngineError> {
     for id in rows {
-        super::store::clear_uncertain(conn, *id)?;
-        super::store::prune(conn, *id)?;
+        super::messages::clear_uncertain(conn, *id)?;
+        super::messages::prune(conn, *id)?;
     }
     Ok(!rows.is_empty())
 }

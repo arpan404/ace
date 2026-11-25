@@ -4,6 +4,7 @@
 
 pub mod header;
 pub mod lifecycle;
+pub mod query;
 pub mod store;
 
 pub use header::{Intent, IntentHeader};

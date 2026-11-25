@@ -63,7 +63,7 @@ impl InputFacts for State {
         let Some(core) = self.engine()? else {
             return Ok(Vec::new());
         };
-        crate::intents::store::resolving_interactions(core.store.conn(), thread)
+        crate::intents::query::resolving_interactions(core.store.conn(), thread)
     }
 
     /// `pending.finishContinuation` (`:182`).
@@ -103,7 +103,7 @@ impl InputFacts for State {
         let Some(core) = self.engine()? else {
             return Ok(());
         };
-        crate::queue::store::prune(core.store.conn(), id)
+        crate::queue::messages::prune(core.store.conn(), id)
     }
 
     /// `queue.hasUncertain` (`:237`).

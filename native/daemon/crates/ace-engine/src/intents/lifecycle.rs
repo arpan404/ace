@@ -85,7 +85,7 @@ pub fn add(
             generation.map_or(ace_store::Value::Null, ace_store::Value::Integer),
         ],
     )?;
-    queue::store::track(conn, id as u32, thread, command)
+    queue::messages::track(conn, id as u32, thread, command)
 }
 
 /// `claim` (`:379`): the intent becomes `running`, or none when it already moved.
@@ -230,7 +230,7 @@ pub fn mark(
     store.atomic(|tx| {
         mark_in(tx.conn(), intent, status, error)?;
         if matches!(status, "done" | "failed") {
-            queue::store::prune(tx.conn(), intent.id)?;
+            queue::messages::prune(tx.conn(), intent.id)?;
         }
         Ok(())
     })
