@@ -366,15 +366,33 @@ impl Snapshot {
     }
 
     /// The index sections are the live set, not the transcript: every key is loaded, so core
-    /// enumerates them exactly as the TypeScript proxies do.
+    /// enumerates them exactly as the TypeScript proxies do. The records those keys name are
+    /// loaded with them, because core reads `items`/`interactions`/`tasks` by an index key it
+    /// enumerated (a restarted thread's open thought must close when its turn ends).
     fn load_indexes(&mut self) -> Result<(), EngineError> {
         let live_tools = load_all(&mut self.live_tools)?;
+        self.load_items(&live_tools)?;
         self.state.indexes.live_tools = live_tools.into_iter().collect();
         let open_text = load_all(&mut self.open_text)?;
+        self.load_items(&open_text)?;
         self.state.indexes.open_text = open_text.into_iter().collect();
         let pending = load_all(&mut self.pending_interactions)?;
+        for (key, _) in &pending {
+            if !self.state.interactions.contains_key(key)
+                && let Some(record) = self.interactions.read(key)?
+            {
+                self.state.interactions.insert(key.clone(), record);
+            }
+        }
         self.state.indexes.pending_interactions = pending.into_iter().collect();
         let running = load_all(&mut self.running_tasks)?;
+        for (key, _) in &running {
+            if !self.state.tasks.contains_key(key)
+                && let Some(record) = self.tasks.read(key)?
+            {
+                self.state.tasks.insert(key.clone(), record);
+            }
+        }
         self.state.indexes.running_tasks = running.into_iter().collect();
         let keys = load_all(&mut self.agent_keys_by_id)?;
         self.state.indexes.agent_keys_by_id = keys.into_iter().collect();
@@ -384,6 +402,18 @@ impl Snapshot {
         self.state.indexes.pending_spawn_links = spawn.into_iter().collect();
         let links = load_all(&mut self.pending_item_links)?;
         self.state.indexes.pending_item_links = links.into_iter().collect();
+        Ok(())
+    }
+
+    /// The items an index names, loaded into the state before core reads them by that key.
+    fn load_items(&mut self, keys: &[(String, bool)]) -> Result<(), EngineError> {
+        for (key, _) in keys {
+            if !self.state.items.contains_key(key)
+                && let Some(item) = self.items.read(key)?
+            {
+                self.state.items.insert(key.clone(), item);
+            }
+        }
         Ok(())
     }
 
@@ -564,5 +594,67 @@ impl Snapshot {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn a_thought_still_streaming_at_restart_closes_when_its_turn_ends() {
+        // `open-text-restart.process`: a reasoning item the provider streamed before the daemon
+        // restarted closes when the stored run's turn ends, and leaves the open-text index.
+        let conn = home("opentext", &header("opentext"));
+        let store = Shell::store(&conn);
+        let mut before = State::default();
+        before.repo.probe_passthrough = true;
+        before
+            .apply(
+                &store,
+                "opentext",
+                r#"[{"type":"turn.started","agent":"root","nativeTurnId":"t1","trigger":"user"},{"type":"item.delta","agent":"root","item":"thought","field":"reasoning","append":"Re"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        drop(before);
+        // A restart: a fresh engine reads the stored rows.
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        after
+            .apply(
+                &store,
+                "opentext",
+                r#"[{"type":"turn.ended","agent":"root","nativeTurnId":"t1","outcome":"interrupted"}]"#,
+                3.0,
+                None,
+            )
+            .unwrap();
+        let snapshot = after.repo.require_state(&store, "opentext").unwrap();
+        let item = snapshot
+            .borrow_mut()
+            .items
+            .read("thought")
+            .unwrap()
+            .expect("the streamed thought");
+        let ace_core::items::Item::Reasoning { text, .. } = &item else {
+            panic!("a reasoning item");
+        };
+        assert_eq!(text.as_str(), "Re");
+        assert!(item.complete(), "the ended turn closed the thought");
+        assert!(
+            snapshot.borrow().state.indexes.open_text.is_empty(),
+            "nothing is still streaming"
+        );
+        let runs: Vec<String> = snapshot
+            .borrow()
+            .state
+            .runs
+            .values()
+            .map(|run| run.state.clone())
+            .collect();
+        assert_eq!(runs, vec!["interrupted".to_owned()]);
     }
 }
