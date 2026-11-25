@@ -2,7 +2,7 @@
 //! One session's channel: the facade's calls, the host's callbacks and the
 //! ordered effects they decide.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ace_adapter_api::bridge::ReadGate;
@@ -40,6 +40,8 @@ pub struct SessionChannel {
     queue: EventQueue,
     gate: ReadGate,
     now: Mutex<f64>,
+    /// The spawn's `maxLineBytes`, shared with the diverted consumer.
+    line_limit: Arc<AtomicUsize>,
 }
 
 struct Core {
@@ -52,6 +54,8 @@ struct Core {
     close_operation: Option<u64>,
     work_operation: Option<u64>,
     permission_port: bool,
+    /// Opens waiting for the resumed thread's history to land.
+    read_operations: Vec<u64>,
 }
 
 #[derive(Default)]
@@ -105,10 +109,12 @@ impl SessionChannel {
                 close_operation: None,
                 work_operation: None,
                 permission_port: false,
+                read_operations: Vec::new(),
             }),
             queue,
             gate,
             now: Mutex::new(config.started),
+            line_limit: Arc::new(AtomicUsize::new(super::LINE_LIMIT)),
         });
         shared.add(Arc::clone(&channel));
         channel
@@ -120,6 +126,10 @@ impl SessionChannel {
 
     pub fn gate(&self) -> ReadGate {
         self.gate.clone()
+    }
+
+    pub fn line_limit(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.line_limit)
     }
 
     pub fn set_now(&self, now: f64) {
@@ -401,11 +411,29 @@ impl SessionChannel {
         self.apply(effects);
     }
 
+    /// The leader exited; the channel keeps its frames until the pipes close.
+    pub(super) fn leader_exited(&self, exit: &HostExit) {
+        let effects = {
+            let mut core = self.core();
+            core.session.lifetime.set_gone();
+            if core.session.lifetime.is_exited() {
+                Vec::new()
+            } else {
+                core.session.exited(exit)
+            }
+        };
+        self.apply(effects);
+    }
+
     pub(super) fn host_exited(&self, exit: &HostExit) {
         let effects = {
             let mut core = self.core();
             core.session.lifetime.set_gone();
-            let mut effects = core.session.exited(exit);
+            let mut effects = if core.session.lifetime.is_exited() {
+                Vec::new()
+            } else {
+                core.session.exited(exit)
+            };
             let frames = core.session.frames.clone();
             effects.extend(core.session.lifetime.detached(&frames, Ok(())));
             effects
@@ -460,7 +488,10 @@ impl SessionChannel {
 
     pub fn timer(&self, key: &str, now: f64) {
         self.set_now(now);
-        if key.starts_with("request:") || key == crate::session::host::IDLE_TIMER {
+        if key.starts_with("request:")
+            || key == crate::session::host::IDLE_TIMER
+            || key == crate::session::host::DRAIN_TIMER
+        {
             self.shared.host.timer(key);
             return;
         }
@@ -538,7 +569,9 @@ impl SessionChannel {
             }
         };
         let fence = fence_json.and_then(|json| ace_json::parse(json).ok());
-        let value = ValueFence::new(fence.as_ref());
+        // No fence is no fence: a steer with one is checked against the turn it
+        // named, and a provider refusal is then never retried (`session.ts`).
+        let value = fence.as_ref().map(ValueFence::new);
         let delivery = if delivery == "steer" {
             Delivery::Steer
         } else {
@@ -559,7 +592,7 @@ impl SessionChannel {
                 delivery,
                 command_id,
                 origin,
-                fence: Some(&value as &dyn SteerFence),
+                fence: value.as_ref().map(|value| value as &dyn SteerFence),
                 user_message_id: &user,
                 answering: None,
             })
@@ -622,7 +655,7 @@ impl SessionChannel {
         operation: u64,
         selection_json: &str,
         model: Option<&str>,
-        reopen_on_model_change: bool,
+        reopen: bool,
     ) {
         let selection = match ace_json::parse(selection_json) {
             Ok(value) => match parse_selection(&value) {
@@ -643,7 +676,7 @@ impl SessionChannel {
                 return;
             }
         };
-        let (thread, model_changed) = {
+        let thread = {
             let mut core = self.core();
             if let Err(message) = core.session.assert_open() {
                 drop(core);
@@ -653,7 +686,7 @@ impl SessionChannel {
                 );
                 return;
             }
-            if reopen_on_model_change && model != Some(core.model.as_str()) {
+            if reopen {
                 drop(core);
                 self.settle_operation(operation, Ok(Value::from("reopen")));
                 return;
@@ -661,9 +694,8 @@ impl SessionChannel {
             let thread = core.session.root.clone();
             core.model = model.unwrap_or_default().to_owned();
             core.selection = selection.clone();
-            (thread, true)
+            thread
         };
-        let _ = model_changed;
         let mut params = Map::new();
         params.insert("threadId", Value::from(thread));
         params.insert(
@@ -852,16 +884,45 @@ impl SessionChannel {
         self.apply(effects);
     }
 
-    pub fn read_root(&self) {
+    /// The resumed thread's history, awaited by the open before its first turn.
+    pub fn read_root(&self, operation: u64) {
         let thread = self.core().session.root.clone();
         if thread.is_empty() {
+            self.settle_operation(operation, Ok(Value::Null));
             return;
         }
         let effects = {
             let mut core = self.core();
+            core.read_operations.push(operation);
             core.session.read_root(&thread)
         };
         self.apply(effects);
+    }
+
+    /// Every read that finished settles its open: the root is no longer being
+    /// read, or it never started because a read already held it.
+    fn settle_finished_reads(&self) {
+        loop {
+            let waiting = {
+                let mut core = self.core();
+                if core.read_operations.is_empty() {
+                    break;
+                }
+                let reading = !core.session.root.is_empty()
+                    && core
+                        .session
+                        .discovery
+                        .reads
+                        .contains_key(&core.session.root);
+                if reading {
+                    break;
+                }
+                std::mem::take(&mut core.read_operations)
+            };
+            for operation in waiting {
+                self.settle_operation(operation, Ok(Value::Null));
+            }
+        }
     }
 
     pub fn rate_limits(&self) {
@@ -1063,6 +1124,7 @@ impl SessionChannel {
                 Effect::FailTransport => {}
             }
         }
+        self.settle_finished_reads();
     }
 
     /// Which machine asked for one session-local call: a history page, tool
@@ -1315,11 +1377,8 @@ struct ValueFence {
 }
 
 impl ValueFence {
-    fn new(value: Option<&Value>) -> ValueFence {
-        let map = value
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
+    fn new(value: &Value) -> ValueFence {
+        let map = value.as_object().cloned().unwrap_or_default();
         ValueFence {
             turn: map.get("turn").and_then(Value::as_str).map(str::to_owned),
             current: map.get("current").and_then(Value::as_bool) != Some(false),

@@ -158,6 +158,7 @@ impl CodexPoolNative {
                 HostConsumer::new(
                     Arc::clone(&entry.shared.host),
                     entry.shared.active_write(),
+                    channel.line_limit(),
                     CODEX_ELISION,
                 )
                 .map_err(|error| napi::Error::from_reason(error.to_string()))?,
@@ -165,11 +166,13 @@ impl CodexPoolNative {
         } else {
             None
         };
+        let limit = channel.line_limit();
         Ok(CodexChannelNative {
             channel,
             port,
             consumer,
             ports: Arc::clone(&entry.shared.ports),
+            limit,
         })
     }
 
@@ -224,6 +227,7 @@ pub struct CodexChannelNative {
     port: SessionPort,
     consumer: Option<Arc<HostConsumer>>,
     ports: Arc<std::sync::OnceLock<ace_supervisor::divert::ChildPorts>>,
+    limit: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[napi]
@@ -241,10 +245,13 @@ impl CodexChannelNative {
             return Err(napi::Error::from_reason("the host already runs"));
         };
         let consumer: Arc<dyn OutputConsumer> = Arc::clone(consumer) as Arc<dyn OutputConsumer>;
-        Ok(NativeOutputTarget::new(DivertTarget {
-            consumer,
-            ports: Arc::clone(&self.ports),
-        }))
+        Ok(NativeOutputTarget::with_limit(
+            DivertTarget {
+                consumer,
+                ports: Arc::clone(&self.ports),
+            },
+            Arc::clone(&self.limit),
+        ))
     }
 
     /// The child exists: the host may publish, and the pumps answer its gate.
@@ -358,13 +365,13 @@ impl CodexChannelNative {
         operation: u32,
         selection_json: String,
         model: Option<String>,
-        reopen_on_model_change: bool,
+        reopen: bool,
     ) {
         self.channel.configure(
             u64::from(operation),
             &selection_json,
             model.as_deref(),
-            reopen_on_model_change,
+            reopen,
         );
     }
 
@@ -395,8 +402,8 @@ impl CodexChannelNative {
     }
 
     #[napi(catch_unwind)]
-    pub fn read_root(&self) {
-        self.channel.read_root();
+    pub fn read_root(&self, operation: u32) {
+        self.channel.read_root(u64::from(operation));
     }
 
     #[napi(catch_unwind)]

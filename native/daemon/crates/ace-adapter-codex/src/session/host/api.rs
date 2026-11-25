@@ -21,6 +21,8 @@ impl Host {
                 peer,
                 pid: None,
                 leader: None,
+                drain_armed: false,
+                output_limited: false,
                 exit: None,
                 retiring: false,
                 retired: false,
@@ -276,6 +278,14 @@ impl Host {
                 }
                 return;
             }
+            if key == DRAIN_TIMER {
+                if inner.drain_armed {
+                    inner.drain_armed = false;
+                    inner.output_drained = false;
+                    inner.out.push(HostEffect::CloseOutputs);
+                }
+                return;
+            }
             let peer = inner.peer.timer(key);
             inner.apply(peer);
         });
@@ -296,9 +306,26 @@ impl Host {
             }
             inner.exiting = true;
             inner.gate.drain();
+            if !inner.drain_armed && inner.exit.is_none() {
+                inner.drain_armed = true;
+                inner.out.push(HostEffect::ArmTimer {
+                    key: DRAIN_TIMER.to_owned(),
+                    ms: DRAIN_MS,
+                });
+            }
             let stopped = inner.peer.stop_requests("process exited");
             inner.apply(stopped);
-            let exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
+            let mut exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
+            if inner.output_limited {
+                exit.reason = ExitReason::OutputLimit;
+            }
+            let tenants = inner.tenant_ids();
+            for tenant in tenants {
+                inner.out.push(HostEffect::LeaderExited {
+                    tenant,
+                    exit: exit.clone(),
+                });
+            }
             inner.leader = Some(exit);
             inner.lead_retired();
         });
@@ -313,6 +340,12 @@ impl Host {
         self.input(|inner| {
             inner.exiting = true;
             inner.child_exited = true;
+            if inner.drain_armed {
+                inner.drain_armed = false;
+                inner.out.push(HostEffect::CancelTimer {
+                    key: DRAIN_TIMER.to_owned(),
+                });
+            }
             inner.gate.drain();
             let closed = inner.peer.close("process exited");
             inner.apply(closed);
@@ -328,6 +361,13 @@ impl Host {
                 inner.exited(exit);
             }
         });
+    }
+
+    /// A dedicated host's stdout line went over its limit: its stream is
+    /// failed, and the exit it reports is `output-limit` (`process.ts`'s
+    /// `outputLimited`).
+    pub fn output_limit(&self) {
+        self.lock().output_limited = true;
     }
 
     /// The final drain was cut short, so the exit reports `outputDrained: false`.

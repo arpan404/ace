@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The host's shell: its sink, its diverted child's framing and its tenants.
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use ace_adapter_api::bridge::queue::SessionEvent;
 use ace_json::Value;
+use ace_supervisor::budget::{BoundedLineFraming, DropPhase, DroppedNotes, Framed};
 use ace_supervisor::divert::{ChildPorts, OutputConsumer};
 use ace_supervisor::errors::NodeIoError;
 use ace_supervisor::lines::LineFramer;
@@ -213,6 +214,17 @@ impl HostSink for HostShell {
                     let _ = ports.stdin.write(wire);
                 }
             }
+            HostEffect::CloseOutputs => {
+                if let Some(ports) = self.shared.ports.get() {
+                    ports
+                        .output
+                        .close(ace_supervisor::spawn::OutputStream::Stdout);
+                    ports
+                        .output
+                        .close(ace_supervisor::spawn::OutputStream::Stderr);
+                    ports.stdin.end();
+                }
+            }
             HostEffect::ArmTimer { key, ms } => self.shared.timer(&key, ms),
             HostEffect::CancelTimer { key } => self.shared.cancel_timer(&key),
             HostEffect::Settle { id, result } => self.shared.settle(id, result),
@@ -265,6 +277,11 @@ impl HostSink for HostShell {
                     self.shared.remove(tenant);
                 }
             }
+            HostEffect::LeaderExited { tenant, exit } => {
+                if let Some(channel) = self.shared.channel(tenant) {
+                    channel.leader_exited(&exit);
+                }
+            }
             HostEffect::Exited { tenant, exit } => {
                 if let Some(channel) = self.shared.channel(tenant) {
                     channel.host_exited(&exit);
@@ -306,9 +323,15 @@ impl HostSink for HostShell {
 /// The framed stdout/stderr of one diverted child.
 pub struct HostConsumer {
     host: Arc<Host>,
+    dedicated: bool,
     pub(super) active_write: Arc<Mutex<Option<u64>>>,
     stdout: Mutex<Framing>,
+    stdout_drops: Mutex<Option<BoundedLineFraming>>,
     stderr: Mutex<LineFramer>,
+    stderr_drops: Mutex<Option<BoundedLineFraming>>,
+    line_limit: Arc<AtomicUsize>,
+    framer_limit: Mutex<usize>,
+    stderr_notes: Mutex<DroppedNotes>,
 }
 
 struct Framing {
@@ -320,17 +343,119 @@ impl HostConsumer {
     pub fn new(
         host: Arc<Host>,
         active_write: Arc<Mutex<Option<u64>>>,
+        line_limit: Arc<AtomicUsize>,
         elision: ElisionLimits,
     ) -> Result<HostConsumer, ace_adapter_api::error::AdapterApiError> {
         Ok(HostConsumer {
+            dedicated: host.dedicated(),
             host,
             active_write,
             stdout: Mutex::new(Framing {
                 elider: JsonElider::new(elision)?,
                 framer: LineFramer::new(LINE_LIMIT),
             }),
+            stdout_drops: Mutex::new(None),
             stderr: Mutex::new(LineFramer::new(LINE_LIMIT)),
+            stderr_drops: Mutex::new(None),
+            line_limit,
+            framer_limit: Mutex::new(LINE_LIMIT),
+            stderr_notes: Mutex::new(DroppedNotes::new()),
         })
+    }
+}
+
+impl HostConsumer {
+    /// The spawn's line limit may arrive after the consumer is made; both
+    /// framers take it before their first chunk.
+    fn refresh_limit(&self) {
+        let limit = self.line_limit.load(Ordering::Relaxed).max(64);
+        let Ok(mut current) = self.framer_limit.lock() else {
+            return;
+        };
+        if *current == limit {
+            return;
+        }
+        *current = limit;
+        if let Ok(mut framer) = self.stdout_drops.lock() {
+            *framer = Some(BoundedLineFraming::new(limit));
+        }
+        if let Ok(mut framer) = self.stderr_drops.lock() {
+            *framer = Some(BoundedLineFraming::new(limit));
+        }
+    }
+
+    fn stdout_framer(&self, bytes: &[u8]) -> Vec<Framed> {
+        self.refresh_limit();
+        let Ok(mut framer) = self.stdout_drops.lock() else {
+            return Vec::new();
+        };
+        let framer = framer.get_or_insert_with(|| BoundedLineFraming::new(LINE_LIMIT));
+        framer.next(bytes)
+    }
+
+    fn stderr_framer(&self, bytes: &[u8]) -> Vec<Framed> {
+        self.refresh_limit();
+        let Ok(mut framer) = self.stderr_drops.lock() else {
+            return Vec::new();
+        };
+        let framer = framer.get_or_insert_with(|| BoundedLineFraming::new(LINE_LIMIT));
+        framer.next(bytes)
+    }
+
+    /// One chunk of kept stdout: elide binary payloads, then split its lines.
+    fn stdout_data(&self, bytes: &[u8]) {
+        let Ok(mut framing) = self.stdout.lock() else {
+            return;
+        };
+        let mut elided = Vec::with_capacity(bytes.len());
+        framing.elider.push(bytes, &mut elided);
+        if let Ok(lines) = framing.framer.push(&elided)
+            && lines.count > 0
+        {
+            for line in lines.text.split('\n') {
+                self.host.line(line);
+            }
+        }
+    }
+
+    fn stdout_drop(&self, line: &ace_supervisor::budget::DroppedLine) {
+        // A dedicated host has no dropped-line consumer: the stream fails and
+        // the process ends with `output-limit` (`host.ts:236`).
+        if self.dedicated {
+            self.host.output_limit();
+            self.host.retire(Retirement::RpcFailed);
+            return;
+        }
+        let attributed = crate::session::dropped::attribute_dropped_line(&line.prefix);
+        self.host.dropped(&crate::session::host::DroppedLine {
+            bytes: line.bytes,
+            phase: line.phase.into(),
+            attributed,
+        });
+    }
+
+    fn stderr_data(&self, bytes: &[u8]) {
+        let Ok(mut framer) = self.stderr.lock() else {
+            return;
+        };
+        if let Ok(lines) = framer.push(bytes)
+            && lines.count > 0
+        {
+            for line in lines.text.split('\n') {
+                self.host.stderr_line(line);
+            }
+        }
+    }
+
+    fn stderr_drop(&self, line: &ace_supervisor::budget::DroppedLine) {
+        let note = self
+            .stderr_notes
+            .lock()
+            .ok()
+            .and_then(|mut notes| notes.dropped(line.bytes as u64, line.phase).note);
+        if let Some(ref note) = note {
+            self.host.stderr_line(note);
+        }
     }
 }
 
@@ -338,25 +463,20 @@ impl OutputConsumer for HostConsumer {
     fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered) {
         match stream {
             OutputStream::Stdout => {
-                if let Ok(mut framing) = self.stdout.lock() {
-                    let mut elided = Vec::with_capacity(bytes.len());
-                    framing.elider.push(&bytes, &mut elided);
-                    if let Ok(lines) = framing.framer.push(&elided)
-                        && lines.count > 0
-                    {
-                        for line in lines.text.split('\n') {
-                            self.host.line(line);
-                        }
+                let frames = self.stdout_framer(&bytes);
+                for frame in frames {
+                    match frame {
+                        Framed::Data(bytes) => self.stdout_data(&bytes),
+                        Framed::Drop(line) => self.stdout_drop(&line),
                     }
                 }
             }
             OutputStream::Stderr => {
-                if let Ok(mut framer) = self.stderr.lock()
-                    && let Ok(lines) = framer.push(&bytes)
-                    && lines.count > 0
-                {
-                    for line in lines.text.split('\n') {
-                        self.host.stderr_line(line);
+                let frames = self.stderr_framer(&bytes);
+                for frame in frames {
+                    match frame {
+                        Framed::Data(bytes) => self.stderr_data(&bytes),
+                        Framed::Drop(line) => self.stderr_drop(&line),
                     }
                 }
             }
@@ -364,7 +484,39 @@ impl OutputConsumer for HostConsumer {
         self.host.answer_delivery(delivered);
     }
 
-    fn end(&self, _stream: OutputStream) {}
+    fn end(&self, stream: OutputStream) {
+        match stream {
+            OutputStream::Stdout => {
+                let frames = self
+                    .stdout_drops
+                    .lock()
+                    .ok()
+                    .and_then(|mut framer| framer.as_mut().map(BoundedLineFraming::finish))
+                    .unwrap_or_default();
+                for frame in frames {
+                    match frame {
+                        Framed::Data(bytes) => self.stdout_data(&bytes),
+                        Framed::Drop(line) => self.stdout_drop(&line),
+                    }
+                }
+                let _ = DropPhase::Complete;
+            }
+            OutputStream::Stderr => {
+                let frames = self
+                    .stderr_drops
+                    .lock()
+                    .ok()
+                    .and_then(|mut framer| framer.as_mut().map(BoundedLineFraming::finish))
+                    .unwrap_or_default();
+                for frame in frames {
+                    match frame {
+                        Framed::Data(bytes) => self.stderr_data(&bytes),
+                        Framed::Drop(line) => self.stderr_drop(&line),
+                    }
+                }
+            }
+        }
+    }
 
     fn stdin_written(&self) {
         let ticket = self

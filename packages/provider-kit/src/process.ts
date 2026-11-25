@@ -204,6 +204,7 @@ function spawnOwned(
       hide: true,
       contain: windows && options.windowsJobFactory === undefined,
       ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+      ...(maxLineBytes === undefined ? {} : { maxLineBytes }),
       ...(options.nativeOutput === undefined ? {} : { nativeOutput: options.nativeOutput }),
     });
   const pid = child.pid;

@@ -646,6 +646,16 @@ impl HostSink for HostEffects {
                     let _ = ports.stdin.write(wire);
                 }
             }
+            // The leader's exit is the session's (`session-lifetime.ts`); the
+            // host's own tests read the pipe barrier's `Exited` once.
+            HostEffect::LeaderExited { .. } => {}
+            HostEffect::CloseOutputs => {
+                if let Some(ports) = self.ports.get() {
+                    ports.output.close(OutputStream::Stdout);
+                    ports.output.close(OutputStream::Stderr);
+                    ports.stdin.end();
+                }
+            }
             HostEffect::ArmTimer { key, ms } => {
                 self.events.push(Event::ArmTimer { key, ms });
             }

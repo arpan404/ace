@@ -76,18 +76,13 @@ interface NativeCodexChannel extends NativeSessionPort {
     interactionId: string | null,
     model: string,
   ): void;
-  configure(
-    operation: number,
-    selectionJson: string,
-    model: string | null,
-    reopenOnModelChange: boolean,
-  ): void;
+  configure(operation: number, selectionJson: string, model: string | null, reopen: boolean): void;
   close(operation: number, reason: string): void;
   failOpen(operation: number): void;
   abort(reason: string): void;
   timer(key: string, now: number): void;
   toolFacts(operation: number, model: string | null): void;
-  readRoot(): void;
+  readRoot(operation: number): void;
   rateLimits(): void;
   catalogStart(): void;
   launchMode(operation: number, modeJson: string): void;
@@ -237,22 +232,22 @@ export async function openNativeCodexSession(
   let channel: NativeCodexChannel;
   let proc: SupervisedProcess | undefined;
   channel = pool.open(
-      key,
-      !options.hosts,
-      {
-        scope,
-        started,
-        cwd: ctx.cwd,
-        ...(ctx.aceMcp ? { bearer: ctx.aceMcp.bearer } : {}),
-        workspace: ctx.cwd,
-        home: io.homeDir(),
-        hostname: hostName(),
-        env: Object.entries(ctx.env ?? {}).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
-        ),
-      },
-      (_error: unknown, batch: string) => bridge.deliver(batch),
-    );
+    key,
+    !options.hosts,
+    {
+      scope,
+      started,
+      cwd: ctx.cwd,
+      ...(ctx.aceMcp ? { bearer: ctx.aceMcp.bearer } : {}),
+      workspace: ctx.cwd,
+      home: io.homeDir(),
+      hostname: hostName(),
+      env: Object.entries(ctx.env ?? {}).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    },
+    (_error: unknown, batch: string) => bridge.deliver(batch),
+  );
   const hooks: BridgeHooks = {
     now: () => io.now(),
     started,
@@ -445,7 +440,11 @@ export async function openNativeCodexSession(
     model = asString(result["model"], model);
     channel.attached(root, model, JSON.stringify({ ...selectedOptions }), permissionMode);
     // An existing thread's history, in bounded pages, before anything can act on it.
-    if (ctx.fork || ctx.resume) channel.readRoot();
+    if (ctx.fork || ctx.resume) {
+      const readOperation = operation();
+      channel.readRoot(readOperation);
+      await bridge.expect(readOperation);
+    }
     if (ctx.options !== undefined)
       await request("thread/settings/update", {
         threadId: root,
@@ -488,7 +487,7 @@ export async function openNativeCodexSession(
         id,
         JSON.stringify({ ...executionOptions }),
         selection.model ?? null,
-        Boolean(ctx.aceMcp),
+        Boolean(ctx.aceMcp && (selection.model ?? "") !== (ctx.model ?? "")),
       );
       const outcome = await bridge.expect(id);
       if (outcome === "reopen") return "reopen" as const;

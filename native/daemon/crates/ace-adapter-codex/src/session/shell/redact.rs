@@ -63,9 +63,13 @@ fn scrub_credentials(text: &str) -> String {
             out.push_str(rest);
             break;
         };
-        let before = bytes.get(index + at).copied();
-        let boundary =
-            index + at == 0 || before.is_some_and(|ch| !ch.is_ascii_alphanumeric() && ch != b'_');
+        let boundary = if index + at == 0 {
+            true
+        } else {
+            bytes
+                .get(index + at - 1)
+                .is_some_and(|ch| !ch.is_ascii_alphanumeric() && *ch != b'_')
+        };
         let after = index + at + len;
         let mut cursor = after;
         while bytes
@@ -100,4 +104,37 @@ fn scrub_credentials(text: &str) -> String {
         index = cursor;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> ShellConfig {
+        ShellConfig {
+            scope: "g".to_owned(),
+            started: 0.0,
+            cwd: "/work".to_owned(),
+            bearer: None,
+            workspace: "/work".to_owned(),
+            home: None,
+            hostname: None,
+            env: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_credential_assignment_loses_its_value() {
+        let scrub = redactor(&config());
+        let line = "offline app-server failure api_key=super-secret-test-token";
+        let safe = scrub(line);
+        assert!(!safe.contains("super-secret-test-token"), "{safe}");
+        assert!(safe.contains("api_key=<SECRET>"), "{safe}");
+    }
+
+    #[test]
+    fn the_workspace_becomes_a_placeholder() {
+        let safe = redactor(&config())("failed in /work/src/main.rs");
+        assert_eq!(safe, "failed in <WORKSPACE>/src/main.rs");
+    }
 }
