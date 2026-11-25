@@ -31,10 +31,6 @@ fn invalid(detail: &str) -> Error {
     Error::Invalid(format!("Simulator discovery: {detail}"))
 }
 
-fn units(text: &JsString) -> usize {
-    text.encode_utf16().count()
-}
-
 /// `z.string().uuid()`: 8-4-4-4-12 hexadecimal digits, either case.
 fn is_uuid(text: &str) -> bool {
     let bytes = text.as_bytes();
@@ -62,11 +58,11 @@ fn parse_entry(value: &Value, runtime: &JsString) -> Result<Option<Simulator>, E
         return Err(invalid("udid is not a UUID"));
     }
     let name = string("name")?;
-    if units(&name) > NAME_MAX {
+    if name.len_code_points() > NAME_MAX {
         return Err(invalid("name is too long"));
     }
     let state = string("state")?;
-    if units(&state) > STATE_MAX {
+    if state.len_code_points() > STATE_MAX {
         return Err(invalid("state is too long"));
     }
     let Some(is_available) = fields.get("isAvailable").and_then(Value::as_bool) else {
@@ -76,7 +72,7 @@ fn parse_entry(value: &Value, runtime: &JsString) -> Result<Option<Simulator>, E
     let device_type_identifier = fields
         .get("deviceTypeIdentifier")
         .and_then(Value::as_js_str)
-        .filter(|value| units(value) <= DEVICE_TYPE_MAX)
+        .filter(|value| value.len_code_points() <= DEVICE_TYPE_MAX)
         .cloned();
     if !is_available {
         return Ok(None);
@@ -196,5 +192,31 @@ mod tests {
                 .device_type_identifier
                 .is_none()
         );
+    }
+
+    #[test]
+    fn simulator_names_and_state_take_emoji_at_their_schema_limits() {
+        let name = "😀".repeat(256);
+        let state = "😀".repeat(64);
+        let device_type = "😀".repeat(256);
+        for (name_suffix, state_suffix) in [("", ""), ("😀", ""), ("", "😀")] {
+            let output = document(&format!(
+                r#"{{"udid":"{UDID}","name":"{name}{name_suffix}","state":"{state}{state_suffix}","isAvailable":true,"deviceTypeIdentifier":"{device_type}"}}"#
+            ));
+            let listed = list(&output);
+            assert_eq!(
+                listed.is_ok(),
+                name_suffix.is_empty() && state_suffix.is_empty()
+            );
+            if let Ok(listed) = listed {
+                assert_eq!(
+                    listed[0]
+                        .device_type_identifier
+                        .as_ref()
+                        .map(JsString::as_str),
+                    Some(device_type.as_str())
+                );
+            }
+        }
     }
 }

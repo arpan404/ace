@@ -215,25 +215,4 @@ fn has_timeout_out(message: &str) -> bool {
     false
 }
 
-/// Length in UTF-16 code units, like the TypeScript `length` checks.
-pub fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// Truncate to a number of UTF-16 code units, like `String.slice`, without
-/// splitting a character.
-pub fn slice_units(text: &str, max: usize) -> &str {
-    if text.encode_utf16().count() <= max {
-        return text;
-    }
-    let mut units = 0;
-    let mut end = 0;
-    for (index, ch) in text.char_indices() {
-        units += ch.len_utf16();
-        if units > max {
-            break;
-        }
-        end = index + ch.len_utf8();
-    }
-    &text[..end]
-}
+pub use ace_json::utf16_len;

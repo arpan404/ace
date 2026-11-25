@@ -56,7 +56,7 @@ enum Resolution<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         dismissed: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        feedback: Option<String>,
+        feedback: Option<ace_json::JsString>,
     },
     #[serde(rename = "elicitation")]
     Elicitation {
@@ -194,15 +194,15 @@ pub fn interaction(
         .map(|raw| ace_json::parse(raw.get()))
         .transpose()?;
     let choice_fields = choice.as_ref().map(fields);
-    let feedback: Option<String> = match get(p, "message") {
-        Value::String(message) => Some(String::from(message.clone())),
+    let feedback: Option<ace_json::JsString> = match get(p, "message") {
+        Value::String(message) => Some(message.clone()),
         _ => match choice_fields.as_ref() {
             Some(choice) => {
                 let kind = s_in(choice, "kind");
                 if kind == "question" && matches!(choice.get("dismissed"), Some(Value::Bool(true)))
                 {
                     match choice.get("feedback") {
-                        Some(Value::String(feedback)) => Some(slice_feedback(feedback)),
+                        Some(Value::String(feedback)) => Some(feedback.slice_units(0, 8192)),
                         _ => None,
                     }
                 } else if kind == "elicitation"
@@ -213,7 +213,7 @@ pub fn interaction(
                 {
                     match fields(get(choice, "content")).get("feedback") {
                         Some(Value::String(feedback)) if !feedback.is_empty() => {
-                            Some(String::from(feedback.clone()))
+                            Some(feedback.clone())
                         }
                         _ => None,
                     }
@@ -266,7 +266,7 @@ pub fn interaction(
         let (dismissed, feedback) = if typ == "form.cancelled" {
             (
                 Some(true),
-                feedback.map(|feedback| slice_feedback(&feedback)),
+                feedback.map(|feedback| feedback.slice_units(0, 8192)),
             )
         } else {
             (None, None)
@@ -313,20 +313,6 @@ pub fn interaction(
         }),
     })?;
     Ok(())
-}
-
-/// Slice feedback to 8,192 units without splitting a character.
-fn slice_feedback(feedback: &str) -> String {
-    let mut units = 0;
-    let mut end = 0;
-    for (index, ch) in feedback.char_indices() {
-        units += ch.len_utf16();
-        if units > 8192 {
-            break;
-        }
-        end = index + ch.len_utf8();
-    }
-    feedback[..end].to_owned()
 }
 
 /// Store a resolution announced while the interaction stays open.

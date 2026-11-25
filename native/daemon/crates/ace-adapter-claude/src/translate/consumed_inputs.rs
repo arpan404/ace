@@ -48,7 +48,7 @@ impl ConsumedInputs {
         if uuids.is_empty() {
             if let Some(Value::String(single)) = obj.get("user_message_uuid")
                 && !single.is_empty()
-                && single.len() <= 512
+                && ace_json::utf16_len(single) <= 512
                 && !self.reported.contains(single.as_str())
             {
                 fresh.push(String::from(single.clone()));
@@ -57,7 +57,7 @@ impl ConsumedInputs {
             for uuid in uuids {
                 if let Value::String(s) = uuid
                     && !s.is_empty()
-                    && s.len() <= 512
+                    && ace_json::utf16_len(s) <= 512
                     && !self.reported.contains(s.as_str())
                 {
                     fresh.push(String::from(s.clone()));

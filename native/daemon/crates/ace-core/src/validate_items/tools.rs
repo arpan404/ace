@@ -138,13 +138,11 @@ fn valid_tool_detail(detail: &Map) -> bool {
         Some("image") => {
             detail.keys().all(|key| {
                 ["kind", "path", "sourcePath", "attachment", "unavailable"].contains(&key.as_str())
-            }) && detail
-                .get("path")
-                .is_none_or(|path| matches!(path, Json::String(path) if path.len() <= 4096))
-                && detail
-                    .get("sourcePath")
-                    .is_none_or(|path| matches!(path, Json::String(path) if path.len() <= 4096))
-                && detail.get("attachment").is_none_or(valid_attachment)
+            }) && detail.get("path").is_none_or(
+                |path| matches!(path, Json::String(path) if path.len_code_points() <= 4096),
+            ) && detail.get("sourcePath").is_none_or(
+                |path| matches!(path, Json::String(path) if path.len_code_points() <= 4096),
+            ) && detail.get("attachment").is_none_or(valid_attachment)
                 && optional_string(detail.get("unavailable"))
         }
         Some("browser" | "notebook" | "custom") => detail.keys().all(|key| key == "kind"),
@@ -184,7 +182,7 @@ fn valid_tool_result(value: &Json) -> bool {
                     match entry.get("type").and_then(|kind| kind.as_str()) {
                         Some("text") => {
                             entry.keys().all(|key| ["type", "text"].contains(&key.as_str()))
-                                && matches!(entry.get("text"), Some(Json::String(text)) if text.len() <= 32_768)
+                                && matches!(entry.get("text"), Some(Json::String(text)) if text.len_code_points() <= 32_768)
                         }
                         Some("image") => {
                             entry.keys().all(|key| ["type", "attachment"].contains(&key.as_str()))
@@ -217,7 +215,8 @@ fn valid_tool_result(value: &Json) -> bool {
         {
             return false;
         }
-        if !matches!(target.get("bundleId"), Some(Json::String(id)) if id.len() <= 256) {
+        if !matches!(target.get("bundleId"), Some(Json::String(id)) if id.len_code_points() <= 256)
+        {
             return false;
         }
         if let Some(window) = target.get("windowId")
@@ -228,7 +227,7 @@ fn valid_tool_result(value: &Json) -> bool {
         }
         if let Some(name) = target.get("displayName")
             && (matches!(name, Json::Null)
-                || !matches!(name, Json::String(name) if name.len() <= 256))
+                || !matches!(name, Json::String(name) if name.len_code_points() <= 256))
         {
             return false;
         }

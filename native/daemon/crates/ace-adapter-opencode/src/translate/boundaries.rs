@@ -4,7 +4,7 @@
 //! deserializes into these views; an unknown one stays raw. Bounds match the
 //! TypeScript schemas, so oversized or misshapen events fail the same way.
 
-use crate::translate::data::{fields, get, s_in, utf16_len};
+use crate::translate::data::{fields, get, s_in};
 use ace_json::{Map, Value};
 use thiserror::Error;
 
@@ -34,8 +34,8 @@ pub struct Durable<'a> {
     pub seq: f64,
 }
 
-fn bounded(text: &str, max: usize) -> bool {
-    utf16_len(text) <= max
+fn bounded(text: &ace_json::JsString, max: usize) -> bool {
+    text.len_code_points() <= max
 }
 
 /// Validate an SSE envelope the way `NativeEvent.parse` does: known fields
@@ -258,4 +258,35 @@ pub fn check_loopback(value: &str) -> Result<&str, BoundaryError> {
         return Err(BoundaryError::Event("loopback"));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn sse_id_type_and_directory_accept_emoji_at_the_schema_limit() {
+        for (field, limit) in [("id", 512), ("type", 256), ("directory", 4096)] {
+            for length in [limit, limit + 1] {
+                let mut value = ace_json::parse(
+                    r#"{"id":"n","type":"event","data":{},"location":{"directory":"/tmp"}}"#,
+                )
+                .expect("event");
+                let map = value.as_object_mut().expect("object");
+                let target = if field == "directory" {
+                    map.get_mut("location")
+                        .and_then(Value::as_object_mut)
+                        .expect("location")
+                } else {
+                    map
+                };
+                target.insert(field, Value::from("😀".repeat(length)));
+                assert_eq!(
+                    parse_native_event(&value).is_ok(),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
 }

@@ -185,11 +185,11 @@ pub fn message(
             super::provider_error::claude_error(&error_code, &message_text, state.model.as_deref());
         // ProviderErrorDetails: {code, provider:"claude", model?}.
         if !error_code.is_empty()
-            && error_code.len() <= 256
+            && error_code.len_code_points() <= 256
             && state
                 .model
                 .as_ref()
-                .map(|s| !s.is_empty() && s.len() <= 256)
+                .map(|s| !s.is_empty() && s.chars().count() <= 256)
                 .unwrap_or(true)
         {
             let mut details = Map::with_capacity(3);
@@ -366,7 +366,7 @@ pub fn message(
                 state.keep_raw(&item_clone, data, &agent_clone, None)
             };
             let single = content.len() == 1;
-            let uuid_ok = !uuid.is_empty() && uuid.len() <= 256;
+            let uuid_ok = !uuid.is_empty() && ace_json::utf16_len(&uuid) <= 256;
             state.emit(assistant_text_upsert(
                 &agent,
                 &message_item,

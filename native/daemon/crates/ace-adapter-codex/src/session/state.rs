@@ -275,12 +275,6 @@ pub(crate) fn text_of(value: Option<&Value>) -> String {
         .unwrap_or_default()
 }
 
-/// `String.prototype.length`: UTF-16 code units, as every zod `.max()` bound
-/// counts them and as JavaScript's `slice` does.
-pub(crate) fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
 /// `turn.id` from a notification's params.
 pub(crate) fn turn_of(params: &Map) -> String {
     text_of(

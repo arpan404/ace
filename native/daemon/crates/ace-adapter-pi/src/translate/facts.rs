@@ -127,7 +127,7 @@ pub struct ItemDelta {
     pub agent: String,
     pub item: String,
     pub field: String,
-    pub append: String,
+    pub append: ace_json::JsString,
 }
 
 #[derive(Serialize)]

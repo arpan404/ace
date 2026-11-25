@@ -22,10 +22,30 @@ fn sanitize_at<'a>(value: &'a Value, secrets: &[&str], depth: u32) -> Cow<'a, Va
         return Cow::Owned(Value::from(String::from("[depth limit]")));
     }
     match value {
-        Value::String(text) => match sanitize_text(text, secrets) {
-            Cow::Borrowed(_) => Cow::Borrowed(value),
-            Cow::Owned(clean) => Cow::Owned(Value::from(clean)),
-        },
+        Value::String(text) => {
+            let clipped = (text.len_utf16() > MAX_STRING).then(|| text.slice_units(0, MAX_STRING));
+            let bounded = clipped.as_ref().unwrap_or(text);
+            match sanitize_text(bounded.as_str(), secrets) {
+                Cow::Borrowed(_) => clipped.map_or(Cow::Borrowed(value), |clean| {
+                    Cow::Owned(Value::String(clean))
+                }),
+                Cow::Owned(mut clean) => {
+                    // The scanner reads a surrogate as U+FFFD. Restore a high surrogate
+                    // retained by the slice if the scanner kept that final unit.
+                    if let Some(unit) = clipped.as_ref().and_then(|text| text.units().last())
+                        && (0xd800..=0xdbff).contains(&unit)
+                        && clean.ends_with(char::REPLACEMENT_CHARACTER)
+                    {
+                        clean.pop();
+                        let mut text = ace_json::JsString::from(clean);
+                        text.push_js(&ace_json::JsString::from_units(&[unit]));
+                        Cow::Owned(Value::String(text))
+                    } else {
+                        Cow::Owned(Value::from(clean))
+                    }
+                }
+            }
+        }
         Value::Array(items) => {
             let count = items.len().min(MAX_ENTRIES);
             let mut clean: Option<Vec<Value>> = if items.len() > MAX_ENTRIES {
@@ -106,10 +126,9 @@ fn sanitize_object<'a>(
     }
 }
 
-/// Truncate to a million UTF-16 code units, replace listed secrets, then
-/// `Authorization`/`Basic` credentials.
+/// Replace listed secrets and authorization credentials.
 fn sanitize_text<'a>(text: &'a str, secrets: &[&str]) -> Cow<'a, str> {
-    let mut current = Cow::Borrowed(truncate_units(text));
+    let mut current = Cow::Borrowed(text);
     for secret in secrets {
         if !secret.is_empty() && current.contains(secret) {
             current = Cow::Owned(current.replace(secret, "[redacted]"));
@@ -119,22 +138,6 @@ fn sanitize_text<'a>(text: &'a str, secrets: &[&str]) -> Cow<'a, str> {
         current = Cow::Owned(redact_credentials(&current));
     }
     current
-}
-
-fn truncate_units(text: &str) -> &str {
-    if text.len() <= MAX_STRING {
-        return text;
-    }
-    let mut units = 0;
-    let mut end = 0;
-    for (index, ch) in text.char_indices() {
-        units += ch.len_utf16();
-        if units > MAX_STRING {
-            break;
-        }
-        end = index + ch.len_utf8();
-    }
-    &text[..end]
 }
 
 /// Whether the text holds a `Bearer`/`Basic` credential with its token.
@@ -258,8 +261,8 @@ fn has_suffixed(text: &str, head: &str, tail: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize;
-    use ace_json::json;
+    use super::{MAX_STRING, sanitize};
+    use ace_json::{Value, json};
 
     /// Opaque provider state is redacted under both its 2.0 and 2.1 names,
     /// text is kept.
@@ -357,5 +360,23 @@ mod tests {
     fn nested_objects_keep_only_their_own_fields() {
         let value = json!({ "when": {}, "map": {} });
         assert_eq!(sanitize(&value, &[]).into_owned(), value);
+    }
+
+    #[test]
+    fn truncation_preserves_the_split_surrogate_even_when_redacting() {
+        for padding in [MAX_STRING - 8, MAX_STRING - 7] {
+            let plain = Value::from(format!("secret{}😀", "a".repeat(padding)));
+            let clean = sanitize(&plain, &["secret"]);
+            let text = clean.as_js_str().expect("text");
+            assert!(text.as_str().starts_with("[redacted]"));
+            assert_eq!(
+                text.units().last(),
+                Some(if padding == MAX_STRING - 8 {
+                    0xde00
+                } else {
+                    0xd83d
+                })
+            );
+        }
     }
 }

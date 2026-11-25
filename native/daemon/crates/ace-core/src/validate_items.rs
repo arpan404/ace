@@ -147,4 +147,27 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn handoff_models_and_origin_titles_use_the_protocols_code_point_bounds() {
+        for (field, limit) in [("model", 256), ("title", 256)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let (model, title) = if field == "model" {
+                    (text.as_str(), "title")
+                } else {
+                    ("model", text.as_str())
+                };
+                let item = ace_json::parse(&format!(r#"{{"type":"message","id":"i","agentId":"a","createdAt":0,"complete":true,"role":"user","parts":[{{"type":"text","text":"hi"}}],"origin":{{"kind":"handoff","sources":[{{"provider":"codex","model":"{model}"}}],"via":{{"threadId":"thread","title":"{title}"}}}}}}"#)).expect("item");
+                assert_eq!(
+                    matches!(
+                        validate_merged_item(item.as_object().expect("object")),
+                        ItemCheck::Ok
+                    ),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
 }

@@ -3,13 +3,11 @@
 //! execution ended is held as bookkeeping work until it settles.
 
 use crate::translate::content::{ItemReconciled, edit_changes, tool_key};
-use crate::translate::data::{
-    RawPayload, arr, fields, get, n_in_fb, raw, s_in, slice_units, utf16_len,
-};
+use crate::translate::data::{RawPayload, arr, fields, get, n_in_fb, raw, s_in, utf16_len};
 use crate::translate::detail::{Detail, detail};
 use crate::translate::state::{FileChange, NativeState, Out, StateError, Tool};
 use ace_json::Raw;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 use serde::Serialize;
 
 /// The exact command, path, and display fields a tool ran with.
@@ -23,8 +21,8 @@ pub(crate) struct ToolInput<'a> {
     pub(crate) workdir: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) cwd: Option<&'a str>,
-    pub(crate) prompt: &'a str,
-    pub(crate) agent: &'a str,
+    pub(crate) prompt: JsString,
+    pub(crate) agent: JsString,
     pub(crate) background: bool,
 }
 
@@ -88,7 +86,7 @@ pub fn tool(
     if typ == "session.tool.input.ended"
         && let Value::String(text) = get(p, "text")
         && !text.is_empty()
-        && utf16_len(text) <= 65536
+        && text.len_code_points() <= 65536
     {
         ended_input = ace_json::parse(text).ok();
     }
@@ -135,8 +133,14 @@ pub fn tool(
                 file_path,
                 workdir,
                 cwd,
-                prompt: slice_units(s_in(source, "prompt"), 8192),
-                agent: slice_units(s_in(source, "agent"), 256),
+                prompt: get(source, "prompt")
+                    .as_js_str()
+                    .unwrap_or(JsString::empty())
+                    .slice_units(0, 8192),
+                agent: get(source, "agent")
+                    .as_js_str()
+                    .unwrap_or(JsString::empty())
+                    .slice_units(0, 256),
                 background: matches!(source.get("background"), Some(Value::Bool(true))),
             };
             ace_json::ser::to_string(&built)?
@@ -221,8 +225,14 @@ pub fn tool(
             Some(Value::String(cwd)) => Some(cwd.as_str()),
             _ => None,
         },
-        prompt: s_in(input_view, "prompt"),
-        agent: s_in(input_view, "agent"),
+        prompt: get(input_view, "prompt")
+            .as_js_str()
+            .cloned()
+            .unwrap_or_default(),
+        agent: get(input_view, "agent")
+            .as_js_str()
+            .cloned()
+            .unwrap_or_default(),
         background: matches!(input_view.get("background"), Some(Value::Bool(true))),
     };
     let mut call_detail = detail(&name, &tool_input, changes);

@@ -102,7 +102,7 @@ pub(crate) fn user_text_upsert(
         draft.insert("origin".to_owned(), Value::Object(origin));
     }
     draft.insert("complete".to_owned(), Value::Bool(true));
-    if !uuid.is_empty() && uuid.len() <= 256 {
+    if !uuid.is_empty() && ace_json::utf16_len(uuid) <= 256 {
         draft.insert("nativeId".to_owned(), Value::from(uuid.to_owned()));
     }
     if let Value::Object(extra) = keep {

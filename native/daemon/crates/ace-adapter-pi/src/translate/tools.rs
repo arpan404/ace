@@ -2,10 +2,7 @@
 //! Pi tool details, mirroring `tools.ts`. Reads borrow `&Raw`; tool
 //! results stream through `result_suffix` without joining historical prefixes.
 
-use super::native::{
-    bare_tool_name, field, parse_array, parse_object, str_field, utf16_len, utf16_slice,
-    utf16_to_byte_index,
-};
+use super::native::{bare_tool_name, field, parse_array, parse_object, str_field, utf16_len};
 use ace_json::Raw;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -198,8 +195,8 @@ pub fn edit_result_detail(
 
 /// Visit cumulative blocks without joining their historical prefix.
 /// Mirrors `resultSuffix` in UTF-16 units, as JavaScript `length` does.
-pub fn result_suffix(value: Option<&Raw>, seen: usize) -> (String, usize) {
-    let mut append = String::new();
+pub fn result_suffix(value: Option<&Raw>, seen: usize) -> (ace_json::JsString, usize) {
+    let mut append = ace_json::JsString::new();
     let mut length = 0_usize;
     let mut first = true;
     let items: Vec<Raw> = match value {
@@ -215,7 +212,7 @@ pub fn result_suffix(value: Option<&Raw>, seen: usize) -> (String, usize) {
     for item in &items {
         if !first {
             if length >= seen {
-                append.push('\n');
+                append.push_str("\n");
             }
             length += 1;
         }
@@ -225,17 +222,7 @@ pub fn result_suffix(value: Option<&Raw>, seen: usize) -> (String, usize) {
         let end = length + text_units;
         if end > seen {
             let skip = seen.saturating_sub(length);
-            let take = end.saturating_sub(seen.max(length));
-            let start_byte = utf16_to_byte_index(&text, skip.min(text_units));
-            let end_byte = utf16_to_byte_index(&text, (skip + take).min(text_units));
-            if start_byte < end_byte {
-                if let Some(part) = text.get(start_byte..end_byte) {
-                    append.push_str(part);
-                } else {
-                    let fallback = utf16_slice(&text, skip, skip + take);
-                    append.push_str(fallback);
-                }
-            }
+            append.push_js(&ace_json::JsString::from(text).slice_units(skip, text_units));
         }
         length = end;
     }
@@ -307,4 +294,20 @@ pub fn result_text(value: Option<&Raw>) -> String {
         parts.push(block_text(item));
     }
     parts.join("\n")
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn cumulative_result_suffix_can_start_inside_a_surrogate_pair() {
+        let result =
+            Raw::from_json(r#"{"content":[{"type":"text","text":"a😀b"}]}"#).expect("result");
+        let (whole, _) = result_suffix(Some(&result), 1);
+        let (split, length) = result_suffix(Some(&result), 2);
+        assert_eq!(whole, "😀b");
+        assert_eq!(split.units().collect::<Vec<_>>(), [0xde00, 98]);
+        assert_eq!(length, 4);
+    }
 }
