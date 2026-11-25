@@ -142,7 +142,7 @@ impl Session {
             .map(|(task, _)| task.clone())?;
         let result = match reply {
             Ok(result) => result,
-            Err(_) => return Some(self.reconcile_failed(&task)),
+            Err(message) => return Some(self.reconcile_failed(&task, message)),
         };
         let body = result.as_object().cloned().unwrap_or_default();
         let entries = body
@@ -237,9 +237,9 @@ impl Session {
     }
 
     /// A failed scan: recorded, then retried one task timer later (`:288`).
-    pub(crate) fn reconcile_failed(&mut self, task: &str) -> Vec<Effect> {
+    pub(crate) fn reconcile_failed(&mut self, task: &str, message: &str) -> Vec<Effect> {
         self.discovery.tasks.shift_remove(task);
-        let mut effects = self.diagnostic("Codex discovery scan failed");
+        let mut effects = self.diagnostic(message);
         if !self.lifetime.is_closed() && !self.timers.contains_key(task) {
             self.timers.insert(task.to_owned(), ());
             self.discovery.retries.insert(task.to_owned());

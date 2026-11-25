@@ -125,7 +125,7 @@ impl Session {
             self.discovery.uncertain.shift_remove(thread);
             effects.extend(self.finish_output_recovery());
         }
-        effects.extend(self.release_read(thread));
+        effects.extend(self.release_read(thread, Ok(())));
         effects
     }
 }

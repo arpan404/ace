@@ -204,7 +204,7 @@ impl Session {
         if thread != self.root && parent.as_ref().is_none_or(|p| !self.known.contains(p)) {
             self.revisions.shift_remove(thread);
             self.discovery.uncertain.shift_remove(thread);
-            let mut effects = self.release_read(thread);
+            let mut effects = self.release_read(thread, Ok(()));
             effects.extend(self.finish_output_recovery());
             return effects;
         }
@@ -301,7 +301,8 @@ impl Session {
 
     /// The snapshot's fold: the uncertainty rules, the hydration, and the notes
     /// that record what was read (`:186`-`:251`).
-    /// A read failed: release it, report it, and let its starter retry.
+    /// A read failed: release it and let its starter report and retry, as its
+    /// own `catch` does.
     fn read_failed(&mut self, thread: &str, message: &str) -> Vec<Effect> {
         let origin = self
             .discovery
@@ -309,25 +310,20 @@ impl Session {
             .get(thread)
             .map(|read| read.origin.clone())
             .unwrap_or(Origin::Direct);
-        // Children waiting on a failed read fail with it; `release_read`
-        // reports them before the starter's own retry.
-        let mut effects = self.diagnostic(message);
-        effects.extend(self.release_read(thread));
-        effects.extend(origin_failed(self, origin, thread));
+        let mut effects = self.release_read(thread, Err(message));
+        effects.extend(origin_failed(self, origin, thread, message));
         effects
     }
 
     /// A read that could not start (a cycle in its own ancestry).
     fn read_start_failed(&mut self, origin: Origin, message: &str) -> Vec<Effect> {
-        let mut effects = self.diagnostic(message);
-        effects.extend(origin_failed(self, origin, ""));
-        effects
+        origin_failed(self, origin, "", message)
     }
 
     /// `readThread`'s release: the read, its observation, and its recovery
-    /// bookkeeping. Whatever awaited it continues, and every continuation's
-    /// effects are returned in the order they were decided.
-    pub(crate) fn release_read(&mut self, thread: &str) -> Vec<Effect> {
+    /// bookkeeping. Whatever awaited it continues, or fails with it, and every
+    /// continuation's effects are returned in the order they were decided.
+    pub(crate) fn release_read(&mut self, thread: &str, outcome: Result<(), &str>) -> Vec<Effect> {
         let Some(read) = self.discovery.reads.shift_remove(thread) else {
             return Vec::new();
         };
@@ -344,19 +340,28 @@ impl Session {
             .shift_remove(thread)
             .unwrap_or_default();
         let mut effects = Vec::new();
-        if self.known.contains(thread) {
-            for child in blocked {
-                effects.extend(self.read_gate(&child));
-            }
-        } else {
-            let message = "Codex thread read failed";
-            for child in blocked {
-                effects.extend(self.read_failed(&child, message));
-            }
-        }
         let tasks: Vec<String> = self.discovery.tasks.keys().cloned().collect();
-        for task in &tasks {
-            effects.extend(self.reconcile_continue(task, thread));
+        match outcome {
+            // A read that resolved continues what awaited it, even when the
+            // tree gate dropped the thread it read.
+            Ok(()) => {
+                for child in blocked {
+                    effects.extend(self.read_gate(&child));
+                }
+                for task in &tasks {
+                    effects.extend(self.reconcile_continue(task, thread));
+                }
+            }
+            Err(message) => {
+                for child in blocked {
+                    effects.extend(self.read_failed(&child, message));
+                }
+                // `reconcileLoaded` awaits each read: one that failed fails the
+                // whole scan, which records it and retries (`:268`-`:283`).
+                for task in &tasks {
+                    effects.extend(self.reconcile_failed(task, message));
+                }
+            }
         }
         effects
     }
