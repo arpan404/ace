@@ -83,7 +83,7 @@ fn reserved_command(message: &str) -> bool {
 
 /// `piInput`: the message's text, its images, and the budget and control-command checks.
 pub fn pi_input(input: &[Value]) -> Result<PiInput, PiInputError> {
-    let mut text_parts: Vec<&str> = Vec::new();
+    let mut text_parts: Vec<String> = Vec::new();
     let mut images: Vec<PiImage> = Vec::new();
     let mut bytes = 0usize;
     for part in input {
@@ -101,8 +101,8 @@ pub fn pi_input(input: &[Value]) -> Result<PiInput, PiInputError> {
             return Err(PiInputError::FrameBudget);
         }
         match kind(part) {
-            "text" => text_parts.push(text(part, "text").unwrap_or_default()),
-            "file" => text_parts.push(text(part, "path").unwrap_or_default()),
+            "text" => text_parts.push(text(part, "text").unwrap_or_default().to_owned()),
+            "file" => text_parts.push(format!("File: {}", text(part, "path").unwrap_or_default())),
             _ => {
                 let mime_type = text(part, "mimeType").unwrap_or_default();
                 let image = base64_data_url(value);
@@ -150,7 +150,7 @@ mod tests {
             r#"[{"type":"text","text":"look"},{"type":"file","path":"/tmp/a.txt"},{"type":"image","mimeType":"image/png","url":"data:image/png;base64,QQ=="}]"#,
         );
         let rendered = pi_input(&input).unwrap();
-        assert_eq!(rendered.message, "look\n/tmp/a.txt");
+        assert_eq!(rendered.message, "look\nFile: /tmp/a.txt");
         assert_eq!(
             rendered.images,
             vec![PiImage {
