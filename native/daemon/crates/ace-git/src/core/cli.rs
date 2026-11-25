@@ -3,7 +3,7 @@
 //! capture bounds, deadlines, cancellation, and cleanup receipts).
 //! Ported from `packages/git/src/cli.ts` (G2a).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -392,7 +392,7 @@ impl GitCliCore {
             ));
         }
         self.active_calls.fetch_add(1, Ordering::AcqRel);
-        let res = self.execute_raw_inner(&mut opts, cancel).await;
+        let res = self.execute_raw_inner(&mut opts, cancel, call_id).await;
         self.unregister_cancel(call_id);
         if self.active_calls.fetch_sub(1, Ordering::AcqRel) == 1 {
             self.active_zero.notify_waiters();
@@ -404,6 +404,7 @@ impl GitCliCore {
         self: &Arc<Self>,
         opts: &mut ExecuteRawOptions,
         cancel: Arc<CallCancel>,
+        call_id: u64,
     ) -> Result<ExecuteRawOutput, GitError> {
         let binary = opts.binary.clone().unwrap_or_else(|| self.binary());
         let mut env_map: BTreeMap<String, String> = inherited_env_pairs().into_iter().collect();
@@ -460,7 +461,7 @@ impl GitCliCore {
             })
             .await;
         let child = spawned.child;
-        let mut events = spawned.events;
+        let events = spawned.events;
         let pid = child.pid();
         let contained = match (job, pid) {
             (Some(j), Some(p)) if j.adopt(p) => Some(Arc::new(j)),
@@ -534,6 +535,8 @@ impl GitCliCore {
         }
 
         let mut stdin_rx = opts.stdin_rx.take();
+        // Sizes of the writes not yet acknowledged, so each ack names its chunk.
+        let mut stdin_written: VecDeque<usize> = VecDeque::new();
 
         while failure.is_none() && enough.is_none() && close_result.is_none() {
             // The timer registers before its flag is read, and `cancelled()`
@@ -579,7 +582,10 @@ impl GitCliCore {
                 } => {
                     match cmd {
                         Some(StdinCommand::Write(bytes)) => {
-                            let _ = child.write_stdin(bytes);
+                            let len = bytes.len();
+                            if child.write_stdin(bytes).is_ok() {
+                                stdin_written.push_back(len);
+                            }
                         }
                         Some(StdinCommand::End) | None => {
                             stdin_rx = None;
@@ -593,13 +599,14 @@ impl GitCliCore {
                 }
                 ev = events.recv() => match ev {
                     Some(ProcessEvent::Stdout(chunk)) => {
+                        let bytes = chunk.bytes;
                         if opts.stream_stdout {
                             if let Some(ref cb) = opts.callbacks {
                                 tokio::select! {
                                     biased;
                                     _ = cancel.cancelled() => {}
                                     _ = expired_stop(&deadline_hit, &budget_hit, &timer_notify) => {}
-                                    res = cb.on_stdout(chunk) => {
+                                    res = cb.on_stdout(bytes) => {
                                         if let Err(err) = res {
                                             failure = Some(err);
                                         }
@@ -609,11 +616,11 @@ impl GitCliCore {
                         } else {
                             let remaining = limit.saturating_sub(captured);
                             if remaining > 0 {
-                                let take = remaining.min(chunk.len());
-                                stdout_chunks.push(chunk[..take].to_vec());
+                                let take = remaining.min(bytes.len());
+                                stdout_chunks.push(bytes[..take].to_vec());
                                 captured += take;
                             }
-                            if chunk.len() > remaining {
+                            if bytes.len() > remaining {
                                 truncated = true;
                                 if opts.capture_bytes.is_none() {
                                     failure = Some(
@@ -632,6 +639,7 @@ impl GitCliCore {
                         }
                     }
                     Some(ProcessEvent::Stderr(chunk)) => {
+                        let bytes = chunk.bytes;
                         if opts.stream_stderr
                             && let Some(ref cb) = opts.callbacks
                         {
@@ -639,18 +647,18 @@ impl GitCliCore {
                                 biased;
                                 _ = cancel.cancelled() => {}
                                 _ = expired_stop(&deadline_hit, &budget_hit, &timer_notify) => {}
-                                res = cb.on_stderr(chunk.clone()) => {
+                                res = cb.on_stderr(bytes.clone()) => {
                                     if let Err(err) = res {
                                         failure = Some(err);
                                     }
                                 }
                             }
                         }
-                        diagnostics.accept(&chunk);
-                        tail.accept(&chunk);
-                        let keep = chunk.len().min(STDERR_RAW_LIMIT.saturating_sub(stderr_raw.len()));
+                        diagnostics.accept(&bytes);
+                        tail.accept(&bytes);
+                        let keep = bytes.len().min(STDERR_RAW_LIMIT.saturating_sub(stderr_raw.len()));
                         if keep > 0 {
-                            stderr_raw.extend_from_slice(&chunk[..keep]);
+                            stderr_raw.extend_from_slice(&bytes[..keep]);
                         }
                     }
                     Some(ProcessEvent::StdoutError { code, message })
@@ -668,7 +676,11 @@ impl GitCliCore {
                     Some(ProcessEvent::StdinFinish) => {
                         stdin_finished = true;
                     }
-                    Some(ProcessEvent::StdinAck) => {}
+                    Some(ProcessEvent::StdinAck) => {
+                        if let Some(bytes) = stdin_written.pop_front() {
+                            self.ports.notify_stdin_ack(call_id, bytes);
+                        }
+                    }
                     Some(ProcessEvent::SpawnError { code, message }) => {
                         if code.as_deref() == Some("ENOENT") && self.configured_binary.is_none() {
                             self.set_resolved_binary(None);

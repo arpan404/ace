@@ -197,6 +197,13 @@ impl NativeGitCore {
         ports.pid_hook = Some(Arc::new(move |pid, alive| {
             pid_hub.notify_pid(pid, alive);
         }));
+        let ack_hub = Arc::clone(&hub);
+        ports.stdin_ack_hook = Some(Arc::new(move |call_id, bytes| {
+            ack_hub.emit(
+                format!("{{\"op\":\"stdin_ack\",\"callId\":{call_id},\"bytes\":{bytes}}}"),
+                Vec::new(),
+            );
+        }));
 
         let core = GitCliCore::new(
             GitCliConfig {

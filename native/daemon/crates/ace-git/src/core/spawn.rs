@@ -2,7 +2,7 @@
 //! Process spawning through `ace-supervisor`, injectable runtime ports,
 //! binary discovery (`git-binary.ts`), and tree teardown (`process-runtime.ts`).
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
@@ -13,8 +13,9 @@ use std::time::Duration;
 use ace_supervisor::child::{SupervisedChild, spawn_child};
 use ace_supervisor::errors::NodeIoError;
 use ace_supervisor::signal::SignalName;
+use ace_supervisor::pump::Flow;
 use ace_supervisor::spawn::{Delivered, EventSink, OutputStream, RawExit, SpawnSpec, StdioMode};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::Notify;
 
 use crate::core::error::{CleanupResult, GitError, GitErrorCode};
 use crate::core::job::{GitJobPorts, JobScheduler, ScheduleFuture, default_job_ports};
@@ -98,11 +99,154 @@ pub async fn sleep_with(scheduler: &dyn TimeoutScheduler, milliseconds: u64) {
     crate::core::wake::wait_for_flag(&done, &notify).await;
 }
 
+/// A chunk of piped output, with the delivery its stream is waiting on: the
+/// queue answers `taken(false)` once it is full, pausing the pump, and resumes
+/// it when the consumer takes a chunk. At most `EVENT_QUEUE_CHUNKS` chunks are
+/// ever held, so a Git process that writes faster than the core reads cannot
+/// queue its whole output in memory.
+pub struct OutputChunk {
+    pub bytes: Vec<u8>,
+    pub delivered: Option<Delivered>,
+}
+
+impl std::fmt::Debug for OutputChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputChunk")
+            .field("bytes", &self.bytes.len())
+            .field("delivered", &self.delivered.is_some())
+            .finish()
+    }
+}
+
+impl OutputChunk {
+    /// A chunk no flow control watches (a bridged JS child's streams).
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            delivered: None,
+        }
+    }
+}
+
+/// How many output chunks the event queue holds before pausing the pump.
+pub const EVENT_QUEUE_CHUNKS: usize = 16;
+
+/// The ordered event queue one spawn's consumer reads (`ProcessEvent` stream).
+pub struct EventQueue {
+    state: Mutex<EventQueueState>,
+    notify: Notify,
+}
+
+#[derive(Default)]
+struct EventQueueState {
+    events: VecDeque<ProcessEvent>,
+    /// Set when the queue filled and paused a stream; resumed when it has room.
+    paused: Option<Arc<Flow>>,
+    closed: bool,
+}
+
+impl EventQueue {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(EventQueueState::default()),
+            notify: Notify::new(),
+        })
+    }
+
+    /// Queues one output chunk, answering the pump once it is in the queue (or
+    /// pausing it when the queue is full).
+    pub fn push_output(&self, stream: OutputStream, chunk: OutputChunk) {
+        let delivered = chunk.delivered;
+        let (flow, taken) = {
+            let Ok(state) = self.state.lock() else {
+                return;
+            };
+            let full = state.events.len() >= EVENT_QUEUE_CHUNKS;
+            (full.then(|| delivered.as_ref().map(Delivered::flow)), !full)
+        };
+        let event = match stream {
+            OutputStream::Stdout => ProcessEvent::Stdout(OutputChunk {
+                bytes: chunk.bytes,
+                delivered: None,
+            }),
+            OutputStream::Stderr => ProcessEvent::Stderr(OutputChunk {
+                bytes: chunk.bytes,
+                delivered: None,
+            }),
+        };
+        {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            state.events.push_back(event);
+            if let Some(Some(flow)) = flow {
+                state.paused = Some(flow);
+            }
+        }
+        if let Some(delivered) = delivered {
+            delivered.taken(taken);
+        }
+        self.notify.notify_one();
+    }
+
+    /// Queues one lifecycle event.
+    pub fn push(&self, event: ProcessEvent) {
+        if let Ok(mut state) = self.state.lock() {
+            state.events.push_back(event);
+        }
+        self.notify.notify_one();
+    }
+
+    /// No event follows: a consumer with an empty queue stops waiting.
+    pub fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+        }
+        self.notify.notify_one();
+    }
+
+    /// The next event in order, or `None` once the stream closed.
+    pub async fn recv(&self) -> Option<ProcessEvent> {
+        loop {
+            let mut resume = None;
+            {
+                let Ok(mut state) = self.state.lock() else {
+                    return None;
+                };
+                if let Some(event) = state.events.pop_front() {
+                    if state.events.len() < EVENT_QUEUE_CHUNKS {
+                        resume = state.paused.take();
+                    }
+                    drop(state);
+                    if let Some(flow) = resume {
+                        flow.resume();
+                    }
+                    return Some(event);
+                }
+                if state.closed {
+                    return None;
+                }
+            }
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self
+                .state
+                .lock()
+                .is_ok_and(|state| !state.events.is_empty() || state.closed)
+            {
+                continue;
+            }
+            notified.await;
+        }
+    }
+}
+
 /// Ordered stream and lifecycle events produced by a [`ProcessChild`].
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ProcessEvent {
-    Stdout(Vec<u8>),
-    Stderr(Vec<u8>),
+    Stdout(OutputChunk),
+    Stderr(OutputChunk),
     StdoutError {
         code: Option<String>,
         message: String,
@@ -163,7 +307,7 @@ pub trait ProcessChild: Send + Sync {
 /// Spawned handle paired with its ordered event stream.
 pub struct SpawnedProcess {
     pub child: Arc<dyn ProcessChild>,
-    pub events: mpsc::UnboundedReceiver<ProcessEvent>,
+    pub events: Arc<EventQueue>,
 }
 
 /// Process spawner port (`GitProcessRuntime.spawn`).
@@ -211,6 +355,9 @@ pub struct ProcessPorts {
     pub cleanup_supervisor: Option<Arc<dyn CleanupSupervisorPort>>,
     pub job_ports: Option<Arc<dyn GitJobPorts>>,
     pub pid_hook: Option<Arc<dyn Fn(u32, bool) + Send + Sync>>,
+    /// Reports one stdin write reaching the child, so the shell that streams
+    /// stdin (`Readable`, as Node's `pipe` does) can resume after pausing.
+    pub stdin_ack_hook: Option<Arc<dyn Fn(u64, usize) + Send + Sync>>,
     pub runtime: tokio::runtime::Handle,
 }
 
@@ -228,7 +375,14 @@ impl ProcessPorts {
             cleanup_supervisor: None,
             job_ports: default_job_ports(),
             pid_hook: None,
+            stdin_ack_hook: None,
             runtime,
+        }
+    }
+
+    pub fn notify_stdin_ack(&self, call_id: u64, bytes: usize) {
+        if let Some(ref hook) = self.stdin_ack_hook {
+            hook(call_id, bytes);
         }
     }
 
@@ -325,7 +479,7 @@ impl SupervisorSpawner {
 
 #[derive(Clone)]
 struct SupervisorSink {
-    tx: mpsc::UnboundedSender<ProcessEvent>,
+    queue: Arc<EventQueue>,
     exited: Arc<AtomicBool>,
     exit_notify: Arc<Notify>,
     stdin_pending: Arc<AtomicUsize>,
@@ -342,19 +496,20 @@ impl SupervisorSink {
             && !self.stdin_errored.load(Ordering::Acquire)
             && !self.stdin_finished.swap(true, Ordering::AcqRel)
         {
-            let _ = self.tx.send(ProcessEvent::StdinFinish);
+            self.queue.push(ProcessEvent::StdinFinish);
         }
     }
 }
 
 impl EventSink for SupervisorSink {
     fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered) {
-        let event = match stream {
-            OutputStream::Stdout => ProcessEvent::Stdout(bytes),
-            OutputStream::Stderr => ProcessEvent::Stderr(bytes),
-        };
-        let _ = self.tx.send(event);
-        delivered.taken(true);
+        self.queue.push_output(
+            stream,
+            OutputChunk {
+                bytes,
+                delivered: Some(delivered),
+            },
+        );
     }
 
     fn end(&self, _stream: OutputStream) {}
@@ -363,7 +518,7 @@ impl EventSink for SupervisorSink {
         self.exited.store(true, Ordering::Release);
         self.exit_notify.notify_waiters();
         let pid = self.pid.load(Ordering::Acquire);
-        let _ = self.tx.send(ProcessEvent::Exit {
+        self.queue.push(ProcessEvent::Exit {
             code: exit.code,
             signal: exit.signal,
             pid: (pid != 0).then_some(pid),
@@ -373,15 +528,16 @@ impl EventSink for SupervisorSink {
     fn close(&self, exit: RawExit) {
         self.exited.store(true, Ordering::Release);
         self.exit_notify.notify_waiters();
-        let _ = self.tx.send(ProcessEvent::Close {
+        self.queue.push(ProcessEvent::Close {
             code: exit.code,
             signal: exit.signal,
         });
+        self.queue.close();
     }
 
     fn stdin_written(&self) {
         let prev = self.stdin_pending.fetch_sub(1, Ordering::AcqRel);
-        let _ = self.tx.send(ProcessEvent::StdinAck);
+        self.queue.push(ProcessEvent::StdinAck);
         if prev == 1 {
             self.maybe_finish_stdin();
         }
@@ -389,7 +545,7 @@ impl EventSink for SupervisorSink {
 
     fn stdin_error(&self, error: NodeIoError) {
         self.stdin_errored.store(true, Ordering::Release);
-        let _ = self.tx.send(ProcessEvent::StdinError {
+        self.queue.push(ProcessEvent::StdinError {
             code: Some(error.code().to_owned()),
             message: format!("write {}", error.code()),
         });
@@ -515,7 +671,7 @@ impl ProcessChild for FailedSpawnChild {
 
 impl ProcessSpawner for SupervisorSpawner {
     fn spawn(&self, request: SpawnRequest) -> BoxFuture<'_, SpawnedProcess> {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let queue = EventQueue::new();
         let exited = Arc::new(AtomicBool::new(false));
         let exit_notify = Arc::new(Notify::new());
         let spec = SpawnSpec {
@@ -533,7 +689,7 @@ impl ProcessSpawner for SupervisorSpawner {
         };
         let pid_cell = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let sink = SupervisorSink {
-            tx: tx.clone(),
+            queue: Arc::clone(&queue),
             exited: Arc::clone(&exited),
             exit_notify: Arc::clone(&exit_notify),
             stdin_pending: Arc::new(AtomicUsize::new(0)),
@@ -555,21 +711,22 @@ impl ProcessSpawner for SupervisorSpawner {
                 });
                 SpawnedProcess {
                     child: handle,
-                    events: rx,
+                    events: queue,
                 }
             }
             Err(err) => {
                 let msg = err.to_string();
                 let code = infer_spawn_errno(&msg);
                 exit_notify.notify_waiters();
-                let _ = tx.send(ProcessEvent::SpawnError { code, message: msg });
-                let _ = tx.send(ProcessEvent::Close {
+                queue.push(ProcessEvent::SpawnError { code, message: msg });
+                queue.push(ProcessEvent::Close {
                     code: None,
                     signal: None,
                 });
+                queue.close();
                 SpawnedProcess {
                     child: Arc::new(FailedSpawnChild { exit_notify }),
-                    events: rx,
+                    events: queue,
                 }
             }
         };
@@ -659,7 +816,7 @@ pub async fn kill_tree(ports: &ProcessPorts, child: Arc<dyn ProcessChild>) {
             .await;
         spawned.child.end_stdin();
         let killer = spawned.child;
-        let mut events = spawned.events;
+        let events = spawned.events;
         let timed_out = Arc::new(AtomicBool::new(false));
         let notify = Arc::new(Notify::new());
         let killer_for_timer = Arc::clone(&killer);
@@ -902,5 +1059,59 @@ pub fn classify_spawn_error(
     } else {
         GitError::new(GitErrorCode::GitFailed, message)
             .with_detail("binary", ace_json::Value::from(binary))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn events_come_out_in_the_order_they_were_queued() {
+        let queue = EventQueue::new();
+        queue.push_output(OutputStream::Stdout, OutputChunk::new(b"one".to_vec()));
+        queue.push(ProcessEvent::StdinAck);
+        queue.push_output(OutputStream::Stderr, OutputChunk::new(b"two".to_vec()));
+        let mut chunks = Vec::new();
+        let mut acks = 0;
+        for _ in 0..3 {
+            match queue.recv().await {
+                Some(ProcessEvent::Stdout(chunk)) => chunks.push(String::from_utf8_lossy(&chunk.bytes).into_owned()),
+                Some(ProcessEvent::Stderr(chunk)) => chunks.push(String::from_utf8_lossy(&chunk.bytes).into_owned()),
+                Some(ProcessEvent::StdinAck) => acks += 1,
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
+        assert_eq!(chunks, vec!["one".to_owned(), "two".to_owned()]);
+        assert_eq!(acks, 1);
+    }
+
+    #[tokio::test]
+    async fn a_closed_queue_ends_the_consumer_once_it_is_empty() {
+        let queue = EventQueue::new();
+        queue.push_output(OutputStream::Stdout, OutputChunk::new(b"last".to_vec()));
+        queue.close();
+        assert!(matches!(queue.recv().await, Some(ProcessEvent::Stdout(_))));
+        assert!(queue.recv().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_consumer_waiting_on_an_empty_queue_wakes_for_the_next_chunk() {
+        let queue = EventQueue::new();
+        let consumer = {
+            let queue = Arc::clone(&queue);
+            tokio::spawn(async move { queue.recv().await })
+        };
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        queue.push_output(OutputStream::Stdout, OutputChunk::new(b"wake".to_vec()));
+        let event = tokio::time::timeout(Duration::from_millis(500), consumer)
+            .await
+            .expect("woken")
+            .expect("consumer");
+        match event {
+            Some(ProcessEvent::Stdout(chunk)) => assert_eq!(chunk.bytes, b"wake"),
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }

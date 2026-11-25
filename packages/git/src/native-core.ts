@@ -31,6 +31,14 @@ import { GitError, type GitErrorCode, type GitOptions, type GitProcessRuntime } 
 const part = "core" satisfies GitPart;
 const gitFailedPrefix = "git_failed:";
 
+/**
+ * stdin bytes handed to the core but not yet written: a `Readable` input is
+ * paused above this and resumed once the core acknowledges below the low mark,
+ * the backpressure Node's `pipe()` gives a destination.
+ */
+const stdinHighWater = 1024 * 1024;
+const stdinLowWater = 256 * 1024;
+
 /** Dispatches one core operation to the native core when the part is on. */
 export function runNativeCore<T>(op: string, typescript: () => Promise<T>): Promise<T> {
   return runNativeOp(part, op, typescript);
@@ -158,6 +166,7 @@ interface PortMessage {
   spawnId?: number;
   timerId?: number;
   callId?: number;
+  bytes?: number;
   pid?: number;
   ms?: number;
   command?: string;
@@ -232,6 +241,9 @@ export class NativeCoreCli {
   private readonly streams = new Map<number, StreamTarget>();
   private readonly killed: Set<string>;
   private readonly leaseProbe: LeaseProbe;
+  /** Unacknowledged stdin bytes per call, and the input paused by them. */
+  private readonly stdinOutstanding = new Map<number, number>();
+  private readonly stdinInputs = new Map<number, Readable>();
 
   constructor(
     options: GitOptions,
@@ -418,7 +430,13 @@ export class NativeCoreCli {
           if (onEnd) readable.off("end", onEnd);
           if (onReadableError) readable.off("error", onReadableError);
         }
-        if (callId !== 0) this.streams.delete(callId);
+        if (callId !== 0) {
+          this.streams.delete(callId);
+          this.stdinOutstanding.delete(callId);
+          const paused = this.stdinInputs.get(callId);
+          this.stdinInputs.delete(callId);
+          if (paused && paused.isPaused()) paused.resume();
+        }
       };
 
       const onAbort = params.signal
@@ -440,6 +458,12 @@ export class NativeCoreCli {
         ? (chunk: Buffer | string) => {
             if (settled || callId === 0) return;
             const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+            const outstanding = (this.stdinOutstanding.get(callId) ?? 0) + buf.byteLength;
+            this.stdinOutstanding.set(callId, outstanding);
+            if (outstanding > stdinHighWater && !readable.isPaused()) {
+              this.stdinInputs.set(callId, readable);
+              readable.pause();
+            }
             this.handle.writeStdin(callId, buf);
           }
         : undefined;
@@ -545,6 +569,17 @@ export class NativeCoreCli {
   private onPort(eventJson: string, data: Uint8Array): void {
     const msg = JSON.parse(eventJson) as PortMessage;
     switch (msg.op) {
+      case "stdin_ack": {
+        const id = msg.callId ?? 0;
+        const outstanding = Math.max(0, (this.stdinOutstanding.get(id) ?? 0) - (msg.bytes ?? 0));
+        this.stdinOutstanding.set(id, outstanding);
+        const paused = this.stdinInputs.get(id);
+        if (paused && outstanding <= stdinLowWater) {
+          this.stdinInputs.delete(id);
+          if (paused.isPaused()) paused.resume();
+        }
+        return;
+      }
       case "pid_add":
         if (msg.pid !== undefined) runningChildren.add(msg.pid);
         return;

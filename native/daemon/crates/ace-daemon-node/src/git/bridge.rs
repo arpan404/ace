@@ -14,14 +14,15 @@ use ace_git::core::cli::StreamCallbacks;
 use ace_git::core::error::{CleanupResult, GitError, GitErrorCode};
 use ace_git::core::spawn::{
     BoxFuture, CancelHandle, CleanupSupervisorPort, GitLocatorPort, GroupPort, ProcessChild,
-    ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess, TimeoutScheduler,
+    EventQueue, OutputChunk, ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess,
+    TimeoutScheduler,
 };
 use napi::Status;
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{Notify, oneshot};
 
 use super::{caught, unwind};
 
@@ -113,7 +114,7 @@ pub fn git_bridge_version() -> napi::Result<String> {
 }
 
 struct BridgedChildEntry {
-    tx: mpsc::UnboundedSender<ProcessEvent>,
+    queue: Arc<EventQueue>,
     exited: Arc<AtomicBool>,
     exit_notify: Arc<Notify>,
     pid: Arc<AtomicU32>,
@@ -229,8 +230,8 @@ impl PortHub {
         };
 
         let event = match kind {
-            "stdout" => ProcessEvent::Stdout(chunk.unwrap_or_default()),
-            "stderr" => ProcessEvent::Stderr(chunk.unwrap_or_default()),
+            "stdout" => ProcessEvent::Stdout(OutputChunk::new(chunk.unwrap_or_default())),
+            "stderr" => ProcessEvent::Stderr(OutputChunk::new(chunk.unwrap_or_default())),
             "stdout_error" => ProcessEvent::StdoutError {
                 code: str_code(),
                 message: payload.message.unwrap_or_default(),
@@ -271,7 +272,12 @@ impl PortHub {
             }
             _ => return,
         };
-        let _ = entry.tx.send(event);
+        if matches!(event, ProcessEvent::Close { .. }) {
+            entry.queue.push(event);
+            entry.queue.close();
+        } else {
+            entry.queue.push(event);
+        }
     }
 
     pub(crate) fn notify_pid(&self, pid: u32, alive: bool) {
@@ -393,12 +399,12 @@ impl ProcessSpawner for JsSpawner {
         Box::pin(async move {
             let spawn_id = hub.alloc_id();
             let req_id = hub.alloc_id();
-            let (tx, rx) = mpsc::unbounded_channel();
+            let queue = EventQueue::new();
             let exited = Arc::new(AtomicBool::new(false));
             let exit_notify = Arc::new(Notify::new());
             let pid_cell = Arc::new(AtomicU32::new(0));
             let entry = Arc::new(BridgedChildEntry {
-                tx: tx.clone(),
+                queue: Arc::clone(&queue),
                 exited: Arc::clone(&exited),
                 exit_notify: Arc::clone(&exit_notify),
                 pid: Arc::clone(&pid_cell),
@@ -448,14 +454,15 @@ impl ProcessSpawner for JsSpawner {
                 if let Some(err) = parsed.error {
                     exited.store(true, Ordering::Release);
                     exit_notify.notify_waiters();
-                    let _ = tx.send(ProcessEvent::SpawnError {
+                    queue.push(ProcessEvent::SpawnError {
                         code: parsed.code,
                         message: err,
                     });
-                    let _ = tx.send(ProcessEvent::Close {
+                    queue.push(ProcessEvent::Close {
                         code: None,
                         signal: None,
                     });
+                    queue.close();
                 }
             }
             let child = Arc::new(BridgedChild {
@@ -465,7 +472,10 @@ impl ProcessSpawner for JsSpawner {
                 exited,
                 exit_notify,
             });
-            SpawnedProcess { child, events: rx }
+            SpawnedProcess {
+                child,
+                events: queue,
+            }
         })
     }
 }
