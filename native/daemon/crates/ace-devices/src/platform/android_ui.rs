@@ -151,20 +151,6 @@ fn invalid(key: &str) -> Error {
 }
 
 /// The first `units` UTF-16 code units, as JavaScript's `.slice(0, units)` takes them.
-fn slice_units(text: &str, units: usize) -> String {
-    let mut used = 0;
-    let mut end = 0;
-    for (index, character) in text.char_indices() {
-        let width = character.len_utf16();
-        if used + width > units {
-            break;
-        }
-        used += width;
-        end = index + character.len_utf8();
-    }
-    text[..end].to_string()
-}
-
 fn sha_ref(prefix: &str, identity: &Value) -> String {
     let text = ace_json::ser::to_string(identity).unwrap_or_default();
     let digest = Sha256::digest(text.as_bytes());
@@ -284,15 +270,16 @@ fn attributes(tag: &str) -> Result<Vec<(String, String)>, Error> {
         }
         let value = &trimmed[value_start..cursor];
         cursor += 1;
-        // `z.record(z.string().max(8192))` counts code points under ace's patched zod, so 8192
-        // emoji fit and 8193 do not.
-        if value.chars().count() > 8192 {
+        let decoded = decode(value)?;
+        // `z.record(z.string().max(8192))` counts the *decoded* value in code points under ace's
+        // patched zod, so 2,000 `&amp;` are 2,000, and 8192 emoji fit while 8193 do not.
+        if decoded.chars().count() > 8192 {
             return Err(invalid("androidAttributesMalformed"));
         }
         if values.iter().any(|(each, _)| each == name) {
             return Err(invalid("androidAttributesMalformed"));
         }
-        values.push((name.to_string(), decode(value)?));
+        values.push((name.to_string(), decoded));
     }
     Ok(values)
 }
@@ -336,7 +323,7 @@ fn bounds(values: &[(String, String)]) -> Result<Bounds, Error> {
 fn mapped(values: &[(String, String)], path: &str) -> Result<Node, Error> {
     let bounds = bounds(values)?;
     let class = attribute(values, "class").unwrap_or("node");
-    let role = slice_units(class, 128);
+    let role = class;
     let text = attribute(values, "text").unwrap_or("");
     let name = attribute(values, "content-desc")
         .filter(|value| !value.is_empty())
@@ -381,9 +368,9 @@ fn mapped(values: &[(String, String)], path: &str) -> Result<Node, Error> {
     ]);
     Ok(Node {
         ref_: sha_ref("a", &identity),
-        role: JsString::from(role),
-        name: JsString::from(slice_units(name, 256)),
-        value: Some(JsString::from(slice_units(text, 512))),
+        role: JsString::from(role).slice_units(0, 128),
+        name: JsString::from(name).slice_units(0, 256),
+        value: Some(JsString::from(text).slice_units(0, 512)),
         description: None,
         bounds,
         states,
@@ -820,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn an_attribute_value_is_capped_at_8192_code_points_as_the_schema_counts_them() {
+    fn an_attribute_value_is_capped_at_8192_decoded_code_points() {
         let emoji = "\u{1f44b}";
         let fits = format!(
             "<hierarchy><node class=\"Button\" text=\"{}\" bounds=\"[0,0][10,10]\" /></hierarchy>",
@@ -832,6 +819,33 @@ mod tests {
             emoji.repeat(8193)
         );
         assert!(tree(&too_long, TreeOptions::default()).is_err());
+        // The cap counts what the entities decode to, not the XML: 2,000 `&amp;` are 10,000
+        // raw bytes and 2,000 characters, which the schema accepts.
+        let entities = format!(
+            "<hierarchy><node class=\"Button\" text=\"{}\" bounds=\"[0,0][10,10]\" /></hierarchy>",
+            "&amp;".repeat(2000)
+        );
+        let tree = tree(&entities, TreeOptions::default()).expect("parses");
+        assert_eq!(
+            tree.nodes[0].value.as_ref().map(|v| v.chars().count()),
+            Some(512)
+        );
+    }
+
+    #[test]
+    fn a_slice_that_cuts_a_pair_keeps_the_lone_high_surrogate_as_the_typescript_slice_does() {
+        let emoji = "\u{1f44b}";
+        // "a" + 128 emoji is 257 units; `.slice(0, 256)` ends inside the last pair.
+        let label = format!("a{}", emoji.repeat(128));
+        let xml = format!(
+            "<hierarchy><node class=\"Button\" content-desc=\"{label}\" text=\"\" \
+             bounds=\"[0,0][10,10]\" /></hierarchy>"
+        );
+        let tree = tree(&xml, TreeOptions::default()).expect("parses");
+        let name = &tree.nodes[0].name;
+        assert_eq!(name.len_utf16(), 256);
+        assert_eq!(name.units().last(), Some(0xd83d));
+        assert!(name.as_well_formed().is_none());
     }
 
     #[test]

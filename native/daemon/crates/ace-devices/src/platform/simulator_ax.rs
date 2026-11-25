@@ -623,6 +623,22 @@ mod tests {
     }
 
     #[test]
+    fn a_slice_that_cuts_a_pair_keeps_the_lone_high_surrogate_as_the_typescript_slice_does() {
+        let emoji = "\u{1f44b}";
+        // "a" + 128 emoji is 257 units; `.slice(0, 256)` ends inside the last pair.
+        let label = format!("a{}", emoji.repeat(128));
+        let raw = ace_json::json!([element(
+            ace_json::json!({"type": "Button", "AXLabel": label, "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
+            vec![],
+        )]);
+        let tree = tree(&raw, &screen(), TreeOptions::default()).expect("parses");
+        let name = &tree.nodes[0].name;
+        assert_eq!(name.len_utf16(), 256);
+        assert_eq!(name.units().last(), Some(0xd83d));
+        assert!(name.as_well_formed().is_none());
+    }
+
+    #[test]
     fn a_node_without_a_value_omits_it_and_a_text_find_then_falls_back_to_its_name() {
         let raw = ace_json::json!([element(
             ace_json::json!({"type": "Button", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),

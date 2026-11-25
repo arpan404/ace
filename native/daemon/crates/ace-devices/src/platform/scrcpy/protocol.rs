@@ -623,6 +623,19 @@ mod tests {
     }
 
     #[test]
+    fn injected_text_is_capped_in_utf8_bytes_so_an_emoji_costs_four() {
+        // 75 emoji are 300 bytes and fit; 76 are 304 and do not.
+        let fits = ControlMessage::Text {
+            text: JsString::from("\u{1f44b}".repeat(75)),
+        };
+        assert!(encode(&fits).is_ok());
+        let too_long = ControlMessage::Text {
+            text: JsString::from("\u{1f44b}".repeat(76)),
+        };
+        assert!(encode(&too_long).is_err());
+    }
+
+    #[test]
     fn text_past_the_servers_limit_is_refused_rather_than_split_here() {
         let long = "a".repeat(INJECT_TEXT_LIMIT + 1);
         assert!(encode(&ControlMessage::Text { text: long.into() }).is_err());
