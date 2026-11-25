@@ -471,14 +471,7 @@ pub fn action_input(
             y: centre.1,
         });
     }
-    let scroll = value.and_then(Value::as_object);
-    let amount = |key: &str| {
-        scroll
-            .and_then(|scroll| scroll.get(key))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0)
-    };
-    let (dx, dy) = (amount("dx"), amount("dy"));
+    let (dx, dy) = crate::platform::android_ui::scroll_amount(value)?;
     if dx == 0.0 && dy == 0.0 {
         return Ok(ActInput::None {
             method: "no_scroll",

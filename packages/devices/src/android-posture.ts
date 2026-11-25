@@ -28,10 +28,10 @@ export function hasHinge(status: string): boolean {
  * open; the band between is half open.
  */
 export function postureFromHinge(reply: string): DevicePosture | undefined {
-  if (nativeInput)
-    return (
-      (nativeDevices().devicePlatformPostureFromHinge(reply) as DevicePosture | null) ?? undefined
-    );
+  if (nativeInput) {
+    const answer = nativeDevices().devicePlatformPostureFromHinge(reply);
+    return answer === null ? undefined : (JSON.parse(answer) as DevicePosture);
+  }
   const match = /hinge-angle0\s*=\s*(-?\d+(?:\.\d+)?)/.exec(reply);
   if (!match?.[1]) return undefined;
   const angle = Number(match[1]);

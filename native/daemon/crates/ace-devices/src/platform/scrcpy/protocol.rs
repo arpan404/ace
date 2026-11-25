@@ -79,9 +79,11 @@ pub enum ControlMessage {
     Keycode {
         action: KeyAction,
         keycode: i32,
-        #[serde(default)]
+        /// Absent until a key repeats, as today's messages leave it.
+        #[serde(default, skip_serializing_if = "is_zero")]
         repeat: i32,
-        #[serde(default)]
+        /// Absent unless a modifier is held, as today's messages leave it.
+        #[serde(default, skip_serializing_if = "is_zero")]
         meta: i32,
     },
     Text {
@@ -115,6 +117,11 @@ pub enum ControlMessage {
     },
     Rotate,
     ResetVideo,
+}
+
+/// Whether a key message's field is today's default and stays out of its JSON.
+fn is_zero(value: &i32) -> bool {
+    *value == 0
 }
 
 /// A `bigint` on the wire: the shell writes it as its decimal digits, so a sequence past

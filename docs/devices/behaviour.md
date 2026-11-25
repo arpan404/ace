@@ -379,3 +379,48 @@ the shell that wires it, and the TypeScript that stays is the switch-off path un
   `CONNECT` use the bracketed form, and a `no_proxy` entry of `::1` is a host, not a port.
 - **A `#[cfg(test)]` item is blanked, not the rest of its file.** The catalog check's Rust scan
   resumes after the item, with a unit test for brace-laden test bodies.
+
+## 12. D3.2: input and UI (2026-11-25)
+
+`ACE_DEVICE_PLATFORM=native` answers every input and UI decision from `ace-devices`; the switch-off
+leg is today's TypeScript unchanged, byte for byte.
+
+| TypeScript                     | Rust                                                         |
+| ------------------------------ | ------------------------------------------------------------ |
+| `scrcpy-protocol` (control)    | `platform/scrcpy/protocol.rs` (frames, reader, server args)  |
+| `scrcpy-input`                 | `platform/scrcpy/input.rs` (plan, held pointers)             |
+| `scrcpy-clipboard`             | `platform/scrcpy/clipboard.rs` (request ordering, deadlines) |
+| `key-support`, `touch-support` | `platform/keys.rs`                                           |
+| `clipboard`                    | `platform/clipboard.rs`                                      |
+| `simulator-fingers`            | `platform/fingers.rs` (held fingers, digitizer step, HID)    |
+| `simulator-digitizer`          | `platform/fingers.rs` (`digitizer_step`)                     |
+| `simulator-input`              | `platform/fingers.rs` (`key_message`, `typing_args`, points) |
+| `simulator-screens`            | `platform/screens.rs`                                        |
+| `simulator-posture`, `posture` | `platform/posture.rs`                                        |
+| `android-posture`              | `platform/posture.rs`                                        |
+| `simulator-ax`                 | `platform/simulator_ax.rs`                                   |
+| `android-ui`                   | `platform/android_ui.rs`                                     |
+| `android-operations`           | `platform/android_ui.rs` (`act`), `platform/helper.rs`       |
+| `android-ui-helper`            | `platform/helper.rs` (args, line protocol, budgets)          |
+| `android-input-shell`          | `platform/helper.rs` (pinned args, marker line, queue bound) |
+
+The (b) cases moved beside those functions: `scrcpy-input` (13), `scrcpy-clipboard` (9,
+including its deadlines), `simulator-fingers` (4), `simulator-screens` (3), `simulator-ax` (8),
+`simulator-posture` (6), `android-posture` (3), `posture` (5), and `android-input-shell.process`'s
+one-pinned-shell and queue cases. The TypeScript files stay until their modules are deleted after
+default-on (guide rule 5).
+
+Intended differences, each proven in Rust:
+
+- **A Simulator point outside the frame is a typed `invalid_data`.** `SimulatorInput` throws a
+  plain `Error` there; the Rust decision returns the `DeviceFailure` shape, so a caller can branch
+  on it. Nothing accepted changes.
+- **A ref is hashed from `ace-json`'s identity text.** `simulator-ax` and `android-ui` hash
+  `JSON.stringify(identity)`; the Rust hashes the same JSON written by `ace-json`, which is
+  identical for every string a device can produce (a lone surrogate included).
+- **`scrcpy-capture` adopts the Rust control decisions in D3.3.** That file is D3.3's; D3.2
+  supplies the encoders, plans and clipboard machine with their tests, and the capture keeps its
+  own TypeScript instance until then.
+
+No other divergence was found: the encodings, key maps, clipboard budgets and the `adb shell`
+line are byte-identical, including `printf '\n<marker>%s\n' "$?"` written exactly as today.

@@ -599,6 +599,25 @@ pub fn find(tree: &Tree, options: &FindOptions) -> Tree {
     }
 }
 
+/// A scroll's `dx` and `dy`, as `ScreenUIActOptions` bounds them: whole numbers in ±1000.
+pub fn scroll_amount(value: Option<&Value>) -> Result<(f64, f64), Error> {
+    let amount = |key: &str| -> Result<f64, Error> {
+        let Some(scroll) = value.and_then(Value::as_object) else {
+            return Ok(0.0);
+        };
+        match scroll.get(key) {
+            None => Ok(0.0),
+            Some(value) => match value.as_f64() {
+                Some(number) if number.fract() == 0.0 && (-1000.0..=1000.0).contains(&number) => {
+                    Ok(number)
+                }
+                _ => Err(Error::Invalid("a scroll amount is out of range".into())),
+            },
+        }
+    };
+    Ok((amount("dx")?, amount("dy")?))
+}
+
 /// The device input that performs a semantic action on a node, or why it can't be done.
 pub fn act(node: &Node, options: &ActOptions) -> Result<ActInput, Error> {
     if !node.actions.iter().any(|action| action == &options.action)
@@ -629,14 +648,7 @@ pub fn act(node: &Node, options: &ActOptions) -> Result<ActInput, Error> {
             y: centre.1,
         });
     }
-    let scroll = options.value.as_ref().and_then(Value::as_object);
-    let amount = |key: &str| {
-        scroll
-            .and_then(|scroll| scroll.get(key))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0)
-    };
-    let (dx, dy) = (amount("dx"), amount("dy"));
+    let (dx, dy) = scroll_amount(options.value.as_ref())?;
     if dx == 0.0 && dy == 0.0 {
         return Ok(ActInput::None {
             method: "no_scroll",
@@ -784,13 +796,25 @@ mod tests {
                 method: "already_selected"
             }
         );
-        assert_eq!(
+        // A scroll amount outside ±1000 is what the schema refuses, so it never reaches input.
+        assert!(
             act(
                 &node,
                 &ActOptions {
                     ref_: node.ref_.clone(),
                     action: "scroll".into(),
                     value: Some(json!({"dx": 0, "dy": 5000})),
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(
+            act(
+                &node,
+                &ActOptions {
+                    ref_: node.ref_.clone(),
+                    action: "scroll".into(),
+                    value: Some(json!({"dx": 0, "dy": 400})),
                 }
             )
             .expect("acts"),
