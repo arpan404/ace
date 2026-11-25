@@ -257,7 +257,12 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
       const nextPorts = portLog();
       const nextEngine = new Engine(next, logged(input.options ?? {}, nextClock, nextPorts));
       const nextNative = (nextEngine as unknown as NativeEngine).binding;
-      const nextProbe = probeFor(nextNative);
+      const nextProbe = probeFor(
+        nextNative,
+        new FrameTable(),
+        nextEngine as unknown as NativeEngine,
+        logged(input.options ?? {}, nextClock, nextPorts),
+      );
       return {
         home,
         store: next,
