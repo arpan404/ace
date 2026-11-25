@@ -173,20 +173,11 @@ impl<B: MessageBody> Assembler<B> {
         if opcode.is_control() {
             return Ok(());
         }
-        // `ws` counts a fragment per data frame, empty ones included
-        // (`receiver.js:504`).
-        self.fragments += 1;
-        if self.fragments > self.limits.max_fragments {
-            return Err(CloseCode::TooManyFragments);
-        }
         self.total = if fin {
             0
         } else {
             self.total.saturating_add(length)
         };
-        if fin {
-            self.fragments = 0;
-        }
         self.pending = if fin {
             None
         } else {
@@ -201,7 +192,20 @@ impl<B: MessageBody> Assembler<B> {
     /// Feeds one data frame, returning the message it completed. A control frame
     /// is not assembled and returns `None`; the caller handles it. Header state
     /// ([`Assembler::accept`]) is the reader's; this joins the bytes.
+    ///
+    /// `ws` counts a fragment in `getData`, once its payload is in
+    /// (`receiver.js:504`), so a frame the connection cut short is never
+    /// counted; the count is reset by the final frame (`:589`).
     pub fn push(&mut self, frame: Frame) -> Result<Option<Message>, CloseCode> {
+        if !frame.opcode.is_control() {
+            self.fragments += 1;
+            if self.fragments > self.limits.max_fragments {
+                return Err(CloseCode::TooManyFragments);
+            }
+            if frame.fin {
+                self.fragments = 0;
+            }
+        }
         let kind = match frame.opcode {
             Opcode::Text | Opcode::Binary => {
                 if self.kind.is_some() {

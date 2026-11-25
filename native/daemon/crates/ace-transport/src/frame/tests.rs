@@ -635,16 +635,22 @@ async fn a_frame_in_flight_is_never_interleaved_with_the_next() {
 #[tokio::test]
 async fn more_than_16384_fragments_is_refused_with_1008() {
     let mut assembler = Assembler::new();
+    let fragment = |opcode, fin| Frame {
+        fin,
+        rsv1: false,
+        opcode,
+        payload: Bytes::new(),
+    };
     assembler
-        .accept(Opcode::Text, false, 0)
+        .push(fragment(Opcode::Text, false))
         .expect("the first fragment");
-    for _ in 0..super::assemble::MAX_FRAGMENTS - 1 {
+    for _ in 0..MAX_FRAGMENTS - 1 {
         assembler
-            .accept(Opcode::Continuation, false, 0)
+            .push(fragment(Opcode::Continuation, false))
             .expect("still within the limit");
     }
     assert_eq!(
-        assembler.accept(Opcode::Continuation, false, 0),
+        assembler.push(fragment(Opcode::Continuation, false)),
         Err(super::CloseCode::TooManyFragments)
     );
     assert_eq!(super::CloseCode::TooManyFragments.wire(), 1008);
@@ -920,11 +926,11 @@ async fn an_interrupted_mask_still_reports_a_partial_frame() {
 }
 
 #[tokio::test]
-async fn a_partial_frame_at_the_end_is_refused_by_the_fragment_limit() {
+async fn a_frame_cut_short_is_not_counted_towards_the_fragment_limit() {
     let (mut client, server) = tokio::io::duplex(1 << 18);
     let mut reader = FrameReader::new(server);
-    // One message's worth of empty fragments, none final, then the fragment
-    // past the bound with only part of its payload.
+    // Every fragment `ws` allows, pushed as the driver pushes them, then the
+    // fragment past the bound written with only part of its payload.
     let mut bytes = masked(false, Opcode::Text, b"");
     for _ in 0..MAX_FRAGMENTS - 1 {
         bytes.extend(masked(false, Opcode::Continuation, b""));
@@ -934,11 +940,15 @@ async fn a_partial_frame_at_the_end_is_refused_by_the_fragment_limit() {
         .await
         .expect("the fragments are written");
     for _ in 0..MAX_FRAGMENTS {
-        reader
+        let frame = reader
             .next()
             .await
             .expect("a frame")
             .expect("a valid fragment");
+        reader
+            .assembler_mut()
+            .push(frame)
+            .expect("within the bound");
     }
 
     let over = masked(true, Opcode::Continuation, &[7u8; 64]);
@@ -949,8 +959,9 @@ async fn a_partial_frame_at_the_end_is_refused_by_the_fragment_limit() {
     std::future::poll_fn(|cx| reader.poll_watch(cx, 20))
         .await
         .expect("the partial fragment is buffered");
-    let error = reader
-        .front_frame()
-        .expect_err("the fragment past the bound is refused");
-    assert_eq!(error.close_code(), Some(1008));
+    assert_eq!(
+        reader.front_frame().expect("a readable header"),
+        Front::Partial,
+        "a frame whose payload never came is not counted; a whole one is refused by the test above"
+    );
 }

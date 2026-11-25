@@ -223,7 +223,7 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
                     ended = true;
                     continue;
                 }
-                Wait::Failed(error) => break Ending::failed(error),
+                Wait::Failed(error) => break failed(error, ended),
             }
         }
         tokio::select! {
@@ -274,7 +274,7 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
 
 /// A frame failure, with the peer's end in mind: a tail that never arrived is
 /// that end, which `ws` reports as a bare close and nothing on `error`
-/// (`websocket.js:1255-1296`), so no error precedes it.
+/// (`websocket.js:1335-1411`), so no error precedes it.
 fn failed(error: FrameError, ended: bool) -> Ending {
     let quiet = match &error {
         FrameError::Io(source) => ended || source.kind() == std::io::ErrorKind::UnexpectedEof,

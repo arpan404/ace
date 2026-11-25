@@ -38,18 +38,86 @@ async fn assert_close_1006(events: &mut SocketEvents) {
     }
 }
 
-/// Spends the reader's whole inbound credit with empty messages, so it holds
-/// nothing more for JavaScript and stops reading the connection.
-async fn spent_credit(events: &mut SocketEvents, client: &mut DuplexStream) {
+/// The frames that spend the reader's whole inbound credit: empty messages, so
+/// it holds nothing more for JavaScript and stops reading the connection.
+fn spent_credit_frames() -> Vec<u8> {
     let empty = masked_frame(0x2, b"");
+    let mut bytes = Vec::with_capacity(empty.len() * DELIVERY_MESSAGES as usize);
     for _ in 0..DELIVERY_MESSAGES {
-        client.write_all(&empty).await.expect("the client writes");
+        bytes.extend_from_slice(&empty);
     }
+    bytes
+}
+
+/// Spends the reader's whole inbound credit, so it holds nothing more for
+/// JavaScript and stops reading the connection.
+async fn spent_credit(events: &mut SocketEvents, client: &mut DuplexStream) {
+    client
+        .write_all(&spent_credit_frames())
+        .await
+        .expect("the client writes");
     for _ in 0..DELIVERY_MESSAGES {
         assert!(matches!(next(events).await, SocketEvent::Message { .. }));
     }
     // Let the reader settle into its paused wait before the peer speaks again.
     tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
+/// A connection that hands over prepared bytes and then fails the way a TLS
+/// peer that leaves without `close_notify` does.
+struct Dropping {
+    bytes: Vec<u8>,
+    at: usize,
+}
+
+impl Dropping {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, at: 0 }
+    }
+}
+
+impl tokio::io::AsyncRead for Dropping {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if this.at >= this.bytes.len() {
+            return std::task::Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "peer left without close_notify",
+            )));
+        }
+        let take = buf.remaining().min(this.bytes.len() - this.at);
+        buf.put_slice(&this.bytes[this.at..this.at + take]);
+        this.at += take;
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+impl tokio::io::AsyncWrite for Dropping {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
 }
 
 #[tokio::test]
@@ -264,14 +332,15 @@ async fn a_continuation_with_no_message_in_flight_ends_with_its_own_1002() {
 }
 
 #[tokio::test]
-async fn a_fragment_past_the_limit_ends_with_its_own_1008() {
+async fn a_truncated_fragment_past_the_limit_ends_with_a_bare_1006() {
     let (server, mut client) = tokio::io::duplex(1 << 18);
     let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
     spent_credit(&mut events, &mut client).await;
 
-    // One message split into every fragment `ws` allows, none of them final,
-    // so nothing is delivered, then the fragment past the limit cut short by
-    // the peer's end.
+    // Every fragment `ws` allows, none of them final, so nothing is delivered,
+    // then the fragment past the limit cut short by the peer's end. `ws` counts
+    // in getData, once the payload is in (`receiver.js:504`), so the cut-short
+    // frame is never counted: the end is reported bare.
     let mut bytes = masked_part(0x1, false, b"");
     for _ in 0..MAX_FRAGMENTS - 1 {
         bytes.extend(masked_part(0x0, false, b""));
@@ -287,21 +356,58 @@ async fn a_fragment_past_the_limit_ends_with_its_own_1008() {
         .await
         .expect("the peer drops without a close frame");
 
-    // The credit bought the fragments, which deliver nothing, and then the
-    // header past the limit is refused before its tail can be missed.
+    handle.delivered(MESSAGE_OVERHEAD);
+    assert_close_1006(&mut events).await;
+    assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
+async fn a_stray_continuation_without_its_length_still_closes_with_1002() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    spent_credit(&mut events, &mut client).await;
+
+    // A continuation header with nothing to continue, and not even its 16-bit
+    // length: ws refuses the opcode from the first two bytes
+    // (`receiver.js:262-280`), so the close frame is 1002 and not a bare end.
+    client
+        .write_all(&[0x80, 0x80 | 126, 0x00])
+        .await
+        .expect("the header and one length byte are written");
+    client
+        .shutdown()
+        .await
+        .expect("the peer drops without a close frame");
+
     handle.delivered(MESSAGE_OVERHEAD);
     match next(&mut events).await {
-        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol", "the limit is refused"),
-        other => panic!("expected the fragment limit's error, got {other:?}"),
+        SocketEvent::Error { code, .. } => assert_eq!(code, "protocol", "the opcode is refused"),
+        other => panic!("expected the protocol error, got {other:?}"),
     }
     assert_close_1006(&mut events).await;
     let (opcode, payload) = super::server_frame(&mut client).await;
     assert_eq!(
         (opcode, payload.as_slice()),
-        (0x8, [0x03, 0xf0].as_slice()),
-        "the fragment past the limit closes with 1008"
+        (0x8, [0x03, 0xea].as_slice()),
+        "the stray continuation closes with 1002"
     );
     assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
+async fn an_end_that_fails_the_read_while_paused_reports_no_error() {
+    let (handle, mut events) =
+        crate::socket::open(Box::new(Dropping::new(spent_credit_frames())), None, None);
+    for _ in 0..DELIVERY_MESSAGES {
+        assert!(matches!(
+            next(&mut events).await,
+            SocketEvent::Message { .. }
+        ));
+    }
+    // The watch reads a TLS connection whose peer left without `close_notify`:
+    // an `UnexpectedEof` is the end, so nothing precedes the close.
+    assert_close_1006(&mut events).await;
+    assert_eq!(handle.ready_state(), CLOSED);
 }
 
 #[tokio::test]

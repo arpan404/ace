@@ -100,15 +100,26 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
     /// judging it here too would count its fragment twice (`receiver.js:504`).
     pub(crate) fn front_frame(&mut self) -> Result<Front, FrameError> {
         match self.state {
-            State::First => match head(&self.buffer, self.allow_rsv1)? {
-                // Fewer bytes than a header: no frame, and no tail to come.
-                None => Ok(Front::Partial),
-                Some(front) if front.whole <= self.buffer.len() => Ok(Front::Whole),
-                Some(front) => {
-                    self.judge(&front)?;
-                    Ok(Front::Partial)
+            State::First => {
+                let Some(short) = self.buffer.get(..2) else {
+                    // Fewer bytes than a header: no frame, and no tail to come.
+                    return Ok(Front::Partial);
+                };
+                let first = parse_first([short[0], short[1]], self.allow_rsv1)?;
+                // `ws` refuses a frame from its first two bytes and before its
+                // extended length arrives (`receiver.js:262-280`).
+                self.assembler
+                    .check(first.opcode, first.fin, first.rsv1)
+                    .map_err(FrameError::from)?;
+                let Some((length, whole)) = lengths(&self.buffer, first)? else {
+                    return Ok(Front::Partial);
+                };
+                if whole <= self.buffer.len() {
+                    return Ok(Front::Whole);
                 }
-            },
+                self.judge(first, length)?;
+                Ok(Front::Partial)
+            }
             // A cancelled parse already took the header through `check`, and,
             // once the extended length was in, through `accept`.
             State::Extended => {
@@ -123,8 +134,7 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
                 if self.buffer.len() >= extended.saturating_add(4).saturating_add(length) {
                     return Ok(Front::Whole);
                 }
-                self.length = length;
-                self.admit()?;
+                self.judge(first, length)?;
                 Ok(Front::Partial)
             }
             State::Mask => {
@@ -144,15 +154,13 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
         }
     }
 
-    /// Takes the front frame's header through the same rules the parser applies
-    /// as a frame arrives: first what the message already in flight allows,
-    /// then its size and fragment count.
-    fn judge(&mut self, front: &Head) -> Result<(), FrameError> {
-        self.assembler
-            .check(front.first.opcode, front.first.fin, front.first.rsv1)
-            .map_err(FrameError::from)?;
-        self.first = Some(front.first);
-        self.length = front.length;
+    /// Takes the front frame's header through the rules that depend on the
+    /// message in flight and on its size, exactly as the parser does once the
+    /// header is in. Only a frame that can never complete is judged this way,
+    /// so nothing is counted that the parser would count again.
+    fn judge(&mut self, first: First, length: usize) -> Result<(), FrameError> {
+        self.first = Some(first);
+        self.length = length;
         self.admit()
     }
 
@@ -361,24 +369,11 @@ fn unmask(payload: &mut [u8], mask: [u8; 4]) {
     }
 }
 
-/// The frame at the front of a buffer: its parsed header and the lengths the
-/// buffer must hold for the frame to be whole.
-struct Head {
-    first: First,
-    /// The payload length the header declares.
-    length: usize,
-    /// Both header bytes, any extended length, the mask and the payload.
-    whole: usize,
-}
-
-/// Reads the header of the frame at the front of `bytes`, or `None` while it is
-/// still short of its extended length. Only the header is read here: the rules
-/// that depend on the message in flight are [`FrameReader::judge`]'s.
-fn head(bytes: &[u8], allow_rsv1: bool) -> Result<Option<Head>, FrameError> {
-    let Some(short) = bytes.get(..2) else {
-        return Ok(None);
-    };
-    let first = parse_first([short[0], short[1]], allow_rsv1)?;
+/// The payload length a parsed header declares and the length of its whole
+/// frame - both header bytes, any extended length, the mask and the payload -
+/// or `None` while the extended length is still incomplete. An extended length
+/// the rules refuse keeps its own error.
+fn lengths(bytes: &[u8], first: First) -> Result<Option<(usize, usize)>, FrameError> {
     let extended = extended_len(first.short);
     let length = if extended == 0 {
         usize::from(first.short)
@@ -388,12 +383,9 @@ fn head(bytes: &[u8], allow_rsv1: bool) -> Result<Option<Head>, FrameError> {
         };
         payload_length(first.short, header)?
     };
-    Ok(Some(Head {
-        first,
-        length,
-        whole: 2usize
-            .saturating_add(extended)
-            .saturating_add(4)
-            .saturating_add(length),
-    }))
+    let whole = 2usize
+        .saturating_add(extended)
+        .saturating_add(4)
+        .saturating_add(length);
+    Ok(Some((length, whole)))
 }
