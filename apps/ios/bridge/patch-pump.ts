@@ -128,7 +128,8 @@ export class PatchPump {
         settled: false,
         snapshotRevision: key === "thread:ready" ? this.#takePendingReadyRevision() : undefined,
       });
-    this.#schedule();
+    // The reset is already scheduled and its acknowledgement schedules the waiting rows.
+    if (!this.#waitingForInboxReset(key)) this.#schedule();
   }
   /** Resolves once nothing deliverable is waiting or in flight. */
   drained(): Promise<void> {
@@ -155,6 +156,13 @@ export class PatchPump {
   }
   #queue(key: string): Map<string, Task> {
     return this.#queues[priority(key)];
+  }
+  #waitingForInboxReset(key: string): boolean {
+    return (
+      key !== "inbox:reset" &&
+      key.startsWith("inbox:") &&
+      this.#queue("inbox:reset").has("inbox:reset")
+    );
   }
   /** Explicit snapshot revisions for live commits, stamped onto ready when missing. */
   #snapshots = new Map<string, { revision: number; before: number | null }>();
@@ -218,9 +226,7 @@ export class PatchPump {
       this.#queue("thread:reset").has("thread:reset") ||
       this.#queue("thread:snapshot.begin").has("thread:snapshot.begin");
     return (
-      (task.key !== "inbox:reset" &&
-        task.key.startsWith("inbox:") &&
-        this.#queue("inbox:reset").has("inbox:reset")) ||
+      this.#waitingForInboxReset(task.key) ||
       (task.key !== "thread:reset" &&
         task.key !== "thread:snapshot.begin" &&
         task.key.startsWith("thread:") &&

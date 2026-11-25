@@ -11,6 +11,7 @@ import type { SuitServerMessage } from "@ace/protocol/suits";
 import type { MarketServerMessage } from "@ace/protocol/marketplace";
 import { historyMessageIdentity, isRawHistoryItem } from "./history-visibility.ts";
 import { olderStatuses } from "./older-status.ts";
+import { restoreThreadList, shareThreadList } from "./thread-list-sharing.ts";
 
 export { olderStatus } from "./older-status.ts";
 import { providerNotice } from "./provider-notices.ts";
@@ -33,6 +34,8 @@ export const wireTrims = {
   itemDefaults: "item-defaults",
   /** Threads name their provider's capabilities by a key sent once per connection. */
   providerCapabilities: "provider-capabilities",
+  /** Sidebar snapshots share exact workspace and effective capability values by index. */
+  sidebarShared: "sidebar-shared",
   /**
    * Items whose raw payloads clients only show leave them out, marked `rawOmitted`; the
    * raw-frames view reads them with `item.raw`.
@@ -127,6 +130,7 @@ export class WireTrimmer {
   readonly #hidden: boolean;
   readonly #items: boolean;
   readonly #capabilities: boolean;
+  readonly #sidebar: boolean;
   readonly #raw: boolean;
   readonly #storage: boolean;
   readonly #moved: boolean;
@@ -135,6 +139,7 @@ export class WireTrimmer {
     this.#hidden = trims?.includes(wireTrims.spadeHidden) === true;
     this.#items = trims?.includes(wireTrims.itemDefaults) === true;
     this.#capabilities = trims?.includes(wireTrims.providerCapabilities) === true;
+    this.#sidebar = trims?.includes(wireTrims.sidebarShared) === true;
     this.#raw = trims?.includes(wireTrims.rawOnDemand) === true;
     this.#storage = trims?.includes(wireTrims.storageHold) === true;
     this.#moved = trims?.includes(wireTrims.movedStatus) === true;
@@ -163,7 +168,7 @@ export class WireTrimmer {
         message = { ...message, admission: olderAdmission(message.admission) };
     }
     if (!this.#moved) message = olderStatuses(message);
-    if (!this.#items && !this.#capabilities && !this.#raw) return [message];
+    if (!this.#items && !this.#capabilities && !this.#sidebar && !this.#raw) return [message];
     const before: Outgoing[] = [];
     const trimmed = this.trim(message, before);
     return [...before, trimmed];
@@ -181,13 +186,11 @@ export class WireTrimmer {
               items: this.#items || this.#raw ? mapRecord(view.items, this.#item) : view.items,
             },
           };
-        return {
-          ...message,
-          view: {
-            ...view,
-            threads: mapRecord(view.threads, (entry) => this.thread(entry, before)),
-          },
+        const shaped = {
+          ...view,
+          threads: mapRecord(view.threads, (entry) => this.thread(entry, before)),
         };
+        return { ...message, view: this.#sidebar ? shareThreadList(shaped) : shaped };
       }
       case "threads.patch":
         return {
@@ -241,7 +244,10 @@ export class WireRestorer {
         return undefined;
       case "snapshot":
         if (message.view.kind === "thread") this.thread(message.view.thread);
-        else for (const entry of Object.values(message.view.threads)) this.thread(entry);
+        else {
+          restoreThreadList(message.view);
+          for (const entry of Object.values(message.view.threads)) this.thread(entry);
+        }
         return message;
       case "threads.patch":
         for (const entry of Object.values(message.threads)) this.thread(entry);

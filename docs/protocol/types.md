@@ -13445,14 +13445,62 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 3,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "reads": {},
-    "seq": 9,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "partial": {
+      "previews": []
+    },
+    "runs": {},
+    "seq": 3,
+    "thread": {
+      "activityAt": 3,
+      "autoSettle": false,
+      "capabilitiesRef": "example",
+      "continuation": {
+        "actionId": "thread.continue_new",
+        "reason": "cursor_cli_retired",
+        "state": "read_only"
+      },
+      "createdAt": 4,
+      "host": "spade-bot",
+      "hostKey": "example",
+      "id": "example",
+      "instanceId": "example",
+      "provider": "opencode",
+      "queue": {
+        "exited": false,
+        "lastFailure": null,
+        "paused": true,
+        "reason": "limit",
+        "resumeAt": null,
+        "revision": 1
+      },
+      "queuedLaunch": {
+        "queuePosition": 10,
+        "text": "example"
+      },
+      "settledAt": 7,
+      "settledReason": "inactivity",
+      "snoozedUntil": 0,
+      "status": {
+        "agents": 9,
+        "state": "working"
+      },
+      "title": "example",
+      "updatedAt": 0,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
@@ -45018,6 +45066,7 @@ Example:
 | kind | yes | `"threads"` |  |
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
+| shares | no | object | {"properties":{"workspaces":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"icon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"defaultIcon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"kind":{"$ref":"https://ace.local/protocol/v1/ProjectKind.json"}},"required":["id","name","path"]}},"effectiveCapabilities":{"maxItems":64,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Capabilities.json"}},"rows":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"type":"object","properties":{"workspace":{"type":"integer","minimum":0,"maximum":63},"capabilities":{"type":"integer","minimum":0,"maximum":63}}},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."}},"required":["workspaces","effectiveCapabilities","rows"]} |
 | keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
 | reads | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadReadCursor.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 
@@ -46124,6 +46173,24 @@ Example:
 "POST"
 ```
 
+## SpadeNotificationItem
+
+[JSON Schema](schema/SpadeNotificationItem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| agent | yes | string | {"minLength":1,"maxLength":200} |
+| conversation | no | string | {"minLength":1,"maxLength":200} |
+| request | no | string | {"minLength":1,"maxLength":200} |
+
+Example:
+
+```json
+{
+  "agent": "example"
+}
+```
+
 ## SpadeNotificationTarget
 
 [JSON Schema](schema/SpadeNotificationTarget.json), input validation.
@@ -46135,13 +46202,20 @@ Example:
 | request | no | string | {"minLength":1,"maxLength":200} |
 | digest | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | category | yes | string | {"minLength":1,"maxLength":40} |
+| items | no | array | {"minItems":1,"maxItems":50,"items":{"$ref":"https://ace.local/protocol/v1/SpadeNotificationItem.json"}} |
 
 Example:
 
 ```json
 {
   "agent": "example",
-  "category": "example"
+  "category": "example",
+  "items": [
+    {
+      "agent": "example",
+      "request": "example"
+    }
+  ]
 }
 ```
 
@@ -49334,6 +49408,7 @@ Example:
 | kind | yes | `"threads"` |  |
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
+| shares | no | object | {"properties":{"workspaces":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"icon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"defaultIcon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"kind":{"$ref":"https://ace.local/protocol/v1/ProjectKind.json"}},"required":["id","name","path"]}},"effectiveCapabilities":{"maxItems":64,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Capabilities.json"}},"rows":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"type":"object","properties":{"workspace":{"type":"integer","minimum":0,"maximum":63},"capabilities":{"type":"integer","minimum":0,"maximum":63}}},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."}},"required":["workspaces","effectiveCapabilities","rows"]} |
 | keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
 | reads | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadReadCursor.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 
@@ -49342,6 +49417,7 @@ Example:
 ```json
 {
   "kind": "threads",
+  "reads": {},
   "seq": 4,
   "threads": {}
 }

@@ -882,9 +882,15 @@ tracks verification and the remaining device work.
   explicitly in a new task's first message.
 - Thread tools include skills and commands, MCP controls, durable conversation
   branches and a terminal. The live browser uses the entry described above. Terminal output acknowledges
-  native delivery and resumes by byte offset. Its text renderer supports basic VT
-  controls, with 1,000 rows of 80 cells. Lost output resets escape parsing and marks
-  the gap. Colour and alternate-screen emulation remain future work.
+  native delivery and resumes by byte offset. Its VT/xterm emulator handles colour (the 16
+  themed, 256 and 24-bit), the alternate screen for full-screen programs, scrollback, wide
+  characters, bracketed paste and cursor keys, with 5,000 rows of history. Lost output resets
+  escape parsing and marks the gap. It takes the OSC commands the web's xterm takes: the
+  program's window title (OSC 0/2, shown as the terminal's name), OSC 8 hyperlinks (underlined,
+  opened on a tap), indexed palette changes and their queries (OSC 4/104) and the default ink,
+  page and cursor colours (OSC 10/11/12, 110/111/112). OSC 52 clipboard writes, OSC 7 and
+  OSC 133 shell marks are ignored, as they are on the web; nothing a program prints reads the
+  phone's clipboard. `fixtures/terminal-emulator` holds the shared behaviour cases.
 - The live browser from `main` owns H.264 video, input and tab controls.
   View-only phones can watch while navigation and input remain disabled. The old
   screenshot-only browser has been removed. The native Devices view now uses the shared authenticated devices channel for H.264

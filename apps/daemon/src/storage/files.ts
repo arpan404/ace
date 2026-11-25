@@ -85,15 +85,35 @@ export class StorageFiles {
     }
   }
   inspect(path: string, kind: StorageKind): OwnedStorageCandidate {
+    return this.inspectWithOwners(path, kind, this.artifactOwners([join(this.owner.root, path)]));
+  }
+  /** One query for a whole inventory page, instead of one per file over the same items table. */
+  private artifactOwners(paths: readonly string[]): Map<string, ThreadId[]> {
+    const owners = new Map<string, ThreadId[]>();
+    if (!paths.length) return owners;
+    const rows = this.owner.store
+      .statement(`SELECT DISTINCT json_extract(item,'$.path') AS path, thread_id FROM items
+        WHERE json_extract(item,'$.type')='artifact'
+        AND json_extract(item,'$.path') IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify(paths));
+    for (const row of rows) {
+      if (typeof row.path !== "string" || typeof row.thread_id !== "string") continue;
+      const ids = owners.get(row.path) ?? [];
+      ids.push(ThreadId.parse(row.thread_id));
+      owners.set(row.path, ids);
+    }
+    return owners;
+  }
+  private inspectWithOwners(
+    path: string,
+    kind: StorageKind,
+    owners: ReadonlyMap<string, ThreadId[]>,
+  ): OwnedStorageCandidate {
     const { directory, name } = this.parent(path);
     try {
       const info = directory.fileMetadata(name);
       if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe_storage_path");
-      const ids = this.owner.store
-        .statement(`SELECT DISTINCT thread_id FROM items
-        WHERE json_extract(item,'$.type')='artifact' AND json_extract(item,'$.path')=? LIMIT 257`)
-        .all(join(this.owner.root, path))
-        .map((row) => ThreadId.parse(row.thread_id));
+      const ids = owners.get(join(this.owner.root, path)) ?? [];
       if (ids.length > 256) throw new Error("storage_owner_limit");
       const protections = storageProtections(this.owner, ids);
       if (ids.some((id) => this.owner.store.getThread(id)?.deletedAt === undefined))
@@ -201,11 +221,14 @@ export class StorageFiles {
     complete: boolean;
   } {
     const candidates: OwnedStorageCandidate[] = [];
+    // Each file waits for the batched ownership read instead of querying on its own.
+    const entries: ({ candidate: OwnedStorageCandidate } | { path: string; kind: StorageKind })[] =
+      [];
     let visited = 0;
     let complete = true;
     const walk = (directory: PinnedDirectory, path: string, kind: StorageKind, depth: number) => {
       for (const name of directory.names()) {
-        if (++visited > 10000 || candidates.length >= 256 || depth > 16) {
+        if (++visited > 10000 || entries.length >= 256 || depth > 16) {
           complete = false;
           return;
         }
@@ -213,17 +236,19 @@ export class StorageFiles {
         if (excludedStoragePath(childPath)) continue;
         const info = directory.metadata(name);
         if ((info.mode & 0o170000) === 0o120000) {
-          candidates.push({
-            id: storageId(kind, childPath),
-            kind,
-            label: childPath,
-            bytes: info.size,
-            modifiedAt: Math.floor(info.mtime),
-            threadIds: [],
-            fingerprint: "unsafe",
-            protections: ["unsafe_path"],
-            eligibleReason: "expired",
-            target: { type: "file", path: childPath },
+          entries.push({
+            candidate: {
+              id: storageId(kind, childPath),
+              kind,
+              label: childPath,
+              bytes: info.size,
+              modifiedAt: Math.floor(info.mtime),
+              threadIds: [],
+              fingerprint: "unsafe",
+              protections: ["unsafe_path"],
+              eligibleReason: "expired",
+              target: { type: "file", path: childPath },
+            },
           });
           continue;
         }
@@ -234,8 +259,7 @@ export class StorageFiles {
           } finally {
             child.closeSync();
           }
-        } else if ((info.mode & 0o170000) === 0o100000)
-          candidates.push(this.inspect(childPath, kind));
+        } else if ((info.mode & 0o170000) === 0o100000) entries.push({ path: childPath, kind });
       }
     };
     for (const [path, kind] of roots) {
@@ -251,6 +275,15 @@ export class StorageFiles {
         directory?.closeSync();
       }
     }
+    const owners = this.artifactOwners(
+      entries.flatMap((entry) => ("path" in entry ? [join(this.owner.root, entry.path)] : [])),
+    );
+    for (const entry of entries)
+      candidates.push(
+        "candidate" in entry
+          ? entry.candidate
+          : this.inspectWithOwners(entry.path, entry.kind, owners),
+      );
     if (kinds.has("caches")) complete = this.skillRoots(candidates) && complete;
     return { candidates, complete };
   }

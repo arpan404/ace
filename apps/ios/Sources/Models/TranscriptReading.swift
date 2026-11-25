@@ -77,8 +77,14 @@ struct ThreadFocus: Equatable {
 /// joined to the live tail keeps streaming. The live thread stays subscribed beside it.
 @MainActor @Observable final class TranscriptReading {
     private(set) var thread: ThreadModel?
-    /// The reading rows once the first of them has landed; until then the live rows stay shown.
-    var shown: ThreadModel? { thread.flatMap { $0.order.isEmpty ? nil : $0 } }
+    /// The reading rows once the first of them can be drawn; until then the live rows stay shown.
+    var shown: ThreadModel? { Self.drawable(thread) }
+    /// A window counts once it has rows the feed draws, not just items: its items can land a
+    /// frame or more before its rows, and a window swapped in with no rows leaves the feed empty
+    /// and scrolled past its end, which reads as black.
+    static func drawable(_ window: ThreadModel?) -> ThreadModel? {
+        window.flatMap { $0.screen.blockOrder.isEmpty ? nil : $0 }
+    }
     private(set) var hasOlder = true
     private(set) var hasNewer = false
     private(set) var joined = true

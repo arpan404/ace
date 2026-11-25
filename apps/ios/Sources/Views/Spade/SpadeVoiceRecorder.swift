@@ -186,9 +186,9 @@ struct SpadeVoicePlay: View {
             .accessibilityIdentifier("spade.voice.play")
             Text(line(state)).aceFont(AceDesign.TextRole.meta).monospacedDigit()
         }
-        .foregroundStyle(onAccent ? AceDesign.Surface.background : AceDesign.Ink.primary)
+        .foregroundStyle(onAccent ? AceDesign.Ink.onAccent : AceDesign.Ink.primary)
         .padding(.trailing, AceDesign.Space.margin)
-        .background(onAccent ? AceDesign.Ink.accent : AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
+        .background(onAccent ? AceDesign.Surface.personBubble : AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
         .onDisappear { playback?.leave(voice.ref) }
     }
 
