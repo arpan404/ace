@@ -494,7 +494,7 @@ export class DevicePlatform {
         : [{ platform: "android", result: this.lastAndroidOutcome }],
     );
   }
-  async list(): Promise<Device[]> {
+  private async listNative(): Promise<Device[]> {
     const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
       this.options.platform === "darwin"
         ? [
@@ -507,13 +507,66 @@ export class DevicePlatform {
       platform: source.platform,
       result: outcomes[index] as PromiseSettledResult<Device[]>,
     }));
-    if (deviceInventoryBackend() === "native") {
-      for (const entry of entries) {
-        if (entry.platform === "ios") this.lastIosOutcome = entry.result;
-        else this.lastAndroidOutcome = entry.result;
-      }
+    for (const entry of entries) {
+      if (entry.platform === "ios") this.lastIosOutcome = entry.result;
+      else this.lastAndroidOutcome = entry.result;
     }
     return this.finalizeList(entries);
+  }
+  async list(): Promise<Device[]> {
+    if (deviceInventoryBackend() === "native") return this.listNative();
+    const ios = async (): Promise<Device[]> =>
+      (await this.simulators.list()).map((device) =>
+        DeviceSchema.parse({
+          id: `ios:${device.udid}`,
+          platform: "ios",
+          name: device.name,
+          state: device.state === "Booted" ? "booted" : "shutdown",
+          runtime: simulatorRuntime(device.runtime),
+          ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
+        }),
+      );
+    const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
+      this.options.platform === "darwin"
+        ? [
+            { platform: "ios", read: ios() },
+            { platform: "android", read: this.android.list() },
+          ]
+        : [{ platform: "android", read: this.android.list() }];
+    const outcomes = await Promise.allSettled(sources.map((source) => source.read));
+    const devices: Device[] = [];
+    const missing: (DeviceFailure & { platform: Device["platform"] })[] = [];
+    for (const [index, result] of outcomes.entries()) {
+      if (result.status === "fulfilled") devices.push(...result.value);
+      else if (result.reason instanceof DeviceError && result.reason.code === "sdk_missing") {
+        const { code, message, hint } = result.reason;
+        missing.push({ code, message, hint, platform: sources[index]?.platform ?? "android" });
+      } else throw result.reason;
+    }
+    this.missingSDKs = missing;
+    const present = new Set(
+      devices.filter((device) => device.state === "booted").map((device) => device.id),
+    );
+    for (const id of this.appProcesses.keys()) if (!present.has(id)) this.appProcesses.delete(id);
+    if (!this.checkedInput && devices.some((device) => device.platform === "ios")) {
+      const [managed, serve, idb] = await Promise.all([
+        this.managedServeSim(),
+        findExecutable(this.options.env["ACE_SERVE_SIM"] ?? "serve-sim", this.options.env),
+        findExecutable("idb", this.options.env),
+      ]);
+      this.checkedInput = true;
+      if (!managed && !serve && !idb)
+        this.inputHint = new DeviceError(
+          "tool_missing",
+          "The Simulator's device tools aren't downloaded",
+          "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
+        );
+    }
+    // Every platform's SDK is missing: the inventory itself fails (no other error got here).
+    const [first] = outcomes;
+    if (first?.status === "rejected" && outcomes.every((result) => result.status === "rejected"))
+      throw first.reason;
+    return devices;
   }
   private async simctl(
     device: Device,

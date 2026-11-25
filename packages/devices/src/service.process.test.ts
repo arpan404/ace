@@ -1258,7 +1258,7 @@ describe.runIf(deviceInventoryBackend() === "native")("native inventory (D2)", (
     const service = new DevicesService({
       cowork: false,
       platform,
-      env: {},
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
       recordingDirectory: root,
       publishArtifact: async () => {},
       runtime: { now: () => 0, id: () => "stream-1", spawn: spawnRawSupervised, after: realAfter },
@@ -1318,7 +1318,7 @@ describe.runIf(deviceInventoryBackend() === "native")("native inventory (D2)", (
     const service = new DevicesService({
       cowork: false,
       platform,
-      env: { ANDROID_ADB_SERVER_PORT: String(server1.port) },
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(server1.port) },
       recordingDirectory: root,
       publishArtifact: async () => {},
       runtime: { now: () => 0, id: () => "stream-2", spawn: spawnRawSupervised, after: realAfter },
@@ -1386,7 +1386,7 @@ describe.runIf(deviceInventoryBackend() === "native")("native inventory (D2)", (
     const service = new DevicesService({
       cowork: false,
       platform,
-      env: {},
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
       recordingDirectory: root,
       publishArtifact: async () => {},
       runtime: { now: () => 0, id: () => "stream-3", spawn: spawnRawSupervised, after: realAfter },
@@ -1406,5 +1406,74 @@ describe.runIf(deviceInventoryBackend() === "native")("native inventory (D2)", (
 
     expect(published).toEqual([]);
     unwatch();
+  });
+
+  it("AndroidPlatform.boot port scan serializes with an in-flight native reconcile read", async () => {
+    const root = await fakeSdkRoot();
+    const closedPort = await unusedLoopbackPort();
+    let activeAdbDevices = 0;
+    let maxConcurrentAdbDevices = 0;
+    let adbDevicesCalls = 0;
+    const reconcileEntered = deferred<void>();
+    const reconcileGate = deferred<void>();
+    let releaseView: (() => void) | undefined;
+    let service!: DevicesService;
+
+    const platform = new DevicePlatform({
+      platform: "linux",
+      home: root,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      async emulatorWindow() {
+        releaseView = service.holdInventoryView();
+        await reconcileEntered.promise;
+        return false;
+      },
+      async probe(_command, args) {
+        const cmd = args.join(" ");
+        if (cmd === "-list-avds") return { stdout: "Pixel\n", stderr: "", code: 0 };
+        if (cmd === "devices -l") {
+          const call = ++adbDevicesCalls;
+          activeAdbDevices++;
+          maxConcurrentAdbDevices = Math.max(maxConcurrentAdbDevices, activeAdbDevices);
+          try {
+            if (call === 2) {
+              reconcileEntered.resolve();
+              await reconcileGate.promise;
+            }
+            return { stdout: "List of devices attached\n", stderr: "", code: 0 };
+          } finally {
+            activeAdbDevices--;
+          }
+        }
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    service = new DevicesService({
+      cowork: false,
+      platform,
+      env: { ANDROID_HOME: root, ANDROID_ADB_SERVER_PORT: String(closedPort) },
+      recordingDirectory: root,
+      publishArtifact: async () => {},
+      runtime: { now: () => 0, id: () => "stream-4", spawn: spawnRawSupervised, after: realAfter },
+    });
+    cleanups.push(() => service.close());
+
+    const bootPromise = platform.boot(
+      { id: "android:Pixel", platform: "android", name: "Pixel", state: "shutdown" },
+      () => {
+        throw new Error("stop-before-spawn");
+      },
+    );
+    await reconcileEntered.promise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(adbDevicesCalls).toBe(2);
+    expect(maxConcurrentAdbDevices).toBe(1);
+
+    reconcileGate.resolve();
+    await expect(bootPromise).rejects.toThrow("stop-before-spawn");
+    releaseView?.();
+    await service.settleInventory();
+    expect(adbDevicesCalls).toBeGreaterThanOrEqual(3);
+    expect(maxConcurrentAdbDevices).toBe(1);
   });
 });

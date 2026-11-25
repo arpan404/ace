@@ -506,11 +506,11 @@ export class AndroidPlatform {
               "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory.",
             );
       const window = await this.emulatorWindow();
-      const used = new Set(
-        adbTransports((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
-          ({ serial }) => serial,
-        ),
-      );
+      const devicesOutput =
+        deviceInventoryBackend() === "native" && this.listGuard
+          ? await this.listGuard(() => this.run(adb, ["devices", "-l"], 128 * 1024))
+          : await this.run(adb, ["devices", "-l"], 128 * 1024);
+      const used = new Set(adbTransports(devicesOutput.stdout).map(({ serial }) => serial));
       let port = 5554;
       while (used.has(`emulator-${port}`) || this.ports.has(port)) port += 2;
       if (port > 5682)

@@ -125,14 +125,14 @@ export class DevicesService {
   }
   /** The inventory, joining a read already in flight. */
   async settleInventory(): Promise<void> {
-    if (this.sourceReads.size === 0) {
-      await this.listing?.devices.catch(() => {});
+    if (deviceInventoryBackend() === "native" && this.sourceReads.size > 0) {
+      await Promise.allSettled([
+        ...(this.listing ? [this.listing.devices] : []),
+        ...this.sourceReads,
+      ]);
       return;
     }
-    await Promise.allSettled([
-      ...(this.listing ? [this.listing.devices] : []),
-      ...this.sourceReads,
-    ]);
+    await this.listing?.devices.catch(() => {});
   }
   private readInventorySource(
     scope: InventoryReadScope,
@@ -257,12 +257,28 @@ export class DevicesService {
     }
   }
   async list(): Promise<Device[]> {
-    for (;;) {
-      const current = this.listing;
-      if (!current) return this.startListing("all", () => this.options.platform.list(), true);
-      if (current.scope === "all" && current.publishInventory) return current.devices;
-      await current.devices.catch(() => {});
+    if (deviceInventoryBackend() === "native") {
+      for (;;) {
+        const current = this.listing;
+        if (!current) return this.startListing("all", () => this.options.platform.list(), true);
+        if (current.scope === "all" && current.publishInventory) return current.devices;
+        await current.devices.catch(() => {});
+      }
     }
+    if (!this.listing) {
+      const listing = {
+        read: ++this.reads,
+        scope: "all" as const,
+        publishInventory: true,
+        invalidatedAdbCache: false,
+        devices: Promise.resolve<Device[]>([]),
+      };
+      listing.devices = this.refresh().finally(() => {
+        if (this.listing === listing) this.listing = undefined;
+      });
+      this.listing = listing;
+    }
+    return this.listing.devices;
   }
   /**
    * The inventory from a read that started after this call: a read already in flight may have
@@ -270,13 +286,24 @@ export class DevicesService {
    */
   private async freshList(): Promise<Device[]> {
     const before = this.reads;
+    if (deviceInventoryBackend() === "native") {
+      for (;;) {
+        const current = this.listing;
+        if (!current) return this.list();
+        if (current.read > before && current.scope === "all" && current.publishInventory)
+          return current.devices;
+        await current.devices.catch(() => {});
+      }
+    }
     for (;;) {
       const current = this.listing;
-      if (!current) return this.startListing("all", () => this.options.platform.list(), true);
-      if (current.read > before && current.scope === "all" && current.publishInventory)
-        return current.devices;
+      if (!current) return this.list();
+      if (current.read > before) return current.devices;
       await current.devices.catch(() => {});
     }
+  }
+  private refresh(): Promise<Device[]> {
+    return this.refreshWith(() => this.options.platform.list(), true);
   }
   private async refreshWith(
     read: () => Promise<Device[]>,

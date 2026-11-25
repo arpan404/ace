@@ -151,6 +151,10 @@ screenshot`, or `screencap` over adb), fitted inside the frame bounds by ace-med
   (`coordinator.rs` `invalidate_adb_cache`, `android-platform.ts` `invalidateIdentityCache`), so an
   emulator serial reused by a different AVD across an ADB restart (such as `emulator-5554`) reports
   the new device id instead of keeping the pre-restart name.
+- Intended difference under `ACE_DEVICE_INVENTORY=native` (D2): `AndroidPlatform.boot()` serializes
+  its console-port `adb devices -l` scan through `DevicesService`'s single-flight inventory guard
+  (`android-platform.ts` `boot`, `service.ts` `guardedAndroidList`), so an emulator boot does not
+  run `adb devices -l` concurrently with an in-flight native reconcile.
 
 ### Timeouts, cancellation and lenient decoding
 
