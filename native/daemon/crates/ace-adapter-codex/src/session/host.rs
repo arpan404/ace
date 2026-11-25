@@ -295,6 +295,9 @@ pub struct HostConfig {
     pub idle_ms: f64,
     /// `None` leaves requests without a default deadline, as `timeoutMs: null`.
     pub timeout_ms: Option<f64>,
+    /// The shared write queue's byte cap. `None` keeps the peer's default; the
+    /// tests lower it to reach a full queue without megabytes of traffic.
+    pub max_queued_bytes: Option<usize>,
 }
 
 impl HostConfig {
@@ -305,6 +308,7 @@ impl HostConfig {
             initialize,
             idle_ms: 0.0,
             timeout_ms: None,
+            max_queued_bytes: None,
         }
     }
 
@@ -315,6 +319,7 @@ impl HostConfig {
             initialize,
             idle_ms,
             timeout_ms: None,
+            max_queued_bytes: None,
         }
     }
 
@@ -327,7 +332,7 @@ impl HostConfig {
             } else {
                 SHARED_MAX_PENDING
             },
-            max_queued_bytes: defaults.max_queued_bytes,
+            max_queued_bytes: self.max_queued_bytes.unwrap_or(defaults.max_queued_bytes),
             max_incoming: if self.dedicated {
                 defaults.max_incoming
             } else {

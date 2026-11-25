@@ -317,30 +317,33 @@ impl Host {
         // every interrupt is answered, as the session's close awaits them.
         inner.next_attempt += 1;
         let attempt = inner.next_attempt;
-        let interrupts = match inner.interrupt_turns(tenant, attempt) {
-            Ok(interrupts) => interrupts,
-            Err(message) => {
-                // An interrupt the peer would not even take cannot stop the
-                // turn: nothing detaches, and the close reports it.
-                inner.out.push(HostEffect::DetachFailed {
-                    tenant,
-                    reason: retirement,
-                    message,
-                });
-                return inner.take();
-            }
-        };
         inner.detaching.insert(
             tenant,
             Detaching {
-                remaining: interrupts,
+                remaining: 0,
                 retirement,
                 reason: reason.to_owned(),
                 attempt,
                 phase: Leaving::Interrupts,
             },
         );
-        if interrupts == 0 {
+        // An interrupt the peer will not take cannot stop the turn: nothing
+        // detaches, and the close reports it. A full write queue surfaces the
+        // same way, as the enqueue's own settlement.
+        if let Err(message) = inner.interrupt_turns(tenant, attempt) {
+            inner.detaching.shift_remove(&tenant);
+            inner.out.push(HostEffect::DetachFailed {
+                tenant,
+                reason: retirement,
+                message,
+            });
+            return inner.take();
+        }
+        if inner
+            .detaching
+            .get(&tenant)
+            .is_some_and(|state| state.remaining == 0)
+        {
             inner.unsubscribe_threads(tenant);
         }
         inner.take()

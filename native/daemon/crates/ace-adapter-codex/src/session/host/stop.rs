@@ -17,21 +17,29 @@ impl Inner {
     /// (`session.ts`'s close, `session-commands.ts:198`): each names its thread
     /// and its turn. Answers how many were sent, so the release waits for them;
     /// an interrupt the peer refuses to enqueue is the close's failure.
-    pub(super) fn interrupt_turns(&mut self, tenant: u64, attempt: u64) -> Result<usize, String> {
-        let mut sent = 0;
-        for (thread, turn) in self.live_turns(tenant) {
-            let Some(id) = self.own_request(
-                "turn/interrupt",
-                &[("threadId", &thread), ("turnId", &turn)],
-                INTERRUPT_MS,
-            ) else {
-                return Err("the app-server refused the interrupt".to_owned());
-            };
+    pub(super) fn interrupt_turns(&mut self, tenant: u64, attempt: u64) -> Result<(), String> {
+        let turns = self.live_turns(tenant);
+        let mut queued = Vec::with_capacity(turns.len());
+        for (thread, turn) in &turns {
+            let (id, peer) = self
+                .enqueue_own(
+                    "turn/interrupt",
+                    &[("threadId", thread), ("turnId", turn)],
+                    INTERRUPT_MS,
+                )
+                .map_err(|_| "the app-server refused the interrupt".to_owned())?;
             self.own
                 .insert(id, OwnPurpose::Interrupt { tenant, attempt });
-            sent += 1;
+            queued.push(peer);
         }
-        Ok(sent)
+        if let Some(state) = self.detaching.get_mut(&tenant) {
+            state.remaining = queued.len();
+        }
+        // Every attempt is on record before a settlement can answer one.
+        for peer in queued {
+            self.apply(peer);
+        }
+        Ok(())
     }
 
     /// One interrupt answered. Only a confirmed stop releases the channel: a
@@ -84,24 +92,27 @@ impl Inner {
         // settle once its turns are stopped (`tenant.abort`, `host.ts:349`).
         self.abort_calls(tenant, &reason);
         let threads = self.router.owned(&tenant);
-        let mut issued = 0;
+        let mut queued = Vec::with_capacity(threads.len());
         for thread in &threads {
-            if let Some(id) = self.own_request(
+            if let Ok((id, peer)) = self.enqueue_own(
                 "thread/unsubscribe",
                 &[("threadId", thread)],
                 UNSUBSCRIBE_MS,
             ) {
                 self.own.insert(id, OwnPurpose::Unsubscribe { tenant });
-                issued += 1;
+                queued.push(peer);
             }
         }
-        if issued == 0 {
+        if queued.is_empty() {
             // Nothing could be asked: the channel still leaves.
             self.channel_detached(tenant, retirement);
             return;
         }
         if let Some(state) = self.detaching.get_mut(&tenant) {
-            state.remaining = issued;
+            state.remaining = queued.len();
+        }
+        for peer in queued {
+            self.apply(peer);
         }
     }
 

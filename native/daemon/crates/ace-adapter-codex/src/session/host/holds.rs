@@ -226,19 +226,11 @@ impl Inner {
             self.finish_owned(thread, hold_id, owner);
             return;
         }
-        let Some(id) = self.own_request("thread/read", &[("threadId", &cursor)], READ_MS) else {
+        let Ok((id, peer)) = self.enqueue_own("thread/read", &[("threadId", &cursor)], READ_MS)
+        else {
             self.resolve_after(thread, hold_id, true);
             return;
         };
-        let Some(hold) = self.holds.get_mut(thread) else {
-            self.own.remove(&id);
-            return;
-        };
-        if hold.id != hold_id {
-            self.own.remove(&id);
-            return;
-        }
-        hold.depth += 1;
         self.own.insert(
             id,
             OwnPurpose::Read {
@@ -246,6 +238,14 @@ impl Inner {
                 hold: hold_id,
             },
         );
+        // A queue that refused the line settles here, at once.
+        self.apply(peer);
+        if let Some(hold) = self.holds.get_mut(thread)
+            && hold.id == hold_id
+            && hold.resolving
+        {
+            hold.depth += 1;
+        }
     }
 
     /// A read answered: walk on, or end the chain (`#resolve`'s loop). The

@@ -15,13 +15,16 @@ impl Inner {
         id
     }
 
-    /// An own request, with no tenant attributed to its send frame.
-    pub(super) fn own_request(
+    /// Enqueues one of the host's own requests, with no tenant attributed to
+    /// its send frame. The effects are returned unapplied: the caller registers
+    /// its purpose first, so a queue that refuses the line settles through that
+    /// purpose instead of waiting for an answer that will never come.
+    pub(super) fn enqueue_own(
         &mut self,
         method: &str,
         params: &[(&str, &JsString)],
         timeout_ms: f64,
-    ) -> Option<u64> {
+    ) -> Result<(u64, Vec<PeerEffect>), String> {
         let mut map = Map::with_capacity(params.len());
         for (name, value) in params {
             map.insert(*name, Value::from((*value).clone()));
@@ -36,9 +39,8 @@ impl Inner {
                 id,
                 Timeout::After(timeout_ms),
             )
-            .ok()?;
-        self.apply(peer);
-        Some(id)
+            .map_err(|error| error.message().to_owned())?;
+        Ok((id, peer))
     }
 
     /// Settle every call one channel is waiting on (`tenant.abort`,
