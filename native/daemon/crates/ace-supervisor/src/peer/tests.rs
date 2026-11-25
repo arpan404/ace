@@ -657,3 +657,56 @@ fn a_replacement_peer_keeps_the_pipes_id_reservations() {
         Ok(_) => panic!("the replacement reused a retired id"),
     }
 }
+
+#[test]
+fn a_reply_slot_is_registered_before_another_peer_acknowledges_it() {
+    let owner = PeerOwner::new(32 * 1024 * 1024);
+    let mut requester = RpcPeer::with_owner(
+        PeerConfig {
+            max_incoming: 1,
+            ..PeerConfig::default()
+        },
+        owner.clone(),
+    );
+    let mut other = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+
+    let first = requester.line(r#"{"id":1,"method":"server"}"#);
+    let answered = requester.answer(&server_id(&first), &Value::Null);
+    let ticket = writes(&answered)[0].0;
+
+    // The other peer acknowledges the shared in-flight reply. The slot was
+    // registered with the ticket, so the requester admits its next request.
+    assert!(writes(&other.written(ticket)).is_empty());
+    let next = requester.line(r#"{"id":2,"method":"server"}"#);
+    assert_eq!(order(&next), vec!["frame:recv", "server:2"]);
+}
+
+#[test]
+fn a_retired_peers_record_goes_when_its_last_reply_is_written() {
+    let owner = PeerOwner::new(32 * 1024 * 1024);
+    let mut retired = RpcPeer::with_owner(
+        PeerConfig {
+            max_incoming: 1,
+            ..PeerConfig::default()
+        },
+        owner.clone(),
+    );
+    let first = retired.line(r#"{"id":1,"method":"server"}"#);
+    let answered = retired.answer(&server_id(&first), &Value::Null);
+    let ticket = writes(&answered)[0].0;
+    retired.close("retired");
+    assert_eq!(owner.peer_records(), 1);
+
+    assert!(owner.written(ticket));
+    assert_eq!(owner.peer_records(), 0);
+}
+
+#[test]
+fn retired_peer_records_stay_bounded_across_replacements() {
+    let owner = PeerOwner::new(32 * 1024 * 1024);
+    for _ in 0..1000 {
+        let mut peer = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+        peer.close("retired");
+    }
+    assert_eq!(owner.peer_records(), 0);
+}

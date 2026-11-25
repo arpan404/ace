@@ -228,6 +228,7 @@ struct Ticket {
 struct PeerSlots {
     incoming: usize,
     replies: HashSet<u64>,
+    retired: bool,
 }
 
 impl PeerOwner {
@@ -278,6 +279,24 @@ impl PeerOwner {
         Ok(ticket)
     }
 
+    /// A reply publishes its slot before any peer can claim the write: both
+    /// happen under this one lock, so the gap cannot leak the slot.
+    fn enqueue_reply(&self, peer: u64, wire: Vec<u8>) -> Result<u64, StreamError> {
+        let mut inner = self.lock();
+        let ticket = inner.writer.enqueue(wire.len())?;
+        inner.tickets.insert(
+            ticket,
+            Ticket {
+                peer,
+                wire: Some(wire),
+            },
+        );
+        if let Some(slots) = inner.peers.get_mut(&peer) {
+            slots.replies.insert(ticket);
+        }
+        Ok(ticket)
+    }
+
     /// The next queued line, whichever peer enqueued it: the pipe is shared, so
     /// any peer may hand its bytes to stdin.
     fn claim(&self) -> Option<(u64, Vec<u8>)> {
@@ -296,11 +315,17 @@ impl PeerOwner {
             return false;
         }
         inner.writer.written(ticket);
-        if let Some(entry) = inner.tickets.remove(&ticket)
-            && let Some(peer) = inner.peers.get_mut(&entry.peer)
-            && peer.replies.remove(&ticket)
-        {
-            peer.incoming = peer.incoming.saturating_sub(1);
+        if let Some(entry) = inner.tickets.remove(&ticket) {
+            let mut finished = false;
+            if let Some(slots) = inner.peers.get_mut(&entry.peer) {
+                if slots.replies.remove(&ticket) {
+                    slots.incoming = slots.incoming.saturating_sub(1);
+                }
+                finished = slots.retired && slots.replies.is_empty();
+            }
+            if finished {
+                inner.peers.remove(&entry.peer);
+            }
         }
         true
     }
@@ -319,7 +344,8 @@ impl PeerOwner {
         }
     }
 
-    /// Drop this peer's queued writes and leave the shared queue open.
+    /// Drop this peer's queued writes and leave the shared queue open. A
+    /// cancelled reply releases the slot its send would have settled.
     fn cancel_owner(&self, peer: u64) {
         let mut inner = self.lock();
         let mine: Vec<u64> = inner
@@ -331,6 +357,11 @@ impl PeerOwner {
         for ticket in mine {
             if inner.writer.cancel(ticket) {
                 inner.tickets.remove(&ticket);
+                if let Some(slots) = inner.peers.get_mut(&peer)
+                    && slots.replies.remove(&ticket)
+                {
+                    slots.incoming = slots.incoming.saturating_sub(1);
+                }
             }
         }
     }
@@ -354,20 +385,23 @@ impl PeerOwner {
         }
     }
 
-    fn hold_reply(&self, peer: u64, ticket: u64) {
-        if let Some(slots) = self.lock().peers.get_mut(&peer) {
-            slots.replies.insert(ticket);
+    /// Mark a stopped peer retired. Its queued writes were cancelled and its
+    /// pending calls settled; an in-flight reply keeps the record until
+    /// `written` releases its slot, then the record goes too.
+    fn retire(&self, peer: u64) {
+        let mut inner = self.lock();
+        let Some(slots) = inner.peers.get_mut(&peer) else {
+            return;
+        };
+        slots.retired = true;
+        if slots.replies.is_empty() {
+            inner.peers.remove(&peer);
         }
     }
 
-    /// A stopped peer's reply sends reject, so their `finally` frees the slots.
-    fn clear_peer(&self, peer: u64) {
-        let mut inner = self.lock();
-        if let Some(slots) = inner.peers.get_mut(&peer) {
-            let replies = slots.replies.len();
-            slots.replies.clear();
-            slots.incoming = slots.incoming.saturating_sub(replies);
-        }
+    #[cfg(test)]
+    fn peer_records(&self) -> usize {
+        self.lock().peers.len()
     }
 }
 
@@ -713,16 +747,15 @@ impl RpcPeer {
 
     fn stop(&mut self, error: PeerError) -> Vec<PeerEffect> {
         self.stopped.get_or_insert_with(|| error.clone());
-        // A cancelled reply's send rejects, so its `finally` releases the slot.
-        self.owner.clear_peer(self.owner_id);
         let pending = std::mem::take(&mut self.pending);
         let mut effects = Vec::new();
         for (_, pending) in pending {
             self.settle_pending(pending, Err(error.clone()), &mut effects);
         }
-        // Cancel this peer's queued writes; the shared queue stays open for a
-        // replacement peer on the same stdin.
+        // Cancel this peer's queued writes (a cancelled reply frees its slot);
+        // the shared queue stays open for a replacement peer on the same stdin.
         self.owner.cancel_owner(self.owner_id);
+        self.owner.retire(self.owner_id);
         effects
     }
 
@@ -767,11 +800,8 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.owner.enqueue(self.owner_id, wire) {
-            Ok(ticket) => {
-                self.owner.hold_reply(self.owner_id, ticket);
-                self.pump(&mut effects);
-            }
+        match self.owner.enqueue_reply(self.owner_id, wire) {
+            Ok(_) => self.pump(&mut effects),
             Err(error) => {
                 self.finish_incoming();
                 effects.push(PeerEffect::Failed {
