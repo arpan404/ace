@@ -89,13 +89,14 @@ impl AcpCore {
             self.arm_deadline("root", CANCELLATION_GRACE_MS as f64, effects);
         }
         for descendant in &descendants {
-            if descendant.live && descendant.cancel {
-                if let Ok(notified) = self.notify(
+            if descendant.live
+                && descendant.cancel
+                && let Ok(notified) = self.notify(
                     agent_methods::SESSION_CANCEL,
                     Some(&cancel_params(&descendant.id)),
-                ) {
-                    effects.extend(notified);
-                }
+                )
+            {
+                effects.extend(notified);
             }
         }
         Ok(())
