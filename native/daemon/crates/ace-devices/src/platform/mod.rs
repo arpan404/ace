@@ -33,6 +33,7 @@ pub mod serve_sim;
 pub mod simulator_avcc;
 pub mod simulator_ax;
 pub mod simulator_frames;
+pub mod simulator_jpeg;
 pub mod simulator_rotation;
 pub mod simulator_source_rate;
 pub mod simulator_ui;

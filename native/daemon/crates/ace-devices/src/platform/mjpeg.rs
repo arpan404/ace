@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `mjpeg.ts`: bounded multipart decoding of serve-sim's MJPEG stream. One advertised frame is
-//! allocated, never repeatedly joined image chunks; each whole picture is handed on with its
+//! allocated, never repeatedly joined image chunks; each whole picture comes back with its
 //! number, the value [`MjpegDecoder::started`] took when it began arriving.
 
 use crate::platform::Error;
@@ -12,7 +12,17 @@ const HEADER_LIMIT: usize = 4096;
 /// The most one advertised picture may hold.
 const IMAGE_LIMIT: usize = 8 * 1024 * 1024;
 
-pub struct MjpegDecoder<F> {
+/// One whole picture from the stream, with the number of the part that carried it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MjpegFrame {
+    pub image: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub frame: u32,
+}
+
+#[derive(Debug)]
+pub struct MjpegDecoder {
     header: [u8; HEADER_LIMIT],
     header_bytes: usize,
     image: Option<Vec<u8>>,
@@ -20,12 +30,10 @@ pub struct MjpegDecoder<F> {
     frame: u32,
     boundary: String,
     begun: u32,
-    emit: F,
 }
 
-impl<F: FnMut(&[u8], u32, u32, u32)> MjpegDecoder<F> {
-    /// `emit` gets each image with its number: the value `started` took when it began arriving.
-    pub fn new(boundary: &str, emit: F) -> Result<Self, Error> {
+impl MjpegDecoder {
+    pub fn new(boundary: &str) -> Result<Self, Error> {
         if !is_valid_boundary(boundary) {
             return Err(invalid("Invalid Simulator multipart boundary"));
         }
@@ -37,7 +45,6 @@ impl<F: FnMut(&[u8], u32, u32, u32)> MjpegDecoder<F> {
             frame: 0,
             boundary: boundary.to_string(),
             begun: 0,
-            emit,
         })
     }
 
@@ -46,8 +53,9 @@ impl<F: FnMut(&[u8], u32, u32, u32)> MjpegDecoder<F> {
         self.begun
     }
 
-    /// Adds one chunk and emits every picture it completed, in stream order.
-    pub fn push(&mut self, chunk: &[u8]) -> Result<(), Error> {
+    /// Adds one chunk and returns every picture it completed, in stream order.
+    pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<MjpegFrame>, Error> {
+        let mut frames = Vec::new();
         let mut at = 0usize;
         while at < chunk.len() {
             if self.image.is_none() {
@@ -100,10 +108,15 @@ impl<F: FnMut(&[u8], u32, u32, u32)> MjpegDecoder<F> {
                 };
                 self.image_bytes = 0;
                 let (width, height) = jpeg_dimensions(&image)?;
-                (self.emit)(&image, width, height, self.frame);
+                frames.push(MjpegFrame {
+                    image,
+                    width,
+                    height,
+                    frame: self.frame,
+                });
             }
         }
-        Ok(())
+        Ok(frames)
     }
 
     /// Reads a complete part header: its boundary, the picture's length and its content type.
@@ -152,7 +165,7 @@ impl<F: FnMut(&[u8], u32, u32, u32)> MjpegDecoder<F> {
 }
 
 /// A multipart boundary is 1 to 70 ASCII letters, digits, underscores or dashes.
-fn is_valid_boundary(boundary: &str) -> bool {
+pub(crate) fn is_valid_boundary(boundary: &str) -> bool {
     (1..=70).contains(&boundary.len())
         && boundary
             .bytes()
@@ -194,20 +207,20 @@ mod tests {
         let image = tiny();
         let stream = part("frame", &image);
         for split in 1..stream.len() {
-            let mut seen = Vec::new();
-            let mut decoder = MjpegDecoder::new(
-                "frame",
-                |bytes: &[u8], width: u32, height: u32, frame: u32| {
-                    seen.push((bytes.to_vec(), width, height, frame));
-                },
-            )
-            .expect("valid boundary");
-            decoder.push(&stream[..split]).expect("reads");
-            decoder.push(&stream[split..]).expect("reads");
-            let started = decoder.started();
-            drop(decoder);
-            assert_eq!(seen, vec![(image.clone(), 20, 10, 1)], "split at {split}");
-            assert_eq!(started, 1);
+            let mut decoder = MjpegDecoder::new("frame").expect("valid boundary");
+            let mut seen = decoder.push(&stream[..split]).expect("reads");
+            seen.extend(decoder.push(&stream[split..]).expect("reads"));
+            assert_eq!(
+                seen,
+                vec![MjpegFrame {
+                    image: image.clone(),
+                    width: 20,
+                    height: 10,
+                    frame: 1
+                }],
+                "split at {split}"
+            );
+            assert_eq!(decoder.started(), 1);
         }
     }
 
@@ -219,19 +232,12 @@ mod tests {
         stream.extend(b"content-length: 4\r\ncontent-type: image/jpeg\r\n\r\n");
         // A second, four-byte picture body the decoder hands on after reading its size.
         stream.extend([0xff, 0xd8, 0xff, 0xd9]);
-        let mut seen = Vec::new();
-        let mut decoder = MjpegDecoder::new("frame", |bytes: &[u8], _: u32, _: u32, frame: u32| {
-            seen.push((bytes.len(), frame));
-        })
-        .expect("valid boundary");
-        assert!(
-            decoder.push(&stream).is_err(),
-            "the second body has no frame header"
-        );
-        let started = decoder.started();
-        drop(decoder);
-        assert_eq!(seen, vec![(image.len(), 1)]);
-        assert_eq!(started, 2);
+        let mut decoder = MjpegDecoder::new("frame").expect("valid boundary");
+        let error = decoder
+            .push(&stream)
+            .expect_err("the second body has no frame header");
+        assert!(error.to_string().contains("Missing JPEG dimensions"));
+        assert_eq!(decoder.started(), 2);
     }
 
     #[test]
@@ -243,20 +249,18 @@ mod tests {
             b"--frame\r\ncontent-length: 999999999\r\ncontent-type: image/jpeg\r\n\r\n".to_vec(),
             b"--other\r\ncontent-length: 4\r\ncontent-type: image/jpeg\r\n\r\nabcd".to_vec(),
         ] {
-            let mut decoder =
-                MjpegDecoder::new("frame", |_: &[u8], _: u32, _: u32, _: u32| {}).expect("valid");
+            let mut decoder = MjpegDecoder::new("frame").expect("valid");
             assert!(decoder.push(&stream).is_err(), "refused: {stream:?}");
         }
-        let mut decoder =
-            MjpegDecoder::new("frame", |_: &[u8], _: u32, _: u32, _: u32| {}).expect("valid");
+        let mut decoder = MjpegDecoder::new("frame").expect("valid");
         assert!(decoder.push(&part("frame", &image)).is_ok());
     }
 
     #[test]
     fn a_boundary_is_one_to_seventy_letters_digits_underscores_or_dashes() {
-        assert!(MjpegDecoder::new("frame_1-x", |_: &[u8], _: u32, _: u32, _: u32| {}).is_ok());
-        assert!(MjpegDecoder::new("", |_: &[u8], _: u32, _: u32, _: u32| {}).is_err());
-        assert!(MjpegDecoder::new("a b", |_: &[u8], _: u32, _: u32, _: u32| {}).is_err());
-        assert!(MjpegDecoder::new(&"a".repeat(71), |_: &[u8], _: u32, _: u32, _: u32| {}).is_err());
+        assert!(MjpegDecoder::new("frame_1-x").is_ok());
+        assert!(MjpegDecoder::new("").is_err());
+        assert!(MjpegDecoder::new("a b").is_err());
+        assert!(MjpegDecoder::new(&"a".repeat(71)).is_err());
     }
 }

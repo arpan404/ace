@@ -506,7 +506,8 @@ switch off, `packages/devices/src` is today's TypeScript, unchanged.
 | `recording-limits`                          | `platform/recording_limits.rs`      | not yet                                                                                    |
 | `simulator-frames`                          | `platform/simulator_frames/mod.rs`  | not yet: the state machine returns effects, the capture's clock, timer and promises are U3 |
 | `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                               |
-| `simulator-jpeg`, `media-paths`             | -                                   | not yet (their stream decisions are U2-U3)                                                 |
+| `simulator-jpeg`                            | `platform/simulator_jpeg/mod.rs`    | not yet: the state machine returns actions; HTTP is the capture's port (U3)                |
+| `media-paths`                               | -                                   | not yet (its stream decisions are U2-U3)                                                   |
 
 The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
 Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
@@ -515,6 +516,15 @@ TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `av
 length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
+
+`simulator_jpeg/mod.rs` keeps the TypeScript's link and ask lifecycle: one MJPEG request at a
+time, a still's `after` frame count so a picture already arriving is never taken for a newer one,
+stills that share one request, the five-second give-up that also cancels an unanswered request,
+late answers dropped, and stopping that aborts the request and tells every still. `Action` is the
+capture's HTTP port (`OpenRequest`/`AbortRequest`) and the events are the body's response, chunks,
+end and failure; `MjpegDecoder` owns the multipart framing, so a chunk crosses no boundary but
+the state machine's own. No clock is read and no runtime is allocated, so the U3 capture can run
+it in-process; a per-chunk addon hop is not part of this design and would need a measurement.
 
 `simulator_frames/mod.rs` keeps the TypeScript's scheduling rule (a publish waits out the stream's
 frame interval), its single latest picture, its revision (a settings change drops the picture
