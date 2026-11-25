@@ -245,24 +245,12 @@ pub fn device_platform_emulator_grpc_file(
     })
 }
 
-/// `Simulators.list`'s device: one available Simulator as the device list shows it.
+/// `Simulators.list`'s device: one available Simulator as the device list shows it. The entry
+/// crosses as JSON text, so a name with a lone surrogate stays the string the SDK printed.
 #[napi]
-pub fn device_platform_simulator_record(
-    udid: String,
-    name: String,
-    state: String,
-    runtime: String,
-    device_type: Option<String>,
-) -> napi::Result<String> {
-    answered(|| {
-        Ok(ace_devices::platform::list::simulator_record(
-            &udid,
-            &name,
-            &state,
-            &runtime,
-            device_type.as_deref(),
-        ))
-    })
+pub fn device_platform_simulator_record(entry: String) -> napi::Result<String> {
+    let listed: ace_devices::platform::list::ListedSimulator = parse(&entry)?;
+    answered(|| Ok(ace_devices::platform::list::simulator_record(&listed)))
 }
 
 /// `DevicePlatform.list`: each platform's devices and the missing SDKs beside them.

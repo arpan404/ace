@@ -63,11 +63,13 @@ export class NativeDevicePlatform extends DevicePlatformBase {
           (await this.simulators.list()).map((entry) =>
             deviceAnswer<DeviceRecord>(() =>
               nativeDevices().devicePlatformSimulatorRecord(
-                entry.udid,
-                entry.name,
-                entry.state,
-                entry.runtime,
-                entry.deviceTypeIdentifier,
+                JSON.stringify({
+                  udid: entry.udid,
+                  name: entry.name,
+                  state: entry.state,
+                  runtime: entry.runtime,
+                  deviceTypeIdentifier: entry.deviceTypeIdentifier,
+                }),
               ),
             ),
           ),

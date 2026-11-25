@@ -146,13 +146,7 @@ interface DevicesAddon {
   ): string | null;
   devicePlatformEmulatorGrpc(serial: string, files: DiscoveryFile[]): string;
   devicePlatformEmulatorGrpcFile(serial: string, name: string, text: string): string;
-  devicePlatformSimulatorRecord(
-    udid: string,
-    name: string,
-    state: string,
-    runtime: string,
-    deviceType?: string | undefined,
-  ): string;
+  devicePlatformSimulatorRecord(entry: string): string;
   devicePlatformXcodeHostRefusal(platform: string): string;
   devicePlatformXcodeToolsRefusal(): string;
   devicePlatformXcodeProbeFailure(): string;

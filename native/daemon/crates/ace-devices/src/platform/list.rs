@@ -4,24 +4,27 @@
 //! device becomes, which failures are missing SDKs rather than errors, and when no platform
 //! answered at all.
 
+use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
 use super::commands::simulator_runtime;
 use super::{Error, Failure};
 
-/// One `AppDevice` as the protocol schema orders it.
+/// One `AppDevice` as the protocol schema orders it. The name comes from an SDK or a person, so
+/// it stays a JavaScript string: a name holding a lone surrogate is listed exactly as the SDK
+/// printed it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct DeviceRecord {
     pub id: String,
     pub platform: String,
-    pub name: String,
+    pub name: JsString,
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<JsString>,
 }
 
 /// One platform's read: its devices, or the failure that stopped it.
@@ -84,28 +87,35 @@ pub fn list(sources: Vec<Source>) -> Result<ListAnswer, Error> {
     Ok(ListAnswer { devices, missing })
 }
 
+/// One available Simulator as `Simulators.list` (`@ace/screen`) described it. The shell reads
+/// `simctl list devices --json`; this decides what the device list shows.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedSimulator {
+    pub udid: JsString,
+    pub name: JsString,
+    pub state: JsString,
+    pub runtime: JsString,
+    #[serde(default)]
+    pub device_type_identifier: Option<JsString>,
+}
+
 /// `Simulators.list`'s device: an available Simulator as the device list shows it. `Booted` is
 /// the only state a view drives; anything else is shut down.
-pub fn simulator_record(
-    udid: &str,
-    name: &str,
-    state: &str,
-    runtime: &str,
-    device_type: Option<&str>,
-) -> DeviceRecord {
+pub fn simulator_record(listed: &ListedSimulator) -> DeviceRecord {
     DeviceRecord {
-        id: format!("ios:{udid}"),
+        id: format!("ios:{}", listed.udid),
         platform: "ios".to_string(),
-        name: name.to_string(),
-        state: if state == "Booted" {
+        name: listed.name.clone(),
+        state: if listed.state == "Booted" {
             "booted"
         } else {
             "shutdown"
         }
         .to_string(),
-        runtime: Some(simulator_runtime(runtime)),
+        runtime: Some(simulator_runtime(&listed.runtime)),
         serial: None,
-        model: device_type.map(str::to_string),
+        model: listed.device_type_identifier.clone(),
     }
 }
 
@@ -113,7 +123,7 @@ pub fn simulator_record(
 /// emulator, and says so rather than showing `emulator-5554` to a person.
 pub fn android_record(mut device: DeviceRecord) -> DeviceRecord {
     if is_unnamed_emulator(&device.name) {
-        device.name = "Android emulator".to_string();
+        device.name = "Android emulator".into();
     }
     device
 }
@@ -134,11 +144,23 @@ mod tests {
         DeviceRecord {
             id: id.to_string(),
             platform: "android".to_string(),
-            name: name.to_string(),
+            name: name.into(),
             state: "booted".to_string(),
             runtime: None,
             serial: Some("emulator-5554".to_string()),
             model: None,
+        }
+    }
+
+    fn listed(udid: &str, name: &str, state: &str) -> ListedSimulator {
+        ListedSimulator {
+            udid: udid.into(),
+            name: name.into(),
+            state: state.into(),
+            runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0".into(),
+            device_type_identifier: Some(
+                "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro".into(),
+            ),
         }
     }
 
@@ -155,13 +177,11 @@ mod tests {
         let answer = list(vec![
             Source {
                 platform: "ios".to_string(),
-                devices: vec![simulator_record(
+                devices: vec![simulator_record(&listed(
                     "11111111-1111-4111-8111-111111111111",
                     "iPhone 18 Pro",
                     "Booted",
-                    "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
-                    Some("com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"),
-                )],
+                ))],
                 failure: None,
             },
             Source {
@@ -236,6 +256,21 @@ mod tests {
         ])
         .expect_err("nothing answered");
         assert!(matches!(error, Error::Failed(failure) if failure.code == Code::SdkMissing));
+    }
+
+    #[test]
+    fn a_simulator_name_keeps_its_utf16_units_in_the_device_list() {
+        let name = JsString::from_units(&[0x41, 0xd800, 0x42]);
+        let record = simulator_record(&ListedSimulator {
+            udid: "11111111-1111-4111-8111-111111111111".into(),
+            name: name.clone(),
+            state: "Booted".into(),
+            runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0".into(),
+            device_type_identifier: None,
+        });
+        assert_eq!(record.name, name);
+        let json = ace_json::ser::to_string(&record).expect("record");
+        assert!(json.contains(r#""name":"A\ud800B""#), "{json}");
     }
 
     #[test]
