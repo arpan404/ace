@@ -14,14 +14,16 @@ impl Inner {
     }
 
     /// A close's `turn/interrupt` for every turn the channel still runs
-    /// (`session.ts`'s close, `session-commands.ts`). Answers how many were
-    /// sent, so the release waits for them.
+    /// (`session.ts`'s close, `session-commands.ts:198`): each names its thread
+    /// and its turn. Answers how many were sent, so the release waits for them.
     pub(super) fn interrupt_turns(&mut self, tenant: u64) -> usize {
         let mut sent = 0;
-        for (thread, _turn) in self.live_turns(tenant) {
-            if let Some(id) =
-                self.own_request("turn/interrupt", &[("threadId", &thread)], INTERRUPT_MS)
-            {
+        for (thread, turn) in self.live_turns(tenant) {
+            if let Some(id) = self.own_request(
+                "turn/interrupt",
+                &[("threadId", &thread), ("turnId", &turn)],
+                INTERRUPT_MS,
+            ) {
                 self.own.insert(id, OwnPurpose::Interrupt { tenant });
                 sent += 1;
             }
@@ -29,13 +31,27 @@ impl Inner {
         sent
     }
 
-    /// One interrupt answered: the last one releases the channel's threads and
-    /// unsubscribes them (`detach`, `:356`).
-    pub(super) fn interrupt_answered(&mut self, tenant: u64) {
+    /// One interrupt answered. Only a confirmed stop releases the channel: a
+    /// refusal or a deadline leaves the turn running, so the channel and its
+    /// work stay attached and the close reports the failure (`session.ts`'s
+    /// close).
+    pub(super) fn interrupt_answered(&mut self, tenant: u64, result: &Result<Value, PeerError>) {
         let Some(state) = self.detaching.get_mut(&tenant) else {
             return;
         };
         if state.phase != Leaving::Interrupts {
+            return;
+        }
+        if let Err(error) = result {
+            let reason = self
+                .detaching
+                .shift_remove(&tenant)
+                .map_or(Retirement::User, |state| state.retirement);
+            self.out.push(HostEffect::DetachFailed {
+                tenant,
+                reason,
+                message: error.message().to_owned(),
+            });
             return;
         }
         state.remaining = state.remaining.saturating_sub(1);
@@ -53,6 +69,10 @@ impl Inner {
         };
         state.phase = Leaving::Unsubscribes;
         let retirement = state.retirement;
+        let reason = state.reason.clone();
+        // Only a confirmed stop detaches: the calls this channel waits on
+        // settle once its turns are stopped (`tenant.abort`, `host.ts:349`).
+        self.abort_calls(tenant, &reason);
         let threads = self.router.owned(&tenant);
         let mut issued = 0;
         for thread in &threads {

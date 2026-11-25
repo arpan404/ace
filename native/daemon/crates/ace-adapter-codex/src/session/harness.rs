@@ -93,6 +93,12 @@ pub enum Event {
         reason: Retirement,
         awaited: bool,
     },
+    /// A close whose turn could not be stopped: the channel stays attached.
+    DetachFailed {
+        tenant: u64,
+        reason: Retirement,
+        message: String,
+    },
     /// The shell's stop did not confirm: the process is still running.
     StopFailed {
         reason: Retirement,
@@ -629,6 +635,15 @@ impl HostConsumer {
                         });
                     }
                 }
+                HostEffect::DetachFailed {
+                    tenant,
+                    reason,
+                    message,
+                } => self.events.push(Event::DetachFailed {
+                    tenant,
+                    reason,
+                    message,
+                }),
                 HostEffect::Retiring { reason } => {
                     let failure = self.stop_failure.lock().expect("stop failure").clone();
                     if let Some(message) = failure {

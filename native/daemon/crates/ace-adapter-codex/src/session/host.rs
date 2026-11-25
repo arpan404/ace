@@ -263,6 +263,13 @@ pub enum HostEffect {
     Retiring {
         reason: Retirement,
     },
+    /// A close that could not stop its turn: the provider refused the
+    /// interrupt or never answered, so the channel and its work stay attached.
+    DetachFailed {
+        tenant: u64,
+        reason: Retirement,
+        message: String,
+    },
 }
 
 /// A refusal at the host's own door.
@@ -346,6 +353,8 @@ struct Tenant {
 struct Detaching {
     remaining: usize,
     retirement: Retirement,
+    /// Why the channel is leaving, so its waiting calls settle with it.
+    reason: String,
     phase: Leaving,
 }
 
@@ -413,6 +422,9 @@ struct Inner {
     calls: IndexMap<u64, u64>,
     /// Each thread's running turn, so a close can interrupt it.
     active: IndexMap<JsString, JsString>,
+    /// Channels that left while the process was dying: their exit is
+    /// published with the others at the pipe barrier.
+    departed: Vec<u64>,
     /// The leader is gone or the pipes are closing: held frames are answered,
     /// never delivered, as `#exited` does.
     exiting: bool,

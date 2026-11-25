@@ -30,6 +30,7 @@ impl Host {
                 own: HashMap::new(),
                 calls: IndexMap::new(),
                 active: IndexMap::new(),
+                departed: Vec::new(),
                 exiting: false,
                 detaching: IndexMap::new(),
                 next_own: 0,
@@ -302,12 +303,10 @@ impl Host {
         {
             return inner.take();
         }
-        // Every call this channel waits on settles now (`tenant.abort`,
-        // `host.ts:349`): a call with no deadline never outlives its channel.
-        inner.abort_calls(tenant, reason);
         if inner.config.dedicated || inner.exiting {
             // A dedicated process belongs to this channel; its exit is the
             // channel's exit, published when the pipes are done.
+            inner.abort_calls(tenant, reason);
             inner.retire(retirement, true);
             return inner.take();
         }
@@ -321,6 +320,7 @@ impl Host {
             Detaching {
                 remaining: interrupts,
                 retirement,
+                reason: reason.to_owned(),
                 phase: Leaving::Interrupts,
             },
         );
@@ -344,9 +344,14 @@ impl Host {
     }
 
     /// The shell's stop did not confirm: a host that outlived it takes
-    /// backpressure again.
+    /// backpressure again. A leader already dead started draining for its exit,
+    /// and a late failure cannot undo that.
     pub fn stop_failed(&self) {
-        self.lock().gate.undrain();
+        let inner = self.lock();
+        if inner.exiting {
+            return;
+        }
+        inner.gate.undrain();
     }
 
     /// A tenant's `outputFlow` pause (`setPaused`).

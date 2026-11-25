@@ -1152,3 +1152,180 @@ fn a_failed_stop_restores_backpressure_on_both_pipes() {
     );
     run.stop();
 }
+
+/// Claims `thread` for `tenant` on a host with no child.
+fn claim_thread(host: &Host, tenant: u64, thread: &str) {
+    let (_, lines) = pump(
+        host,
+        host.request(
+            tenant,
+            "thread/resume",
+            Some(&ace_json::json!({"threadId": thread})),
+            tenant,
+            Timeout::Default,
+        )
+        .expect("the open is queued"),
+    );
+    let opening = line_id(&lines, "thread/resume", Some(thread)).expect("the open's id");
+    let _ = pump(
+        host,
+        host.line(&reply(
+            &opening,
+            ace_json::json!({"thread": {"id": thread}}),
+        )),
+    );
+}
+
+/// Claims `thread` and records a running turn for it, so a close interrupts.
+fn busy_thread(host: &Host, tenant: u64, thread: &str) {
+    claim_thread(host, tenant, thread);
+    let _ = pump(
+        host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "turn/started",
+            "params": {"threadId": thread, "turn": {"id": "turn-1"}},
+        }))),
+    );
+}
+
+/// A close whose interrupt the provider refuses keeps the turn's work
+/// attached, and the close reports the refusal (`session.ts`'s close).
+#[test]
+fn a_refused_interrupt_keeps_the_channel_and_surfaces_the_failure() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    busy_thread(&host, 1, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
+    // A response carrying `error` is a refusal, not a result.
+    let (effects, _) = pump(
+        &host,
+        host.line(&frame(ace_json::json!({
+            "jsonrpc": "2.0",
+            "id": id_to_value(&interrupt),
+            "error": {"code": -32602.0, "message": "turn/interrupt needs a turnId"},
+        }))),
+    );
+    let failure = effects
+        .iter()
+        .find_map(|effect| match effect {
+            HostEffect::DetachFailed {
+                tenant: 1, message, ..
+            } => Some(message.clone()),
+            _ => None,
+        })
+        .expect("the close reports the refused interrupt");
+    assert!(failure.contains("turnId"), "{failure}");
+
+    // The channel and its work are still attached.
+    assert_eq!(host.tenant_count(), 1);
+    assert!(
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "t"})),
+            5,
+            Timeout::Disabled
+        )
+        .is_ok()
+    );
+}
+
+/// A close whose interrupt is never answered is the same: no detach, and the
+/// close reports the deadline.
+#[test]
+fn a_timed_out_interrupt_keeps_the_channel_and_surfaces_the_failure() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    busy_thread(&host, 1, "t");
+
+    let (effects, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    assert!(line_id(&lines, "turn/interrupt", Some("t")).is_some());
+    let timer = effects
+        .iter()
+        .find_map(|effect| match effect {
+            HostEffect::ArmTimer { key, ms } if *ms == 10_000.0 => Some(key.clone()),
+            _ => None,
+        })
+        .expect("the interrupt has a deadline");
+
+    let (effects, _) = pump(&host, host.timer(&timer));
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            HostEffect::DetachFailed { tenant: 1, message, .. } if message.contains("timed out")
+        )),
+        "the close reports the deadline"
+    );
+    assert_eq!(host.tenant_count(), 1, "the channel stays attached");
+}
+
+/// No exit reaches a channel before the pipe barrier, even one that was
+/// detaching when the leader died (`#exited` at `close`).
+#[test]
+fn a_tenant_detaching_during_leader_death_waits_for_the_pipe_barrier() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+
+    // The channel leaves with an unsubscribe in flight.
+    let (_, lines) = pump(&host, host.detach(1, Retirement::Idle, "idle"));
+    assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
+    // Then the leader dies: the unsubscribe is settled by the teardown.
+    let (effects, _) = pump(
+        &host,
+        host.exit(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::Exited { .. })),
+        "the exit waits for the pipes"
+    );
+
+    let (effects, _) = pump(
+        &host,
+        host.closed(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, HostEffect::Exited { tenant: 1, .. }))
+            .count(),
+        1,
+        "the channel hears its exit once, at the barrier"
+    );
+}
+
+/// A stop failure that arrives after the leader died cannot undo the drain the
+/// exit started.
+#[test]
+fn a_late_stop_failure_does_not_undo_the_leaders_drain() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    let _ = pump(
+        &host,
+        host.exit(RawExit {
+            code: Some(1),
+            signal: None,
+        }),
+    );
+    host.set_paused(1, true);
+    host.stop_failed();
+    assert!(
+        !host.paused(),
+        "a dead leader's drain is not undone by a late failure"
+    );
+}

@@ -59,7 +59,7 @@ impl Inner {
     /// A host with no channels stays up for the next session, or stops now
     /// (`#vacated`, `:398`).
     pub(super) fn vacated(&mut self, now: bool) {
-        if !self.tenants.is_empty() || self.exit.is_some() || self.retiring {
+        if !self.tenants.is_empty() || self.exit.is_some() || self.retiring || self.exiting {
             return;
         }
         if self.config.dedicated || now {
@@ -109,6 +109,12 @@ impl Inner {
             pid: self.pid,
             output_drained: true,
         };
+        if self.exiting {
+            // No exit is published before the pipe barrier: the channel's exit
+            // goes out with every other one, once the pipes are done.
+            self.departed.push(tenant);
+            return;
+        }
         self.out.push(HostEffect::Exited { tenant, exit });
         self.vacated(retirement == Retirement::Shutdown);
     }
@@ -131,6 +137,12 @@ impl Inner {
             for item in &hold.items {
                 self.dispatch_none(item);
             }
+        }
+        for tenant in std::mem::take(&mut self.departed) {
+            self.out.push(HostEffect::Exited {
+                tenant,
+                exit: exit.clone(),
+            });
         }
         let tenants: Vec<(u64, Tenant)> = self.tenants.drain(..).collect();
         for (tenant, mut entry) in tenants {
