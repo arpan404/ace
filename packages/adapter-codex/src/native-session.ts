@@ -242,9 +242,11 @@ export async function openNativeCodexSession(
       workspace: ctx.cwd,
       home: io.homeDir(),
       hostname: hostName(),
-      env: Object.entries(ctx.env ?? {}).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
-      ),
+      // The daemon's own switches are operational, not identity: a literal
+      // `ACE_SESSIONS=codex` must not become `<ENV>` in the exit evidence.
+      env: Object.entries(ctx.env ?? {})
+        .filter(([name, value]) => typeof value === "string" && !operationalSwitch(name))
+        .map(([name, value]) => [name, value as string] as [string, string]),
     },
     (_error: unknown, batch: string) => bridge.deliver(batch),
   );
@@ -620,4 +622,9 @@ function asString(value: unknown, fallback = ""): string {
 
 function hostName(): string {
   return process.env.HOSTNAME ?? "";
+}
+
+/** ace's own switches and level knobs: read by the daemon, never redacted. */
+function operationalSwitch(name: string): boolean {
+  return name.startsWith("ACE_") && !/(TOKEN|SECRET|KEY|PASSWORD|BEARER)/.test(name);
 }
