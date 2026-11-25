@@ -15,6 +15,7 @@ use super::state::Session;
 use crate::translate::retention::RecentSet;
 use tasks::{QueueRead, Reconcile};
 
+mod fold;
 mod read;
 mod tasks;
 
