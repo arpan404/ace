@@ -65,8 +65,7 @@ extension EnvironmentValues {
     @Entry var readBubble: (@MainActor (String) async throws -> String)? = nil
 }
 
-/// A message another thread's agent sent, as the web draws it: the person's bubble of its words
-/// (without ace's frame), folded to a few lines, under a quiet line naming the sender: its
+/// A message another thread's agent sent, in a neutral bubble under a quiet line naming the sender: its
 /// provider's mark and "Sent by <title>", with " · <machine>" when the sender is on another
 /// machine. A local sender reads by its current title in the thread list. The line opens the
 /// sender: on this machine, or on its paired machine while that one is connected here; a sender
@@ -82,7 +81,7 @@ struct SentMessageRow: View {
             senderLine
             if sent.bubble.readable {
                 // Its words copy as written; Edit, Fork and Retry belong to the person's own messages.
-                UserBubble(text: words(of: sent.bubble), bubble: sent.bubble, id: row.id, caret: true)
+                UserBubble(text: words(of: sent.bubble), bubble: sent.bubble, id: row.id, style: .neutral, caret: true)
                     .modifier(BubbleMenu(text: words(of: sent.bubble), cut: sent.bubble.cut == true, id: row.id))
             }
         }
@@ -180,12 +179,22 @@ private struct MessageEyebrow: View {
 /// first lines under a fade (the bridge's `fold`: ten of the person's words, four of a brief
 /// another thread sent), with Show more / Show less.
 struct UserBubble: View {
+    @MainActor enum Style {
+        case person, neutral
+
+        var ink: Color { self == .person ? AceDesign.Ink.onAccent : AceDesign.Ink.primary }
+        var secondaryInk: Color { self == .person ? AceDesign.Ink.onAccent : AceDesign.Ink.muted }
+        var rule: Color {
+            self == .person ? AceDesign.Ink.onAccent.opacity(AceDesign.Ink.recede) : AceTheme.Colours.separator
+        }
+    }
+
     /// What the bubble leaves free beside it: about a fifth of a phone's column.
     static let inset = AceDesign.Space.section * 2 + AceDesign.Space.related
     let text: String
     var bubble: BubbleLine? = nil
     var id = ""
-    /// Show more / Show less carry a caret: most of a brief another thread sent is folded away.
+    var style: Style = .person
     var caret = false
     @State private var open = false
     /// Rendered markdown's drawn height: it folds by what it draws, as on the web.
@@ -204,10 +213,10 @@ struct UserBubble: View {
             VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
                 // What it replies to shares the words' leading edge, above them.
                 VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-                    if let quotes = bubble?.quotes, !quotes.isEmpty { BubbleQuotes(quotes: quotes) }
+                    if let quotes = bubble?.quotes, !quotes.isEmpty { BubbleQuotes(quotes: quotes, style: style) }
                     // Full height, then clipped: the fold cuts the text rather than squeezing it.
                     if bubble?.readable != false {
-                        BubbleText(text: text, bubble: bubble)
+                        BubbleText(text: text, bubble: bubble, style: style)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                                 if markdown { drawn = height }
@@ -236,16 +245,25 @@ struct UserBubble: View {
                     }
                         .buttonStyle(.plain)
                         .aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(AceDesign.Typeface.regular)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .foregroundStyle(style.secondaryInk)
                         .frame(minHeight: AceDesign.Space.group)
                         .contentShape(Rectangle())
                         .accessibilityValue(open ? "Expanded" : "Collapsed")
                         .accessibilityIdentifier("message.fold.\(id)")
                 }
             }
-            .padding(.horizontal, AceDesign.Space.bubbleH).padding(.vertical, AceDesign.Space.bubbleV)
-            // The raised fill with 19pt continuous corners, as the approved mockup draws it.
-            .background(AceDesign.Surface.group, in: RoundedRectangle(cornerRadius: AceDesign.Size.bubbleCorner, style: .continuous))
+            .foregroundStyle(style.ink)
+            .padding(.horizontal, style == .person ? AceDesign.Space.margin : AceDesign.Space.bubbleH)
+            .padding(.vertical, style == .person ? AceDesign.Space.row : AceDesign.Space.bubbleV)
+            .background {
+                switch style {
+                case .person:
+                    AceDesign.Shape.bubble.fill(AceDesign.Surface.personBubble)
+                case .neutral:
+                    RoundedRectangle(cornerRadius: AceDesign.Size.bubbleCorner, style: .continuous)
+                        .fill(AceDesign.Surface.group)
+                }
+            }
         }
     }
 }
@@ -254,17 +272,18 @@ struct UserBubble: View {
 /// words set off by a rule, muted, to three lines, as the web's quotes card draws them.
 private struct BubbleQuotes: View {
     let quotes: [BubbleLine.Quote]
+    let style: UserBubble.Style
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             ForEach(Array(quotes.enumerated()), id: \.offset) { _, quote in
                 Text(verbatim: quote.text)
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .foregroundStyle(style.secondaryInk)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, AceDesign.Space.related)
                     .overlay(alignment: .leading) {
-                        Rectangle().fill(AceTheme.Colours.separator).frame(width: 2)
+                        Rectangle().fill(style.rule).frame(width: AceTheme.Spacing.xxs)
                     }
             }
         }
@@ -279,11 +298,12 @@ private struct BubbleQuotes: View {
 private struct BubbleText: View {
     let text: String
     let bubble: BubbleLine?
+    let style: UserBubble.Style
     private enum Piece { case prose(AttributedString), code(String) }
     var body: some View {
         if let markdown = bubble?.markdown, !markdown.isEmpty {
             // Copy and Select text are the bubble's long-press menu, so the text isn't selectable.
-            AceMarkdown(text: markdown, selectable: false)
+            AceMarkdown(text: markdown, selectable: false, tone: style == .person ? .onAccent : .body)
         } else {
             runs
         }
@@ -300,9 +320,12 @@ private struct BubbleText: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight)
                     }
-                    // Concentric with the bubble: its radius less the bubble's padding.
-                    .background(AceDesign.Surface.nested,
-                                in: AceShape.bubbleInset)
+                    .background {
+                        if style == .neutral { AceShape.bubbleInset.fill(AceDesign.Surface.nested) }
+                    }
+                    .overlay {
+                        if style == .person { AceShape.bubbleInset.stroke(style.rule, lineWidth: AceDesign.Space.hair) }
+                    }
                 }
             }
         }
@@ -319,7 +342,8 @@ private struct BubbleText: View {
                 pieces.append(.code(segment.text))
             case "mention":
                 var chip = AttributedString("\u{2009}\(segment.text)\u{2009}")
-                chip.backgroundColor = AceTheme.Colours.separator
+                chip.backgroundColor = style == .person ? AceDesign.Ink.onAccent : AceTheme.Colours.separator
+                if style == .person { chip.foregroundColor = AceDesign.Surface.personBubble }
                 chip.inlinePresentationIntent = .stronglyEmphasized
                 prose.append(chip)
             default:

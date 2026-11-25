@@ -145,6 +145,7 @@ function liveServices() {
   const services: ProtectionOwner["services"] = {
     engine: {
       hasSession: (thread) => sessions.has(thread),
+      hasState: () => true,
       liveWork: (thread) => ({ agentsRunning: agents.has(thread) ? 1 : 0, operationsRunning: 0 }),
     },
     workspaceActions: { hasOwnedWork: (thread) => owned.has(thread) },
