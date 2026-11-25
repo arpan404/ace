@@ -12,7 +12,7 @@ use ace_devices::platform::{
 };
 use napi_derive::napi;
 
-use super::answered;
+use super::{answered, answered_async};
 
 /// One `pid_<pid>.ini` the shell read from the emulator's running directory.
 #[napi(object)]
@@ -335,6 +335,59 @@ pub fn device_platform_android_dimensions(output: String) -> napi::Result<String
         ace_devices::platform::commands::android_dimensions(&output)
             .map(|(width, height)| Size { width, height })
     })
+}
+
+/// `tools-entry`: downloads, checks and unpacks serve-sim and the scrcpy server off the
+/// JavaScript thread, with today's URLs, checksums, limits, staging paths and atomic rename.
+#[napi]
+pub async fn device_platform_install_tools(request: String) -> napi::Result<String> {
+    let request: ace_devices::platform::serve_sim::InstallRequest = parse(&request)?;
+    answered_async(ace_devices::platform::serve_sim::install(request)).await
+}
+
+/// `managedServeSim`: ace's own serve-sim when the pinned install is in place.
+#[napi]
+pub fn device_platform_managed_serve_sim(
+    directory: String,
+    node: String,
+    artifacts: Option<String>,
+) -> napi::Result<String> {
+    let artifacts = match artifacts.as_deref() {
+        Some(text) => parse(text)?,
+        None => ace_devices::platform::serve_sim::artifacts(),
+    };
+    answered(|| {
+        Ok(ace_devices::platform::serve_sim::managed(
+            &directory, &node, &artifacts,
+        ))
+    })
+}
+
+/// `serveSimVersion`: the version a serve-sim executable printed, when it exited cleanly.
+#[napi]
+pub fn device_platform_serve_sim_version(code: Option<i32>, output: String) -> Option<String> {
+    if code != Some(0) {
+        return None;
+    }
+    ace_devices::platform::serve_sim::version(&output)
+}
+
+/// `serveSimSupported`: ace runs only the versions it was checked against.
+#[napi]
+pub fn device_platform_serve_sim_supported(version: Option<String>) -> bool {
+    ace_devices::platform::serve_sim::supported(version.as_deref())
+}
+
+/// `replacesHelper`: whether a running helper is ace's own copy of another serve-sim.
+#[napi]
+pub fn device_platform_replaces_helper(command_line: String, version: String) -> bool {
+    ace_devices::platform::serve_sim::replaces_helper(&command_line, &version)
+}
+
+/// `Simulators.list`: `simctl list devices --json`'s available Simulators.
+#[napi]
+pub fn device_platform_simulator_list(output: String) -> napi::Result<String> {
+    answered(|| ace_devices::platform::simulators::list(&output))
 }
 
 /// The one refusal `key` renders, for the check that both backends read one catalog.

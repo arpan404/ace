@@ -15,6 +15,30 @@ mod inventory;
 
 use serde::Serialize;
 
+/// [`answered`] for a task the native runtime runs: the same one-line answer, awaited off the
+/// JavaScript thread.
+pub(super) async fn answered_async<T: Serialize>(
+    run: impl std::future::Future<Output = Result<T, ace_devices::platform::Error>>,
+) -> napi::Result<String> {
+    fn text<T: Serialize>(value: &T) -> napi::Result<String> {
+        ace_json::ser::to_string(value)
+            .map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
+    }
+    let caught = std::panic::AssertUnwindSafe(run);
+    match caught.await {
+        Ok(value) => Ok(format!("{{\"ok\":true,\"value\":{}}}", text(&value)?)),
+        Err(ace_devices::platform::Error::Refused(refusal)) => {
+            Ok(format!("{{\"ok\":false,\"error\":{}}}", text(&refusal)?))
+        }
+        Err(ace_devices::platform::Error::Failed(failure)) => {
+            Ok(format!("{{\"ok\":false,\"error\":{}}}", text(&failure)?))
+        }
+        Err(ace_devices::platform::Error::Invalid(detail)) => {
+            Err(napi::Error::from_reason(format!("ace-devices: {detail}")))
+        }
+    }
+}
+
 /// An answer the shell parses: the value on success, or the failure's code, message and hint.
 /// Each side is serialized by `ace-json`, so a device name keeps its UTF-16 units, lone
 /// surrogate included, instead of passing through serde_json's UTF-8 strings.

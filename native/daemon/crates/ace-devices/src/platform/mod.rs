@@ -14,6 +14,8 @@ pub mod identity;
 pub mod lifecycle;
 pub mod list;
 pub mod sdk;
+pub mod serve_sim;
+pub mod simulators;
 pub mod tools;
 pub mod words;
 

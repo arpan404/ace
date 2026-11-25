@@ -10,9 +10,15 @@ const Device = z.object({
 });
 const Devices = z.object({ devices: z.record(z.string(), z.array(Device).max(1024)) });
 export type Simulator = z.infer<typeof Device> & { runtime: string };
+/**
+ * What turns `simctl list devices --json` into the devices, when the caller decides (the native
+ * platform asks `ace-devices`, which keeps every name as a JavaScript string).
+ */
+export type SimulatorParser = (output: string) => Simulator[];
 export class Simulators {
   private readonly probe: typeof probeOutput;
   private readonly platform: string;
+  private readonly parse: SimulatorParser | undefined;
   private active = 0;
   private async runProbe(
     command: string,
@@ -27,9 +33,10 @@ export class Simulators {
       this.active--;
     }
   }
-  constructor(platform: string, probe: typeof probeOutput = probeOutput) {
+  constructor(platform: string, probe: typeof probeOutput = probeOutput, parse?: SimulatorParser) {
     this.platform = platform;
     this.probe = probe;
+    this.parse = parse;
   }
   async list(): Promise<Simulator[]> {
     if (this.platform !== "darwin") return [];
@@ -37,6 +44,7 @@ export class Simulators {
       maxBytes: 1024 * 1024,
     });
     if (output.code !== 0) throw new Error("Simulator discovery failed");
+    if (this.parse) return this.parse(output.stdout);
     return Object.entries(Devices.parse(JSON.parse(output.stdout)).devices).flatMap(
       ([runtime, devices]) =>
         devices

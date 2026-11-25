@@ -2,10 +2,10 @@ import { deviceInputTimeout } from "./input-budget.ts";
 import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { extname, isAbsolute } from "node:path";
 import { z } from "zod";
-import { Simulators, type ScreenManager } from "@ace/screen";
+import { Simulators, type ScreenManager, type Simulator } from "@ace/screen";
 import { probeOutput, spawnRawSupervised, spawnSupervised } from "@ace/provider-kit/process";
 import { findExecutable } from "@ace/provider-kit/discovery";
-import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
+import { deviceInventoryBackend, devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import {
   AppDevice as DeviceSchema,
   DeviceInput as InputSchema,
@@ -23,7 +23,8 @@ import { EmulatorPostures, type EmulatorConsole } from "./android-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { unavailableImages, type ImageWork } from "@ace/media/images";
 import { modelImageRuntime, type ModelImageRuntime } from "@ace/mcp-server";
-import { catalogRefusal, DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
+import { catalogRefusal, DeviceError, deviceAnswer, resolveXcode, type SDKOptions } from "./sdk.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
 import { iosNeedsMac } from "./sdk.ts";
 import {
   adbShell,
@@ -234,18 +235,27 @@ export class DevicePlatformBase {
     }
   }
   private iosSimulators(authorize?: () => void) {
-    return new Simulators(this.options.platform, async (command, args, probeOptions) => {
-      const xcode = await this.xcode();
-      authorize?.();
-      return this.run(
-        command === "xcrun" ? xcode.xcrun : xcode.open,
-        args,
-        probeOptions?.maxBytes,
-        args.includes("boot") || args.includes("bootstatus") ? 240_000 : undefined,
-        undefined,
-        authorize,
-      );
-    });
+    const parse =
+      devicePlatformBackend() === "native"
+        ? (output: string) =>
+            deviceAnswer<Simulator[]>(() => nativeDevices().devicePlatformSimulatorList(output))
+        : undefined;
+    return new Simulators(
+      this.options.platform,
+      async (command, args, probeOptions) => {
+        const xcode = await this.xcode();
+        authorize?.();
+        return this.run(
+          command === "xcrun" ? xcode.xcrun : xcode.open,
+          args,
+          probeOptions?.maxBytes,
+          args.includes("boot") || args.includes("bootstatus") ? 240_000 : undefined,
+          undefined,
+          authorize,
+        );
+      },
+      parse,
+    );
   }
 
   protected xcode() {
@@ -355,9 +365,9 @@ export class DevicePlatformBase {
   }
   /** The platform's injected clock, in the order `probeOutput` takes it. */
   private probeSchedule(): ((run: () => void, ms: number) => () => void) | undefined {
-    if (!this.nativeProbes()) return undefined;
     const after = this.options.after;
-    return after ? (run, ms) => after(ms, run) : undefined;
+    if (!this.nativeProbes() || after === undefined) return undefined;
+    return (run, ms) => after(ms, run);
   }
   protected async run(
     command: string,
@@ -381,13 +391,11 @@ export class DevicePlatformBase {
       this.controller.signal.throwIfAborted();
       signal?.throwIfAborted();
       authorize?.();
-      const schedule = this.probeSchedule();
       const output = await this.probe(command, args, {
         env: this.options.env,
         maxBytes,
         timeoutMs,
         signal: signal ? AbortSignal.any([signal, this.controller.signal]) : this.controller.signal,
-        ...(schedule ? { schedule } : {}),
       });
       if (output.code !== 0)
         throw new DeviceError(

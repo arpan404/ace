@@ -1,8 +1,14 @@
 import { fileURLToPath } from "node:url";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import { DeviceFailure } from "@ace/protocol/devices";
 import { ToolsReply, type ToolsRequest } from "./device-tools-wire.ts";
 import type { DeviceRuntime } from "./runtime.ts";
-import { DeviceError } from "./sdk.ts";
+import { DeviceError, deviceAnswer } from "./sdk.ts";
+import {
+  nativeDevices,
+  type ToolsInstallRequest,
+  type ToolsInstallReply,
+} from "./native-devices-addon.ts";
 import type { ServeSimCommand } from "./serve-sim-install.ts";
 
 /** A download that hasn't finished in this long is stopped (slow links get a long allowance). */
@@ -39,6 +45,7 @@ export async function downloadDeviceTools(
   options: DeviceToolsOptions,
   wants: Pick<ToolsRequest, "serveSim" | "scrcpy">,
 ): Promise<DeviceTools> {
+  if (devicePlatformBackend() === "native") return downloadNatively(options, wants);
   const request: ToolsRequest = {
     directory: options.directory,
     node: options.node,
@@ -97,6 +104,29 @@ export async function downloadDeviceTools(
       reply.error.hint,
     );
   }
+  return {
+    ...(reply.serveSim ? { serveSim: reply.serveSim } : {}),
+    ...(reply.scrcpy ? { scrcpy: reply.scrcpy } : {}),
+  };
+}
+
+/**
+ * The same download on the native runtime (D3.1): `ace-devices` fetches, checks and unpacks off
+ * the JavaScript thread, with the budget the platform's plan set.
+ */
+async function downloadNatively(
+  options: DeviceToolsOptions,
+  wants: Pick<ToolsRequest, "serveSim" | "scrcpy">,
+): Promise<DeviceTools> {
+  const request: ToolsInstallRequest = {
+    directory: options.directory,
+    node: options.node,
+    ...wants,
+    ...(options.artifacts ? { artifacts: options.artifacts } : {}),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  };
+  const text = await nativeDevices().devicePlatformInstallTools(JSON.stringify(request));
+  const reply = deviceAnswer<ToolsInstallReply>(() => text);
   return {
     ...(reply.serveSim ? { serveSim: reply.serveSim } : {}),
     ...(reply.scrcpy ? { scrcpy: reply.scrcpy } : {}),

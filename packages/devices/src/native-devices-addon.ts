@@ -99,6 +99,31 @@ export interface ToolsPlan {
   timeoutMs: number;
 }
 
+/** One tools install, as `tools-entry` took its request. */
+export interface ToolsInstallRequest {
+  directory: string;
+  node: string;
+  serveSim: boolean;
+  scrcpy: boolean;
+  artifacts?: { serveSim: NpmArtifact; ws: NpmArtifact };
+  timeoutMs?: number;
+}
+
+/** One npm package tarball the tool install downloads. */
+export interface NpmArtifact {
+  name: string;
+  version: string;
+  url: string;
+  integrity: string;
+}
+
+/** What a native tools install left in place, or why not. */
+export interface ToolsInstallReply {
+  serveSim?: { command: string; args: string[] };
+  scrcpy?: string;
+  error?: { code: string; message: string; hint: string };
+}
+
 /** An emulator's gRPC endpoint, when it serves one ace may use. */
 export interface GrpcEndpoint {
   port: number;
@@ -177,6 +202,12 @@ interface DevicesAddon {
   ): string;
   devicePlatformAndroidDimensions(output: string): string;
   devicePlatformCatalogWord(key: string): string;
+  devicePlatformInstallTools(request: string): Promise<string>;
+  devicePlatformManagedServeSim(directory: string, node: string, artifacts?: string): string;
+  devicePlatformServeSimVersion(code: number | null, output: string): string | null;
+  devicePlatformServeSimSupported(version: string | null): boolean;
+  devicePlatformReplacesHelper(commandLine: string, version: string): boolean;
+  devicePlatformSimulatorList(output: string): string;
 }
 
 const library =

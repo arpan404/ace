@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 import { z } from "zod";
 import type { DeviceRuntime } from "./runtime.ts";
-import { DeviceError } from "./sdk.ts";
+import { DeviceError, deviceAnswer } from "./sdk.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
 import { pinnedServeSim } from "./serve-sim-version.ts";
 
 /** One npm package tarball ace downloads, pinned by version and the registry's sha512. */
@@ -61,6 +63,16 @@ const installDirectory = (options: ServeSimInstall, artifacts: { serveSim: NpmAr
 export async function managedServeSim(
   options: ServeSimInstall,
 ): Promise<ServeSimCommand | undefined> {
+  if (devicePlatformBackend() === "native")
+    return (
+      deviceAnswer<ServeSimCommand | null>(() =>
+        nativeDevices().devicePlatformManagedServeSim(
+          options.directory,
+          options.node,
+          options.artifacts ? JSON.stringify(options.artifacts) : undefined,
+        ),
+      ) ?? undefined
+    );
   const artifacts = options.artifacts ?? serveSimArtifacts;
   const root = installDirectory(options, artifacts);
   try {

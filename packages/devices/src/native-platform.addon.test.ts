@@ -8,8 +8,11 @@
  * Run with the switch on: `ACE_DEVICE_PLATFORM=native ACE_SUPERVISOR=native bun --bun x vitest
  * run packages/devices/src/native-platform.addon.test.ts`.
  */
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
-import { describe, expect, test } from "vitest";
+import { describe, expect, onTestFinished, test } from "vitest";
 import {
   type AndroidBoot,
   type DeviceRecord,
@@ -23,6 +26,7 @@ import {
   nativeDevices,
 } from "./native-devices-addon.ts";
 import { NativeDevicePlatform } from "./native-platform.ts";
+import { serveSimArtifacts } from "./serve-sim-install.ts";
 
 const UDID = "11111111-1111-4111-8111-111111111111";
 
@@ -174,6 +178,86 @@ describe.runIf(devicePlatformBackend() === "native")("the built addon's plans", 
     internals.android = { list: async () => [] };
     const devices = await platform.list();
     expect(devices.map((device) => device.id)).toEqual([`ios:${UDID}`]);
+  });
+
+  test("a managed serve-sim is found only with the pinned marker and script", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-managed-serve-sim-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    expect(
+      answered<{ command: string; args: string[] } | null>(() =>
+        addon().devicePlatformManagedServeSim(root, "/bin/node"),
+      ),
+    ).toBeNull();
+    const install = join(root, `serve-sim-${serveSimArtifacts.serveSim.version}`);
+    await mkdir(join(install, "dist"), { recursive: true });
+    await writeFile(join(install, "dist", "serve-sim.js"), "script");
+    await writeFile(
+      join(install, ".ace-install.json"),
+      JSON.stringify({
+        serveSim: serveSimArtifacts.serveSim.integrity,
+        ws: serveSimArtifacts.ws.integrity,
+      }),
+    );
+    const command = answered<{ command: string; args: string[] } | null>(() =>
+      addon().devicePlatformManagedServeSim(root, "/bin/node"),
+    );
+    expect(command?.command).toBe("/bin/node");
+    expect(command?.args[0]).toBe(join(install, "dist", "serve-sim.js"));
+  });
+
+  test("simctl's list parses into the available Simulators", () => {
+    const listed = answered<Record<string, unknown>[]>(() =>
+      addon().devicePlatformSimulatorList(
+        JSON.stringify({
+          devices: {
+            "com.apple.CoreSimulator.SimRuntime.iOS-18-0": [
+              {
+                udid: UDID,
+                name: "iPhone \ud800 Pro",
+                state: "Booted",
+                isAvailable: true,
+                deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+              },
+              {
+                udid: "22222222-2222-4222-8222-222222222222",
+                name: "Gone",
+                state: "Shutdown",
+                isAvailable: false,
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      name: "iPhone \ud800 Pro",
+      runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+      isAvailable: true,
+    });
+  });
+
+  test("a serve-sim version is parsed and accepted by the pinned list", () => {
+    expect(addon().devicePlatformServeSimVersion(0, "v0.1.49-beta.139.1\n")).toBe(
+      "0.1.49-beta.139.1",
+    );
+    expect(addon().devicePlatformServeSimVersion(1, "v0.1.49-beta.139.1\n")).toBeNull();
+    expect(addon().devicePlatformServeSimVersion(0, "serve-sim 0.1.49")).toBeNull();
+    expect(addon().devicePlatformServeSimSupported("0.1.49-beta.139.1")).toBe(true);
+    expect(addon().devicePlatformServeSimSupported("0.1.48")).toBe(false);
+    expect(addon().devicePlatformServeSimSupported(null)).toBe(false);
+  });
+
+  test("a helper of ace's older copy is the one replaced", () => {
+    expect(
+      addon().devicePlatformReplacesHelper(
+        "/usr/bin/node /home/a/.ace/tools/serve-sim-0.1.48/dist/serve-sim.js -l ABCD",
+        "0.1.49-beta.139.1",
+      ),
+    ).toBe(true);
+    expect(
+      addon().devicePlatformReplacesHelper("/usr/local/bin/serve-sim -l ABCD", "0.1.49-beta.139.1"),
+    ).toBe(false);
   });
 
   test("records keep a name's lone surrogate", () => {
