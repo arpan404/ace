@@ -67,7 +67,7 @@ impl NativeEngine {
             .insert(thread_id.clone(), Rc::clone(&log));
         ace_engine::actor::get_or_create(core, &thread_id).map_err(engine_error)?;
         core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(&thread_id) {
+            if let Some(mut actor) = state.actors.get_mut(&thread_id) {
                 actor.session_attached = true;
                 if let Some(generation) = generation {
                     actor.generation = generation as u64;
@@ -95,7 +95,7 @@ impl NativeEngine {
         let core = self.engine.core();
         let retired = core
             .with_state(|state| {
-                state.actors.by_thread.get_mut(&thread_id).map(|actor| {
+                state.actors.get_mut(&thread_id).map(|mut actor| {
                     let generation = actor.retire_generation();
                     actor.generation = generation + 1;
                     generation

@@ -64,13 +64,7 @@ fn tool_boundary(fact: &Value) -> bool {
 /// `fold_batch` (`actor.ts:367`–`:426`).
 pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Result<(), EngineError> {
     let generation = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .map(|actor| actor.generation)
-        })?
+        .with_state(|state| state.actors.get(thread).map(|actor| actor.generation))?
         .unwrap_or(0);
     fold_batch_for(core, thread, generation, op)
 }
@@ -336,13 +330,7 @@ pub fn apply(core: &Rc<Core>, thread: &ThreadId, facts: &[Value]) -> Result<(), 
     let deps = core.actor_deps.borrow().clone();
     let now = core.ports.now();
     let generation = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .map(|actor| actor.generation)
-        })?
+        .with_state(|state| state.actors.get(thread).map(|actor| actor.generation))?
         .unwrap_or(0);
     deps.repo.apply(core, thread, facts, now, generation)?;
     if facts.iter().any(is_process_exit) {
@@ -353,8 +341,8 @@ pub fn apply(core: &Rc<Core>, thread: &ThreadId, facts: &[Value]) -> Result<(), 
     // The actor's own bookkeeping is re-read after each call that can re-enter.
     core.with_state(|state| {
         let limits = state.limits;
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            flow::update_pressure(actor, &limits);
+        if let Some(mut actor) = state.actors.get_mut(thread) {
+            flow::update_pressure(&mut actor, &limits);
         }
     })
     .ok();

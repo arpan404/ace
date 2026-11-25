@@ -33,11 +33,16 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     // The victims stop the way the TypeScript's eviction stopped them: their leases release,
     // their drains resolve, and every acknowledgement they still hold settles as failed.
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    for (_, mut actor) in aside {
-        let id = actor.id.clone();
-        let generation = actor.generation;
-        let instance = actor.instance;
-        let ops = take_ops(&mut actor);
+    for (_, _, actor) in aside {
+        let (id, generation, instance, ops) = {
+            let mut state = actor.borrow_mut();
+            (
+                state.id.clone(),
+                state.generation,
+                state.instance,
+                take_ops(&mut state),
+            )
+        };
         stop_aside(core, &deps, actor);
         // A parked task of an evicted victim wakes once to see it owns nothing.
         core.record_wake(&id);
@@ -46,11 +51,11 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     }
     core.with_state(|state| {
         state.actors.reserved.shift_remove(&thread);
+        if let Some(seat) = state.actors.seats.get_mut(&thread) {
+            seat.provisional = false;
+        }
         for victim in &promotion.pledges {
             state.actors.pledges.shift_remove(victim);
-        }
-        if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
-            actor.provisional = false;
         }
     })
     .ok();
@@ -65,8 +70,8 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
     crate::actor::stop(core, thread);
     let taken = core
         .with_state(|state| {
-            state.actors.by_thread.get_mut(thread).map(|actor| {
-                let ops = take_ops(actor);
+            state.actors.get_mut(thread).map(|mut actor| {
+                let ops = take_ops(&mut actor);
                 (ops, actor.generation, actor.instance)
             })
         })
@@ -75,10 +80,10 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
         .unwrap_or_default();
     let (ops, generation, instance) = taken;
     let actor = core
-        .with_state(|state| state.actors.by_thread.shift_remove(thread))
+        .with_state(|state| state.actors.remove(thread))
         .ok()
         .flatten();
-    if let Some(actor) = actor {
+    if let Some((actor, _)) = actor {
         stop_aside(core, &deps, actor);
     }
     // The evicted actor's task parks on its timer; waking it lets it see it owns nothing.
@@ -87,7 +92,7 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
 }
 
 /// Takes an actor's accepted work: unsealed pending frames become one batch, then the mailbox.
-fn take_ops(actor: &mut state::Actor) -> Vec<mailbox::Op> {
+fn take_ops(actor: &mut state::ActorInstance) -> Vec<mailbox::Op> {
     let mut ops = Vec::new();
     if !actor.pending.is_empty() {
         let frames = std::mem::take(&mut actor.pending);
@@ -160,19 +165,26 @@ fn reject_rest(core: &Rc<Core>, queue: impl Iterator<Item = mailbox::Op>) {
 
 /// Stops an actor that a promotion moved aside: what `stop()` does, for one that is no longer
 /// in the map.
-fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, mut actor: state::Actor) {
-    let tokens: Vec<u64> = actor.leases.keys().copied().collect();
+fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, actor: state::ActorRef) {
+    let (tokens, drains, timer, id) = {
+        let mut state = actor.borrow_mut();
+        (
+            state.leases.keys().copied().collect::<Vec<_>>(),
+            std::mem::take(&mut state.drains),
+            state.timer.take(),
+            state.id.clone(),
+        )
+    };
     if !tokens.is_empty() {
         deps.links.release_leases(core, &tokens);
     }
-    for drain in actor.drains.drain(..) {
+    for drain in drains {
         let _ = drain.send(());
     }
-    if let Some((timer, _)) = actor.timer.as_ref() {
+    if let Some((timer, _)) = timer {
         core.ports.cancel_timer(timer.key);
     }
-    let id = actor.id.clone();
-    state::discard_acks(core, actor);
+    state::discard_acks(core, &actor);
     deps.repo.evict(core, &id);
 }
 
@@ -188,19 +200,23 @@ pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usiz
             state.actors.reserved.shift_remove(&created);
             // Only the provisional actor this promotion created is discarded: by now another
             // promotion's rollback may have restored this thread's committed actor in its place.
-            match state.actors.by_thread.get(&created) {
-                Some(actor) if actor.provisional => state.actors.by_thread.shift_remove(&created),
-                _ => None,
-            }
+            state
+                .actors
+                .seats
+                .get(&created)
+                .is_some_and(|seat| seat.provisional)
+                .then(|| state.actors.remove(&created))
+                .flatten()
         })
         .ok()
         .flatten();
     let mut aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    aside.sort_unstable_by_key(|(index, _)| *index);
-    for (index, actor) in aside {
-        let id = actor.id.clone();
+    aside.sort_unstable_by_key(|(index, _, _)| *index);
+    for (index, seat, actor) in aside {
+        let id = actor.borrow().id.clone();
         core.with_state(|state| {
             let at = index.min(state.actors.by_thread.len());
+            state.actors.seats.insert(id.clone(), seat);
             state.actors.by_thread.shift_insert(at, id, actor);
         })
         .ok();
@@ -208,16 +224,19 @@ pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usiz
     // Restored actors go back to their old seats, so a transaction that pledged two victims
     // restores the same order it found, whatever order its promotions drop in.
     core.with_state(|state| {
-        state
-            .actors
+        let actors = &mut state.actors;
+        actors
             .by_thread
-            .sort_by(|_, left, _, right| left.seat.cmp(&right.seat))
+            .sort_by(|left, _, right, _| actors.seats[left].order.cmp(&actors.seats[right].order));
     })
     .ok();
     let mut counts = (0, 0);
-    if let Some(actor) = discarded {
-        counts = (actor.staged.len(), actor.mailbox.len());
-        state::discard_acks(core, actor);
+    if let Some((actor, _)) = discarded {
+        counts = {
+            let state = actor.borrow();
+            (state.staged.len(), state.mailbox.len())
+        };
+        state::discard_acks(core, &actor);
     }
     counts
 }

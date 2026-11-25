@@ -49,7 +49,7 @@ fn fired(timer: &mut crate::ports::Timer) -> bool {
 /// and a fired batch timer seals.
 pub fn catch_up(core: &Rc<Core>, thread: &ThreadId) {
     let fired_now = core.with_state(|state| {
-        let Some(actor) = state.actors.by_thread.get_mut(thread) else {
+        let Some(mut actor) = state.actors.get_mut(thread) else {
             return (false, false);
         };
         let tick = actor.timer.as_mut().is_some_and(|(timer, _)| fired(timer));
@@ -73,7 +73,7 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     let mut input = input;
     let mut native_ack = input.native_ack.take();
     let state = core.with_state(|state| {
-        state.actors.by_thread.get(thread).map(|actor| {
+        state.actors.get(thread).map(|actor| {
             (
                 actor.stopped,
                 actor.generation,
@@ -140,7 +140,6 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .is_some_and(|actor| actor.pending_ack.is_none())
         })
@@ -153,14 +152,14 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     let decision = core
         .with_state(|state| {
             let limits = state.limits;
-            let actor = state.actors.by_thread.get_mut(thread)?;
+            let mut actor = state.actors.get_mut(thread)?;
             actor.pending.push(Pending {
                 frame: input.frame,
                 generation,
                 bytes,
             });
             actor.pending_bytes += bytes;
-            flow::update_pressure(actor, &limits);
+            flow::update_pressure(&mut actor, &limits);
             let ack = actor.pending_ack.get_or_insert_with(BatchAck::default);
             if let Some(sender) = native_ack {
                 ack.native.push(sender);
@@ -234,7 +233,7 @@ fn enqueue_failure(core: &Rc<Core>, thread: &ThreadId, message: String) {
 fn after_flush(core: &Rc<Core>, thread: &ThreadId) -> oneshot::Receiver<()> {
     let (sender, receiver) = oneshot::channel();
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.flush_waiters.push(sender);
         }
     })
@@ -248,7 +247,6 @@ pub fn arm_batch_timer(core: &Rc<Core>, thread: &ThreadId) {
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .is_some_and(|actor| actor.batch_timer.is_none())
         })
@@ -258,7 +256,7 @@ pub fn arm_batch_timer(core: &Rc<Core>, thread: &ThreadId) {
     }
     let timer = core.ports.set_batch_timer(1.0);
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.batch_timer = Some(timer);
         }
     })
@@ -269,7 +267,7 @@ pub fn arm_batch_timer(core: &Rc<Core>, thread: &ThreadId) {
 /// `sealFrames()`'s take: cancel the batch timer and move the pending frames into one op.
 pub fn seal(core: &Rc<Core>, thread: &ThreadId) {
     let taken = core.with_state(|state| {
-        let actor = state.actors.by_thread.get_mut(thread)?;
+        let mut actor = state.actors.get_mut(thread)?;
         let timer = actor.batch_timer.take();
         if actor.pending.is_empty() {
             return Some((None, None));
@@ -307,7 +305,6 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .is_none_or(|actor| actor.stopped || actor.overflowed)
         })
@@ -321,7 +318,7 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
     let limits = core.with_state(|state| state.limits).unwrap_or_default();
     let over = core
         .with_state(|state| {
-            let actor = state.actors.by_thread.get(thread)?;
+            let actor = state.actors.get(thread)?;
             Some(
                 actor.queued + frames > limits.max_queued_frames as usize
                     || actor.queued_bytes + op.bytes > limits.max_queued_bytes as usize,
@@ -333,7 +330,7 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
     if over {
         release_handles(core, &op.frames);
         core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+            if let Some(mut actor) = state.actors.get_mut(thread) {
                 actor.overflowed = true;
                 actor.mailbox.push_back(mailbox::Op::Overflow);
             }
@@ -345,10 +342,10 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
     op.admitted = true;
     core.with_state(|state| {
         let limits = state.limits;
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.queued += frames;
             actor.queued_bytes += op.bytes;
-            flow::update_pressure(actor, &limits);
+            flow::update_pressure(&mut actor, &limits);
             actor.mailbox.push_back(mailbox::Op::Batch(Box::new(op)));
         }
     })
@@ -358,7 +355,7 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
 
 fn push_settle(core: &Rc<Core>, thread: &ThreadId, ack: BatchAck) {
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.mailbox.push_back(mailbox::Op::Settle(ack));
         }
     })

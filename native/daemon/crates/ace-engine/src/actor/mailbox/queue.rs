@@ -74,7 +74,7 @@ pub enum Next {
 fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<bool> {
     let limits = limits(core);
     core.with_state(|state| {
-        let actor = state.actors.by_thread.get(thread)?;
+        let actor = state.actors.get(thread)?;
         if actor.stopped || actor.overflowed {
             return Some(false);
         }
@@ -86,7 +86,7 @@ fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<
 
     let over = core
         .with_state(|state| {
-            let actor = state.actors.by_thread.get(thread)?;
+            let actor = state.actors.get(thread)?;
             Some(
                 actor.queued + frames > limits.max_queued_frames as usize
                     || actor.queued_bytes + bytes > limits.max_queued_bytes as usize,
@@ -97,7 +97,7 @@ fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<
         .unwrap_or(true);
     if over {
         core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+            if let Some(mut actor) = state.actors.get_mut(thread) {
                 actor.overflowed = true;
                 // Preserve the accepted prefix, then fail explicitly instead of dropping facts.
                 actor.mailbox.push_back(Op::Overflow);
@@ -108,10 +108,10 @@ fn admit(core: &Core, thread: &ThreadId, bytes: usize, frames: usize) -> Option<
     }
     core.with_state(|state| {
         let limits = state.limits;
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.queued += frames;
             actor.queued_bytes += bytes;
-            flow::update_pressure(actor, &limits);
+            flow::update_pressure(&mut actor, &limits);
         }
     })
     .ok();
@@ -144,7 +144,7 @@ pub(crate) fn admit_run(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
     };
     let run = atomic_run(run);
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.mailbox.push_back(Op::Run(Box::new(RunOp {
                 run,
                 bytes: 0,
@@ -165,7 +165,7 @@ fn stage(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
             let next = state.actors.next_slot;
             state.actors.next_slot += 1;
             let shared = Rc::new(RefCell::new(Staged::Pending));
-            if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+            if let Some(mut actor) = state.actors.get_mut(thread) {
                 actor.staged.insert(next, Rc::clone(&shared));
                 actor.mailbox.push_back(Op::Staged(next));
             }
@@ -179,7 +179,6 @@ fn stage(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .and_then(|actor| actor.staged.get(&slot).cloned())
         })
@@ -241,13 +240,7 @@ fn admit_staged(core: &Rc<Core>, thread: &ThreadId, slot: u64, run: Option<RunFn
     // charged to the actor restored in its place.
     let still_pending = core
         .with_state(|state| {
-            let shared = state
-                .actors
-                .by_thread
-                .get(thread)?
-                .staged
-                .get(&slot)?
-                .clone();
+            let shared = state.actors.get(thread)?.staged.get(&slot)?.clone();
             Some(matches!(*shared.borrow(), Staged::Pending))
         })
         .ok()
@@ -264,7 +257,6 @@ fn admit_staged(core: &Rc<Core>, thread: &ThreadId, slot: u64, run: Option<RunFn
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .and_then(|actor| actor.staged.get(&slot).cloned())
         })
@@ -287,7 +279,6 @@ fn discard_staged(core: &Core, thread: &ThreadId, slot: u64) {
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .and_then(|actor| actor.staged.get(&slot).cloned())
         })
@@ -303,7 +294,7 @@ fn discard_staged(core: &Core, thread: &ThreadId, slot: u64) {
 pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
     loop {
         let entry = core.with_state(|state| {
-            let actor = state.actors.by_thread.get_mut(thread)?;
+            let actor = state.actors.get(thread)?;
             let Some(front) = actor.mailbox.front() else {
                 return Some(None);
             };
@@ -322,7 +313,7 @@ pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
                 };
                 if !staged {
                     let op = core.with_state(|state| {
-                        let actor = state.actors.by_thread.get_mut(thread)?;
+                        let mut actor = state.actors.get_mut(thread)?;
                         let op = actor.mailbox.pop_front();
                         // The op is in flight until it settles, so a flush waits for it even
                         // while it is parked on the store's retry timer.
@@ -337,7 +328,7 @@ pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
                     };
                 }
                 let ready = core.with_state(|state| {
-                    let actor = state.actors.by_thread.get_mut(thread)?;
+                    let mut actor = state.actors.get_mut(thread)?;
                     let shared = actor.staged.get(&slot)?.clone();
                     let mut state_borrow = shared.borrow_mut();
                     match &mut *state_borrow {

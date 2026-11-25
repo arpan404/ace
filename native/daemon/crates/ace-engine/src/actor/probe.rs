@@ -28,9 +28,9 @@ pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> boo
         _ => false,
     };
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.running = false;
-            mailbox::resolve_flush_waiters(actor);
+            mailbox::resolve_flush_waiters(&mut actor);
         }
     })
     .ok();

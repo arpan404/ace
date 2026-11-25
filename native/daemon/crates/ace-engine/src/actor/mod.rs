@@ -26,7 +26,7 @@ pub use deps::{
 #[cfg(feature = "engine-probe")]
 pub use probe::run_op_opened;
 pub use promotion::restore_promotion;
-pub use state::{Actor, Actors, FrameRef, Pending};
+pub use state::{ActorInstance, ActorRef, Actors, FrameRef, Pending};
 pub use task::{drain_op, spawn_mailbox};
 pub use timer::keeps_timer;
 
@@ -58,8 +58,10 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
                 .actors
                 .by_thread
                 .iter()
-                .find(|(id, actor)| {
-                    !actor.provisional && !victims.contains(id) && !skipped.contains(id)
+                .find(|(id, _)| {
+                    !state.actors.seats[*id].provisional
+                        && !victims.contains(id)
+                        && !skipped.contains(id)
                 })
                 .map(|(id, _)| id.clone())
         })?;
@@ -100,15 +102,23 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
         state.actors.next_seat += 1;
         seat
     })?;
-    let mut actor = Actor::new(thread.clone(), generation, seat);
+    let mut actor = ActorInstance::new(thread.clone(), generation);
     actor.release_requested = released;
     actor.instance = core.with_state(|state| {
         let instance = state.actors.next_instance;
         state.actors.next_instance += 1;
         instance
     })?;
+    let actor = Rc::new(std::cell::RefCell::new(actor));
     if !open {
         core.with_state(|state| {
+            state.actors.seats.insert(
+                thread.clone(),
+                state::Seat {
+                    order: seat,
+                    provisional: open,
+                },
+            );
             state.actors.by_thread.insert(thread.clone(), actor);
         })?;
         spawn_mailbox(core, thread);
@@ -116,7 +126,7 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     }
     // Capture the victims' positions, then remove from the highest index down so the captured
     // positions stay exact. The kept-aside actors are restored there on a rollback.
-    let mut aside: Vec<(usize, Actor)> = Vec::new();
+    let mut aside = Vec::new();
     let mut positions: Vec<(usize, ThreadId)> = Vec::new();
     for victim in &victims {
         if let Some(index) = core.with_state(|state| state.actors.by_thread.get_index_of(victim))? {
@@ -125,17 +135,19 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     }
     positions.sort_unstable_by_key(|(index, _)| std::cmp::Reverse(*index));
     for (index, victim) in positions {
-        if let Some(victim_actor) =
-            core.with_state(|state| state.actors.by_thread.shift_remove(&victim))?
-        {
-            aside.push((index, victim_actor));
+        if let Some((victim_actor, seat)) = core.with_state(|state| state.actors.remove(&victim))? {
+            aside.push((index, seat, victim_actor));
         }
     }
     core.with_state(|state| {
+        state.actors.seats.insert(
+            thread.clone(),
+            state::Seat {
+                order: seat,
+                provisional: open,
+            },
+        );
         state.actors.by_thread.insert(thread.clone(), actor);
-        if let Some(created) = state.actors.by_thread.get_mut(thread) {
-            created.provisional = true;
-        }
         state.actors.reserved.insert(thread.clone(), ());
     })?;
     let promotion = Rc::new(state::Promotion {
@@ -167,7 +179,7 @@ pub fn stop(core: &Rc<Core>, thread: &ThreadId) {
     let deps = core.actor_deps.borrow().clone();
     let leases = core
         .with_state(|state| {
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
+            let Some(mut actor) = state.actors.get_mut(thread) else {
                 return Vec::new();
             };
             actor.stopped = true;
@@ -217,9 +229,9 @@ pub fn close_stop(core: &Rc<Core>) {
 
 /// Whether the actors hold no work E5.1 must wait for.
 pub fn quiescent(state: &State, exclude: Option<TaskId>) -> bool {
-    state.actors.by_thread.values().all(|actor| {
+    state.actors.live().all(|actor| {
         let own = exclude.is_some() && actor.mailbox_task == exclude;
-        mailbox::actor_quiescent(actor) || own
+        mailbox::actor_quiescent(&actor) || own
     })
 }
 

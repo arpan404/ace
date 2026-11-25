@@ -28,7 +28,7 @@ pub fn retain_input(core: &Core, thread: &ThreadId, token: u64, run_id: Option<S
     // A redelivered intent replaces its earlier lease; the earlier one is released, never lost.
     release_input(core, thread, token);
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.leases.insert(token, Lease { token, run_id });
         }
     })
@@ -41,9 +41,8 @@ pub fn release_input(core: &Core, thread: &ThreadId, token: u64) {
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get_mut(thread)
-                .and_then(|actor| actor.leases.shift_remove(&token))
+                .and_then(|mut actor| actor.leases.shift_remove(&token))
         })
         .ok()
         .flatten();
@@ -57,7 +56,7 @@ pub fn release_input(core: &Core, thread: &ThreadId, token: u64) {
 pub fn release_inputs(core: &Core, thread: &ThreadId) {
     let tokens: Vec<u64> = core
         .with_state(|state| {
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
+            let Some(mut actor) = state.actors.get_mut(thread) else {
                 return Vec::new();
             };
             let tokens: Vec<u64> = actor.leases.keys().copied().collect();
@@ -85,7 +84,6 @@ pub fn observe_inputs(
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(thread)
                 .is_some_and(|actor| !actor.leases.is_empty())
         })
@@ -109,7 +107,7 @@ pub fn observe_inputs(
                 if agent.is_some() && agent == root_agent {
                     let run_id = run.and_then(|run| text(run, "id")).map(str::to_string);
                     core.with_state(|state| {
-                        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+                        if let Some(mut actor) = state.actors.get_mut(thread) {
                             for lease in actor.leases.values_mut() {
                                 if lease.run_id.is_none() {
                                     lease.run_id.clone_from(&run_id);
@@ -124,7 +122,7 @@ pub fn observe_inputs(
                 let ended = text(event, "runId").map(str::to_string);
                 let released: Vec<u64> = core
                     .with_state(|state| {
-                        let Some(actor) = state.actors.by_thread.get_mut(thread) else {
+                        let Some(mut actor) = state.actors.get_mut(thread) else {
                             return Vec::new();
                         };
                         let tokens: Vec<u64> = actor

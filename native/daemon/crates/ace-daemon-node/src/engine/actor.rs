@@ -38,7 +38,7 @@ impl NativeEngine {
                 let mut sessions = 0;
                 let mut frames = 0;
                 let mut bytes = 0;
-                for actor in state.actors.by_thread.values() {
+                for actor in state.actors.live() {
                     if actor.session_attached {
                         sessions += 1;
                     }
@@ -81,13 +81,7 @@ impl NativeEngine {
         ace_engine::actor::get_or_create(core, &thread_id).map_err(engine_error)?;
         let now = core.ports.now();
         let generation = core
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(&thread_id)
-                    .map(|actor| actor.generation)
-            })
+            .with_state(|state| state.actors.get(&thread_id).map(|actor| actor.generation))
             .map_err(engine_error)?
             .unwrap_or(0);
         deps.repo

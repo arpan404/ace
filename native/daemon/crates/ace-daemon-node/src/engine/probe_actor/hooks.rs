@@ -123,9 +123,8 @@ impl NativeEngine {
                     .with_state(|state| {
                         state
                             .actors
-                            .by_thread
                             .get_mut(&thread)
-                            .map(|actor| actor.retire_generation())
+                            .map(|mut actor| actor.retire_generation())
                     })
                     .ok()
                     .flatten();
@@ -160,13 +159,7 @@ impl NativeEngine {
     pub fn probe_generation(&self, thread_id: String) -> f64 {
         self.engine
             .core()
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(&thread_id)
-                    .map(|actor| actor.generation)
-            })
+            .with_state(|state| state.actors.get(&thread_id).map(|actor| actor.generation))
             .ok()
             .flatten()
             .unwrap_or(0) as f64

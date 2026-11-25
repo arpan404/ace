@@ -12,16 +12,11 @@ use std::rc::Rc;
 pub fn quarantine(core: &Rc<Core>, thread: &ThreadId, message: &str) {
     // `actor.get(id)?.quarantine(error)`: a thread with no actor has no session to stop and no
     // transcript to notice, so the notification ends here.
-    let poisoned = match core.with_state(|state| {
-        state
-            .actors
-            .by_thread
-            .get(thread)
-            .map(|actor| actor.poisoned)
-    }) {
-        Ok(Some(poisoned)) => poisoned,
-        _ => return,
-    };
+    let poisoned =
+        match core.with_state(|state| state.actors.get(thread).map(|actor| actor.poisoned)) {
+            Ok(Some(poisoned)) => poisoned,
+            _ => return,
+        };
     if !poisoned {
         fail(
             core,
@@ -38,7 +33,7 @@ pub fn fail(core: &Rc<Core>, thread: &ThreadId, error: EngineError) {
         EngineError::Store(_) | EngineError::Port(PortError::Sqlite(_))
     );
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.poisoned = true;
             actor.persistence_failed = persistence_failed;
         }
@@ -65,13 +60,7 @@ pub fn fail(core: &Rc<Core>, thread: &ThreadId, error: EngineError) {
     };
     let now = core.ports.now();
     let generation = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .map(|actor| actor.generation)
-        })
+        .with_state(|state| state.actors.get(thread).map(|actor| actor.generation))
         .ok()
         .flatten()
         .unwrap_or(0);
@@ -87,7 +76,7 @@ pub fn overflow(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
     deps.links.abort_session(core, thread, true);
     let generation = core
         .with_state(|state| {
-            state.actors.by_thread.get_mut(thread).map(|actor| {
+            state.actors.get_mut(thread).map(|mut actor| {
                 if actor.poisoned || actor.stopped {
                     return (actor.generation, false);
                 }
@@ -120,7 +109,7 @@ pub fn overflow(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
     };
     fold::apply(core, thread, &facts)?;
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.overflowed = false;
         }
     })

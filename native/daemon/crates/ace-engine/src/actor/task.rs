@@ -10,15 +10,9 @@ use std::rc::Rc;
 
 /// This thread's actor instance, when it is still the one a task belongs to.
 pub(crate) fn instance_of(core: &Core, thread: &ThreadId) -> Option<u64> {
-    core.with_state(|state| {
-        state
-            .actors
-            .by_thread
-            .get(thread)
-            .map(|actor| actor.instance)
-    })
-    .ok()
-    .flatten()
+    core.with_state(|state| state.actors.get(thread).map(|actor| actor.instance))
+        .ok()
+        .flatten()
 }
 
 /// Whether `instance` is still this thread's actor: an evicted one is replaced by a new instance.
@@ -35,7 +29,7 @@ pub fn spawn_mailbox(core: &Rc<Core>, thread: &ThreadId) -> TaskId {
         mailbox_loop(inner, id, instance).await
     });
     core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.mailbox_task = Some(task_id);
         }
     })
@@ -69,16 +63,15 @@ async fn mailbox_loop(core: Rc<Core>, thread: ThreadId, instance: u64) {
                     .with_state(|state| {
                         state
                             .actors
-                            .by_thread
                             .get_mut(&thread)
-                            .is_some_and(mailbox::resolve_flush_waiters)
+                            .is_some_and(|mut actor| mailbox::resolve_flush_waiters(&mut actor))
                     })
                     .unwrap_or(true);
                 if idle {
                     // A flush may have waited for the flag before the mailbox went idle.
                     core.with_state(|state| {
-                        if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
-                            mailbox::resolve_flush_waiters(actor);
+                        if let Some(mut actor) = state.actors.get_mut(&thread) {
+                            mailbox::resolve_flush_waiters(&mut actor);
                         }
                     })
                     .ok();
@@ -93,11 +86,11 @@ async fn mailbox_loop(core: Rc<Core>, thread: ThreadId, instance: u64) {
                 // The op settled: the mailbox is idle again, and a flush waiting on it resumes.
                 // An evicted actor's task never clears its replacement's state.
                 core.with_state(|state| {
-                    if let Some(actor) = state.actors.by_thread.get_mut(&thread)
+                    if let Some(mut actor) = state.actors.get_mut(&thread)
                         && actor.instance == instance
                     {
                         actor.running = false;
-                        mailbox::resolve_flush_waiters(actor);
+                        mailbox::resolve_flush_waiters(&mut actor);
                     }
                 })
                 .ok();

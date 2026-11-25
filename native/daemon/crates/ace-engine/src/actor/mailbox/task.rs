@@ -5,7 +5,7 @@
 use super::RunFn;
 use super::queue::admit_run;
 use crate::actor::deps::BatchAck;
-use crate::actor::state::{Actor, FrameRef};
+use crate::actor::state::{ActorInstance, FrameRef};
 use crate::actor::{flow, fold, intake, timer};
 use crate::futures::channel::oneshot;
 use crate::{Core, EngineError, ThreadId};
@@ -28,7 +28,6 @@ pub async fn run_when_writable(
             .with_state(|state| {
                 state
                     .actors
-                    .by_thread
                     .get(thread)
                     .is_some_and(|actor| actor.instance == instance)
             })
@@ -37,13 +36,7 @@ pub async fn run_when_writable(
             return Ok(false);
         }
         let poisoned = core
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(thread)
-                    .map(|actor| actor.poisoned)
-            })
+            .with_state(|state| state.actors.get(thread).map(|actor| actor.poisoned))
             .ok()
             .flatten()
             .unwrap_or(!drained);
@@ -73,12 +66,12 @@ pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: 
     let reject = core
         .with_state(|state| {
             let limits = state.limits;
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
+            let Some(mut actor) = state.actors.get_mut(thread) else {
                 return true;
             };
             actor.queued = actor.queued.saturating_sub(frames);
             actor.queued_bytes = actor.queued_bytes.saturating_sub(bytes);
-            flow::update_pressure(actor, &limits);
+            flow::update_pressure(&mut actor, &limits);
             actor.poisoned || actor.overflowed
         })
         .unwrap_or(true);
@@ -175,7 +168,7 @@ pub async fn park(core: &Rc<Core>, thread: &ThreadId) -> bool {
         once = true;
         core.register_waker(thread.clone(), cx.waker().clone());
         let polled = core.with_state(|state| {
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
+            let Some(mut actor) = state.actors.get_mut(thread) else {
                 return Poll::Ready(false);
             };
             let mut fired = false;
@@ -208,9 +201,8 @@ pub fn backlog(core: &Core, thread: &ThreadId) -> (usize, usize) {
     core.with_state(|state| {
         state
             .actors
-            .by_thread
             .get(thread)
-            .map(Actor::backlog)
+            .map(|actor| actor.backlog())
             .unwrap_or((0, 0))
     })
     .unwrap_or((0, 0))
@@ -224,7 +216,7 @@ pub async fn flush(core: Rc<Core>, thread: ThreadId, exclude: Option<crate::exec
     live.writable().await;
     loop {
         let waiter = core.with_state(|state| {
-            let actor = state.actors.by_thread.get_mut(&thread)?;
+            let mut actor = state.actors.get_mut(&thread)?;
             let own = actor.mailbox_task.is_some() && actor.mailbox_task == exclude;
             if own || (!actor.running && actor.mailbox.is_empty()) {
                 return None;
@@ -248,7 +240,7 @@ pub async fn flush(core: Rc<Core>, thread: ThreadId, exclude: Option<crate::exec
 }
 
 /// The mailbox's idle step: resolve the flush waiters once nothing is left.
-pub fn resolve_flush_waiters(actor: &mut Actor) -> bool {
+pub fn resolve_flush_waiters(actor: &mut ActorInstance) -> bool {
     if actor.running || !actor.mailbox.is_empty() {
         return false;
     }
@@ -264,7 +256,7 @@ pub fn frame_is_sdk(frame: &FrameRef) -> bool {
 }
 
 /// `quiescent`: no pending frames, no ops, no running op.
-pub fn actor_quiescent(actor: &Actor) -> bool {
+pub fn actor_quiescent(actor: &ActorInstance) -> bool {
     actor.pending.is_empty() && actor.mailbox.is_empty() && !actor.running
 }
 
@@ -279,13 +271,7 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
             let now = core.ports.now();
             let deps = core.actor_deps.borrow().clone();
             let generation = core
-                .with_state(|state| {
-                    state
-                        .actors
-                        .by_thread
-                        .get(thread)
-                        .map(|actor| actor.generation)
-                })
+                .with_state(|state| state.actors.get(thread).map(|actor| actor.generation))
                 .ok()
                 .flatten()
                 .unwrap_or(0);
@@ -311,15 +297,14 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
                 .with_state(|state| {
                     state
                         .actors
-                        .by_thread
                         .get(thread)
-                        .and_then(|actor| timer::release_at(actor, idle_ms))
+                        .and_then(|actor| timer::release_at(&actor, idle_ms))
                 })
                 .ok()
                 .flatten();
             if release.is_some_and(|release| now >= release) {
                 core.with_state(|state| {
-                    if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+                    if let Some(mut actor) = state.actors.get_mut(thread) {
                         actor.idle_due = true;
                     }
                 })

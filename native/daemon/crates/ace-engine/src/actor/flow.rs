@@ -2,7 +2,7 @@
 //! Flow control (`actor.ts:84`-`:113`): the two thresholds that pause a session's output and
 //! resume it, and the native session's mirror of them into its read gate.
 
-use crate::actor::state::Actor;
+use crate::actor::state::ActorInstance;
 use crate::executor::Lane;
 use crate::limits::EngineLimits;
 use crate::{Core, ThreadId};
@@ -10,7 +10,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 /// Update pressure after the backlog changed, resolving every drain on a resume.
-pub fn update_pressure(actor: &mut Actor, limits: &EngineLimits) {
+pub fn update_pressure(actor: &mut ActorInstance, limits: &EngineLimits) {
     let frames = actor.queued + actor.pending.len();
     let bytes = actor.queued_bytes + actor.pending_bytes;
     let pause_frames = 256.min((limits.max_queued_frames / 4).max(1));
@@ -32,13 +32,7 @@ pub fn update_pressure(actor: &mut Actor, limits: &EngineLimits) {
 /// `outputFlow.paused` (`actor.ts:85`): the actor's own pressure or the store's gates.
 pub fn paused(core: &Core, thread: &ThreadId) -> bool {
     let pressure = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .is_some_and(|actor| actor.pressure)
-        })
+        .with_state(|state| state.actors.get(thread).is_some_and(|actor| actor.pressure))
         .unwrap_or(false);
     if pressure {
         return true;
@@ -52,7 +46,7 @@ pub async fn wait(core: Rc<Core>, thread: ThreadId) {
     let live = core.actor_deps.borrow().live.clone();
     live.writable().await;
     let receiver = core.with_state(|state| {
-        let actor = state.actors.by_thread.get_mut(&thread)?;
+        let mut actor = state.actors.get_mut(&thread)?;
         if !actor.pressure {
             return None;
         }
@@ -112,7 +106,7 @@ impl NativeFlow {
 #[cfg(test)]
 mod tests {
     use super::update_pressure;
-    use crate::actor::state::Actor;
+    use crate::actor::state::ActorInstance;
     use crate::limits::{EngineLimits, LimitOverrides, resolve};
 
     fn limits(max_frames: u64, max_bytes: u64) -> EngineLimits {
@@ -141,7 +135,7 @@ mod tests {
         ];
         for (was_paused, queued, bytes, expected) in cases {
             let limits = limits(16_384, max_bytes);
-            let mut actor = Actor::new("t".to_string(), 0, 0);
+            let mut actor = ActorInstance::new("t".to_string(), 0);
             actor.queued = queued;
             actor.queued_bytes = bytes;
             actor.pressure = was_paused;
@@ -160,7 +154,7 @@ mod tests {
     #[test]
     fn a_small_frame_limit_moves_both_thresholds() {
         let limits = limits(64, 16 * 1024 * 1024);
-        let mut actor = Actor::new("t".to_string(), 0, 0);
+        let mut actor = ActorInstance::new("t".to_string(), 0);
         actor.queued = 16;
         update_pressure(&mut actor, &limits);
         assert!(actor.pressure, "pause at min(256, 64/4)");

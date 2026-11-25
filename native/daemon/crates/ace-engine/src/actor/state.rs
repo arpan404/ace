@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The actor's state (`actor.ts:52`-`:147`). Everything here is plain data: the translator is a
-//! port and lives in `ActorDeps.translators`, and every read or change is one short `with_state`
-//! closure that copies out what the next step needs.
+//! Actor instances and the registry that admits them (`actor.ts:52`-`:147`).
 
-use crate::actor::deps::BatchAck;
+use crate::actor::deps::{ActorDeps, ActorTranslator, BatchAck};
 use crate::actor::mailbox::Op;
 use crate::executor::TaskId;
 use crate::futures::channel::oneshot;
@@ -11,7 +9,7 @@ use crate::ports::Timer;
 use crate::{Core, EngineError, ThreadId};
 use ace_adapter_api::Frame;
 use indexmap::IndexMap;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 use std::task::Waker;
 
@@ -56,11 +54,9 @@ pub struct ArmedTimer {
 }
 
 /// One thread's actor.
-pub struct Actor {
+pub struct ActorInstance {
     pub id: ThreadId,
     pub generation: u64,
-    /// The map's insertion order: restored actors return to their old place after a rollback.
-    pub seat: u64,
     /// This actor instance's identity: an evicted actor's task must not act on its replacement.
     pub instance: u64,
     pub poisoned: bool,
@@ -90,18 +86,17 @@ pub struct Actor {
     pub timer: Option<(Timer, ArmedTimer)>,
     pub stopped: bool,
     pub mailbox_task: Option<TaskId>,
-    /// Inside an open transaction the actor holds its slot but is not committed yet.
-    pub provisional: bool,
     pub staged: IndexMap<u64, Rc<RefCell<crate::actor::mailbox::Staged>>>,
     pub waker: Option<Waker>,
+    pub translator: Option<(u64, ActorTranslator)>,
+    pub deps: Option<Rc<ActorDeps>>,
 }
 
-impl Actor {
-    pub fn new(id: ThreadId, generation: u64, seat: u64) -> Actor {
-        Actor {
+impl ActorInstance {
+    pub fn new(id: ThreadId, generation: u64) -> ActorInstance {
+        ActorInstance {
             id,
             generation,
-            seat,
             instance: 0,
             poisoned: false,
             persistence_failed: false,
@@ -125,9 +120,10 @@ impl Actor {
             timer: None,
             stopped: false,
             mailbox_task: None,
-            provisional: false,
             staged: IndexMap::new(),
             waker: None,
+            translator: None,
+            deps: None,
         }
     }
 
@@ -160,7 +156,7 @@ pub struct Promotion {
     pub created: ThreadId,
     pub pledges: Vec<ThreadId>,
     /// The pledged actors, each with its index in `by_thread`, kept only for a rollback.
-    pub kept_aside: RefCell<Vec<(usize, Actor)>>,
+    pub kept_aside: RefCell<Vec<(usize, Seat, ActorRef)>>,
     pub state: RefCell<PromotionState>,
     pub owner: std::rc::Weak<Core>,
 }
@@ -180,24 +176,32 @@ impl Drop for Promotion {
 
 /// Nothing a discarded actor held resolves: its acknowledgements reject, as a failed commit does.
 /// A JavaScript acknowledgement is settled through its facade call, exactly as `settle` does.
-pub(crate) fn discard_acks(core: &Core, actor: Actor) {
-    // A slot that never reached its actor never admits: the transaction's deferred admission
-    // is a no-op, so it cannot charge a restored actor for work that was discarded.
-    for shared in actor.staged.values() {
-        *shared.borrow_mut() = crate::actor::mailbox::Staged::Discarded;
-    }
+pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
+    let (pending, pending_ack, mailbox) = {
+        let mut actor = actor.borrow_mut();
+        // A slot that never reached its actor never admits: the transaction's deferred admission
+        // is a no-op, so it cannot charge a restored actor for work that was discarded.
+        for shared in actor.staged.values() {
+            *shared.borrow_mut() = crate::actor::mailbox::Staged::Discarded;
+        }
+        (
+            std::mem::take(&mut actor.pending),
+            actor.pending_ack.take(),
+            std::mem::take(&mut actor.mailbox),
+        )
+    };
     // Frames this actor will never translate release the shell's objects with it.
-    crate::actor::intake::release_handles(core, &actor.pending);
-    for op in actor.mailbox.iter() {
+    crate::actor::intake::release_handles(core, &pending);
+    for op in mailbox.iter() {
         if let Op::Batch(batch) = op {
             crate::actor::intake::release_handles(core, &batch.frames);
         }
     }
     let mut acks: Vec<BatchAck> = Vec::new();
-    if let Some(ack) = actor.pending_ack {
+    if let Some(ack) = pending_ack {
         acks.push(ack);
     }
-    for op in actor.mailbox {
+    for op in mailbox {
         match op {
             Op::Batch(batch) => acks.push(batch.ack),
             Op::Settle(ack) => acks.push(ack),
@@ -215,10 +219,18 @@ pub(crate) fn discard_acks(core: &Core, actor: Actor) {
     }
 }
 
+pub type ActorRef = Rc<RefCell<ActorInstance>>;
+
+pub struct Seat {
+    pub order: u64,
+    pub provisional: bool,
+}
+
 /// The thread actors. Insertion order is the TypeScript `Map`'s.
 #[derive(Default)]
 pub struct Actors {
-    pub by_thread: IndexMap<ThreadId, Actor>,
+    pub by_thread: IndexMap<ThreadId, ActorRef>,
+    pub seats: IndexMap<ThreadId, Seat>,
     /// Slots held by actors created in a transaction that has not committed.
     pub reserved: IndexMap<ThreadId, ()>,
     /// Victims pledged by an uncommitted creation; the promotion keeps the actors aside.
@@ -234,18 +246,28 @@ pub struct Actors {
 }
 
 impl Actors {
+    pub fn get(&self, thread: &str) -> Option<Ref<'_, ActorInstance>> {
+        self.by_thread.get(thread).map(|actor| actor.borrow())
+    }
+
+    pub fn get_mut(&self, thread: &str) -> Option<RefMut<'_, ActorInstance>> {
+        self.by_thread.get(thread).map(|actor| actor.borrow_mut())
+    }
+
+    pub fn remove(&mut self, thread: &str) -> Option<(ActorRef, Seat)> {
+        let actor = self.by_thread.shift_remove(thread)?;
+        let seat = self.seats.shift_remove(thread)?;
+        Some((actor, seat))
+    }
+
     /// The occupied slots: committed actors plus held reservations.
     pub fn occupied(&self) -> usize {
-        self.by_thread
-            .values()
-            .filter(|actor| !actor.provisional)
-            .count()
-            + self.reserved.len()
+        self.seats.values().filter(|seat| !seat.provisional).count() + self.reserved.len()
     }
 
     /// Actors in insertion order, skipping actors kept aside for a rollback.
-    pub fn live(&self) -> impl Iterator<Item = &Actor> {
-        self.by_thread.values()
+    pub fn live(&self) -> impl Iterator<Item = Ref<'_, ActorInstance>> {
+        self.by_thread.values().map(|actor| actor.borrow())
     }
 }
 
