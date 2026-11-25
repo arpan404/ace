@@ -106,6 +106,19 @@ import Testing
         #expect(drafts.unsaved == [path])
     }
 
+    @Test func anAutoSavesNewVersionMovesTheBaseWithoutCarryingText() throws {
+        let path = "a.swift"
+        var drafts = edited(path)
+        // Auto save writes while the editor is still on screen, so the draft must carry no text:
+        // a carried text would reload the view and drop what was typed meanwhile.
+        drafts.wrote(path, version: file("v2", text: "original"))
+        let draft = try #require(drafts[path])
+        #expect(draft.base.version == "v2")
+        #expect(draft.text == nil)
+        // The editor is still editing the file.
+        #expect(drafts.editing)
+    }
+
     @Test func savingOrDiscardingEndsTheDraft() {
         var drafts = edited()
         drafts.end("a.swift")

@@ -28,6 +28,8 @@ struct EditorSlot {
     let dirtied: (Bool, FileContent) -> Void
     /// Save or merge moved the draft onto a new machine snapshot.
     let rebased: (FileContent, String) -> Void
+    /// A write made by itself moved the base, with the text still on screen.
+    let wrote: (FileContent) -> Void
     /// The editor went with this text in it.
     let left: (String) -> Void
     /// Saved or discarded.
@@ -156,6 +158,7 @@ struct EditorGroups: View {
                           began: { base in store.drafts.begin(path, base: base) },
                           dirtied: { dirty, base in store.drafts.mark(path, dirty: dirty, base: base) },
                           rebased: { base, text in store.drafts.rebase(path, onto: base, text: text) },
+                          wrote: { base in store.drafts.wrote(path, version: base) },
                           left: { text in store.drafts.left(path, text: text) },
                           ended: { store.drafts.end(path) },
                           pick: { picked in change { $0.open(picked) } },

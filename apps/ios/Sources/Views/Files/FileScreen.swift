@@ -375,8 +375,10 @@ struct FileScreen: View {
             if let version = result.version {
                 let saved = content.saved(text: typed, version: version)
                 autoSaved = saved
-                // Another pane picking this file up starts from what's now on the machine.
-                slot?.rebased(saved, typed)
+                // Another pane picking this file up starts from what's now on the machine. The
+                // draft carries no text: the person may have typed since, and a carried text
+                // would reload the view and drop it.
+                slot?.wrote(saved)
             }
             dirty = handle.markSaved(typed)
         } catch {

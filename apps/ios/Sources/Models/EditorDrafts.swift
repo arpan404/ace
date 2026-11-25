@@ -49,6 +49,13 @@ struct EditorDrafts: Equatable, Sendable {
         drafts[path] = EditorDraft(base: base, text: text, dirty: !text.utf8.elementsEqual((base.text ?? "").utf8))
     }
 
+    /// A write the editor made by itself moved the base, while its text stays on screen. Unlike
+    /// `rebase`, the draft carries no text: a carried text would reload the view, dropping what
+    /// was typed while the write was out.
+    mutating func wrote(_ path: String, version: FileContent) {
+        drafts[path]?.base = version
+    }
+
     /// Saved, or the changes discarded.
     mutating func end(_ path: String) { drafts[path] = nil }
 
