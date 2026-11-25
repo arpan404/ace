@@ -87,26 +87,43 @@ fn gemini_profile() -> CompatibilityProfile {
 }
 
 /// One turn's identity, as the engine's fence hands it over.
-pub(super) struct Fence {
+pub(super) struct TestFence {
     pub turn: Option<String>,
-    pub current: bool,
+    pub current: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
-impl ace_adapter_api::session::SteerFence for Fence {
+impl ace_adapter_api::session::SteerFence for TestFence {
     fn turn(&self) -> Option<&str> {
         self.turn.as_deref()
     }
 
     fn current(&self) -> bool {
-        self.current
+        self.current.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
-pub(super) fn fence(current: bool) -> Fence {
-    Fence {
+/// A fence that is current, or already stale, at admission.
+pub(super) fn fence(current: bool) -> crate::session::input::Fence {
+    let (fence, _state) = live_fence(current);
+    fence
+}
+
+/// A fence whose answer can change between admission and the drain.
+pub(super) fn live_fence(
+    current: bool,
+) -> (
+    crate::session::input::Fence,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let state = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(current));
+    let fence = TestFence {
         turn: Some("turn-1".to_owned()),
-        current,
-    }
+        current: state.clone(),
+    };
+    (
+        crate::session::input::Fence::new(std::sync::Arc::new(fence)),
+        state,
+    )
 }
 
 pub(super) fn text(value: &str) -> Value {
@@ -127,7 +144,7 @@ pub(super) fn send(
     core: &mut AcpCore,
     operation: u64,
     delivery: ace_adapter_api::session::Delivery,
-    fence: Option<&dyn ace_adapter_api::session::SteerFence>,
+    fence: Option<crate::session::input::Fence>,
 ) -> Vec<AcpEffect> {
     let input = vec![text("hello")];
     let mut effects = Vec::new();

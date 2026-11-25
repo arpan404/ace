@@ -390,15 +390,20 @@ fn close_notes_the_stop_and_rejects_every_prompt_the_session_owes() {
         })
         .collect();
     assert!(notes.contains(&json!({ "event": "stop" })));
-    for operation in [40, 41] {
-        assert_eq!(
-            settlements(&effects, operation),
-            vec![Err((
-                "ACE_INPUT_REJECTED".to_owned(),
-                "ACP session closed".to_owned()
-            ))],
-            "operation {operation}"
-        );
-    }
+    // The prompt that wrote is uncertain; the one still queued never ran.
+    assert_eq!(
+        settlements(&effects, 40),
+        vec![Err((
+            "ACE_ACP_RPC_ERROR".to_owned(),
+            "ACP session closed".to_owned()
+        ))]
+    );
+    assert_eq!(
+        settlements(&effects, 41),
+        vec![Err((
+            "ACE_INPUT_REJECTED".to_owned(),
+            "ACP session closed".to_owned()
+        ))]
+    );
     assert_eq!(core.queue_len(), 0);
 }

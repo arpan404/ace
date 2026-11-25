@@ -6,6 +6,8 @@
 //! request is pushed with no await between them (ADR 0223 section 7 rule 1). The queue
 //! the prompts land in is `queue.rs`; what waits comes back as an effect.
 
+use std::sync::Arc;
+
 use ace_adapter_api::AdapterApiError;
 use ace_adapter_api::session::{Delivery, InputSource, SteerFence, assert_steer_target};
 use ace_json::{Map, Value};
@@ -22,6 +24,35 @@ pub const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 /// A fenced steer whose turn ended (`ace_adapter_api::session::assert_steer_target`).
 pub const STEER_TARGET_LOST: &str = "The turn this message was meant to join has ended";
 
+/// The engine's fence, owned so the queue can ask it again when it reaches a queued
+/// steer (`session.ts:718`), which outlives the send.
+#[derive(Clone)]
+pub struct Fence(Arc<dyn SteerFence + Send + Sync>);
+
+impl Fence {
+    pub fn new(fence: Arc<dyn SteerFence + Send + Sync>) -> Self {
+        Self(fence)
+    }
+
+    pub fn as_dyn(&self) -> &dyn SteerFence {
+        &*self.0
+    }
+
+    /// Whether the turn this fence named is still the one running, read now.
+    pub fn current(&self) -> bool {
+        self.0.current()
+    }
+}
+
+impl std::fmt::Debug for Fence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Fence")
+            .field("turn", &self.0.turn())
+            .finish()
+    }
+}
+
 /// One `send`, as the facade hands it over after its own awaits.
 pub struct InputSend<'a> {
     /// The facade promise this send settles.
@@ -30,8 +61,10 @@ pub struct InputSend<'a> {
     pub delivery: Delivery,
     pub command_id: Option<&'a str>,
     pub origin: Option<InputSource>,
-    /// The engine's fence: `current()` is read in this same synchronous step.
-    pub fence: Option<&'a dyn SteerFence>,
+    /// The engine's fence, owned so the queue can ask it again when it reaches a queued
+    /// steer (`session.ts:718`), which outlives this call. `current()` is also read in
+    /// this same synchronous step, before the write.
+    pub fence: Option<Fence>,
 }
 
 impl AcpCore {
@@ -53,18 +86,20 @@ impl AcpCore {
     ///    `_session/steering` request is pushed in the same synchronous step as the reads
     ///    above, and its reply settles this send.
     /// 4. The reply says `promptRequired`: the turn is running but took no steer, so the
-    ///    input is unconsumed and is queued as the next prompt (`session.ts:659`).
+    ///    input is unconsumed and is queued as the next prompt (`session.ts:659`). Whether
+    ///    it goes out then is order 7's question.
     /// 5. The reply names any other outcome: the input was taken (`injected`,
     ///    `startedNewTurn`) and the send resolves, or the send is refused
     ///    (`session.ts:660`-`:662`) and never retried.
     /// 6. The steer's reply never comes (a transport failure, or the session closing):
-    ///    the send settles as that failure, never as a refusal.
-    /// 7. A queued steer aimed at a prompt reaches the queue's head only after that
-    ///    prompt's turn ends, so it is refused unread as `SteerTargetLost`, never written
-    ///    into a later turn (`session.ts:717`-`:723`). This is also what becomes of order
-    ///    4's fallback, as it is in TS. A fence that named no turn yet (the turn is
-    ///    starting) sends the prompt, and a job whose batch already wrote a prompt is
-    ///    sent too (`session.ts:718`, `!next.batch.written`).
+    ///    the send settles with the error the peer reported, redacted, never as a refusal
+    ///    and never retried (`input.rs::finish_steer`).
+    /// 7. A queued steer's fence is asked again when the queue reaches it
+    ///    (`session.ts:717`-`:723`): when it is no longer current the steer is refused
+    ///    unread as `SteerTargetLost`, never written into a later turn, and the rest of a
+    ///    batch that wrote nothing is dropped (`session.ts:629`-`:632`). A fence that is
+    ///    still current sends it, and so does a job whose batch already wrote a prompt
+    ///    (`session.ts:718`, `!next.batch.written`).
     /// 8. `steerViaCancel`: this agent has no steering extension, so a steer is queued as
     ///    the next prompt like any other input (`session.ts:617`).
     ///
@@ -87,7 +122,9 @@ impl AcpCore {
                 effects,
             );
         }
-        if let Err(error) = assert_steer_target(send.delivery, send.fence) {
+        if let Err(error) =
+            assert_steer_target(send.delivery, send.fence.as_ref().map(Fence::as_dyn))
+        {
             return refuse(failure_of(error), effects);
         }
         let prompts = match native_command_inputs(send.input) {
@@ -120,16 +157,25 @@ impl AcpCore {
                     .unwrap_or_default(),
                 command_id: command_id.clone(),
                 origin: send.origin,
-                aim: send.fence.and_then(|_| self.prompt_id.clone()),
+                fence: send.fence.clone(),
                 batch,
                 bytes,
             };
-            match self.steer_now(&prompts[0], batch, fallback, send.fence) {
+            match self.steer_now(
+                &prompts[0],
+                batch,
+                fallback,
+                send.fence.as_ref().map(Fence::as_dyn),
+            ) {
                 Ok(steered) => {
                     effects.extend(steered);
                     return;
                 }
-                Err(error) => return refuse(error, effects),
+                Err(error) => {
+                    // The steer was refused before it wrote, so this send's batch is over.
+                    self.batches.shift_remove(&batch);
+                    return refuse(error, effects);
+                }
             }
         }
         let batch = self.new_batch(operation, prompts.len());
@@ -143,8 +189,9 @@ impl AcpCore {
                     .unwrap_or_default(),
                 command_id: command_id.clone(),
                 origin: send.origin,
-                aim: if send.delivery == Delivery::Steer {
-                    send.fence.and_then(|_| self.prompt_id.clone())
+                // A queue-delivery send carries no fence (`session.ts:627`).
+                fence: if send.delivery == Delivery::Steer {
+                    send.fence.clone()
                 } else {
                     None
                 },

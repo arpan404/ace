@@ -39,7 +39,7 @@ pub use core::{AcpCore, AcpCoreConfig, AcpEffect, AcpErrorWire, PendingInteracti
 pub use deadlines::{DeadlineEffect, Deadlines};
 pub use frames::{CapturedFrame, FrameCaptureError, capture_frame, capture_text_frame};
 pub use identity::{TranslatorIdentity, create_translator_identity};
-pub use input::{InputSend, STEER_TARGET_LOST};
+pub use input::{Fence, InputSend, STEER_TARGET_LOST};
 pub use io::AcpSessionCore;
 pub use mcp::{
     McpConfig, McpTransport, PreparedMcp, SkippedMcpServer, append_acp_mcp, prepare_acp_mcp,

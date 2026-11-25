@@ -755,6 +755,12 @@ impl AcpCore {
         if self.prompt_id.as_ref() != Some(&id) {
             return;
         }
+        if let Some(error) = message.get("error") {
+            // `await reply` throws (`session.ts:771`): the send rejects with the agent's
+            // error, ace's guidance is not spent (`:772`), and the session lives on.
+            self.prompt_refused(error.to_json(), effects);
+            return;
+        }
         let Some((reason, _)) = prompt_end(value) else {
             // No stop reason: completion is unconfirmed (`session.ts:774`-`:778`).
             self.fail("ACP prompt completion is unconfirmed", effects);

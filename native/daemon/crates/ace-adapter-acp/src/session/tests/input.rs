@@ -15,7 +15,7 @@ use crate::session::input::{InputSend, STEER_TARGET_LOST};
 fn a_stale_fence_refuses_the_send_before_anything_is_written_or_queued() {
     let mut core = session_core("t-stale");
     let fence = fence(false);
-    let effects = send(&mut core, 7, Delivery::Steer, Some(&fence));
+    let effects = send(&mut core, 7, Delivery::Steer, Some(fence));
     assert_eq!(
         settlements(&effects, 7),
         vec![Err((
@@ -34,7 +34,7 @@ fn a_stale_fence_refuses_the_send_before_anything_is_written_or_queued() {
 fn a_current_fence_with_no_prompt_in_flight_queues_the_prompt_instead_of_steering() {
     let mut core = session_core("t-no-prompt");
     let fence = fence(true);
-    let effects = send(&mut core, 8, Delivery::Steer, Some(&fence));
+    let effects = send(&mut core, 8, Delivery::Steer, Some(fence));
     let sent = sent_json_messages(&effects);
     assert_eq!(sent.len(), 1);
     assert_eq!(
@@ -55,7 +55,7 @@ fn a_current_fence_with_no_prompt_in_flight_queues_the_prompt_instead_of_steerin
 fn a_current_fence_steers_into_the_running_prompt_in_one_step() {
     let (mut core, _prompt) = core_with_prompt("t-steer");
     let fence = fence(true);
-    let effects = send(&mut core, 9, Delivery::Steer, Some(&fence));
+    let effects = send(&mut core, 9, Delivery::Steer, Some(fence));
     let sent = sent_json_messages(&effects);
     assert_eq!(
         sent[0].get("method").and_then(Value::as_str),

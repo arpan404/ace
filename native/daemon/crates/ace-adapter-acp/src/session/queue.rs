@@ -17,10 +17,8 @@ pub(crate) struct Job {
     pub input: Vec<Value>,
     pub command_id: Option<String>,
     pub origin: Option<InputSource>,
-    /// The prompt the send's fence named, when it named one: only that turn may take it
-    /// (`session.ts:718`). The engine's fence for ACP is the prompt id, so the queue
-    /// compares the prompt it was aimed at with the one in flight.
-    pub aim: Option<ace_supervisor::jsonrpc::RpcId>,
+    /// The send's fence: asked again when the queue reaches this job (`session.ts:718`).
+    pub fence: Option<super::input::Fence>,
     pub batch: u64,
     pub bytes: usize,
 }
@@ -75,10 +73,10 @@ impl AcpCore {
                 .batches
                 .get(&job.batch)
                 .is_some_and(|batch| batch.written);
-            let stale = job
-                .aim
-                .as_ref()
-                .is_some_and(|aim| self.prompt_id.as_ref() != Some(aim));
+            // `next.fence && !next.fence.current() && !next.batch.written`
+            // (`session.ts:718`): the fence answers for the turn it named, as it did when
+            // this job was admitted.
+            let stale = job.fence.as_ref().is_some_and(|fence| !fence.current());
             if stale && !written {
                 // Its turn ended before ACP was idle to take it: refused unread, never
                 // written into another (`session.ts:718`).
@@ -88,6 +86,7 @@ impl AcpCore {
                     Err(AcpErrorWire::steer_target_lost(STEER_TARGET_LOST)),
                     effects,
                 );
+                self.drop_batch(job.batch, effects);
                 self.queue_changed(effects);
                 continue;
             }
@@ -138,6 +137,7 @@ impl AcpCore {
                     Err(AcpErrorWire::input_rejected(message)),
                     effects,
                 );
+                self.drop_batch(job.batch, effects);
                 self.queue_changed(effects);
                 continue;
             }
@@ -162,9 +162,15 @@ impl AcpCore {
                         Err(AcpErrorWire::input_rejected(err.message().to_owned())),
                         effects,
                     );
+                    self.drop_batch(job.batch, effects);
                     continue;
                 }
             };
+            self.active_prompt = Some(ActivePrompt {
+                batch: job.batch,
+                guidance: guidance.is_some(),
+            });
+            self.apply_peer_effects(peer_effects, effects);
             // The request frame went out synchronously, or it failed without writing
             // (`session.ts:766`).
             if self.prompt_frames != prompt_frames
@@ -172,11 +178,6 @@ impl AcpCore {
             {
                 batch.written = true;
             }
-            self.active_prompt = Some(ActivePrompt {
-                batch: job.batch,
-                guidance: guidance.is_some(),
-            });
-            self.apply_peer_effects(peer_effects, effects);
             self.queue_changed(effects);
             return;
         }
@@ -196,22 +197,72 @@ impl AcpCore {
         self.drain(effects);
     }
 
+    /// A prompt that failed after its turn ended (`session.ts:786`-`:787`): the send
+    /// rejects with that failure so the engine counts the input uncertain, never unread.
+    pub(crate) fn prompt_refused(&mut self, message: String, effects: &mut Vec<AcpEffect>) {
+        let Some(active) = self.active_prompt.take() else {
+            return;
+        };
+        self.active = false;
+        self.prompt_id = None;
+        // The turn died with its prompt: its tools ended with it (`session.ts:781`-`:784`).
+        let root = self.native_session_id.clone();
+        self.shells.prompt_ended(&root, "");
+        let message = self.redact_message(&message);
+        self.settle_job(active.batch, Err(AcpErrorWire::rpc_error(message)), effects);
+        self.drain(effects);
+    }
+
     /// Every promise a closed or failed session owes (`rejectQueue`, `session.ts:935`).
     pub(crate) fn reject_queue(&mut self, message: &str, effects: &mut Vec<AcpEffect>) {
-        let error = || AcpErrorWire::input_rejected(message.to_owned());
         if let Some(active) = self.active_prompt.take() {
-            self.settle_job(active.batch, Err(error()), effects);
+            let error = self.unread_or_uncertain(active.batch, message);
+            self.settle_job(active.batch, Err(error), effects);
         }
         self.active = false;
         for job in std::mem::take(&mut self.queue) {
-            self.settle_job(job.batch, Err(error()), effects);
+            let error = self.unread_or_uncertain(job.batch, message);
+            self.settle_job(job.batch, Err(error), effects);
         }
         for (_, flight) in std::mem::take(&mut self.steering) {
-            self.finish_steer_batch(flight.batch, Err(error()), effects);
+            let error = self.unread_or_uncertain(flight.batch, message);
+            self.finish_steer_batch(flight.batch, Err(error), effects);
         }
         self.queued_bytes = 0;
         self.batches.clear();
         self.queue_changed(effects);
+    }
+
+    /// A refusal before the write proves the input unread; once a prompt of the batch went
+    /// out it may have reached the agent, so the failure stays uncertain
+    /// (`session.ts:630`, `intent-delivery.ts:140`-`:147`).
+    fn unread_or_uncertain(&self, batch: u64, message: &str) -> AcpErrorWire {
+        if self.batches.get(&batch).is_some_and(|state| state.written) {
+            AcpErrorWire::rpc_error(self.redact_message(message))
+        } else {
+            AcpErrorWire::input_rejected(message.to_owned())
+        }
+    }
+
+    /// `dropBatch` (`session.ts:694`): no prompt of this send reached the agent, so the
+    /// rest of it must never go out later.
+    fn drop_batch(&mut self, batch: u64, effects: &mut Vec<AcpEffect>) {
+        let mut index = 0;
+        let mut dropped = false;
+        while index < self.queue.len() {
+            if self.queue[index].batch == batch {
+                if let Some(job) = self.queue.remove(index) {
+                    self.queued_bytes = self.queued_bytes.saturating_sub(job.bytes);
+                }
+                dropped = true;
+            } else {
+                index += 1;
+            }
+        }
+        if dropped {
+            self.batches.shift_remove(&batch);
+            self.queue_changed(effects);
+        }
     }
 
     pub(crate) fn queue_changed(&mut self, effects: &mut Vec<AcpEffect>) {
