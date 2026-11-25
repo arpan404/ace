@@ -5,8 +5,12 @@
 //! capture's own errors. The sockets, processes, timers and ace-media are the shell's.
 
 mod control;
+mod early;
+mod gate;
 
 pub use control::{InputStep, KeyframeAsker, KeyframeStep, input_step, writable};
+pub use early::{EARLY_MAX_BYTES, EARLY_MAX_UNITS, EarlyUnits, Taken};
+pub use gate::{GateAction, IngestGate};
 
 use serde::Serialize;
 

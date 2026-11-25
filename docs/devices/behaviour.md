@@ -529,8 +529,14 @@ producer stamp's sequence and capture time), and the capture's own errors with t
 next steps. `capture/control/` keeps control dispatch: a keyframe is asked for at most once a
 second and never before the stream starts, a missing control socket is the capture's own
 unavailable error while more than 256 KiB queued is the backlog refusal, and a set-clipboard
-input step goes through the clipboard machine rather than the socket. The socket loops,
-handshakes, retries and media forwarding are the next part.
+input step goes through the clipboard machine rather than the socket. `capture/early.rs` holds a
+reader's units that arrive before its link (a keyframe then its deltas, at most 240 units and
+16 MiB; a delta with no keyframe, or the bound, drops them and asks for a keyframe) and
+`capture/gate.rs` routes each unit: ace-media once its keyframe switches the path, the boundary
+being the last daemon-delivered sequence, else the viewer; a device that never answers moves
+after the retry window; going off names the last numbered unit; a writer ending before or after
+its switch fails the move or stops forwarding. The sockets, writers, timers and handshakes are
+the shell's.
 
 `scrcpy/server/mod.rs` keeps the device side of a capture before any socket exists: the remote
 jar's name, the push and forward commands with today's byte caps and deadlines, the removed
