@@ -86,7 +86,7 @@ pub fn correlate(
         return Ok(Some(fact));
     }
     let draft_origin = draft.get("origin");
-    if native_id.is_none()
+    if command_id.is_none()
         && draft_origin.is_some()
         && draft_origin
             .and_then(|origin| origin.get("kind"))

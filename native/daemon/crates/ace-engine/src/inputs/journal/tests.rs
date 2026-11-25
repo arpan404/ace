@@ -130,3 +130,23 @@ fn a_native_identity_cannot_be_reused_for_a_different_command() {
         "Provider reused an input message identity for a different command"
     );
 }
+
+#[test]
+fn a_wake_with_an_unrecorded_identity_and_no_command_is_never_the_persons_input() {
+    // `!identity`, not `nativeId === undefined`: the provider may name an id this home never
+    // recorded, and an ace-authored message (a background completion) has no command id.
+    let conn = home("j-wake", &header("j-wake"));
+    let thread = "j-wake";
+    sent(&conn, thread, "c-wake", "wake", Some(1.0));
+    let wake = value(
+        r#"{"type":"item.upsert","agent":"root","item":"native-wake","draft":{"type":"message","role":"user","nativeId":"unrecorded","parts":[{"type":"text","text":"wake"}],"origin":{"kind":"background_completion"}}}"#,
+    );
+    let correlated = correlate(&conn, thread, wake.clone(), "root", Some(1.0))
+        .expect("correlate")
+        .expect("a fact");
+    assert_eq!(
+        ace_json::to_string(&correlated),
+        ace_json::to_string(&wake),
+        "an ace-authored wake keeps its own item and origin"
+    );
+}
