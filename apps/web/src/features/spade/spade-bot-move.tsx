@@ -9,7 +9,6 @@ import {
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";

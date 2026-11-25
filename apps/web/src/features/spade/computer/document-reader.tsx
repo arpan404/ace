@@ -1,4 +1,4 @@
-import type { SpadeDocumentRef } from "@ace/ui-core/spade-chat";
+import { spadeDocumentFacts, type SpadeDocumentRef } from "@ace/ui-core/spade-chat";
 import { ArrowsInSimpleIcon, DotsThreeIcon, DownloadSimpleIcon } from "@ace/icons";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -13,7 +13,9 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
   MenuContent,
+  MenuGroup,
   MenuItem,
+  MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
@@ -73,6 +75,8 @@ export function DocumentReader(props: { document: SpadeDocumentRef; onBack(): vo
 
   const info = describeFile({ name: doc.name, mimeType: doc.mediaType });
   const markdown = isMarkdownDoc(doc);
+  // "PDF · 6 pages · 2.5 MB", in the options menu rather than a bar over the file.
+  const facts = [info.label, spadeDocumentFacts(doc)].filter(Boolean).join(" · ");
   const mediaMode = isMediaMode(info.preview) ? info.preview : undefined;
   const key = `${doc.sha256}\n${doc.name}`;
 
@@ -153,6 +157,14 @@ export function DocumentReader(props: { document: SpadeDocumentRef; onBack(): vo
         }
       />
       <MenuContent align="end">
+        {facts && (
+          <>
+            <MenuGroup>
+              <MenuLabel>{facts}</MenuLabel>
+            </MenuGroup>
+            <MenuSeparator />
+          </>
+        )}
         {markdown && (
           <>
             <MenuRadioGroup
@@ -204,7 +216,11 @@ export function DocumentReader(props: { document: SpadeDocumentRef; onBack(): vo
           }
         >
           <FileMedia
-            url={current.url}
+            // The browser's viewer paints its own dark toolbar and backdrop; asking it for the
+            // page alone (no toolbar or side panel, fit to width) leaves the theme's frame around it.
+            url={
+              mediaMode === "pdf" ? `${current.url}#toolbar=0&navpanes=0&view=FitH` : current.url
+            }
             name={doc.name}
             mode={mediaMode}
             frame={{ height: "100%", flex: "1 1 0%" }}

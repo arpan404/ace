@@ -159,7 +159,7 @@ export function LibraryFiles(props: { bot: RosterBot; onOpen(files: FilesAt): vo
         <div
           role="group"
           aria-label="Filter files"
-          className="mb-3 flex flex-wrap items-center gap-1.5"
+          className="no-scrollbar mb-3 flex flex-nowrap items-center gap-1 overflow-x-auto rounded-full bg-hover p-0.5"
         >
           {filterOptions.map((option) => {
             const active = filter === option.id;
@@ -170,10 +170,10 @@ export function LibraryFiles(props: { bot: RosterBot; onOpen(files: FilesAt): vo
                 aria-pressed={active}
                 onClick={() => setFilter(option.id)}
                 className={cn(
-                  "h-7 rounded-full px-2.5 text-xs font-medium whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
+                  "h-7 shrink-0 rounded-full px-2.5 text-xs font-medium whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
                   active
-                    ? "bg-surface-1 text-foreground shadow-[inset_0_0_0_1px_var(--border-soft)]"
-                    : "text-muted-foreground hover:bg-hover hover:text-foreground",
+                    ? "bg-surface-2 text-foreground shadow-[inset_0_0_0_1px_var(--border-soft)]"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {option.label}

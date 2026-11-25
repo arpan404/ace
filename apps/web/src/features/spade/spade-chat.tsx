@@ -17,7 +17,6 @@ import {
   spadeNeedsYouLine,
   type SpadeAvatar,
   type SpadeChatItem,
-  type SpadeStartedWorker,
   type SpadeProposal,
   type SpadeView,
   spadeQuietLine,
@@ -89,7 +88,12 @@ import { SpadeStepsLine } from "./spade-steps-line.tsx";
 import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
 import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
-import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
+import {
+  DocumentCard,
+  SpadeReplyContext,
+  useReplies,
+  type QuotedAttachments,
+} from "./spade-chat-replies.tsx";
 
 /** "Inbox wants to email Marta Reyes": the bot's name, then why it needs the person. */
 function needsYouWords(bot: ChatBot): string {
@@ -233,8 +237,22 @@ export function SpadeChat(props: {
     [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const [from, drawAll] = useNewestFirst(rows.length);
+  // What a quoted message carried, from the rows in this chat; a quote of one elsewhere has none.
+  const attachmentsOf = useMemo(() => {
+    const byId = new Map<string, QuotedAttachments>();
+    for (const row of rows) {
+      if (row.kind !== "run") continue;
+      for (const item of row.items) {
+        if ((item.kind !== "person" && item.kind !== "bot") || !item.id) continue;
+        if (item.images.length === 0 && item.documents.length === 0) continue;
+        byId.set(item.id, { images: item.images, documents: item.documents });
+      }
+    }
+    return (id: string) => byId.get(id);
+  }, [rows]);
   const replies = useReplies(bot.name, props.onReply, drawAll, view.reactions, props.onReact, {
     reactorOf,
+    attachmentsOf,
   });
   const newBefore = useMemo(() => newDividerIndex(rows, props.seenSeq), [rows, props.seenSeq]);
   // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
@@ -383,10 +401,10 @@ export function SpadeChat(props: {
               <WorkingLine
                 avatar={bot.avatar}
                 state={task && !working ? "working" : lineState}
+                // Only what it is doing now, after the face that says who: its step, else the
+                // live phrase, else a plain "Working". Never "<name> is working on it".
                 label={
-                  task && task.tone !== "waiting"
-                    ? [task.sentence, task.step].filter(Boolean).join(" · ")
-                    : phrase
+                  task && task.tone !== "waiting" ? (task.step ?? (phrase || "Working")) : phrase
                 }
                 detail={working ? running : undefined}
                 since={working ? view.working?.since : undefined}
@@ -659,10 +677,11 @@ function RunItem(props: {
       const words = Boolean(item.text || item.end);
       // Finished words only: a reply still being written isn't copied or read yet.
       const said = item.text && !item.live ? item.text : undefined;
-      const media = (
-        <>
-          <Attachments images={item.images} documents={item.documents} side="bot" />
-        </>
+      // With words, its pictures and files ride inside the bubble above them: one block.
+      const hasMedia = item.images.length > 0 || item.documents.length > 0;
+      const mediaInside = Boolean(item.text) && hasMedia;
+      const media = mediaInside ? null : (
+        <Attachments images={item.images} documents={item.documents} side="bot" />
       );
       const doc = item.doc;
       // A stored message offers Reply, quoting its words or its document's title.
@@ -674,15 +693,17 @@ function RunItem(props: {
               text: spadeQuoteLine(item.text || doc?.title || ""),
             }
           : undefined;
-      // A finished reply to another bot's message went back to it.
-      const replied = item.repliedTo && (
-        <p
-          data-replied-to={item.repliedTo.id}
-          className="ml-1 text-xs leading-4 text-subtle-foreground"
-        >
-          Replied to {item.repliedTo.name}
-        </p>
-      );
+      // A finished reply to another bot's message went back to it: its ghost above the bubble,
+      // naming the bot (the message itself lives in that bot's conversation).
+      const quote: SpadeQuote | undefined =
+        item.quote ??
+        (item.repliedTo
+          ? {
+              id: item.repliedTo.id,
+              who: { kind: "member", name: item.repliedTo.name },
+              text: "Earlier message",
+            }
+          : undefined);
       // In a task's transcript, the bot's main chat wrote this to the task (ADR 0217).
       const fromChat = item.fromChat && (
         <p data-from-chat="" className="ml-1 text-xs leading-4 text-subtle-foreground">
@@ -698,7 +719,7 @@ function RunItem(props: {
               copy={doc.text}
               speak={undefined}
               reply={reply}
-              quote={item.quote}
+              quote={quote}
               messageIds={props.ids}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
             >
@@ -706,7 +727,6 @@ function RunItem(props: {
             </BubbleFrame>
             {media}
             {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
-            {replied}
             {fromChat}
           </div>
         );
@@ -715,7 +735,7 @@ function RunItem(props: {
         <div
           className={cn(
             "flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)",
-            item.quote && "mt-1.5 first:mt-0",
+            quote && "mt-1.5 first:mt-0",
           )}
         >
           {/* Its words went back to the bot that wrote, not to the person. */}
@@ -726,7 +746,7 @@ function RunItem(props: {
               copy={doc ? doc.text : said && spadePlainText(said)}
               speak={said}
               reply={reply}
-              quote={item.quote}
+              quote={quote}
               messageIds={props.ids}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
               work={item.live ? undefined : handlers.work(item.turn)}
@@ -737,8 +757,14 @@ function RunItem(props: {
                   item.live ? "working" : item.end === "failed" && "failed",
                   sender(bot),
                 )}
-                className={botMessageBubble(long, props.stack)}
+                className={cn(
+                  botMessageBubble(long, props.stack),
+                  mediaInside && "flex flex-col gap-2.5",
+                )}
               >
+                {mediaInside && (
+                  <Attachments images={item.images} documents={item.documents} side="bot" inside />
+                )}
                 {item.text && (
                   <SpadeFold fold={item.fold}>
                     <SpadeBubbleText
@@ -779,7 +805,6 @@ function RunItem(props: {
           {/* What its tools showed the person, after its words (ADR 0134). */}
           {words && media}
           {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
-          {replied}
           {fromChat}
         </div>
       );
@@ -913,7 +938,7 @@ function Single(props: {
   bot: ChatBot;
   handlers: Handlers;
 }) {
-  const { item, space, bot, handlers } = props;
+  const { item, space, handlers } = props;
   switch (item.kind) {
     case "together":
       return null;
@@ -1049,7 +1074,7 @@ function PersonItem(props: {
       )}
     >
       {item.fromThread && <FromThreadLine thread={item.fromThread} />}
-      <Attachments images={item.images} documents={item.documents} side="person" />
+      {!item.text && <Attachments images={item.images} documents={item.documents} side="person" />}
       {(item.text || item.invoke) && (
         <BubbleFrame
           side="mine"
@@ -1061,8 +1086,16 @@ function PersonItem(props: {
         >
           <div
             {...part("spade-message", undefined, "user")}
-            className={mineMessageBubble(long, props.stack ?? "single")}
+            className={cn(
+              mineMessageBubble(long, props.stack ?? "single"),
+              item.text &&
+                (item.images.length > 0 || item.documents.length > 0) &&
+                "flex flex-col gap-2",
+            )}
           >
+            {item.text && (
+              <Attachments images={item.images} documents={item.documents} side="person" inside />
+            )}
             {item.invoke && <InvokedChip invoked={item.invoke} />}
             {item.text && <SpadeBubbleText text={item.text} side="mine" />}
             {/* A voice message: its transcript, and the recording to play. */}

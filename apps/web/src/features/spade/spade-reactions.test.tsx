@@ -94,3 +94,22 @@ test("answers to several messages each quote their own, and the latest answer st
   const quotes = chat.getAllByRole("button", { name: /^Replied to you:/ });
   expect(quotes.map((quote) => quote.textContent)).toEqual(["Plant garlic?", "Water the beans?"]);
 });
+
+test("a reacted last message keeps room below it, so the composer never covers it or its chip", async () => {
+  await spadeApp("/spade/garden", (api) => {
+    const bot = garden(api);
+    api.store(bot.conversation, { type: "user_message", text: "Great. Book the cheapest." });
+    api.store(bot.conversation, { type: "reaction", message: "m1", emoji: "👍", by: "bot" });
+  });
+  const chat = await feed();
+  const chip = await within(chat).findByLabelText("Reacted 👍");
+  // The chips hang below their bubble, so they hold room of their own (margin under them) ...
+  const chips = chip.closest('[role="group"][aria-label="Reactions"]');
+  expect(chips?.className).toMatch(/\bmb-1\b/);
+  expect(chips?.className).toMatch(/-mt-2\b/);
+  // ... and the scroller stops above the composer's measured height plus the strip Scroll to
+  // end floats in, so the last message and its chip sit fully above both.
+  const scroller = chip.closest<HTMLElement>(".overflow-y-auto");
+  expect(scroller?.className).toMatch(/mb-\[calc\(var\(--composer-clearance,0px\)\+2\.5rem\)\]/);
+  expect(chip.closest('[class*="pb-6"]')).not.toBeNull();
+});

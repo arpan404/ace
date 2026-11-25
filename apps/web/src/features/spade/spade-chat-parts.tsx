@@ -22,6 +22,7 @@ import { Emoji } from "@/components/emoji.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { cn } from "@/lib/cn.ts";
 import { bubbleWidth } from "./spade-bubble-style.ts";
 import { SpadeFace } from "./spade-face.tsx";
@@ -327,6 +328,7 @@ function ReactionChip(props: {
           type="button"
           aria-label={label}
           aria-pressed={mine}
+          {...part("spade-reaction", mine && "active")}
           data-mine={mine || undefined}
           onFocus={() => setShown(true)}
           onBlur={() => setShown(false)}
@@ -344,6 +346,8 @@ function ReactionChip(props: {
         </button>
       ) : (
         <span
+          {...part("spade-reaction", mine && "active")}
+          role="button"
           tabIndex={0}
           aria-label={label}
           data-mine={mine || undefined}
@@ -399,7 +403,7 @@ function ReactionChips(props: {
       role="group"
       aria-label="Reactions"
       className={cn(
-        "relative z-20 -mt-2 flex max-w-full flex-wrap gap-1 px-2.5",
+        "relative z-20 -mt-2 mb-1 flex max-w-full flex-wrap gap-1 px-2.5",
         props.side === "bot" ? "self-start justify-start" : "self-end justify-end",
       )}
     >

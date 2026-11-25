@@ -49,6 +49,8 @@ export function SpadeNotes(props: {
   /** The list's name for assistive tech ("Travel's memory"). */
   label: string;
   placeholder: string;
+  /** What the section says while it holds nothing; "No notes yet." by default. */
+  empty?: string;
   /** The bot whose Library this is, for forgetting everything from a note's source. */
   bot?: string | undefined;
 }) {
@@ -139,7 +141,7 @@ export function SpadeNotes(props: {
   const suggested = notes.data.filter((note) => note.suggested);
   const kept = notes.data.filter((note) => !note.suggested);
   if (!failed && !adding && notes.data.length === 0)
-    return section(<ProfileNone action={addAction}>No notes yet.</ProfileNone>, {
+    return section(<ProfileNone action={addAction}>{props.empty ?? "No notes yet."}</ProfileNone>, {
       bare: true,
       hideHeaderAdd: true,
     });

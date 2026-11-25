@@ -1,10 +1,10 @@
 import { spadeLineChanges, type SpadeProposal } from "@ace/ui-core/spade-chat";
 import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
-import { CardActions } from "./spade-card.tsx";
+import { cardSize, CardActions } from "./spade-card.tsx";
 
 const code =
-  "no-scrollbar -mx-2.5 mt-2.5 max-h-72 overflow-auto rounded-(--chat-code-radius) bg-chat-code px-3 py-2.5 font-mono text-[13px] leading-5 whitespace-pre-wrap";
+  "no-scrollbar -mx-2.5 mt-2.5 max-h-72 overflow-auto rounded-(--chat-code-radius) bg-chat-code px-3 py-2.5 font-mono text-[13px] leading-5 whitespace-pre";
 
 /**
  * A skill the bot offers (ADR 0130), as its bubble: one sentence, what it learned, the skill
@@ -36,7 +36,7 @@ export function SkillProposal(props: {
       : "Show skill";
   return (
     <div
-      className={cn(props.className, "@container/card flex flex-col gap-3 outline-none")}
+      className={cn(props.className, "@container/card flex flex-col gap-3 outline-none", cardSize)}
       role="group"
       aria-label={`Skill ${proposal.name}`}
       // Focusable while open so Enter saves from the keyboard, matching approval cards.

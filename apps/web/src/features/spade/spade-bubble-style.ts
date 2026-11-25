@@ -61,4 +61,4 @@ export const framed = "max-w-full";
  * clamping lightness so pastel bot colours render as rich, legible dark- and light-mode pills.
  */
 export const botMinePalette =
-  "[--chat-mine:oklch(from_var(--agent-accent-light)_min(l,0.56)_c_h)] dark:[--chat-mine:oklch(from_var(--agent-accent-dark)_min(l,0.58)_c_h)] [--chat-mine-foreground:oklch(from_var(--chat-mine)_clamp(0,calc((0.7-l)*1000),1)_0_0)] [--chat-mine-meta:color-mix(in_oklab,var(--chat-mine-foreground)_72%,transparent)] [--chat-mine-code:color-mix(in_oklab,var(--chat-mine-foreground)_14%,transparent)]";
+  "[--chat-mine:oklch(from_var(--agent-accent-light)_min(l,0.56)_c_h)] dark:[--chat-mine:oklch(from_var(--agent-accent-dark)_min(l,0.55)_c_h)] [--chat-mine-foreground:oklch(from_var(--chat-mine)_clamp(0,calc((0.7-l)*1000),1)_0_0)] [--chat-mine-meta:color-mix(in_oklab,var(--chat-mine-foreground)_72%,transparent)] [--chat-mine-code:color-mix(in_oklab,var(--chat-mine-foreground)_14%,transparent)]";

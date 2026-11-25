@@ -157,3 +157,91 @@ test("the narrow panel shows one level of Files at a time: the list, then one fi
   files.getByRole("button", { name: /^todo\.txt/ });
   expect(screen.queryByRole("heading", { name: "Plan" })).toBeNull();
 });
+
+test("a reply always shows its ghost: a quoted file by name, a quoted attachment from elsewhere as Attachment", async () => {
+  await spadeApp("/spade", (api) => {
+    const writer = withWriter(api);
+    api.store(writer.conversation, {
+      type: "user_message",
+      text: "",
+      documents: [doc("a", "tap-confirmation.pdf", "application/pdf", 1000, 2)],
+    });
+    api.store(writer.conversation, {
+      type: "user_message",
+      text: "Does this include a bag?",
+      reply_to: { id: "m1", text: "", mine: true },
+    });
+    api.store(writer.conversation, {
+      type: "user_message",
+      text: "And this one?",
+      reply_to: { id: "m40", text: "", mine: false, name: "Inbox" },
+    });
+  });
+  await userEvent.click(await botRow("Writer"));
+  const ghosts = await screen.findAllByRole("button", { name: /Show the message$/ });
+  // Never an empty ghost: each says what it quotes.
+  expect(ghosts.map((ghost) => ghost.textContent)).toEqual(["tap-confirmation.pdf", "Attachment"]);
+});
+
+test("the PDF reader in the panel fills it with the file and its options name the page count", async () => {
+  await spadeApp("/spade", (api) => {
+    const writer = withWriter(api);
+    api.store(writer.conversation, {
+      type: "user_message",
+      text: "",
+      documents: [doc("7", "report.pdf", "application/pdf", 2_400_000, 6)],
+    });
+  });
+  await userEvent.click(await botRow("Writer"));
+  await userEvent.click(await screen.findByRole("button", { name: "Open report.pdf" }));
+  const reader = within(await screen.findByRole("region", { name: "report.pdf" }));
+  const frame = await reader.findByTitle("report.pdf");
+  expect(frame.getAttribute("src")).toMatch(/^blob:/);
+  await userEvent.click(reader.getByRole("button", { name: "File options" }));
+  within(await screen.findByRole("menu")).getByText("PDF · 6 pages · 2.4 MB");
+});
+
+test("a caption sits in the same bubble as its files, under them", async () => {
+  await spadeApp("/spade", (api) => {
+    const writer = withWriter(api);
+    api.store(writer.conversation, {
+      type: "user_message",
+      text: "Here is my confirmation",
+      documents: [doc("8", "tap.pdf", "application/pdf", 1000, 2)],
+    });
+  });
+  await userEvent.click(await botRow("Writer"));
+  const card = await screen.findByRole("group", { name: "tap.pdf" });
+  const bubble = card.closest('[data-part="spade-message"]');
+  expect(bubble).not.toBeNull();
+  const caption = within(bubble as HTMLElement).getByText("Here is my confirmation");
+  // The files come first in the bubble, the caption after.
+  expect(card.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("a document without a preview wears its type's own colour and extension", async () => {
+  await spadeApp("/spade", (api) => {
+    const writer = withWriter(api);
+    api.store(writer.conversation, {
+      type: "user_message",
+      text: "",
+      documents: [
+        doc("1", "a.zip", "application/zip", 10),
+        doc(
+          "2",
+          "b.docx",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          10,
+        ),
+      ],
+    });
+  });
+  await userEvent.click(await botRow("Writer"));
+  const zip = within(await screen.findByRole("group", { name: "a.zip" }));
+  const docx = within(await screen.findByRole("group", { name: "b.docx" }));
+  const tile = (card: typeof zip, mark: string) => card.getByText(mark, { selector: "span" });
+  const zipTile = await waitFor(() => tile(zip, "ZIP"));
+  const docxTile = await waitFor(() => tile(docx, "DOCX"));
+  expect(zipTile.style.color).not.toBe("");
+  expect(zipTile.style.color).not.toBe(docxTile.style.color);
+});

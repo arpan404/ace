@@ -12,13 +12,23 @@ const gridCells = 4;
  * three), with "+N" on the last cell past four. Each opens in a lightbox that steps through
  * them all.
  */
-function Pictures(props: { images: readonly SpadeImageRef[]; side: "person" | "bot" }) {
+function Pictures(props: {
+  images: readonly SpadeImageRef[];
+  side: "person" | "bot";
+  inside: boolean;
+}) {
   const [open, setOpen] = useState<number>();
   const { images } = props;
   const shown = images.slice(0, gridCells);
   const extra = images.length - shown.length;
   return (
-    <div className={cn("flex w-full min-w-0", props.side === "person" && "justify-end")}>
+    <div
+      className={cn(
+        "flex min-w-0",
+        props.inside ? "w-full" : "w-full",
+        props.side === "person" && !props.inside && "justify-end",
+      )}
+    >
       {images.length === 1 ? (
         images[0] && <ImageTile image={images[0]} index={0} onOpen={setOpen} />
       ) : (
@@ -60,14 +70,19 @@ export function Attachments(props: {
   images: readonly SpadeImageRef[];
   documents: readonly SpadeDocumentRef[];
   side: "person" | "bot";
+  /** Inside the message's own bubble, above its caption, instead of bubbles of their own. */
+  inside?: boolean;
 }) {
   const { images, documents, side } = props;
+  const inside = props.inside ?? false;
   const [first] = documents;
   return (
     <>
-      {images.length > 0 && <Pictures images={images} side={side} />}
-      {documents.length === 1 && first && <DocumentCard document={first} side={side} />}
-      {documents.length > 1 && <DocumentList documents={documents} side={side} />}
+      {images.length > 0 && <Pictures images={images} side={side} inside={inside} />}
+      {documents.length === 1 && first && (
+        <DocumentCard document={first} side={side} inside={inside} />
+      )}
+      {documents.length > 1 && <DocumentList documents={documents} side={side} inside={inside} />}
     </>
   );
 }

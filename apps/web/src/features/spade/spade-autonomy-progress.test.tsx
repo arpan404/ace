@@ -29,10 +29,10 @@ test("a bot carrying on by itself says so in its chat and its row, and the line 
   await userEvent.click(row);
   const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
   await waitFor(() =>
-    expect(within(feed).getByRole("status").textContent).toContain(
-      "Scout is working on it · Checking easyJet",
-    ),
+    expect(within(feed).getByRole("status").textContent).toContain("Checking easyJet"),
   );
+  // The line names only what it is doing; the face already says who.
+  expect(within(feed).getByRole("status").textContent).not.toContain("working on it");
   // Stop stays while it carries on.
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
 

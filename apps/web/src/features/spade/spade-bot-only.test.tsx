@@ -111,7 +111,8 @@ test("the bot's working line and Stop show while only its children run, and Stop
       });
   });
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Errands" }));
-  expect(await chat.findByText(/Errands is working on it/)).toBeTruthy();
+  expect(await chat.findByRole("status")).toBeTruthy();
+  expect(chat.queryByText(/is working on it/)).toBeNull();
   // Never as a list of its tasks.
   expect(chat.queryByText(/Errand (invoice|note)/)).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: /^Stop/ }));
@@ -119,7 +120,7 @@ test("the bot's working line and Stop show while only its children run, and Stop
     expect(opened.spade.sent("POST", `/v1/conversations/${main}/stop`)).toHaveLength(1),
   );
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull());
-  await waitFor(() => expect(chat.queryByText(/Errands is working on it/)).toBeNull());
+  await waitFor(() => expect(chat.queryByRole("status")).toBeNull());
 });
 
 test("Activity lists no tasks, and Settings words the role as Background work", async () => {

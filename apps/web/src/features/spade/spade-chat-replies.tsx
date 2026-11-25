@@ -1,11 +1,13 @@
 import {
   type SpadeAvatar,
   type SpadeDocCard,
+  type SpadeDocumentRef,
+  type SpadeImageRef,
   type SpadeMessageReactions,
   type SpadeQuote,
   spadeQuoteName,
 } from "@ace/ui-core/spade-chat";
-import { FileTextIcon, XIcon } from "@ace/icons";
+import { FileTextIcon, PaperclipIcon, XIcon } from "@ace/icons";
 import {
   createContext,
   useCallback,
@@ -24,8 +26,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { cn } from "@/lib/cn.ts";
+import { Icon } from "@/components/icon.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { PictureThumb } from "./spade-attachment-image.tsx";
 
 /*
  * Replying to a message and long words in a Spade chat (ADR 0212, docs/design/spade.md §3): the
@@ -57,6 +62,14 @@ export interface SpadeReplyHandlers {
   canReactOwn?: boolean | undefined;
   /** Resolve a reactor id (`"person"`, `"bot"`, or club member agent id) to face and name. */
   reactorOf?: ((id: string) => SpadeReactor | undefined) | undefined;
+  /** The pictures and files of a message in this chat, by id; none for one in another chat. */
+  attachmentsOf?: ((id: string) => QuotedAttachments | undefined) | undefined;
+}
+
+/** What a quoted message carried besides words, when it is in this chat. */
+export interface QuotedAttachments {
+  images: readonly SpadeImageRef[];
+  documents: readonly SpadeDocumentRef[];
 }
 
 export const SpadeReplyContext = createContext<SpadeReplyHandlers | undefined>(undefined);
@@ -86,6 +99,40 @@ export function replyLabel(
   return replier ? `${replier} replied to ${target}` : `Replied to ${target}`;
 }
 
+/** What the ghost says in words: the quoted words, else its file names, else "Attachment". */
+function quoteWords(quote: SpadeQuote, attachments: QuotedAttachments | undefined): string {
+  if (quote.text) return quote.text;
+  const names = attachments?.documents.map((doc) => doc.name) ?? [];
+  if (names.length > 0) return names.join(", ");
+  if (attachments && attachments.images.length > 0) return "Photo";
+  return "Attachment";
+}
+
+/**
+ * The ghost's content: the quoted words; a mini thumbnail for a picture and the name of a file
+ * when the message carried them (or when it carried only them); a paperclip and "Attachment"
+ * for a message with no words that isn't in this chat (another conversation or club).
+ */
+function GhostBody(props: { quote: SpadeQuote; attachments: QuotedAttachments | undefined }) {
+  const { quote, attachments } = props;
+  const [image] = attachments?.images ?? [];
+  const [doc] = attachments?.documents ?? [];
+  const media = image ? (
+    <PictureThumb image={image} className="size-9 shrink-0 rounded-md" />
+  ) : doc ? (
+    <Icon icon={FileTextIcon} size={16} className="shrink-0" />
+  ) : !quote.text ? (
+    <Icon icon={PaperclipIcon} size={14} className="shrink-0" />
+  ) : null;
+  const words = quote.text || (doc ? doc.name : image ? "Photo" : "Attachment");
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      {media}
+      <span className="line-clamp-2 min-w-0 break-words">{words}</span>
+    </span>
+  );
+}
+
 /**
  * Messenger-style reply context sitting directly above a reply bubble: a muted 12px label
  * ("Replied to you" / "You replied to Flights" / "Flights replied to Inbox") and a compact faded
@@ -102,9 +149,10 @@ export function ReplyGhost(props: {
   const label = replyLabel(props.quote, props.side, replies?.botName ?? "Spade", props.replier);
   const mine = props.side === "mine";
   const quotedPerson = props.quote.who.kind === "person";
+  const attachments = replies?.attachmentsOf?.(props.quote.id);
   return (
     <div
-      data-part="spade-reply-ghost"
+      {...part("spade-reply-ghost", undefined, mine ? "mine" : "bot")}
       className={cn("flex max-w-full min-w-0 flex-col", mine ? "items-end" : "items-start")}
     >
       <span
@@ -118,17 +166,20 @@ export function ReplyGhost(props: {
       <button
         type="button"
         onClick={() => replies?.show(props.quote.id)}
-        aria-label={`${label}: ${props.quote.text}. Show the message`}
+        aria-label={`${label}: ${quoteWords(props.quote, attachments)}. Show the message`}
         className={cn(
           // Extra bottom padding leaves room for the reply bubble overlapping by 6px.
           "max-w-[min(100%,42ch)] min-w-0 cursor-pointer rounded-[16px] px-3 pt-1.5 pb-2.5 text-left text-[13px] leading-[1.38] transition-[background-color,opacity,color] duration-(--motion-fast) focus-ring",
           mine ? "mr-1.5" : "ml-1.5",
+          // Faded by its colours, not by opacity (which fades the words toward the page):
+          // quiet text on the chat's well, readable in every theme and scheme.
+          "bg-chat-well text-muted-foreground hover:text-foreground",
           quotedPerson
-            ? "bg-chat-mine text-chat-mine-foreground opacity-50 hover:opacity-70"
-            : "border border-foreground/[0.06] bg-chat-bubble/65 text-muted-foreground hover:bg-chat-bubble/85 hover:text-foreground/85",
+            ? "shadow-[inset_0_0_0_1px_var(--border)]"
+            : "shadow-[inset_0_0_0_1px_var(--border-soft)]",
         )}
       >
-        <span className="line-clamp-2 break-words">{props.quote.text}</span>
+        <GhostBody quote={props.quote} attachments={attachments} />
       </button>
     </div>
   );
@@ -211,6 +262,7 @@ const litFor = 1600;
 export interface UseRepliesOptions {
   canReactOwn?: boolean | undefined;
   reactorOf?: ((id: string) => SpadeReactor | undefined) | undefined;
+  attachmentsOf?: ((id: string) => QuotedAttachments | undefined) | undefined;
 }
 
 /**
@@ -259,6 +311,7 @@ export function useReplies(
   );
   const canReactOwn = options?.canReactOwn;
   const reactorOf = options?.reactorOf;
+  const attachmentsOf = options?.attachmentsOf;
   return useMemo(
     () => ({
       reply: onReply ?? (() => {}),
@@ -269,7 +322,8 @@ export function useReplies(
       react,
       canReactOwn,
       reactorOf,
+      attachmentsOf,
     }),
-    [onReply, show, lit, botName, reactions, react, canReactOwn, reactorOf],
+    [onReply, show, lit, botName, reactions, react, canReactOwn, reactorOf, attachmentsOf],
   );
 }

@@ -45,7 +45,7 @@ export function SpadeAgentCard(props: {
       {...part("card", undefined, "spade-agent")}
       aria-label={`${props.botName}: ${item.card.title}`}
       style={accent}
-      className="@container/card flex w-full max-w-150 min-w-0 flex-col gap-3 rounded-(--chat-bubble-radius) bg-chat-bubble px-(--chat-bubble-x) py-4 wrap-anywhere"
+      className="@container/card flex w-full max-w-150 min-w-[min(100%,17.5rem)] flex-col gap-3 rounded-(--chat-bubble-radius) bg-chat-bubble px-(--chat-bubble-x) py-4 wrap-anywhere"
     >
       <header className="flex flex-col gap-2">
         <h3 className="text-base leading-6 font-medium text-foreground">{item.card.title}</h3>

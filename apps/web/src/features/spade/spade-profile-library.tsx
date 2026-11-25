@@ -62,6 +62,7 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
               heading="About you"
               label="About you"
               placeholder="Add something every bot should know about you"
+              empty="Nothing about you yet."
               bot={bot.id}
             />
           )}

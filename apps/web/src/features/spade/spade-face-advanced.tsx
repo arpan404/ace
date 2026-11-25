@@ -110,7 +110,7 @@ function PairSwatch(props: { pair: keyof typeof botPairColours }) {
   return (
     <span
       aria-hidden
-      className="relative size-6 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)]"
+      className="relative size-6 rounded-full shadow-[inset_0_0_0_1px_var(--border-strong)]"
       style={{ backgroundColor: colours.body }}
     >
       <span

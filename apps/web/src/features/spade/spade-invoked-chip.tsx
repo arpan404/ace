@@ -5,7 +5,7 @@ export function InvokedChip(props: { invoked: SpadeInvoked }) {
   return (
     <span
       data-invoked={props.invoked.kind}
-      className="mr-1.5 inline-flex max-w-full items-center rounded-full bg-black/10 px-2 py-0.5 align-baseline text-ui font-medium dark:bg-white/15"
+      className="mr-1.5 inline-flex max-w-full items-center rounded-full bg-chat-mine-code px-2 py-0.5 align-baseline text-ui font-medium"
     >
       <span className="truncate">{`/${props.invoked.name}`}</span>
     </span>

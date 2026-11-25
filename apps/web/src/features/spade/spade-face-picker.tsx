@@ -60,7 +60,7 @@ export function FacePicker(props: {
         tabIndex={on || (face === undefined && pair === botFaceFields.pair[0]) ? 0 : -1}
         onClick={() => setFace(changeFace(shown, "pair", pair as BotFaceValue<"pair">))}
         className={cn(
-          "size-7 shrink-0 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)] outline-none transition-transform duration-(--motion-fast) hover:scale-110 focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--focus)]",
+          "size-7 shrink-0 rounded-full shadow-[inset_0_0_0_1px_var(--border-strong)] outline-none transition-transform duration-(--motion-fast) hover:scale-110 focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--focus)]",
           on && "shadow-[0_0_0_2px_var(--popover),0_0_0_3.5px_var(--foreground)]",
         )}
         style={{ backgroundColor: botPairColours[pair].dark.body }}

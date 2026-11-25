@@ -14,7 +14,7 @@ import { Refusal } from "./spade-settings-rows.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 const swatch =
-  "relative size-6 shrink-0 rounded-full outline-none shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)] transition-transform duration-(--motion-fast) hover:scale-110 aria-checked:shadow-[0_0_0_2px_var(--surface-1),0_0_0_4px_var(--ring)] focus-visible:shadow-[0_0_0_2px_var(--surface-1),0_0_0_4px_var(--focus)]";
+  "relative size-6 shrink-0 rounded-full outline-none shadow-[inset_0_0_0_1px_var(--border-strong)] transition-transform duration-(--motion-fast) hover:scale-110 aria-checked:shadow-[0_0_0_2px_var(--surface-1),0_0_0_4px_var(--ring)] focus-visible:shadow-[0_0_0_2px_var(--surface-1),0_0_0_4px_var(--focus)]";
 
 /**
  * The bot's accent (ADR 0200 §5.3), a row of Personality: its face's colour, then the colours

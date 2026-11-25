@@ -29,6 +29,13 @@ export const personBubble =
  * A card that waits on the person: raised, its parts 16px apart, its actions in a footer. A Suit
  * reaches it as `card` `waiting`, by what it asks: `spade-question` or `spade-request`.
  */
+/**
+ * How wide a card is. Cards are size containers (`@container/card`), which have no intrinsic
+ * width: without a width of their own they collapse to their padding inside a fit-content
+ * bubble. So a card takes the column up to 34rem, never narrower than 17.5rem (or the column).
+ */
+export const cardSize = "w-full min-w-[min(100%,17.5rem)] max-w-[min(100%,--spacing(136))]";
+
 export function RaisedCard(
   props: React.ComponentProps<"div"> & {
     asks: "question" | "request";
@@ -44,7 +51,7 @@ export function RaisedCard(
       className={cn(
         // Focused when the chat opens on it, for screen readers: a target, not a control, so
         // no ring (its own buttons keep theirs).
-        "@container/card my-1 flex w-full max-w-[min(100%,--spacing(136))] min-w-0 flex-col gap-3.5 rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5 outline-none",
+        `@container/card my-1 flex ${cardSize} flex-col gap-3.5 rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5 outline-none`,
         className,
       )}
     >

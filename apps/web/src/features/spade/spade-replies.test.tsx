@@ -141,13 +141,17 @@ test("Reply on a bot's message shows it above the composer, and the sent message
     expect(screen.queryByRole("status", { name: "Replying to Garden" })).toBeNull(),
   );
   await chat.findByRole("button", {
-    name: "Replying to Garden: Tuesday or Wednesday?. Show the message",
+    name: "You replied to Garden: Tuesday or Wednesday?. Show the message",
   });
   const quote = chat.getByRole("button", {
-    name: "Replying to Garden: Tuesday or Wednesday?. Show the message",
+    name: "You replied to Garden: Tuesday or Wednesday?. Show the message",
   });
   const pill = chat.getByText("Tuesday").closest("[data-part=spade-message]");
-  expect(pill?.contains(quote)).toBe(true);
+  // The ghost sits above the reply's pill, not inside it.
+  expect(pill?.contains(quote)).toBe(false);
+  expect(
+    quote.compareDocumentPosition(pill as Element) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
   // Spade stored what it quoted with the message, which is what the bot reads.
   const conversation = api?.agents.find((agent) => agent.id === "garden")?.conversation ?? "";
   await waitFor(() =>
@@ -169,10 +173,11 @@ test("clicking a quote inside a bubble goes to the original and lights it a mome
   });
   const chat = within(await feed("Garden"));
   const quote = await chat.findByRole("button", {
-    name: "Replying to You: Can you book the 9:10?. Show the message",
+    name: "Replied to you: Can you book the 9:10?. Show the message",
   });
   const bubble = chat.getByText("Booked the 9:10.").closest("[data-part=spade-message]");
-  expect(bubble?.contains(quote)).toBe(true);
+  // The ghost sits above the reply's bubble.
+  expect(bubble?.contains(quote)).toBe(false);
   await userEvent.click(quote);
   const original = document.querySelector('[data-spade-message="m1"]');
   expect(original?.textContent).toContain("Can you book the 9:10?");

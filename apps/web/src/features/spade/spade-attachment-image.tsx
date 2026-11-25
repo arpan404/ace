@@ -37,6 +37,13 @@ function usePicture(hash: string) {
   return state?.hash === hash ? state : undefined;
 }
 
+/** A small square crop of a stored picture, for places that only hint at it. */
+export function PictureThumb(props: { image: SpadeImageRef; className?: string }) {
+  const state = usePicture(props.image.sha256);
+  if (!state?.url) return <span aria-hidden className={cn("bg-hover", props.className)} />;
+  return <img src={state.url} alt="" className={cn("object-cover", props.className)} />;
+}
+
 /** One picture, rounded, up to about 320px; it opens in the lightbox. `fill` crops it to its cell. */
 export function ImageTile(props: {
   image: SpadeImageRef;
@@ -81,7 +88,7 @@ export function ImageTile(props: {
         )}
       />
       {props.more ? (
-        <span className="absolute inset-0 grid place-items-center bg-black/45 text-lg font-semibold text-white">
+        <span className="absolute inset-0 grid place-items-center bg-scrim text-lg font-semibold text-foreground backdrop-blur-[2px]">
           +{props.more}
         </span>
       ) : null}

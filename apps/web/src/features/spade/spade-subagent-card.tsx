@@ -102,7 +102,7 @@ export function SpadeSubagentCard(props: {
       aria-label={header}
       // The question card's shape: its radius, its 20px padding (16 under a finger), its 16px
       // between parts, its width; its first line's face, gap and type.
-      className="@container/card flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-bubble p-5 pointer-coarse:p-4"
+      className="@container/card flex w-full max-w-150 min-w-[min(100%,17.5rem)] flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-bubble p-5 pointer-coarse:p-4"
     >
       <header className="flex min-w-0 items-start gap-2.5 font-prose text-prose leading-[1.5]">
         {props.face && <SpadeFace avatar={props.face} size={24} className="mt-px" />}
