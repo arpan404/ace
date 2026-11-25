@@ -665,6 +665,12 @@ and who handles it. The DDL stays TypeScript (decision 8). The fills are the E5.
 E5.4 adds no fill, no fill cursor and no open-time statement. Fills run as E5.3's pump tasks and
 never inside a receipt.
 
+> **Status (2026-11-24):** the fills in the "After the main fix" column are deferred with the E5.3
+> brief's prerequisite section. Until that ADR 0170 change lands for both engines, E5.4 ports
+> today's open-time statements as they are and its readers keep today's behaviour, with no fill
+> fallbacks. The queue's pending-from-intents read is the exception: it lands on main on its own and
+> E5.4a ports it.
+
 ## Main fixes E5.4 depends on
 
 Each is its own TypeScript PR on main. Its test is written first and must fail on main before the
