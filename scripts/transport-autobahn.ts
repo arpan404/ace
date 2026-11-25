@@ -16,6 +16,7 @@
  * PR; the HTML report at `<out>/<leg>-reports/servers/index.html` has the detail.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -33,7 +34,10 @@ function argument(name: string, fallback: string): string {
   return process.argv.find((value) => value.startsWith(flag))?.slice(flag.length) ?? fallback;
 }
 
-const image = argument("image", "crossbario/autobahn-testsuite");
+/** The image the verifier machine pulled, pinned by digest: the run never resolves a tag. */
+const PINNED_IMAGE =
+  "crossbario/autobahn-testsuite@sha256:519915fb568b04c9383f70a1c405ae3ff44ab9e35835b085239c258b6fac3074";
+const image = argument("image", PINNED_IMAGE);
 const out = argument("out", join(tmpdir(), `ace-autobahn-${process.pid}`));
 const host = argument("host", "127.0.0.1");
 const port = Number(argument("port", "9001"));
@@ -75,14 +79,21 @@ function stop(child: ChildProcess): void {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-/** The image, checked before anything runs: the pull is the owner's, not this script's. */
+/**
+ * The image, checked before anything runs. A tag is a moving target and a run may not resolve
+ * one over the network, so only a digest is accepted; the pull itself is the owner's step.
+ */
 function requireImage(): void {
+  if (!image.includes("@sha256:"))
+    throw new Error(
+      `--image must name a digest (…@sha256:<hex>), not a tag: pin the local image's digest with \`docker image inspect --format '{{index .RepoDigests 0}}' ${image}\``,
+    );
   const inspect = spawnSync("docker", ["image", "inspect", "--format", "{{.Id}}", image], {
     encoding: "utf8",
   });
   if (inspect.status === 0) return;
   throw new Error(
-    `the ${image} image is not pulled: with the owner's go-ahead run \`docker pull ${image}\` once, then this script runs offline`,
+    `the image is not present locally: ${image}\nwith the owner's go-ahead pull it once (\`docker pull ${image}\`); this script never pulls`,
   );
 }
 
@@ -138,18 +149,18 @@ function runSuite(leg: string): void {
     throw new Error(`the suite exited ${String(run.status)} for the ${leg} leg`);
 }
 
-/** The case outcomes of one leg's report, keyed by case id; the index's shape is read leniently. */
+/**
+ * The case outcomes of one leg's report, keyed by case id. The index is
+ * `{ "<agent>": { "<case>": { "behavior": "OK", … }, … } }`; the walk takes every object with a
+ * string `behavior` at its case key, and a report it cannot read is an error, never an empty map
+ * (an empty map would make every comparison pass).
+ */
 function behaviors(leg: string): Map<string, string> {
   const path = join(out, `${leg}-reports`, "servers", "index.json");
   const decoded: unknown = JSON.parse(readFileSync(path, "utf8"));
   const found = new Map<string, string>();
   const walk = (value: unknown, depth: number) => {
     if (typeof value !== "object" || value === null || depth > 4) return;
-    const behavior = Reflect.get(value, "behavior");
-    if (typeof behavior === "string" && found.size === 0) {
-      // A single case's own record: the caller keys it.
-      return;
-    }
     for (const [key, inner] of Object.entries(value)) {
       if (typeof inner !== "object" || inner === null) continue;
       const outcome = Reflect.get(inner, "behavior");
@@ -158,18 +169,23 @@ function behaviors(leg: string): Map<string, string> {
     }
   };
   walk(decoded, 0);
+  if (found.size === 0) throw new Error(`the ${leg} leg's report has no case outcomes: ${path}`);
   return found;
 }
 
 /** Starts the Rust example on the port and echoes what arrives. */
 function startExample(): ChildProcess {
-  const build = spawnSync("cargo", ["build", "--example", "autobahn_echo"], {
+  // Offline: the crates are in the local registry from the checkout's own builds, and a run that
+  // would fetch one over the network fails here instead.
+  const build = spawnSync("cargo", ["build", "--offline", "--example", "autobahn_echo"], {
     cwd: daemon,
     stdio: ["ignore", "inherit", "inherit"],
     encoding: "utf8",
   });
   if (build.status !== 0)
-    throw new Error(`cargo build --example autobahn_echo exited ${String(build.status)}`);
+    throw new Error(
+      `cargo build --offline --example autobahn_echo exited ${String(build.status)}; build the daemon's crates once first (cargo build --release in native/daemon)`,
+    );
   const child = spawn(example, [], { stdio: ["ignore", "inherit", "inherit"] });
   return child;
 }
@@ -177,9 +193,12 @@ function startExample(): ChildProcess {
 /** Starts a scratch `ws` echo server with `remoteDeflate`, from the checkout's own dependency. */
 function startWs(): ChildProcess {
   const script = join(out, "ws-echo.ts");
+  // The installed package's entry by absolute path: no bare specifier a runtime could resolve
+  // from the network or from a different tree.
+  const wsEntry = createRequire(import.meta.url).resolve("ws");
   writeFileSync(
     script,
-    `import { WebSocketServer } from "ws";
+    `import { WebSocketServer } from ${JSON.stringify(wsEntry)};
 import { remoteDeflate } from ${JSON.stringify(join(root, "apps/daemon/src/compression-policy.ts"))};
 
 const server = new WebSocketServer({ host: "127.0.0.1", port: ${port}, perMessageDeflate: remoteDeflate });
@@ -212,6 +231,10 @@ function loose(label: string, report: Map<string, string>): void {
 
 /** Prints the comparison and returns whether the brief's gate passed. */
 function compare(mine: Map<string, string>, ws: Map<string, string>): boolean {
+  if (mine.size === 0 || ws.size === 0)
+    throw new Error(
+      `a case map is empty (ours ${mine.size}, ws ${ws.size}): the reports say nothing`,
+    );
   const failed = [...mine].filter(([, behavior]) => behavior === "FAILED").map(([id]) => id);
   const worse = [...ws]
     .filter(([id, behavior]) => behavior === "OK" && mine.get(id) !== "OK")
