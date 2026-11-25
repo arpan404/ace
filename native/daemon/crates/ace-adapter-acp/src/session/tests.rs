@@ -833,6 +833,46 @@ fn prompt_end_cancellation_replies_are_captured_after_the_prompt_end_frame() {
     );
 }
 
+/// The leader's exit ends the work it started while its pipes still drain: a
+/// buffered reply is captured, never allowed to resolve the call (`jsonrpc.ts:265`).
+#[test]
+fn leader_exit_settles_pending_calls_before_a_buffered_reply_can() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-exit",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let Ok(_sent) = core.request("custom/ping", Some(&json!({})), 61, Timeout::Disabled) else {
+        panic!("request refused");
+    };
+    let exit_effects = core.mark_exited();
+    let settled = settlements(&exit_effects, 61);
+    assert_eq!(settled.len(), 1, "the exit ends the call: {settled:?}");
+    let Err((code, message)) = &settled[0] else {
+        panic!("the exit must settle the call as a failure: {settled:?}");
+    };
+    assert_eq!(code, "ACE_ACP_RPC_ERROR");
+    assert_eq!(message, "process exited");
+
+    let reply = json!({ "jsonrpc": "2.0", "id": 1, "result": { "ok": true } });
+    let drained = core.stdout_bytes(format!("{}\n", reply.to_json()).as_bytes());
+    assert!(
+        settlements(&drained, 61).is_empty(),
+        "a buffered reply never settles a call the exit ended"
+    );
+    assert!(
+        drained.iter().any(|effect| matches!(
+            effect,
+            AcpEffect::Frame {
+                dir: FrameDirection::Recv,
+                channel,
+                ..
+            } if channel == "stdio"
+        )),
+        "the drain still captures frames: {drained:?}"
+    );
+}
+
 #[test]
 fn session_io_shell_publishes_process_start_and_settles_on_abandon() {
     let config = AcpCoreConfig::new("t-io", "/work", AcpSessionQuirks::generic());

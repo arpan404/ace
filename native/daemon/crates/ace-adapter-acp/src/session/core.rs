@@ -390,8 +390,16 @@ impl AcpCore {
     }
 
     /// Mark that the child process leader has exited (before `close` barrier).
-    pub fn mark_exited(&mut self) {
+    ///
+    /// The pipes may still drain, so frames keep being captured, but no work is
+    /// accepted from here: a buffered reply must not resolve a call the exit
+    /// already ended (`jsonrpc.ts:265`, `:270`–`:272`, `#end`).
+    pub fn mark_exited(&mut self) -> Vec<AcpEffect> {
         self.process_exited = true;
+        let peer_effects = self.peer.stop_requests("process exited");
+        let mut effects = Vec::new();
+        self.apply_peer_effects(peer_effects, &mut effects);
+        effects
     }
 
     /// Handle a fired timer (either a [`Deadlines`] timer or an [`RpcPeer`] request timeout).

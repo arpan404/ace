@@ -184,7 +184,7 @@ impl OutputConsumer for AcpSessionCore {
     fn exit(&self, _exit: RawExit) {
         self.attach_gate();
         self.gate.exited();
-        self.lock().mark_exited();
+        self.input(AcpCore::mark_exited);
         self.queue.publish(vec![SessionEvent::ArmTimer {
             key: CUTOFF.to_owned(),
             ms: CUTOFF_MS,
