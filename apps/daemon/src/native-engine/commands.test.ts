@@ -7,6 +7,8 @@
  * (a): `queue-context.process` `:15` reads the same queue once delivery can seed one natively.
  */
 import { describe, expect, test } from "vitest";
+import { createThreadState } from "@ace/core";
+import { AgentId, NativeSessionId } from "@ace/protocol";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { createDevThread } from "../commands.ts";
 import { engineSeam } from "./testing.ts";
@@ -54,6 +56,67 @@ describe.runIf(native)("the queue's pending read", () => {
       const page = seam.engine.queuePage({ threadId: threadId as never });
       expect(page.messages).toHaveLength(2);
       expect(page.total).toBe(2);
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
+describe.runIf(native)("turn-end queue events", () => {
+  test("retiring inputs persists the snooze wake and queue update before the run ends", async () => {
+    const seam = await engineSeam();
+    try {
+      seam.probe.passThroughCollaborators();
+      const { store } = seam;
+      const workspace = store.createWorkspace(seam.home, "E5.4a");
+      const { id } = createDevThread(store, workspace);
+      const state = createThreadState({
+        threadId: id,
+        rootAgent: {
+          agent: AgentId.parse("root"),
+          fidelity: "full",
+          native: { provider: "claude", nativeId: NativeSessionId.parse("native-root") },
+          cwd: seam.home,
+        },
+        config: { provider: "claude", silenceMs: 30_000 },
+      });
+      store.atomic((db) => {
+        db.prepare("INSERT INTO thread_state VALUES (?, ?, ?)").run(
+          id,
+          JSON.stringify({ ...state, engineSnapshot: 9 }),
+          store.headSeq(),
+        );
+        db.prepare(
+          "INSERT INTO engine_queue (thread_id,paused,reason) VALUES (?,1,'not_sent')",
+        ).run(id);
+        db.prepare(
+          "INSERT INTO intents (command_id,thread_id,kind,payload,status,uncertain,submitted_generation) VALUES ('send',?,'thread.send','{}','failed',1,2)",
+        ).run(id);
+      });
+      seam.probe.apply(
+        id,
+        [{ type: "turn.started", agent: "root", trigger: "user", nativeTurnId: "turn-1" }],
+        1_000,
+      );
+      store.appendEvents(id, [
+        { type: "thread.client.updated", changes: { snoozedUntil: 10_000 } },
+      ], 1_100);
+      const before = store.headSeq();
+      seam.probe.apply(
+        id,
+        [{ type: "turn.ended", agent: "root", nativeTurnId: "turn-1", outcome: "completed" }],
+        2_000,
+        2,
+      );
+      const stored = store.atomic((db) =>
+        db
+          .prepare(
+            "SELECT type FROM events WHERE thread_id=? AND seq>? AND type IN ('thread.client.updated','queue.updated','run.ended') ORDER BY seq",
+          )
+          .all(id, before)
+          .map((row) => row.type),
+      );
+      expect(stored).toEqual(["thread.client.updated", "queue.updated", "run.ended"]);
     } finally {
       await seam.close();
     }

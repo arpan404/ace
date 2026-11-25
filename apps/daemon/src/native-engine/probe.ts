@@ -70,8 +70,8 @@ export function probeFor(
       return parseTurns(turnLog());
     },
     woken,
-    apply: (threadId: string, facts: readonly unknown[], now: number) =>
-      required("probeApply")(threadId, JSON.stringify(facts), now),
+    apply: (threadId: string, facts: readonly unknown[], now: number, generation?: number) =>
+      required("probeApply")(threadId, JSON.stringify(facts), now, generation),
     applyRolledBack: (threadId: string, facts: readonly unknown[], now: number) =>
       required("probeApplyRolledBack")(threadId, JSON.stringify(facts), now),
     passThroughCollaborators: () => {
