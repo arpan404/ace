@@ -33,6 +33,15 @@ const slowProcessSuites = [
 ];
 // Under Bun, scripts/test-run.ts runs the Node-only suites in a separate pass on Node.
 const onBun = "bun" in process.versions;
+/**
+ * T1b.5's per-case evidence hooks, loaded only when a run asks for evidence (the proof script's
+ * on legs) or serves the native remote listeners. Every ordinary tier keeps its setup untouched.
+ */
+const transportEvidenceSetupFiles =
+  process.env.ACE_TRANSPORT_EVIDENCE !== undefined ||
+  (process.env.ACE_TRANSPORT ?? "").split(",").includes("remote")
+    ? ["./scripts/transport-evidence-case.ts"]
+    : [];
 // Four workers by default; ACE_TEST_WORKERS raises it on machines with more cores.
 const workers = Number(process.env.ACE_TEST_WORKERS) || 4;
 
@@ -59,7 +68,7 @@ export default defineConfig({
               "./scripts/test-home-global-setup.ts",
               "./tools/web-perf/src/browser-test-setup.ts",
             ],
-            setupFiles: ["./scripts/test-home-setup.ts"],
+            setupFiles: ["./scripts/test-home-setup.ts", ...transportEvidenceSetupFiles],
             include: [
               "packages/*/src/**/*.test.ts",
               "packages/*/bench/**/*.test.ts",
@@ -109,7 +118,7 @@ export default defineConfig({
               "./scripts/history-binary-setup.ts",
               "./tools/web-perf/src/browser-test-setup.ts",
             ],
-            setupFiles: ["./scripts/test-home-setup.ts"],
+            setupFiles: ["./scripts/test-home-setup.ts", ...transportEvidenceSetupFiles],
           },
         },
         ...(onBun
@@ -129,7 +138,7 @@ export default defineConfig({
                     "./scripts/process-test-setup.ts",
                     "./scripts/history-binary-setup.ts",
                   ],
-                  setupFiles: ["./scripts/test-home-setup.ts"],
+                  setupFiles: ["./scripts/test-home-setup.ts", ...transportEvidenceSetupFiles],
                 },
               },
             ]),

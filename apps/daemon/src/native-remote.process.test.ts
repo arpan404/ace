@@ -692,4 +692,12 @@ it("a LAN port taken at start is reported, and once freed the listener serves on
   await new Promise<void>((resolve) => taken.close(() => resolve()));
   await expect.poll(async () => (await networks()).lan?.state, { timeout: 20_000 }).toBe("on");
   expect(port()).toBe(address.port);
+  // Served, not only bound: one pinned request through the retried listener answers over HTTP,
+  // which is the exchange the proof run's evidence counts for this case (T1b.5). It is refused,
+  // as every remote request with the local token is: a response is what proves the listener serves.
+  const fingerprint = f.server.fingerprint;
+  if (fingerprint === undefined) throw new Error("No LAN listener");
+  await expect(
+    accessRequest(`https://127.0.0.1:${port()}`, "/v1/status", { token, fingerprint }),
+  ).rejects.toThrow("HTTP 403");
 }, 30_000);

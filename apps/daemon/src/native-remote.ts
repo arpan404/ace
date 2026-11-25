@@ -96,8 +96,8 @@ export async function startNativeRemote(
   }
   const port = handle.port();
   const releasePort = options.holdPort(port);
-  noteTransportStart("remote", port);
-  const unregister = registerTransportListener("remote", port, () => handle.handled());
+  const instance = noteTransportStart("remote", port);
+  const unregister = registerTransportListener("remote", port, instance, () => handle.handled());
   let closing: Promise<void> | undefined;
   return {
     port: () => port,
@@ -105,7 +105,7 @@ export async function startNativeRemote(
     clearTrusted: () => handle.clearTrusted(),
     close(deadlineMs) {
       closing ??= (async () => {
-        noteTransportEvent("remote", port, "close-requested", { bound: true });
+        noteTransportEvent("remote", port, "close-requested", { bound: true, instance });
         let closed = false;
         try {
           await handle.close(deadlineMs);
@@ -119,7 +119,7 @@ export async function startNativeRemote(
         if (closed) {
           const counts: NativeHandled = handle.handled();
           // What this listener, on this port, handled: a bind line only proves a bind.
-          noteTransportEvent("remote", port, "close", counts);
+          noteTransportEvent("remote", port, "close", { ...counts, instance });
         }
       })();
       return closing;

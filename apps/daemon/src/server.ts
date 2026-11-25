@@ -418,7 +418,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const connected = (
     socket: MainSocket,
     isLocal: boolean,
-    /** The upgrade's request: only its User-Agent is read. */
+    /** The upgrade's headers for client labeling and app standing. */
     request?: { headers: IncomingHttpHeaders },
     /** A relayed main channel, whose hello the relay host already authenticated. */
     relayed?: RelayedMain,
@@ -1340,9 +1340,9 @@ export async function startServer(options: ServerOptions): Promise<{
         remoteHttp(),
         (listener) => attach(listener, false),
         () => {
-          // A shutdown already gave each socket 1001 and a bounded terminate; a retire drops them.
           for (const socket of remoteSockets)
-            if (closing) closer.gracefulClose(socket, 1001, "Daemon shutdown");
+            if (closing || (nativeRemote && (nativeDraining || options.lifetime?.aborted)))
+              closer.gracefulClose(socket, 1001, "Daemon shutdown");
             else socket.terminate();
         },
         listeners?.remoteListener?.(runtime),

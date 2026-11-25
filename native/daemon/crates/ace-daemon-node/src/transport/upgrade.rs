@@ -30,6 +30,7 @@ pub struct AdmitRequestJs {
     /// The request-target exactly as received.
     pub target: String,
     pub origin: Option<String>,
+    pub app_socket_tag: Option<String>,
     /// The client's address, as the accepted socket reports it.
     pub address: String,
 }
@@ -194,6 +195,7 @@ async fn resolve(
         id: id as f64,
         target: request.target,
         origin: request.origin,
+        app_socket_tag: request.app_socket_tag,
         address: request.peer.remote.ip().to_string(),
     };
     let asking = shared.ask(asked);
