@@ -95,7 +95,12 @@ function runFake(): void {
           params: {
             threadId,
             turnId,
-            item: { id: "answer", type: "agentMessage", text: "bench answer", phase: "final_answer" },
+            item: {
+              id: "answer",
+              type: "agentMessage",
+              text: "bench answer",
+              phase: "final_answer",
+            },
           },
         });
         // No turn id keeps the session from holding the turn active: every prompt starts a new
