@@ -68,18 +68,6 @@ function skipChar(text: string, start: number): number {
   return start + 1;
 }
 
-/** The index of the first `{` at or after `start`, outside strings and comments. */
-function openBrace(text: string, start: number): number {
-  let index = start;
-  while (index < text.length) {
-    index = codeAt(text, index);
-    if (index === -1) return -1;
-    if (text[index] === "{") return index;
-    index++;
-  }
-  return -1;
-}
-
 /** The index of the `}` that closes the block opened at `start`. */
 function closeBrace(text: string, start: number): number {
   let depth = 0;
@@ -97,6 +85,22 @@ function closeBrace(text: string, start: number): number {
   return text.length - 1;
 }
 
+/**
+ * The index just past the item that starts at `start`: its block, or its `;` when it has no
+ * body (`#[cfg(test)] mod tests;`, `#[cfg(test)] use super::*;`).
+ */
+function itemEnd(text: string, start: number): number {
+  let index = start;
+  while (index < text.length) {
+    index = codeAt(text, index);
+    if (index === -1) return text.length;
+    if (text[index] === ";") return index + 1;
+    if (text[index] === "{") return closeBrace(text, index) + 1;
+    index++;
+  }
+  return text.length;
+}
+
 /** The source with every `#[cfg(test)]` item blanked out, line numbers preserved. */
 export function stripTestItems(text: string): string {
   let output = "";
@@ -105,11 +109,8 @@ export function stripTestItems(text: string): string {
     const at = text.indexOf("#[cfg(test)]", index);
     if (at === -1) return output + text.slice(index);
     output += text.slice(index, at);
-    const brace = openBrace(text, at + "#[cfg(test)]".length);
-    if (brace === -1) return output + text.slice(at).replace(/[^\n]/g, " ");
-    const end = closeBrace(text, brace);
-    const skipped = text.slice(at, end + 1);
-    output += skipped.replace(/[^\n]/g, " ");
-    index = end + 1;
+    const end = itemEnd(text, at + "#[cfg(test)]".length);
+    output += text.slice(at, end).replace(/[^\n]/g, " ");
+    index = end;
   }
 }

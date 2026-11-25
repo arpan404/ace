@@ -4,8 +4,9 @@
 //! platform verifier would bring `webpki-root-certs` (CDLA-Permissive-2.0), which ace's licence
 //! allowlist does not admit; the OS store keeps the same trust decisions without that bundle.
 //!
-//! The environment's `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` are honoured: an HTTPS request
-//! tunnels through the proxy with `CONNECT`, as Bun's fetch does, and `NO_PROXY` skips it.
+//! The environment's `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY`/`NO_PROXY` are honoured: an HTTPS
+//! request tunnels through the proxy with `CONNECT`, as Bun's fetch does, and `NO_PROXY` skips
+//! it.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,9 +29,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Stream for T {}
 /// read when `NO_PROXY` is unset or empty, with comma or whitespace separated entries.
 #[derive(Clone, Default)]
 pub struct ProxyEnv {
-    http: Option<String>,
-    https: Option<String>,
-    all: Option<String>,
+    /// Each proxy URL with the variable that named it, so an error can name the variable alone.
+    http: Option<(String, &'static str)>,
+    https: Option<(String, &'static str)>,
+    all: Option<(String, &'static str)>,
     no_proxy: Vec<String>,
 }
 
@@ -39,15 +41,16 @@ impl std::fmt::Debug for ProxyEnv {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ProxyEnv")
-            .field("http", &self.http.as_deref().map(redact))
-            .field("https", &self.https.as_deref().map(redact))
-            .field("all", &self.all.as_deref().map(redact))
+            .field("http", &self.http.as_ref().map(|(url, _)| redact(url)))
+            .field("https", &self.https.as_ref().map(|(url, _)| redact(url)))
+            .field("all", &self.all.as_ref().map(|(url, _)| redact(url)))
             .field("no_proxy", &self.no_proxy)
             .finish()
     }
 }
 
-/// A proxy URL without its credentials, for logs and errors.
+/// A proxy URL without its credentials, for logs and errors. A value that will not parse is cut
+/// before its last `@`, so a password in a malformed URL never reaches a log line.
 fn redact(url: &str) -> String {
     match Url::parse(url) {
         Ok(mut parsed) if !parsed.username().is_empty() || parsed.password().is_some() => {
@@ -55,7 +58,11 @@ fn redact(url: &str) -> String {
             let _ = parsed.set_password(None);
             parsed.to_string()
         }
-        _ => url.to_string(),
+        Ok(_) => url.to_string(),
+        Err(_) => match url.rsplit_once('@') {
+            Some((_, after)) => format!("<redacted>@{after}"),
+            None => url.to_string(),
+        },
     }
 }
 
@@ -77,12 +84,16 @@ impl ProxyEnv {
 
     fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
         // A lowercase name wins, then the uppercase one; an empty value is unset.
-        let named = |lower: &str, upper: &str| {
-            lookup(lower)
+        let named = |lower: &'static str, upper: &'static str| -> Option<(String, &'static str)> {
+            if let Some(value) = lookup(lower).filter(|value| !value.is_empty()) {
+                return Some((value, upper));
+            }
+            lookup(upper)
                 .filter(|value| !value.is_empty())
-                .or_else(|| lookup(upper).filter(|value| !value.is_empty()))
+                .map(|value| (value, upper))
         };
         let no_proxy = named("no_proxy", "NO_PROXY")
+            .map(|(value, _)| value)
             .map(|value| {
                 value
                     .split([',', ' ', '\t', '\n'])
@@ -111,15 +122,12 @@ impl ProxyEnv {
             "http" => self.http.clone().or_else(|| self.all.clone()),
             _ => None,
         };
-        let Some(raw) = raw else {
+        let Some((raw, name)) = raw else {
             return Ok(None);
         };
-        let parsed = Url::parse(&raw).map_err(|error| {
-            invalid(format!(
-                "the proxy URL {} is not valid: {error}",
-                redact(&raw)
-            ))
-        })?;
+        // The error names the variable only: the value may hold a password, even malformed.
+        let parsed = Url::parse(&raw)
+            .map_err(|error| invalid(format!("{name} is not a valid URL: {error}")))?;
         match parsed.scheme() {
             // Bun ignores a value that names another kind of proxy, such as socks5://.
             "http" => Ok(Some(parsed)),
@@ -201,6 +209,9 @@ fn percent_decode(text: &str) -> String {
     while index < bytes.len() {
         if bytes[index] == b'%'
             && index + 2 < bytes.len()
+            && text[index + 1..index + 3]
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
             && let Ok(byte) = u8::from_str_radix(&text[index + 1..index + 3], 16)
         {
             decoded.push(byte);
@@ -494,6 +505,13 @@ impl Client {
                     read_head_line(&mut stream, 256, &mut chunk_seen, label, &self.hint).await?;
                 // A chunk-size line may carry extensions after `;`.
                 let size_text = line.trim().split(';').next().unwrap_or_default();
+                if size_text.is_empty()
+                    || !size_text
+                        .chars()
+                        .all(|character| character.is_ascii_hexdigit())
+                {
+                    return Err(bad(&self.hint, label, "download failed: bad chunk"));
+                }
                 let size = u64::from_str_radix(size_text, 16)
                     .map_err(|_| bad(&self.hint, label, "download failed: bad chunk"))?;
                 if size == 0 {
@@ -936,7 +954,10 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
         let error = broken
             .proxy_for(&Url::parse("https://host.test/x").expect("url"))
             .expect_err("invalid");
-        assert!(error.to_string().contains("proxy URL"), "{error}");
+        assert!(
+            error.to_string().contains("HTTPS_PROXY is not a valid URL"),
+            "{error}"
+        );
         let secure = ProxyEnv::from_pairs(&[("HTTPS_PROXY", "https://proxy.test:3128")]);
         let error = secure
             .proxy_for(&Url::parse("https://host.test/x").expect("url"))
@@ -967,7 +988,28 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
     }
 
     #[test]
+    fn a_malformed_proxy_url_never_reveals_its_password() {
+        let secret = "http://bob:s3cret@[bad";
+        let proxy = ProxyEnv::from_pairs(&[("HTTPS_PROXY", secret)]);
+        let error = proxy
+            .proxy_for(&Url::parse("https://host.test/x").expect("url"))
+            .expect_err("invalid");
+        let message = error.to_string();
+        assert!(
+            message.contains("HTTPS_PROXY is not a valid URL"),
+            "{message}"
+        );
+        assert!(!message.contains("s3cret"), "{message}");
+        let logged = format!("{proxy:?}");
+        assert!(!logged.contains("s3cret"), "{logged}");
+        // The value's tail is still shown for diagnosis, without the credentials.
+        assert!(logged.contains("[bad"), "{logged}");
+    }
+
+    #[test]
     fn proxy_credentials_are_percent_decoded_into_basic_authorization() {
+        assert_eq!(percent_decode("%+1"), "%+1");
+        assert_eq!(percent_decode("a%40b"), "a@b");
         let proxy = Url::parse("http://u%40x:p%3Aword@corp.test:3128").expect("url");
         assert_eq!(
             proxy_authorization(&proxy).as_deref(),
@@ -1312,6 +1354,19 @@ sNKg9MDYnS847JT+lnvPBormSOSC",
             );
             drop(handle);
         }
+    }
+
+    #[test]
+    fn a_chunk_size_with_a_sign_is_refused() {
+        let (port, handle) = raw_server(
+            b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n+1\r\nx\r\n"
+                .to_vec(),
+        );
+        let error =
+            block_on(plain_client().get(&format!("http://127.0.0.1:{port}/plus"), 1024, "fixture"))
+                .expect_err("signed");
+        assert!(error.to_string().contains("bad chunk"), "{error}");
+        drop(handle);
     }
 
     #[test]

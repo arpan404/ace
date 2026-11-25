@@ -50,6 +50,18 @@ test("an item that is not a module is skipped in one piece", () => {
   expect(findLiteral(stripTestItems(source), word)).toEqual([7]);
 });
 
+test("a test item with no body does not swallow the next live block", () => {
+  const source = [
+    "#[cfg(test)]",
+    "mod tests;",
+    'fn after() { let _ = "A device word that must not be retyped"; }',
+    "#[cfg(test)]",
+    "use super::*;",
+    'fn later() { let _ = "A device word that must not be retyped"; }',
+  ].join("\n");
+  expect(findLiteral(stripTestItems(source), word)).toEqual([3, 6]);
+});
+
 test("a lifetime mention is not a character literal", () => {
   const source = [
     "#[cfg(test)]",
