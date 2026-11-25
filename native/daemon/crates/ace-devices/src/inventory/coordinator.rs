@@ -150,11 +150,13 @@ impl InventoryCoordinator {
         } else {
             self.pending_reconcile = false;
             self.pending_liveness = false;
+            self.reads.clear();
             if let Some(id) = self.liveness_timer.take() {
                 actions.push(CoordinatorAction::CancelTimer { id });
             }
             for source in InventorySource::ALL {
                 let st = &mut self.sources[source.index()];
+                st.in_flight = false;
                 if !st.enabled {
                     continue;
                 }
@@ -253,11 +255,14 @@ impl InventoryCoordinator {
             }
             if self.sources[idx].fallback_timer == Some(timer_id) {
                 self.sources[idx].fallback_timer = None;
-                if matches!(
-                    self.sources[idx].health,
-                    SourceHealth::Unhealthy | SourceHealth::Reconciling
-                ) {
-                    self.start_source_read(source, true, &mut actions);
+                match self.sources[idx].health {
+                    SourceHealth::Reconciling => {
+                        self.request_full_read(false, &mut actions);
+                    }
+                    SourceHealth::Unhealthy => {
+                        self.start_source_read(source, true, &mut actions);
+                    }
+                    SourceHealth::Healthy | SourceHealth::Stopped => {}
                 }
                 return actions;
             }
@@ -278,9 +283,7 @@ impl InventoryCoordinator {
     ) -> Vec<CoordinatorAction> {
         let mut actions = Vec::new();
         let Some(pos) = self.reads.iter().position(|r| r.read_id == read_id) else {
-            if let Some(pub_action) = self.update(inventory) {
-                actions.push(pub_action);
-            }
+            // Stale completion for a read cancelled when the view stopped.
             return actions;
         };
         let finished = self.reads.remove(pos);
@@ -336,6 +339,7 @@ impl InventoryCoordinator {
 
         self.rearm_unhealthy_fallbacks(finished.scope, &mut actions);
         self.drain_pending(&mut actions);
+        self.ensure_liveness_scheduled(&mut actions);
         actions
     }
 
@@ -347,14 +351,12 @@ impl InventoryCoordinator {
         raw_message: &str,
     ) -> Vec<CoordinatorAction> {
         let mut actions = Vec::new();
-        let finished = self
-            .reads
-            .iter()
-            .position(|r| r.read_id == read_id)
-            .map(|pos| self.reads.remove(pos));
-        if let Some(ref entry) = finished {
-            self.clear_in_flight(entry.scope);
-        }
+        let Some(pos) = self.reads.iter().position(|r| r.read_id == read_id) else {
+            // Stale failure for a read cancelled when the view stopped.
+            return actions;
+        };
+        let entry = self.reads.remove(pos);
+        self.clear_in_flight(entry.scope);
         let msg = if raw_message.is_empty() {
             "Device inventory failed"
         } else {
@@ -382,15 +384,51 @@ impl InventoryCoordinator {
         if !self.active {
             return actions;
         }
-        // Clear pending reconcile on error so a broken SDK waits for the 4 s fallback instead of spinning.
-        self.pending_reconcile = false;
-        if let Some(entry) = finished {
-            if entry.liveness {
+        if entry.liveness {
+            self.pending_liveness = false;
+            self.arm_liveness(&mut actions);
+        }
+        if entry.scope == ReadScope::All {
+            // Only keep a queued reconcile if a source reconnected after this full read started;
+            // otherwise wait for the 4 s fallback timer instead of spinning on a broken SDK.
+            let newer_reconcile = InventorySource::ALL.iter().any(|source| {
+                let idx = source.index();
+                self.sources[idx].health == SourceHealth::Reconciling
+                    && self.sources[idx].ready_seq != entry.ready_snapshot[idx]
+            });
+            if !newer_reconcile {
+                self.pending_reconcile = false;
+            }
+            if !entry.liveness && self.pending_liveness {
                 self.pending_liveness = false;
                 self.arm_liveness(&mut actions);
             }
-            self.rearm_unhealthy_fallbacks(entry.scope, &mut actions);
         }
+        self.rearm_unhealthy_fallbacks(entry.scope, &mut actions);
+        self.drain_pending(&mut actions);
+        self.ensure_liveness_scheduled(&mut actions);
+        actions
+    }
+
+    /// Cancels an in-flight read that the JS host dropped without running (e.g. view released
+    /// while a queued `StartRead` was in transit). Unknown ids are a no-op.
+    pub fn on_read_cancelled(&mut self, read_id: u64) -> Vec<CoordinatorAction> {
+        let mut actions = Vec::new();
+        let Some(pos) = self.reads.iter().position(|r| r.read_id == read_id) else {
+            return actions;
+        };
+        let entry = self.reads.remove(pos);
+        self.clear_in_flight(entry.scope);
+        if !self.active {
+            return actions;
+        }
+        if entry.liveness {
+            self.pending_liveness = false;
+            self.arm_liveness(&mut actions);
+        }
+        self.rearm_unhealthy_fallbacks(entry.scope, &mut actions);
+        self.drain_pending(&mut actions);
+        self.ensure_liveness_scheduled(&mut actions);
         actions
     }
 
@@ -447,6 +485,17 @@ impl InventoryCoordinator {
             kind: TimerKind::Liveness,
             delay_ms: self.config.liveness_interval_ms,
         });
+    }
+
+    /// Invariant: while active, the 60 s liveness cadence is always armed, pending, or running.
+    fn ensure_liveness_scheduled(&mut self, actions: &mut Vec<CoordinatorAction>) {
+        if self.active
+            && self.liveness_timer.is_none()
+            && !self.pending_liveness
+            && !self.reads.iter().any(|r| r.liveness)
+        {
+            self.arm_liveness(actions);
+        }
     }
 
     fn mark_unhealthy_and_reconnect(

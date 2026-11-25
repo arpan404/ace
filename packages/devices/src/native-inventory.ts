@@ -7,8 +7,9 @@
  * falls back to TypeScript.
  */
 import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findWindowsExecutableSync } from "@ace/provider-kit/discovery";
 import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { AdbTransport } from "./adb-transports.ts";
@@ -28,6 +29,7 @@ interface NativeWatchHandle {
   timerFired(timerId: number): string;
   readSucceeded(readId: number, inventoryJson: string): string;
   readFailed(readId: number, failureJson: string, rawMessage: string): string;
+  readCancelled(readId: number): string;
   close(): string;
 }
 
@@ -205,28 +207,41 @@ function executableFileSync(candidate: string): boolean {
   }
 }
 
-/** Synchronously locates `adb` using the same SDK-root + PATH precedence as `findAndroidTools`. */
+/** Synchronously locates one executable matching `findExecutable` in `@ace/provider-kit/discovery`. */
+function findExecutableSync(
+  command: string,
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  if (process.platform === "win32") return findWindowsExecutableSync(command, { ...env });
+  if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
+    const resolved = resolve(command);
+    return executableFileSync(resolved) ? resolved : undefined;
+  }
+  const pathValue = env["PATH"] ?? "";
+  for (const dir of pathValue.split(delimiter)) {
+    if (!dir) continue;
+    const candidate = resolve(dir, command);
+    if (executableFileSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Synchronously locates `adb` using the exact same paired-SDK selection as `findAndroidTools`
+ * (`android-tools.ts:26-39`): an SDK holding both `adb` and `emulator` wins, else the first
+ * SDK holding `adb`, else `adb` on PATH.
+ */
 function findAdbSync(
   env: Readonly<Record<string, string | undefined>>,
   home: string | undefined,
 ): string | undefined {
-  const names = process.platform === "win32" ? ["adb.exe", "adb.cmd", "adb"] : ["adb"];
-  for (const root of androidSdkRoots(env, home)) {
-    for (const name of names) {
-      const candidate = join(root, "platform-tools", name);
-      if (executableFileSync(candidate)) return candidate;
-    }
-  }
-  const pathValue = env["PATH"] ?? (process.platform === "win32" ? env["Path"] : undefined);
-  if (!pathValue) return undefined;
-  for (const dir of pathValue.split(delimiter)) {
-    if (!dir) continue;
-    for (const name of names) {
-      const candidate = join(dir, name);
-      if (executableFileSync(candidate)) return candidate;
-    }
-  }
-  return undefined;
+  const roots = androidSdkRoots(env, home).map((root) => ({
+    adb: findExecutableSync(join(root, "platform-tools", "adb"), env),
+    emulator: findExecutableSync(join(root, "emulator", "emulator"), env),
+  }));
+  const paired = roots.find((root) => root.adb && root.emulator);
+  if (paired) return paired.adb;
+  return roots.find((root) => root.adb)?.adb ?? findExecutableSync("adb", env);
 }
 
 type CoordinatorJsAction =
@@ -375,7 +390,11 @@ export class NativeDeviceInventoryWatch {
           break;
         }
         case "start_read": {
-          if (this.closed || !this.active) break;
+          if (this.closed) break;
+          if (!this.active) {
+            this.runActions(this.handle.readCancelled(action.readId));
+            break;
+          }
           void this.options.readSource(action.scope, action.liveness).then(
             (inventory) => {
               if (this.closed) return;

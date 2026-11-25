@@ -497,3 +497,429 @@ fn inventory_json_roundtrip_and_same_inventory_dedup() {
     assert!(same_inventory(&inv, &roundtrip));
     assert_eq!(inv, roundtrip);
 }
+
+#[test]
+fn stopping_and_reopening_after_dropped_start_read_does_not_block_reconcile() {
+    let mut coord = InventoryCoordinator::new(CoordinatorConfig {
+        enable_ios: true,
+        ..CoordinatorConfig::default()
+    });
+    let start1 = coord.set_active(true);
+    let Some((read1, ReadScope::All, false)) = find_read(&start1) else {
+        panic!("expected initial reconcile read, got {start1:?}");
+    };
+    assert!(coord.has_in_flight_reads());
+
+    // Simulate view release while `read1` was queued in N-API and dropped by JS.
+    let _stop = coord.set_active(false);
+    assert!(!coord.has_in_flight_reads());
+
+    // Reopening the view MUST immediately dispatch a fresh full reconcile read.
+    let start2 = coord.set_active(true);
+    let Some((read2, ReadScope::All, false)) = find_read(&start2) else {
+        panic!("expected fresh reconcile read after reopen, got {start2:?}");
+    };
+    assert_ne!(read1, read2);
+
+    // A stale failure from the pre-stop read must not overwrite state or break the active read.
+    let stale = coord.on_read_failed(read1, sample_failure("stale"), "stale");
+    assert!(stale.is_empty());
+    assert!(coord.has_in_flight_reads());
+
+    let done = coord.on_read_succeeded(
+        read2,
+        Inventory {
+            devices: vec![ios_device("1111", DeviceState::Booted)],
+            issues: vec![],
+        },
+    );
+    assert!(
+        done.iter()
+            .any(|a| matches!(a, CoordinatorAction::Publish(_)))
+    );
+    assert!(!coord.has_in_flight_reads());
+
+    // Calling on_read_cancelled for an already-stopped pre-stop read is a safe no-op,
+    // and cancelling an active read clears in_flight and drains pending work.
+    assert!(coord.on_read_cancelled(read1).is_empty());
+    let trig = coord.on_source_trigger(InventorySource::Ios);
+    let Some((deb_id, _)) = find_timer(&trig, TimerKind::Debounce(InventorySource::Ios)) else {
+        panic!("expected debounce timer");
+    };
+    let Some((active_read, ReadScope::Source(InventorySource::Ios), false)) =
+        find_read(&coord.on_timer_fired(deb_id))
+    else {
+        panic!("expected scoped Ios read");
+    };
+    assert!(coord.has_in_flight_reads());
+    let cancelled = coord.on_read_cancelled(active_read);
+    assert!(!coord.has_in_flight_reads());
+    assert!(
+        find_read(&cancelled).is_none()
+            || matches!(find_read(&cancelled), Some((_, ReadScope::All, _)))
+    );
+}
+
+#[test]
+fn scoped_read_failure_while_healthy_drains_pending_liveness_reconcile_and_dirty_triggers() {
+    // Case 1: liveness timer fires while a scoped read is in flight, then scoped read fails.
+    let mut coord = InventoryCoordinator::new(CoordinatorConfig {
+        enable_ios: true,
+        ..CoordinatorConfig::default()
+    });
+    let liveness_id = make_all_healthy(&mut coord, Inventory::default());
+
+    let trig = coord.on_source_trigger(InventorySource::Ios);
+    let Some((deb_id, _)) = find_timer(&trig, TimerKind::Debounce(InventorySource::Ios)) else {
+        panic!("expected debounce timer");
+    };
+    let fire = coord.on_timer_fired(deb_id);
+    let Some((scoped_read, ReadScope::Source(InventorySource::Ios), false)) = find_read(&fire)
+    else {
+        panic!("expected scoped Ios read");
+    };
+
+    // 60 s liveness fires while scoped read is in flight; no read starts yet.
+    assert!(find_read(&coord.on_timer_fired(liveness_id)).is_none());
+
+    // Scoped read fails while watches are healthy -> pending liveness MUST drain!
+    let failed = coord.on_read_failed(
+        scoped_read,
+        sample_failure("simctl hiccup"),
+        "simctl hiccup",
+    );
+    let Some((live_read, ReadScope::All, true)) = find_read(&failed) else {
+        panic!("expected pending liveness read to drain after scoped failure, got {failed:?}");
+    };
+    // If that liveness read also fails, it must re-arm 60 s liveness without spinning.
+    let live_fail = coord.on_read_failed(live_read, sample_failure("simctl down"), "simctl down");
+    assert!(find_read(&live_fail).is_none());
+    assert!(find_timer(&live_fail, TimerKind::Liveness).is_some());
+
+    // Case 2: queued reconnect reconcile drains after scoped read failure.
+    let mut coord2 = InventoryCoordinator::new(CoordinatorConfig {
+        enable_ios: true,
+        ..CoordinatorConfig::default()
+    });
+    let _liveness2 = make_all_healthy(&mut coord2, Inventory::default());
+    let trig2 = coord2.on_source_trigger(InventorySource::Ios);
+    let Some((deb2, _)) = find_timer(&trig2, TimerKind::Debounce(InventorySource::Ios)) else {
+        panic!("expected debounce timer");
+    };
+    let Some((scoped2, ReadScope::Source(InventorySource::Ios), false)) =
+        find_read(&coord2.on_timer_fired(deb2))
+    else {
+        panic!("expected scoped Ios read");
+    };
+    // Adb reconnects while Ios read is in flight -> queues pending_reconcile.
+    let _ = coord2.on_watcher_lost(InventorySource::Adb);
+    let _ = coord2.on_watcher_ready(InventorySource::Adb, true);
+    let failed2 = coord2.on_read_failed(scoped2, sample_failure("ios err"), "ios err");
+    assert!(
+        matches!(find_read(&failed2), Some((_, ReadScope::All, false))),
+        "expected queued reconnect reconcile to drain after scoped failure, got {failed2:?}"
+    );
+
+    // Case 3: dirty trigger drains (arms debounce) after scoped read failure.
+    let mut coord3 = InventoryCoordinator::new(CoordinatorConfig {
+        enable_ios: true,
+        ..CoordinatorConfig::default()
+    });
+    let _liveness3 = make_all_healthy(&mut coord3, Inventory::default());
+    let trig3 = coord3.on_source_trigger(InventorySource::Ios);
+    let Some((deb3, _)) = find_timer(&trig3, TimerKind::Debounce(InventorySource::Ios)) else {
+        panic!("expected debounce timer");
+    };
+    let Some((scoped3, ReadScope::Source(InventorySource::Ios), false)) =
+        find_read(&coord3.on_timer_fired(deb3))
+    else {
+        panic!("expected scoped Ios read");
+    };
+    // Another trigger arrives while scoped3 is running -> sets dirty.
+    assert!(coord3.on_source_trigger(InventorySource::Ios).is_empty());
+    let failed3 = coord3.on_read_failed(scoped3, sample_failure("ios err"), "ios err");
+    assert!(
+        find_timer(&failed3, TimerKind::Debounce(InventorySource::Ios)).is_some(),
+        "expected dirty trigger to arm debounce after scoped failure, got {failed3:?}"
+    );
+}
+
+#[tokio::test]
+async fn real_adb_restart_and_folder_replacement_reconcile_missed_updates() {
+    use crate::inventory::adb_track::{
+        AdbServerStarter, AdbTrackConfig, AdbTrackEvent, TokioTrackClock, run_adb_track_once,
+    };
+    use crate::inventory::watch::{DirWatchEvent, start_dir_watch};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::{mpsc, oneshot};
+    use tokio_util::sync::CancellationToken;
+
+    struct NoopStarter;
+    impl AdbServerStarter for NoopStarter {
+        fn start_server(
+            &self,
+            _adb_path: String,
+            _env: Vec<(String, String)>,
+            _timeout: Duration,
+            _cancel: CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::error::DeviceError>> + Send>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    async fn spawn_fake_adb(
+        addr: std::net::SocketAddr,
+        initial_frame: &'static str,
+    ) -> (std::net::SocketAddr, oneshot::Sender<()>) {
+        let Ok(listener) = TcpListener::bind(addr).await else {
+            panic!("bind fake adb on {addr}");
+        };
+        let Ok(bound) = listener.local_addr() else {
+            panic!("fake adb local_addr");
+        };
+        let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = &mut stop_rx => {}
+                accepted = listener.accept() => {
+                    if let Ok((mut sock, _)) = accepted {
+                        let mut req = [0u8; 24];
+                        if sock.read_exact(&mut req).await.is_ok() {
+                            let msg = format!("OKAY{:04x}{initial_frame}", initial_frame.len());
+                            let _ = sock.write_all(msg.as_bytes()).await;
+                            let _ = stop_rx.await;
+                        }
+                    }
+                }
+            }
+        });
+        (bound, stop_tx)
+    }
+
+    // Shared truth for both ADB transports and real AVD .ini files on disk.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let root = std::env::temp_dir().join(format!(
+        "ace-devices-restart-{}-{nanos}",
+        std::process::id()
+    ));
+    let avd_dir = root.join("avd");
+    assert!(std::fs::create_dir_all(&avd_dir).is_ok());
+    assert!(std::fs::write(avd_dir.join("Pixel_8.ini"), b"path=Pixel_8.avd\n").is_ok());
+
+    let adb_devices: Arc<Mutex<Vec<AppDevice>>> = Arc::new(Mutex::new(Vec::new()));
+    let read_real_inventory = |adb_state: &Arc<Mutex<Vec<AppDevice>>>, dir: &std::path::Path| {
+        let mut devices = adb_state.lock().map(|g| g.clone()).unwrap_or_default();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("ini")
+                    && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                {
+                    devices.push(avd_device(stem, DeviceState::Shutdown, None));
+                }
+            }
+        }
+        Inventory {
+            devices,
+            issues: vec![],
+        }
+    };
+
+    let mut coord = InventoryCoordinator::new(CoordinatorConfig {
+        enable_ios: false,
+        ..CoordinatorConfig::default()
+    });
+    let start_actions = coord.set_active(true);
+    let Some((init_read, ReadScope::All, false)) = find_read(&start_actions) else {
+        panic!("expected initial reconcile read");
+    };
+    let _ = coord.on_read_succeeded(init_read, read_real_inventory(&adb_devices, &avd_dir));
+
+    // --- Part 1: Real ADB loopback server restart loses connection while a new phone plugs in ---
+    let (addr, stop_adb1) =
+        spawn_fake_adb(std::net::SocketAddr::from(([127, 0, 0, 1], 0)), "").await;
+    let (adb_tx1, mut adb_rx1) = mpsc::unbounded_channel();
+    let cancel1 = CancellationToken::new();
+    let track1 = tokio::spawn(run_adb_track_once(
+        AdbTrackConfig::loopback(addr.port(), None, vec![]),
+        Arc::new(NoopStarter),
+        Arc::new(TokioTrackClock),
+        adb_tx1,
+        cancel1.clone(),
+    ));
+    let conn1 = tokio::time::timeout(Duration::from_secs(3), adb_rx1.recv()).await;
+    assert_eq!(conn1, Ok(Some(AdbTrackEvent::Connected)));
+    let ready1 = coord.on_watcher_ready(InventorySource::Adb, true);
+    let Some((rec1, ReadScope::All, false)) = find_read(&ready1) else {
+        panic!("expected reconcile read when ADB connects");
+    };
+    let _ = coord.on_read_succeeded(rec1, read_real_inventory(&adb_devices, &avd_dir));
+    assert_eq!(
+        coord.source_health(InventorySource::Adb),
+        SourceHealth::Healthy
+    );
+
+    // Kill fake ADB server #1 -> track loop must emit Disconnected.
+    let _ = stop_adb1.send(());
+    let _ = track1.await;
+    let mut saw_disconnect = false;
+    while let Ok(ev) = adb_rx1.try_recv() {
+        if matches!(ev, AdbTrackEvent::Disconnected(_)) {
+            saw_disconnect = true;
+        }
+    }
+    assert!(
+        saw_disconnect,
+        "expected real Disconnected after ADB server exit"
+    );
+
+    let lost_adb = coord.on_watcher_lost(InventorySource::Adb);
+    assert_eq!(
+        coord.source_health(InventorySource::Adb),
+        SourceHealth::Unhealthy
+    );
+    let Some((reconnect_adb, _)) =
+        find_timer(&lost_adb, TimerKind::Reconnect(InventorySource::Adb))
+    else {
+        panic!("expected ADB reconnect timer");
+    };
+
+    // Mutate real device state WHILE ADB server is down (no track event can be received!).
+    if let Ok(mut list) = adb_devices.lock() {
+        list.push(physical_android("R58M999", DeviceState::Booted));
+    }
+
+    // Start fake ADB server #2 on the same port and fire coordinator's reconnect timer.
+    let (_addr2, stop_adb2) = spawn_fake_adb(addr, "R58M999 device\n").await;
+    let fire_adb = coord.on_timer_fired(reconnect_adb);
+    assert!(fire_adb.contains(&CoordinatorAction::StartWatcher(InventorySource::Adb)));
+
+    let (adb_tx2, mut adb_rx2) = mpsc::unbounded_channel();
+    let cancel2 = CancellationToken::new();
+    let track2 = tokio::spawn(run_adb_track_once(
+        AdbTrackConfig::loopback(addr.port(), None, vec![]),
+        Arc::new(NoopStarter),
+        Arc::new(TokioTrackClock),
+        adb_tx2,
+        cancel2.clone(),
+    ));
+    let conn2 = tokio::time::timeout(Duration::from_secs(3), adb_rx2.recv()).await;
+    assert_eq!(conn2, Ok(Some(AdbTrackEvent::Connected)));
+
+    let ready2 = coord.on_watcher_ready(InventorySource::Adb, true);
+    let Some((rec2, ReadScope::All, false)) = find_read(&ready2) else {
+        panic!("expected full reconcile read on ADB reconnect");
+    };
+    let pub_adb = coord.on_read_succeeded(rec2, read_real_inventory(&adb_devices, &avd_dir));
+    assert_eq!(
+        coord.source_health(InventorySource::Adb),
+        SourceHealth::Healthy
+    );
+    assert!(
+        pub_adb.iter().any(|a| matches!(
+            a,
+            CoordinatorAction::Publish(inv)
+                if inv.devices.iter().any(|d| d.id == "android:R58M999")
+        )),
+        "missed update across real ADB restart was not published: {pub_adb:?}"
+    );
+    cancel2.cancel();
+    let _ = stop_adb2.send(());
+    let _ = track2.await;
+
+    // --- Part 2: Real AVD directory deletion & replacement reconciles new AVD ---
+    let (fs_tx1, mut fs_rx1) = mpsc::unbounded_channel();
+    let Ok(watch1) = start_dir_watch(&avd_dir, fs_tx1) else {
+        let _ = std::fs::remove_dir_all(&root);
+        panic!("start_dir_watch #1");
+    };
+    assert!(watch1.is_on_target());
+    let ready_avd1 = coord.on_watcher_ready(InventorySource::Avds, true);
+    let Some((rec_avd1, ReadScope::All, false)) = find_read(&ready_avd1) else {
+        let _ = std::fs::remove_dir_all(&root);
+        panic!("expected reconcile read for AVDs");
+    };
+    let _ = coord.on_read_succeeded(rec_avd1, read_real_inventory(&adb_devices, &avd_dir));
+    assert_eq!(
+        coord.source_health(InventorySource::Avds),
+        SourceHealth::Healthy
+    );
+
+    // Delete the watched AVD directory -> real notify watch emits RestartNeeded.
+    assert!(std::fs::remove_dir_all(&avd_dir).is_ok());
+    let mut saw_restart = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, fs_rx1.recv()).await {
+            Ok(Some(DirWatchEvent::RestartNeeded(_))) => {
+                saw_restart = true;
+                break;
+            }
+            Ok(Some(DirWatchEvent::Changed)) => continue,
+            _ => break,
+        }
+    }
+    drop(watch1);
+    assert!(
+        saw_restart,
+        "expected real DirWatchEvent::RestartNeeded on folder removal"
+    );
+
+    let lost_avd = coord.on_watcher_lost(InventorySource::Avds);
+    assert_eq!(
+        coord.source_health(InventorySource::Avds),
+        SourceHealth::Unhealthy
+    );
+    let Some((reconnect_avd, _)) =
+        find_timer(&lost_avd, TimerKind::Reconnect(InventorySource::Avds))
+    else {
+        let _ = std::fs::remove_dir_all(&root);
+        panic!("expected AVD reconnect timer");
+    };
+
+    // Recreate AVD directory with a brand-new AVD while watcher is down.
+    assert!(std::fs::create_dir_all(&avd_dir).is_ok());
+    assert!(std::fs::write(avd_dir.join("Pixel_9.ini"), b"path=Pixel_9.avd\n").is_ok());
+
+    let fire_avd = coord.on_timer_fired(reconnect_avd);
+    assert!(fire_avd.contains(&CoordinatorAction::StartWatcher(InventorySource::Avds)));
+    let (fs_tx2, _fs_rx2) = mpsc::unbounded_channel();
+    let Ok(watch2) = start_dir_watch(&avd_dir, fs_tx2) else {
+        let _ = std::fs::remove_dir_all(&root);
+        panic!("start_dir_watch #2");
+    };
+    assert!(watch2.is_on_target());
+
+    let ready_avd2 = coord.on_watcher_ready(InventorySource::Avds, true);
+    let Some((rec_avd2, ReadScope::All, false)) = find_read(&ready_avd2) else {
+        drop(watch2);
+        let _ = std::fs::remove_dir_all(&root);
+        panic!("expected full reconcile read on AVD watcher restart");
+    };
+    let pub_avd = coord.on_read_succeeded(rec_avd2, read_real_inventory(&adb_devices, &avd_dir));
+    assert_eq!(
+        coord.source_health(InventorySource::Avds),
+        SourceHealth::Healthy
+    );
+    assert!(
+        pub_avd.iter().any(|a| matches!(
+            a,
+            CoordinatorAction::Publish(inv)
+                if inv.devices.iter().any(|d| d.id == "android:Pixel_9")
+                    && !inv.devices.iter().any(|d| d.id == "android:Pixel_8")
+        )),
+        "missed folder-replacement update was not published: {pub_avd:?}"
+    );
+
+    drop(watch2);
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -6,7 +6,8 @@ use super::{bind_error, guarded, parse_json};
 use crate::supervisor::runtime;
 use ace_devices::error::DeviceFailure;
 use ace_devices::inventory::adb_track::{
-    AdbTrackConfig, AdbTrackEvent, SupervisedAdbStarter, adb_server_port, run_adb_track_once,
+    AdbTrackConfig, AdbTrackEvent, SupervisedAdbStarter, TokioTrackClock, TrackClock,
+    adb_server_port, run_adb_track_once,
 };
 use ace_devices::inventory::watch::{
     DirWatchEvent, DirWatchHandle, avd_folder, core_simulator_folder, start_dir_watch,
@@ -275,6 +276,18 @@ impl NativeInventoryWatch {
         })
     }
 
+    /// Cancels an in-flight read dropped by JS (e.g. after view release); returns JS actions JSON.
+    #[napi(catch_unwind)]
+    pub fn read_cancelled(&self, read_id: f64) -> napi::Result<String> {
+        guarded("NativeInventoryWatch::read_cancelled", || {
+            let rt = runtime()?;
+            let mut guard = lock_state(&self.state)?;
+            let actions = guard.coordinator.on_read_cancelled(read_id.max(0.0) as u64);
+            let js_actions = apply_actions(&self.state, &mut guard, rt, actions);
+            Ok(encode_js_actions(&js_actions))
+        })
+    }
+
     /// Stops all watchers and cancels all timers permanently.
     #[napi(catch_unwind)]
     pub fn close(&self) -> napi::Result<String> {
@@ -349,8 +362,15 @@ fn start_adb_task(
     let config =
         AdbTrackConfig::loopback(guard.adb_port, guard.adb_path.clone(), guard.env.clone());
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let starter = Arc::new(SupervisedAdbStarter);
-    rt.spawn(run_adb_track_once(config, starter, tx, cancel.clone()));
+    let clock: Arc<dyn TrackClock> = Arc::new(TokioTrackClock);
+    let starter = Arc::new(SupervisedAdbStarter::new(Arc::clone(&clock)));
+    rt.spawn(run_adb_track_once(
+        config,
+        starter,
+        clock,
+        tx,
+        cancel.clone(),
+    ));
 
     let state_for_task = Arc::clone(state_arc);
     rt.spawn(async move {

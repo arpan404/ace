@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Simulators, type ScreenManager } from "@ace/screen";
 import { probeOutput, spawnRawSupervised, spawnSupervised } from "@ace/provider-kit/process";
 import { findExecutable } from "@ace/provider-kit/discovery";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import {
   AppDevice as DeviceSchema,
   DeviceInput as InputSchema,
@@ -500,9 +501,11 @@ export class DevicePlatform {
       platform: source.platform,
       result: outcomes[index] as PromiseSettledResult<Device[]>,
     }));
-    for (const entry of entries) {
-      if (entry.platform === "ios") this.lastIosOutcome = entry.result;
-      else this.lastAndroidOutcome = entry.result;
+    if (deviceInventoryBackend() === "native") {
+      for (const entry of entries) {
+        if (entry.platform === "ios") this.lastIosOutcome = entry.result;
+        else this.lastAndroidOutcome = entry.result;
+      }
     }
     return this.finalizeList(entries);
   }

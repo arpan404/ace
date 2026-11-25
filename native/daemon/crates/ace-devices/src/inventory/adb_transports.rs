@@ -272,10 +272,13 @@ pub fn adb_transports(output: &JsString) -> Result<Vec<AdbTransport>, DeviceErro
             .unwrap_or(after_serial.len());
         let rest = &after_serial[rest_start..];
         if result.len() >= MAX_TRANSPORTS {
+            let text = &crate::catalog::devices_catalog()
+                .adb_transports
+                .too_many_transports;
             return Err(DeviceError::coded(
                 DeviceErrorCode::Limit,
-                "Too many Android devices are connected",
-                "Disconnect unused devices or emulators.",
+                text.message.as_str(),
+                text.hint.as_str(),
             ));
         }
 
@@ -484,7 +487,12 @@ pub fn physical_name(transport: &AdbTransport) -> JsString {
     if transport.kind == AdbTransportKind::Network {
         transport.serial.clone()
     } else {
-        JsString::from("Android device")
+        JsString::from(
+            crate::catalog::devices_catalog()
+                .adb_transports
+                .default_physical_name
+                .as_str(),
+        )
     }
 }
 
@@ -495,43 +503,34 @@ pub fn blocked_error(
     name: &JsString,
     platform: &str,
 ) -> DeviceError {
+    let blocked = &crate::catalog::devices_catalog().adb_transports.blocked;
     if block == Some(AdbBlock::NoPermissions) {
         let mut msg = name.clone();
         msg.push_js(&JsString::from(
-            " is connected, but this user can't open it over USB",
+            blocked.no_permissions.message_suffix.as_str(),
         ));
         let hint = if platform == "linux" {
-            "Linux needs a udev rule for Android devices: install your distribution's rules \
-             (Debian/Ubuntu: sudo apt install android-udev-rules; Fedora: sudo dnf install \
-             android-tools; Arch: sudo pacman -S android-udev), add yourself to the plugdev \
-             group (sudo usermod -aG plugdev $USER, then sign out and back in), unplug and \
-             replug the device, then run adb kill-server."
+            blocked.no_permissions.hint_linux.as_str()
         } else {
-            "Unplug and replug the device, then run adb kill-server."
+            blocked.no_permissions.hint_other.as_str()
         };
         return DeviceError::coded(DeviceErrorCode::PermissionDenied, msg, hint);
     }
     if kind == AdbTransportKind::Network {
         let mut msg = name.clone();
-        msg.push_js(&JsString::from(" hasn't allowed this computer yet"));
+        msg.push_js(&JsString::from(blocked.network.message_suffix.as_str()));
         return DeviceError::coded(
             DeviceErrorCode::PermissionDenied,
             msg,
-            "On the device, allow the debugging prompt. For wireless debugging, pair first: \
-             Developer options > Wireless debugging > Pair device with pairing code, then run \
-             adb pair HOST:PORT and adb connect HOST:PORT.",
+            blocked.network.hint.as_str(),
         );
     }
     let mut msg = name.clone();
-    msg.push_js(&JsString::from(
-        " is waiting for you to allow USB debugging",
-    ));
+    msg.push_js(&JsString::from(blocked.usb.message_suffix.as_str()));
     DeviceError::coded(
         DeviceErrorCode::PermissionDenied,
         msg,
-        "Unlock the device and tap Allow on the \"Allow USB debugging?\" prompt. No prompt? \
-         Unplug and replug it, or revoke USB debugging authorizations in Developer options \
-         and reconnect.",
+        blocked.usb.hint.as_str(),
     )
 }
 
@@ -699,5 +698,57 @@ mod tests {
         assert_eq!(hardware_serial(&JsString::from("unknown\n")), None);
         assert_eq!(hardware_serial(&JsString::from("   \n")), None);
         assert_eq!(hardware_serial(&JsString::from("bad serial\n")), None);
+    }
+
+    #[test]
+    fn blocked_and_limit_errors_come_from_devices_catalog() {
+        let catalog = &crate::catalog::devices_catalog().adb_transports;
+        let usb_err = blocked_error(
+            AdbTransportKind::Usb,
+            Some(AdbBlock::Unauthorized),
+            &JsString::from("Pixel 9"),
+            "darwin",
+        );
+        assert!(matches!(
+            usb_err,
+            DeviceError::Coded { ref message, ref hint, .. }
+                if message.to_string_lossy() == format!("Pixel 9{}", catalog.blocked.usb.message_suffix)
+                    && hint.to_string_lossy() == catalog.blocked.usb.hint
+        ));
+
+        let linux_perm = blocked_error(
+            AdbTransportKind::Usb,
+            Some(AdbBlock::NoPermissions),
+            &JsString::from("Pixel 9"),
+            "linux",
+        );
+        assert!(matches!(
+            linux_perm,
+            DeviceError::Coded { ref hint, .. }
+                if hint.to_string_lossy() == catalog.blocked.no_permissions.hint_linux
+        ));
+
+        let net_err = blocked_error(
+            AdbTransportKind::Network,
+            Some(AdbBlock::Unauthorized),
+            &JsString::from("192.168.1.5:5555"),
+            "darwin",
+        );
+        assert!(matches!(
+            net_err,
+            DeviceError::Coded { ref hint, .. }
+                if hint.to_string_lossy() == catalog.blocked.network.hint
+        ));
+
+        let many: String = (0..=MAX_TRANSPORTS)
+            .map(|i| format!("SER{i:03} device\n"))
+            .collect();
+        let err = adb_transports(&JsString::from(many.as_str()));
+        assert!(matches!(
+            err,
+            Err(DeviceError::Coded { ref message, ref hint, .. })
+                if message.to_string_lossy() == catalog.too_many_transports.message
+                    && hint.to_string_lossy() == catalog.too_many_transports.hint
+        ));
     }
 }

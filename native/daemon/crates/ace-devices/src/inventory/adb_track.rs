@@ -48,6 +48,7 @@ pub struct AdbTrackConfig {
     pub env: Vec<(String, String)>,
     pub handshake_timeout: Duration,
     pub start_server_timeout: Duration,
+    pub max_frame_bytes: usize,
 }
 
 impl AdbTrackConfig {
@@ -58,7 +59,23 @@ impl AdbTrackConfig {
             env,
             handshake_timeout: ADB_HANDSHAKE_TIMEOUT,
             start_server_timeout: ADB_START_SERVER_TIMEOUT,
+            max_frame_bytes: MAX_ADB_FRAME_BYTES,
         }
+    }
+}
+
+/// Injected async clock for ADB track timeouts and `adb start-server` deadlines.
+pub trait TrackClock: Send + Sync {
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+}
+
+/// Production clock backed by `tokio::time::sleep`.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TokioTrackClock;
+
+impl TrackClock for TokioTrackClock {
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(tokio::time::sleep(duration))
     }
 }
 
@@ -153,6 +170,18 @@ pub async fn read_track_frame<R>(reader: &mut R) -> Result<Option<String>, Devic
 where
     R: AsyncRead + Unpin,
 {
+    read_track_frame_with_limit(reader, MAX_ADB_FRAME_BYTES).await
+}
+
+/// Reads one length-prefixed update frame enforcing `max_frame_bytes`.
+/// Returns `Ok(None)` on clean EOF at a frame boundary.
+pub async fn read_track_frame_with_limit<R>(
+    reader: &mut R,
+    max_frame_bytes: usize,
+) -> Result<Option<String>, DeviceError>
+where
+    R: AsyncRead + Unpin,
+{
     let mut len_buf = [0u8; 4];
     let mut filled = 0;
     while filled < 4 {
@@ -171,9 +200,9 @@ where
         filled += n;
     }
     let len = parse_hex_len(&len_buf)?;
-    if len > MAX_ADB_FRAME_BYTES {
+    if len > max_frame_bytes {
         return Err(DeviceError::AdbProtocol(format!(
-            "adb track frame exceeds {MAX_ADB_FRAME_BYTES} byte cap ({len} bytes)"
+            "adb track frame exceeds {max_frame_bytes} byte cap ({len} bytes)"
         )));
     }
     let mut payload = vec![0u8; len];
@@ -230,9 +259,40 @@ impl EventSink for StartServerSink {
     fn held(&self, _message: String) {}
 }
 
+/// Builds the supervised `SpawnSpec` for `adb start-server` with supervisor containment enabled.
+pub fn adb_start_server_spec(adb_path: String, env: Vec<(String, String)>) -> SpawnSpec {
+    SpawnSpec {
+        command: adb_path,
+        args: vec!["start-server".to_owned()],
+        cwd: None,
+        env,
+        windows_verbatim: false,
+        hide_window: true,
+        contain: true,
+        max_output_bytes: Some(ADB_START_SERVER_MAX_BYTES),
+        stdin: StdioMode::Ignore,
+        stdout: StdioMode::Piped,
+        stderr: StdioMode::Piped,
+    }
+}
+
 /// Production `adb start-server` starter routed through `ace-supervisor` (ADR 0223 E2).
-#[derive(Debug, Default)]
-pub struct SupervisedAdbStarter;
+#[derive(Clone)]
+pub struct SupervisedAdbStarter {
+    clock: Arc<dyn TrackClock>,
+}
+
+impl SupervisedAdbStarter {
+    pub fn new(clock: Arc<dyn TrackClock>) -> Self {
+        Self { clock }
+    }
+}
+
+impl Default for SupervisedAdbStarter {
+    fn default() -> Self {
+        Self::new(Arc::new(TokioTrackClock))
+    }
+}
 
 impl AdbServerStarter for SupervisedAdbStarter {
     fn start_server(
@@ -242,21 +302,9 @@ impl AdbServerStarter for SupervisedAdbStarter {
         timeout: Duration,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<(), DeviceError>> + Send>> {
+        let clock = Arc::clone(&self.clock);
         Box::pin(async move {
-            let spec = SpawnSpec {
-                command: adb_path,
-                args: vec!["start-server".to_owned()],
-                cwd: None,
-                env,
-                windows_verbatim: false,
-                hide_window: true,
-                // adb start-server daemonizes the adb server process intentionally.
-                contain: false,
-                max_output_bytes: Some(ADB_START_SERVER_MAX_BYTES),
-                stdin: StdioMode::Ignore,
-                stdout: StdioMode::Piped,
-                stderr: StdioMode::Piped,
-            };
+            let spec = adb_start_server_spec(adb_path, env);
             let (exit_tx, exit_rx) = oneshot::channel();
             let sink = StartServerSink {
                 exit_tx: Arc::new(Mutex::new(Some(exit_tx))),
@@ -271,7 +319,7 @@ impl AdbServerStarter for SupervisedAdbStarter {
                     child.dispose();
                     return Err(DeviceError::Io("adb start-server cancelled".into()));
                 }
-                () = tokio::time::sleep(timeout) => {
+                () = clock.sleep(timeout) => {
                     let _ = child.kill(SignalName::Kill);
                     child.dispose();
                     return Err(DeviceError::Io("adb start-server timed out".into()));
@@ -294,16 +342,13 @@ impl AdbServerStarter for SupervisedAdbStarter {
 async fn connect_with_timeout(
     addr: SocketAddr,
     timeout: Duration,
+    clock: &dyn TrackClock,
     cancel: &CancellationToken,
 ) -> Result<TcpStream, std::io::Error> {
     tokio::select! {
         () = cancel.cancelled() => Err(std::io::Error::new(ErrorKind::Interrupted, "cancelled")),
-        res = tokio::time::timeout(timeout, TcpStream::connect(addr)) => {
-            match res {
-                Ok(inner) => inner,
-                Err(_) => Err(std::io::Error::new(ErrorKind::TimedOut, "adb connect timed out")),
-            }
-        }
+        () = clock.sleep(timeout) => Err(std::io::Error::new(ErrorKind::TimedOut, "adb connect timed out")),
+        res = TcpStream::connect(addr) => res,
     }
 }
 
@@ -312,11 +357,17 @@ async fn connect_with_timeout(
 pub async fn run_adb_track_once(
     config: AdbTrackConfig,
     starter: Arc<dyn AdbServerStarter>,
+    clock: Arc<dyn TrackClock>,
     events: mpsc::UnboundedSender<AdbTrackEvent>,
     cancel: CancellationToken,
 ) {
-    let mut stream = match connect_with_timeout(config.addr, config.handshake_timeout, &cancel)
-        .await
+    let mut stream = match connect_with_timeout(
+        config.addr,
+        config.handshake_timeout,
+        clock.as_ref(),
+        &cancel,
+    )
+    .await
     {
         Ok(stream) => stream,
         Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
@@ -335,7 +386,14 @@ pub async fn run_adb_track_once(
                     }
                     return;
                 }
-                match connect_with_timeout(config.addr, config.handshake_timeout, &cancel).await {
+                match connect_with_timeout(
+                    config.addr,
+                    config.handshake_timeout,
+                    clock.as_ref(),
+                    &cancel,
+                )
+                .await
+                {
                     Ok(stream) => stream,
                     Err(retry_err) => {
                         if !cancel.is_cancelled() {
@@ -363,7 +421,8 @@ pub async fn run_adb_track_once(
 
     let handshake = tokio::select! {
         () = cancel.cancelled() => return,
-        res = tokio::time::timeout(config.handshake_timeout, handshake_track_devices(&mut stream)) => res,
+        () = clock.sleep(config.handshake_timeout) => Err(()),
+        res = handshake_track_devices(&mut stream) => Ok(res),
     };
     match handshake {
         Ok(Ok(())) => {
@@ -375,7 +434,7 @@ pub async fn run_adb_track_once(
             }
             return;
         }
-        Err(_) => {
+        Err(()) => {
             if !cancel.is_cancelled() {
                 let _ = events.send(AdbTrackEvent::Disconnected(
                     "adb track-devices-l handshake timed out".into(),
@@ -388,7 +447,7 @@ pub async fn run_adb_track_once(
     loop {
         let frame = tokio::select! {
             () = cancel.cancelled() => return,
-            res = read_track_frame(&mut stream) => res,
+            res = read_track_frame_with_limit(&mut stream, config.max_frame_bytes) => res,
         };
         match frame {
             Ok(Some(payload)) => {
@@ -458,6 +517,38 @@ mod tests {
         );
     }
 
+    struct FakeClock {
+        sleeps_tx: mpsc::UnboundedSender<(Duration, oneshot::Sender<()>)>,
+    }
+
+    impl FakeClock {
+        fn new() -> (
+            Self,
+            mpsc::UnboundedReceiver<(Duration, oneshot::Sender<()>)>,
+        ) {
+            let (tx, rx) = mpsc::unbounded_channel();
+            (Self { sleeps_tx: tx }, rx)
+        }
+    }
+
+    impl TrackClock for FakeClock {
+        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            let (tx, rx) = oneshot::channel();
+            let _ = self.sleeps_tx.send((duration, tx));
+            Box::pin(async move {
+                let _ = rx.await;
+            })
+        }
+    }
+
+    #[test]
+    fn adb_start_server_spec_uses_supervisor_containment() {
+        let spec = adb_start_server_spec("/fake/adb".into(), vec![("A".into(), "1".into())]);
+        assert!(spec.contain);
+        assert_eq!(spec.command, "/fake/adb");
+        assert_eq!(spec.args, vec!["start-server".to_owned()]);
+    }
+
     #[tokio::test]
     async fn track_receives_okay_updates_and_reports_disconnect_on_eof() {
         let Ok(listener) = TcpListener::bind("127.0.0.1:0").await else {
@@ -493,8 +584,16 @@ mod tests {
             env: vec![],
             handshake_timeout: Duration::from_secs(2),
             start_server_timeout: Duration::from_secs(2),
+            max_frame_bytes: MAX_ADB_FRAME_BYTES,
         };
-        run_adb_track_once(config, starter.clone(), tx, cancel).await;
+        run_adb_track_once(
+            config,
+            starter.clone(),
+            Arc::new(TokioTrackClock),
+            tx,
+            cancel,
+        )
+        .await;
         let _ = server.await;
 
         assert_eq!(starter.calls.load(Ordering::SeqCst), 0);
@@ -551,8 +650,9 @@ mod tests {
             env: vec![],
             handshake_timeout: Duration::from_secs(2),
             start_server_timeout: Duration::from_secs(2),
+            max_frame_bytes: MAX_ADB_FRAME_BYTES,
         };
-        run_adb_track_once(config, starter, tx, cancel).await;
+        run_adb_track_once(config, starter, Arc::new(TokioTrackClock), tx, cancel).await;
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(rx.recv().await, Some(AdbTrackEvent::Connected));
@@ -560,7 +660,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fail_handshake_and_oversized_frame_disconnect_cleanly() {
+    async fn fail_handshake_disconnects_cleanly() {
         let Ok(listener) = TcpListener::bind("127.0.0.1:0").await else {
             panic!("bind");
         };
@@ -583,6 +683,7 @@ mod tests {
         run_adb_track_once(
             AdbTrackConfig::loopback(addr.port(), None, vec![]),
             starter,
+            Arc::new(TokioTrackClock),
             tx,
             CancellationToken::new(),
         )
@@ -590,6 +691,105 @@ mod tests {
         let event = rx.recv().await;
         assert!(
             matches!(event, Some(AdbTrackEvent::Disconnected(ref msg)) if msg.contains("nope"))
+        );
+    }
+
+    #[tokio::test]
+    async fn oversized_frame_disconnects_cleanly() {
+        let Ok(listener) = TcpListener::bind("127.0.0.1:0").await else {
+            panic!("bind");
+        };
+        let Ok(addr) = listener.local_addr() else {
+            panic!("addr");
+        };
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut req = [0u8; 24];
+                if sock.read_exact(&mut req).await.is_ok() {
+                    let payload = "x".repeat(32);
+                    let msg = format!("OKAY{:04x}{payload}", payload.len());
+                    let _ = sock.write_all(msg.as_bytes()).await;
+                }
+            }
+        });
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let starter = Arc::new(FakeStarter {
+            calls: Arc::new(AtomicUsize::new(0)),
+            on_start: Arc::new(|| Box::pin(async { Ok(()) })),
+        });
+        let mut config = AdbTrackConfig::loopback(addr.port(), None, vec![]);
+        config.max_frame_bytes = 16;
+        run_adb_track_once(
+            config,
+            starter,
+            Arc::new(TokioTrackClock),
+            tx,
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(rx.recv().await, Some(AdbTrackEvent::Connected));
+        let event = rx.recv().await;
+        assert!(
+            matches!(
+                event,
+                Some(AdbTrackEvent::Disconnected(ref msg))
+                    if msg.contains("exceeds 16 byte cap") && msg.contains("32 bytes")
+            ),
+            "expected oversized-frame disconnect, got {event:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn handshake_timeout_uses_injected_clock() {
+        let Ok(listener) = TcpListener::bind("127.0.0.1:0").await else {
+            panic!("bind");
+        };
+        let Ok(addr) = listener.local_addr() else {
+            panic!("addr");
+        };
+        let (_hold_tx, hold_rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut req = [0u8; 24];
+                let _ = sock.read_exact(&mut req).await;
+                // Keep socket open without sending OKAY/FAIL until test ends.
+                let _ = hold_rx.await;
+            }
+        });
+
+        let (clock, mut sleeps_rx) = FakeClock::new();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let starter = Arc::new(FakeStarter {
+            calls: Arc::new(AtomicUsize::new(0)),
+            on_start: Arc::new(|| Box::pin(async { Ok(()) })),
+        });
+        let mut config = AdbTrackConfig::loopback(addr.port(), None, vec![]);
+        // Deliberately huge duration: passes instantly only if the injected clock is used.
+        config.handshake_timeout = Duration::from_secs(3600);
+        let task = tokio::spawn(run_adb_track_once(
+            config,
+            starter,
+            Arc::new(clock),
+            tx,
+            CancellationToken::new(),
+        ));
+
+        let Some((connect_dur, _keep_connect_timer)) = sleeps_rx.recv().await else {
+            panic!("expected connect timeout registration");
+        };
+        assert_eq!(connect_dur, Duration::from_secs(3600));
+
+        let Some((handshake_dur, fire_handshake)) = sleeps_rx.recv().await else {
+            panic!("expected handshake timeout registration");
+        };
+        assert_eq!(handshake_dur, Duration::from_secs(3600));
+        let _ = fire_handshake.send(());
+
+        let _ = task.await;
+        let event = rx.recv().await;
+        assert!(
+            matches!(event, Some(AdbTrackEvent::Disconnected(ref msg)) if msg.contains("timed out")),
+            "expected handshake timeout disconnect, got {event:?}"
         );
     }
 }

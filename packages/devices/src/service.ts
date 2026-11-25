@@ -72,7 +72,9 @@ export class DevicesService {
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
   /** The inventory read in flight, numbered in the order reads started. */
-  private listing: { read: number; devices: Promise<Device[]> } | undefined;
+  private listing:
+    | { read: number; scope: InventoryReadScope; devices: Promise<Device[]> }
+    | undefined;
   private reads = 0;
   private inventoryViews = 0;
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
@@ -120,45 +122,60 @@ export class DevicesService {
   }
   private async runInventorySource(
     scope: InventoryReadScope,
-    liveness: boolean,
+    _liveness: boolean,
   ): Promise<Inventory> {
     const platform = this.options.platform;
     const canScope =
       scope !== "all" &&
       typeof platform.listSource === "function" &&
       platform.list === DevicePlatform.prototype.list;
-    const devices = canScope
-      ? await this.refreshWith(() => platform.listSource(scope), false)
-      : liveness
-        ? await this.freshList()
-        : await this.list();
+    // Full reads (view hold, source start/reconnect, 60 s liveness) always wait out any earlier
+    // in-flight read and start a fresh one; scoped reads serialize through the same single-flight guard.
+    const devices = canScope ? await this.scopedList(scope) : await this.freshList();
     return { devices, issues: platform.diagnostics() };
   }
-  async list(): Promise<Device[]> {
-    if (!this.listing) {
-      const listing = { read: ++this.reads, devices: Promise.resolve<Device[]>([]) };
-      listing.devices = this.refresh().finally(() => {
-        if (this.listing === listing) this.listing = undefined;
-      });
-      this.listing = listing;
+  private startListing(
+    scope: InventoryReadScope,
+    read: () => Promise<Device[]>,
+    publishInventory: boolean,
+  ): Promise<Device[]> {
+    const listing = { read: ++this.reads, scope, devices: Promise.resolve<Device[]>([]) };
+    listing.devices = this.refreshWith(read, publishInventory).finally(() => {
+      if (this.listing === listing) this.listing = undefined;
+    });
+    this.listing = listing;
+    return listing.devices;
+  }
+  private async scopedList(scope: Exclude<InventoryReadScope, "all">): Promise<Device[]> {
+    for (;;) {
+      const current = this.listing;
+      if (!current) {
+        const platform = this.options.platform;
+        return this.startListing(scope, () => platform.listSource(scope), false);
+      }
+      await current.devices.catch(() => {});
     }
-    return this.listing.devices;
+  }
+  async list(): Promise<Device[]> {
+    for (;;) {
+      const current = this.listing;
+      if (!current) return this.startListing("all", () => this.options.platform.list(), true);
+      if (current.scope === "all") return current.devices;
+      await current.devices.catch(() => {});
+    }
   }
   /**
    * The inventory from a read that started after this call: a read already in flight may have
-   * seen the device before a boot or shutdown, so it is waited out rather than joined.
+   * seen the device before a boot, shutdown or source reconnect, so it is waited out rather than joined.
    */
   private async freshList(): Promise<Device[]> {
     const before = this.reads;
     for (;;) {
       const current = this.listing;
-      if (!current) return this.list();
-      if (current.read > before) return current.devices;
+      if (!current) return this.startListing("all", () => this.options.platform.list(), true);
+      if (current.read > before && current.scope === "all") return current.devices;
       await current.devices.catch(() => {});
     }
-  }
-  private refresh(): Promise<Device[]> {
-    return this.refreshWith(() => this.options.platform.list(), true);
   }
   private async refreshWith(
     read: () => Promise<Device[]>,

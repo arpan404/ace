@@ -3,6 +3,7 @@ import { AndroidInputShell } from "./android-input-shell.ts";
 import { AndroidUiHelpers } from "./android-ui-helper.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import { armEmulatorNote, DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
 import { emulatorBootArgs } from "./emulator-args.ts";
 import {
@@ -102,17 +103,24 @@ export class AndroidPlatform {
   }
   async list(scope: "all" | "avds" | "adb" = "all"): Promise<Device[]> {
     const { adb, emulator } = await this.resolve();
-    const readAvds = scope === "all" || scope === "avds" || this.lastAvdStdout === undefined;
-    const readAdb = scope === "all" || scope === "adb" || this.lastAdbStdout === undefined;
+    const native = deviceInventoryBackend() === "native";
+    const readAvds =
+      !native || scope === "all" || scope === "avds" || this.lastAvdStdout === undefined;
+    const readAdb =
+      !native || scope === "all" || scope === "adb" || this.lastAdbStdout === undefined;
     const [installed, connected] = await Promise.all([
       readAvds && emulator ? this.run(emulator, ["-list-avds"], 256 * 1024) : undefined,
       readAdb ? this.run(adb, ["devices", "-l"], 128 * 1024) : undefined,
     ]);
-    if (readAvds) this.lastAvdStdout = installed?.stdout ?? "";
-    if (readAdb && connected !== undefined) this.lastAdbStdout = connected.stdout;
+    const avdStdout = readAvds ? (installed?.stdout ?? "") : (this.lastAvdStdout ?? "");
+    const adbStdout = readAdb ? (connected?.stdout ?? "") : (this.lastAdbStdout ?? "");
+    if (native) {
+      if (readAvds) this.lastAvdStdout = avdStdout;
+      if (readAdb) this.lastAdbStdout = adbStdout;
+    }
     this.noEmulator =
       !emulator && this.options.platform === "linux" && this.options.arch === "arm64";
-    const transports = adbTransports(this.lastAdbStdout ?? "");
+    const transports = adbTransports(adbStdout);
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
@@ -142,7 +150,7 @@ export class AndroidPlatform {
     ]);
     const bootingSerials = new Set([...this.pendingBoots].map((id) => this.ownedSerials.get(id)));
     const listed = androidInventory({
-      avds: avdNames(this.lastAvdStdout ?? ""),
+      avds: avdNames(avdStdout),
       // An emulator ace is booting shows as the AVD it is, not as an offline transport.
       emulators: named.filter(
         ({ serial, state }) => !(state === "offline" && bootingSerials.has(serial)),
