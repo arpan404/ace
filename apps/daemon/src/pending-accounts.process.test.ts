@@ -15,6 +15,7 @@ for (const homeAlreadyRemoved of [false, true]) {
     let registry = await openRegistry(path, dataDir);
     const management = () =>
       new AccountManagement({
+        platform: process.platform,
         registry,
         dataDir,
         env,

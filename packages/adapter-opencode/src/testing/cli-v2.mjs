@@ -1,10 +1,30 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
-import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  constants,
+  existsSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
+// OpenCode 2.4.1 fails every command when its data folder lost the owner's search bit: it
+// cannot create `<data>/opencode/log`. A managed home measures this failure.
+if (process.env.XDG_DATA_HOME) {
+  const data = join(process.env.XDG_DATA_HOME, "opencode");
+  if (existsSync(data)) {
+    try {
+      accessSync(data, constants.X_OK);
+    } catch {
+      console.error(`EACCES: permission denied, mkdir '${join(data, "log")}'`);
+      process.exit(1);
+    }
+  }
+}
 const freeModels =
   process.env.ACE_TEST_FREE_MODELS === "1"
     ? ["big-pickle", "mimo-v2.5-free", "ling-3.0-tiny-free"].map((modelID) => ({
@@ -35,7 +55,17 @@ if (args[0] === "auth") {
   process.exit(0);
 }
 if (args[0] === "models") {
-  if (args.length !== 1) process.exit(7);
+  // OpenCode 2 attaches to its background service unless a private one is asked for.
+  const standalone = args.includes("--standalone");
+  if (process.env.ACE_TEST_ARGV_LOG)
+    appendFileSync(process.env.ACE_TEST_ARGV_LOG, `${JSON.stringify(args)}\n`);
+  if (args.filter((arg) => arg !== "--standalone").length !== 1) process.exit(7);
+  if (!standalone && process.env.ACE_TEST_SERVICE_PORT_TAKEN === "1") {
+    console.error(
+      "Managed service port 49374 on 127.0.0.1 is already in use by PID 4242 (opencode serve --service). Configure another port with `opencode service set port <port>` or stop it.",
+    );
+    process.exit(1);
+  }
   console.log("opencode-go/muse-spark-1.3-contributor");
   for (const model of freeModels) console.log(model.id);
   process.exit(0);

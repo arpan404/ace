@@ -9,6 +9,7 @@ import { AccountManagement, freshLimitsWaitMs, limitsRefreshMs } from "../accoun
 import { providerMigrationSafety } from "../account-leases.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
 import { join } from "node:path";
+import { prepareOpenCodeHome } from "../account-homes.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAccounts(context: ServiceContext) {
@@ -20,6 +21,15 @@ export async function startAccounts(context: ServiceContext) {
     context.signal,
     config.dataDir,
     options.accounts?.homeChecks ?? {},
+    {
+      // A managed OpenCode home's data folder has been seen to lose its owner's search bit while
+      // ace runs (cause not yet found), so every session in one starts from a repaired folder
+      // (issue #2784).
+      prepareHome: async (instance) => {
+        if (instance.provider === "opencode" && instance.managed)
+          await prepareOpenCodeHome(instance.homeDir, process.platform);
+      },
+    },
   );
   // Each check commits in one synchronous transaction, so closing never cuts one short; a check
   // still waiting on a silent folder never holds up shutdown.
@@ -84,6 +94,7 @@ export function startAccountManagement(context: ServiceContext): void {
   const { services, resources, config, now, id, options } = context;
   if (!services.accounts || !services.accountRegistry) return;
   const management = new AccountManagement({
+    platform: process.platform,
     registry: services.accountRegistry,
     accounts: services.accounts,
     dataDir: config.dataDir,
