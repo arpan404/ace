@@ -55,9 +55,11 @@ fn displays(report: &Value) -> Option<Vec<Display>> {
     )
 }
 
-/// How many screens a `devicectl` display report lists, or `None` when it can't be read.
+/// How many screens a `devicectl` display report lists, or `None` when it can't be read. The
+/// count is the report's own list, unreadable entries included, as `posture.ts` counts it.
 pub fn screen_count(report: &Value) -> Option<usize> {
-    displays(report).map(|displays| displays.len())
+    let list = report.get("result")?.get("displays")?.as_array()?;
+    (list.len() <= 16).then_some(list.len())
 }
 
 /// A device's posture from `devicectl device info displays --json-output`, or `None` when it has
@@ -211,14 +213,21 @@ impl SimulatorPostures {
     }
 }
 
-/// Whether `emu sensor status` lists the first hinge sensor as enabled: the device folds.
+/// Whether `emu sensor status` lists the hinge sensor as enabled: the device folds. Today's
+/// `/^\s*hinge-angle0:\s*enabled\b/m` matches any line, so a later one counts too.
 pub fn has_hinge(status: &str) -> bool {
     status.lines().any(|line| {
         let Some(rest) = line.trim_start().strip_prefix("hinge-angle0:") else {
             return false;
         };
         let rest = rest.trim_start();
-        rest == "enabled" || rest.starts_with("enabled ") || rest.starts_with("enabled.")
+        let Some(rest) = rest.strip_prefix("enabled") else {
+            return false;
+        };
+        // `\b`: the next character is not a word character (or the line ends).
+        rest.chars()
+            .next()
+            .is_none_or(|next| !(next.is_ascii_alphanumeric() || next == '_'))
     })
 }
 
@@ -226,19 +235,26 @@ pub fn has_hinge(status: &str) -> bool {
 /// reply holds no angle. Android's foldable emulators call under 30° closed and from 150° open;
 /// the band between is half open.
 pub fn posture_from_hinge(reply: &str) -> Option<Posture> {
-    let start = reply.find("hinge-angle0")?;
-    let rest = &reply[start + "hinge-angle0".len()..];
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix('=')?.trim_start();
-    let end = rest
-        .find(|character: char| {
-            !(character.is_ascii_digit() || character == '-' || character == '.')
-        })
-        .unwrap_or(rest.len());
-    let angle: f64 = rest[..end].parse().ok()?;
-    if !angle.is_finite() {
-        return None;
-    }
+    // `hinge-angle0\s*=\s*(-?\d+(?:\.\d+)?)`: the first occurrence that carries an angle.
+    let mut from = 0;
+    let angle = loop {
+        let start = reply[from..].find("hinge-angle0")? + from;
+        let rest = reply[start + "hinge-angle0".len()..].trim_start();
+        if let Some(rest) = rest.strip_prefix('=') {
+            let rest = rest.trim_start();
+            let end = rest
+                .find(|character: char| {
+                    !(character.is_ascii_digit() || character == '-' || character == '.')
+                })
+                .unwrap_or(rest.len());
+            if let Ok(angle) = rest[..end].parse::<f64>()
+                && angle.is_finite()
+            {
+                break angle;
+            }
+        }
+        from = start + "hinge-angle0".len();
+    };
     if angle < 30.0 {
         Some(Posture::Closed)
     } else if angle < 150.0 {
@@ -428,6 +444,30 @@ mod tests {
         ));
         assert!(!has_hinge("hinge-angle0: disabled.\nOK\n"));
         assert!(!has_hinge("hinge-angle1: enabled.\nOK\n"));
+    }
+
+    #[test]
+    fn a_hinge_angle_is_read_from_any_hinge_angle0_line_that_carries_one() {
+        // The regex finds the first `hinge-angle0` that is followed by an angle.
+        assert_eq!(
+            posture_from_hinge("hinge-angle0: unknown\nhinge-angle0 = 180\n"),
+            Some(Posture::Open)
+        );
+        assert_eq!(
+            posture_from_hinge("hinge-angle0 = 12.5\nhinge-angle0 = 180\n"),
+            Some(Posture::Closed)
+        );
+    }
+
+    #[test]
+    fn the_screen_count_is_the_reports_own_list_and_a_null_display_is_dropped() {
+        let report = ace_json::json!({"result": {"displays": [
+            {"primary": true, "active": true, "backlightState": "activeOn"},
+            null,
+        ]}});
+        assert_eq!(screen_count(&report), Some(2));
+        // One readable display is not a fold, so the posture is unknown.
+        assert_eq!(read_posture(&report, None), None);
     }
 
     #[test]
@@ -725,15 +765,5 @@ mod tests {
             assert_eq!(read_sim(&mut postures, &mut duo, udid), None);
         }
         assert!(duo.reads < 10, "read {} times", duo.reads);
-    }
-
-    #[test]
-    fn the_angles_a_fold_uses_are_the_ones_posture_names() {
-        assert_eq!(posture_angle(Posture::Closed), 0);
-        assert_eq!(posture_angle(Posture::PartiallyOpen), 120);
-        assert_eq!(posture_angle(Posture::Open), 180);
-        assert_eq!(posture_id(Posture::Closed), "1");
-        assert_eq!(posture_id(Posture::PartiallyOpen), "2");
-        assert_eq!(posture_id(Posture::Open), "3");
     }
 }

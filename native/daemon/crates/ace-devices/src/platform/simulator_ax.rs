@@ -3,7 +3,7 @@
 //! app's own layout, which is not always the device's, so the layout is worked out first and each
 //! rectangle is turned back onto the portrait framebuffer the picture and the input use.
 
-use ace_json::Value;
+use ace_json::{JsString, Value};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -59,11 +59,11 @@ pub struct Layout {
 /// One element of serve-sim's answer; fields are read leniently and missing ones default.
 #[derive(Debug, Clone)]
 struct Element {
-    label: String,
-    value: String,
-    unique_id: String,
-    kind: String,
-    role_description: String,
+    label: JsString,
+    value: JsString,
+    unique_id: JsString,
+    kind: JsString,
+    role_description: JsString,
     enabled: bool,
     frame: Rect,
     children: Vec<Value>,
@@ -77,8 +77,8 @@ struct Rect {
     height: f64,
 }
 
-fn text(value: &Value) -> String {
-    value.as_str().unwrap_or_default().to_string()
+fn text(value: &Value) -> JsString {
+    value.as_js_str().cloned().unwrap_or_default()
 }
 
 fn element(raw: &Value) -> Option<Element> {
@@ -96,10 +96,11 @@ fn element(raw: &Value) -> Option<Element> {
         width: finite("width", false)?,
         height: finite("height", false)?,
     };
+    // `z.array(z.unknown()).max(4096).catch([])`: children that are missing, not an array, or
+    // past the cap leave the element with none rather than dropping it.
     let children = match object.get("children") {
-        None => Vec::new(),
         Some(Value::Array(children)) if children.len() <= 4096 => children.to_vec(),
-        Some(_) => return None,
+        _ => Vec::new(),
     };
     Some(Element {
         label: text(object.get("AXLabel").unwrap_or(&Value::Null)),
@@ -247,20 +248,6 @@ fn toggles(kind: &str) -> bool {
     matches!(kind, "Switch" | "Toggle" | "CheckBox")
 }
 
-fn slice_units(text: &str, units: usize) -> String {
-    let mut used = 0;
-    let mut end = 0;
-    for (index, character) in text.char_indices() {
-        let width = character.len_utf16();
-        if used + width > units {
-            break;
-        }
-        used += width;
-        end = index + character.len_utf8();
-    }
-    text[..end].to_string()
-}
-
 fn sha_ref(identity: &Value) -> String {
     let text = ace_json::ser::to_string(identity).unwrap_or_default();
     let digest = Sha256::digest(text.as_bytes());
@@ -274,7 +261,7 @@ fn sha_ref(identity: &Value) -> String {
 fn mapped(element: &Element, path: &str, layout: Layout, screen: &Screen) -> Node {
     let kind = if element.kind.is_empty() {
         if element.role_description.is_empty() {
-            "element".to_string()
+            JsString::from("element")
         } else {
             element.role_description.clone()
         }
@@ -296,10 +283,10 @@ fn mapped(element: &Element, path: &str, layout: Layout, screen: &Screen) -> Nod
         layout.turn,
     );
     let bounds = Bounds {
-        x: (shown.x * screen.width).round(),
-        y: (shown.y * screen.height).round(),
-        w: (shown.width * screen.width).round(),
-        h: (shown.height * screen.height).round(),
+        x: crate::platform::scrcpy::protocol::js_round(shown.x * screen.width),
+        y: crate::platform::scrcpy::protocol::js_round(shown.y * screen.height),
+        w: crate::platform::scrcpy::protocol::js_round(shown.width * screen.width),
+        h: crate::platform::scrcpy::protocol::js_round(shown.height * screen.height),
     };
     let mut states: Vec<String> = Vec::new();
     if toggles(&kind) && element.value == "1" {
@@ -346,11 +333,11 @@ fn mapped(element: &Element, path: &str, layout: Layout, screen: &Screen) -> Nod
     ]);
     Node {
         ref_: sha_ref(&identity),
-        role: slice_units(&kind, 128),
-        name: slice_units(&name, 256),
-        value: slice_units(&element.value, 512),
+        role: kind.slice_units(0, 128),
+        name: name.slice_units(0, 256),
+        value: (!element.value.is_empty()).then(|| element.value.slice_units(0, 512)),
         description: (!element.unique_id.is_empty() && element.unique_id != name)
-            .then(|| slice_units(&element.unique_id, 256)),
+            .then(|| element.unique_id.slice_units(0, 256)),
         bounds,
         states,
         actions,
@@ -595,7 +582,7 @@ mod tests {
         );
         assert_eq!(by_name("General").expect("found").actions, vec!["press"]);
         let airplane = by_name("Airplane Mode").expect("found");
-        assert_eq!(airplane.value, "1");
+        assert_eq!(airplane.value.as_deref(), Some("1"));
         assert_eq!(airplane.description.as_deref(), Some("airplane"));
         assert_eq!(airplane.states, vec!["checked"]);
         assert_eq!(airplane.actions, vec!["press", "select"]);
@@ -614,6 +601,64 @@ mod tests {
         assert!(by_name("broken").is_none());
         assert!(by_name("Future").is_some());
         assert!(!tree.truncated);
+    }
+
+    #[test]
+    fn a_node_without_a_value_omits_it_and_a_text_find_then_falls_back_to_its_name() {
+        let raw = ace_json::json!([element(
+            ace_json::json!({"type": "Button", "AXLabel": "Settings", "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
+            vec![],
+        )]);
+        let tree = tree(&raw, &screen(), TreeOptions::default()).expect("parses");
+        let node = &tree.nodes[0];
+        assert_eq!(node.value, None);
+        let text = ace_json::ser::to_string(node).expect("serializes");
+        assert!(!text.contains("\"value\""), "{text}");
+        // `value ?? name`: with no value, a text find reads the name.
+        let found = crate::platform::android_ui::find(
+            &tree,
+            &crate::platform::android_ui::FindOptions {
+                query: crate::platform::android_ui::Query {
+                    text: Some("sett".into()),
+                    ..crate::platform::android_ui::Query::default()
+                },
+                limit: 16,
+            },
+        );
+        assert_eq!(found.nodes.len(), 1);
+    }
+
+    #[test]
+    fn children_that_are_null_or_past_the_cap_keep_the_element_without_them() {
+        let too_many =
+            ace_json::Value::Array(ace_json::Array::from(vec![ace_json::json!(0); 4097]));
+        for children in [ace_json::json!(null), ace_json::json!("text"), too_many] {
+            let mut root = element(
+                ace_json::json!({"type": "Application", "AXLabel": "Root", "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
+                vec![],
+            );
+            root.as_object_mut()
+                .expect("an object")
+                .insert("children".to_string(), children);
+            let raw = ace_json::json!([root]);
+            let tree = tree(&raw, &screen(), TreeOptions::default()).expect("parses");
+            assert_eq!(tree.nodes.len(), 1, "the root stays");
+            assert!(tree.nodes[0].children.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_label_with_a_lone_surrogate_keeps_its_code_units() {
+        let label = ace_json::to_value(&ace_json::JsString::from_units(&[0x41, 0xd800, 0x42]));
+        let raw = ace_json::json!([element(
+            ace_json::json!({"type": "Button", "AXLabel": label, "frame": {"x": 0, "y": 0, "width": 402, "height": 874}}),
+            vec![],
+        )]);
+        let tree = tree(&raw, &screen(), TreeOptions::default()).expect("parses");
+        let name = &tree.nodes[0].name;
+        assert_eq!(name.len_utf16(), 3);
+        let units: Vec<u16> = name.units().collect();
+        assert_eq!(units, vec![0x41, 0xd800, 0x42]);
     }
 
     #[test]

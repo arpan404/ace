@@ -2,6 +2,7 @@
 //! `@ace/protocol/devices`' `DeviceInput`, as the decisions here read it (D3.2). One shape for
 //! every platform: a point, a timed gesture, typed text, or a hardware key.
 
+use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
 /// One finger's phase, as `DeviceInput` names it.
@@ -82,7 +83,7 @@ pub enum DeviceInput {
         duration_ms: f64,
     },
     Type {
-        text: String,
+        text: JsString,
     },
     Key {
         key: Key,

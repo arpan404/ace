@@ -3,7 +3,7 @@
 //! input a semantic action becomes. A bounded parser: DTDs and entities are refused, nesting and
 //! node counts are capped, and every malformed byte is `invalid_data` rather than a surprise.
 
-use ace_json::{Value, json};
+use ace_json::{JsString, Value, json};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -14,11 +14,14 @@ use crate::platform::{Error, Refusal};
 pub struct Node {
     #[serde(rename = "ref")]
     pub ref_: String,
-    pub role: String,
-    pub name: String,
-    pub value: String,
+    pub role: JsString,
+    pub name: JsString,
+    /// Today's `value`: Android always has one (the node's text, `""` when it has none) and a
+    /// Simulator node has it only when serve-sim reported an `AXValue`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub value: Option<JsString>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<JsString>,
     pub bounds: Bounds,
     pub states: Vec<String>,
     pub actions: Vec<String>,
@@ -362,9 +365,9 @@ fn mapped(values: &[(String, String)], path: &str) -> Result<Node, Error> {
     ]);
     Ok(Node {
         ref_: sha_ref("a", &identity),
-        role,
-        name: slice_units(name, 256),
-        value: slice_units(text, 512),
+        role: JsString::from(role),
+        name: JsString::from(slice_units(name, 256)),
+        value: Some(JsString::from(slice_units(text, 512))),
         description: None,
         bounds,
         states,
@@ -570,12 +573,10 @@ pub fn find(tree: &Tree, options: &FindOptions) -> Tree {
             .name
             .as_ref()
             .is_none_or(|name| node.name.to_lowercase().contains(&name.to_lowercase()));
+        // `value ?? name`: Android always has a value (`""` included), a Simulator node only
+        // when serve-sim reported an `AXValue`.
         let text = query.text.as_ref().is_none_or(|text| {
-            let haystack = if node.value.is_empty() {
-                node.name.clone()
-            } else {
-                node.value.clone()
-            };
+            let haystack = node.value.as_ref().unwrap_or(&node.name);
             haystack.to_lowercase().contains(&text.to_lowercase())
         });
         role && name && text
@@ -601,8 +602,17 @@ pub fn find(tree: &Tree, options: &FindOptions) -> Tree {
 
 /// A scroll's `dx` and `dy`, as `ScreenUIActOptions` bounds them: whole numbers in ±1000.
 pub fn scroll_amount(value: Option<&Value>) -> Result<(f64, f64), Error> {
+    // `z.object(...).parse(action.value ?? {})`: anything but an object is refused, not read.
+    let scroll = match value {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_object()
+                .ok_or_else(|| Error::Invalid("a scroll value is not an object".into()))?,
+        ),
+    };
     let amount = |key: &str| -> Result<f64, Error> {
-        let Some(scroll) = value.and_then(Value::as_object) else {
+        let Some(scroll) = scroll else {
             return Ok(0.0);
         };
         match scroll.get(key) {
@@ -687,7 +697,7 @@ mod tests {
         };
         assert_eq!(node.role, "android.widget.Button");
         assert_eq!(node.name, "Helper");
-        assert_eq!(node.value, "Helper");
+        assert_eq!(node.value.as_deref(), Some("Helper"));
         assert_eq!(
             node.bounds,
             Bounds {
@@ -732,13 +742,65 @@ mod tests {
         let xml =
             "<hierarchy><node text=\"a &amp; b &lt;c&gt;\" bounds=\"[0,0][10,10]\" /></hierarchy>";
         let parsed = tree(xml, TreeOptions::default()).expect("parses");
-        assert_eq!(parsed.nodes[0].value, "a & b <c>");
+        assert_eq!(parsed.nodes[0].value.as_deref(), Some("a & b <c>"));
         let bad = "<hierarchy><node text=\"&#xD800;\" bounds=\"[0,0][10,10]\" /></hierarchy>";
         assert!(tree(bad, TreeOptions::default()).is_err());
         assert!(
             tree(
                 "<!DOCTYPE x><hierarchy></hierarchy>",
                 TreeOptions::default()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn an_android_node_always_has_a_value_so_a_text_find_never_falls_back_to_its_name() {
+        let xml = "<hierarchy><node class=\"Button\" content-desc=\"Settings\" text=\"\" \
+            bounds=\"[0,0][10,10]\" /></hierarchy>";
+        let tree = tree(xml, TreeOptions::default()).expect("parses");
+        assert_eq!(tree.nodes[0].value.as_deref(), Some(""));
+        let text = find(
+            &tree,
+            &FindOptions {
+                query: Query {
+                    text: Some("settings".into()),
+                    ..Query::default()
+                },
+                limit: 16,
+            },
+        );
+        assert!(
+            text.nodes.is_empty(),
+            "value ?? name, and the value is empty"
+        );
+        let name = find(
+            &tree,
+            &FindOptions {
+                query: Query {
+                    name: Some("settings".into()),
+                    ..Query::default()
+                },
+                limit: 16,
+            },
+        );
+        assert_eq!(name.nodes.len(), 1);
+    }
+
+    #[test]
+    fn a_scroll_value_that_is_not_an_object_is_refused_like_the_schema() {
+        let xml = "<hierarchy><node class=\"List\" scrollable=\"true\" \
+            bounds=\"[0,0][100,200]\" /></hierarchy>";
+        let tree = tree(xml, TreeOptions::default()).expect("parses");
+        let node = tree.nodes[0].clone();
+        assert!(
+            act(
+                &node,
+                &ActOptions {
+                    ref_: node.ref_.clone(),
+                    action: "scroll".into(),
+                    value: Some(json!("down")),
+                }
             )
             .is_err()
         );

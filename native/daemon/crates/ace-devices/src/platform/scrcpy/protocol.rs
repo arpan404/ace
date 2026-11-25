@@ -2,6 +2,7 @@
 //! `scrcpy-protocol.ts`'s control half: the client-to-server control messages and the
 //! server-to-client stream reader. Pure: no sockets, no clocks. The video half is D3.3's.
 
+use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
 use crate::platform::{Error, Failure};
@@ -87,7 +88,7 @@ pub enum ControlMessage {
         meta: i32,
     },
     Text {
-        text: String,
+        text: JsString,
     },
     Touch {
         action: TouchAction,
@@ -112,7 +113,7 @@ pub enum ControlMessage {
     SetClipboard {
         #[serde(rename = "sequence")]
         sequence: PointerId,
-        text: String,
+        text: JsString,
         paste: bool,
     },
     Rotate,
@@ -156,7 +157,7 @@ fn u16_clamped(value: f64) -> u16 {
 
 /// `Math.round`, which rounds a half up towards positive infinity where `f64::round` rounds a
 /// half away from zero. Points are clamped non-negative first, but a scroll can be negative.
-fn js_round(value: f64) -> f64 {
+pub fn js_round(value: f64) -> f64 {
     (value + 0.5).floor()
 }
 
@@ -183,8 +184,12 @@ fn position(out: &mut Vec<u8>, x: f64, y: f64, screen: ScreenSize) {
 }
 
 /// The message's server text as UTF-8, refused past `limit` bytes as `scrcpy-protocol.ts` does.
-fn utf8(text: &str, limit: usize) -> Result<&[u8], Error> {
-    let bytes = text.as_bytes();
+///
+/// The bytes are `Buffer.from(text, "utf8")`'s: a lone surrogate (a JavaScript string the JSON
+/// kept as its code units) becomes U+FFFD, exactly as UTF-8 encoding replaces it, and a literal
+/// U+E000 is its own character rather than ace-json's escape marker.
+fn utf8(text: &JsString, limit: usize) -> Result<Vec<u8>, Error> {
+    let bytes = text.to_string_lossy().into_owned().into_bytes();
     if bytes.len() > limit {
         return Err(Error::Invalid(
             "scrcpy text exceeds the server's limit".into(),
@@ -215,7 +220,7 @@ pub fn encode(message: &ControlMessage) -> Result<Vec<u8>, Error> {
             let mut out = Vec::with_capacity(5 + bytes.len());
             out.push(1);
             out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-            out.extend_from_slice(bytes);
+            out.extend_from_slice(&bytes);
             Ok(out)
         }
         ControlMessage::Touch {
@@ -266,7 +271,7 @@ pub fn encode(message: &ControlMessage) -> Result<Vec<u8>, Error> {
             out.extend_from_slice(&sequence.0.to_be_bytes());
             out.push(if *paste { 1 } else { 0 });
             out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-            out.extend_from_slice(bytes);
+            out.extend_from_slice(&bytes);
             Ok(out)
         }
         ControlMessage::Rotate => Ok(vec![11]),
@@ -581,9 +586,39 @@ mod tests {
     }
 
     #[test]
+    fn rounding_a_half_follows_javascript_and_goes_towards_positive_infinity() {
+        assert_eq!(js_round(2.5), 3.0);
+        assert_eq!(js_round(-2.5), -2.0);
+        assert_eq!(js_round(-2.6), -3.0);
+    }
+
+    #[test]
+    fn control_text_is_utf8_exactly_as_buffer_from_writes_it() {
+        // A literal U+E000 is its own character, not ace-json's escape marker written twice.
+        let literal = encode(&ControlMessage::Text {
+            text: JsString::from_units(&[0xe000]),
+        })
+        .expect("encodes");
+        assert_eq!(&literal[5..], &[0xee, 0x80, 0x80]);
+        // A lone surrogate becomes U+FFFD, as UTF-8 encoding replaces it.
+        let lone = encode(&ControlMessage::Text {
+            text: JsString::from_units(&[0x41, 0xd800, 0x42]),
+        })
+        .expect("encodes");
+        assert_eq!(&lone[5..], &[0x41, 0xef, 0xbf, 0xbd, 0x42]);
+        let clipboard = encode(&ControlMessage::SetClipboard {
+            sequence: PointerId(1),
+            text: JsString::from_units(&[0x41, 0xd800]),
+            paste: true,
+        })
+        .expect("encodes");
+        assert_eq!(&clipboard[14..], &[0x41, 0xef, 0xbf, 0xbd]);
+    }
+
+    #[test]
     fn text_past_the_servers_limit_is_refused_rather_than_split_here() {
         let long = "a".repeat(INJECT_TEXT_LIMIT + 1);
-        assert!(encode(&ControlMessage::Text { text: long }).is_err());
+        assert!(encode(&ControlMessage::Text { text: long.into() }).is_err());
     }
 
     #[test]

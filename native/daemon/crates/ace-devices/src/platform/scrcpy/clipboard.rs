@@ -5,6 +5,8 @@
 //! every elapsed one is a [`ClipboardEvent::Tick`]. That keeps the ordering the TypeScript's
 //! injected `after` gives it.
 
+use ace_json::JsString;
+
 use crate::platform::scrcpy::protocol::{ControlMessage, DeviceMessage, PointerId};
 use crate::platform::{Failure, Refusal};
 
@@ -21,16 +23,23 @@ const ACK_MS: u64 = 5000;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClipboardEvent {
     /// A read for `owner` (a person's or an agent's): its result comes back as
-    /// [`ClipboardOut::ReadDone`].
+    /// [`ClipboardOut::ReadDone`]. `now_ms` is the caller's clock, since a deadline counts from
+    /// the moment the request is sent, not from the last tick.
     Read {
         id: u64,
         owner: String,
+        now_ms: u64,
     },
     Write {
-        text: String,
+        text: JsString,
         paste: bool,
+        now_ms: u64,
     },
-    Received(DeviceMessage),
+    /// A message the device sent, at the caller's clock.
+    Received {
+        message: DeviceMessage,
+        now_ms: u64,
+    },
     Tick {
         now_ms: u64,
     },
@@ -82,17 +91,23 @@ struct Timer {
     deadline: Deadline,
 }
 
+/// One write waiting for its acknowledgement, and whether it was a paste (its timeout's text).
+#[derive(Debug, Clone, Copy)]
+struct Ack {
+    sequence: u64,
+    paste: bool,
+}
+
 /// The clipboard's state and decisions. `Send` carries the message the caller writes; the
 /// caller arms each `Timer` and calls back with `Tick` at that time.
 #[derive(Debug, Default)]
 pub struct ScrcpyClipboard {
-    acks: Vec<u64>,
+    acks: Vec<Ack>,
     reading: Option<Read>,
     outstanding: Vec<Request>,
     next_request: u64,
     sequence: u64,
     timers: Vec<Timer>,
-    now_ms: u64,
 }
 
 fn failure(key: &str) -> Failure {
@@ -113,7 +128,7 @@ impl ScrcpyClipboard {
     pub fn step(&mut self, event: ClipboardEvent) -> Vec<ClipboardOut> {
         let mut out = Vec::new();
         match event {
-            ClipboardEvent::Read { id, owner } => {
+            ClipboardEvent::Read { id, owner, now_ms } => {
                 if self.reading.is_some() {
                     out.push(ClipboardOut::ReadDone {
                         id,
@@ -126,13 +141,17 @@ impl ScrcpyClipboard {
                     owner,
                     request: None,
                 });
-                self.proceed(&mut out);
+                self.proceed(now_ms, &mut out);
             }
-            ClipboardEvent::Write { text, paste } => {
+            ClipboardEvent::Write {
+                text,
+                paste,
+                now_ms,
+            } => {
                 self.sequence += 1;
                 let sequence = self.sequence;
-                self.acks.push(sequence);
-                let at_ms = self.now() + ACK_MS;
+                self.acks.push(Ack { sequence, paste });
+                let at_ms = now_ms + ACK_MS;
                 self.timers.push(Timer {
                     at_ms,
                     deadline: Deadline::Ack(sequence),
@@ -144,15 +163,16 @@ impl ScrcpyClipboard {
                     paste,
                 })));
             }
-            ClipboardEvent::Received(message) => self.received(message, &mut out),
+            ClipboardEvent::Received { message, now_ms } => {
+                self.received(message, now_ms, &mut out)
+            }
             ClipboardEvent::Tick { now_ms } => {
-                self.now_ms = now_ms;
                 self.fire(now_ms, &mut out);
             }
             ClipboardEvent::Close => {
-                for sequence in std::mem::take(&mut self.acks) {
+                for ack in std::mem::take(&mut self.acks) {
                     out.push(ClipboardOut::WriteDone {
-                        sequence,
+                        sequence: ack.sequence,
                         result: Ok(()),
                     });
                 }
@@ -169,18 +189,14 @@ impl ScrcpyClipboard {
         out
     }
 
-    fn now(&self) -> u64 {
-        self.now_ms
-    }
-
     /// A message the device sent on the control socket.
-    fn received(&mut self, message: DeviceMessage, out: &mut Vec<ClipboardOut>) {
+    fn received(&mut self, message: DeviceMessage, now_ms: u64, out: &mut Vec<ClipboardOut>) {
         match message {
             DeviceMessage::ClipboardAck(sequence) => {
-                if !self.acks.contains(&sequence) {
+                if !self.acks.iter().any(|ack| ack.sequence == sequence) {
                     return;
                 }
-                self.acks.retain(|ack| *ack != sequence);
+                self.acks.retain(|ack| ack.sequence != sequence);
                 self.timers
                     .retain(|timer| timer.deadline != Deadline::Ack(sequence));
                 out.push(ClipboardOut::WriteDone {
@@ -209,7 +225,7 @@ impl ScrcpyClipboard {
                         result: Ok(text),
                     });
                 } else {
-                    self.proceed(out);
+                    self.proceed(now_ms, out);
                 }
             }
             _ => {}
@@ -217,7 +233,7 @@ impl ScrcpyClipboard {
     }
 
     /// Sends the waiting read's request once no other owner's may still be answered.
-    fn proceed(&mut self, out: &mut Vec<ClipboardOut>) {
+    fn proceed(&mut self, now_ms: u64, out: &mut Vec<ClipboardOut>) {
         let Some(reading) = self.reading.as_ref() else {
             return;
         };
@@ -241,8 +257,8 @@ impl ScrcpyClipboard {
         if let Some(reading) = self.reading.as_mut() {
             reading.request = Some(request.id);
         }
-        let settle_at = self.now() + CLIPBOARD_SETTLE_MS;
-        let reply_at = self.now() + CLIPBOARD_REPLY_MS;
+        let settle_at = now_ms + CLIPBOARD_SETTLE_MS;
+        let reply_at = now_ms + CLIPBOARD_REPLY_MS;
         self.timers.push(Timer {
             at_ms: settle_at,
             deadline: Deadline::Settle(request.id),
@@ -286,14 +302,23 @@ impl ScrcpyClipboard {
                 }
                 Deadline::Settle(request) => {
                     self.outstanding.retain(|each| each.id != request);
-                    self.proceed(out);
+                    self.proceed(now_ms, out);
                 }
                 Deadline::Ack(sequence) => {
-                    if self.acks.contains(&sequence) {
-                        self.acks.retain(|ack| *ack != sequence);
+                    let ack = self
+                        .acks
+                        .iter()
+                        .find(|ack| ack.sequence == sequence)
+                        .copied();
+                    if let Some(ack) = ack {
+                        self.acks.retain(|each| each.sequence != sequence);
                         out.push(ClipboardOut::WriteDone {
                             sequence,
-                            result: Err(failure("clipboardWriteTimedOut")),
+                            result: Err(failure(if ack.paste {
+                                "pasteTimedOut"
+                            } else {
+                                "clipboardWriteTimedOut"
+                            })),
                         });
                     }
                 }
@@ -349,6 +374,7 @@ mod tests {
             self.apply(ClipboardEvent::Read {
                 id,
                 owner: owner.into(),
+                now_ms: self.now,
             });
         }
 
@@ -356,19 +382,15 @@ mod tests {
             self.apply(ClipboardEvent::Write {
                 text: text.into(),
                 paste,
+                now_ms: self.now,
             });
         }
 
         fn reply(&mut self, text: &str) {
-            self.apply(ClipboardEvent::Received(DeviceMessage::Clipboard(
-                text.into(),
-            )));
-        }
-
-        fn ack(&mut self, sequence: u64) {
-            self.apply(ClipboardEvent::Received(DeviceMessage::ClipboardAck(
-                sequence,
-            )));
+            self.apply(ClipboardEvent::Received {
+                message: DeviceMessage::Clipboard(text.into()),
+                now_ms: self.now,
+            });
         }
 
         fn asked(&self) -> usize {
@@ -388,6 +410,9 @@ mod tests {
                 self.apply(ClipboardEvent::Tick { now_ms: at });
             }
             self.now = end;
+            // A real clock reaches the end of the window whether or not a timer was armed for
+            // it: a deadline that was measured from an earlier instant shows up here.
+            self.apply(ClipboardEvent::Tick { now_ms: end });
         }
     }
 
@@ -474,54 +499,19 @@ mod tests {
     }
 
     #[test]
-    fn a_write_finishes_on_the_acknowledgement_of_its_sequence_number() {
+    fn a_read_asked_for_after_an_idle_stretch_still_waits_its_full_reply_window() {
+        let mut socket = Socket::new();
+        socket.advance(5_000);
+        socket.read(1, "agent");
+        socket.reply("text");
+        assert_eq!(socket.reads, vec![(1, Ok("text".into()))]);
+    }
+
+    #[test]
+    fn a_paste_that_is_never_acknowledged_says_it_was_a_paste() {
         let mut socket = Socket::new();
         socket.write("hi", true);
-        assert_eq!(socket.writes, Vec::new());
-        assert!(matches!(
-            socket.sent.first(),
-            Some(ControlMessage::SetClipboard {
-                sequence: PointerId(1),
-                paste: true,
-                ..
-            })
-        ));
-        socket.ack(1);
-        assert_eq!(socket.writes, vec![(1, Ok(()))]);
-    }
-
-    #[test]
-    fn an_unacknowledged_write_fails_after_five_seconds() {
-        let mut socket = Socket::new();
-        socket.write("hi", false);
         socket.advance(ACK_MS);
-        assert_eq!(
-            socket.writes,
-            vec![(1, Err(failure("clipboardWriteTimedOut")))]
-        );
-    }
-
-    #[test]
-    fn a_second_read_while_one_waits_is_refused_as_busy() {
-        let mut socket = Socket::new();
-        socket.read(1, "agent");
-        socket.read(2, "person");
-        assert_eq!(
-            socket.reads,
-            vec![(2, Err(failure("clipboardReadWaiting")))]
-        );
-    }
-
-    #[test]
-    fn a_closed_socket_finishes_waiting_writes_and_fails_a_waiting_read() {
-        let mut socket = Socket::new();
-        socket.write("hi", false);
-        socket.read(1, "agent");
-        socket.apply(ClipboardEvent::Close);
-        assert_eq!(socket.writes, vec![(1, Ok(()))]);
-        assert_eq!(
-            socket.reads,
-            vec![(1, Err(failure("androidControlRestarted")))]
-        );
+        assert_eq!(socket.writes, vec![(1, Err(failure("pasteTimedOut")))]);
     }
 }

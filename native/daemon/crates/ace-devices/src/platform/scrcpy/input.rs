@@ -9,7 +9,7 @@ use crate::platform::scrcpy::protocol::{
     CLIPBOARD_TEXT_LIMIT, ControlMessage, INJECT_TEXT_LIMIT, KeyAction, PointerId, ScreenSize,
     TouchAction, keycode,
 };
-use crate::platform::{Error, Failure, Refusal};
+use crate::platform::{Error, Refusal};
 
 /// One control message, sent `delayMs` after the previous step. A clipboard step finishes only
 /// when the server acknowledges its sequence number.
@@ -70,16 +70,6 @@ fn show_keyboard() -> Vec<InputStep> {
         key(KeyAction::Up, keycode::K, super::protocol::ALT_ON),
         key(KeyAction::Up, keycode::ALT_LEFT, 0),
     ]
-}
-
-/// The refusal `scrcpy-input.ts` raises for a key Android has no hardware for: the message names
-/// the key, the hint is the catalog's.
-fn refuse(key: crate::platform::device_input::Key) -> Error {
-    Error::Failed(Failure {
-        code: crate::platform::Code::NotSupported,
-        message: format!("Android has no {} key", key.name()),
-        hint: crate::platform::words::tool_hint("androidNoKeyHint").to_string(),
-    })
 }
 
 /// A point outside the picture the server checks touches against.
@@ -167,8 +157,10 @@ pub fn plan(
             if text.is_empty() {
                 return Ok(Vec::new());
             }
-            if !plain_text(text) {
-                if text.len() > CLIPBOARD_TEXT_LIMIT {
+            let plain = text.to_string_lossy();
+            if !plain_text(&plain) {
+                // The server's clipboard cap counts the UTF-8 bytes the message carries.
+                if plain.len() > CLIPBOARD_TEXT_LIMIT {
                     return Err(Refusal::word("pasteTooLong").into());
                 }
                 return Ok(vec![InputStep {
@@ -180,17 +172,20 @@ pub fn plan(
                     },
                 }]);
             }
-            // The limit counts the server's bytes, and printable ASCII is one byte a unit.
-            Ok(text
-                .as_bytes()
-                .chunks(INJECT_TEXT_LIMIT)
-                .map(|chunk| InputStep {
+            // `slice(start, start + 300)` counts UTF-16 units, and printable ASCII is one a unit.
+            let mut plan = Vec::new();
+            let mut start = 0;
+            while start < text.len_utf16() {
+                let end = (start + INJECT_TEXT_LIMIT).min(text.len_utf16());
+                plan.push(InputStep {
                     delay_ms: 0.0,
                     message: ControlMessage::Text {
-                        text: String::from_utf8_lossy(chunk).into_owned(),
+                        text: text.slice_units(start, end),
                     },
-                })
-                .collect())
+                });
+                start = end;
+            }
+            Ok(plan)
         }
         DeviceInput::Key { key } => match key {
             crate::platform::device_input::Key::Rotate => Ok(vec![InputStep {
@@ -218,7 +213,14 @@ pub fn plan(
             crate::platform::device_input::Key::VolumeUp => Ok(press(keycode::VOLUME_UP)),
             crate::platform::device_input::Key::VolumeDown => Ok(press(keycode::VOLUME_DOWN)),
             crate::platform::device_input::Key::Keyboard => Ok(show_keyboard()),
-            other => Err(refuse(*other)),
+            crate::platform::device_input::Key::Action => {
+                Err(crate::platform::keys::refuse_android_key(
+                    crate::platform::device_input::Key::Action,
+                ))
+            }
+            crate::platform::device_input::Key::Side => Err(
+                crate::platform::keys::refuse_android_key(crate::platform::device_input::Key::Side),
+            ),
         },
     }
 }
@@ -406,7 +408,7 @@ mod tests {
     #[test]
     fn plain_ascii_is_injected_as_text_in_chunks_the_server_accepts() {
         let steps = plan_of(DeviceInput::Type {
-            text: "a".repeat(650),
+            text: "a".repeat(650).into(),
         });
         let lengths: Vec<usize> = steps
             .iter()
@@ -518,15 +520,22 @@ mod tests {
     }
 
     #[test]
-    fn the_iphone_action_button_is_refused_on_android_rather_than_pressing_something_else() {
-        for key in [Key::Action, Key::Side] {
-            let error = plan_of_result(DeviceInput::Key { key });
-            assert_eq!(
-                error,
-                Some(crate::platform::Code::NotSupported),
-                "{}",
-                key.name()
-            );
+    fn the_iphone_action_button_and_side_key_are_refused_with_their_own_words() {
+        for (key, message) in [
+            (Key::Action, "Android has no Action button"),
+            (Key::Side, "Only Apple Watch has a side key"),
+        ] {
+            match plan(&DeviceInput::Key { key }, DISPLAY, VIDEO, 1) {
+                Err(Error::Refused(refusal)) => {
+                    assert_eq!(refusal.code, crate::platform::Code::NotSupported);
+                    assert_eq!(refusal.message, message);
+                }
+                Err(Error::Failed(failure)) => {
+                    assert_eq!(failure.code, crate::platform::Code::NotSupported);
+                    assert_eq!(failure.message, message);
+                }
+                other => panic!("expected a refusal, got {other:?}"),
+            }
         }
     }
 

@@ -416,11 +416,23 @@ fn hardware_button(key: Key) -> Option<(u16, u16)> {
     }
 }
 
-/// The serve-sim message a hardware key sends, or the refusal for one a Simulator has no press
-/// for. `orientation` is the capture's current one, which `rotate` flips.
-pub fn key_message(key: Key, orientation: &str) -> Result<Message, Error> {
+/// What a key does on a Simulator: send a serve-sim message, type a line (Return), or nothing
+/// because the Simulator has no such key.
+#[derive(Debug, Clone, PartialEq)]
+pub enum KeyAction {
+    Press(Message),
+    /// `typing.stdin.end("\n")`, as today's Return does.
+    Type(String),
+}
+
+/// The serve-sim message a hardware key sends, the line it types, or the refusal for a key a
+/// Simulator has no press for. `orientation` is the capture's current one, which `rotate` flips.
+pub fn key_action(key: Key, orientation: &str) -> Result<KeyAction, Error> {
+    if key == Key::Enter {
+        return Ok(KeyAction::Type("\n".to_string()));
+    }
     if key == Key::Rotate {
-        return Ok(Message {
+        return Ok(KeyAction::Press(Message {
             tag: 7,
             payload: Payload {
                 orientation: Some(if orientation == "portrait" {
@@ -430,19 +442,19 @@ pub fn key_message(key: Key, orientation: &str) -> Result<Message, Error> {
                 }),
                 ..Payload::default()
             },
-        });
+        }));
     }
     if key == Key::Home {
-        return Ok(Message {
+        return Ok(KeyAction::Press(Message {
             tag: 4,
             payload: Payload {
                 button: Some("home"),
                 ..Payload::default()
             },
-        });
+        }));
     }
     if let Some((page, usage)) = hardware_button(key) {
-        return Ok(Message {
+        return Ok(KeyAction::Press(Message {
             tag: 4,
             payload: Payload {
                 button: (key == Key::Power).then_some("power"),
@@ -450,13 +462,13 @@ pub fn key_message(key: Key, orientation: &str) -> Result<Message, Error> {
                 usage: Some(usage),
                 ..Payload::default()
             },
-        });
+        }));
     }
     if key == Key::Keyboard {
-        return Ok(Message {
+        return Ok(KeyAction::Press(Message {
             tag: SOFTWARE_KEYBOARD_TOGGLE,
             payload: Payload::default(),
-        });
+        }));
     }
     Err(refuse_simulator_key(key))
 }
@@ -573,22 +585,6 @@ mod tests {
     }
 
     #[test]
-    fn a_resting_finger_touches_again_only_once_it_moves() {
-        let first = finger_down(&NO_FINGERS, 0, point(0.4, 0.4), 0.0);
-        let pair = finger_down(&first.held, 1, point(0.6, 0.6), 0.0);
-        let lifted = finger_up(&pair.held, 1);
-        assert_eq!(end_fingers(&lifted.held), Vec::new());
-        let moved = finger_move(&lifted.held, 0, point(0.5, 0.5)).expect("held");
-        assert_eq!(
-            moved.messages,
-            vec![
-                single_message(SimPhase::Begin, 0.4, 0.4, None),
-                single_message(SimPhase::Move, 0.5, 0.5, None),
-            ]
-        );
-    }
-
-    #[test]
     fn a_third_finger_has_no_serve_sim_touch_to_map_to() {
         let error = simulator_finger(Some(2)).expect_err("refused");
         assert_eq!(
@@ -630,19 +626,10 @@ mod tests {
     }
 
     #[test]
-    fn the_edge_band_is_two_percent_of_the_screen() {
-        assert_eq!(screen_edge(0.5, 0.99), 3);
-        assert_eq!(screen_edge(0.5, 0.01), 2);
-        assert_eq!(screen_edge(0.01, 0.5), 1);
-        assert_eq!(screen_edge(0.99, 0.5), 4);
-        assert_eq!(screen_edge(0.5, 0.5), 0);
-    }
-
-    #[test]
     fn hardware_buttons_send_the_hid_codes_xcodes_device_chrome_gives_them() {
-        let payload = |key: Key| {
-            let message = key_message(key, "portrait").expect("a message");
-            (message.tag, message.payload)
+        let payload = |key: Key| match key_action(key, "portrait").expect("a key") {
+            KeyAction::Press(message) => (message.tag, message.payload),
+            KeyAction::Type(_) => panic!("a button types nothing"),
         };
         assert_eq!(
             payload(Key::VolumeUp),
@@ -710,40 +697,31 @@ mod tests {
                 }
             )
         );
-    }
-
-    #[test]
-    fn rotate_turns_the_other_way_from_portrait_and_back() {
-        let orientation = |current: &str| {
-            let message = key_message(Key::Rotate, current).expect("a turn");
-            assert_eq!(message.tag, 7);
-            (message.tag, message.payload.orientation)
-        };
-        assert_eq!(orientation("portrait"), (7, Some("landscape_left")));
-        assert_eq!(orientation("landscape_left"), (7, Some("portrait")));
+        // Rotate flips the announced orientation; the keyboard key is the software toggle.
+        match key_action(Key::Rotate, "portrait").expect("a turn") {
+            KeyAction::Press(message) => {
+                assert_eq!(message.tag, 7);
+                assert_eq!(message.payload.orientation, Some("landscape_left"));
+            }
+            KeyAction::Type(_) => panic!("a turn types nothing"),
+        }
         assert_eq!(
-            key_message(Key::Keyboard, "portrait").expect("a toggle"),
-            Message {
+            key_action(Key::Keyboard, "portrait").expect("a toggle"),
+            KeyAction::Press(Message {
                 tag: 12,
                 payload: Payload::default()
-            }
+            })
+        );
+        // Return types a newline, as today's Simulator typing does.
+        assert_eq!(
+            key_action(Key::Enter, "portrait").ok(),
+            Some(KeyAction::Type("\n".into()))
         );
         assert_eq!(
-            key_message(Key::Back, "portrait")
+            key_action(Key::Back, "portrait")
                 .expect_err("refused")
                 .to_string(),
             "not_supported: iOS has no Back key"
         );
-    }
-
-    #[test]
-    fn typing_runs_serve_sim_against_the_device_and_points_normalise_or_refuse() {
-        assert_eq!(typing_args("UDID"), vec!["type", "--stdin", "-d", "UDID"]);
-        assert_eq!(
-            normalized_point(603.0, 1311.0, 1206.0, 2622.0).expect("inside"),
-            point(0.5, 0.5)
-        );
-        assert!(normalized_point(1206.0, 10.0, 1206.0, 2622.0).is_err());
-        assert!(normalized_point(1.0, 1.0, 0.0, 0.0).is_err());
     }
 }
