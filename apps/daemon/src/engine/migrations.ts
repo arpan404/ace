@@ -46,8 +46,7 @@ export function migrateEngine(db: DatabaseSync): void {
     awaiting INTEGER NOT NULL DEFAULT 0, ack_target INTEGER,
     acknowledged INTEGER NOT NULL DEFAULT 0, delivery TEXT NOT NULL DEFAULT 'queue', trigger TEXT,
     submitted_generation INTEGER, resolution_generation INTEGER,
-    position INTEGER NOT NULL DEFAULT 0, uncertain INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL DEFAULT 0
+    position INTEGER NOT NULL DEFAULT 0, uncertain INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX intents_pending ON intents(thread_id, status, id);
   CREATE INDEX intents_waiting_ack ON intents(thread_id,id) WHERE awaiting=1;

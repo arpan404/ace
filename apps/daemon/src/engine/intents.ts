@@ -17,11 +17,6 @@ const Header = z.object({
   ackTarget: z.number().int().positive().optional(),
   delivery: z.enum(["queue", "steer"]),
   acknowledged: z.boolean(),
-  /**
-   * When the daemon took the command, from its clock. Intents recorded before it was kept read
-   * as 0: older than any turn, so a steer on them is never taken for a later turn's.
-   */
-  createdAt: z.number().int().nonnegative(),
   resolutionId: InteractionId.optional(),
   resolutionGeneration: z.number().int().nonnegative().optional(),
   submittedGeneration: z.number().int().nonnegative().optional(),
@@ -32,7 +27,7 @@ export interface Intent extends IntentHeader {
   command: Command;
 }
 const columns =
-  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation,resolution_generation,resolution_id,created_at";
+  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation,resolution_generation,resolution_id";
 const recoveryKinds = "'thread.resume','queue.resume','thread.limit'";
 const deliveryKinds = "'thread.create','thread.send','thread.fork','thread.switch','thread.merge'";
 function header(row: Record<string, unknown>): IntentHeader {
@@ -47,7 +42,6 @@ function header(row: Record<string, unknown>): IntentHeader {
     ackTarget: row.ack_target ?? undefined,
     delivery: row.delivery,
     acknowledged: row.acknowledged === 1,
-    createdAt: row.created_at ?? 0,
     trigger: row.trigger ?? undefined,
     submittedGeneration: row.submitted_generation ?? undefined,
     resolutionGeneration: row.resolution_generation ?? undefined,
@@ -58,26 +52,15 @@ function header(row: Record<string, unknown>): IntentHeader {
 export class IntentStore {
   private store: Store;
   private queue: QueueStore;
-  private now: () => number;
   private statements = new Map<string, StatementSync>();
-  constructor(store: Store, queue: QueueStore, now: () => number = Date.now) {
+  constructor(store: Store, queue: QueueStore) {
     this.store = store;
     this.queue = queue;
-    this.now = now;
     store.atomic((db) => {
       db.exec(`CREATE INDEX IF NOT EXISTS intents_submission_generation ON intents(thread_id,submitted_generation);
         CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
         CREATE INDEX IF NOT EXISTS intents_latest_inputs ON intents(thread_id,id DESC) WHERE kind IN ('thread.send','thread.create');
         CREATE INDEX IF NOT EXISTS intents_running ON intents(thread_id) WHERE status='running';`);
-      // Forward migration: a row recorded before the column keeps 0, which reads as older than
-      // any turn.
-      if (
-        !db
-          .prepare("PRAGMA table_info(intents)")
-          .all()
-          .some((column) => column.name === "created_at")
-      )
-        db.exec("ALTER TABLE intents ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0");
     });
   }
   private sql(source: string): StatementSync {
@@ -92,7 +75,7 @@ export class IntentStore {
     this.store.atomic(() => {
       const p = command.payload;
       const row = this.sql(`INSERT INTO intents
-        (command_id,thread_id,kind,payload,status,resolution_id,position,delivery,trigger,resolution_generation,created_at) VALUES (?,?,?,?,'pending',?,?,?,?,?,?)`).run(
+        (command_id,thread_id,kind,payload,status,resolution_id,position,delivery,trigger,resolution_generation) VALUES (?,?,?,?,'pending',?,?,?,?,?)`).run(
         command.id,
         id,
         p.type,
@@ -102,7 +85,6 @@ export class IntentStore {
         p.type === "thread.send" ? (p.delivery ?? "queue") : "queue",
         p.type === "thread.send" || p.type === "thread.create" ? (p.trigger ?? null) : null,
         generation ?? null,
-        this.now(),
       );
       this.queue.track(Number(row.lastInsertRowid), id, command);
     });

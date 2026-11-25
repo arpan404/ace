@@ -141,7 +141,7 @@ export class EngineRepository {
         "CREATE INDEX IF NOT EXISTS engine_queue_recovery ON engine_queue(thread_id) WHERE continuation IS NOT NULL OR trigger IS NOT NULL OR limited=1 OR paused=1",
       ),
     );
-    this.pending = new IntentStore(store, this.queue, now);
+    this.pending = new IntentStore(store, this.queue);
     this.inputs = new InputJournal(store);
     this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
