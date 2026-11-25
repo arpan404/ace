@@ -31,14 +31,32 @@ pub fn posture_angle(posture: Posture) -> u16 {
 }
 
 /// One screen in a `devicectl` display report, as posture reads it.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 struct Display {
-    #[serde(default)]
     primary: Option<bool>,
-    #[serde(default)]
     active: Option<bool>,
-    #[serde(rename = "backlightState", default)]
     backlight_state: Option<String>,
+}
+
+/// One display, as `Display`'s schema reads it: a present field must be its own type, so a null
+/// or a string where a boolean belongs is not a display at all.
+fn display(raw: &Value) -> Option<Display> {
+    let object = raw.as_object()?;
+    let flag = |key: &str| match object.get(key) {
+        None => Some(None),
+        Some(Value::Bool(value)) => Some(Some(*value)),
+        Some(_) => None,
+    };
+    let backlight = match object.get("backlightState") {
+        None => Some(None),
+        Some(Value::String(value)) => Some(Some(value.to_string())),
+        Some(_) => None,
+    };
+    Some(Display {
+        primary: flag("primary")?,
+        active: flag("active")?,
+        backlight_state: backlight?,
+    })
 }
 
 /// The displays a report lists, or `None` when the report can't be read (the schema caps it at
@@ -48,11 +66,7 @@ fn displays(report: &Value) -> Option<Vec<Display>> {
     if list.len() > 16 {
         return None;
     }
-    Some(
-        list.iter()
-            .filter_map(|raw| ace_json::from_value(raw).ok())
-            .collect(),
-    )
+    Some(list.iter().filter_map(display).collect())
 }
 
 /// How many screens a `devicectl` display report lists, or `None` when it can't be read. The
@@ -457,6 +471,22 @@ mod tests {
             posture_from_hinge("hinge-angle0 = 12.5\nhinge-angle0 = 180\n"),
             Some(Posture::Closed)
         );
+    }
+
+    #[test]
+    fn a_display_with_a_null_field_is_dropped_as_the_schema_drops_it() {
+        let report = ace_json::json!({"result": {"displays": [
+            {"primary": true, "active": true, "backlightState": "activeOn"},
+            {"primary": null, "active": false, "backlightState": "off"},
+        ]}});
+        assert_eq!(screen_count(&report), Some(2));
+        // A present field that is not its type is not a display, so one readable panel is no fold.
+        assert_eq!(read_posture(&report, None), None);
+        let string_primary = ace_json::json!({"result": {"displays": [
+            {"primary": true, "active": true},
+            {"primary": "yes", "active": false},
+        ]}});
+        assert_eq!(read_posture(&string_primary, None), None);
     }
 
     #[test]
