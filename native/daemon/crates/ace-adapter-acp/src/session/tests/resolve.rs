@@ -193,6 +193,81 @@ fn a_resolution_is_validated_against_the_request_it_answers() {
     );
 }
 
+/// The schema types every field it keeps and strips what it does not know
+/// (`interactions.ts:277`, `protocol/src/interactions.ts:97`-`:125`).
+#[test]
+fn a_resolution_is_canonicalised_the_way_zod_parses_it() {
+    let approval = json!({
+        "kind": "approval",
+        "title": "Run ls",
+        "options": [{ "id": "allow", "label": "Allow", "kind": "allow_once" }]
+    });
+    // Unknown keys are stripped; the known ones stay.
+    assert_eq!(
+        validate_resolution(
+            &approval,
+            &json!({ "kind": "approval", "optionId": "allow", "extra": 1 })
+        ),
+        Ok(json!({ "kind": "approval", "optionId": "allow" }))
+    );
+    // A non-string answer is not a resolution at all.
+    let question = json!({
+        "kind": "question",
+        "questions": [{ "id": "q1", "text": "Which?", "options": [{ "id": "a", "label": "A" }] }]
+    });
+    assert_eq!(
+        validate_resolution(
+            &question,
+            &json!({ "kind": "question", "answers": { "q1": [1] } })
+        )
+        .err()
+        .map(|error| error.message),
+        Some("Invalid interaction resolution".to_owned())
+    );
+    // Feedback is bounded at 8192 UTF-16 units.
+    let long = "x".repeat(8193);
+    assert!(
+        validate_resolution(
+            &question,
+            &json!({ "kind": "question", "answers": { "q1": ["a"] }, "feedback": long })
+        )
+        .is_err()
+    );
+    assert!(
+        validate_resolution(
+            &question,
+            &json!({ "kind": "question", "answers": { "q1": ["a"] }, "feedback": "x".repeat(8192) })
+        )
+        .is_ok()
+    );
+}
+
+/// A validation failure is a plain error, not an interaction that went away
+/// (`interactions.ts:273`, `throw new Error`).
+#[test]
+fn a_validation_failure_is_a_plain_error() {
+    let approval = json!({
+        "kind": "approval",
+        "title": "Run ls",
+        "options": [{ "id": "allow", "label": "Allow", "kind": "allow_once" }]
+    });
+    assert_eq!(
+        validate_resolution(&approval, &json!({ "kind": "question", "answers": {} }))
+            .err()
+            .map(|error| error.code),
+        Some("ACE_ACP_RPC_ERROR")
+    );
+    assert_eq!(
+        validate_resolution(
+            &approval,
+            &json!({ "kind": "approval", "optionId": "nope" })
+        )
+        .err()
+        .map(|error| error.code),
+        Some("ACE_ACP_RPC_ERROR")
+    );
+}
+
 #[test]
 fn the_interaction_key_of_a_request_id_is_the_sessions_own() {
     let core = session_core("t-interaction-key");

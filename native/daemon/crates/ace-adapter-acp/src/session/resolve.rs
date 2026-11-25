@@ -84,9 +84,73 @@ pub fn validate_resolution(request: &Value, input: &Value) -> Result<Value, AcpE
         // The schema refuses anything without a kind of its own.
         None => return Err(invalid("Invalid interaction resolution")),
     };
-    if !schema_valid(kind, resolution) {
-        return Err(invalid("Invalid interaction resolution"));
+    // `ResolutionSchema.parse`: every kept field is typed, and what the schema does not
+    // know is stripped (`z.object`, `protocol/src/interactions.ts:97`-`:125`).
+    let mut kept = ace_json::Map::with_capacity(resolution.len());
+    kept.insert("kind".to_owned(), Value::from(kind));
+    match kind {
+        "approval" => {
+            kept.insert("optionId".to_owned(), string_field(resolution, "optionId")?);
+            optional_string(resolution, &mut kept, "message")?;
+        }
+        "question" => {
+            let answers = resolution
+                .get("answers")
+                .and_then(Value::as_object)
+                .ok_or_else(invalid_resolution)?;
+            let mut canonical = ace_json::Map::with_capacity(answers.len());
+            for (id, selected) in answers.iter() {
+                let selected = selected.as_array().ok_or_else(invalid_resolution)?;
+                let mut values = Vec::with_capacity(selected.len());
+                for answer in selected.iter() {
+                    let Some(answer) = answer.as_str() else {
+                        return Err(invalid_resolution());
+                    };
+                    values.push(Value::from(answer));
+                }
+                canonical.insert(id.clone(), Value::Array(values.into()));
+            }
+            kept.insert("answers".to_owned(), Value::Object(canonical));
+            if let Some(dismissed) = resolution.get("dismissed") {
+                let dismissed = dismissed.as_bool().ok_or_else(invalid_resolution)?;
+                kept.insert("dismissed".to_owned(), Value::Bool(dismissed));
+            }
+            optional_string(resolution, &mut kept, "feedback")?;
+            if let Some(Value::String(feedback)) = kept.get("feedback")
+                && feedback.len_utf16() > MAX_FEEDBACK_UNITS
+            {
+                return Err(invalid_resolution());
+            }
+        }
+        "plan_review" => {
+            let decision = string_field(resolution, "decision")?;
+            if !matches!(decision.as_str(), Some("approve" | "reject" | "cancel")) {
+                return Err(invalid_resolution());
+            }
+            kept.insert("decision".to_owned(), decision);
+            optional_string(resolution, &mut kept, "feedback")?;
+        }
+        "elicitation" => {
+            let action = string_field(resolution, "action")?;
+            if !matches!(action.as_str(), Some("accept" | "decline" | "cancel")) {
+                return Err(invalid_resolution());
+            }
+            kept.insert("action".to_owned(), action);
+            if let Some(content) = resolution.get("content") {
+                kept.insert("content".to_owned(), content.clone());
+            }
+        }
+        "browser_help" => {
+            let outcome = string_field(resolution, "outcome")?;
+            if !matches!(outcome.as_str(), Some("done" | "skipped")) {
+                return Err(invalid_resolution());
+            }
+            kept.insert("outcome".to_owned(), outcome);
+        }
+        _ => return Err(invalid_resolution()),
     }
+    let validated = Value::Object(kept);
+    let resolution = object(&validated);
     let request_map = object(request);
     if string(request_map.get("kind").unwrap_or(&Value::Null)) != kind {
         return Err(invalid("Interaction resolution kind does not match"));
@@ -140,39 +204,40 @@ pub fn validate_resolution(request: &Value, input: &Value) -> Result<Value, AcpE
             }
         }
     }
-    Ok(input.clone())
+    Ok(validated)
 }
 
+/// The reply feedback's bound in UTF-16 units (`feedback: z.string().max(8192)`).
+const MAX_FEEDBACK_UNITS: usize = 8192;
+
+/// A validation failure is a plain error, not an interaction that went away
+/// (`interactions.ts:273`: `throw new Error(...)`).
 fn invalid(message: &str) -> AcpErrorWire {
-    AcpErrorWire::interaction(message.to_owned())
+    AcpErrorWire::rpc_error(message.to_owned())
 }
 
-/// The shapes `ResolutionSchema` admits (`protocol/src/interactions.ts:97`-`:125`).
-fn schema_valid(kind: &str, resolution: &ace_json::Map) -> bool {
-    match kind {
-        "approval" => resolution.get("optionId").is_some_and(Value::is_string),
-        "question" => {
-            resolution
-                .get("answers")
-                .is_some_and(|answers| answers.as_object().is_some())
-                && resolution
-                    .get("dismissed")
-                    .is_none_or(|dismissed| dismissed.as_bool().is_some())
-        }
-        "plan_review" => matches!(
-            resolution.get("decision").and_then(Value::as_str),
-            Some("approve" | "reject" | "cancel")
-        ),
-        "elicitation" => matches!(
-            resolution.get("action").and_then(Value::as_str),
-            Some("accept" | "decline" | "cancel")
-        ),
-        "browser_help" => matches!(
-            resolution.get("outcome").and_then(Value::as_str),
-            Some("done" | "skipped")
-        ),
-        _ => false,
+fn invalid_resolution() -> AcpErrorWire {
+    invalid("Invalid interaction resolution")
+}
+
+fn string_field(resolution: &ace_json::Map, field: &str) -> Result<Value, AcpErrorWire> {
+    match resolution.get(field).and_then(Value::as_str) {
+        Some(value) => Ok(Value::from(value)),
+        None => Err(invalid_resolution()),
     }
+}
+
+fn optional_string(
+    resolution: &ace_json::Map,
+    kept: &mut ace_json::Map,
+    field: &str,
+) -> Result<(), AcpErrorWire> {
+    let Some(value) = resolution.get(field) else {
+        return Ok(());
+    };
+    let text = value.as_str().ok_or_else(invalid_resolution)?;
+    kept.insert(field.to_owned(), Value::from(text));
+    Ok(())
 }
 
 fn question_id(question: &Value) -> Option<&str> {
