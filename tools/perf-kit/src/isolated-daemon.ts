@@ -7,9 +7,10 @@
  * and the temporary home is removed.
  */
 import { fork } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 export interface BenchDaemon<Ready> {
   home: string;
@@ -27,6 +28,35 @@ export interface BenchDaemonOptions<Ready> {
   env?: Record<string, string>;
   /** Where the temporary home is made; the system's temporary directory by default. */
   root?: string;
+}
+
+/**
+ * The bench's own transport switch, its addon and its evidence file, as the daemon has to see them
+ * (T1b.5). A switch with no usable addon is refused here, at the boundary, rather than in the
+ * child, where the daemon would fall back to the development build and the run would prove nothing.
+ */
+function transportEnvironment(): Record<string, string> {
+  const transport = process.env.ACE_TRANSPORT;
+  if (transport === undefined || transport === "") return {};
+  const addon = process.env.ACE_TRANSPORT_ADDON;
+  const usable =
+    addon !== undefined &&
+    addon !== "" &&
+    isAbsolute(addon) &&
+    existsSync(addon) &&
+    statSync(addon).isFile();
+  if (!usable)
+    throw new Error(
+      `ACE_TRANSPORT=${transport} needs ACE_TRANSPORT_ADDON naming an existing file by absolute path; got ${
+        addon === undefined || addon === "" ? "nothing" : addon
+      }`,
+    );
+  const evidence = process.env.ACE_TRANSPORT_EVIDENCE;
+  return {
+    ACE_TRANSPORT: transport,
+    ACE_TRANSPORT_ADDON: addon,
+    ...(evidence === undefined || evidence === "" ? {} : { ACE_TRANSPORT_EVIDENCE: evidence }),
+  };
 }
 
 export async function startBenchDaemon<Ready>(
@@ -58,6 +88,7 @@ export async function startBenchDaemon<Ready>(
       ACE_MAINTENANCE: "0",
       ACE_DEV: "0",
       PATH: "",
+      ...transportEnvironment(),
       ...env,
     },
     stdio: ["ignore", "ignore", "pipe", "ipc"],

@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { Client, webSocketTransport, type Selection, type Storage } from "@ace/client";
+import {
+  Client,
+  ticketCredential,
+  webSocketTransport,
+  type Selection,
+  type Storage,
+} from "@ace/client";
+import { accessRequest, pinnedSocketTransport } from "@ace/daemon/client-access";
 import { CommandPayload, DeviceId, ThreadId, WorkspaceId, type Thread } from "@ace/protocol";
 import { WebSocket } from "ws";
 
@@ -47,11 +54,36 @@ export class Driver {
     this.client = client;
     this.sidebar = client.threads();
   }
-  static async connect(origin: string, token: string): Promise<Driver> {
+  /**
+   * Connects to `origin`. A local daemon takes the token as it is. The remote listener (T1b.5's
+   * LAN leg) takes a ticket for the paired device, over the endpoint's pinned certificate, which
+   * `pin` names; `deviceId` is that paired device.
+   */
+  static async connect(
+    origin: string,
+    token: string,
+    options: { deviceId?: string; pin?: { url: string; fingerprint: string } } = {},
+  ): Promise<Driver> {
+    const pin = options.pin;
+    const httpsOrigin = pin === undefined ? undefined : pin.url.replace(/^wss:/, "https:");
     const client = new Client({
-      deviceId: DeviceId.parse("daemon-bench"),
-      transport: () => webSocketTransport(() => new WebSocket(origin.replace("http:", "ws:"))),
-      credential: async () => token,
+      deviceId: DeviceId.parse(options.deviceId ?? "daemon-bench"),
+      transport:
+        pin === undefined
+          ? () => webSocketTransport(() => new WebSocket(origin.replace("http:", "ws:")))
+          : () => pinnedSocketTransport(pin.url, pin.fingerprint),
+      credential:
+        pin === undefined || httpsOrigin === undefined
+          ? async () => token
+          : ticketCredential(
+              async () => token,
+              (deviceToken) =>
+                accessRequest(httpsOrigin, "/v1/tickets", {
+                  method: "POST",
+                  token: deviceToken,
+                  fingerprint: pin.fingerprint,
+                }),
+            ),
       storage: memoryStorage(),
       scheduler: {
         set(ms, callback) {

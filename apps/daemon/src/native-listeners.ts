@@ -99,13 +99,13 @@ export async function startNativeLoopback(
   // The own-Origin check needs the port Rust chose before an upgrade can consult it (T1a.7).
   options.publicPort?.(port);
   const releasePort = options.holdPort(port);
-  noteTransportStart("loopback", port);
-  const unregister = registerTransportListener("loopback", port, () => native.handled());
+  const instance = noteTransportStart("loopback", port);
+  const unregister = registerTransportListener("loopback", port, instance, () => native.handled());
   return {
     port,
     internalHttpUrl,
     async close(deadlineMs) {
-      noteTransportEvent("loopback", port, "close-requested", { bound: true });
+      noteTransportEvent("loopback", port, "close-requested", { bound: true, instance });
       let closed = false;
       try {
         await native.close(deadlineMs);
@@ -116,7 +116,7 @@ export async function startNativeLoopback(
         releasePort();
         upgrades.releaseHeld();
       }
-      if (closed) noteTransportEvent("loopback", port, "close", native.handled());
+      if (closed) noteTransportEvent("loopback", port, "close", { ...native.handled(), instance });
     },
   };
 }
