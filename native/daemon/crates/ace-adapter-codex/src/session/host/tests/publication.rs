@@ -355,6 +355,119 @@ fn a_sink_panic_on_a_write_poisons_the_host_before_or_after_submission() {
     }
 }
 
+/// A settlement decided before the panic keeps its place: another input can
+/// settle a call and queue its settlement while a sink callback is in flight,
+/// and poisoning must not drop it.
+#[test]
+fn a_settlement_queued_before_the_panic_is_still_delivered() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    let (effects, _) = sink.pump(&host, || {
+        for (id, ms) in [(7, 1_000.0), (8, 2_000.0)] {
+            host.request(
+                1,
+                "thread/read",
+                Some(&ace_json::json!({"threadId": "t"})),
+                id,
+                Timeout::After(ms),
+            )
+            .expect("the call is queued");
+        }
+    });
+    let deadline = |ms: f64| {
+        effects
+            .iter()
+            .find_map(|effect| match effect {
+                HostEffect::ArmTimer { key, ms: armed } if *armed == ms => Some(key.clone()),
+                _ => None,
+            })
+            .expect("the call's deadline is armed")
+    };
+    let first = deadline(1_000.0);
+    let second = deadline(2_000.0);
+
+    // Park inside the first settlement, settle the other while it is in
+    // flight, then let the parked delivery unwind.
+    sink.hold_next_settlement();
+    sink.lose_next_settlement();
+    let ticking = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.timer(&first))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside a settlement");
+    host.timer(&second);
+    sink.let_go();
+    ticking.join().expect("the timer's input returns");
+
+    assert!(host.poisoned());
+    assert!(
+        sink.published()
+            .iter()
+            .any(|thing| matches!(thing, Published::Effect(HostEffect::Settle { id: 8, .. }))),
+        "the settlement queued before the panic is still delivered: {:?}",
+        sink.published()
+    );
+}
+
+/// A stop already queued behind the panicking effect is not lost: the child is
+/// stopped by it, exactly once.
+#[test]
+fn the_child_is_stopped_when_its_stop_was_already_queued() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.hold_next_frame();
+    sink.lose_next_frame();
+    let first = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.line(&completed("first")))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside a frame");
+    // The stop is decided while the sink is in flight, so it waits in the queue
+    // behind the effect that is about to unwind.
+    host.retire(Retirement::User);
+    sink.let_go();
+    first.join().expect("the frame's input returns");
+
+    assert!(host.poisoned());
+    assert_eq!(
+        sink.stops(),
+        1,
+        "the queued stop still stops the child: {:?}",
+        sink.published()
+    );
+}
+
+/// A second panic during the cleanup skips that effect and nothing else: the
+/// child is still stopped and the other channels still hear their exits.
+#[test]
+fn a_second_panic_during_cleanup_still_stops_the_child_and_exits_the_others() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start_pair();
+    // The first write unwinds, poisoning the host; the first exit unwinds too.
+    sink.lose_next_write(false);
+    sink.lose_next_exit();
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::Disabled,
+    )
+    .expect("the call is queued");
+
+    assert!(host.poisoned());
+    assert_eq!(sink.stops(), 1, "the child is stopped by the poison");
+    assert!(
+        sink.published().iter().any(|thing| matches!(
+            thing,
+            Published::Effect(HostEffect::Exited { tenant: 2, .. })
+        )),
+        "the second channel still hears its exit: {:?}",
+        sink.published()
+    );
+    assert_eq!(host.queued(), 0, "every effect was handed over or skipped");
+}
+
 /// The pool starts a new host for the next open once a poisoned one is retired.
 #[test]
 fn a_poisoned_host_is_replaced_by_the_pool() {
@@ -608,6 +721,8 @@ enum Published {
     Dropped { tenant: u64, bytes: usize },
     /// One diagnostic line.
     Diagnostic { tenant: u64, text: String },
+    /// The child was stopped, by a queued `Retire` or by the poison.
+    Stopped { awaited: bool },
 }
 
 /// A channel that records each frame it is given in the shell's own log, so a
@@ -789,6 +904,9 @@ struct Holding {
     read: Mutex<usize>,
     hold: Mutex<bool>,
     hold_frame: Mutex<bool>,
+    lose_frame: Mutex<bool>,
+    lose_settlement: Mutex<bool>,
+    lose_exit: Mutex<bool>,
     lose_write: Mutex<Option<bool>>,
     parked: Mutex<bool>,
     parked_wake: Condvar,
@@ -922,6 +1040,29 @@ impl Holding {
         *self.hold_frame.lock().expect("hold frame") = true;
     }
 
+    /// Unwinds on the next frame, once, after any hold.
+    fn lose_next_frame(&self) {
+        *self.lose_frame.lock().expect("lose frame") = true;
+    }
+
+    /// Unwinds on the next settlement, once, after any hold.
+    fn lose_next_settlement(&self) {
+        *self.lose_settlement.lock().expect("lose settlement") = true;
+    }
+
+    /// Unwinds on the next channel exit, once.
+    fn lose_next_exit(&self) {
+        *self.lose_exit.lock().expect("lose exit") = true;
+    }
+
+    /// How many times the shell stopped the child.
+    fn stops(&self) -> usize {
+        self.published()
+            .iter()
+            .filter(|thing| matches!(thing, Published::Stopped { .. }))
+            .count()
+    }
+
     /// Unwinds on the next write, once, after acknowledging it when `submitted`.
     fn lose_next_write(&self, submitted: bool) {
         *self.lose_write.lock().expect("lose write") = Some(submitted);
@@ -962,17 +1103,38 @@ impl Holding {
 }
 
 impl HostSink for Holding {
+    fn stop(&self, _host: &Host, _reason: Retirement, awaited: bool) {
+        self.log
+            .lock()
+            .expect("publication log")
+            .push(Published::Stopped { awaited });
+    }
+
     fn effect(&self, host: &Host, effect: HostEffect) {
-        let hold = {
-            let mut hold = self.hold_frame.lock().expect("hold frame");
-            let holding = *hold && matches!(effect, HostEffect::Frame { .. });
-            if holding {
-                *hold = false;
+        // The hooks meet an effect in the order a sink would: a hold parks it,
+        // then a scripted unwind lets it go.
+        if matches!(effect, HostEffect::Frame { .. }) {
+            if take(&self.hold_frame) {
+                self.park();
             }
-            holding
-        };
-        if hold {
-            self.park();
+            if take(&self.lose_frame) {
+                panic!("the shell unwinds on a frame");
+            }
+        }
+        if matches!(effect, HostEffect::Settle { .. }) {
+            if take(&self.hold) {
+                self.park();
+            }
+            if take(&self.lose_settlement) {
+                panic!("the shell unwinds on a settlement");
+            }
+        }
+        if matches!(effect, HostEffect::Exited { .. }) && take(&self.lose_exit) {
+            panic!("the shell unwinds on an exit");
+        }
+        if let HostEffect::Retire { reason, awaited } = effect {
+            self.stop(host, reason, awaited);
+            return;
         }
         // Frames and callbacks reach their channel here, in the order the host
         // published them: the channel records each delivery in the same log.
@@ -1002,20 +1164,17 @@ impl HostSink for Holding {
             }
             panic!("the shell unwinds on a write");
         }
-        let hold = {
-            let mut hold = self.hold.lock().expect("hold");
-            let holding = *hold && matches!(effect, HostEffect::Settle { .. });
-            if holding {
-                *hold = false;
-            }
-            holding
-        };
-        if hold {
-            self.park();
-        }
         self.log
             .lock()
             .expect("publication log")
             .push(Published::Effect(effect));
     }
+}
+
+/// Takes a one-shot flag.
+fn take(flag: &Mutex<bool>) -> bool {
+    let mut flag = flag.lock().expect("one-shot flag");
+    let armed = *flag;
+    *flag = false;
+    armed
 }

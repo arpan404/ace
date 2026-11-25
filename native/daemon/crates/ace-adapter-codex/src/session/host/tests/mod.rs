@@ -43,6 +43,8 @@ struct LogSink {
 }
 
 impl HostSink for LogSink {
+    fn stop(&self, _host: &Host, _reason: Retirement, _awaited: bool) {}
+
     fn effect(&self, host: &Host, effect: HostEffect) {
         if host.hand_over(&effect, |tenant| {
             self.handlers

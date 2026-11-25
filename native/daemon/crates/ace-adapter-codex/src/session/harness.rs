@@ -606,6 +606,21 @@ struct HostEffects {
 }
 
 impl HostSink for HostEffects {
+    fn stop(&self, host: &Host, reason: Retirement, awaited: bool) {
+        self.events.push(Event::Retire { reason, awaited });
+        if let Err(message) = (self.stop)(reason, awaited) {
+            // The shell holds the stop: its failure reaches every caller that
+            // joins it, and a host that survives takes backpressure again.
+            *self.stop_failure.lock().expect("stop failure") = Some(message.clone());
+            host.stop_failed();
+            self.events.push(Event::StopFailed {
+                reason,
+                awaited,
+                message,
+            });
+        }
+    }
+
     fn effect(&self, host: &Host, effect: HostEffect) {
         // Frames and every channel callback go to their channel here, in the
         // order the host published them.
@@ -641,21 +656,7 @@ impl HostSink for HostEffects {
                 id,
                 failed: result.is_err(),
             }),
-            HostEffect::Retire { reason, awaited } => {
-                self.events.push(Event::Retire { reason, awaited });
-                if let Err(message) = (self.stop)(reason, awaited) {
-                    // The shell holds the stop: its failure reaches every
-                    // caller that joins it, and a host that survives takes
-                    // backpressure again.
-                    *self.stop_failure.lock().expect("stop failure") = Some(message.clone());
-                    host.stop_failed();
-                    self.events.push(Event::StopFailed {
-                        reason,
-                        awaited,
-                        message,
-                    });
-                }
-            }
+            HostEffect::Retire { reason, awaited } => self.stop(host, reason, awaited),
             HostEffect::DetachFailed {
                 tenant,
                 reason,

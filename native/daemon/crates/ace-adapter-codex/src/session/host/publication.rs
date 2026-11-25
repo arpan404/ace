@@ -132,6 +132,10 @@ pub const INTAKE_BYTES_RESUME: usize = 1024 * 1024;
 /// effects follow.
 pub trait HostSink: Send + Sync {
     fn effect(&self, host: &Host, effect: HostEffect);
+    /// Stops the child now, outside the publication order. The host's own
+    /// cleanup hands this over directly: a sink that unwound must never keep
+    /// the process alive, and a queued `Retire` may be behind it.
+    fn stop(&self, host: &Host, reason: Retirement, awaited: bool);
 }
 
 impl Host {
@@ -223,6 +227,7 @@ impl Host {
             host: self,
             held: true,
         };
+        let mut skipped = 0;
         loop {
             let next = {
                 let mut publication = self.publication();
@@ -239,6 +244,11 @@ impl Host {
                     None => {
                         publication.publishing = false;
                         claim.held = false;
+                        if skipped > 0 {
+                            eprintln!(
+                                "native host: {skipped} effect(s) skipped after a sink unwind"
+                            );
+                        }
                         return;
                     }
                 }
@@ -252,14 +262,12 @@ impl Host {
             }));
             if unwound.is_err() {
                 if self.poisoned() {
-                    // The shell unwound again on the poison's own effects:
-                    // drop the rest rather than hand it another.
-                    self.publication().clear();
-                    self.publication().publishing = false;
-                    claim.held = false;
-                    return;
+                    // After the poison each effect stands alone: this one is
+                    // skipped and logged, and the rest keeps its order.
+                    skipped += 1;
+                } else {
+                    self.poison();
                 }
-                self.poison();
                 continue;
             }
         }
@@ -268,25 +276,34 @@ impl Host {
 
 impl Host {
     /// A channel callback unwound. A panic in the shell is a bug, not a
-    /// protocol event, so the host ends as a crash would: every call still
-    /// pending fails with `HOST_FAILED`, every channel exits, the child is
-    /// stopped and the pool is told to replace the host. Whatever was queued
-    /// for the sink that unwound is dropped. Called once, from `publish`.
+    /// protocol event, so the host ends as a crash would, and nothing it does
+    /// here depends on the sink that unwound:
+    ///
+    /// - the child is stopped directly, not through the queue, and that stop is
+    ///   idempotent against one already decided (`Inner::retire`);
+    /// - effects already decided keep their place: a settlement or exit another
+    ///   input queued is still delivered in order. Only what is decided now is
+    ///   appended: a failure for each call still pending (not one already
+    ///   settled ahead of it) and an exit for each channel without one.
     ///
     /// TS has no equivalent: a throwing callback there is an uncaught error
     /// (`docs/engine/behaviour.md`).
     fn poison(&self) {
-        let publish = {
+        let (publish, stop) = {
             let mut inner = self.lock();
             if inner.poisoned {
                 return;
             }
             inner.poisoned = true;
-            // Every call still waiting fails with the host's error.
+            // Calls the peer still holds fail; a call already settled has its
+            // settlement queued, and keeps it.
             let closed = inner.peer.close(HOST_FAILED);
             inner.apply(closed);
-            // The child stops and the channels leave as after a crash.
+            // The child stops now, never through the queue: a sink that
+            // unwound must not keep the process alive, and its stop may be
+            // exactly what is queued behind the effect that unwound.
             inner.retire(Retirement::RpcFailed, true);
+            let stop = inner.take_retire();
             let exit = HostExit {
                 reason: ExitReason::Exit,
                 code: None,
@@ -294,17 +311,27 @@ impl Host {
                 pid: inner.pid,
                 output_drained: false,
             };
+            // Channels without an exit get one; an exit already decided stays.
             inner.exited(exit);
             let mut publication = self.publication();
-            // The sink that unwound hears nothing more of what it was queued.
-            publication.clear();
             for effect in inner.out.drain(..) {
                 let payload = effect.payload_bytes();
                 publication.hold(effect, payload);
             }
             self.pace(&mut publication);
-            self.claim(&mut publication)
+            (self.claim(&mut publication), stop)
         };
+        if let Some((reason, awaited)) = stop {
+            let sink = self.publication().sink.clone();
+            if let Some(sink) = sink
+                && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    sink.stop(self, reason, awaited);
+                }))
+                .is_err()
+            {
+                eprintln!("native host: the child's stop unwound in the sink");
+            }
+        }
         if publish {
             self.publish();
         }

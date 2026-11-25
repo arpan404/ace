@@ -383,6 +383,19 @@ impl Inner {
         self.channel_detached(tenant, state.retirement);
     }
 
+    /// The child stop an input just decided, taken out of its effects for the
+    /// host's own cleanup to hand over directly rather than through the queue.
+    pub(super) fn take_retire(&mut self) -> Option<(Retirement, bool)> {
+        let at = self
+            .out
+            .iter()
+            .position(|effect| matches!(effect, HostEffect::Retire { .. }))?;
+        match self.out.remove(at) {
+            HostEffect::Retire { reason, awaited } => Some((reason, awaited)),
+            _ => None,
+        }
+    }
+
     /// Stop the whole process (`retire`, `:379`): `onRetired` runs once, then
     /// the shell stops the child.
     pub(super) fn retire(&mut self, reason: Retirement, awaited: bool) {
