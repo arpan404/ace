@@ -10,6 +10,10 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use ace_git::core::lease::LocalLease;
+use ace_git::core::lease::journal::LeaseRecord;
+use ace_git::core::lease::processes::GitProcess;
+
 use super::wire::{self, Frame};
 use ace_git::core::cli::StreamCallbacks;
 use ace_git::core::error::{CleanupResult, GitError, GitErrorCode};
@@ -638,6 +642,211 @@ impl CleanupSupervisorPort for JsCleanupSupervisorPort {
             }
         })
     }
+}
+
+/// The lease ports the core asks for on the JS thread: the shell's own
+/// `live`/`orphans`, the injected `gitProcesses`/`groupAlive`/`now` probes,
+/// the cleanup supervisor's reconciliation and `onLeaseRetired`.
+pub(crate) struct JsLeasePorts {
+    pub(crate) hub: Arc<PortHub>,
+    pub(crate) scheduler: Arc<dyn TimeoutScheduler>,
+    pub(crate) evidence: bool,
+    pub(crate) wait_ms: u64,
+}
+
+impl JsLeasePorts {
+    async fn request(&self, json: String) -> Option<ace_json::Map> {
+        let req_id = self.hub.alloc_id();
+        // The caller builds `op` into the frame; the id is inserted here so every
+        // request is addressed the same way.
+        let reply = self
+            .hub
+            .request_with_id(
+                req_id,
+                json.replace("__REQ__", &req_id.to_string()),
+                Vec::new(),
+            )
+            .await?;
+        wire::object(&reply)
+    }
+}
+
+impl ace_git::core::lease::LeasePorts for JsLeasePorts {
+    fn local_lease(&self, record: &LeaseRecord) -> ace_git::core::spawn::BoxFuture<'_, LocalLease> {
+        let json = format!(
+            "{{\"op\":\"lease_local\",\"reqId\":__REQ__,\"record\":{}}}",
+            record.json()
+        );
+        Box::pin(async move { self.local_lease_reply(json).await })
+    }
+
+    fn processes(&self) -> ace_git::core::spawn::BoxFuture<'_, Option<Vec<GitProcess>>> {
+        let json = "{\"op\":\"lease_processes\",\"reqId\":__REQ__}".to_owned();
+        Box::pin(async move {
+            let map = self.request(json).await?;
+            match map.get("listing") {
+                Some(ace_json::Value::Array(items)) => Some(
+                    items
+                        .iter()
+                        .filter_map(GitProcess::from_json)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            }
+        })
+    }
+
+    fn group_alive(&self, pid: u32) -> ace_git::core::spawn::BoxFuture<'_, bool> {
+        let json = format!("{{\"op\":\"lease_group_alive\",\"reqId\":__REQ__,\"pid\":{pid}}}");
+        Box::pin(async move {
+            self.request(json)
+                .await
+                .is_some_and(|map| matches!(map.get("alive"), Some(ace_json::Value::Bool(true))))
+        })
+    }
+
+    fn now_ms(&self) -> ace_git::core::spawn::BoxFuture<'_, i64> {
+        let json = "{\"op\":\"lease_now\",\"reqId\":__REQ__}".to_owned();
+        Box::pin(async move {
+            self.request(json)
+                .await
+                .map_or(0, |map| match map.get("ms") {
+                    Some(ace_json::Value::Number(number)) => {
+                        number.as_f64().map_or(0, |value| value.round() as i64)
+                    }
+                    _ => 0,
+                })
+        })
+    }
+
+    fn running_when_gone(
+        &self,
+        lease: &LeaseRecord,
+        listing: &[GitProcess],
+    ) -> ace_git::core::spawn::BoxFuture<'_, Option<Vec<u32>>> {
+        let entries: Vec<String> = listing.iter().map(json_process).collect();
+        let json = format!(
+            "{{\"op\":\"lease_running_when_gone\",\"reqId\":__REQ__,\"lease\":{},\"listing\":[{}]}}",
+            lease.json(),
+            entries.join(",")
+        );
+        Box::pin(async move {
+            let map = self.request(json).await?;
+            match map.get("pids") {
+                Some(ace_json::Value::Array(items)) => Some(
+                    items
+                        .iter()
+                        .filter_map(|item| match item {
+                            ace_json::Value::Number(number) => {
+                                number.as_f64().map(|value| value as u32)
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            }
+        })
+    }
+
+    fn recover(&self, lease: &LeaseRecord) -> ace_git::core::spawn::BoxFuture<'_, CleanupResult> {
+        let json = format!(
+            "{{\"op\":\"lease_recover\",\"reqId\":__REQ__,\"lease\":{}}}",
+            lease.json()
+        );
+        Box::pin(async move {
+            let Some(map) = self.request(json).await else {
+                return CleanupResult::Unconfirmed {
+                    reason: "Cleanup supervisor failed".to_owned(),
+                };
+            };
+            if let Some(error) = wire::string(&map, "error") {
+                return CleanupResult::Unconfirmed { reason: error };
+            }
+            if wire::string(&map, "status").as_deref() == Some("confirmed") {
+                CleanupResult::Confirmed {
+                    evidence: wire::string(&map, "evidence").unwrap_or_default(),
+                }
+            } else {
+                CleanupResult::Unconfirmed {
+                    reason: wire::string(&map, "reason")
+                        .unwrap_or_else(|| "Cleanup unconfirmed".to_owned()),
+                }
+            }
+        })
+    }
+
+    fn retired(&self, event: &ace_git::core::lease::RetiredLease) {
+        self.hub.emit(
+            format!("{{\"op\":\"lease_retired\",\"event\":{}}}", event.to_json()),
+            Vec::new(),
+        );
+    }
+
+    fn pause(&self, milliseconds: u64) -> ace_git::core::spawn::BoxFuture<'_, ()> {
+        let scheduler = Arc::clone(&self.scheduler);
+        Box::pin(async move {
+            ace_git::core::spawn::sleep_with(scheduler.as_ref(), milliseconds).await;
+        })
+    }
+
+    fn has_evidence(&self) -> bool {
+        self.evidence
+    }
+
+    fn wait_ms(&self) -> u64 {
+        self.wait_ms
+    }
+}
+
+impl JsLeasePorts {
+    async fn local_lease_reply(&self, json: String) -> LocalLease {
+        let Some(map) = self.request(json).await else {
+            return LocalLease::default();
+        };
+        let groups = match map.get("groups") {
+            Some(ace_json::Value::Array(items)) => Some(
+                items
+                    .iter()
+                    .filter_map(|item| match item {
+                        ace_json::Value::Number(number) => {
+                            number.as_f64().map(|value| value as u32)
+                        }
+                        _ => None,
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        };
+        LocalLease {
+            present: wire::flag(&map, "present"),
+            live: wire::flag(&map, "live"),
+            quarantined: wire::flag(&map, "quarantined"),
+            done: wire::flag(&map, "done"),
+            groups,
+            mine: wire::flag(&map, "mine"),
+            record: match map.get("record") {
+                Some(ace_json::Value::Object(_)) => {
+                    wire::string(&map, "recordJson").and_then(|json| LeaseRecord::parse(&json))
+                }
+                _ => None,
+            },
+        }
+    }
+}
+
+fn json_process(entry: &GitProcess) -> String {
+    let mut frame = Frame::new()
+        .number("pid", entry.pid as u64)
+        .maybe("cwd", entry.cwd.as_deref())
+        .maybe("checkout", entry.checkout.as_deref());
+    if let Some(started) = entry.started_at {
+        frame = frame.integer("startedAt", started);
+    }
+    if let Some(group) = entry.git_group {
+        frame = frame.boolean("gitGroup", group);
+    }
+    frame.json()
 }
 
 pub(crate) struct JsStreamCallbacks {

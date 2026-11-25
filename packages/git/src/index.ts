@@ -217,21 +217,27 @@ export class GitService {
   /** Admission check for host operations that can mutate a workspace. */
   assertMutationAvailable(worktree: string) {
     if (this.gitNative.has("core"))
-      return runNativeCoreSync("assertMutationAvailable", () =>
-        this.repository.cli.assertMutationAvailable(worktree),
+      return runNativeCoreSync(
+        "assertMutationAvailable",
+        () => this.repository.cli.assertMutationAvailable(worktree),
+        { path: worktree },
       );
     return this.repository.cli.assertMutationAvailable(worktree);
   }
   /** Does not invoke Git, so quarantine remains inspectable after restart. */
   mutationState(worktree: string) {
     if (this.gitNative.has("core"))
-      return runNativeCoreSync("mutationState", () => this.repository.cli.mutationState(worktree));
+      return runNativeCoreSync("mutationState", () => this.repository.cli.mutationState(worktree), {
+        path: worktree,
+      });
     return this.repository.cli.mutationState(worktree);
   }
   /** Reconcile with a trusted supervisor. Unconfirmed receipts never release leases. */
   recoverCleanup(worktree: string) {
     if (this.gitNative.has("core"))
-      return runNativeCore("recoverCleanup", () => this.repository.cli.recoverCleanup(worktree));
+      return runNativeCore("recoverCleanup", () => this.repository.cli.recoverCleanup(worktree), {
+        path: worktree,
+      });
     return this.repository.cli.recoverCleanup(worktree);
   }
   /**
@@ -240,8 +246,10 @@ export class GitService {
    */
   clearStaleLeases(worktree: string) {
     if (this.gitNative.has("core"))
-      return runNativeCore("clearStaleLeases", () =>
-        this.repository.cli.clearStaleLeases(worktree),
+      return runNativeCore(
+        "clearStaleLeases",
+        () => this.repository.cli.clearStaleLeases(worktree),
+        { path: worktree },
       );
     return this.repository.cli.clearStaleLeases(worktree);
   }
@@ -251,7 +259,7 @@ export class GitService {
    */
   heal(worktree: string) {
     if (this.gitNative.has("core"))
-      return runNativeCore("heal", () => this.repository.cli.heal(worktree));
+      return runNativeCore("heal", () => this.repository.cli.heal(worktree), { path: worktree });
     return this.repository.cli.heal(worktree);
   }
   /**
@@ -261,7 +269,10 @@ export class GitService {
    */
   healAll(worktrees: readonly string[], failed: (worktree: string, error: unknown) => void) {
     if (this.gitNative.has("core"))
-      return runNativeCore("healAll", () => this.repository.cli.healAll(worktrees, failed));
+      return runNativeCore("healAll", () => this.repository.cli.healAll(worktrees, failed), {
+        paths: worktrees,
+        failed,
+      });
     return this.repository.cli.healAll(worktrees, failed);
   }
 

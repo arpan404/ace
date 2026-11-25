@@ -13,6 +13,7 @@ pub mod heal;
 pub mod journal;
 pub mod locks;
 pub mod mutation;
+pub mod ops;
 pub mod owner;
 pub mod processes;
 pub mod roots;

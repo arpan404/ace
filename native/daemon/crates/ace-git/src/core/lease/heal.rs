@@ -31,7 +31,7 @@ pub async fn heal_repositories(
     paths: &[String],
     ports: &dyn LeasePorts,
     registry: &LeaseRegistry,
-    failed: &mut dyn FnMut(&str, &GitError),
+    failed: &mut (dyn FnMut(&str, &GitError) + Send),
     grace_ms: i64,
 ) -> Result<Vec<String>, GitError> {
     let evidence = ports.has_evidence();

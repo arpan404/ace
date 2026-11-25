@@ -14,6 +14,8 @@ import {
   type NativeBackend,
 } from "@ace/provider-kit/native-switches";
 import { runningChildren } from "./git-processes.ts";
+import { owned } from "./lease-journal.ts";
+import { ownedByThisProcess } from "./lease-owner.ts";
 import { captureMutationOwnership, settleOwnLeases, type LeaseProbe } from "./mutation-leases.ts";
 import {
   countGitFallback,
@@ -39,13 +41,55 @@ const gitFailedPrefix = "git_failed:";
 const stdinHighWater = 1024 * 1024;
 const stdinLowWater = 256 * 1024;
 
+/** The arguments a lease operation needs from `GitService` (its path, or its sweep). */
+export interface NativeLeaseArgs {
+  path?: string;
+  paths?: readonly string[];
+  failed?: (path: string, error: unknown) => void;
+}
+
+/** The core operations served by the lease modules (`core::lease`). */
+const leaseOps = new Set([
+  "assertMutationAvailable",
+  "mutationState",
+  "clearStaleLeases",
+  "heal",
+  "healAll",
+  "recoverCleanup",
+]);
+
+/** The most recently built service's core serves lease operations (they are process-wide). */
+let leaseCore: NativeCoreCli | undefined;
+
+/** Registers the core that serves lease operations; they share the process's journal. */
+function registerLeaseCore(core: NativeCoreCli): void {
+  leaseCore = core;
+}
+
+/** The lease dispatcher for one operation, or `undefined` when it stays on the probe. */
+function runLease<T>(
+  op: string,
+  args: NativeLeaseArgs | undefined,
+  typescript: () => Promise<T>,
+): Promise<T> | undefined {
+  if (args === undefined || !leaseOps.has(op) || leaseCore === undefined) return undefined;
+  return leaseCore.runLeaseOp(op, args, typescript as () => Promise<unknown>) as Promise<T>;
+}
+
 /** Dispatches one core operation to the native core when the part is on. */
-export function runNativeCore<T>(op: string, typescript: () => Promise<T>): Promise<T> {
-  return runNativeOp(part, op, typescript);
+export function runNativeCore<T>(
+  op: string,
+  typescript: () => Promise<T>,
+  args?: NativeLeaseArgs,
+): Promise<T> {
+  return runLease(op, args, typescript) ?? runNativeOp(part, op, typescript);
 }
 
 /** The synchronous `runNativeCore`, for the calls that stay synchronous. */
-export function runNativeCoreSync<T>(op: string, typescript: () => T): T {
+export function runNativeCoreSync<T>(op: string, typescript: () => T, args?: NativeLeaseArgs): T {
+  if (args !== undefined && leaseOps.has(op) && leaseCore !== undefined) {
+    return leaseCore.runLeaseOp(op, args, typescript as () => Promise<unknown>) as T;
+  }
   return runNativeOpSync(part, op, typescript);
 }
 
@@ -167,6 +211,10 @@ interface PortMessage {
   timerId?: number;
   callId?: number;
   bytes?: number;
+  record?: unknown;
+  lease?: unknown;
+  listing?: unknown[];
+  event?: unknown;
   pid?: number;
   ms?: number;
   command?: string;
@@ -265,6 +313,9 @@ export class NativeCoreCli {
       useJsGroupAlive: options.processRuntime?.groupAlive !== undefined,
       useJsLocateGit: options.processRuntime?.locateGit !== undefined,
       useJsCleanupSupervisor: this.useJsCleanupSupervisor,
+      // A cleanup supervisor owns the proof that killed writers stopped: no evidence to weigh.
+      leaseEvidence: !this.useJsCleanupSupervisor,
+      leaseWaitMs: options.leaseWaitMs ?? 60_000,
     };
     const addon = gitAddon();
     try {
@@ -274,6 +325,65 @@ export class NativeCoreCli {
     } catch (error) {
       throwGitError(error);
     }
+    registerLeaseCore(this);
+  }
+
+  /** Runs one lease operation in the core and maps its answer back to `GitService`'s shape. */
+  runLeaseOp(
+    op: string,
+    args: NativeLeaseArgs,
+    typescript: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op, part, selected, completed: "typescript" });
+      return typescript();
+    }
+    return new Promise<unknown>((resolve, reject) => {
+      try {
+        this.handle.leaseOp(
+          op,
+          JSON.stringify({ path: args.path, paths: args.paths }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op, part, selected, completed: "native" });
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const value = JSON.parse(json ?? "null") as Record<string, unknown>;
+            if (op === "healAll" && Array.isArray(value.failed)) {
+              for (const failure of value.failed as {
+                path: string;
+                code: GitErrorCode;
+                message: string;
+                details: Record<string, unknown>;
+              }[])
+                args.failed?.(
+                  failure.path,
+                  new GitError(failure.code, failure.message, failure.details),
+                );
+            }
+            if (op === "assertMutationAvailable") {
+              resolve(undefined);
+              return;
+            }
+            resolve(op === "heal" || op === "healAll" ? value.removed : value);
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op, part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
   }
 
   setResolvedBinary(binary: string | undefined): void {
@@ -571,6 +681,105 @@ export class NativeCoreCli {
   private onPort(eventJson: string, data: Uint8Array): void {
     const msg = JSON.parse(eventJson) as PortMessage;
     switch (msg.op) {
+      case "lease_local": {
+        const reqId = msg.reqId ?? 0;
+        const record = (msg.record as MutationLease | undefined) ?? null;
+        const local = record === null ? undefined : owned(record.id);
+        this.handle.replyPort(
+          reqId,
+          JSON.stringify({
+            present: local !== undefined,
+            live: local !== undefined && !local.done,
+            quarantined: local?.quarantined === true,
+            done: local?.done === true,
+            ...(local?.groups === undefined ? {} : { groups: local.groups }),
+            mine: record === null ? false : ownedByThisProcess(record),
+            ...(local === undefined ? {} : { recordJson: JSON.stringify(local.record) }),
+          }),
+        );
+        return;
+      }
+      case "lease_processes": {
+        const reqId = msg.reqId ?? 0;
+        void this.runtime
+          .gitProcesses()
+          .then((listing) =>
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({ listing: listing === undefined ? null : listing }),
+            ),
+          )
+          .catch(() => this.handle.replyPort(reqId, JSON.stringify({ listing: null })));
+        return;
+      }
+      case "lease_group_alive": {
+        const reqId = msg.reqId ?? 0;
+        void Promise.resolve(this.runtime.groupAlive(msg.pid ?? 0))
+          .then((alive: boolean) => this.handle.replyPort(reqId, JSON.stringify({ alive })))
+          .catch(() => this.handle.replyPort(reqId, JSON.stringify({ alive: true })));
+        return;
+      }
+      case "lease_now": {
+        const reqId = msg.reqId ?? 0;
+        void Promise.resolve(this.leaseProbe.evidence?.now?.() ?? new Date())
+          .then((now: Date) => this.handle.replyPort(reqId, JSON.stringify({ ms: now.getTime() })))
+          .catch(() => this.handle.replyPort(reqId, JSON.stringify({ ms: Date.now() })));
+        return;
+      }
+      case "lease_running_when_gone": {
+        const reqId = msg.reqId ?? 0;
+        const lease = (msg.lease as MutationLease | undefined) ?? null;
+        const listing = (msg.listing ?? []) as { pid: number }[];
+        const earlier =
+          lease === null
+            ? undefined
+            : this.leaseProbe.evidence?.runningWhenGone?.(
+                lease,
+                listing as Parameters<
+                  NonNullable<NonNullable<LeaseProbe["evidence"]>["runningWhenGone"]>
+                >[1],
+              );
+        this.handle.replyPort(
+          reqId,
+          JSON.stringify({
+            pids:
+              earlier === undefined
+                ? null
+                : (listing as Parameters<typeof earlier>[0][])
+                    .filter(earlier)
+                    .map((entry) => entry.pid),
+          }),
+        );
+        return;
+      }
+      case "lease_recover": {
+        const reqId = msg.reqId ?? 0;
+        const lease = (msg.lease as MutationLease | undefined) ?? null;
+        const supervisor = this.runtime.cleanupSupervisor;
+        if (lease === null || supervisor === undefined) {
+          this.handle.replyPort(
+            reqId,
+            JSON.stringify({
+              status: "unconfirmed",
+              reason: "No escaped-descendant containment supervisor",
+            }),
+          );
+          return;
+        }
+        void supervisor.recover(lease).then(
+          (outcome) => this.handle.replyPort(reqId, JSON.stringify(outcome)),
+          () =>
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({ status: "unconfirmed", reason: "Cleanup supervisor failed" }),
+            ),
+        );
+        return;
+      }
+      case "lease_retired": {
+        this.leaseProbe.retired?.(msg.event as Parameters<NonNullable<LeaseProbe["retired"]>>[0]);
+        return;
+      }
       case "stdin_ack": {
         const id = msg.callId ?? 0;
         const outstanding = Math.max(0, (this.stdinOutstanding.get(id) ?? 0) - (msg.bytes ?? 0));

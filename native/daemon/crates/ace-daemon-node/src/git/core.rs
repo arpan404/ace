@@ -11,6 +11,7 @@ use ace_git::core::cli::{
 };
 use ace_git::core::deadline::validate_timeout_ms;
 use ace_git::core::error::{GitError, GitErrorCode};
+use ace_git::core::lease::{LeasePorts, LeaseState, global_leases};
 use ace_git::core::spawn::{
     ProcessPorts, SupervisorSpawner, TokioScheduler, default_platform, running_children,
 };
@@ -20,8 +21,8 @@ use napi_derive::napi;
 use tokio::sync::mpsc;
 
 use super::bridge::{
-    JsCleanupSupervisorPort, JsGroupPort, JsLocatorPort, JsScheduler, JsSpawner, JsStreamCallbacks,
-    PortCallFn, PortHub, parse_git_error_code,
+    JsCleanupSupervisorPort, JsGroupPort, JsLeasePorts, JsLocatorPort, JsScheduler, JsSpawner,
+    JsStreamCallbacks, PortCallFn, PortHub, parse_git_error_code,
 };
 use super::wire::{self, Frame};
 use super::{caught, failed, unwind};
@@ -64,6 +65,9 @@ pub struct NativeGitCore {
     hub: Arc<PortHub>,
     runtime: tokio::runtime::Handle,
     stdin_senders: Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<StdinCommand>>>>,
+    /// The process-wide lease state and the ports its operations ask the shell for.
+    leases: Arc<LeaseState>,
+    lease_ports: Arc<JsLeasePorts>,
 }
 
 /// One core config frame, read with `ace-json` like every other JS value.
@@ -78,6 +82,8 @@ struct CoreConfig {
     use_js_group_alive: bool,
     use_js_locate_git: bool,
     use_js_cleanup_supervisor: bool,
+    lease_evidence: bool,
+    lease_wait_ms: Option<u64>,
 }
 
 impl CoreConfig {
@@ -93,6 +99,8 @@ impl CoreConfig {
             use_js_group_alive: wire::flag(&map, "useJsGroupAlive"),
             use_js_locate_git: wire::flag(&map, "useJsLocateGit"),
             use_js_cleanup_supervisor: wire::flag(&map, "useJsCleanupSupervisor"),
+            lease_evidence: wire::flag(&map, "leaseEvidence"),
+            lease_wait_ms: wire::count(&map, "leaseWaitMs"),
         })
     }
 }
@@ -222,6 +230,8 @@ impl NativeGitCore {
             );
         }));
 
+        // The lease operations wait through the same scheduler the process layer uses.
+        let lease_scheduler = Arc::clone(&ports.scheduler);
         let core = GitCliCore::new(
             GitCliConfig {
                 configured_binary: cfg.binary,
@@ -230,12 +240,19 @@ impl NativeGitCore {
             Arc::new(ports),
         )
         .map_err(|e| failed(ace_git::error::Error::from(e)))?;
-
+        let lease_ports = Arc::new(JsLeasePorts {
+            hub: Arc::clone(&hub),
+            scheduler: lease_scheduler,
+            evidence: cfg.lease_evidence,
+            wait_ms: cfg.lease_wait_ms.unwrap_or(60_000),
+        });
         Ok(Self {
             core: Arc::new(core),
             hub,
             runtime,
             stdin_senders: Arc::new(Mutex::new(HashMap::new())),
+            leases: Arc::clone(global_leases()),
+            lease_ports,
         })
     }
 
@@ -494,6 +511,41 @@ impl NativeGitCore {
     #[napi(catch_unwind)]
     pub fn fire_timer(&self, timer_id: f64) -> napi::Result<()> {
         self.hub.fire_timer(timer_id as u64);
+        Ok(())
+    }
+
+    /// Runs one lease operation (`mutationState`, `assertMutationAvailable`,
+    /// `clearStaleLeases`, `heal`, `healAll`, `recoverCleanup`) in the core.
+    #[napi(catch_unwind)]
+    pub fn lease_op(&self, op: String, args_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(args) = wire::object(&args_json) else {
+            return Err(failed(ace_git::error::Error::from(GitError::new(
+                GitErrorCode::InvalidArgument,
+                "invalid lease request",
+            ))));
+        };
+        let ports = Arc::clone(&self.lease_ports);
+        let leases = Arc::clone(&self.leases);
+        self.runtime.spawn(async move {
+            let outcome = ace_git::core::lease::ops::run(
+                &op,
+                &args,
+                ports.as_ref() as &dyn LeasePorts,
+                leases.registry(),
+            )
+            .await;
+            match outcome {
+                Ok(json) => {
+                    let _ = settle.call(Ok(json), ThreadsafeFunctionCallMode::NonBlocking);
+                }
+                Err(error) => {
+                    let _ = settle.call(
+                        Err(failed(ace_git::error::Error::from(error))),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                }
+            }
+        });
         Ok(())
     }
 }

@@ -69,6 +69,8 @@ export interface NativeGitCoreHandle {
   jobAlive(pid: number): boolean;
   setResolvedBinary(binary: string | null): void;
   replyPort(reqId: number, replyJson: string): void;
+  /** One lease operation (`mutationState`, `heal`, ...) with its JSON arguments. */
+  leaseOp(op: string, argsJson: string, settle: NativeJsonSettle): void;
   pushSpawnEvent(
     spawnId: number,
     kind: string,
