@@ -295,3 +295,30 @@ in `ace-devices` only, and today's TypeScript is left as it was (owner rule):
 - **A listed Simulator's name stays a JavaScript string.** The listed entry crosses the binding
   as JSON text and the record's name is a `JsString`, so a lone surrogate the SDK printed is
   listed and returned in the same UTF-16 units (`platform/list.rs`).
+
+## 8. D3.1 round-3 review fixes (2026-11-25)
+
+The recheck found five more places the port had drifted. Each is fixed test-first, in Rust or in
+the shell that wires it, and the TypeScript that stays is the switch-off path unchanged.
+
+- **The boot wait's program is one raw argument.** `adb shell` takes the readiness loop as a
+  single unquoted argument, as TS passes it; `adb_shell`'s single-quoting made the device read
+  the whole loop as a command name (`boot::android_boot`).
+- **Downloads and unpacking run on the native runtime.** `serve-sim-install`, `serve-sim-version`,
+  `serve-sim-helpers`, `tools-entry` and `Simulators`' parse are `ace-devices` decisions:
+  `serve_sim::install` fetches the pinned tarballs over the native HTTP client, checks the
+  registry's sha512 (and scrcpy's sha256), enforces the same 32 MiB and release-size limits,
+  writes the same `.serve-sim-<id>.partial` staging directory and renames it into place atomically;
+  `serve_sim::managed`, `version`, `supported` and `replaces_helper` answer the lookup and helper
+  questions; `simulators::list` parses `simctl list devices --json` with the schema's caps and
+  keeps names as `JsString`.
+- **A Simulator's listed state and the 240 s budget decide its boot.** The native boot asks the
+  plan about the inventory's entry, not the caller's possibly stale record, and gives
+  `boot`/`bootstatus` the base's 240 s.
+- **The switch-off leg is unchanged.** The Android boot refuses a missing emulator before the
+  window and `adb devices` probes, exactly as the base did, and no probe takes the platform's
+  injected clock; the SDK selection probe and the posture helper keep theirs for the native
+  platform, where a compressed test clock cannot stand in for a command's own deadline.
+- **The catalog check reads both backends.** `check:devices-catalog` fails when a device source
+  spells a catalog message or hint itself (generic hint phrases excepted), and every device word
+  `platform-base.ts`, `commands.ts` and `android-platform.ts` raise now comes from `catalog.ts`.
