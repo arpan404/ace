@@ -521,6 +521,14 @@ length-size-3 refusal is unreachable and is not reproduced. The splitter keeps t
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
 
+`capture.rs` keeps `capture.ts`'s route choice: ace's serve-sim when a supported one is found
+(replacing an outdated helper when its version is known), an unpinned one refused when
+`ACE_SERVE_SIM` named it and the screen helper otherwise, the tools download only when no
+supported serve-sim is named, the booted-device and enabled-capture refusals for Android, the
+live-view and helper-video errors, and the one Simulator window that shows a device (bundle and
+title suffixes, one/many/none, the busy and not-found texts). The captures, screen manager,
+tools download and timers are the shell's.
+
 `one_off_screenshot.rs` keeps a one-off still's decisions: the source bounds (an empty or
 32 MiB+ screenshot is refused as invalid data), the ace-media fit (1920x2160, quality 80, no
 auto-orientation, 16 megapixel source), the scale against the stored width, the single-frame

@@ -9,6 +9,7 @@
 pub mod android_ui;
 pub mod boot;
 pub mod budget;
+pub mod capture;
 pub mod clipboard;
 pub mod commands;
 pub mod device_input;
