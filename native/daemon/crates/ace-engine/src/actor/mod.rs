@@ -223,7 +223,9 @@ pub fn close_stop(core: &Rc<Core>) {
         .unwrap_or_default();
     for thread in threads {
         stop(core, &thread);
-        core.unregister_waker(&thread);
+        if let Some(actor) = state::current(core, &thread) {
+            actor.borrow_mut().waker = None;
+        }
     }
 }
 

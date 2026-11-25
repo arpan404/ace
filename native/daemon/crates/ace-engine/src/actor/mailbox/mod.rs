@@ -9,8 +9,7 @@ pub mod task;
 pub use queue::{BatchMemory, BatchOp, Next, Op, RunFn, RunOp, Staged, enqueue, take_next};
 pub use task::{
     actor_quiescent, backlog, fire_tick, flush, frame_is_sdk, js_handles, park, release_js_handles,
-    resolve_flush_waiters, run_when_writable, settle, settle_drained, settle_orphaned,
-    settle_rejected,
+    resolve_flush_waiters, run_when_writable, settle, settle_drained,
 };
 
 use crate::Core;
@@ -19,3 +18,5 @@ use crate::Core;
 pub(crate) fn limits(core: &Core) -> crate::limits::EngineLimits {
     core.with_state(|state| state.limits).unwrap_or_default()
 }
+
+pub(crate) use task::settle_rejected_instance;

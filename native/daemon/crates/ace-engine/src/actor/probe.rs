@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The probe's one forced decision (seam test 11): an op taken while a transaction is open.
 
+use crate::actor::state::current;
 use crate::actor::{failure, mailbox};
 use crate::{Core, EngineError, ThreadId};
 use std::rc::Rc;
@@ -12,27 +13,27 @@ pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> boo
     if !core.store.is_open() {
         return false;
     }
-    failure::fail(core, thread, EngineError::NotOutermost);
+    let Some(actor) = current(core, thread) else {
+        return false;
+    };
+    failure::fail_instance(core, &actor, EngineError::NotOutermost);
     let settled = match op {
         mailbox::Op::Batch(batch) => {
-            mailbox::settle(core, thread, batch.frames.len(), batch.bytes, batch.ack)
+            crate::actor::intake::release_handles(core, &actor, &batch.frames);
+            mailbox::task::settle_instance(core, &actor, batch.frames.len(), batch.bytes, batch.ack)
         }
-        mailbox::Op::Run(run) => mailbox::settle(
+        mailbox::Op::Run(run) => mailbox::task::settle_instance(
             core,
-            thread,
+            &actor,
             run.frames,
             run.bytes,
             run.ack.unwrap_or_default(),
         ),
-        mailbox::Op::Settle(ack) => mailbox::settle_rejected(core, ack),
+        mailbox::Op::Settle(ack) => mailbox::settle_rejected_instance(core, &actor, ack),
         _ => false,
     };
-    core.with_state(|state| {
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.running = false;
-            mailbox::resolve_flush_waiters(&mut actor);
-        }
-    })
-    .ok();
+    let mut state = actor.borrow_mut();
+    state.running = false;
+    mailbox::resolve_flush_waiters(&mut state);
     settled
 }

@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 /// A run an operation performs; `FnMut` because a busy store retries the same run.
-pub type RunFn = Box<dyn FnMut(&Rc<Core>) -> Result<(), EngineError>>;
+pub type RunFn = Box<dyn FnMut(&Rc<Core>, &ActorRef) -> Result<(), EngineError>>;
 
 /// What a sealed batch remembers across a retry: translation runs once (translators keep state),
 /// and a retried batch never streams its facts a second time.
@@ -110,7 +110,7 @@ pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
 /// (`actor.ts:195`–`:197`): the op is one outermost write, never a bare port call.
 fn atomic_run(run: RunFn) -> RunFn {
     let mut inner = run;
-    Box::new(move |core: &Rc<Core>| core.store.atomic(|_tx| inner(core)))
+    Box::new(move |core, actor| core.store.atomic(|_tx| inner(core, actor)))
 }
 
 /// `accept` outside a transaction: the capacity check, then the queue.
@@ -122,7 +122,7 @@ pub(crate) fn admit_run(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
 
 pub(crate) fn admit_instance_run(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
     let limits = limits(core);
-    let thread = {
+    {
         let mut actor = actor.borrow_mut();
         if !admit(&mut actor, &limits, 0, 1) {
             return;
@@ -133,9 +133,8 @@ pub(crate) fn admit_instance_run(core: &Rc<Core>, actor: &ActorRef, run: RunFn) 
             frames: 1,
             ack: None,
         })));
-        actor.id.clone()
-    };
-    core.record_wake(&thread);
+    }
+    core.record_actor_wake(actor);
 }
 
 /// A run made inside an open transaction: a staged slot keeps its place, counts nothing, and is

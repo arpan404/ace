@@ -2,7 +2,7 @@
 //! The actor's input leases (`actor.ts:154`-`:190`). A redelivered intent replaces its earlier
 //! lease; a provider process that exited reads nothing more, so its inputs end too.
 
-use crate::actor::state::Lease;
+use crate::actor::state::{ActorRef, Lease, current, instance_deps};
 use crate::{Core, ThreadId};
 use ace_json::Value;
 
@@ -54,21 +54,24 @@ pub fn release_input(core: &Core, thread: &ThreadId, token: u64) {
 
 /// `releaseInputs()`.
 pub fn release_inputs(core: &Core, thread: &ThreadId) {
-    let tokens: Vec<u64> = core
-        .with_state(|state| {
-            let Some(mut actor) = state.actors.get_mut(thread) else {
-                return Vec::new();
-            };
-            let tokens: Vec<u64> = actor.leases.keys().copied().collect();
-            actor.leases.clear();
-            tokens
-        })
-        .unwrap_or_default();
+    if let Some(actor) = current(core, thread) {
+        release_instance_inputs(core, &actor);
+    }
+}
+
+pub(crate) fn release_instance_inputs(core: &Core, actor: &ActorRef) {
+    let tokens = {
+        let mut actor = actor.borrow_mut();
+        let tokens: Vec<_> = actor.leases.keys().copied().collect();
+        actor.leases.clear();
+        tokens
+    };
     if tokens.is_empty() {
         return;
     }
-    let deps = core.actor_deps.borrow().clone();
-    deps.links.release_leases(core, &tokens);
+    instance_deps(core, actor)
+        .links
+        .release_leases(core, &tokens);
 }
 
 /// `observeInputs(facts, events)` (`actor.ts:171`): every fold reaches here, including ones applied

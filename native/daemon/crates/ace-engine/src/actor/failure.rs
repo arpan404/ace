@@ -2,6 +2,7 @@
 //! Failure, overflow and quarantine (`actor.ts:268`-`:301`, `:203`-`:237`): a poisoned actor
 //! fails visibly, and a full mailbox ends its session with the three facts the TypeScript writes.
 
+use crate::actor::state::{ActorRef, current, instance_deps};
 use crate::actor::{fold, leases, timer};
 use crate::ports::PortError;
 use crate::{Core, EngineError, ThreadId};
@@ -28,20 +29,25 @@ pub fn quarantine(core: &Rc<Core>, thread: &ThreadId, message: &str) {
 
 /// `fail(error)` (`actor.ts:271`): stop the session, report, and leave a visible notice.
 pub fn fail(core: &Rc<Core>, thread: &ThreadId, error: EngineError) {
+    if let Some(actor) = current(core, thread) {
+        fail_instance(core, &actor, error);
+    }
+}
+
+pub(crate) fn fail_instance(core: &Rc<Core>, actor: &ActorRef, error: EngineError) {
     let persistence_failed = matches!(
         &error,
         EngineError::Store(_) | EngineError::Port(PortError::Sqlite(_))
     );
-    core.with_state(|state| {
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.poisoned = true;
-            actor.persistence_failed = persistence_failed;
-        }
-    })
-    .ok();
-    let deps = core.actor_deps.borrow().clone();
-    deps.repo.evict(core, thread);
-    deps.links.abort_session(core, thread, false);
+    let (thread, generation) = {
+        let mut state = actor.borrow_mut();
+        state.poisoned = true;
+        state.persistence_failed = persistence_failed;
+        (state.id.clone(), state.generation)
+    };
+    let deps = instance_deps(core, actor);
+    deps.repo.evict(core, &thread);
+    deps.links.abort_session(core, &thread, false);
     core.ports.report(error.to_string());
     let notice = ace_json::json!([{
         "type": "item.upsert",
@@ -59,40 +65,28 @@ pub fn fail(core: &Rc<Core>, thread: &ThreadId, error: EngineError) {
         _ => Vec::new(),
     };
     let now = core.ports.now();
-    let generation = core
-        .with_state(|state| state.actors.get(thread).map(|actor| actor.generation))
-        .ok()
-        .flatten()
-        .unwrap_or(0);
-    if let Err(failure) = deps.repo.apply(core, thread, &facts, now, generation) {
+    if let Err(failure) = deps.repo.apply(core, &thread, &facts, now, generation) {
         core.ports.report(failure.to_string());
     }
-    deps.links.wake(core, thread);
+    deps.links.wake(core, &thread);
 }
 
 /// The overflow op (`actor.ts:203`–`:237`): preserve the accepted prefix, then end the session.
-pub fn overflow(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
-    let deps = core.actor_deps.borrow().clone();
-    deps.links.abort_session(core, thread, true);
-    let generation = core
-        .with_state(|state| {
-            state.actors.get_mut(thread).map(|mut actor| {
-                if actor.poisoned || actor.stopped {
-                    return (actor.generation, false);
-                }
-                let generation = actor.retire_generation();
-                (generation, true)
-            })
-        })
-        .ok()
-        .flatten()
-        .unwrap_or((0, false));
-    if !generation.1 {
-        // A stopped or poisoned actor never retires its generation again.
-    }
-    deps.links.expire(core, thread, generation.0);
-    timer::disarm(core, thread);
-    leases::release_inputs(core, thread);
+pub fn overflow(core: &Rc<Core>, actor: &ActorRef) -> Result<(), EngineError> {
+    let deps = instance_deps(core, actor);
+    let thread = actor.borrow().id.clone();
+    deps.links.abort_session(core, &thread, true);
+    let generation = {
+        let mut state = actor.borrow_mut();
+        if state.poisoned || state.stopped {
+            state.generation
+        } else {
+            state.retire_generation()
+        }
+    };
+    deps.links.expire(core, &thread, generation);
+    timer::disarm_instance(core, actor);
+    leases::release_instance_inputs(core, actor);
     let message = "Provider mailbox capacity exceeded; resume the thread to recover";
     let facts: Vec<Value> = match ace_json::json!([
         {"type": "process.exited", "deliberate": false, "message": message},
@@ -107,13 +101,8 @@ pub fn overflow(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
         Value::Array(items) => items.into_vec(),
         _ => Vec::new(),
     };
-    fold::apply(core, thread, &facts)?;
-    core.with_state(|state| {
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.overflowed = false;
-        }
-    })
-    .ok();
-    deps.links.wake(core, thread);
+    fold::apply_instance(core, actor, &facts)?;
+    actor.borrow_mut().overflowed = false;
+    deps.links.wake(core, &thread);
     Ok(())
 }

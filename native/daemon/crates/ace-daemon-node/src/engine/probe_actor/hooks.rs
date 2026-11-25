@@ -2,7 +2,6 @@
 //! The probe's switches: injected failures, labelled operations, a forced open transaction, the
 //! native frame path and the dependency hooks.
 
-use ace_engine::Core;
 use ace_engine::actor::deps::{ActorDeps, ActorLinks, ActorRepo, ActorTranslator};
 use ace_engine::actor::{intake, mailbox};
 use ace_engine::executor::Lane;
@@ -87,6 +86,13 @@ impl NativeEngine {
         intake::seal(self.engine.core(), &thread_id);
     }
 
+    /// Schedules a deadline without running an operation on the replacement first.
+    #[napi]
+    pub fn probe_schedule(&self, env: Env, thread_id: String) {
+        let _guard = self.ports.enter(env);
+        ace_engine::actor::timer::schedule(self.engine.core(), &thread_id);
+    }
+
     /// Queues one labelled operation, so its ordering against frame batches is visible.
     #[napi]
     pub fn probe_enqueue(&self, env: Env, thread_id: String, label: String) {
@@ -96,7 +102,7 @@ impl NativeEngine {
         mailbox::enqueue(
             core,
             &thread_id,
-            Box::new(move |core: &Rc<Core>| {
+            Box::new(move |core, _actor| {
                 if let Some(log) = &log {
                     log.enqueued.borrow_mut().push(label.clone());
                     log.order.borrow_mut().push(format!("op:{label}"));
@@ -118,20 +124,10 @@ impl NativeEngine {
         mailbox::enqueue(
             core,
             &thread_id,
-            Box::new(move |core: &Rc<Core>| {
-                let retired = core
-                    .with_state(|state| {
-                        state
-                            .actors
-                            .get_mut(&thread)
-                            .map(|mut actor| actor.retire_generation())
-                    })
-                    .ok()
-                    .flatten();
-                if let Some(generation) = retired {
-                    let deps = core.actor_deps.borrow().clone();
-                    deps.links.expire(core, &thread, generation);
-                }
+            Box::new(move |core, actor| {
+                let retired = actor.borrow_mut().retire_generation();
+                let deps = ace_engine::actor::state::instance_deps(core, actor);
+                deps.links.expire(core, &thread, retired);
                 Ok(())
             }),
         );

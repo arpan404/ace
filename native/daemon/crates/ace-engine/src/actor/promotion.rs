@@ -34,16 +34,16 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     // their drains resolve, and every acknowledgement they still hold settles as failed.
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
     for (_, _, actor) in aside {
-        let (id, generation, ops) = {
+        let (generation, ops) = {
             let mut state = actor.borrow_mut();
-            (state.id.clone(), state.generation, take_ops(&mut state))
+            (state.generation, take_ops(&mut state))
         };
-        stop_aside(core, &deps, actor);
+        stop_aside(core, &deps, &actor);
         // A parked task of an evicted victim wakes once to see it owns nothing.
-        core.record_wake(&id);
-        core.unregister_waker(&id);
+        core.record_actor_wake(&actor);
+        actor.borrow_mut().waker = None;
         // The victim's sealed work commits, as the TypeScript's tail did after `stop()`.
-        spawn_drain(core, &id, generation, ops);
+        spawn_drain(core, actor, generation, ops);
     }
     core.with_state(|state| {
         state.actors.reserved.shift_remove(&thread);
@@ -80,12 +80,11 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
         .ok()
         .flatten();
     if let Some((actor, _)) = actor {
-        stop_aside(core, &deps, actor);
+        stop_aside(core, &deps, &actor);
+        core.record_actor_wake(&actor);
+        actor.borrow_mut().waker = None;
+        spawn_drain(core, actor, generation, ops);
     }
-    // The evicted actor's task parks on its timer; waking it lets it see it owns nothing.
-    core.record_wake(thread);
-    core.unregister_waker(thread);
-    spawn_drain(core, thread, generation, ops);
 }
 
 /// Takes an actor's accepted work: unsealed pending frames become one batch, then the mailbox.
@@ -112,44 +111,43 @@ fn take_ops(actor: &mut state::ActorInstance) -> Vec<mailbox::Op> {
 }
 
 /// Drains an evicted actor's accepted work on the pump, one op per poll, as the mailbox would.
-fn spawn_drain(core: &Rc<Core>, thread: &ThreadId, generation: u64, ops: Vec<mailbox::Op>) {
+fn spawn_drain(core: &Rc<Core>, actor: state::ActorRef, generation: u64, ops: Vec<mailbox::Op>) {
     if ops.is_empty() {
         return;
     }
     let owned = Rc::clone(core);
-    let id = thread.clone();
     let task = core.executor.spawn(Lane::Work, async move {
         let mut queue = ops.into_iter();
         let mut failed = false;
         for op in queue.by_ref() {
-            if !crate::actor::drain_op(&owned, &id, generation, op).await {
+            if !crate::actor::drain_op(&owned, &actor, generation, op).await {
                 failed = true;
                 break;
             }
         }
         if failed {
             // The first real failure poisoned the actor: the rest rejects and releases.
-            reject_rest(&owned, queue);
+            reject_rest(&owned, &actor, queue);
         }
     });
     task.detach();
 }
 
 /// Rejects and releases everything a failed drain will not run.
-fn reject_rest(core: &Rc<Core>, queue: impl Iterator<Item = mailbox::Op>) {
+fn reject_rest(core: &Rc<Core>, actor: &state::ActorRef, queue: impl Iterator<Item = mailbox::Op>) {
     for op in queue {
         match op {
             mailbox::Op::Batch(batch) => {
                 let handles = mailbox::js_handles(&batch.frames);
-                mailbox::release_js_handles(core, &handles);
-                mailbox::settle_drained(core, batch.ack, false);
+                mailbox::release_js_handles(core, actor, &handles);
+                mailbox::settle_drained(core, actor, batch.ack, false);
             }
             mailbox::Op::Run(run) => {
                 if let Some(ack) = run.ack {
-                    mailbox::settle_drained(core, ack, false);
+                    mailbox::settle_drained(core, actor, ack, false);
                 }
             }
-            mailbox::Op::Settle(ack) => mailbox::settle_drained(core, ack, false),
+            mailbox::Op::Settle(ack) => mailbox::settle_drained(core, actor, ack, false),
             _ => {}
         }
     }
@@ -157,7 +155,7 @@ fn reject_rest(core: &Rc<Core>, queue: impl Iterator<Item = mailbox::Op>) {
 
 /// Stops an actor that a promotion moved aside: what `stop()` does, for one that is no longer
 /// in the map.
-fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, actor: state::ActorRef) {
+fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, actor: &state::ActorRef) {
     let (tokens, drains, timer, id) = {
         let mut state = actor.borrow_mut();
         (
@@ -176,7 +174,7 @@ fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, actor: state::ActorRe
     if let Some((timer, _)) = timer {
         core.ports.cancel_timer(timer.key);
     }
-    state::discard_acks(core, &actor);
+    state::discard_acks(core, actor);
     deps.repo.evict(core, &id);
 }
 

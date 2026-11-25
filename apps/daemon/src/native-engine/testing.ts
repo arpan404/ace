@@ -80,6 +80,7 @@ export interface EngineProbe {
   loseReservation(threadId: string): void;
   /** Seals the pending frame batch now, as a flush would. */
   seal(threadId: string): void;
+  schedule(threadId: string): void;
   /** Queues one labelled operation behind the frames sealed before it. */
   enqueue(threadId: string, label: string): void;
   /** Queues what `onExit` runs: a retire op behind the batch. */

@@ -5,7 +5,7 @@
 use super::RunFn;
 use super::queue::admit_instance_run;
 use crate::actor::deps::BatchAck;
-use crate::actor::state::{ActorInstance, ActorRef, FrameRef, current};
+use crate::actor::state::{ActorInstance, ActorRef, FrameRef, current, instance_deps};
 use crate::actor::{flow, fold, intake, timer};
 use crate::futures::channel::oneshot;
 use crate::{Core, EngineError, ThreadId};
@@ -17,19 +17,20 @@ use std::task::Poll;
 /// `runWhenWritable` (`actor.ts:254`): the store's gate, re-checked in the turn that runs the op.
 pub async fn run_when_writable(
     core: &Rc<Core>,
-    actor: Option<&ActorRef>,
+    actor: &ActorRef,
     run: &mut RunFn,
+    drained: bool,
 ) -> Result<bool, EngineError> {
     loop {
-        if actor.is_some_and(|actor| {
-            let actor = actor.borrow();
-            actor.detached || actor.poisoned
-        }) {
-            return Ok(false);
+        {
+            let state = actor.borrow();
+            if (state.detached && !drained) || state.poisoned {
+                return Ok(false);
+            }
         }
-        let live = core.actor_deps.borrow().live.clone();
+        let live = instance_deps(core, actor).live.clone();
         if live.writable_now() {
-            match run(core) {
+            match run(core, actor) {
                 Ok(()) => return Ok(true),
                 Err(error) => {
                     if live.is_store_retry(&error) {
@@ -48,7 +49,7 @@ pub async fn run_when_writable(
 /// Settles every acknowledgement attached to an op after it ran (`actor.ts:431`).
 pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: BatchAck) -> bool {
     let Some(actor) = current(core, thread) else {
-        return settle_rejected(core, ack);
+        return settle_ack(&core.actor_deps.borrow().clone(), ack, true);
     };
     settle_instance(core, &actor, frames, bytes, ack)
 }
@@ -68,7 +69,15 @@ pub(crate) fn settle_instance(
         flow::update_pressure(&mut actor, &limits);
         actor.poisoned || actor.overflowed
     };
-    let mut ack = ack;
+    settle_ack(&instance_deps(core, actor), ack, reject)
+}
+
+/// Settles a drained op by its fold's outcome.
+pub fn settle_drained(core: &Core, actor: &ActorRef, ack: BatchAck, ok: bool) {
+    settle_ack(&instance_deps(core, actor), ack, !ok);
+}
+
+fn settle_ack(deps: &crate::actor::ActorDeps, mut ack: BatchAck, reject: bool) -> bool {
     let js = ack.js;
     if reject {
         ack.reject("Provider frame failed to commit");
@@ -76,32 +85,12 @@ pub(crate) fn settle_instance(
         ack.resolve();
     }
     if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
         deps.acks.settle(
             call,
             reject.then(|| "Provider frame failed to commit".to_string()),
         );
-        return true;
     }
-    false
-}
-
-/// Settles a drained op by its fold's outcome: committed work resolves, a failure rejects.
-pub fn settle_drained(core: &Core, ack: BatchAck, ok: bool) {
-    let mut ack = ack;
-    let js = ack.js;
-    if ok {
-        ack.resolve();
-    } else {
-        ack.reject("Provider frame failed to commit");
-    }
-    if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
-        deps.acks.settle(
-            call,
-            (!ok).then(|| "Provider frame failed to commit".to_string()),
-        );
-    }
+    js.is_some()
 }
 
 /// The JavaScript frame objects a batch holds, by handle.
@@ -116,52 +105,28 @@ pub fn js_handles(frames: &[crate::actor::state::Pending]) -> Vec<u32> {
 }
 
 /// Releases the shell's frame objects for a batch that will never translate.
-pub fn release_js_handles(core: &Core, handles: &[u32]) {
+pub fn release_js_handles(core: &Core, actor: &ActorRef, handles: &[u32]) {
     if !handles.is_empty() {
-        core.actor_deps.borrow().clone().acks.release(handles);
+        instance_deps(core, actor).acks.release(handles);
     }
 }
 
-/// An op whose actor was replaced under it: its acknowledgement rejects, and nothing is charged
-/// to the actor that now owns the thread.
-pub fn settle_orphaned(core: &Core, ack: BatchAck) -> bool {
-    let mut ack = ack;
-    let js = ack.js;
-    ack.reject("Provider frame failed to commit");
-    if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
-        deps.acks
-            .settle(call, Some("Provider frame failed to commit".to_string()));
-        return true;
-    }
-    false
-}
-
-/// A refused batch's settle-only marker: it rejects whatever the actor's state now.
-pub fn settle_rejected(core: &Core, ack: BatchAck) -> bool {
-    let mut ack = ack;
-    let js = ack.js;
-    ack.reject("Provider frame failed to commit");
-    if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
-        deps.acks
-            .settle(call, Some("Provider frame failed to commit".to_string()));
-        return true;
-    }
-    false
+/// A refused batch settles after the work ahead of it.
+pub(crate) fn settle_rejected_instance(core: &Core, actor: &ActorRef, ack: BatchAck) -> bool {
+    settle_ack(&instance_deps(core, actor), ack, true)
 }
 
 /// The mailbox task's own wait: the front entry, or a park on both timers.
-pub async fn park(core: &Rc<Core>, thread: &ThreadId, actor: &ActorRef) {
+pub async fn park(actor: &ActorRef) {
     let mut once = false;
     futures::future::poll_fn(|cx| {
         if once {
             return Poll::Ready(());
         }
         once = true;
-        core.register_waker(thread.clone(), cx.waker().clone());
         {
             let mut actor = actor.borrow_mut();
+            actor.waker = Some(cx.waker().clone());
             let mut fired = false;
             if let Some(timer) = actor.batch_timer.as_mut()
                 && Pin::new(&mut timer.fired).poll(cx).is_ready()
@@ -249,19 +214,17 @@ pub fn actor_quiescent(actor: &ActorInstance) -> bool {
 
 /// The tick a fired actor timer stands for (`actor.ts:564`).
 pub fn fire_tick(core: &Rc<Core>, actor: &ActorRef) {
-    let op_thread = actor.borrow().id.clone();
     admit_now(
         core,
         actor,
-        Box::new(move |core: &Rc<Core>| {
-            let thread: &String = &op_thread;
+        Box::new(move |core, actor| {
+            let (id, generation) = {
+                let state = actor.borrow();
+                (state.id.clone(), state.generation)
+            };
+            let thread = &id;
             let now = core.ports.now();
-            let deps = core.actor_deps.borrow().clone();
-            let generation = core
-                .with_state(|state| state.actors.get(thread).map(|actor| actor.generation))
-                .ok()
-                .flatten()
-                .unwrap_or(0);
+            let deps = instance_deps(core, actor);
             let mut taken = deps.take_translator(thread);
             let mut facts: Vec<ace_json::Value> = match &mut taken {
                 Some((_, crate::actor::deps::ActorTranslator::Js(js))) => {
@@ -278,25 +241,11 @@ pub fn fire_tick(core: &Rc<Core>, actor: &ActorRef) {
             facts.push(ace_json::json!({"type": "tick"}));
             // A busy store retries the tick, as the TypeScript's `runWhenWritable` does; any
             // other failure reaches the mailbox's own failure path.
-            fold::apply(core, thread, &facts)?;
-            let idle_ms = deps.idle_ms;
-            let release = core
-                .with_state(|state| {
-                    state
-                        .actors
-                        .get(thread)
-                        .and_then(|actor| timer::release_at(&actor, idle_ms))
-                })
-                .ok()
-                .flatten();
+            fold::apply_instance(core, actor, &facts)?;
+            let release = timer::release_at(&actor.borrow(), deps.idle_ms);
             if release.is_some_and(|release| now >= release) {
-                core.with_state(|state| {
-                    if let Some(mut actor) = state.actors.get_mut(thread) {
-                        actor.idle_due = true;
-                    }
-                })
-                .ok();
-                timer::disarm(core, thread);
+                actor.borrow_mut().idle_due = true;
+                timer::disarm_instance(core, actor);
             }
             deps.links.wake(core, thread);
             Ok(())

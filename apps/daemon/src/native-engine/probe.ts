@@ -159,6 +159,7 @@ export function probeFor(
     failApplyFatal: (thread, times) => required("probeFailApplyFatal")(thread, times),
     loseReservation: (thread) => required("probeLoseReservation")(thread),
     seal: (thread) => required("probeSeal")(thread),
+    schedule: (thread) => required("probeSchedule")(thread),
     enqueue: (thread, label) => required("probeEnqueue")(thread, label),
     enqueueRetire: (thread) => required("probeEnqueueRetire")(thread),
     runInTransaction: (thread) => required("probeRunInTransaction")(thread),

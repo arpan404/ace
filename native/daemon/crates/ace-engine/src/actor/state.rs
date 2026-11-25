@@ -193,10 +193,10 @@ pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
         )
     };
     // Frames this actor will never translate release the shell's objects with it.
-    crate::actor::intake::release_handles(core, &pending);
+    crate::actor::intake::release_handles(core, actor, &pending);
     for op in mailbox.iter() {
         if let Op::Batch(batch) = op {
-            crate::actor::intake::release_handles(core, &batch.frames);
+            crate::actor::intake::release_handles(core, actor, &batch.frames);
         }
     }
     let mut acks: Vec<BatchAck> = Vec::new();
@@ -214,7 +214,7 @@ pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
         let js = ack.js;
         ack.reject("Provider frame failed to commit");
         if let Some(call) = js {
-            let deps = core.actor_deps.borrow().clone();
+            let deps = instance_deps(core, actor);
             deps.acks
                 .settle(call, Some("Provider frame failed to commit".to_string()));
         }
@@ -271,6 +271,15 @@ impl Actors {
     pub fn live(&self) -> impl Iterator<Item = Ref<'_, ActorInstance>> {
         self.by_thread.values().map(|actor| actor.borrow())
     }
+}
+
+/// The dependencies that belong to a session, or the engine defaults for a bare actor.
+pub fn instance_deps(core: &Core, actor: &ActorRef) -> Rc<ActorDeps> {
+    actor
+        .borrow()
+        .deps
+        .clone()
+        .unwrap_or_else(|| core.actor_deps.borrow().clone())
 }
 
 /// Captures the current actor for a synchronous entry.

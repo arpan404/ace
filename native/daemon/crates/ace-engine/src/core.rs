@@ -204,19 +204,26 @@ impl Core {
         self.wakes.borrow().log()
     }
 
-    /// Registers the waker a deferred wake of `thread` reaches (E5.2's actor tasks).
     pub fn register_waker(&self, thread: ThreadId, waker: Waker) {
         self.wakes.borrow_mut().register(thread, waker);
     }
 
-    /// Drops the waker a thread registered when its actor goes away (E5.2 calls this).
     pub fn unregister_waker(&self, thread: &str) {
         self.wakes.borrow_mut().unregister(thread);
     }
 
     /// Wakers currently registered: the probe's check that a discarded actor left none.
     pub fn registered(&self) -> usize {
-        self.wakes.borrow().registered()
+        let actors = self
+            .with_state(|state| {
+                state
+                    .actors
+                    .live()
+                    .filter(|actor| actor.waker.is_some())
+                    .count()
+            })
+            .unwrap_or(0);
+        self.wakes.borrow().registered() + actors
     }
 
     /// The flush depth and how many actor seals flush has asked for (the probe's, E5.1).
@@ -242,9 +249,22 @@ impl Core {
 
     pub(crate) fn record_wake(&self, thread: &str) {
         // The waker comes out with the borrow released, so a wake never runs under it.
+        let actor = actor::state::current(self, thread);
         let waker = self.wakes.borrow_mut().record(thread);
-        if let Some(waker) = waker {
+        let actor_waker = actor.and_then(|actor| actor.borrow().waker.clone());
+        if let Some(waker) = actor_waker.or(waker) {
             waker.wake_by_ref();
+        }
+    }
+
+    pub(crate) fn record_actor_wake(&self, actor: &actor::ActorRef) {
+        let (thread, waker) = {
+            let state = actor.borrow();
+            (state.id.clone(), state.waker.clone())
+        };
+        self.wakes.borrow_mut().record(&thread);
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 
