@@ -67,6 +67,8 @@ describe.runIf(native)("the native actor and frames", () => {
       seam.store.atomic(() => {
         seam.engine.rootAgent(thread("b"));
       });
+      // One turn spawns the task; the next lets it park and register its waker.
+      await tick();
       await tick();
       expect(seam.engine.liveThreadIds()).toEqual(["b"]);
       expect(seam.probe.registeredWakers()).toBe(1);

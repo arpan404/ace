@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The engine's local executor (ADR 0223 §4, E5.1).
+//! The engine's local executor (ADR 0223 section 4, E5.1).
 //!
 //! Tasks are `async-task` runnables spawned with `spawn_local`; the engine is single-threaded
 //! and lives on the JS thread. One scheduling claim per engine (`claim`) holds `Idle`,
