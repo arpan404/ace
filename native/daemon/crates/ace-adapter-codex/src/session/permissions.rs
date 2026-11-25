@@ -81,6 +81,12 @@ fn permission_options(value: &Value) -> Result<Map, String> {
     Ok(policy)
 }
 
+/// `codexTurnPolicy(mode, cwd)`: the turn takes the same policy the thread
+/// start does (`permission-policy.ts:17`-`:21`).
+pub fn codex_turn_policy(mode: Option<&str>) -> Result<Map, String> {
+    codex_thread_policy(mode)
+}
+
 fn profile(permissions: &str) -> Map {
     let mut policy = Map::new();
     policy.insert("permissions", Value::from(permissions));
@@ -231,6 +237,11 @@ mod tests {
                 object(codex_thread_policy(Some(mode)).expect("a named mode")),
                 json(policy),
                 "thread policy for {mode}"
+            );
+            assert_eq!(
+                object(codex_turn_policy(Some(mode)).expect("a named mode")),
+                json(policy),
+                "turn policy for {mode}"
             );
         }
     }
