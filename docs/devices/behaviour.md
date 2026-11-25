@@ -465,10 +465,16 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
   wired machines through the shell and asserts they answer from Rust; with a missing addon it
   fails, as the proof files do.
 - **Every ported bound counts what its TypeScript source counts** (engine porting guide rule 17):
-  node roles, names, values and descriptions are sliced in UTF-16 units (`.slice`), an Android
-  attribute value is capped at 8,192 code points (patched zod), the clipboard budget is 4,096
-  UTF-16 units, and scrcpy's injected text (300) and clipboard text (262,130) are UTF-8 bytes
-  (`Buffer`). Each has an emoji test on both sides of its limit.
+  node roles, names, values and descriptions are sliced in UTF-16 units (`.slice`), and a slice
+  that cuts a surrogate pair keeps the lone high surrogate as `JsString` does; an Android
+  attribute value is capped at 8,192 _decoded_ code points (patched zod, so 2,000 `&amp;` pass);
+  the clipboard budget is 4,096 UTF-16 units; and scrcpy's injected text (300) and clipboard text
+  (262,130) are UTF-8 bytes (`Buffer`). Each has an emoji test on both sides of its limit.
+- **The reader's buffer is freed when the control socket closes** (`DeviceMessageReader.close`),
+  not left to the finalizer, and its registration carries an unregister token.
+- **The native test proves the addon answered**: `devicePlatformNativeCalls` counts decisions, so
+  the clipboard, pointer and reader cases fail on the TypeScript path, and a child process with
+  `ACE_DEVICE_PLATFORM_ADDON` missing asserts the failure.
 - **Control text is UTF-8 from its UTF-16 units**: a lone surrogate becomes U+FFFD and a literal
   U+E000 is one character, as `Buffer.from` writes them (`platform/scrcpy/protocol.rs:191`).
 - **AX labels are `JsString`**, so a lone surrogate the SDK printed survives.
