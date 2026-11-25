@@ -11,9 +11,10 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use spade_core::{effect::Effect, tools::Risk};
 use spade_server::clock::{Clock, SystemClock};
 use spade_testkit::Script;
-use support::{ManualClock, Options, Result, Spade};
+use support::{FakeTool, ManualClock, Options, Result, Spade};
 
 const HOUR_MS: i64 = 3_600_000;
 /// 2026-11-19T07:00:00Z.
@@ -479,13 +480,14 @@ async fn an_unusual_spend_rate_alerts_once() -> Result {
 #[tokio::test]
 async fn several_pending_questions_and_approvals_from_one_bot_arrive_as_one_grouped_notice()
 -> Result {
+    let pay = FakeTool::new("pay_invoice", Risk::Write, "paid").declares(Effect::Pay);
     let spade = Spade::start(
         vec![
             Script::reply("")
                 .call(
-                    "w1",
-                    "bot_create",
-                    json!({ "name": "Helper", "task": "Check logs", "brief": "Check logs." }),
+                    "p1",
+                    "pay_invoice",
+                    json!({ "invoice": 7 }),
                 )
                 .call(
                     "q1",
@@ -494,7 +496,7 @@ async fn several_pending_questions_and_approvals_from_one_bot_arrive_as_one_grou
                 )
                 .call("q2", "ask_user", json!({ "question": "Ship now?" })),
         ],
-        Vec::new(),
+        vec![Arc::new(pay)],
     )
     .await?;
     let (id, conversation) = bot(&spade, "Release").await?;
@@ -525,35 +527,39 @@ async fn several_pending_questions_and_approvals_from_one_bot_arrive_as_one_grou
 
 #[tokio::test]
 async fn pending_asks_across_a_bots_worker_tree_group_into_one_notice_under_the_root() -> Result {
-    let spade = Spade::start(
+    let scout = json!({ "name": "Scout", "task": "Check staging", "brief": "Check staging." });
+    let refuse = r#"{"verdict":"refuse","reason":"Confirm before dispatching Scout."}"#;
+    let spade = Spade::start_with(
         vec![
-            // Parent creates worker Scout; once approved, both Scout and Builder each ask a
-            // question on their next step, which coalesce into one notice under root Builder.
-            Script::reply("").call(
-                "w1",
-                "bot_create",
-                json!({ "name": "Scout", "task": "Check staging", "brief": "Check staging." }),
-            ),
+            Script::reply("").call("w1", "bot_create", scout.clone()),
+            Script::reply("").plain(refuse),
+            Script::reply("").call("w2", "bot_create", scout),
+            Script::reply("").plain(refuse),
+            // Once the person approves the retry, both bots ask under root Builder.
             Script::reply("").call("q-a", "ask_user", json!({ "question": "Staging branch?" })),
             Script::reply("").call("q-b", "ask_user", json!({ "question": "Deploy window?" })),
         ],
         Vec::new(),
+        Options {
+            reviewer: None,
+            ..Options::default()
+        },
     )
     .await?;
     let (root_id, root_chat) = bot(&spade, "Builder").await?;
     let mut body = listen(&spade).await?;
     spade.say(&root_chat, "Check staging").await?;
-    let notices = until_notice(&mut body, |n| n["request"] == "w1").await;
+    let notices = until_notice(&mut body, |n| n["request"] == "w2").await;
     assert!(
         notices
             .iter()
-            .any(|n| n["request"] == "w1" && n["reach"] == "now"),
+            .any(|n| n["request"] == "w2" && n["reach"] == "now"),
         "{notices:?}"
     );
 
     let (status, reply) = spade
         .post(
-            &format!("/v1/conversations/{root_chat}/approvals/w1"),
+            &format!("/v1/conversations/{root_chat}/approvals/w2"),
             json!({ "allowed": true }),
         )
         .await?;
