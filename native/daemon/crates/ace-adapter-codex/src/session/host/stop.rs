@@ -21,16 +21,26 @@ impl Inner {
         let turns = self.live_turns(tenant);
         let mut queued = Vec::with_capacity(turns.len());
         for (thread, turn) in &turns {
-            let (id, peer) = self
-                .enqueue_own(
-                    "turn/interrupt",
-                    &[("threadId", thread), ("turnId", turn)],
-                    INTERRUPT_MS,
-                )
-                .map_err(|_| "the app-server refused the interrupt".to_owned())?;
-            self.own
-                .insert(id, OwnPurpose::Interrupt { tenant, attempt });
-            queued.push(peer);
+            match self.enqueue_own(
+                "turn/interrupt",
+                &[("threadId", thread), ("turnId", turn)],
+                INTERRUPT_MS,
+            ) {
+                Ok((id, peer)) => {
+                    self.own
+                        .insert(id, OwnPurpose::Interrupt { tenant, attempt });
+                    queued.push(peer);
+                }
+                Err(error) => {
+                    // A refusal here ends the close, but the effects already
+                    // collected may hold the active write: never drop a claimed
+                    // ticket, or shared stdin never hands out another line.
+                    for peer in queued {
+                        self.apply(peer);
+                    }
+                    return Err(format!("the app-server refused the interrupt: {error}"));
+                }
+            }
         }
         if let Some(state) = self.detaching.get_mut(&tenant) {
             state.remaining = queued.len();

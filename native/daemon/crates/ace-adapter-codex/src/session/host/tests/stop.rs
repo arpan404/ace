@@ -417,3 +417,49 @@ fn a_full_write_queue_fails_the_close_instead_of_waiting_forever() {
     );
     assert_eq!(host.tenant_count(), 1, "the channel stays attached");
 }
+
+/// Two live turns and one pending slot left: the first interrupt is taken and
+/// claims the active write, the second is refused. The close fails, but the
+/// claimed write must still reach the shell, or shared stdin stalls forever
+/// (`peer.rs:540` keeps the ticket charged until `written`).
+#[test]
+fn a_refused_second_interrupt_still_hands_over_the_claimed_write() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    busy_thread(&host, 1, "t1");
+    busy_thread(&host, 1, "t2");
+
+    // Fill the peer's pending table to one slot below its bound, acknowledging
+    // every write so the next enqueue claims the active ticket.
+    for id in 100..1123 {
+        let effects = host
+            .request(
+                1,
+                "thread/read",
+                Some(&ace_json::json!({"threadId": "t1"})),
+                id,
+                Timeout::Disabled,
+            )
+            .expect("a call with no deadline is queued");
+        let _ = pump(&host, effects);
+    }
+
+    let (effects, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            HostEffect::DetachFailed {
+                tenant: 1,
+                message,
+                ..
+            } if message.contains("refused the interrupt")
+        )),
+        "the close reports the refused interrupt: {effects:#?}"
+    );
+    assert!(
+        line_id(&lines, "turn/interrupt", Some("t1")).is_some(),
+        "the claimed write still goes out, so stdin is not stalled: {lines:?}"
+    );
+    assert_eq!(host.tenant_count(), 1, "the channel stays attached");
+}
