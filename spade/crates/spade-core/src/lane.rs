@@ -58,7 +58,7 @@ pub struct Link {
     pub person_source: Option<PersonSource>,
     /// Number of initial events copied or synthesized by the harness, including this link.
     /// Older lanes have only the unverified synthetic opening message.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "no_copied_events")]
     pub copied_events: usize,
     /// Main had untrusted content in view when it wrote the brief (ADR 0161's rule): the brief
     /// reaches the lane as the bot's message, which taints the lane's turn.
@@ -67,6 +67,10 @@ pub struct Link {
     /// The main reply this lane carries on, when Spade moved it (ADR 0217 §2a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_from: Option<String>,
+}
+
+fn no_copied_events(count: &usize) -> bool {
+    *count == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

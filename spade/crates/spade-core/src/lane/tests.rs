@@ -439,6 +439,8 @@ fn lane_events_round_trip_through_json() {
     for raw in [
         json!({ "type": "lane_of", "parent_conversation": "c1", "call": "c1.t1",
                 "title": "T", "asks": ["m1"], "untrusted": true, "moved_from": "r1" }),
+        json!({ "type": "lane_of", "parent_conversation": "c1", "call": "c1.t1",
+                "title": "T", "copied_events": 2, "person_source": { "id": "m1", "text": "Hi" } }),
         json!({ "type": "lane_started", "lane": "l1", "conversation": "l1", "title": "T",
                 "call": "c1.t1", "asks": ["m1"], "queued": true }),
         json!({ "type": "reply_moved", "reply": "r1", "lane": "l1", "title": "T",
