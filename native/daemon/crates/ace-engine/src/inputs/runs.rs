@@ -10,6 +10,23 @@ use std::sync::Arc;
 
 use crate::EngineError;
 use crate::inputs::journal;
+use crate::snapshot::Snapshot;
+use crate::snapshot::touched::Touched;
+
+/// Load the records a binding reads: the state's sections are lazy (E5.3), and an input's item
+/// is never named by the frame that starts or consumes its run.
+fn hydrate(
+    snapshot: &mut Snapshot,
+    items: &[String],
+    agents: &[String],
+    runs: &[String],
+) -> Result<(), EngineError> {
+    let mut touched = Touched::default();
+    touched.items.extend(items.iter().cloned());
+    touched.agents.extend(agents.iter().cloned());
+    touched.runs.extend(runs.iter().cloned());
+    snapshot.hydrate(&touched)
+}
 
 /// The root agent's id: `state.agents[state.rootKey ?? ""]?.agent.id`.
 fn root_agent(state: &ThreadState) -> Option<String> {
@@ -77,15 +94,17 @@ pub fn bind_item_run(state: &mut ThreadState, key: &str, run: Option<&str>) -> O
 /// A root run started in session `generation`: it took every input that session was handed and
 /// no run has taken yet. Each joins the run, so the transcript groups it with the answer.
 pub fn bind_started_run(
-    state: &mut ThreadState,
+    snapshot: &mut Snapshot,
     conn: &Arc<ace_store::Connection>,
     run: &str,
     generation: Option<f64>,
 ) -> Result<Vec<Value>, EngineError> {
-    let keys = journal::bind_sent(conn, &state.thread_id, run, generation)?;
+    let keys = journal::bind_sent(conn, &snapshot.state.thread_id, run, generation)?;
+    let root = snapshot.state.root_key.clone().unwrap_or_default();
+    hydrate(snapshot, &keys, &[root], &[])?;
     Ok(keys
         .into_iter()
-        .filter_map(|key| bind_item_run(state, &key, Some(run)))
+        .filter_map(|key| bind_item_run(&mut snapshot.state, &key, Some(run)))
         .collect())
 }
 
@@ -93,43 +112,49 @@ pub fn bind_started_run(
 /// running, the next one. An input that moves off a finished run was never that run's: it is
 /// created again here, at the point it was consumed.
 pub fn bind_consumed_input(
-    state: &mut ThreadState,
+    snapshot: &mut Snapshot,
     conn: &Arc<ace_store::Connection>,
     key: &str,
     generation: Option<f64>,
     at: i64,
 ) -> Result<Vec<Value>, EngineError> {
-    let Some(item) = root_message(state, key) else {
+    let root = snapshot.state.root_key.clone().unwrap_or_default();
+    hydrate(snapshot, &[key.to_owned()], &[root], &[])?;
+    let Some(item) = root_message(&snapshot.state, key) else {
         return Ok(Vec::new());
     };
     let (run, previous) = match item {
         Item::Message { base, .. } => (
-            state
+            snapshot
+                .state
                 .agents
-                .get(state.root_key.as_deref().unwrap_or(""))
+                .get(snapshot.state.root_key.as_deref().unwrap_or(""))
                 .and_then(|record| record.active_run.clone()),
             base.run_id.clone(),
         ),
         _ => (None, None),
     };
-    if previous == run || !journal::sent_in(conn, &state.thread_id, key, generation)? {
+    if previous == run || !journal::sent_in(conn, &snapshot.state.thread_id, key, generation)? {
         return Ok(Vec::new());
     }
-    if let Some(previous) = previous.as_deref()
-        && state
+    if let Some(previous) = previous.as_deref() {
+        hydrate(snapshot, &[], &[], &[previous.to_owned()])?;
+        if snapshot
+            .state
             .runs
             .get(previous)
             .is_some_and(|run| run.state == "active")
-    {
-        return Ok(Vec::new());
+        {
+            return Ok(Vec::new());
+        }
     }
-    journal::attach_run(conn, &state.thread_id, key, run.as_deref())?;
+    journal::attach_run(conn, &snapshot.state.thread_id, key, run.as_deref())?;
     if previous.is_none() {
-        return Ok(bind_item_run(state, key, run.as_deref())
+        return Ok(bind_item_run(&mut snapshot.state, key, run.as_deref())
             .into_iter()
             .collect());
     }
-    let Some(item) = state.items.get(key) else {
+    let Some(item) = snapshot.state.items.get(key) else {
         return Ok(Vec::new());
     };
     let Some(mut moved) = through_json(item) else {
@@ -148,7 +173,7 @@ pub fn bind_consumed_input(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
-    let _ = store(state, key, moved.clone());
+    let _ = store(&mut snapshot.state, key, moved.clone());
     let mut deleted = ace_json::Map::new();
     deleted.insert("type", Value::from("item.deleted"));
     deleted.insert("itemId", Value::from(id.as_str()));

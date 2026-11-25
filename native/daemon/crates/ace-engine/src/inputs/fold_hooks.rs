@@ -68,18 +68,23 @@ impl State {
         Ok((root, generation))
     }
 
-    /// `correlate` with the parts the fold derives, for the probe to pass explicitly.
+    /// `correlate` with the root and generation the caller decides: the fold derives both from
+    /// the state, and the probe passes a generation of its own.
     pub fn correlate_with(
         &mut self,
         thread: &str,
         fact: Value,
-        root: &str,
+        root: Option<&str>,
         generation: Option<f64>,
     ) -> Result<Option<Value>, EngineError> {
         let Some(core) = self.engine()? else {
             return Ok(Some(fact));
         };
-        crate::inputs::journal::correlate(core.store.conn(), thread, fact, root, generation)
+        let root = match root {
+            Some(root) => root.to_owned(),
+            None => self.fold_view(&core, thread)?.0,
+        };
+        crate::inputs::journal::correlate(core.store.conn(), thread, fact, &root, generation)
     }
 
     /// `bindStartedRun` with an explicit generation.
@@ -96,12 +101,7 @@ impl State {
             return Ok(Vec::new());
         };
         let mut borrowed = snapshot.borrow_mut();
-        crate::inputs::runs::bind_started_run(
-            &mut borrowed.state,
-            core.store.conn(),
-            run,
-            generation,
-        )
+        crate::inputs::runs::bind_started_run(&mut borrowed, core.store.conn(), run, generation)
     }
 
     /// `bindConsumedInput` with an explicit generation.
@@ -120,7 +120,7 @@ impl State {
         };
         let mut borrowed = snapshot.borrow_mut();
         crate::inputs::runs::bind_consumed_input(
-            &mut borrowed.state,
+            &mut borrowed,
             core.store.conn(),
             key,
             generation,
@@ -135,8 +135,8 @@ impl InputFacts for State {
         let Some(core) = self.engine()? else {
             return Ok(Some(fact));
         };
-        let (root, generation) = self.fold_view(&core, thread)?;
-        crate::inputs::journal::correlate(core.store.conn(), thread, fact, &root, generation)
+        let (_, generation) = self.fold_view(&core, thread)?;
+        self.correlate_with(thread, fact, None, generation)
     }
 
     /// `inputs.keyFor` (`:157`).
@@ -167,8 +167,19 @@ impl InputFacts for State {
         let Some(snapshot) = self.snapshot(&core, thread)? else {
             return Ok(None);
         };
-        let state = snapshot.borrow();
-        Ok(crate::inputs::ace_waits::ace_wait_fact(&state.state, fact))
+        let mut borrowed = snapshot.borrow_mut();
+        let mut touched = crate::snapshot::touched::Touched::default();
+        if let Some(item) = fact.get("item").and_then(Value::as_str) {
+            touched.items.insert(item.to_owned());
+        }
+        if let Some(agent) = fact.get("agent").and_then(Value::as_str) {
+            touched.agents.insert(agent.to_owned());
+        }
+        borrowed.hydrate(&touched)?;
+        Ok(crate::inputs::ace_waits::ace_wait_fact(
+            &borrowed.state,
+            fact,
+        ))
     }
 
     /// `bindConsumedInput` (`transcript-inputs.ts:176`): the generation is the session's own.

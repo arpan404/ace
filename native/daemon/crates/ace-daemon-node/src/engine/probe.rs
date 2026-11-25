@@ -396,10 +396,8 @@ impl NativeEngine {
                 core.with_state(|state| match method.as_str() {
                     "inputs.correlate" => {
                         let fact = args.get("fact").cloned().unwrap_or(ace_json::Value::Null);
-                        let correlated = match args.get("root").and_then(ace_json::Value::as_str) {
-                            Some(root) => state.correlate_with(thread, fact, root, generation)?,
-                            None => state.correlate(thread, fact)?,
-                        };
+                        let root = args.get("root").and_then(ace_json::Value::as_str);
+                        let correlated = state.correlate_with(thread, fact, root, generation)?;
                         Ok(correlated.unwrap_or(ace_json::Value::Null))
                     }
                     "inputs.keyFor" => {
