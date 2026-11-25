@@ -119,7 +119,8 @@ impl Translator for ProbeTranslator {
     ) -> Vec<ace_core::RawFact> {
         vec![ace_core::RawFact {
             fact_type: "signal".to_string(),
-            data: ace_json::Raw::from_json("{}").expect("canonical empty object"),
+            data: ace_json::Raw::from_json("{}")
+                .unwrap_or_else(|_| ace_json::Raw::from_json("null").unwrap_or_default()),
         }]
     }
     fn tick(&mut self, _now_ms: i64) -> Vec<ace_core::RawFact> {

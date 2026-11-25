@@ -3,7 +3,7 @@
 //! its slot at the commit, and the pledged victims are stopped and evicted there, exactly where
 //! the TypeScript evicted them at the call. A rollback restores them untouched.
 
-use crate::actor::{deps, spawn_mailbox, state};
+use crate::actor::{deps, failure, fold, mailbox, spawn_mailbox, state};
 use crate::{Core, ThreadId};
 use std::rc::Rc;
 
@@ -33,7 +33,10 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     // their drains resolve, and every acknowledgement they still hold settles as failed.
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
     for (_, actor) in aside {
+        let id = actor.id.clone();
         stop_aside(core, &deps, actor);
+        // A parked task of an evicted victim wakes once to see it owns nothing.
+        core.record_wake(&id);
     }
     core.with_state(|state| {
         state.actors.reserved.shift_remove(&thread);
@@ -48,16 +51,77 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     spawn_mailbox(core, &thread);
 }
 
-/// A non-transactional eviction: the actor leaves the map at once and everything it held is
-/// settled, exactly as a transaction's pledged victims are (the TypeScript's `stop()`).
+/// A non-transactional eviction: `stop()` seals the pending frames and the accepted sealed work
+/// still runs and settles, as the TypeScript's tail did; then the actor leaves the map and
+/// `repo.evict` drops its cached state.
 pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
     let deps = core.actor_deps.borrow().clone();
+    crate::actor::stop(core, thread);
+    let writable = deps.live.writable_now();
+    let running = core
+        .with_state(|state| {
+            state
+                .actors
+                .by_thread
+                .get(thread)
+                .is_some_and(|actor| actor.running)
+        })
+        .unwrap_or(false);
+    if writable && !running {
+        loop {
+            let op = core
+                .with_state(|state| {
+                    state
+                        .actors
+                        .by_thread
+                        .get_mut(thread)
+                        .and_then(|actor| actor.mailbox.pop_front())
+                })
+                .ok()
+                .flatten();
+            let Some(op) = op else {
+                break;
+            };
+            crate::actor::promotion::drain_op(core, thread, op);
+        }
+    }
     let actor = core
         .with_state(|state| state.actors.by_thread.shift_remove(thread))
         .ok()
         .flatten();
     if let Some(actor) = actor {
         stop_aside(core, &deps, actor);
+    }
+    // The evicted actor's task parks on its timer; waking it lets it see it owns nothing.
+    core.record_wake(thread);
+}
+
+/// One queued op run at the eviction, before the actor leaves the map: the accepted work commits
+/// and its acknowledgements settle, exactly as the TypeScript's tail did after `stop()`.
+fn drain_op(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) {
+    match op {
+        mailbox::Op::Batch(mut batch) => {
+            let frames = batch.frames.len();
+            let bytes = batch.bytes;
+            let ack = std::mem::take(&mut batch.ack);
+            if let Err(error) = fold::fold_batch(core, thread, &mut batch) {
+                failure::fail(core, thread, error);
+            }
+            mailbox::settle(core, thread, frames, bytes, ack);
+        }
+        mailbox::Op::Run(mut run) => {
+            let ack = run.ack.take();
+            if let Err(error) = (run.run)(core) {
+                failure::fail(core, thread, error);
+            }
+            if let Some(ack) = ack {
+                mailbox::settle(core, thread, run.frames, run.bytes, ack);
+            }
+        }
+        mailbox::Op::Settle(ack) => {
+            mailbox::settle_rejected(core, ack);
+        }
+        _ => {}
     }
 }
 

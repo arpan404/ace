@@ -20,7 +20,7 @@ pub async fn run_when_writable(
     thread: &ThreadId,
     instance: u64,
     run: &mut RunFn,
-) -> Result<(), EngineError> {
+) -> Result<bool, EngineError> {
     loop {
         // A retry resumes after an eviction: the batch belongs to the actor that queued it.
         let alive = core
@@ -33,7 +33,7 @@ pub async fn run_when_writable(
             })
             .unwrap_or(false);
         if !alive {
-            return Ok(());
+            return Ok(false);
         }
         let poisoned = core
             .with_state(|state| {
@@ -45,12 +45,12 @@ pub async fn run_when_writable(
             })
             .unwrap_or(true);
         if poisoned {
-            return Ok(());
+            return Ok(false);
         }
         let live = core.actor_deps.borrow().live.clone();
         if live.writable_now() {
             match run(core) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return Ok(true),
                 Err(error) => {
                     if live.is_store_retry(&error) {
                         let timer = core.ports.set_timer(100.0);
@@ -95,6 +95,24 @@ pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: 
         return true;
     }
     false
+}
+
+/// The JavaScript frame objects a batch holds, by handle.
+pub fn js_handles(frames: &[crate::actor::state::Pending]) -> Vec<u32> {
+    frames
+        .iter()
+        .filter_map(|pending| match &pending.frame {
+            crate::actor::state::FrameRef::Js { handle, .. } => Some(*handle),
+            crate::actor::state::FrameRef::Native(_) => None,
+        })
+        .collect()
+}
+
+/// Releases the shell's frame objects for a batch that will never translate.
+pub fn release_js_handles(core: &Core, handles: &[u32]) {
+    if !handles.is_empty() {
+        core.actor_deps.borrow().clone().acks.release(handles);
+    }
 }
 
 /// An op whose actor was replaced under it: its acknowledgement rejects, and nothing is charged

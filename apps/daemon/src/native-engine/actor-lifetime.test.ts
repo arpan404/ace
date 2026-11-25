@@ -285,8 +285,8 @@ describe.runIf(native)("the native actor and frames", () => {
     }
   });
 
-  test("an eviction at the call settles the batch it had sealed", async () => {
-    // (a) `resource-limits`
+  test("an eviction at the call lets the batch it had sealed commit", async () => {
+    // (a) `resource-limits`; `actor.ts:599`-`:601`
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     const session = await seam.probe.attachSession("a", { translator: translator() });
     try {
@@ -295,8 +295,46 @@ describe.runIf(native)("the native actor and frames", () => {
       seam.engine.rootAgent(thread("b"));
       await tick();
       expect(ack.done).toBe(true);
-      expect(ack.error).toBe("Provider frame failed to commit");
+      expect(ack.error).toBeUndefined();
+      // The sealed batch folded; the lookup that evicted it also applied its own tick.
+      expect(session.log().applied[0]?.facts).toBe(1);
       expect(seam.engine.liveThreadIds()).toEqual(["b"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a frame waiting on the writer when its actor is evicted releases its handle", async () => {
+    // (a) `live-write-buffer`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    const session = await seam.probe.attachSession("a", { translator: translator() });
+    try {
+      const hold = holdWrites(seam.store);
+      const ack = track(session.context.onFrame(frame(0)));
+      seam.probe.seal("a");
+      // The op is taken and parked on the store's writable gate when the victim leaves.
+      await tick();
+      await seam.probe.attachSession("b", { translator: translator() });
+      await hold.release();
+      await tick(24);
+      expect(ack.error).toBe("Provider frame failed to commit");
+      expect(seam.probe.liveFrames()).toBe(0);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an evicted actor with no replacement leaves no waker registered", async () => {
+    // (a) `signal-batching`
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    await seam.probe.attachSession("a", { translator: translator() });
+    try {
+      await tick();
+      expect(seam.probe.registeredWakers()).toBe(1);
+      seam.engine.rootAgent(thread("b"));
+      await tick(24);
+      expect(seam.engine.liveThreadIds()).toEqual(["b"]);
+      expect(seam.probe.registeredWakers()).toBe(1);
     } finally {
       await seam.close();
     }

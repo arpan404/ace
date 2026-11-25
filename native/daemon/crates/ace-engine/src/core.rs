@@ -3,7 +3,7 @@
 
 use crate::ThreadId;
 use crate::actor;
-use crate::actor::yield_once;
+use crate::actor::task::yield_once;
 use crate::error::{EngineError, Lifecycle};
 use crate::executor::{AfterCommit, Deferred, DeferredHost, Executor, Lane, TaskId};
 use crate::futures::channel::oneshot;

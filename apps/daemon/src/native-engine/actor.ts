@@ -173,9 +173,9 @@ export function actorContext(
         frames.release(handle);
         return threads.promiseOf(Number(answer.slice("flush:".length))) ?? Promise.resolve();
       }
-      // A batch or a refused frame the flush settles: the batch's own promise, by call id.
-      const settled = answer.slice(answer.indexOf(":") + 1);
-      if (answer.startsWith("batch:") || answer.startsWith("flush:")) {
+      // A batch's own promise, by its call id.
+      if (answer.startsWith("batch:")) {
+        const settled = answer.slice("batch:".length);
         return threads.promiseOf(Number(settled)) ?? Promise.resolve();
       }
       frames.release(handle);
