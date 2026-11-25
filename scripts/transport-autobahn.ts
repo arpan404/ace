@@ -131,8 +131,6 @@ function runSuite(leg: string): void {
       "run",
       "--rm",
       "--pull=never",
-      "-e",
-      "PYTHONUNBUFFERED=1",
       ...network,
       "-v",
       `${config}:/config:ro`,
@@ -242,19 +240,16 @@ function startWs(): ChildProcess {
   const script = join(out, "ws-echo.ts");
   // The installed package's entry by absolute path: no bare specifier a runtime could resolve
   // from the network or from a different tree.
-  const wsEntry = createRequire(new URL("../apps/daemon/package.json", import.meta.url)).resolve(
-    "ws",
-  );
+  const wsEntry = createRequire(import.meta.url).resolve("ws");
   writeFileSync(
     script,
     `import { WebSocketServer } from ${JSON.stringify(wsEntry)};
 import { remoteDeflate } from ${JSON.stringify(join(root, "apps/daemon/src/compression-policy.ts"))};
 
-const server = new WebSocketServer({ host: "127.0.0.1", port: ${port}, maxPayload: 100 * 1024 * 1024, maxFragments: 65_536, perMessageDeflate: remoteDeflate });
-server.on("connection", (socket) => {
-  socket.on("error", () => {}); // The suite intentionally sends invalid frames.
-  socket.on("message", (data: Buffer, binary: boolean) => socket.send(data, { binary }));
-});
+const server = new WebSocketServer({ host: "127.0.0.1", port: ${port}, perMessageDeflate: remoteDeflate });
+server.on("connection", (socket) =>
+  socket.on("message", (data: Buffer, binary: boolean) => socket.send(data, { binary })),
+);
 process.stderr.write("ws echo listening\\n");
 `,
   );
