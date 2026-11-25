@@ -116,13 +116,16 @@ impl ShellSettlement {
         self.settlement.busy()
     }
 
-    /// The settlement's root is empty once, at construction, so this session's root is
-    /// the only owner it compares as "" and every other owner passes through unchanged.
+    /// The translator's root is the empty string and it has no setter, so this compares an
+    /// owner against this session's real root, as TS does (`shell-settlement.ts:24`). Only
+    /// the root is forwarded as ""; every other owner takes a leading marker, so an owner
+    /// of "" is never mistaken for root work. The mapping is injective, so two owners never
+    /// share a translator key.
     fn masked(&self, owner: &JsString) -> JsString {
         if *owner == self.root {
             JsString::default()
         } else {
-            owner.clone()
+            JsString::from(format!("\u{1}{owner}"))
         }
     }
 }
@@ -177,6 +180,21 @@ mod tests {
         assert!(!shells.blocked());
         assert!(!shells.busy());
         assert!(shells.knows(&JsString::from("root"), &JsString::from("sh-ag")));
+    }
+
+    #[test]
+    fn an_owner_of_the_empty_string_is_not_root_work() {
+        let mut shells = ShellSettlement::new(QuirksKind::Generic);
+        shells.set_root(JsString::from("sess-1"));
+        shells.receive(&json!({
+            "sessionId": "",
+            "update": { "sessionUpdate": "tool_call", "toolCallId": "anon-1", "kind": "read", "status": "in_progress" }
+        }));
+        assert!(shells.knows(&JsString::default(), &JsString::from("anon-1")));
+        assert!(
+            !shells.busy(),
+            "only the root's work with no prompt open holds the next prompt"
+        );
     }
 
     #[test]
