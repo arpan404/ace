@@ -442,6 +442,9 @@ pub enum Known {
     // longer a known event: it is read as raw data and folds to nothing.
     /// The model review judged a call the gate would have run (ADR 0135).
     CallReviewed {
+        /// Fingerprint of a fresh model review eligible for reuse in this reply.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memo: Option<String>,
         reply: String,
         call_id: String,
         name: String,

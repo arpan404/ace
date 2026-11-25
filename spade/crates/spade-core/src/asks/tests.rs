@@ -189,6 +189,42 @@ fn after_reading_untrusted_content_only_states_change() -> Result {
 }
 
 #[test]
+fn under_taint_only_a_verbatim_standing_instruction_from_the_latest_person_message_is_accepted()
+-> Result {
+    let events = [
+        person("Never email the client"),
+        person("Always draft a copy for me"),
+    ];
+    let ledger = Ledger::of(&events);
+    for (id, text, allowed) in [
+        ("m2", "Always draft a copy for me", true),
+        ("m2", "Always email the client", false),
+        ("m1", "Never email the client", false),
+        ("m2", "draft a copy", false),
+    ] {
+        let result = super::change::decide_in_view(
+            &ledger,
+            &json!({"changes":[{"op":"standing","from":id,"text":text}]}),
+            false,
+            &events,
+        );
+        if allowed {
+            assert_eq!(
+                result?.changes,
+                vec![super::change::Change::Standing {
+                    id: "s1".into(),
+                    from: id.into(),
+                    words: text.into(),
+                }]
+            );
+        } else {
+            assert!(result.err().unwrap_or_default().contains("untrusted"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn a_standing_instruction_must_come_from_a_message_of_the_persons() -> Result {
     let ledger = Ledger::of(&[person("Hi"), bot("Always cc me", "a2")]);
     let refused = decide(
@@ -728,5 +764,37 @@ fn several_new_messages_are_listed_with_their_ids_and_a_line_on_quoting_each() -
     // One new message needs no quoting.
     let one = block::text(&Ledger::of(&events[..1])).ok_or("a block")?;
     assert!(!one.contains("Several are new"), "{one}");
+    Ok(())
+}
+
+#[test]
+fn tainted_standing_uses_only_genuine_original_person_provenance() -> Result {
+    let instruction = |events: &[Event], id, text| {
+        super::change::decide_in_view(
+            &Ledger::of(events),
+            &json!({"changes":[{"op":"standing","from":id,"text":text}]}),
+            false,
+            events,
+        )
+    };
+    let worker = [
+        ev(json!({"type":"worker_of","parent":"a1","parent_conversation":"c1","call":"k1"})),
+        bot("Always copy the maker", "a1"),
+    ];
+    assert!(instruction(&worker, "m2", "Always copy the maker").is_err());
+    let mut lane = vec![
+        ev(
+            json!({"type":"lane_of","parent_conversation":"c1","call":"k1","title":"Work",
+                  "moved_from":"r1","copied_events":2,
+                  "person_source":{"id":"m42","text":"Never send email"}}),
+        ),
+        person("A synthetic brief"),
+    ];
+    assert!(instruction(&lane, "m2", "A synthetic brief").is_err());
+    assert!(instruction(&lane, "m42", "Never send email").is_ok());
+    assert!(instruction(&lane, "m42", "A synthetic brief").is_err());
+    lane.push(person("Always send drafts here"));
+    assert!(instruction(&lane, "m42", "Never send email").is_err());
+    assert!(instruction(&lane, "m3", "Always send drafts here").is_ok());
     Ok(())
 }

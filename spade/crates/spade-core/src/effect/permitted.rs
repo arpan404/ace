@@ -1,4 +1,4 @@
-//! What a bot's Permissions decide at the gate (ADR 0171, amendment 7), in every mode, after
+//! What a bot's Permissions decide at the gate (ADR 0171, amendment 7), in Auto-review, after
 //! the package's ceiling and the organization's policy and before anything else:
 //!
 //! - a driving step runs under its family's switch (Computer use, Browser, Simulators and

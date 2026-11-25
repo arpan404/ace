@@ -102,6 +102,138 @@ pub fn profile_offline(policy: &Policy) -> String {
     profile_in(policy, false, true)
 }
 
+/// The credential and execution-broker guard for a Full access outside command.
+pub fn credentials_only(
+    home: &Path,
+    roots: &[std::path::PathBuf],
+    workspace: Option<&Path>,
+    secrets: &[std::path::PathBuf],
+) -> String {
+    let mut out = String::from("(version 1)\n(allow default)\n");
+    const DATA_ROOT: &str = "/System/Volumes/Data";
+    fn data_alias(path: &Path) -> Option<PathBuf> {
+        if let Ok(tail) = path.strip_prefix(DATA_ROOT) {
+            return Some(Path::new("/").join(tail));
+        }
+        path.strip_prefix("/")
+            .ok()
+            .map(|tail| Path::new(DATA_ROOT).join(tail))
+    }
+    let paths = |paths: &[std::path::PathBuf]| {
+        paths
+            .iter()
+            .flat_map(|path| {
+                let real = crate::policy::real(path);
+                [Some(path.clone()), data_alias(&real), Some(real)]
+                    .into_iter()
+                    .flatten()
+            })
+            .collect::<Vec<_>>()
+    };
+    let roots = paths(roots);
+    let secrets = paths(secrets);
+    rule(
+        &mut out,
+        "deny file-read* file-write*",
+        roots.iter().map(|path| subpath(path)),
+    );
+    // Do not resolve the exception again after the caller validated its canonical name.
+    rule(
+        &mut out,
+        "allow file-read* file-write*",
+        workspace.into_iter().flat_map(|path| {
+            [
+                Some(subpath(path)),
+                data_alias(path).as_deref().map(subpath),
+            ]
+            .into_iter()
+            .flatten()
+        }),
+    );
+    rule(
+        &mut out,
+        "deny file-read* file-write*",
+        secrets.iter().map(|p| subpath(p)),
+    );
+    rule(
+        &mut out,
+        "deny file-link file-write-create",
+        secrets.iter().map(|path| subpath(path)),
+    );
+    rule(
+        &mut out,
+        "deny file-link",
+        roots.iter().map(|path| subpath(path)),
+    );
+    let real_home = crate::policy::real(home);
+    let alias_home = data_alias(&real_home);
+    let data_root = Path::new(DATA_ROOT);
+    let home_paths = [Some(home), Some(real_home.as_path()), alias_home.as_deref()];
+    // A directory rename checks unlink at the source and create at the destination.
+    // Match existing directories literally so new ancestors and sibling trees stay writable.
+    let protected_entries = roots
+        .iter()
+        .chain(&secrets)
+        .flat_map(|path| {
+            path.ancestors().take_while(|ancestor| {
+                ancestor.parent().is_some()
+                    && *ancestor != data_root
+                    && !home_paths.contains(&Some(*ancestor))
+            })
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    rule(
+        &mut out,
+        "deny file-write-unlink file-write-create",
+        protected_entries
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .map(literal),
+    );
+    let brokers = [
+        "/usr/bin/open",
+        "/bin/launchctl",
+        "/usr/bin/osascript",
+        "/usr/libexec/lsd",
+        "/sbin/launchd",
+        "/usr/bin/security",
+        "/usr/bin/mdfind",
+        "/usr/bin/mdls",
+        "/usr/bin/mdutil",
+        "/usr/bin/shortcuts",
+        "/usr/bin/automator",
+    ];
+    rule(
+        &mut out,
+        "deny process-exec",
+        brokers.into_iter().map(|path| literal(Path::new(path))),
+    );
+    rule(
+        &mut out,
+        "deny mach-lookup",
+        [
+            global("com.apple.coreservices.launchservicesd"),
+            global("com.apple.xpc.launchd"),
+            global("com.apple.launchd"),
+            r#"(global-name-regex #"^com[.]apple[.](lsd|coreservices[.]launchservicesd|launchd|xpc[.]launchd)([.]|$)")"#
+                .to_owned(),
+        ]
+        .into_iter(),
+    );
+    // Leave trustd available for certificate validation. SQLite stays confined by the
+    // same file rules as any other direct reader.
+    let credential_services = "^com[.]apple[.](SecurityServer|securityd|securitydservice|secd|applekeystored|keychainsharingmessagingd|corespotlightd|security[.](agent|authhost|KeychainStasher|XPCKeychainSandboxCheck|cloudkeychainproxy3|sfkeychainserver|kcsharing)|metadata[.](mds|mdwrite))([.]|$)";
+    rule(
+        &mut out,
+        "deny mach-lookup",
+        ["global-name-regex", "local-name-regex"]
+            .into_iter()
+            .map(|filter| format!(r#"({filter} #"{credential_services}")"#)),
+    );
+    out.push_str("(deny appleevent-send)\n");
+    out
+}
+
 fn profile_in(policy: &Policy, read_only: bool, offline: bool) -> String {
     let mut out = String::from("(version 1)\n(deny default)\n");
     out.push_str(
@@ -324,6 +456,161 @@ fn ancestors(policy: &Policy) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn outside_guard_blocks_brokers_and_credential_aliases_but_allows_network_and_children()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::process::Command;
+        let temp = tempfile::tempdir()?;
+        let root = temp.path();
+        let ssh = root.join(".ssh");
+        let secret = ssh.join("fixture");
+        let allowed = root.join("allowed");
+        std::fs::create_dir_all(&ssh)?;
+        std::fs::create_dir_all(&allowed)?;
+        std::fs::write(&secret, "dummy credential")?;
+        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        let port = listener.local_addr()?.port();
+        let http = std::thread::spawn(move || -> std::io::Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+            let mut request = [0; 4096];
+            assert!(stream.read(&mut request)? > 0);
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nnetwork")
+        });
+        let data = root.join("spade");
+        let workspace = data.join("workspace/bot");
+        let private = data.join("private-state");
+        std::fs::create_dir_all(&workspace)?;
+        std::fs::write(&private, "do not reopen")?;
+        let canonical_workspace = workspace.canonicalize()?;
+        let profile = credentials_only(root, &[data], Some(&canonical_workspace), &[ssh]);
+        let run = Command::new(SANDBOX_EXEC)
+            .args([
+                "-p",
+                &profile,
+                "/bin/sh",
+                "-c",
+                r#"
+                /usr/bin/open -a TextEdit "$1" 2>/dev/null && exit 10
+                /bin/launchctl submit -l "$4" -- /usr/bin/true 2>/dev/null && exit 11
+                /usr/bin/osascript -e 'return 1' 2>/dev/null && exit 12
+                /bin/ln -s "$1" "$6/symbolic" || exit 13
+                /bin/cat "$6/symbolic" 2>/dev/null && exit 17
+                (printf changed > "$6/symbolic") 2>/dev/null && exit 18
+                exec_denied() {
+                    message=$("$@" 2>&1)
+                    [ "$?" -eq 126 ] || return 1
+                    case "$message" in *"Operation not permitted"*) return 0;; esac
+                    return 1
+                }
+                exec_denied /usr/bin/security find-generic-password -s spade-test-fixture "$1" || exit 19
+                exec_denied /usr/bin/security dump-keychain "$1" || exit 20
+                exec_denied /usr/bin/mdfind -onlyin "$6" spade-test-fixture || exit 21
+                /bin/ln "$1" "$2/hard" 2>/dev/null && exit 14
+                /bin/cat "$5" 2>/dev/null && exit 15
+                /bin/sh -c 'printf child:' > "$6/marker" || exit 16
+                /bin/cat "$6/marker"
+                /usr/bin/curl -fsS --noproxy '*' --max-time 3 "$3"
+            "#,
+                "guard-test",
+            ])
+            .arg(&secret)
+            .arg(&allowed)
+            .arg(format!("http://127.0.0.1:{port}/"))
+            .arg(format!("app.ace.guard-test.{}", std::process::id()))
+            .arg(&private)
+            .arg(&workspace)
+            .output()?;
+        assert!(
+            run.status.success(),
+            "{:?}: {}",
+            run.status,
+            String::from_utf8_lossy(&run.stderr)
+        );
+        http.join().map_err(|_| "local HTTP fixture panicked")??;
+        assert_eq!(run.stdout, b"child:network");
+        assert!(workspace.join("symbolic").is_symlink());
+        assert_eq!(std::fs::read_to_string(secret)?, "dummy credential");
+        assert!(!allowed.join("hard").exists());
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "Requires public HTTPS access and a local Node/npm installation"]
+    fn guarded_outside_commands_keep_tls_public_git_and_offline_npm()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::process::Command;
+        let root = tempfile::tempdir()?;
+        let workspace = root.path().join("workspace");
+        let project = workspace.join("app");
+        let package = workspace.join("tiny");
+        let temp = workspace.join("tmp");
+        for dir in [&project, &package, &temp] {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"guard-fixture","version":"1.0.0","bin":{"guard-fixture":"cli.js"}}"#,
+        )?;
+        std::fs::write(package.join("cli.js"), "#!/usr/bin/env node\n")?;
+        let canonical = workspace.canonicalize()?;
+        let profile = credentials_only(root.path(), &[], Some(&canonical), &[]);
+        let guarded =
+            |program: &str, args: &[&str]| -> Result<String, Box<dyn std::error::Error>> {
+                let output = Command::new(SANDBOX_EXEC)
+                    .args(["-p", &profile, program])
+                    .args(args)
+                    .env_clear()
+                    .env("HOME", &workspace)
+                    .env("TMPDIR", &temp)
+                    .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+                    .env("GIT_TERMINAL_PROMPT", "0")
+                    .current_dir(&project)
+                    .output()?;
+                assert!(
+                    output.status.success(),
+                    "{program} {args:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                Ok(String::from_utf8(output.stdout)?)
+            };
+        assert!(
+            guarded(
+                "/usr/bin/curl",
+                &["-fsS", "--max-time", "15", "https://example.com/"]
+            )?
+            .contains("Example Domain")
+        );
+        assert!(
+            guarded(
+                "/usr/bin/git",
+                &[
+                    "-c",
+                    "http.lowSpeedLimit=1",
+                    "-c",
+                    "http.lowSpeedTime=15",
+                    "ls-remote",
+                    "https://github.com/rust-lang/rustfmt.git",
+                    "HEAD"
+                ]
+            )?
+            .contains("HEAD")
+        );
+        guarded(
+            "/bin/sh",
+            &[
+                "-c",
+                "npm init -y --offline && npm install --offline --no-audit --no-fund --ignore-scripts ../tiny",
+            ],
+        )?;
+        assert!(project.join("node_modules/.bin/guard-fixture").is_symlink());
+        Ok(())
+    }
+
     use super::*;
 
     fn policy() -> Policy {

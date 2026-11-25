@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use serde_json::{Value, json};
+use serde_json::json;
 use spade_server::tools::Tool;
 use spade_server::workspace::shell::{Confine, Confinement, Kind};
 use spade_store::Store;
@@ -82,6 +82,141 @@ async fn a_sandboxed_command_runs_without_a_review_and_cannot_reach_outside_its_
 }
 
 #[tokio::test]
+async fn a_sandboxed_shell_maps_cd_tmp_and_uses_only_its_own_temp_files() -> Result {
+    let w = world(true, vec![], |_| vec![
+        shell("c1", r#"cd /tmp && [ "$PWD" = "$TMPDIR" ] && tmp=$(mktemp "$TMPDIR/spade.XXXXXX") && printf 'temp works' > "$tmp" && cat "$tmp""#.to_owned()),
+        Script::reply("Done."),
+    ]).await?;
+    w.spade.say(&w.conversation, "Use a temporary file").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(output(&events, "c1").contains("temp works"), "{events:?}");
+    assert!(asked(&events).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn full_access_requires_a_credential_guard_for_an_explicit_outside_command() -> Result {
+    let w = world(true, vec![], |at| {
+        vec![
+        Script::reply("").call("outside", "shell", json!({
+            "command": format!("printf outside > {}", quoted(&at.root.join("full-access.txt"))),
+            "outside_sandbox": true
+        })),
+        Script::reply("Done."),
+    ]
+    })
+    .await?;
+    full_access(&w).await?;
+    w.spade
+        .say(&w.conversation, "Write the marker outside the workspace")
+        .await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{events:?}");
+    assert!(
+        !events.iter().any(|e| e["type"] == "call_reviewed"),
+        "{events:?}"
+    );
+    let path = w
+        .home
+        .parent()
+        .ok_or("no sandbox fixture root")?
+        .join("full-access.txt");
+    #[cfg(target_os = "macos")]
+    assert_eq!(std::fs::read_to_string(path)?, "outside");
+    #[cfg(target_os = "linux")]
+    {
+        assert!(!path.exists());
+        assert!(output(&events, "outside").contains("credential guard is unavailable"));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn guarded_outside_shell_drops_injected_credentials_and_sets_workspace_temp() -> Result {
+    use spade_core::event::Authorized;
+    use spade_server::workspace::outside::{Bound, Warrant};
+    use spade_server::workspace::shell::{By, Job};
+    let w = world(true, vec![], |_| vec![]).await?;
+    full_access(&w).await?;
+    let workspace = w.workspaces.of(&w.bot)?.path()?;
+    let env = [
+        "SSH_AUTH_SOCK",
+        "GPG_AGENT_INFO",
+        "GH_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "TMPDIR",
+        "KEEP_ME",
+    ]
+    .map(|name| (name.to_owned(), "fixture".to_owned()));
+    let ran = w.shell.run_job(Job {
+        dir: &workspace,
+        script: r#"[ -z "${SSH_AUTH_SOCK+x}${GPG_AGENT_INFO+x}${GH_TOKEN+x}${AWS_SECRET_ACCESS_KEY+x}" ] &&
+            [ -d "$TMPDIR" ] && printf '%s\n%s' "$TMPDIR" "$KEEP_ME" "#,
+        asked: None,
+        timeout: std::time::Duration::from_secs(10),
+        env: &env,
+        tee: None,
+        cleanup: None,
+        stdin: None,
+        kind: Kind::Command,
+        outside: true,
+        may_run_uncontained: true,
+        contained_only: false,
+        by: By::Bot(Some(Warrant {
+            limit: Authorized::Outside, bound: Bound::Nothing, credential_guard: true, incomplete: false,
+        })),
+        clean: false,
+        read_only: false,
+    }).await?;
+    let expected = workspace.canonicalize()?.join(spade_sandbox::policy::TEMP);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    assert_eq!(ran.stdout, format!("{}\nfixture", expected.display()));
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn full_access_outside_seatbelt_denies_indirect_credential_reads_and_writes() -> Result {
+    let w = world(true, vec![], |at| {
+        let alias = quoted(&at.root.join("ordinary-file"));
+        let marker = quoted(&at.root.join("outside-ok"));
+        vec![
+            Script::reply("").call("outside", "shell", json!({
+                "command": format!("cat {alias}; printf changed > {alias}; printf ok > {marker}"),
+                "outside_sandbox": true
+            })),
+            Script::reply("Done."),
+        ]
+    })
+    .await?;
+    let root = w.home.parent().ok_or("no fixture root")?;
+    let protected = w.home.join(".ssh/probe");
+    std::fs::create_dir_all(w.home.join(".ssh"))?;
+    std::fs::write(&protected, "protected-credential-content")?;
+    std::os::unix::fs::symlink(&protected, root.join("ordinary-file"))?;
+    full_access(&w).await?;
+    w.spade
+        .say(&w.conversation, "Check the outside marker")
+        .await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let output = output(&events, "outside");
+    assert!(asked(&events).is_empty(), "{events:?}");
+    assert!(!output.contains("protected-credential-content"), "{output}");
+    assert_eq!(
+        output.matches("Operation not permitted").count(),
+        2,
+        "{output}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&protected)?,
+        "protected-credential-content"
+    );
+    assert_eq!(std::fs::read_to_string(root.join("outside-ok"))?, "ok");
+    Ok(())
+}
+
+#[tokio::test]
 async fn without_the_sandbox_the_same_command_is_reviewed_as_before() -> Result {
     let w = world(false, vec![], |_| {
         vec![
@@ -91,11 +226,13 @@ async fn without_the_sandbox_the_same_command_is_reviewed_as_before() -> Result 
     })
     .await?;
     w.spade.say(&w.conversation, "Build it").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    assert_eq!(asked(&events), vec!["c1"]);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty());
+    assert!(events.iter().any(|e| e["type"] == "call_reviewed"
+        && e["call_id"] == "c1"
+        && e["verdict"] == "refuse"
+        && e["model"] == support::UNREACHABLE_REVIEWER));
+    assert!(output(&events, "c1").contains("Retry when the reviewer is available"));
     let (_, status) = w.spade.get("/v1/security").await?;
     assert_eq!(status["contained"], json!(false));
     assert_eq!(status["sandbox"]["mechanism"], json!("none"));
@@ -499,11 +636,13 @@ async fn without_the_sandbox_a_file_write_after_untrusted_content_is_reviewed() 
     let (tools, scripts) = write_after_reading_a_page();
     let w = world(false, tools, |_| scripts).await?;
     w.spade.say(&w.conversation, "Read the page").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    assert_eq!(asked(&events), vec!["c2"]);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty());
+    assert!(events.iter().any(|e| e["type"] == "call_reviewed"
+        && e["call_id"] == "c2"
+        && e["verdict"] == "refuse"
+        && e["model"] == support::UNREACHABLE_REVIEWER));
+    assert!(output(&events, "c2").contains("Retry when the reviewer is available"));
     Ok(())
 }
 
@@ -590,11 +729,13 @@ async fn when_no_checkpoint_can_be_taken_contained_work_is_reviewed_instead() ->
     let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
     std::fs::write(data.join("checkpoints"), "not a folder")?;
     w.spade.say(&w.conversation, "Write it").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    assert_eq!(asked(&events), vec!["c1"]);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty());
+    assert!(events.iter().any(|e| e["type"] == "call_reviewed"
+        && e["call_id"] == "c1"
+        && e["verdict"] == "refuse"
+        && e["model"] == support::UNREACHABLE_REVIEWER));
+    assert!(output(&events, "c1").contains("Retry when the reviewer is available"));
     assert!(!workspace_of(&w).join("a.txt").exists());
     Ok(())
 }
@@ -616,11 +757,13 @@ async fn when_no_checkpoint_can_be_taken_a_file_write_is_reviewed_instead() -> R
     let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
     std::fs::write(data.join("checkpoints"), "not a folder")?;
     w.spade.say(&w.conversation, "Note it").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    assert_eq!(asked(&events), vec!["c1"]);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty());
+    assert!(events.iter().any(|e| e["type"] == "call_reviewed"
+        && e["call_id"] == "c1"
+        && e["verdict"] == "refuse"
+        && e["model"] == support::UNREACHABLE_REVIEWER));
+    assert!(output(&events, "c1").contains("Retry when the reviewer is available"));
     Ok(())
 }
 
@@ -796,14 +939,6 @@ async fn a_classification_that_runs_out_of_time_never_lets_a_full_access_command
 }
 
 /// The latest request in `events`.
-fn last_request(events: &[Value]) -> Value {
-    events
-        .iter()
-        .rfind(|e| e["type"] == "approval_requested")
-        .cloned()
-        .unwrap_or_default()
-}
-
 /// Puts the world's bot in Full access, as the person.
 async fn full_access(w: &support::sandbox::World) -> Result {
     let stamp = w.stamp(&w.bot, "full_access");
@@ -820,9 +955,8 @@ async fn full_access(w: &support::sandbox::World) -> Result {
 }
 
 #[tokio::test]
-async fn an_approved_outside_command_is_asked_again_when_what_it_runs_cant_be_read_again() -> Result
-{
-    let w = world(true, vec![], |at| {
+async fn an_outside_command_is_refused_if_it_cannot_be_read_again() -> Result {
+    let w = support::sandbox::reviewed_world(true, vec![], |at| {
         vec![
             // Runs no file of its own: the approval binds no file list.
             Script::reply("").call(
@@ -833,55 +967,28 @@ async fn an_approved_outside_command_is_asked_again_when_what_it_runs_cant_be_re
                     "outside_sandbox": true,
                 }),
             ),
+            Script::reply("")
+                .plain(r#"{"verdict":"approve","reason":"It serves the task."}"#)
+                .held(std::time::Duration::from_millis(700)),
             Script::reply("Okay."),
         ]
     })
     .await?;
-    full_access(&w).await?;
     w.spade.say(&w.conversation, "Run it outside").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    assert_eq!(asked(&events), ["c1"]);
-    // Between the person's answer and the launch, reading it again fails.
+    let root = w.home.parent().ok_or("no root")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while w.spade.fake.seen().len() < 2 {
+        if std::time::Instant::now() > deadline {
+            return Err("the reviewer was never asked".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     w.spade.engine.set_classify_time(std::time::Duration::ZERO);
-    let (status, _) = w
-        .spade
-        .post(
-            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 202);
-    // It doesn't start on that answer: the person is asked again, once (ADR 0163, amendment 3).
-    let events = w
-        .spade
-        .wait_for_count(&w.conversation, "approval_requested", 2)
-        .await?;
-    let again = last_request(&events);
-    assert_eq!(again["stopped"], "unread", "{again}");
-    let reason = again["reviewer_reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("couldn't read again"), "{reason}");
-    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
-    assert!(
-        !root.join("outside.txt").exists(),
-        "it ran outside the sandbox"
-    );
-    // Allowed again, it starts on the check at the spawn alone, which reads it there.
-    let (status, _) = w
-        .spade
-        .post(
-            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 202);
-    w.spade.wait_for(&w.conversation, "reply_finished").await?;
-    assert!(
-        root.join("outside.txt").exists(),
-        "what the person allowed ran"
-    );
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let said = output(&events, "c1");
+    assert!(said.contains("read"), "{said}");
+    assert!(asked(&events).is_empty());
+    assert!(!root.join("outside.txt").exists(), "it ran outside");
     Ok(())
 }
 
@@ -910,8 +1017,7 @@ fn writes_outside(at: &Path, bytes: usize) -> String {
 }
 
 #[tokio::test]
-async fn an_outside_request_for_a_script_past_the_read_limit_asks_told_it_cant_be_read_whole()
--> Result {
+async fn an_outside_script_past_the_read_limit_is_refused() -> Result {
     let w = world(true, vec![], |_| {
         vec![
             Script::reply("").call(
@@ -928,29 +1034,27 @@ async fn an_outside_request_for_a_script_past_the_read_limit_asks_told_it_cant_b
     // Too long to read whole: an approval would hold it to nothing, so it could change after.
     std::fs::write(workspace.join("run.sh"), writes_outside(&root, 40_000))?;
     w.spade.say(&w.conversation, "Run it outside").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    assert_eq!(asked(&events), ["c1"]);
-    let request = last_request(&events);
-    assert_eq!(request["stopped"], "incomplete", "{request}");
-    let reason = request["reviewer_reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("couldn't be read whole"), "{reason}");
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty());
+    let said = output(&events, "c1");
+    assert!(said.contains("read"), "{said}");
+    let root = w.home.parent().ok_or("no root")?;
     assert!(!root.join("outside.txt").exists());
     Ok(())
 }
 
 #[tokio::test]
-async fn an_approved_outside_script_that_grows_past_the_read_limit_is_asked_about_again() -> Result
-{
-    let w = world(true, vec![], |_| {
+async fn an_outside_script_is_refused_if_it_grows_past_the_read_limit() -> Result {
+    let w = support::sandbox::reviewed_world(true, vec![], |_| {
         vec![
             Script::reply("").call(
                 "c1",
                 "shell",
                 json!({ "command": "sh run.sh", "outside_sandbox": true }),
             ),
+            Script::reply("")
+                .plain(r#"{"verdict":"approve","reason":"It serves the task."}"#)
+                .held(std::time::Duration::from_millis(700)),
             Script::reply("Okay."),
         ]
     })
@@ -959,28 +1063,18 @@ async fn an_approved_outside_script_that_grows_past_the_read_limit_is_asked_abou
     let workspace = w.workspaces.of(&w.bot)?.path()?;
     std::fs::write(workspace.join("run.sh"), writes_outside(&root, 0))?;
     w.spade.say(&w.conversation, "Run it outside").await?;
-    w.spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    // While the person is asked, it grows past what Spade reads whole.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while w.spade.fake.seen().len() < 2 {
+        if std::time::Instant::now() > deadline {
+            return Err("the reviewer was never asked".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     std::fs::write(workspace.join("run.sh"), writes_outside(&root, 40_000))?;
-    let (status, _) = w
-        .spade
-        .post(
-            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 202);
-    let events = w
-        .spade
-        .wait_for_count(&w.conversation, "approval_requested", 2)
-        .await?;
-    let again = last_request(&events);
-    assert_eq!(again["stopped"], "incomplete", "{again}");
-    let reason = again["reviewer_reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("couldn't be read whole again"), "{reason}");
-    assert!(output(&events, "c1").is_empty(), "it ran");
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let said = output(&events, "c1");
+    assert!(said.contains("read"), "{said}");
+    assert!(asked(&events).is_empty());
     assert!(!root.join("outside.txt").exists(), "it ran outside");
     Ok(())
 }
@@ -988,26 +1082,40 @@ async fn an_approved_outside_script_that_grows_past_the_read_limit_is_asked_abou
 #[tokio::test]
 async fn an_answer_for_a_contained_command_never_runs_it_outside_once_the_bot_moved_outside()
 -> Result {
-    let w = world(true, vec![], |at| {
+    let w = support::sandbox::reviewed_world(true, vec![], |at| {
+        let command = format!("echo ran > {}", quoted(&at.root.join("outside.txt")));
+        let refuse = r#"{"verdict":"refuse","reason":"Keep it contained."}"#;
         vec![
-            shell(
-                "c1",
-                format!("echo ran > {}", quoted(&at.root.join("outside.txt"))),
-            ),
+            // The first shell refusal adds a source to the review context.
+            shell("first", command.clone()),
+            Script::reply("").plain(refuse),
+            shell("c0", command.clone()),
+            Script::reply("").plain(refuse),
+            shell("c1", command),
+            Script::reply("").plain(refuse),
             Script::reply("Okay."),
         ]
     })
     .await?;
     std::fs::create_dir_all(workspace_of(&w))?;
-    // No checkpoint can be taken, so the contained command is reviewed, and (the reviewer
-    // unreachable here) the person is asked about it as a contained command.
+    // Without a checkpoint the contained command is reviewed. A repeat refusal in the same context asks.
     let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
     std::fs::write(data.join("checkpoints"), "not a folder")?;
     w.spade.say(&w.conversation, "Write it").await?;
-    let events = w
+    let paused = w
         .spade
-        .wait_for(&w.conversation, "approval_requested")
+        .wait_for_any(&w.conversation, &["approval_requested", "reply_finished"])
         .await?;
+    assert!(
+        paused.iter().any(|e| e["type"] == "approval_requested"),
+        "{:?}",
+        paused
+            .iter()
+            .filter(|e| matches!(e["type"].as_str(), Some("call_reviewed" | "tool_finished")))
+            .collect::<Vec<_>>()
+    );
+    let events = paused;
+
     let request = events
         .iter()
         .find(|e| e["type"] == "approval_requested")
@@ -1042,7 +1150,7 @@ async fn an_answer_for_a_contained_command_never_runs_it_outside_once_the_bot_mo
 }
 
 #[tokio::test]
-async fn an_outside_request_spade_cant_parse_asks_told_it_cant_be_read_whole() -> Result {
+async fn an_outside_request_spade_cant_parse_is_refused() -> Result {
     let w = world(true, vec![], |_| {
         vec![
             Script::reply("").call(
@@ -1055,17 +1163,12 @@ async fn an_outside_request_spade_cant_parse_asks_told_it_cant_be_read_whole() -
     })
     .await?;
     w.spade.say(&w.conversation, "Run it outside").await?;
-    let events = w
-        .spade
-        .wait_for(&w.conversation, "approval_requested")
-        .await?;
-    // What it would run can't be told from the text: the person decides, told so.
-    assert_eq!(asked(&events), ["c1"]);
-    let request = last_request(&events);
-    assert_eq!(request["stopped"], "incomplete", "{request}");
-    let reason = request["reviewer_reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("couldn't be read whole"), "{reason}");
-    assert!(output(&events, "c1").is_empty(), "it ran");
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty());
+    let said = output(&events, "c1");
+    assert!(said.contains("read"), "{said}");
+    let root = w.home.parent().ok_or("no root")?;
+    assert!(!root.join("outside.txt").exists());
     Ok(())
 }
 

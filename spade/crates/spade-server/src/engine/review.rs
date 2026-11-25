@@ -14,7 +14,7 @@ use spade_core::tools::{Registry, ToolDef};
 use tokio::sync::watch;
 
 use super::Engine;
-use super::autonomy::{TOOK_TOO_LONG, line};
+use super::autonomy::line;
 use super::judge::Judged;
 use super::stream_calls::{ReviewResult, Work};
 use spade_core::autonomy::escalate::Stop;
@@ -26,6 +26,7 @@ pub(super) const CHECKING: &str = "Checking a step";
 /// What the review came to.
 pub(super) enum Reviewed {
     Allow,
+    Refuse(String),
     /// The person decides, with the request's line.
     Escalate(String),
     Stopped,
@@ -47,14 +48,13 @@ pub(super) async fn call(
     launch: spade_core::event::Authorized,
     // What the verdict holds for: a connected app's tool's definition (ADR 0202, amendment 5).
     bound: Option<String>,
+    identity: Option<String>,
+    reuse_review: bool,
+    reuse_person: bool,
     stop: &mut watch::Receiver<bool>,
     work: &mut Work<'_>,
 ) -> Reviewed {
-    if let Some((verdict, reason)) = review::stored(events, &call.id, launch) {
-        return of(verdict, reason);
-    }
     let model = engine.review_model(id);
-
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task) = agent
         .as_ref()
@@ -68,14 +68,86 @@ pub(super) async fn call(
         description: &def.spec.description,
         arguments,
     };
-    let prompt = review::prompt(&case)
-        .session(id)
-        .effort(engine.role_effort(id, spade_core::routing::Role::Review));
+    let effort = engine.role_effort(id, spade_core::routing::Role::Review);
+    let memo = identity.and_then(|identity| {
+        review::second_review_memo_key(
+            arguments,
+            (
+                "second/v1",
+                identity,
+                name,
+                launch,
+                &bound,
+                &model,
+                effort,
+                case.bot,
+                case.task,
+                &case.person,
+                &case.untrusted,
+                case.description,
+            ),
+        )
+    });
+    let prior = memo.as_deref().map_or(review::Prior::Fresh, |key| {
+        review::prior_attempt(events, reply, key)
+    });
+    let unchanged = review::unchanged_events(events, registry);
+    if let Some((verdict, reason)) = review::stored(events, &call.id, launch)
+        && (verdict == Verdict::Refuse
+            || (verdict == Verdict::Allow && review::stored(unchanged, &call.id, launch).is_some())
+            || review::retry_escalation(events, &call.id, memo.as_deref(), prior))
+    {
+        return of(verdict, reason);
+    }
+    if reuse_person && prior == review::Prior::DeniedByPerson {
+        return Reviewed::Refuse("The person declined this action.".to_owned());
+    }
+    let person_allowed = reuse_person
+        && prior == review::Prior::AllowedByPerson
+        && memo.as_deref().is_some_and(|key| {
+            review::prior_attempt(unchanged, reply, key) == review::Prior::AllowedByPerson
+        });
+    if person_allowed
+        || (reuse_review
+            && memo
+                .as_deref()
+                .is_some_and(|key| review::memo_allowed(unchanged, reply, key)))
+    {
+        if work.early() {
+            return Reviewed::Stopped;
+        }
+        return match super::autonomy::record_rule(
+            engine,
+            id,
+            reply,
+            call,
+            name,
+            Verdict::Allow,
+            if person_allowed {
+                "Reused the person's approval from this reply."
+            } else {
+                "Reused a model review from this reply."
+            },
+            bound,
+            launch,
+        ) {
+            Ok(true) => Reviewed::Allow,
+            Ok(false) => Reviewed::Stopped,
+            Err(_) => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
+        };
+    }
+    let refused = if prior == review::Prior::Refused {
+        Verdict::Escalate
+    } else {
+        Verdict::Refuse
+    };
+    let prompt = review::prompt(&case).session(id).effort(effort);
     let reviewed = Event::Known(Known::CallReviewed {
+        memo,
         reply: reply.to_owned(),
         call_id: call.id.clone(),
         name: name.to_owned(),
-        verdict: Verdict::Escalate,
+        verdict: refused,
         reason: String::new(),
         model: model.clone(),
         cost_micros: 0,
@@ -89,7 +161,7 @@ pub(super) async fn call(
         if !early {
             engine.set_status(id, Some(CHECKING.to_owned()));
         }
-        let (verdict, reason, cost) = match super::judge::judge::<Judgment>(
+        let (verdict, reason, cost, judged) = match super::judge::judge::<Judgment>(
             engine,
             id,
             &model,
@@ -106,31 +178,31 @@ pub(super) async fn call(
                     Verdict::Allow => judgment.reason.trim().to_owned(),
                     _ => line(Stop::SecondReview(&judgment.reason)),
                 };
-                (verdict, reason, cost)
+                let verdict = if verdict == Verdict::Escalate {
+                    refused
+                } else {
+                    verdict
+                };
+                (verdict, reason, cost, true)
             }
-            Judged::Failed(why, cost) => (
-                Verdict::Escalate,
-                line(Stop::SecondReviewUndecided(why)),
-                cost,
-            ),
+            Judged::Failed(why, cost) => (Verdict::Refuse, why.to_owned(), cost, false),
             Judged::TimedOut(cost) => (
-                Verdict::Escalate,
-                line(Stop::SecondReviewUndecided(TOOK_TOO_LONG)),
+                Verdict::Refuse,
+                "The review took too long. Retry when the reviewer is available.".to_owned(),
                 cost,
+                false,
             ),
             Judged::Stopped => return None,
         };
         if !early {
             engine.set_status(id, Some(super::roster::THINKING.to_owned()));
         }
-        Some((verdict, reason, cost))
+        Some((verdict, reason, cost, judged))
     };
     match work.review(engine, id, &prompt, reviewed, judge).await {
         ReviewResult::Decided(verdict, reason) => of(verdict, reason),
         ReviewResult::Stopped => Reviewed::Stopped,
-        ReviewResult::Unstored => {
-            Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
-        }
+        ReviewResult::Unstored => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
     }
 }
 
@@ -138,6 +210,7 @@ fn of(verdict: Verdict, reason: String) -> Reviewed {
     match verdict {
         Verdict::Allow => Reviewed::Allow,
         // This review never refuses; a refusal stored for the call is still not a run.
-        Verdict::Escalate | Verdict::Refuse => Reviewed::Escalate(reason),
+        Verdict::Escalate => Reviewed::Escalate(reason),
+        Verdict::Refuse => Reviewed::Refuse(reason),
     }
 }
