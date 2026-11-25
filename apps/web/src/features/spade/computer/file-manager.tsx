@@ -46,7 +46,7 @@ import {
 } from "./editor/spade-editor-registry.ts";
 import { SpadeFileTree, type OpenHow } from "./editor/spade-file-tree.tsx";
 import { PanelFileList } from "./panel-file-list.tsx";
-import type { FilesAt } from "./profile-computer.tsx";
+import type { FilesAt } from "./files-at.ts";
 
 /** Why a change to the bot's files can't be made now: the computer is changing hands. */
 export const notNowToChange = "Files can change once the computer is yours or shared again";

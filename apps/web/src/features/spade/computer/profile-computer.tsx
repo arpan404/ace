@@ -12,16 +12,13 @@ import { BotServices, servicesKey } from "./bot-services.tsx";
 import { BotTerminal } from "./bot-terminal.tsx";
 import { DriveLine } from "./drive-line.tsx";
 import { FileManager } from "./file-manager.tsx";
+import type { FilesAt } from "./files-at.ts";
 import { readServices } from "./services-api.ts";
 import { computerViewNames, computerViews, type ComputerView } from "./panel-place.ts";
 import { SurfacePicture } from "./surface-picture.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
 
-/** Where the file manager is: a folder, and a file in it open. */
-export interface FilesAt {
-  folder: string;
-  file?: string | undefined;
-}
+export type { FilesAt };
 
 /** What Computer shows and where its file manager is, as the route says. */
 export interface ProfileComputerPlace {

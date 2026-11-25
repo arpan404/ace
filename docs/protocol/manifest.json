@@ -6009,8 +6009,8 @@
       "sha256": "c3c6adbec5ebb8904895f4afda5c96203e82a03930d794defffb485fdd41c8b3"
     },
     "schema/SuitPart.json": {
-      "bytes": 2210,
-      "sha256": "bf3b3aec77d0474f2d98d10022d13835a5f0c437972f663dbfc8ab26d66a24bc"
+      "bytes": 2281,
+      "sha256": "f4c5b8273b1dfac10cd279adf50698f6419f9576b9c1479250cc65b8696a7518"
     },
     "schema/SuitProblem.json": {
       "bytes": 734,
@@ -7013,10 +7013,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1424447,
-      "sha256": "69e37030d9c3078de0da55ad513bd6d650f2b7f5cfdf81dc1b4f96b3dfc8328b"
+      "bytes": 1424506,
+      "sha256": "ad9805ecf837a419bc545d732312c8949158bbd0f6bd1d6de1689e2020aacc74"
     }
   },
-  "input": "53558d0059991b69eba5da2280946158ea4bbbe4d010cdd945eaf752f9ed162d",
+  "input": "1827e1889f870dd7fa172530869e0ed5bb31416bf06ec7b411d97273bbe44f87",
   "version": 1
 }
