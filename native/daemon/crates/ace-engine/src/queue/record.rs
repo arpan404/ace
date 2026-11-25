@@ -156,10 +156,9 @@ fn valid_failure(value: &Value) -> bool {
     let Some(map) = value.as_object() else {
         return false;
     };
-    let length = |key: &str| {
-        map.get(key)
-            .and_then(Value::as_str)
-            .map(|text| text.chars().count())
+    let length = |key: &str| match map.get(key) {
+        Some(Value::String(text)) => Some(text.len_utf16()),
+        _ => None,
     };
     matches!(length("title"), Some(1..=256)) && matches!(length("code"), Some(1..=128))
 }
@@ -170,6 +169,22 @@ mod tests {
 
     fn record() -> RecoveryRecord {
         RecoveryRecord::defaults(0)
+    }
+
+    #[test]
+    fn failure_titles_are_limited_to_256_utf16_units() {
+        let with_title = |count| RecoveryRecord {
+            last_failure: Some(
+                ace_json::parse(&format!(
+                    r#"{{"title":"{}","code":"failed"}}"#,
+                    "😀".repeat(count)
+                ))
+                .unwrap(),
+            ),
+            ..record()
+        };
+        assert!(with_title(128).validate().is_ok());
+        assert!(with_title(129).validate().is_err());
     }
 
     #[test]
