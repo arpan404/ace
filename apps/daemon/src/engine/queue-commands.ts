@@ -1,4 +1,4 @@
-import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
+import { admitSteer, aimSteerAtRun, queueSteerSelection } from "./steer-selection.ts";
 import { editedContext } from "./edited-context.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
@@ -62,9 +62,10 @@ export function handleQueue(
         ...(old.type === "thread.send" ? { delivery: p.delivery ?? old.delivery } : {}),
       };
       // A message changed to steer goes in like a fresh steer, its selection split off the same way.
+      // The turn running as the person chooses it is the one they meant: it never cancels a later one.
       const steer = admitSteer(
         dependencies.repo,
-        Command.parse({ ...entry.command, payload }),
+        aimSteerAtRun(dependencies.repo, Command.parse({ ...entry.command, payload }), p.threadId),
         p.threadId,
       );
       const edited = steer.send;

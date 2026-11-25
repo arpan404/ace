@@ -14,7 +14,7 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { admitSteer, fenceSteer, queueSteerSelection } from "./steer-selection.ts";
+import { admitSteer, aimSteerAtRun, fenceSteer, queueSteerSelection } from "./steer-selection.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import {
   ExecutionOptions,
@@ -489,7 +489,8 @@ export function engineHandler(
         const admittedSend = recovery.admit(deliveryCommand, threadId);
         if (!admittedSend) return fail("queue_capacity_exceeded");
         // After the default delivery is resolved: an omitted one may have become a steer.
-        const resolved = fenceSteer(repo, admittedSend, threadId);
+        const aimed = aimSteerAtRun(repo, admittedSend, threadId);
+        const resolved = fenceSteer(repo, aimed, threadId);
         const steer = admitSteer(repo, resolved, threadId);
         const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn

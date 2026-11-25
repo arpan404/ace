@@ -30,6 +30,21 @@ export function fenceSteer(repo: EngineRepository, command: Command, id: ThreadI
 }
 
 /**
+ * Aims a fresh steer at the turn running as the person sends it, or chooses a waiting message to
+ * steer in (or at nothing, `null`, when no turn runs). That turn is the one the person meant to
+ * steer into: once it ends, the message queues as the next one instead of cancelling a later turn
+ * they never saw.
+ */
+export function aimSteerAtRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.delivery !== "steer" || p.runId !== undefined) return command;
+  const state = repo.state(id);
+  if (!state) return command;
+  const runId = state.agents[state.rootKey ?? ""]?.activeRun ?? null;
+  return Command.parse({ ...command, payload: { ...p, runId } });
+}
+
+/**
  * Whether what a steer's sender saw no longer holds: the root run it named isn't the active one,
  * or (`null`, it saw none) a root run is active now.
  */
