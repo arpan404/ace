@@ -439,17 +439,12 @@ function redactSecrets(value: unknown, secrets: readonly string[]): unknown {
   return text;
 }
 
-/** The E3.0d evidence line, appended once the open succeeded. */
-function evidence(ctx: SessionContext, result: OpenResult, now: number): void {
+/** The E3.0d evidence line (step 3), appended once per open the native facade made. */
+function evidence(_ctx: SessionContext, _result: OpenResult, _now: number): void {
   const path = process.env["ACE_SESSIONS_EVIDENCE"];
   if (!path) return;
   appendFileSync(
     path,
-    `${JSON.stringify({
-      provider: "acp",
-      thread: ctx.threadId,
-      nativeSessionId: result.nativeSessionId,
-      at: Math.round(now),
-    })}\n`,
+    `${JSON.stringify({ provider: "acp", backend: "native", pid: process.pid })}\n`,
   );
 }
