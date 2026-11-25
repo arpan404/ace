@@ -27,6 +27,9 @@ pub enum PortError {
     /// The owning item has not bound this port yet.
     #[error("engine port {0} is not bound")]
     Unbound(&'static str),
+    /// A JavaScript error the binding classified as SQLite's.
+    #[error("{0}")]
+    Sqlite(String),
 }
 
 /// One armed timer: its key (to cancel it) and the receiver that resolves when it fires.

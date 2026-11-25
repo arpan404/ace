@@ -211,6 +211,15 @@ impl JsPorts {
         }
     }
 
+    /// Any function-reference port call, for the modules that hold their own function refs.
+    pub fn call_port<A, R>(&self, function: &FunctionRef<A, R>, args: A) -> Result<R, PortError>
+    where
+        A: napi::bindgen_prelude::JsValuesTupleIntoVec,
+        R: FromNapiValue,
+    {
+        self.call(function, args)
+    }
+
     fn env(&self) -> Result<Env, PortError> {
         self.env.get().ok_or(PortError::NoEnv)
     }

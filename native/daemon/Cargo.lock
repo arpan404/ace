@@ -176,12 +176,14 @@ dependencies = [
  "ace-json",
  "ace-store",
  "async-task",
+ "base64 0.22.1",
  "concurrent-queue",
  "futures",
  "indexmap 2.14.2",
  "lru",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror",
 ]
 

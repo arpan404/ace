@@ -12,6 +12,8 @@ import { Engine, type EngineOptions } from "../engine/index.ts";
 import { ManualClock } from "../engine/test-support.ts";
 import { Store } from "../store.ts";
 import { NativeEngine, type NativeEngineHandle } from "./engine.ts";
+import { FrameTable, actorContext, type ActorContext } from "./actor.ts";
+import type { Translator } from "@ace/engine-api";
 
 export interface ProbeTurns {
   turns: number[];
@@ -55,7 +57,8 @@ export interface EngineProbe {
     port: string,
     portPromise?: () => Promise<unknown>,
   ): void;
-  attachSession(): Promise<never>;
+  /** E5.2's scripted session: its context, its abort count, its retirement and its log. */
+  attachSession(threadId: string, spec: AttachSpec): Promise<ProbeSession>;
   /** The labels scripted tasks marked, in order. */
   marks(): string[];
   /** The flush depth and how many actor seals flushes have asked for. */
@@ -72,6 +75,45 @@ export interface EngineProbe {
   timerCount(): number;
   /** The transaction shell's bookkeeping: open frames, top aliases and released lists. */
   stackEntries(): { frames: number; released: number };
+}
+
+/** What `attachSession` scripts. */
+export interface AttachSpec {
+  translator: Translator;
+  /** The probe repository's answer to `stream()`. */
+  stream?: "deltas" | "never";
+  generation?: number;
+}
+
+/** What one `apply` did. */
+export interface ProbeApplied {
+  facts: number;
+  frames: number;
+  outermost: boolean;
+  committed: boolean;
+  streamed: boolean;
+  generation: number;
+}
+
+/** The probe's transcript. */
+export interface ProbeActorLog {
+  aborted: number;
+  wakes: number;
+  released: number;
+  diagnostics: unknown[];
+  applied: ProbeApplied[];
+  expired: number[];
+  retired: number[];
+  snapshots: string[];
+  live: unknown[];
+}
+
+/** One scripted session. */
+export interface ProbeSession {
+  context: ActorContext;
+  aborted(): number;
+  retire(): void;
+  log(): ProbeActorLog;
 }
 
 export type ProbeStep =
@@ -149,6 +191,8 @@ function logged(options: Partial<EngineOptions>, clock: ManualClock, log: PortLo
   return {
     ...options,
     clock: clockPort,
+    // The 1 ms batch timer is the same manual clock, so a seam test advances it explicitly.
+    batchScheduler: options.batchScheduler ?? clock,
     onError: (error: unknown) => {
       log.calls.push({ port: "onError", args: [String(error)] });
       (onError ?? (() => {}))(error);
@@ -191,7 +235,7 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
   input.afterOpen?.(store);
   const native = (engine as unknown as NativeEngine).binding;
   if (native === undefined) throw new Error("the engine seam built the TypeScript engine");
-  const probe = probeFor(native);
+  const probe = probeFor(native, new FrameTable(), engine as unknown as NativeEngine, options);
   const seam: EngineSeam = {
     home,
     store,
@@ -239,7 +283,12 @@ function parseTurns(text: string): ProbeTurns {
   };
 }
 
-function probeFor(native: NativeEngineHandle): EngineProbe {
+function probeFor(
+  native: NativeEngineHandle,
+  frames: FrameTable,
+  facade: NativeEngine,
+  options: Partial<EngineOptions>,
+): EngineProbe {
   const required = (name: string) => {
     const member = native[name];
     if (typeof member !== "function")
@@ -339,10 +388,31 @@ function probeFor(native: NativeEngineHandle): EngineProbe {
     setCallback: (callback) => {
       required("probeSetCallback")(callback);
     },
-    async attachSession() {
-      return Promise.resolve().then(() => {
-        required("probeAttachSession")();
-      }) as Promise<never>;
+    async attachSession(threadId, spec) {
+      const attach = required("probeAttachSession") as (
+        thread: string,
+        stream: string | null,
+        generation: number | null,
+      ) => void;
+      const retire = required("probeRetire") as (thread: string) => void;
+      const logOf = required("probeActorLog") as (thread: string) => string;
+      frames.attach(threadId, spec.translator);
+      // The context installs the batch helper, so it comes before the actor starts.
+      const context = actorContext(
+        native,
+        frames,
+        facade,
+        threadId,
+        spec.generation ?? 0,
+        options.limits?.maxFrameBytes ?? 4 * 1024 * 1024,
+      ) as ActorContext;
+      attach(threadId, spec.stream ?? null, spec.generation ?? null);
+      return {
+        context,
+        aborted: () => (JSON.parse(logOf(threadId)) as ProbeActorLog).aborted,
+        retire: () => retire(threadId),
+        log: () => JSON.parse(logOf(threadId)) as ProbeActorLog,
+      };
     },
   };
 }

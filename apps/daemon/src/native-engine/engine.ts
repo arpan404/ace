@@ -17,6 +17,7 @@ import type { ThreadId } from "@ace/protocol";
 import { personCommand } from "../engine/person-command.ts";
 import { AdapterRegistry } from "../engine/registry.ts";
 import { engineBindings, type EngineBindings, type PortHost } from "./ports.ts";
+import { liveStorePort } from "./frames.ts";
 import { openEngineData } from "./open.ts";
 
 /** The store's transaction shell, for Rust-opened transactions. */
@@ -57,6 +58,25 @@ export interface NativeEngineHandle {
   hold?(): void;
   releaseHold?(): void;
   release?(): void;
+  // E5.2's members: the actor, its frames and its flow.
+  liveThreadIds?(): string[];
+  workload?(): string;
+  rootAgent?(threadId: string): string | undefined;
+  actorFrame?(
+    threadId: string,
+    generation: number,
+    handle: number,
+    frame: unknown,
+    isObject: boolean,
+    certified: boolean,
+    bytes: number | null,
+    error: string | null,
+    call: number,
+  ): string;
+  actorPaused?(threadId: string): boolean;
+  actorWait?(threadId: string, call: number): void;
+  attachTranslatorHelper?(helper: (thread: string, request: string) => string): void;
+  attachLiveStore?(hooks: Record<string, unknown>): void;
   [member: string]: unknown;
 }
 
@@ -105,6 +125,7 @@ export class NativeEngine implements EngineSurface {
   private nextCall = 1;
   private holders = 0;
   private stopObserving?: () => void;
+  private stopLiveStore?: () => void;
   private ownershipFence?: Parameters<EngineSurface["bindOwnershipFence"]>[0];
   private commandPolicy?: (command: unknown, accept: () => unknown) => unknown;
   private hostInteractions?: (command: unknown) => unknown;
@@ -182,6 +203,8 @@ export class NativeEngine implements EngineSurface {
     };
     native = database.nativeEngine(bindings, pump);
     this.binding = native;
+    // The engine's live writes go through the connection's one buffer (E5.2 step 16).
+    this.stopLiveStore = liveStorePort(store, native);
     this.readyPromise = new Promise((resolve, reject) => {
       this.readySettled = { resolve, reject };
       this.hold();
@@ -271,12 +294,28 @@ export class NativeEngine implements EngineSurface {
     this.closingFlag = true;
     this.releaseHolder();
     this.stopObserving?.();
+    this.stopLiveStore?.();
     // The terminal cleanup releases the threadsafe function last.
     this.binding.release?.();
   }
 
   ready(): Promise<void> {
     return this.readyPromise;
+  }
+
+  /**
+   * A promise the binding settles by its call id (E5.2's frame acknowledgements): one per batch,
+   * so a 256-frame batch costs one deferred.
+   */
+  frameCall(): { promise: Promise<void>; call: number } {
+    let call = 0;
+    const promise = this.call<void>((id) => {
+      call = id;
+    });
+    // A frame the actor accepts without taking a promise still gets one; close must not see it
+    // as an unhandled rejection.
+    void promise.catch(() => {});
+    return { promise, call };
   }
 
   flush(): Promise<void> {
