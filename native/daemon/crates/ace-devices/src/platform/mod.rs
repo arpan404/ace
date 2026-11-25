@@ -38,7 +38,7 @@ impl Platform {
 }
 
 /// The `DeviceFailure` codes of `@ace/protocol/devices`, in the schema's order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
     SdkMissing,
@@ -83,6 +83,16 @@ impl Code {
     /// A code read back from the catalog, so a typo there fails its test rather than a device call.
     pub fn parse(text: &str) -> Option<Self> {
         ALL.iter().copied().find(|code| code.as_str() == text)
+    }
+}
+
+/// Reads a code from its wire spelling; the protocol's schema does the same before it reaches
+/// a device call.
+impl<'de> Deserialize<'de> for Code {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown device failure code: {text}")))
     }
 }
 

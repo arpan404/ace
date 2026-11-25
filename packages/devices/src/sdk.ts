@@ -106,6 +106,14 @@ export function armEmulatorNote(): DeviceError {
   const word = catalogWord("armEmulatorNote");
   return new DeviceError(word.code, word.message, word.hint);
 }
+/** The injected scheduler in `probeOutput`'s order, when the caller gave one. */
+function probeSchedule(
+  options: SDKOptions,
+): ((run: () => void, ms: number) => () => void) | undefined {
+  const after = options.after;
+  return after ? (run, ms) => after(ms, run) : undefined;
+}
+
 export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
   if (devicePlatformBackend() === "native") return resolveXcodeNatively(options);
   if (options.platform === "win32") throw iosNeedsMac();
@@ -124,9 +132,11 @@ export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string
     );
   let output;
   try {
+    const schedule = probeSchedule(options);
     output = await (options.probe ?? probeOutput)(select, ["-p"], {
       env: options.env,
       maxBytes: 4096,
+      ...(schedule ? { schedule } : {}),
     });
   } catch {
     throw new DeviceError(
@@ -165,9 +175,11 @@ async function resolveXcodeNatively(options: SDKOptions): Promise<{ xcrun: strin
     throw deviceRefusal(deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeToolsRefusal()));
   let output;
   try {
+    const schedule = probeSchedule(options);
     output = await (options.probe ?? probeOutput)(select, ["-p"], {
       env: options.env,
       maxBytes: 4096,
+      ...(schedule ? { schedule } : {}),
     });
   } catch {
     // The probe could not run at all: today's own refusal, distinct from a failing selection.
