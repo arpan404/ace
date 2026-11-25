@@ -304,8 +304,6 @@ function fold(
         else delete state.queueHeld;
         if (fact.stopped && fact.count > 0) state.queueStopped = true;
         else delete state.queueStopped;
-        if (fact.paused && fact.count > 0) state.queuePaused = true;
-        else delete state.queuePaused;
       }
       break;
     }

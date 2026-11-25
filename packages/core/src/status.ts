@@ -38,20 +38,6 @@ function equal(left: unknown, right: unknown): boolean {
 
 type ToolItem = Extract<Item, { type: "tool_call" }>;
 
-/**
- * A turn a steer cancelled reads as working while that steer waits to send: its last run ended
- * interrupted with endedBy "steer", nothing runs, and the engine queue still holds input that will
- * send by itself. Anything that changes that (the steer sending, a Stop, a failed send, a paused
- * queue such as a restart's, a new run) re-derives the status, so there is nothing to clear.
- */
-function steerHandingOver(state: ThreadState, record: AgentRecord): boolean {
-  if (record.activeRun !== undefined) return false;
-  if (state.queueSources.engine === 0) return false;
-  if (state.queueHeld || state.queueStopped || state.queuePaused) return false;
-  const run = record.lastRun === undefined ? undefined : lookup(state.runs, record.lastRun);
-  return run?.state === "interrupted" && run.endedBy === "steer";
-}
-
 /** Unstarted silent children are visible diagnostics, not evidence of live work.
  * Explicit work or a live descendant keeps such an agent relevant to completion.
  */
@@ -298,9 +284,6 @@ function statusResolver(state: ThreadState, now: number) {
     }
 
     if (record.wakeUntil !== undefined && now < record.wakeUntil) {
-      return { state: "working", activity: "starting_turn" };
-    }
-    if (key === state.rootKey && steerHandingOver(state, record)) {
       return { state: "working", activity: "starting_turn" };
     }
     if (record.processSettledStatus) return record.processSettledStatus;

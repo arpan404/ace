@@ -152,19 +152,12 @@ test("a person's ACP steer cancels its target turn and sends the follow-up once"
           ? [event.payload.status.state]
           : [],
       );
-    // Working throughout: while the cancelled turn makes way, the steer is still going in.
+    // Working, then waiting while the cancelled turn makes way, then working on the steer.
     const steered = statuses.slice(
       statuses.indexOf("working"),
       statuses.lastIndexOf("working") + 1,
     );
-    expect(steered).toEqual(["working"]);
-    // Nor does the root agent ever read interrupted on the way.
-    const rootStates = h.store
-      .readEvents({ afterSeq: 0, threadId: id, limit: 10_000 })
-      .flatMap((event) =>
-        event.payload.type === "agent.status" ? [event.payload.status.state] : [],
-      );
-    expect(rootStates).not.toContain("interrupted");
+    expect(steered).toEqual(["working", "waiting", "working"]);
   } finally {
     if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
       h.command({ type: "thread.interrupt", threadId: id, cascade: true });

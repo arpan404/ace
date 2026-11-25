@@ -117,8 +117,6 @@ export interface ThreadState {
   queueHeld?: true;
   /** The engine queue is paused by a Stop: its input waits for the person's Resume. */
   queueStopped?: true;
-  /** The engine queue is paused (a restart, a usage limit): its input sends nothing by itself. */
-  queuePaused?: true;
   hasRun: boolean;
   /** Its work moved to another machine and goes on there (ADR 0191). */
   movedTo?: Extract<ThreadStatus, { state: "moved" }>["to"];

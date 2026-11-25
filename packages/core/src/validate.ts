@@ -111,7 +111,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "process.exited": ["deliberate", "message", "unconfirmed"],
   "process.started": [],
   "thread.moved": ["to"],
-  "queue.changed": ["count", "source", "held", "stopped", "paused"],
+  "queue.changed": ["count", "source", "held", "stopped"],
   tick: [],
 };
 
@@ -379,9 +379,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         optionalBoolean(fact.held) &&
         (fact.held === undefined || fact.source !== "provider") &&
         optionalBoolean(fact.stopped) &&
-        (fact.stopped === undefined || fact.source !== "provider") &&
-        optionalBoolean(fact.paused) &&
-        (fact.paused === undefined || fact.source !== "provider")
+        (fact.stopped === undefined || fact.source !== "provider")
       );
     case "thread.moved":
       return fact.to === null || ThreadStatus.safeParse({ state: "moved", to: fact.to }).success;
