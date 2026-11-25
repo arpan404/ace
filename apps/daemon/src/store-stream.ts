@@ -230,7 +230,31 @@ export class StoreStream {
     if (this.flushing || this.sealed || !this.buffer.size) return;
     this.attempt();
   }
+  /**
+   * The native engine's pumped flush (E5.2 step 16): `run` installs the hook the deadline and
+   * retry timer ask instead of attempting inline, and `undefined` restores the timer.
+   */
+  setEngineFlush(run: (() => void) | undefined): void {
+    this.engineFlush = run;
+  }
+  /**
+   * The attempt the engine's pump task runs: the scheduled path (`scheduled()`), never `flush()`,
+   * so a pinned batch still retries instead of waiting on itself.
+   */
+  runScheduled(): void {
+    this.scheduledNow();
+  }
+  private engineFlush: (() => void) | undefined;
   private scheduled(): void {
+    // With a native engine attached the attempt belongs to its pump, never this timer callback.
+    const engine = this.engineFlush;
+    if (engine !== undefined) {
+      engine();
+      return;
+    }
+    this.scheduledNow();
+  }
+  private scheduledNow(): void {
     if (this.options.blocked()) {
       // Maintenance or history publication holds writes; they drain the buffer when done.
       this.buffer.rearm();

@@ -35,6 +35,7 @@ pub mod recovery;
 pub mod release;
 pub mod repository;
 pub mod restart;
+pub mod runtime;
 pub mod sessions;
 pub mod settle;
 pub mod snapshot;
@@ -114,6 +115,10 @@ struct Sink {
 impl transaction::AfterCommitSink for Sink {
     fn release(&self, tokens: Vec<u64>) {
         self.after.release(&tokens);
+    }
+
+    fn release_runs(&self, tokens: Vec<u64>) -> Vec<u64> {
+        self.after.release_runs(&tokens)
     }
 
     fn drop_tokens(&self, tokens: Vec<u64>) {
@@ -269,6 +274,12 @@ impl NativeDatabase {
             bindings
                 .get_named_property("bufferLiveWrite")
                 .map_err(|_| napi::Error::from_reason("bufferLiveWrite is missing"))?,
+            bindings
+                .get_named_property("frameCall")
+                .map_err(|_| napi::Error::from_reason("frameCall is missing"))?,
+            bindings
+                .get_named_property("releaseFrames")
+                .map_err(|_| napi::Error::from_reason("releaseFrames is missing"))?,
             bindings
                 .get_named_property("settleCall")
                 .map_err(|_| napi::Error::from_reason("settleCall is missing"))?,

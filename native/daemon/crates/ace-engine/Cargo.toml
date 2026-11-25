@@ -12,6 +12,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The probe hooks the seam tests drive: a forced open transaction, and the actor-probe seams.
+engine-probe = []
+
 [dependencies]
 # ace-store: the engine reads and writes its tables through the store's connection and transaction stack, in Rust once E5 lands.
 ace-store = { path = "../ace-store" }

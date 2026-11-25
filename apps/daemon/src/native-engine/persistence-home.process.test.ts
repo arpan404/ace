@@ -145,8 +145,31 @@ describe.runIf(native)("engine persistence across modes", () => {
         expect(after.records.map((row) => row["key"])).toContain(`native-${id}`);
         expect(Number(after.header?.seq)).toBe(seam.store.headSeq());
       }
-      // The long thread's appended text still reads back through the engine.
-      expect(seam.engine.hasState(long as never)).toBe(true);
+      // The long thread's text reads back through the native engine: one more append continues
+      // the stored patches.
+      seam.probe.apply(
+        long,
+        [
+          { type: "item.delta", agent: "root", item: "long", field: "text", append: "!" },
+          { type: "turn.ended", agent: "root", outcome: "completed" },
+        ],
+        10_000,
+      );
+      const longAfter = engineRows(seam.store, long);
+      const afterText =
+        (
+          (
+            JSON.parse(String(longAfter.records.find((row) => row["key"] === "long")?.value)) as Row
+          )["parts"] as { type: string; text: string }[] | undefined
+        )
+          ?.map((part) => part.text)
+          .join("") ?? "";
+      const afterPatches = longAfter.appends
+        .filter((row) => row["key"] === "long")
+        .map((row) => (JSON.parse(String(row["patch"])) as { text: string }).text)
+        .join("");
+      expect(afterText.length + afterPatches.length).toBeGreaterThan(32_768);
+      expect(afterPatches.endsWith("!")).toBe(true);
     } finally {
       await seam.close();
     }

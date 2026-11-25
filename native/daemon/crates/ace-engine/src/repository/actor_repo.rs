@@ -56,7 +56,8 @@ impl ActorRepo for EngineRepo {
         now: f64,
         generation: u64,
     ) -> Result<(), EngineError> {
-        core.with_state(|state| state.actor_apply(&core.store, thread, facts, now, generation))?
+        let json = ace_json::to_string(&Value::Array(facts.to_vec().into()));
+        core.apply(thread, &json, now, Some(generation as f64))
     }
 
     fn deadline(

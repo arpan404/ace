@@ -161,23 +161,24 @@ pub fn attachment_echo(
             }
         }
     }
-    let mut sanitize = |key: &str, value: &JsString| -> JsString {
+    let mut sanitize = |key: &str, value: &JsString| -> Result<JsString, EngineError> {
         let hash = match key {
             "path" => path_hash(value),
             "url" | "uri" => path_hash(value).or_else(|| image_hash(value)),
             "data" => image_hash(value),
             _ => None,
         };
-        match find(hash, lookup, &mut verified, &mut found) {
-            Ok(Some(attachment)) => match text_field(&attachment, "sha256") {
+        // A busy lookup is retried by the fold: swallowing it would echo the original path.
+        match find(hash, lookup, &mut verified, &mut found)? {
+            Some(attachment) => match text_field(&attachment, "sha256") {
                 Some(sha256) => {
                     let mut id = JsString::from("attachment:");
                     id.push_js(sha256);
-                    id
+                    Ok(id)
                 }
-                None => value.clone(),
+                None => Ok(value.clone()),
             },
-            _ => value.clone(),
+            None => Ok(value.clone()),
         }
     };
     let raw = match field(&draft, "raw") {
@@ -188,8 +189,10 @@ pub fn attachment_echo(
                     out.push(entry.clone());
                     continue;
                 }
-                let data =
-                    attachment_payload(field(entry, "data").unwrap_or(&Value::Null), &mut sanitize);
+                let data = attachment_payload(
+                    field(entry, "data").unwrap_or(&Value::Null),
+                    &mut sanitize,
+                )?;
                 let mut copy = match entry.clone() {
                     Value::Object(map) => map,
                     other => {

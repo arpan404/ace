@@ -130,6 +130,39 @@ impl Snapshot {
         Ok(())
     }
 
+    /// Load the run a fact's native turn id names, so a replayed `turn.started` finds it and does
+    /// not create a duplicate active run (`runs.rs:89`).
+    pub fn hydrate_native_run(&mut self, agent: &str, native_id: &str) -> Result<(), EngineError> {
+        let key = match self.state.agents.get(agent) {
+            Some(_) => agent.to_owned(),
+            None => match self.state.indexes.agent_keys_by_id.get(agent) {
+                Some(key) => key.clone(),
+                None => return Ok(()),
+            },
+        };
+        if !self.state.agents.contains_key(&key)
+            && let Some(record) = self.agents.read(&key)?
+        {
+            self.state.agents.insert(key.clone(), record);
+        }
+        let run_id = self
+            .state
+            .agents
+            .get(&key)
+            .and_then(|record| record.native_runs.as_ref())
+            .and_then(|runs| runs.get(native_id))
+            .cloned();
+        let Some(run_id) = run_id else {
+            return Ok(());
+        };
+        if !self.state.runs.contains_key(&run_id)
+            && let Some(run) = self.runs.read(&run_id)?
+        {
+            self.state.runs.insert(run_id, run);
+        }
+        Ok(())
+    }
+
     /// Copy the state's current values for the keys a batch touched into their sections, which
     /// is what the TypeScript's record proxies see as the fold mutates them in place. A value
     /// fetched for writing but left unchanged writes nothing (persist compares the base JSON).

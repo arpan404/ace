@@ -155,7 +155,7 @@ export class Store {
   private settlements: { at: number; outcome: TransactionOutcome }[] = [];
   private readonly quarantineListeners = new Set<(thread: ThreadId, error: Error) => void>();
   private rolledBack = 0;
-  private readonly streaming: StoreStream;
+  readonly streaming: StoreStream;
   private readonly sequences: SequenceAllocator;
   private readonly readCache: ThreadReadCache;
   /** Each published event's JSON, made once and shared by the live buffer and the server. */

@@ -30,12 +30,67 @@ fn keep_unknown_fields(encoded: &str, base: &str) -> String {
     ace_json::to_string(&Value::Object(merged))
 }
 
+/// Fields of the record types this build writes (`ace-core`'s `AgentRecord`, `Item` and
+/// `ToolCall`). A field here that the typed form omitted was cleared by the fold, so the old
+/// value must not come back; anything else is a newer build's field and is kept, at any depth.
+const KNOWN_FIELDS: [&str; 46] = [
+    "agent",
+    "activity",
+    "lastSignalAt",
+    "parentKey",
+    "spawnedByKey",
+    "appended",
+    "completionRelevant",
+    "nativeRuns",
+    "activeRun",
+    "lastRun",
+    "lastOutcomeOrder",
+    "lastSuccessfulOutcomeOrder",
+    "externalStatus",
+    "lastError",
+    "processSettledStatus",
+    "detail",
+    "disconnectedAt",
+    "retry",
+    "wakeUntil",
+    "limited",
+    "id",
+    "threadId",
+    "agentId",
+    "runId",
+    "createdAt",
+    "nativeId",
+    "complete",
+    "type",
+    "role",
+    "parts",
+    "text",
+    "call",
+    "level",
+    "commandId",
+    "interactionId",
+    "code",
+    "title",
+    "source",
+    "diagnostic",
+    "asked",
+    "details",
+    "measurement",
+    "raw",
+    "visualization",
+    "backgroundTaskId",
+    "error",
+];
+
 /// Copy every field the typed form does not know, at any depth of objects: a tool record's
-/// unknown field inside `call` survives the rewrite too. Arrays are left as the typed form has
-/// them.
+/// unknown field inside `call` survives the rewrite too. A known field the fold cleared stays
+/// cleared. Arrays are left as the typed form has them.
 fn merge_unknown(typed: &mut ace_json::Map, original: &ace_json::Map) -> bool {
     let mut added = false;
     for (key, value) in original {
+        if KNOWN_FIELDS.contains(&key.as_str()) && !typed.contains_key(key) {
+            continue;
+        }
         match typed.get_mut(key) {
             None => {
                 typed.insert(key.clone(), value.clone());

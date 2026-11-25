@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Frame intake and batching (`actor.ts:303`–`:352`). A batch's boundary is the firing instant:
+//! Frame intake and batching (`actor.ts:303`-`:352`). A batch's boundary is the firing instant:
 //! every synchronous entry first runs `catch_up`, so whichever timer fired seals before the next
 //! frame lands.
 
@@ -19,6 +19,8 @@ pub struct FrameInput {
     pub envelope: Envelope,
     pub channel_sdk: bool,
     pub measure: Measure,
+    /// A native session's acknowledgement: its read gate fails when the batch rejects.
+    pub native_ack: Option<oneshot::Sender<Result<(), String>>>,
 }
 
 /// How the caller measured the frame.
@@ -33,7 +35,8 @@ pub enum Measure {
 pub enum Ack {
     Done,
     Rejected(String),
-    Batch,
+    /// The frame joined the open batch; its JavaScript acknowledgement's call id, when it has one.
+    Batch(Option<u64>),
     AfterFlush(oneshot::Receiver<()>),
 }
 
@@ -65,14 +68,10 @@ pub fn catch_up(core: &Rc<Core>, thread: &ThreadId) {
 }
 
 /// `frame()`: the checks and the batch join, in `actor.ts:303`'s order.
-pub fn frame(
-    core: &Rc<Core>,
-    thread: &ThreadId,
-    generation: u64,
-    input: FrameInput,
-    js_ack: Option<u64>,
-) -> Ack {
+pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameInput) -> Ack {
     catch_up(core, thread);
+    let mut input = input;
+    let mut native_ack = input.native_ack.take();
     let state = core.with_state(|state| {
         state.actors.by_thread.get(thread).map(|actor| {
             (
@@ -84,21 +83,31 @@ pub fn frame(
         })
     });
     let Ok(Some((stopped, current, poisoned, overflowed))) = state else {
+        // A native session's acknowledgement resolves: the frame was dropped, not failed.
+        if let Some(sender) = native_ack.take() {
+            let _ = sender.send(Ok(()));
+        }
         return Ack::Done;
     };
     if stopped || generation != current {
+        if let Some(sender) = native_ack.take() {
+            let _ = sender.send(Ok(()));
+        }
         return Ack::Done;
     }
     if poisoned {
+        refuse(native_ack.take(), "Provider frame failed to commit");
         return Ack::Rejected("Provider frame failed to commit".to_string());
     }
     if let Some(field) = envelope_error(&input.envelope) {
         let message = format!("Provider frame envelope is malformed: {field}");
+        refuse(native_ack.take(), "Provider frame failed to commit");
         enqueue_failure(core, thread, message);
         return Ack::AfterFlush(after_flush(core, thread));
     }
     let certified = matches!(&input.measure, Measure::Certified { .. });
     if input.channel_sdk && !certified {
+        refuse(native_ack.take(), "Provider frame failed to commit");
         enqueue_failure(
             core,
             thread,
@@ -110,18 +119,37 @@ pub fn frame(
     let bytes = match input.measure {
         Measure::Certified { bytes } => bytes + 512,
         Measure::Bounded(Err(message)) => {
+            refuse(native_ack.take(), "Provider frame failed to commit");
             enqueue_failure(core, thread, message);
             return Ack::AfterFlush(after_flush(core, thread));
         }
         Measure::Bounded(Ok(bytes)) => bytes,
     };
     if bytes as u64 > limits.max_frame_bytes {
+        refuse(native_ack.take(), "Provider frame failed to commit");
         enqueue_failure(core, thread, "Provider frame capacity exceeded".to_string());
         return Ack::AfterFlush(after_flush(core, thread));
     }
     if overflowed {
+        refuse(native_ack.take(), "Provider frame failed to commit");
         return Ack::Rejected("Provider mailbox capacity exceeded".to_string());
     }
+    // One promise per batch: the binding allocates it when this frame opens a batch, never per
+    // frame, and a joined frame carries none of its own.
+    let opens_batch = core
+        .with_state(|state| {
+            state
+                .actors
+                .by_thread
+                .get(thread)
+                .is_some_and(|actor| actor.pending_ack.is_none())
+        })
+        .unwrap_or(false);
+    let js_ack = if opens_batch {
+        core.actor_deps.borrow().clone().acks.alloc()
+    } else {
+        None
+    };
     let decision = core
         .with_state(|state| {
             let limits = state.limits;
@@ -134,14 +162,16 @@ pub fn frame(
             actor.pending_bytes += bytes;
             flow::update_pressure(actor, &limits);
             let ack = actor.pending_ack.get_or_insert_with(BatchAck::default);
+            if let Some(sender) = native_ack {
+                ack.native.push(sender);
+            }
             let joined = if ack.js.is_none() {
                 ack.js = js_ack;
                 false
             } else {
-                // This frame joined a batch whose promise is already open; its own is settled
-                // at once, and the caller returns the batch's.
                 true
             };
+            let batch_call = actor.pending_ack.as_ref().and_then(|ack| ack.js);
             Some((
                 state.flush_depth > 0
                     || actor.queued + actor.pending.len() >= limits.max_queued_frames as usize
@@ -149,24 +179,46 @@ pub fn frame(
                     || actor.pending.len() >= 256
                     || actor.pending_bytes >= 262_144,
                 joined,
+                batch_call,
             ))
         })
         .ok()
         .flatten();
-    let (seal_now, joined) = decision.unwrap_or((false, false));
+    let (seal_now, joined, batch_call) = decision.unwrap_or((false, false, None));
     if joined {
-        // This frame joined a batch whose promise is already open: its own resolves at once, and
-        // the caller returns the batch's.
+        // A promise allocated for a frame that turned out to join an existing batch (a port the
+        // allocation called re-entered and opened one) settles at once; the caller returns the
+        // batch's.
         if let Some(call) = js_ack {
-            let deps = core.actor_deps.borrow().clone();
-            deps.acks.settle(call, None);
+            core.actor_deps.borrow().clone().acks.settle(call, None);
         }
     }
     arm_batch_timer(core, thread);
     if seal_now {
         seal(core, thread);
     }
-    Ack::Batch
+    Ack::Batch(batch_call)
+}
+
+/// Releases the shell's frame objects a batch will never translate.
+pub(crate) fn release_handles(core: &Core, frames: &[Pending]) {
+    let handles: Vec<u32> = frames
+        .iter()
+        .filter_map(|pending| match &pending.frame {
+            FrameRef::Js { handle, .. } => Some(*handle),
+            FrameRef::Native(_) => None,
+        })
+        .collect();
+    if !handles.is_empty() {
+        core.actor_deps.borrow().clone().acks.release(&handles);
+    }
+}
+
+/// A native session's acknowledgement for a frame that never became a batch: its gate fails.
+fn refuse(ack: Option<oneshot::Sender<Result<(), String>>>, message: &str) {
+    if let Some(sender) = ack {
+        let _ = sender.send(Err(message.to_string()));
+    }
 }
 
 /// A frame the actor must refuse visibly: the failing op, then the flush its promise waits on.
@@ -261,6 +313,8 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
         })
         .unwrap_or(true);
     if refused {
+        // The batch never translates, so the shell's frame objects are released with it.
+        release_handles(core, &op.frames);
         push_settle(core, thread, op.ack);
         return;
     }
@@ -277,6 +331,7 @@ fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
         .flatten()
         .unwrap_or(true);
     if over {
+        release_handles(core, &op.frames);
         core.with_state(|state| {
             if let Some(actor) = state.actors.by_thread.get_mut(thread) {
                 actor.overflowed = true;

@@ -311,3 +311,129 @@ mod memory_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod reload_fix_tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn a_turn_started_in_one_fold_and_ended_in_the_next_does_not_stay_active() {
+        // The agent encoder omits `activeRun` when it is None; the stored row must not get the
+        // old value back from the base JSON, or a reloaded thread shows as working.
+        let conn = home("toggle", &header("toggle"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        state
+            .apply(
+                &store,
+                "toggle",
+                r#"[{"type":"turn.started","agent":"root","trigger":"user","nativeTurnId":"turn-1"}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        state
+            .apply(
+                &store,
+                "toggle",
+                r#"[{"type":"turn.ended","agent":"root","nativeTurnId":"turn-1","outcome":"interrupted"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        drop(state);
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        let snapshot = after.repo.require_state(&store, "toggle").unwrap();
+        let record = snapshot
+            .borrow_mut()
+            .agents
+            .read("root")
+            .unwrap()
+            .expect("the root agent");
+        assert!(
+            record.active_run.is_none(),
+            "the ended turn left no active run"
+        );
+        let borrowed = snapshot.borrow();
+        assert!(
+            !matches!(
+                borrowed.state.status,
+                ace_core::status::ThreadStatus::Working { .. }
+            ),
+            "the reloaded thread is not working"
+        );
+    }
+
+    #[test]
+    fn a_thought_streaming_when_its_batch_commits_closes_on_the_next_turn_end() {
+        // Same snapshot, no restart: the committed batch leaves the thought in its section, and
+        // the end names no item, so the fold must load what the live index names itself.
+        let conn = home("opennext", &header("opennext"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        state
+            .apply(
+                &store,
+                "opennext",
+                r#"[{"type":"turn.started","agent":"root","nativeTurnId":"t1","trigger":"user"},{"type":"item.delta","agent":"root","item":"thought","field":"reasoning","append":"Re"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        state
+            .apply(
+                &store,
+                "opennext",
+                r#"[{"type":"turn.ended","agent":"root","nativeTurnId":"t1","outcome":"interrupted"}]"#,
+                3.0,
+                None,
+            )
+            .unwrap();
+        let snapshot = state.repo.require_state(&store, "opennext").unwrap();
+        let item = snapshot
+            .borrow_mut()
+            .items
+            .read("thought")
+            .unwrap()
+            .expect("the thought");
+        assert!(item.complete(), "the ended turn closed the thought");
+        assert!(snapshot.borrow().state.indexes.open_text.is_empty());
+    }
+
+    #[test]
+    fn a_replayed_native_turn_does_not_open_a_second_run() {
+        // The run a native turn id names loads on demand, so a replay is recognised as known.
+        let conn = home("replay", &header("replay"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        let start =
+            r#"[{"type":"turn.started","agent":"root","trigger":"user","nativeTurnId":"turn-1"}]"#;
+        state.apply(&store, "replay", start, 1.0, None).unwrap();
+        state
+            .apply(
+                &store,
+                "replay",
+                r#"[{"type":"turn.ended","agent":"root","nativeTurnId":"turn-1","outcome":"completed"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        // The provider replays the older turn's start after it ended.
+        state.apply(&store, "replay", start, 3.0, None).unwrap();
+        let snapshot = state.repo.require_state(&store, "replay").unwrap();
+        let borrowed = snapshot.borrow();
+        assert_eq!(borrowed.state.runs.len(), 1, "the replayed turn is known");
+        assert!(
+            !matches!(
+                borrowed.state.status,
+                ace_core::status::ThreadStatus::Working { .. }
+            ),
+            "a replay does not leave a duplicate active run"
+        );
+    }
+}

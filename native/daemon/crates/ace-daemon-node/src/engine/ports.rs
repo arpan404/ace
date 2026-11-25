@@ -119,6 +119,8 @@ pub struct JsPorts {
     cap_raw: FunctionRef<FnArgs<(String, String)>, String>,
     prepare_live_write: FunctionRef<f64, ()>,
     buffer_live_write: FunctionRef<FnArgs<(String, String, f64, f64)>, ()>,
+    frame_call: FunctionRef<(), f64>,
+    release_frames: FunctionRef<String, ()>,
     settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
     reject_pending: FunctionRef<(), ()>,
     finish_close: FunctionRef<(), ()>,
@@ -162,6 +164,8 @@ impl JsPorts {
         cap_raw: FunctionRef<FnArgs<(String, String)>, String>,
         prepare_live_write: FunctionRef<f64, ()>,
         buffer_live_write: FunctionRef<FnArgs<(String, String, f64, f64)>, ()>,
+        frame_call: FunctionRef<(), f64>,
+        release_frames: FunctionRef<String, ()>,
         settle_call: FunctionRef<FnArgs<(f64, Option<String>)>, ()>,
         reject_pending: FunctionRef<(), ()>,
         finish_close: FunctionRef<(), ()>,
@@ -191,6 +195,8 @@ impl JsPorts {
             cap_raw,
             prepare_live_write,
             buffer_live_write,
+            frame_call,
+            release_frames,
             settle_call,
             reject_pending,
             finish_close,
@@ -520,6 +526,14 @@ impl Ports for JsPorts {
                 data: (thread.to_owned(), events_json.to_owned(), at, token as f64),
             },
         )
+    }
+
+    fn frame_call(&self) -> Option<u64> {
+        self.call(&self.frame_call, ()).ok().map(|call| call as u64)
+    }
+
+    fn release_frames(&self, handles: &str) {
+        let _ = self.call(&self.release_frames, handles.to_string());
     }
 
     fn settle_call(&self, call: u64, error: Option<String>) {

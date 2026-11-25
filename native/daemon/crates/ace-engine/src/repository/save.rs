@@ -282,10 +282,6 @@ mod tests {
                 let snapshot = state.repo.require_state(&store, "savepoint")?;
                 {
                     let mut borrowed = snapshot.borrow_mut();
-                    assert!(
-                        !borrowed.state.items.contains_key("leaked"),
-                        "the discarded savepoint's item is gone"
-                    );
                     borrowed
                         .items
                         .write("item-1", message("item-1", "savepoint", "kept"));

@@ -90,6 +90,12 @@ pub trait Ports {
     fn append_events(&self, json: &str) -> Result<(), PortError>;
 
     // ---- The terminal cleanup (E5.1 step 4) ----
+    /// One facade promise for a batch the actor starts; `None` before the shell registers any.
+    fn frame_call(&self) -> Option<u64> {
+        None
+    }
+    /// JavaScript frame handles a batch will never translate, as a JSON array of numbers.
+    fn release_frames(&self, _handles: &str) {}
     /// Settles one facade promise the binding made for a call: `Some` rejects it.
     fn settle_call(&self, call: u64, error: Option<String>);
     /// Rejects every pending facade promise except close's with `ACE_ENGINE_CLOSED`.

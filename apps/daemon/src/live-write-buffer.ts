@@ -5,6 +5,8 @@ import { EventEncodings } from "./event-encodings.ts";
 export interface BufferedSnapshot {
   persist(): void;
   committed(): void;
+  /** The batch was replaced or dropped without storing it: release what the snapshot holds. */
+  discarded?(): void;
 }
 export interface BufferScheduler {
   delay(callback: () => void, ms: number): () => void;
@@ -135,6 +137,9 @@ export class LiveWriteBuffer implements LiveBuffer {
    * applied in memory, so refusing them here would make a mailbox retry apply them twice; the
    * stream() size guard bounds the overshoot and full() drains it at once. */
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
+    // One snapshot per thread: the batch's rows carry the thread's header, so a newer append
+    // replaces the older one and releases what it held.
+    this.snapshots.get(thread)?.discarded?.();
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
       // One encoding sizes both the weight and the metric.
@@ -170,6 +175,7 @@ export class LiveWriteBuffer implements LiveBuffer {
   }
   /** Quarantine: forget a thread's events and snapshot without storing them. */
   discard(thread: ThreadId): void {
+    this.snapshots.get(thread)?.discarded?.();
     this.remove([thread]);
   }
   /** A failed attempt keeps the batch pinned and schedules the next one; returns its delay. */

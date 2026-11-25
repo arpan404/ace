@@ -99,6 +99,7 @@ fn read_entry(entry: &Value) -> TranslatedFrame {
     TranslatedFrame {
         facts,
         diagnostics,
-        data: map.get("data").cloned(),
+        frame: map.get("frame").cloned(),
+        usage_account: map.get("usageAccount").cloned(),
     }
 }

@@ -184,7 +184,7 @@ try {
   } else {
     throw new Error(`unknown mode ${mode}`);
   }
-  if (errors.length) process.stderr.write(`engine errors ${JSON.stringify(errors.map(String))}\n`);
+  if (errors.length) throw new Error(`engine errors ${JSON.stringify(errors.map(String))}`);
 } finally {
   await engine.close().catch(() => {});
   await store.close();

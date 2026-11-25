@@ -82,6 +82,19 @@ impl State {
             // core folds onto the stored records, then hand the changes back in `save`.
             let named = crate::snapshot::touched::Touched::values(&facts, &[]);
             snapshot.borrow_mut().hydrate(&named)?;
+            // A native turn id names a stored run: a replay of `turn.started` must find it.
+            let turns: Vec<(String, String)> = facts
+                .iter()
+                .filter_map(|fact| {
+                    Some((
+                        text_field(fact, "agent")?.to_owned(),
+                        text_field(fact, "nativeTurnId")?.to_owned(),
+                    ))
+                })
+                .collect();
+            for (agent, native) in turns {
+                snapshot.borrow_mut().hydrate_native_run(&agent, &native)?;
+            }
         }
         let replayed = if opening {
             self.fork_replay_source(id)?

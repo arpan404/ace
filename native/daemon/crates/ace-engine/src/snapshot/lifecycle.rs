@@ -9,6 +9,25 @@ impl Snapshot {
     pub fn begin(&mut self) {
         self.items.begin();
         self.agents.begin();
+        // The core's closers look up the keys the live indexes name (`open_text_keys`,
+        // `cancel_open_work`), and only the sections can load them: an open thought or a running
+        // tool must be resident when a batch ends it, even if that batch names no item.
+        let keys: Vec<String> = self
+            .state
+            .indexes
+            .open_text
+            .keys()
+            .chain(self.state.indexes.live_tools.keys())
+            .cloned()
+            .collect();
+        for key in keys {
+            if self.state.items.contains_key(&key) {
+                continue;
+            }
+            if let Ok(Some(item)) = self.items.read(&key) {
+                self.state.items.insert(key, item);
+            }
+        }
     }
 
     /// Persist every touched section (`:285`). Agent serialization may register another section.
