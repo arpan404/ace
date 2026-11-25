@@ -19,6 +19,14 @@ pub enum SupervisorError {
     /// The inventory is full (4,096 rows), or a launch exceeds the kernel's limits.
     #[error("process limit reached: {0}")]
     Limit(String),
+    /// The OS refused to spawn a process. `code` is node's errno name (ENOENT,
+    /// EACCES, ENOTDIR), so a shell can report the failure as node does without
+    /// guessing it from the message.
+    #[error("spawn failed: {message}")]
+    SpawnFailed {
+        code: Option<&'static str>,
+        message: String,
+    },
     /// The handle is closed; the process it owned is gone from supervision.
     #[error("supervision handle is closed")]
     Closed,
