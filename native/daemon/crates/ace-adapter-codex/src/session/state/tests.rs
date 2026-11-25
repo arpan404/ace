@@ -488,6 +488,28 @@ fn an_outgoing_frame_over_the_bound_is_left_out_without_retiring_the_session() {
 }
 
 #[test]
+fn a_refused_frame_reports_the_hosts_reason_before_the_transport_fails() {
+    let mut session = session();
+    let effects = session.failed("Provider payload exceeds byte limit");
+    let Effect::Frame { dir, text, .. } = &effects[0] else {
+        panic!("the refusal is reported first");
+    };
+    assert_eq!(*dir, FrameDir::Stderr);
+    assert_eq!(text, "\"Provider payload exceeds byte limit\"");
+    assert!(effects.contains(&Effect::Cleanup));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Detach {
+            reason: super::super::host::Retirement::RpcFailed,
+            ..
+        } | Effect::Retire {
+            reason: super::super::host::Retirement::RpcFailed,
+        }
+    )));
+    assert!(session.is_closed() || effects.contains(&Effect::Cleanup));
+}
+
+#[test]
 fn a_frame_over_the_bound_retires_the_channel_instead_of_publishing_it() {
     let mut session = session();
     let padding = "x".repeat(super::super::frames::MAX_PAYLOAD_BYTES);
