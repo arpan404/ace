@@ -2,8 +2,8 @@ import Foundation
 
 /// One file's edit in the iPad editor, kept apart from the view showing it.
 struct EditorDraft: Equatable, Sendable {
-    /// The version the edit began from: saving over anything newer asks first.
-    var base: String?
+    /// The exact machine snapshot the edit began from, even if the tab moves.
+    var base: FileContent
     /// The text typed so far, once the editor that held it went away; nil while it is on screen.
     var text: String?
     var dirty: Bool
@@ -24,13 +24,13 @@ struct EditorDrafts: Equatable, Sendable {
     var unsaved: Set<String> { Set(drafts.filter(\.value.dirty).keys) }
 
     /// Editing began, or the editor came back to a file already being edited (whose base stays).
-    mutating func begin(_ path: String, base: String?) {
+    mutating func begin(_ path: String, base: FileContent) {
         if drafts[path] == nil { drafts[path] = EditorDraft(base: base, text: nil, dirty: false) }
     }
 
     /// The text now differs from the file (or no longer does). An editor that came back to a
     /// file whose clean draft was dropped meanwhile starts it again from `base`.
-    mutating func mark(_ path: String, dirty: Bool, base: String?) {
+    mutating func mark(_ path: String, dirty: Bool, base: FileContent) {
         if drafts[path] == nil {
             if dirty { drafts[path] = EditorDraft(base: base, text: nil, dirty: true) }
         } else {
@@ -42,6 +42,11 @@ struct EditorDrafts: Equatable, Sendable {
     mutating func left(_ path: String, text: String) {
         guard let draft = drafts[path] else { return }
         if draft.dirty { drafts[path]?.text = text } else { drafts[path] = nil }
+    }
+
+    /// A merge or a save moved the base to a known version on the machine.
+    mutating func rebase(_ path: String, onto base: FileContent, text: String) {
+        drafts[path] = EditorDraft(base: base, text: text, dirty: !text.utf8.elementsEqual((base.text ?? "").utf8))
     }
 
     /// Saved, or the changes discarded.

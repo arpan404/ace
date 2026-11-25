@@ -1,12 +1,18 @@
+import Foundation
 import Testing
 @testable import Ace
 
 @Suite struct EditorDraftsTests {
+    private func file(_ version: String = "v1", text: String = "original") -> FileContent {
+        FileContent(kind: "text", size: text.utf8.count, version: version, text: text,
+                    data: nil, markdown: false, editable: true, language: "swift", marks: [])
+    }
+
     /// `a.swift` being edited from version v1, with "typed" as its text once its editor went away.
     private func edited(_ path: String = "a.swift") -> EditorDrafts {
         var drafts = EditorDrafts()
-        drafts.begin(path, base: "v1")
-        drafts.mark(path, dirty: true, base: "v1")
+        drafts.begin(path, base: file())
+        drafts.mark(path, dirty: true, base: file())
         return drafts
     }
 
@@ -18,7 +24,7 @@ import Testing
         // a.swift's editor goes away as it moves; the one in the other group picks the draft up.
         layout.move("a.swift", to: layout.groups[1].id)
         drafts.left("a.swift", text: "typed")
-        #expect(drafts["a.swift"] == EditorDraft(base: "v1", text: "typed", dirty: true))
+        #expect(drafts["a.swift"] == EditorDraft(base: file(), text: "typed", dirty: true))
         #expect(layout.groups[1].active == "a.swift")
         #expect(drafts.editing)
     }
@@ -39,7 +45,7 @@ import Testing
 
     @Test func closingAnEditedFileWaitsForThePersonWhileCleanOnesCloseAtOnce() {
         var drafts = edited()
-        drafts.begin("b.swift", base: "v1")
+        drafts.begin("b.swift", base: file())
         let closing = drafts.closing(["a.swift", "b.swift", "c.swift"])
         #expect(closing.now == ["b.swift", "c.swift"])
         #expect(closing.ask == ["a.swift"])
@@ -60,7 +66,7 @@ import Testing
 
     @Test func anEditThatChangedNothingIsDroppedWhenItsEditorGoes() {
         var drafts = EditorDrafts()
-        drafts.begin("a.swift", base: "v1")
+        drafts.begin("a.swift", base: file())
         drafts.left("a.swift", text: "same")
         #expect(drafts["a.swift"] == nil)
         #expect(!drafts.editing)
@@ -68,21 +74,36 @@ import Testing
 
     @Test func anEditorThatCameBackToADroppedCleanDraftStartsItAgainOnceTypedInto() {
         var drafts = EditorDrafts()
-        drafts.begin("a.swift", base: "v1")
+        drafts.begin("a.swift", base: file())
         // The old editor goes after the new one appeared, unchanged: its draft is dropped.
         drafts.left("a.swift", text: "same")
-        drafts.mark("a.swift", dirty: true, base: "v1")
-        #expect(drafts["a.swift"] == EditorDraft(base: "v1", text: nil, dirty: true))
+        drafts.mark("a.swift", dirty: true, base: file())
+        #expect(drafts["a.swift"] == EditorDraft(base: file(), text: nil, dirty: true))
         // Turning clean again on a file with no draft makes none.
-        drafts.mark("b.swift", dirty: false, base: "v1")
+        drafts.mark("b.swift", dirty: false, base: file())
         #expect(drafts["b.swift"] == nil)
     }
 
     @Test func anEditKeepsTheVersionItBeganFrom() {
         var drafts = edited()
         // Beginning again (the editor came back) doesn't move the base to a newer version.
-        drafts.begin("a.swift", base: "v2")
-        #expect(drafts["a.swift"]?.base == "v1")
+        drafts.begin("a.swift", base: file("v2", text: "changed on the machine"))
+        #expect(drafts["a.swift"]?.base == file())
+    }
+
+    @Test func anAcceptedMergeKeepsItsTextAndNewBaseWhenTheEditorMoves() throws {
+        let path = "a.swift"
+        var drafts = edited(path)
+        drafts.left(path, text: "my draft")
+        let disk = file("v2", text: "machine")
+        let merged = "my draft and machine"
+        drafts.rebase(path, onto: disk, text: merged)
+        drafts.left(path, text: merged)
+        let draft = try #require(drafts[path])
+        #expect(draft.base.version == "v2")
+        #expect(draft.base.text == "machine")
+        #expect(draft.text == merged)
+        #expect(drafts.unsaved == [path])
     }
 
     @Test func savingOrDiscardingEndsTheDraft() {
@@ -100,5 +121,19 @@ import Testing
         #expect(drafts["a.swift"] == nil)
         #expect(drafts["src/a.swift"]?.dirty == true)
         #expect(drafts.unsaved == ["src/a.swift"])
+    }
+
+    @Test func aMergeRequiresAnAnswerForEachOverlapAndPreservesChosenTextExactly() throws {
+        let reply = #"""
+        {"disk":{"kind":"text","version":"v2","text":"disk"},
+         "chunks":[{"kind":"clean","text":"head\r\n"},
+                   {"kind":"conflict","base":"base","mine":"mine\r\n","theirs":"disk\r\n"},
+                   {"kind":"clean","text":"middle\r\n"},
+                   {"kind":"conflict","base":"base","mine":"draft","theirs":""}]}
+        """#
+        let review = try JSONDecoder().decode(FileMerge.self, from: Data(reply.utf8))
+        #expect(review.resolved([1: .mine]) == nil)
+        #expect(review.resolved([1: .mine, 3: .theirs]) == "head\r\nmine\r\nmiddle\r\n")
+        #expect(review.resolved([1: .theirs, 3: .mine]) == "head\r\ndisk\r\nmiddle\r\ndraft")
     }
 }

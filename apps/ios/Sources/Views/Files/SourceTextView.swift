@@ -23,6 +23,7 @@ struct SourceDocument: Equatable {
     weak var view: UITextView?
     func find() { view?.findInteraction?.presentFindNavigator(showingReplace: view?.isEditable == true) }
     var text: String { view?.text ?? "" }
+    var documentKey: String? { (view?.delegate as? SourceTextView.Coordinator)?.key }
     func markSaved(_ text: String) -> Bool {
         let dirty = !self.text.utf8.elementsEqual(text.utf8)
         (view?.delegate as? SourceTextView.Coordinator)?.rebase(to: text, dirty: dirty)
@@ -84,6 +85,7 @@ struct SourceTextView: UIViewRepresentable {
 
     static func dismantleUIView(_ view: SourceContainer, coordinator: Coordinator) {
         if view.text.isEditable { coordinator.parent.left?(view.text.text) }
+        if coordinator.parent.handle.view === view.text { coordinator.parent.handle.view = nil }
     }
 
     func updateUIView(_ view: SourceContainer, context: Context) {

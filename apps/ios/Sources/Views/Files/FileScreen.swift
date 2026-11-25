@@ -21,6 +21,7 @@ struct FileScreen: View {
     /// The editor group this file shows in (`EditorGroups`); nil for a file opened on its own.
     var slot: EditorSlot?
     @Environment(\.dismiss) var dismiss
+    @Environment(\.scenePhase) var scenePhase
     @AppStorage(EditorPreferences.wordWrapKey) var wrap = false
     @AppStorage(EditorPreferences.fontSizeKey) var fontSize = EditorPreferences.defaultFontSize
     @AppStorage(EditorPreferences.lineSpacingKey) var lineSpacing = EditorPreferences.defaultLineSpacing
@@ -43,7 +44,15 @@ struct FileScreen: View {
     /// has stopped it until the person saves by hand.
     @State var autoSaveTask: Task<Void, Never>?
     @State var autoSave = EditorAutoSave()
+    /// What auto save last wrote while the editor stayed open: the version later writes go over
+    /// and the base a merge starts from. Kept apart from `content` so the text being typed in
+    /// isn't reloaded; nil once the editor reloads onto a version (Save, Merge, stopping).
+    @State var autoSaved: FileContent?
+    /// Text to show when Save or Merge moves the edit onto a new base.
+    @State var rebasedText: String?
     @State var conflict: String?
+    @State var conflictTask: Task<Void, Never>?
+    @State var conflictReview: FileConflictReview?
     @State var problem: String?
     @State var confirmDiscard = false
     @State var share: SharedFile?
@@ -56,8 +65,6 @@ struct FileScreen: View {
     @State var actions: FileActions
     @State var goingToLine = false
     @State var shownFolder: String?
-    /// The version this edit began from: a save over anything newer asks first.
-    @State var base: String?
     /// A note being written on the selected code (`Annotations+FileScreen.swift`).
     @State var noting: NoteDraft?
     @Environment(\.codeNotesHandOff) var handOffNotes
@@ -76,7 +83,7 @@ struct FileScreen: View {
         if let draft = slot?.draft() {
             _editing = State(initialValue: true)
             _dirty = State(initialValue: draft.dirty)
-            _base = State(initialValue: draft.base)
+            _content = State(initialValue: draft.base)
         }
         _actions = State(initialValue: FileActions(model: model, scope: scope))
     }
@@ -89,6 +96,7 @@ struct FileScreen: View {
     /// The source view is on screen, so Find and Go to line reach it.
     var showsSource: Bool { text != nil && !markdownPreview && !inParts && (editing || text?.isEmpty == false) }
     var hasChanges: Bool { scope.changes && (target.changed || !(content?.marks ?? []).isEmpty) }
+    var conflictBusy: Bool { conflictTask != nil }
 
     var body: some View {
         main
@@ -106,6 +114,7 @@ struct FileScreen: View {
             .sheet(isPresented: $showChanges) {
                 ChangesSheet(model: model, title: threadTitle, initial: path).presentationDetents([.large]).presentationDragIndicator(.visible)
             }
+            .sheet(item: $conflictReview) { review in showConflict(review) }
             .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Discard changes", role: .destructive) { stopEditing() }
                 Button("Keep editing", role: .cancel) {}
@@ -123,18 +132,14 @@ struct FileScreen: View {
                 FilesScreen(model: model, scope: scope, subtitle: threadTitle, mention: mention, folder: folder)
             }
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
-            .onDisappear { autoSaveTask?.cancel(); autoSaveTask = nil }
+            .onDisappear { autoSaveTask?.cancel(); autoSaveTask = nil; cancelConflictRead() }
             .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
-            .onChange(of: editing) { _, now in
-                if now {
-                    if base == nil { base = content?.version }
-                    slot?.began(base)
-                } else {
-                    base = nil
-                    slot?.ended()
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background, editing, dirty, let content,
+                   handle.documentKey == documentKey(content, carried: carriedText), let view = handle.view {
+                    slot?.left(view.text)
                 }
             }
-            .onChange(of: dirty) { _, now in if editing { slot?.dirtied(now, base) } }
     }
 
     /// The switcher picked another open file: show it here, as a tab switch would.
@@ -202,20 +207,28 @@ struct FileScreen: View {
             }
             .accessibilityIdentifier("preview.markdown")
         } else {
-            // A draft an earlier editor of this file left, shown over the file as saved.
-            let carried = editing ? slot?.draft()?.text : nil
-            SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)|\(carried == nil ? "" : "draft")",
+            let carried = carriedText
+            let session = editSession
+            SourceTextView(document: SourceDocument(key: documentKey(content, carried: carried),
                                                     text: carried ?? text, language: content.language,
                                                     marks: content.markedLines, original: carried == nil ? nil : text, file: path),
                            wrap: wrap, editable: editing, preferences: editorPreferences,
-                           line: target.line, handle: handle, dirty: { dirty = $0 }, typed: typedInEditor,
+                           line: target.line, handle: handle, dirty: markDirty, typed: typedInEditor,
                            selected: mention == nil ? nil : { selectedLines = $0 },
                            mention: mention == nil ? nil : { mentionSelection($0) },
-                           left: slot?.left, touched: slot?.focus,
+                           left: { body in
+                               // A rebased draft is already in the store while TextKit loads it.
+                               if editSession == session { slot?.left(body) }
+                           }, touched: slot?.focus,
                            annotate: noteThread == nil ? nil : { annotate($0) }, notes: noteMarks,
                            edited: noteEdited, loaded: noteLoaded)
                 .ignoresSafeArea(.container, edges: .bottom)
         }
+    }
+
+    private var carriedText: String? { editing ? rebasedText ?? slot?.draft()?.text : nil }
+    private func documentKey(_ content: FileContent, carried: String?) -> String {
+        "\(path)|\(content.version ?? "")|\(editSession)|\(carried == nil ? "" : "draft")"
     }
 
     /// While lines are selected, one glass capsule over the text says what Mention puts in the
@@ -246,8 +259,7 @@ struct FileScreen: View {
 
     @ViewBuilder var strip: some View {
         if let conflict {
-            FilesStripView(message: "\(name) changed since you opened it. Replace it?",
-                           action: ("Replace", { save(over: conflict) }), secondary: ("Keep editing", { self.conflict = nil }), dismiss: nil)
+            conflictStrip(conflict)
         } else if let problem {
             FilesStripView(message: problem, dismiss: { self.problem = nil })
         }
@@ -261,27 +273,54 @@ struct FileScreen: View {
     }
 
     func load() async {
-        // While editing the file stays as it was opened, except for a draft carried over unread.
-        guard !editing || content == nil else { return }
+        guard !editing else { return }
+        let loadingPath = path
         do {
-            let next = try await model.files(scope, ["op": "read", "path": path], as: FileContent.self)
+            let next = try await model.files(scope, ["op": "read", "path": loadingPath], as: FileContent.self)
+            guard !Task.isCancelled, !editing, path == loadingPath else { return }
             image = next.kind == "image" ? next.data.flatMap { Data(base64Encoded: $0) }.flatMap(UIImage.init(data:)) : nil
             content = next
             failure = nil
         } catch is CancellationError {
         } catch {
-            if content == nil { failure = error.localizedDescription }
+            if path == loadingPath, content == nil { failure = error.localizedDescription }
         }
+    }
+
+    func startEditing() {
+        guard let content else { return }
+        slot?.began(content)
+        editing = true
+    }
+
+    func markDirty(_ now: Bool) {
+        guard editing, let content else { return }
+        dirty = now
+        slot?.dirtied(now, content)
     }
 
     func stopEditing() {
         autoSaveTask?.cancel()
         autoSaveTask = nil
+        autoSaved = nil
+        slot?.ended()
         editing = false
         dirty = false
         conflict = nil
         problem = nil
-        // The text view reloads the file as it was opened.
+        rebasedText = nil
+        editSession += 1
+    }
+
+    /// Replace the visible editor text while retaining it as a draft against a known disk version.
+    func rebaseEdit(onto disk: FileContent, text: String) {
+        slot?.rebased(disk, text)
+        rebasedText = text
+        content = disk
+        autoSaved = nil
+        dirty = !text.utf8.elementsEqual((disk.text ?? "").utf8)
+        conflict = nil
+        problem = nil
         editSession += 1
         // Auto save may have written while editing: show the file as it now is on the machine.
         Task { await load() }
@@ -318,19 +357,27 @@ struct FileScreen: View {
     func writeByItself() async {
         // Auto save may have been turned off since this write was armed.
         guard EditorAutoSaveMode(rawValue: autoSaveMode) == .pause else { return }
-        // Never while the person is being asked whether to throw the changes away.
-        guard editing, dirty, !saving, !confirmDiscard, conflict == nil, let expected = base ?? content?.version else { return }
+        // Never while the person is being asked whether to throw the changes away, or while a
+        // conflict is being read or shown.
+        guard editing, dirty, !saving, !confirmDiscard, !conflictBusy, conflict == nil, let content,
+              let expected = autoSaved?.version ?? content.version else { return }
         saving = true
         let typed = handle.text
         do {
             let result = try await model.files(scope, ["op": "write", "path": path, "text": typed, "expected": expected], as: FileChange.self)
             if let newer = result.conflict {
+                // Someone else changed the file: stop and offer Compare and Merge, as Save does.
                 autoSave.failed()
                 saving = false
                 conflict = newer
                 return
             }
-            if let version = result.version { base = version }
+            if let version = result.version {
+                let saved = content.saved(text: typed, version: version)
+                autoSaved = saved
+                // Another pane picking this file up starts from what's now on the machine.
+                slot?.rebased(saved, typed)
+            }
             dirty = handle.markSaved(typed)
         } catch {
             autoSave.failed()
@@ -345,23 +392,34 @@ struct FileScreen: View {
 
     /// Save over the version that was opened, or over `newer` once the person chose Replace.
     func save(over newer: String? = nil) {
-        guard let expected = newer ?? base ?? content?.version, !saving else { return }
+        guard let content, let expected = newer ?? autoSaved?.version ?? content.version, !saving, !conflictBusy,
+              handle.documentKey == documentKey(content, carried: carriedText),
+              let view = handle.view else { return }
         autoSaveTask?.cancel()
         autoSaveTask = nil
+        let savingPath = path
+        let typed = view.text ?? ""
         saving = true
         conflict = nil
         problem = nil
-        let typed = handle.text
         Task {
             defer { saving = false }
             do {
-                let result = try await model.files(scope, ["op": "write", "path": path, "text": typed, "expected": expected], as: FileChange.self)
+                let result = try await model.files(scope, ["op": "write", "path": savingPath, "text": typed, "expected": expected], as: FileChange.self)
+                guard editing, path == savingPath, handle.view != nil else { return }
                 if let newer = result.conflict { conflict = newer; return }
                 // The person saved the file themselves: auto save may write it again.
                 autoSave.savedByHand()
-                editing = false
-                dirty = false
-                await load()
+                guard let version = result.version else { return }
+                let saved = content.saved(text: typed, version: version)
+                let now = handle.text
+                if now.utf8.elementsEqual(typed.utf8) {
+                    self.content = saved
+                    stopEditing()
+                    await load()
+                } else {
+                    rebaseEdit(onto: saved, text: now)
+                }
             } catch {
                 problem = error.localizedDescription
             }

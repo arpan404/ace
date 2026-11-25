@@ -22,10 +22,12 @@ struct EditorSlot {
     let split: Split?
     /// The file's draft, read when it is drawn: an earlier editor of it may have just gone.
     let draft: () -> EditorDraft?
-    /// Editing began from this version.
-    let began: (String?) -> Void
-    /// The text changed from the file (or back), in an edit that began from this version.
-    let dirtied: (Bool, String?) -> Void
+    /// Editing began from this snapshot.
+    let began: (FileContent) -> Void
+    /// The text changed from the file (or back).
+    let dirtied: (Bool, FileContent) -> Void
+    /// Save or merge moved the draft onto a new machine snapshot.
+    let rebased: (FileContent, String) -> Void
     /// The editor went with this text in it.
     let left: (String) -> Void
     /// Saved or discarded.
@@ -153,6 +155,7 @@ struct EditorGroups: View {
                           draft: { store.drafts[path] },
                           began: { base in store.drafts.begin(path, base: base) },
                           dirtied: { dirty, base in store.drafts.mark(path, dirty: dirty, base: base) },
+                          rebased: { base, text in store.drafts.rebase(path, onto: base, text: text) },
                           left: { text in store.drafts.left(path, text: text) },
                           ended: { store.drafts.end(path) },
                           pick: { picked in change { $0.open(picked) } },

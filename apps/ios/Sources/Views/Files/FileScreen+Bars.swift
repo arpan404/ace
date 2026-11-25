@@ -27,7 +27,7 @@ extension FileScreen {
             Button("Find in file", ace: .magnifyingGlass) { handle.find() }.accessibilityIdentifier("file.find")
         }
         if canEdit {
-            Button("Edit", ace: .pencilSimple) { editing = true }.accessibilityIdentifier("file.edit")
+            Button("Edit", ace: .pencilSimple, action: startEditing).accessibilityIdentifier("file.edit")
         } else if canEditParts, content?.kind == "text" {
             // Over 1 MB: shown in parts, each with its own Edit.
             Button(inParts ? "Done" : "Edit in parts", ace: inParts ? .check : .pencilSimple) { inParts.toggle() }
@@ -106,7 +106,7 @@ extension FileScreen {
             autoSaveTask?.cancel()
             autoSaveTask = nil
             if dirty { confirmDiscard = true } else { stopEditing() }
-        }.disabled(saving)
+        }.disabled(saving || conflictBusy)
             .accessibilityIdentifier("file.cancel")
     }
     var editingLabel: some View {
@@ -115,7 +115,7 @@ extension FileScreen {
     }
     var findWhileEditing: some View { Button("Find", ace: .magnifyingGlass) { handle.find() } }
     var saveButton: some View {
-        Button(saving ? "Saving…" : "Save") { save() }.fontWeight(.semibold).disabled(!dirty || saving)
+        Button(saving ? "Saving…" : "Save") { save() }.fontWeight(.semibold).disabled(!dirty || saving || conflictBusy)
             .accessibilityIdentifier("file.save")
     }
 }
