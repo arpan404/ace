@@ -33,24 +33,86 @@ pub(super) fn run(name: &str, shared: bool) -> HostRun {
     HostRun::start(Scratch::new(name), config, CODEX_ELISION, None)
 }
 
-/// What the shell does with a host's effects: acknowledge every write, which
-/// hands out the next line, and keep the rest in order with the lines sent.
-pub(super) fn pump(host: &Host, effects: Vec<HostEffect>) -> (Vec<HostEffect>, Vec<String>) {
-    let mut queue: std::collections::VecDeque<HostEffect> = effects.into();
-    let mut rest = Vec::new();
-    let mut lines = Vec::new();
-    while let Some(effect) = queue.pop_front() {
-        match effect {
-            HostEffect::Write { wire, ticket } => {
-                if let Ok(text) = std::str::from_utf8(&wire) {
-                    lines.push(text.trim_end().to_owned());
-                }
-                queue.extend(host.written(ticket));
-            }
-            other => rest.push(other),
+/// A sink for a host with no child: it keeps the effects the host published,
+/// in the order it published them, so a case can read them back.
+struct LogSink {
+    log: Arc<std::sync::Mutex<Vec<HostEffect>>>,
+}
+
+impl HostSink for LogSink {
+    fn effect(&self, _host: &Host, effect: HostEffect) {
+        self.log
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(effect);
+    }
+}
+
+/// A host with no child and the effects it published, so a case drives one
+/// input at a time and reads exactly what it published.
+pub(super) struct Shell {
+    pub host: Arc<Host>,
+    log: Arc<std::sync::Mutex<Vec<HostEffect>>>,
+    /// How far into the log the shell has read: every effect is read once, in
+    /// the order the host published it.
+    read: std::sync::Mutex<usize>,
+}
+
+impl std::ops::Deref for Shell {
+    type Target = Host;
+
+    fn deref(&self) -> &Host {
+        &self.host
+    }
+}
+
+impl Shell {
+    /// A host with no child, whose effects the shell keeps in order.
+    pub(super) fn start(config: HostConfig) -> Shell {
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let host = Arc::new(Host::new(config));
+        host.set_sink(Arc::new(LogSink {
+            log: Arc::clone(&log),
+        }));
+        Shell {
+            host,
+            log,
+            read: std::sync::Mutex::new(0),
         }
     }
-    (rest, lines)
+
+    /// What the shell does with a host's effects: acknowledge every write,
+    /// which hands out the next line, and keep the rest in order with the
+    /// lines sent. Returns the other effects and the lines written.
+    pub(super) fn pump(&self, run: impl FnOnce()) -> (Vec<HostEffect>, Vec<String>) {
+        let mut cursor = *self.read.lock().unwrap_or_else(|error| error.into_inner());
+        run();
+        let mut rest = Vec::new();
+        let mut lines = Vec::new();
+        while let Some(effect) = self.at(cursor) {
+            cursor += 1;
+            match effect {
+                HostEffect::Write { wire, ticket } => {
+                    if let Ok(text) = std::str::from_utf8(&wire) {
+                        lines.push(text.trim_end().to_owned());
+                    }
+                    self.host.written(ticket);
+                }
+                other => rest.push(other),
+            }
+        }
+        let mut read = self.read.lock().unwrap_or_else(|error| error.into_inner());
+        *read = (*read).max(cursor);
+        (rest, lines)
+    }
+
+    fn at(&self, index: usize) -> Option<HostEffect> {
+        self.log
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(index)
+            .cloned()
+    }
 }
 
 /// The id of the line written for `method`, optionally for `thread`.
@@ -97,8 +159,8 @@ pub(super) fn line_ids(lines: &[String], method: &str) -> Vec<RpcId> {
 
 /// A host with no child whose handshake completed: every effect stays with
 /// the caller, so the order of settlements and exits is exactly what the host
-/// queued.
-pub(super) fn bare(shared: bool) -> Host {
+/// published.
+pub(super) fn bare(shared: bool) -> Shell {
     let config = if shared {
         HostConfig::shared(initialize(), 60_000.0)
     } else {
@@ -108,15 +170,16 @@ pub(super) fn bare(shared: bool) -> Host {
 }
 
 /// A host with no child over the given config, its handshake completed.
-pub(super) fn bare_with(config: HostConfig) -> Host {
-    let (host, initial) = Host::new(config);
-    let (_, lines) = pump(&host, initial);
+pub(super) fn bare_with(config: HostConfig) -> Shell {
+    let shell = Shell::start(config);
+    let (_, lines) = shell.pump(|| {});
     let id = line_id(&lines, "initialize", None).expect("the handshake was sent");
-    let (_, _) = pump(
-        &host,
-        host.line(&reply(&id, ace_json::json!({"userAgent": "fake"}))),
-    );
-    host
+    let (_, _) = shell.pump(|| {
+        shell
+            .host
+            .line(&reply(&id, ace_json::json!({"userAgent": "fake"})));
+    });
+    shell
 }
 
 /// One frame as the app-server would write it.
@@ -193,9 +256,8 @@ pub(super) fn seen_for(
 }
 
 /// Claims `thread` for `tenant` on a host with no child.
-pub(super) fn claim_thread(host: &Host, tenant: u64, thread: &str) {
-    let (_, lines) = pump(
-        host,
+pub(super) fn claim_thread(host: &Shell, tenant: u64, thread: &str) {
+    let (_, lines) = host.pump(|| {
         host.request(
             tenant,
             "thread/resume",
@@ -203,29 +265,27 @@ pub(super) fn claim_thread(host: &Host, tenant: u64, thread: &str) {
             tenant,
             Timeout::Default,
         )
-        .expect("the open is queued"),
-    );
+        .expect("the open is queued");
+    });
     let opening = line_id(&lines, "thread/resume", Some(thread)).expect("the open's id");
-    let _ = pump(
-        host,
+    let _ = host.pump(|| {
         host.line(&reply(
             &opening,
             ace_json::json!({"thread": {"id": thread}}),
-        )),
-    );
+        ));
+    });
 }
 
 /// Claims `thread` and records a running turn for it, so a close interrupts.
-pub(super) fn busy_thread(host: &Host, tenant: u64, thread: &str) {
+pub(super) fn busy_thread(host: &Shell, tenant: u64, thread: &str) {
     claim_thread(host, tenant, thread);
-    let _ = pump(
-        host,
+    let _ = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "turn/started",
             "params": {"threadId": thread, "turn": {"id": "turn-1"}},
-        }))),
-    );
+        })));
+    });
 }
 
 /// `host.ts:226`–`:234`: shared output pauses while any channel is out of

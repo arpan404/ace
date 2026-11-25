@@ -66,10 +66,10 @@ fn a_crash_settles_every_routed_call_exactly_once() {
     )));
 
     // The pipes' end closes the peer; nothing is settled twice.
-    run.apply(run.host.closed(RawExit {
+    run.host.closed(RawExit {
         code: Some(3),
         signal: None,
-    }));
+    });
     let again = effects(&run)
         .into_iter()
         .filter(|event| matches!(event, Event::Settle { id, .. } if *id == crashing))
@@ -93,7 +93,7 @@ fn a_cancelled_open_exits_the_channel_instead_of_going_ready() {
             shared,
         );
         let _ = run.attach(1);
-        run.apply(run.host.detach(1, Retirement::Aborted, "Opening cancelled"));
+        run.host.detach(1, Retirement::Aborted, "Opening cancelled");
 
         assert!(
             run.events.until(5_000, |event| matches!(
@@ -134,13 +134,12 @@ fn a_leader_death_settles_calls_and_keeps_the_channels_until_the_pipes_end() {
     )
     .expect("a call with no deadline is queued");
 
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.exit(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
@@ -161,14 +160,13 @@ fn a_leader_death_settles_calls_and_keeps_the_channels_until_the_pipes_end() {
     assert!(!host.available());
 
     // A frame written after the leader still reaches its channel.
-    let _ = pump(
-        &host,
+    let _ = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "item/completed",
             "params": {"threadId": "final", "item": {"type": "agentMessage", "id": "m"}},
-        }))),
-    );
+        })))
+    });
     assert_eq!(
         seen_for(&events, 1, "final"),
         1,
@@ -176,13 +174,12 @@ fn a_leader_death_settles_calls_and_keeps_the_channels_until_the_pipes_end() {
     );
 
     host.output_cut();
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.closed(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     let exit = effects
         .iter()
         .find_map(|effect| match effect {
@@ -191,6 +188,185 @@ fn a_leader_death_settles_calls_and_keeps_the_channels_until_the_pipes_end() {
         })
         .expect("the pipe barrier publishes the exit");
     assert!(!exit.output_drained, "a drain the cutoff ended reports it");
+}
+
+/// One settlement a timer decided is published before the exit a pipe close
+/// decides after it, whichever thread reaches the sink first: an input's
+/// effects join the host's publication queue under its lock, so their order is
+/// the order the host decided them (`bridge.rs`'s ordered publication, ADR
+/// 0223 §7 rule 3; `porting-guide.md`'s ordered effect publication).
+#[test]
+fn a_settlement_the_timer_decides_is_published_before_the_close_that_follows_it() {
+    let sink = Arc::new(Holding::default());
+    let host = Arc::new(Host::new(HostConfig::shared(initialize(), 60_000.0)));
+    host.set_sink(Arc::clone(&sink) as Arc<dyn HostSink>);
+    let (_, lines) = sink.pump(&host, || {});
+    let id = line_id(&lines, "initialize", None).expect("the handshake was sent");
+    let _ = sink.pump(&host, || {
+        host.line(&reply(&id, ace_json::json!({"userAgent": "fake"})));
+    });
+    let events = Arc::new(crate::session::harness::Events::default());
+    host.attach(1, Recorder::new(1, Arc::clone(&events)))
+        .expect("the host accepts a channel");
+    let (_, lines) = sink.pump(&host, || {});
+    assert!(
+        line_id(&lines, "initialize", None).is_none() && host.tenant_count() == 1,
+        "the channel is open"
+    );
+
+    // A call with a deadline: firing that deadline settles the call.
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::After(1_000.0),
+    )
+    .expect("the call is queued");
+    let deadline = sink
+        .pump(&host, || {})
+        .0
+        .into_iter()
+        .find_map(|effect| match effect {
+            HostEffect::ArmTimer { key, ms: 1_000.0 } => Some(key),
+            _ => None,
+        })
+        .expect("the call's deadline is armed");
+
+    // The timer fires and the publisher is held inside its settlement, which is
+    // where the old shell applied effects: the pipe close decides next, and its
+    // exit must wait for the settlement already decided.
+    sink.hold_next_settlement();
+    let ticking = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.timer(&deadline))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside the settlement");
+    host.closed(RawExit {
+        code: Some(0),
+        signal: None,
+    });
+    assert!(
+        !sink
+            .published()
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::Exited { .. })),
+        "the close's exit waits for the settlement in flight"
+    );
+    sink.let_go();
+    ticking.join().expect("the timer's input returns");
+
+    let published = sink.published();
+    let settle = published
+        .iter()
+        .position(|effect| matches!(effect, HostEffect::Settle { id: 7, .. }))
+        .expect("the call settles");
+    let exit = published
+        .iter()
+        .position(|effect| matches!(effect, HostEffect::Exited { tenant: 1, .. }))
+        .expect("the channel exits");
+    assert!(
+        settle < exit,
+        "the timer's settlement is published before the close's exit"
+    );
+}
+
+/// A sink that can hold the publisher inside one settlement, and records every
+/// effect in the order it is published.
+#[derive(Default)]
+struct Holding {
+    log: std::sync::Mutex<Vec<HostEffect>>,
+    read: std::sync::Mutex<usize>,
+    hold: std::sync::Mutex<bool>,
+    parked: std::sync::Mutex<bool>,
+    parked_wake: std::sync::Condvar,
+    release: std::sync::Mutex<bool>,
+    released: std::sync::Condvar,
+}
+
+impl Holding {
+    fn published(&self) -> Vec<HostEffect> {
+        self.log.lock().expect("publication log").clone()
+    }
+
+    /// Runs one input, then acknowledges every write it published, as the
+    /// child's stdin would, and returns the rest and the lines written.
+    fn pump(&self, host: &Host, run: impl FnOnce()) -> (Vec<HostEffect>, Vec<String>) {
+        let mut rest = Vec::new();
+        let mut lines = Vec::new();
+        let mut read = self.read.lock().expect("publication read");
+        run();
+        loop {
+            let next = self
+                .log
+                .lock()
+                .expect("publication log")
+                .get(*read)
+                .cloned();
+            let Some(effect) = next else {
+                return (rest, lines);
+            };
+            *read += 1;
+            match effect {
+                HostEffect::Write { wire, ticket } => {
+                    if let Ok(text) = std::str::from_utf8(&wire) {
+                        lines.push(text.trim_end().to_owned());
+                    }
+                    host.written(ticket);
+                }
+                other => rest.push(other),
+            }
+        }
+    }
+
+    fn hold_next_settlement(&self) {
+        *self.hold.lock().expect("hold") = true;
+    }
+
+    fn wait_parked(&self) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut parked = self.parked.lock().expect("parked");
+        loop {
+            if *parked {
+                return true;
+            }
+            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            let (next, _) = self
+                .parked_wake
+                .wait_timeout(parked, left)
+                .expect("parked wait");
+            parked = next;
+        }
+    }
+
+    fn let_go(&self) {
+        *self.release.lock().expect("release") = true;
+        self.released.notify_all();
+    }
+}
+
+impl HostSink for Holding {
+    fn effect(&self, _host: &Host, effect: HostEffect) {
+        let hold = {
+            let mut hold = self.hold.lock().expect("hold");
+            let holding = *hold && matches!(effect, HostEffect::Settle { .. });
+            if holding {
+                *hold = false;
+            }
+            holding
+        };
+        if hold {
+            *self.parked.lock().expect("parked") = true;
+            self.parked_wake.notify_all();
+            let mut released = self.release.lock().expect("release");
+            while !*released {
+                released = self.released.wait(released).expect("release wait");
+            }
+        }
+        self.log.lock().expect("publication log").push(effect);
+    }
 }
 
 /// The pipe barrier publishes settlements before the exit they belong to.
@@ -208,13 +384,12 @@ fn closed_publishes_settlements_before_the_exit() {
     )
     .expect("a call with no deadline is queued");
 
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.closed(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     let settle = effects
         .iter()
         .position(|effect| matches!(effect, HostEffect::Settle { id: 9, .. }))
@@ -236,30 +411,27 @@ fn a_teardown_drops_unresolved_holds_instead_of_broadcasting_them() {
     let _ = host.attach(2, Recorder::new(2, Arc::clone(&events)));
     // Two channels, so an unowned thread is held for its ancestry rather than
     // handed to the only channel.
-    let (_, _) = pump(
-        &host,
+    let (_, _) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "id": "ask-1",
             "method": "mcpServer/elicitation/request",
             "params": {"threadId": "unowned", "serverName": "docs", "mode": "form"},
-        }))),
-    );
+        })))
+    });
 
-    let _ = pump(
-        &host,
+    let _ = host.pump(|| {
         host.exit(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
-    let (effects, _) = pump(
-        &host,
+        })
+    });
+    let (effects, _) = host.pump(|| {
         host.closed(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     assert!(
         effects
             .iter()
@@ -293,8 +465,7 @@ fn a_late_ancestry_reply_never_resolves_a_recreated_hold() {
     let _ = host.attach(2, Recorder::new(2, Arc::clone(&events)));
 
     // Tenant 1 owns "claimed" through an opening request.
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.request(
             1,
             "thread/resume",
@@ -302,32 +473,29 @@ fn a_late_ancestry_reply_never_resolves_a_recreated_hold() {
             1,
             Timeout::Default,
         )
-        .expect("the open is queued"),
-    );
+        .expect("the open is queued")
+    });
     let opening = line_id(&lines, "thread/resume", Some("claimed")).expect("the open's id");
-    let (_, _) = pump(
-        &host,
+    let (_, _) = host.pump(|| {
         host.line(&reply(
             &opening,
             ace_json::json!({"thread": {"id": "claimed"}}),
-        )),
-    );
+        ))
+    });
 
     // An unowned thread waits for its ancestry; its read is never answered.
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "item/completed",
             "params": {"threadId": "t0", "item": {"type": "agentMessage", "id": "m0"}},
-        }))),
-    );
+        })))
+    });
     let first = line_id(&lines, "thread/read", Some("t0")).expect("the first read");
 
     // Evict that hold by filling the table with siblings.
     for index in 1..=65 {
-        let _ = pump(
-            &host,
+        let _ = host.pump(|| {
             host.line(&frame(ace_json::json!({
                 "jsonrpc": "2.0",
                 "method": "item/completed",
@@ -335,31 +503,29 @@ fn a_late_ancestry_reply_never_resolves_a_recreated_hold() {
                     "threadId": format!("t{index}"),
                     "item": {"type": "agentMessage", "id": format!("m{index}")},
                 },
-            }))),
-        );
+            })))
+        });
     }
     // A fresh hold for the same thread, with its own read.
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "item/completed",
             "params": {"threadId": "t0", "item": {"type": "agentMessage", "id": "m0-again"}},
-        }))),
-    );
+        })))
+    });
     let second = line_id(&lines, "thread/read", Some("t0")).expect("the second read");
     assert_ne!(first, second, "a new hold asks its own question");
 
     let before = (seen_for(&events, 1, "t0"), seen_for(&events, 2, "t0"));
     // The old read's answer names an ancestor the first tenant owns. It must
     // not resolve the hold that replaced it.
-    let _ = pump(
-        &host,
+    let _ = host.pump(|| {
         host.line(&reply(
             &first,
             ace_json::json!({"thread": {"id": "t0", "parentThreadId": "claimed"}}),
-        )),
-    );
+        ))
+    });
     let after = (seen_for(&events, 1, "t0"), seen_for(&events, 2, "t0"));
     assert_eq!(after, before, "a late reply never flushes a newer hold");
 }
@@ -374,25 +540,23 @@ fn a_tenant_detaching_during_leader_death_waits_for_the_pipe_barrier() {
     claim_thread(&host, 1, "t");
 
     // The channel leaves with its terminals read and an unsubscribe in flight.
-    let (_, lines) = pump(&host, host.detach(1, Retirement::Idle, "idle"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::Idle, "idle"));
     let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
         .expect("the terminals are read");
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": [], "nextCursor": null}),
-        )),
-    );
+        ))
+    });
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
     // Then the leader dies: the unsubscribe is settled by the teardown.
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.exit(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     assert!(
         !effects
             .iter()
@@ -400,13 +564,12 @@ fn a_tenant_detaching_during_leader_death_waits_for_the_pipe_barrier() {
         "the exit waits for the pipes"
     );
 
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.closed(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     assert_eq!(
         effects
             .iter()
@@ -424,13 +587,12 @@ fn a_late_stop_failure_does_not_undo_the_leaders_drain() {
     let host = bare(true);
     let events = Arc::new(crate::session::harness::Events::default());
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
-    let _ = pump(
-        &host,
+    let _ = host.pump(|| {
         host.exit(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     host.set_paused(1, true);
     host.stop_failed();
     assert!(
@@ -449,48 +611,44 @@ fn a_detaching_tenant_still_receives_its_final_frames() {
     claim_thread(&host, 1, "t");
 
     // The channel leaves with its terminals read and an unsubscribe in flight.
-    let (_, lines) = pump(&host, host.detach(1, Retirement::Idle, "idle"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::Idle, "idle"));
     let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
         .expect("the terminals are read");
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": [], "nextCursor": null}),
-        )),
-    );
+        ))
+    });
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
     // The leader dies: the teardown settles the unsubscribe, and the channel
     // waits for the barrier with its routes.
-    let (_, _) = pump(
-        &host,
+    let (_, _) = host.pump(|| {
         host.exit(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
 
-    let (_, _) = pump(
-        &host,
+    let (_, _) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "item/completed",
             "params": {"threadId": "t", "item": {"type": "agentMessage", "id": "last"}},
-        }))),
-    );
+        })))
+    });
     assert_eq!(
         seen_for(&events, 1, "t"),
         1,
         "the leaving channel still gets its final frames"
     );
 
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.closed(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     assert_eq!(
         effects
             .iter()

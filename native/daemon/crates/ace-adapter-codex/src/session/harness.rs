@@ -23,8 +23,8 @@ use tokio::runtime::Runtime;
 
 use super::app_server::{AppServerConfig, AppServerEffect};
 use super::host::{
-    Admission, ChannelHandlers, Host, HostConfig, HostEffect, HostExit, HostGate, RequestAnswer,
-    Retirement,
+    Admission, ChannelHandlers, Host, HostConfig, HostEffect, HostExit, HostGate, HostSink,
+    RequestAnswer, Retirement,
 };
 use super::lease::{Lease, LeaseEffect, UNLOAD_CLOSED_THREADS};
 
@@ -579,93 +579,98 @@ impl Framing {
     }
 }
 
-/// The host's shell: bytes in, the peer's lines and effects out.
+/// The host's shell: bytes in, the peer's lines out.
 struct HostConsumer {
     host: Arc<Host>,
     events: Arc<Events>,
+    active: Arc<Mutex<Option<u64>>>,
+    stdout: Mutex<Framing>,
+    stderr: Mutex<LineFramer>,
+}
+
+/// What the shell does with the effects the host decided, in the order it
+/// decided them.
+struct HostEffects {
+    events: Arc<Events>,
     ports: Arc<OnceLock<ChildPorts>>,
+    /// The write in flight's ticket, which the shell's `stdin_written` answers.
     active: Arc<Mutex<Option<u64>>>,
     handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>>,
     /// What the shell does when the host asks for the child to stop.
     stop: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync>,
     /// The stop in flight's failure, which a later caller joins.
     stop_failure: Arc<Mutex<Option<String>>>,
-    stdout: Mutex<Framing>,
-    stderr: Mutex<LineFramer>,
 }
 
-impl HostConsumer {
-    fn apply(&self, effects: Vec<HostEffect>) {
-        for effect in effects {
-            match effect {
-                HostEffect::Write { wire, ticket } => {
-                    *self.active.lock().expect("active write") = Some(ticket);
-                    self.events.push(Event::Wrote { bytes: wire.len() });
-                    if let Ok(text) = std::str::from_utf8(&wire) {
-                        self.events.push(Event::Line {
-                            text: text.trim_end().to_owned(),
-                        });
-                    }
-                    if let Some(ports) = self.ports.get() {
-                        let _ = ports.stdin.write(wire);
-                    }
+impl HostSink for HostEffects {
+    fn effect(&self, host: &Host, effect: HostEffect) {
+        match effect {
+            HostEffect::Write { wire, ticket } => {
+                *self.active.lock().expect("active write") = Some(ticket);
+                self.events.push(Event::Wrote { bytes: wire.len() });
+                if let Ok(text) = std::str::from_utf8(&wire) {
+                    self.events.push(Event::Line {
+                        text: text.trim_end().to_owned(),
+                    });
                 }
-                HostEffect::ArmTimer { key, ms } => {
-                    self.events.push(Event::ArmTimer { key, ms });
+                if let Some(ports) = self.ports.get() {
+                    let _ = ports.stdin.write(wire);
                 }
-                HostEffect::CancelTimer { key } => {
-                    self.events.push(Event::CancelTimer { key });
+            }
+            HostEffect::ArmTimer { key, ms } => {
+                self.events.push(Event::ArmTimer { key, ms });
+            }
+            HostEffect::CancelTimer { key } => {
+                self.events.push(Event::CancelTimer { key });
+            }
+            HostEffect::Settle { id, result } => self.events.push(Event::Settle {
+                id,
+                failed: result.is_err(),
+            }),
+            HostEffect::Retire { reason, awaited } => {
+                self.events.push(Event::Retire { reason, awaited });
+                if let Err(message) = (self.stop)(reason, awaited) {
+                    // The shell holds the stop: its failure reaches every
+                    // caller that joins it, and a host that survives takes
+                    // backpressure again.
+                    *self.stop_failure.lock().expect("stop failure") = Some(message.clone());
+                    host.stop_failed();
+                    self.events.push(Event::StopFailed {
+                        reason,
+                        awaited,
+                        message,
+                    });
                 }
-                HostEffect::Settle { id, result } => self.events.push(Event::Settle {
-                    id,
-                    failed: result.is_err(),
-                }),
-                HostEffect::Retire { reason, awaited } => {
-                    self.events.push(Event::Retire { reason, awaited });
-                    if let Err(message) = (self.stop)(reason, awaited) {
-                        // The shell holds the stop: its failure reaches every
-                        // caller that joins it, and a host that survives takes
-                        // backpressure again.
-                        *self.stop_failure.lock().expect("stop failure") = Some(message.clone());
-                        self.host.stop_failed();
-                        self.events.push(Event::StopFailed {
-                            reason,
-                            awaited,
-                            message,
-                        });
-                    }
+            }
+            HostEffect::DetachFailed {
+                tenant,
+                reason,
+                message,
+            } => self.events.push(Event::DetachFailed {
+                tenant,
+                reason,
+                message,
+            }),
+            HostEffect::Retiring { reason } => {
+                let failure = self.stop_failure.lock().expect("stop failure").clone();
+                if let Some(message) = failure {
+                    self.events.push(Event::StopFailed {
+                        reason,
+                        awaited: true,
+                        message,
+                    });
                 }
-                HostEffect::DetachFailed {
-                    tenant,
-                    reason,
-                    message,
-                } => self.events.push(Event::DetachFailed {
-                    tenant,
-                    reason,
-                    message,
-                }),
-                HostEffect::Retiring { reason } => {
-                    let failure = self.stop_failure.lock().expect("stop failure").clone();
-                    if let Some(message) = failure {
-                        self.events.push(Event::StopFailed {
-                            reason,
-                            awaited: true,
-                            message,
-                        });
-                    }
+            }
+            HostEffect::Exited { tenant, exit } => {
+                if let Some(handlers) = self.handlers.lock().expect("tenant handlers").get(&tenant)
+                {
+                    handlers.exited(&exit);
                 }
-                HostEffect::Exited { tenant, exit } => {
-                    if let Some(handlers) =
-                        self.handlers.lock().expect("tenant handlers").get(&tenant)
-                    {
-                        handlers.exited(&exit);
-                    }
-                }
-                HostEffect::Retired => self.events.push(Event::Retired),
-                HostEffect::Opened { tenant } => self.events.push(Event::Ready { tenant }),
-                HostEffect::OpenFailed { tenant, message } => {
-                    self.events.push(Event::OpenFailed { tenant, message });
-                }
+            }
+            HostEffect::Retired => self.events.push(Event::Retired),
+            HostEffect::Opened { tenant } => self.events.push(Event::Ready { tenant }),
+            HostEffect::OpenFailed { tenant, message } => {
+                self.events.push(Event::OpenFailed { tenant, message });
             }
         }
     }
@@ -677,8 +682,7 @@ impl OutputConsumer for HostConsumer {
             OutputStream::Stdout => {
                 let lines = self.stdout.lock().expect("stdout framing").lines(&bytes);
                 for line in lines {
-                    let effects = self.host.line(&line);
-                    self.apply(effects);
+                    self.host.line(&line);
                 }
             }
             OutputStream::Stderr => {
@@ -700,8 +704,7 @@ impl OutputConsumer for HostConsumer {
     fn stdin_written(&self) {
         let ticket = self.active.lock().expect("active write").take();
         if let Some(ticket) = ticket {
-            let effects = self.host.written(ticket);
-            self.apply(effects);
+            self.host.written(ticket);
         }
     }
 
@@ -710,13 +713,11 @@ impl OutputConsumer for HostConsumer {
     }
 
     fn exit(&self, exit: RawExit) {
-        let effects = self.host.exit(exit);
-        self.apply(effects);
+        self.host.exit(exit);
     }
 
     fn close(&self, exit: RawExit) {
-        let effects = self.host.closed(exit);
-        self.apply(effects);
+        self.host.closed(exit);
     }
 }
 
@@ -737,7 +738,7 @@ pub struct HostRun {
     _root: Scratch,
     runtime: Runtime,
     ports: Arc<OnceLock<ChildPorts>>,
-    consumer: Arc<HostConsumer>,
+    _consumer: Arc<HostConsumer>,
     child: SupervisedChild,
     next_id: AtomicU64,
 }
@@ -770,8 +771,7 @@ impl HostRun {
         let events = Arc::new(Events::default());
         let ports: Arc<OnceLock<ChildPorts>> = Arc::new(OnceLock::new());
         let active = Arc::new(Mutex::new(None));
-        let (host, initial) = Host::new(config);
-        let host = Arc::new(host);
+        let host = Arc::new(Host::new(config));
         let handlers: Arc<Mutex<HashMap<u64, Arc<Recorder>>>> = Arc::default();
         let policy: Arc<dyn Fn(Retirement, bool) -> Result<(), String> + Send + Sync> = match stop {
             Stop::Ends => {
@@ -785,14 +785,18 @@ impl HostRun {
             }
             Stop::Fails => Arc::new(|_, _| Err("the process tree outlived its stop".to_owned())),
         };
-        let consumer = Arc::new(HostConsumer {
-            host: Arc::clone(&host),
+        let effects: Arc<dyn HostSink> = Arc::new(HostEffects {
             events: Arc::clone(&events),
             ports: Arc::clone(&ports),
-            active,
+            active: Arc::clone(&active),
             handlers: Arc::clone(&handlers),
             stop: policy,
             stop_failure: Arc::new(Mutex::new(None)),
+        });
+        let consumer = Arc::new(HostConsumer {
+            host: Arc::clone(&host),
+            events: Arc::clone(&events),
+            active,
             stdout: Mutex::new(Framing::new(elision)),
             stderr: Mutex::new(LineFramer::new(LINE_LIMIT)),
         });
@@ -810,7 +814,9 @@ impl HostRun {
         if let Some(child_ports) = ports.get() {
             host.gate().attach(child_ports.output.clone());
         }
-        consumer.apply(initial);
+        // The shell takes the host's effects from here: the handshake's
+        // `initialize` line is written by the child's stdin, not lost.
+        host.set_sink(effects);
         HostRun {
             host,
             events,
@@ -818,7 +824,7 @@ impl HostRun {
             _root: root,
             runtime,
             ports,
-            consumer,
+            _consumer: consumer,
             child,
             next_id: AtomicU64::new(1),
         }
@@ -834,24 +840,16 @@ impl HostRun {
             .lock()
             .expect("tenant handlers")
             .insert(tenant, Arc::clone(&handlers));
-        let effects = self
-            .host
+        self.host
             .attach(tenant, handlers.clone() as Arc<dyn ChannelHandlers>)
             .expect("the host accepts a channel");
-        self.apply(effects);
         handlers
-    }
-
-    /// Apply effects the test drove the host into, as the shell would.
-    pub fn apply(&self, effects: Vec<HostEffect>) {
-        self.consumer.apply(effects);
     }
 
     /// One request from a tenant, with a fresh facade id.
     pub fn request(&self, tenant: u64, method: &str, params: &Value) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let effects = self
-            .host
+        self.host
             .request(
                 tenant,
                 method,
@@ -860,7 +858,6 @@ impl HostRun {
                 ace_supervisor::peer::Timeout::Default,
             )
             .expect("the host queues the request");
-        self.apply(effects);
         id
     }
 

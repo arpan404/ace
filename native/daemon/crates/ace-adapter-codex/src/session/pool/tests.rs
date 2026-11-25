@@ -104,7 +104,7 @@ fn a_live_host_is_reused_and_a_finished_one_is_started_again() {
     assert_eq!(pool.open_channel("key"), Channel::Reuse);
 
     // The host retired itself: the key is free for the next open.
-    run.apply(run.host.retire(Retirement::Shutdown));
+    run.host.retire(Retirement::Shutdown);
     pool.released("key", &run.host);
     assert_eq!(pool.open_channel("key"), Channel::Start);
 
@@ -205,7 +205,7 @@ fn closing_one_idle_thread_leaves_its_neighbour_working_on_the_same_process() {
     let _ = request(&run, 2, "thread/start", ace_json::json!({"cwd": "/tmp/b"}));
     let thread_b = opened(&run, 2).expect("b opens its thread");
 
-    run.apply(run.host.detach(1, Retirement::Idle, "idle"));
+    run.host.detach(1, Retirement::Idle, "idle");
     assert!(
         run.events.until(WAIT_MS, |event| matches!(
             event,
@@ -427,10 +427,8 @@ fn a_thread_with_generated_images_resumes_beside_a_working_neighbour() {
 #[test]
 fn a_late_retirement_callback_never_evicts_a_replacement_host() {
     let mut pool = HostPool::new(None).expect("the default idle time");
-    let (old, _) = Host::new(shared_config(60_000.0));
-    let old = Arc::new(old);
-    let (replacement, _) = Host::new(shared_config(60_000.0));
-    let replacement = Arc::new(replacement);
+    let old = Arc::new(Host::new(shared_config(60_000.0)));
+    let replacement = Arc::new(Host::new(shared_config(60_000.0)));
 
     assert!(pool.claim("key"));
     pool.started("key", Arc::clone(&old));
@@ -497,7 +495,7 @@ fn stopping_a_busy_thread_interrupts_its_turn_and_not_its_neighbours() {
     )));
 
     // A's close interrupts A's turn, and its completion is A's alone.
-    run.apply(run.host.detach(1, Retirement::User, "user closed"));
+    run.host.detach(1, Retirement::User, "user closed");
     assert!(
         interrupted_sent(&run, &thread_a),
         "the close itself sends the interrupt"
@@ -513,7 +511,7 @@ fn stopping_a_busy_thread_interrupts_its_turn_and_not_its_neighbours() {
     )));
 
     // B's own stop interrupts its own turn.
-    run.apply(run.host.detach(2, Retirement::User, "user closed"));
+    run.host.detach(2, Retirement::User, "user closed");
     assert!(interrupted_sent(&run, &thread_b));
     assert!(interrupted(&run, 2, &thread_b));
 }
@@ -549,7 +547,7 @@ fn cancelling_a_busy_threads_session_keeps_its_neighbours_process() {
     )));
 
     // The cancellation closes the session, which interrupts its turn first.
-    run.apply(run.host.detach(1, Retirement::Aborted, "Thread deleted"));
+    run.host.detach(1, Retirement::Aborted, "Thread deleted");
     assert!(
         interrupted_sent(&run, &thread_a),
         "the cancellation interrupts the turn"

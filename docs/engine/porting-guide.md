@@ -1169,6 +1169,10 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   child (E3.0b) and one `RpcPeer`. A tenant is a session's channel with its own `EventQueue`; a
   host fans each routed frame out to its owner's queue only, and init frames to every tenant that
   attaches.
+- **Effects, published in order**: every input's effects join one queue under the host's lock and
+  one caller at a time hands them to the shell (`HostSink`), so two inputs never swap the effects
+  they decided: a settlement a timer decided is never published after the exit a pipe close decided
+  later (ADR 0223 §7 rule 3, `bridge.rs`). The shell sets its sink once, before its first input.
 - **The pool's identity**: a native pool is created per TypeScript `CodexHostPool` instance (a
   `WeakMap` in the facade, E3-codex.5), so the tests that share one pool share one native pool.
   `CodexHostPool.close()` also closes its native twin. That is a one-line change in
@@ -1179,7 +1183,7 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   `bun` fails the test, it never skips. Same cases, same expectations, none added.
 - **Must not**: spawn without diversion; let one tenant's frames reach another's queue.
 - **Reviewer checks**: the routing table (`received`, `:113`–`:153`) is ported branch for branch;
-  retirement reasons are `host.ts:49`'s set.
+  retirement reasons are `host.ts:49`'s set; no input publishes its effects on its own thread.
 
 #### E3-codex.3 The session's per-frame state and capture
 

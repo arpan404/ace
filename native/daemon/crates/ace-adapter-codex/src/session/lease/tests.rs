@@ -62,7 +62,7 @@ fn a_thread_ace_closed_can_be_held_which_excludes_every_writer_until_released() 
     resume(&session, 1, NATIVE);
     // Closing the session unsubscribes the thread, and the fake unloads it at
     // once because every ace app-server is told to.
-    session.apply(session.host.detach(1, Retirement::Idle, "idle"));
+    session.host.detach(1, Retirement::Idle, "idle");
     assert!(session.events.until(WAIT_MS, |event| matches!(
         event,
         Event::Exited { tenant: 1, .. }

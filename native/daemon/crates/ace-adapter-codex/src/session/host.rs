@@ -7,9 +7,13 @@
 //!
 //! Sans-IO like `PiWire` and `RpcPeer`: every input — a framed stdout line, a
 //! stderr line, a write acknowledgement, a timer, a detach — runs one method
-//! under this host's lock and returns the effects the shell must apply, in the
-//! order the state changed. Tenant callbacks are `ChannelHandlers`; the shell
-//! owns the child, its stdin queue and the timers (E3.0b).
+//! under this host's lock and publishes its effects, in the order the state
+//! changed. Publication is one queue the host fills under its lock and exactly
+//! one caller drains into the shell's sink, so two inputs never swap the
+//! effects they decided: a settlement a timer decided is never published after
+//! the exit a pipe close decided later (ADR 0223 §7 rule 3). Tenant callbacks
+//! are `ChannelHandlers`; the shell owns the child, its stdin queue and the
+//! timers (E3.0b).
 //!
 //! An unowned thread is never guessed onto a tenant: its frames are held while
 //! Codex's own thread records are read, then flushed to the ancestor's owner
@@ -26,11 +30,14 @@ mod channels;
 mod exit;
 mod gate;
 mod holds;
+mod publication;
 mod settlement;
 mod stop;
 
 pub use gate::HostGate;
 use holds::{Held, Hold};
+pub use publication::HostSink;
+use publication::Publication;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -497,6 +504,9 @@ struct Inner {
 /// One app-server process and every channel on it.
 pub struct Host {
     inner: Mutex<Inner>,
+    /// Effects already decided and not yet handed to the shell, and the one
+    /// caller that hands them over.
+    publication: Mutex<Publication>,
     gate: HostGate,
 }
 

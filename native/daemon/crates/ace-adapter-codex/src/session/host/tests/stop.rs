@@ -29,15 +29,14 @@ fn stopped_processes(lines: &[String]) -> Vec<String> {
 }
 
 /// Records a running turn for a thread the channel already owns.
-fn busy_turn(host: &Host, thread: &str) {
-    let _ = pump(
-        host,
+fn busy_turn(host: &Shell, thread: &str) {
+    let _ = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "turn/started",
             "params": {"threadId": thread, "turn": {"id": format!("turn-{thread}")}},
-        }))),
-    );
+        })));
+    });
 }
 
 /// `host-retire.test.ts`: "retiring a Windows host whose shells outlived the
@@ -50,7 +49,7 @@ fn a_retire_a_session_waits_on_ends_the_process_and_reports_one_stop() {
     let _ = run.attach(1);
     assert!(run.wait_ready(1), "the fake answers initialize");
 
-    run.apply(run.host.detach(1, Retirement::Aborted, "Opening cancelled"));
+    run.host.detach(1, Retirement::Aborted, "Opening cancelled");
     assert_eq!(
         retires(&run),
         vec![Event::Retire {
@@ -62,7 +61,7 @@ fn a_retire_a_session_waits_on_ends_the_process_and_reports_one_stop() {
     assert!(run.wait_exit(1), "the cancelled channel heard its exit");
     assert!(run.host.gone(), "the leader is gone");
     assert!(!run.host.available());
-    run.apply(run.host.retire(Retirement::User));
+    run.host.retire(Retirement::User);
     assert_eq!(retires(&run).len(), 1, "one stop is one report");
     run.stop();
 }
@@ -80,7 +79,7 @@ fn a_stop_the_shell_cannot_confirm_leaves_the_channel_running_and_is_reported() 
     let _ = run.attach(1);
     assert!(run.wait_ready(1));
 
-    run.apply(run.host.detach(1, Retirement::Aborted, "Opening cancelled"));
+    run.host.detach(1, Retirement::Aborted, "Opening cancelled");
     assert!(
         run.events.until(500, |event| matches!(
             event,
@@ -102,7 +101,7 @@ fn a_stop_the_shell_cannot_confirm_leaves_the_channel_running_and_is_reported() 
     assert!(!run.host.available(), "and the host is still winding down");
 
     // A later awaited retire is the same stop: it surfaces the same failure.
-    run.apply(run.host.retire(Retirement::Shutdown));
+    run.host.retire(Retirement::Shutdown);
     assert!(
         run.events.until(500, |event| matches!(
             event,
@@ -130,7 +129,7 @@ fn an_idle_shared_host_retires_unawaited_and_keeps_serving_until_then() {
     let _ = run.attach(1);
     assert!(run.wait_ready(1));
 
-    run.apply(run.host.detach(1, Retirement::User, "user closed"));
+    run.host.detach(1, Retirement::User, "user closed");
     assert!(
         run.events.until(500, |event| matches!(
             event,
@@ -152,7 +151,7 @@ fn an_idle_shared_host_retires_unawaited_and_keeps_serving_until_then() {
         "an empty shared host stays up for the next session"
     );
 
-    run.apply(run.host.timer(IDLE_TIMER));
+    run.host.timer(IDLE_TIMER);
     assert_eq!(
         retires(&run),
         vec![Event::Retire {
@@ -165,7 +164,7 @@ fn an_idle_shared_host_retires_unawaited_and_keeps_serving_until_then() {
     // The stop ended the process, and that is the outcome the shell reports.
     assert!(wait_gone(&run));
     // A later awaited retire is the same stop, not a second one.
-    run.apply(run.host.retire(Retirement::Shutdown));
+    run.host.retire(Retirement::Shutdown);
     assert_eq!(retires(&run).len(), 1);
     run.stop();
 }
@@ -181,13 +180,13 @@ fn an_idle_stop_the_shell_cannot_confirm_is_reported_not_an_exit() {
     );
     let _ = run.attach(1);
     assert!(run.wait_ready(1));
-    run.apply(run.host.detach(1, Retirement::User, "user closed"));
+    run.host.detach(1, Retirement::User, "user closed");
     assert!(
         run.events
             .until(500, |event| matches!(event, Event::Exited { .. }))
     );
 
-    run.apply(run.host.timer(IDLE_TIMER));
+    run.host.timer(IDLE_TIMER);
     assert!(
         run.events.until(500, |event| matches!(
             event,
@@ -219,7 +218,7 @@ fn a_detach_settles_the_channels_calls_before_its_exit_and_refuses_new_ones() {
     )
     .expect("a call with no deadline is queued");
 
-    let effects = host.detach(1, Retirement::User, "user closed");
+    let (effects, _) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let settle = effects
         .iter()
         .position(|effect| matches!(effect, HostEffect::Settle { id: 7, .. }))
@@ -258,17 +257,16 @@ fn a_refused_interrupt_keeps_the_channel_and_surfaces_the_failure() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     busy_thread(&host, 1, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
     // A response carrying `error` is a refusal, not a result.
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "id": id_to_value(&interrupt),
             "error": {"code": -32602.0, "message": "turn/interrupt needs a turnId"},
-        }))),
-    );
+        })))
+    });
     let failure = effects
         .iter()
         .find_map(|effect| match effect {
@@ -303,7 +301,7 @@ fn a_timed_out_interrupt_keeps_the_channel_and_surfaces_the_failure() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     busy_thread(&host, 1, "t");
 
-    let (effects, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (effects, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     assert!(line_id(&lines, "turn/interrupt", Some("t")).is_some());
     let timer = effects
         .iter()
@@ -313,7 +311,7 @@ fn a_timed_out_interrupt_keeps_the_channel_and_surfaces_the_failure() {
         })
         .expect("the interrupt has a deadline");
 
-    let (effects, _) = pump(&host, host.timer(&timer));
+    let (effects, _) = host.pump(|| host.timer(&timer));
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
@@ -344,7 +342,7 @@ fn an_interrupt_the_peer_refuses_to_enqueue_fails_the_close() {
         .expect("a call with no deadline is queued");
     }
 
-    let (effects, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (effects, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     assert!(
         line_id(&lines, "turn/interrupt", Some("t")).is_none(),
         "the interrupt never reached the peer"
@@ -374,17 +372,16 @@ fn a_late_reply_from_a_failed_detach_never_counts_for_the_retry() {
     busy_thread(&host, 1, "t2");
 
     // The first close: t1's interrupt is refused, so t2's stays outstanding.
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let first_t1 = line_id(&lines, "turn/interrupt", Some("t1")).expect("t1's interrupt");
     let first_t2 = line_id(&lines, "turn/interrupt", Some("t2")).expect("t2's interrupt");
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "id": id_to_value(&first_t1),
             "error": {"code": -32602.0, "message": "no turn to stop"},
-        }))),
-    );
+        })))
+    });
     assert!(
         effects
             .iter()
@@ -393,33 +390,30 @@ fn a_late_reply_from_a_failed_detach_never_counts_for_the_retry() {
     assert_eq!(host.tenant_count(), 1);
 
     // The retry asks again.
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let second_t1 = line_id(&lines, "turn/interrupt", Some("t1")).expect("t1's retry");
     let second_t2 = line_id(&lines, "turn/interrupt", Some("t2")).expect("t2's retry");
     assert_ne!(first_t1, second_t1);
 
     // The old close's t2 answer is not the retry's.
-    let (_, lines) = pump(&host, host.line(&reply(&first_t2, ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&first_t2, ace_json::json!({}))));
     assert!(
         line_id(&lines, "thread/unsubscribe", Some("t1")).is_none(),
         "a stale answer never releases the channel"
     );
     // One of the retry's two still outstanding is not enough either.
-    let (_, lines) = pump(&host, host.line(&reply(&second_t1, ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&second_t1, ace_json::json!({}))));
     assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_none());
 
     // Both of the retry's interrupts answered: the close moves on to the
     // threads' terminals, and leaves only once they are stopped.
-    let (_, lines) = pump(&host, host.line(&reply(&second_t2, ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&second_t2, ace_json::json!({}))));
     let lists = line_ids(&lines, "thread/backgroundTerminals/list");
     assert_eq!(lists.len(), 2, "one list per thread");
     assert!(line_id(&lines, "thread/unsubscribe", Some("t1")).is_none());
     let mut written = Vec::new();
     for list in &lists {
-        let (_, more) = pump(
-            &host,
-            host.line(&reply(list, ace_json::json!({"data": []}))),
-        );
+        let (_, more) = host.pump(|| host.line(&reply(list, ace_json::json!({"data": []}))));
         written.extend(more);
     }
     assert!(
@@ -451,7 +445,7 @@ fn a_full_write_queue_fails_the_close_instead_of_waiting_forever() {
         );
     }
 
-    let (effects, _) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (effects, _) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
@@ -481,19 +475,18 @@ fn a_refused_second_interrupt_still_hands_over_the_claimed_write() {
     // Fill the peer's pending table to one slot below its bound, acknowledging
     // every write so the next enqueue claims the active ticket.
     for id in 100..1123 {
-        let effects = host
-            .request(
-                1,
-                "thread/read",
-                Some(&ace_json::json!({"threadId": "t1"})),
-                id,
-                Timeout::Disabled,
-            )
-            .expect("a call with no deadline is queued");
-        let _ = pump(&host, effects);
+        host.request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "t1"})),
+            id,
+            Timeout::Disabled,
+        )
+        .expect("a call with no deadline is queued");
+        let _ = host.pump(|| {});
     }
 
-    let (effects, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (effects, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
@@ -526,29 +519,27 @@ fn a_turn_replayed_from_a_hold_is_interrupted_by_the_close() {
     busy_turn(&host, "parent");
 
     // The child speaks before its parent reveals it: held, then flushed.
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "method": "turn/started",
             "params": {"threadId": "child", "turn": {"id": "turn-child"}},
-        }))),
-    );
+        })))
+    });
     let read = line_id(&lines, "thread/read", Some("child")).expect("the ancestry read");
-    let _ = pump(
-        &host,
+    let _ = host.pump(|| {
         host.line(&reply(
             &read,
             ace_json::json!({"thread": {"id": "child", "parentThreadId": "parent"}}),
-        )),
-    );
+        ))
+    });
     assert_eq!(
         seen_for(&events, 1, "child"),
         1,
         "the held start was replayed"
     );
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     assert!(
         line_id(&lines, "turn/interrupt", Some("parent")).is_some(),
         "the parent's turn is interrupted: {lines:?}"
@@ -570,24 +561,23 @@ fn a_close_stops_the_channels_background_terminals_before_it_unsubscribes() {
     claim_thread(&host, 1, "t");
     busy_turn(&host, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
     assert!(
         line_id(&lines, "thread/backgroundTerminals/list", Some("t")).is_none(),
         "the terminals are read after the turn stops"
     );
 
-    let (_, lines) = pump(&host, host.line(&reply(&interrupt, ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&interrupt, ace_json::json!({}))));
     let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
         .expect("the thread's terminals are read");
 
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": [{"processId": "p1"}, {"processId": "p2"}]}),
-        )),
-    );
+        ))
+    });
     let mut stop_ids = line_ids(&lines, "thread/backgroundTerminals/terminate");
     assert_eq!(stop_ids.len(), 1, "one stop is out at a time: {lines:?}");
     assert!(
@@ -600,7 +590,7 @@ fn a_close_stops_the_channels_background_terminals_before_it_unsubscribes() {
         "the thread leaves only after its terminals stop"
     );
 
-    let (_, lines) = pump(&host, host.line(&reply(&stop_ids[0], ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&stop_ids[0], ace_json::json!({}))));
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_none());
     stop_ids = line_ids(&lines, "thread/backgroundTerminals/terminate");
     assert_eq!(
@@ -613,7 +603,7 @@ fn a_close_stops_the_channels_background_terminals_before_it_unsubscribes() {
             .iter()
             .any(|line| line.contains("\"processId\":\"p2\""))
     );
-    let (_, lines) = pump(&host, host.line(&reply(&stop_ids[0], ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&stop_ids[0], ace_json::json!({}))));
     assert!(
         line_id(&lines, "thread/unsubscribe", Some("t")).is_some(),
         "the last terminal stopped: the thread is unsubscribed"
@@ -630,28 +620,26 @@ fn a_terminal_the_close_cannot_stop_fails_the_close() {
     claim_thread(&host, 1, "t");
     busy_turn(&host, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
-    let (_, lines) = pump(&host, host.line(&reply(&interrupt, ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&interrupt, ace_json::json!({}))));
     let list =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the terminal list");
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": [{"processId": "p1"}]}),
-        )),
-    );
+        ))
+    });
     let stop = line_ids(&lines, "thread/backgroundTerminals/terminate")[0].clone();
 
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "id": id_to_value(&stop),
             "error": {"code": -32603.0, "message": "no such terminal"},
-        }))),
-    );
+        })))
+    });
     assert!(
         effects.iter().any(|effect| matches!(
             effect,
@@ -673,13 +661,12 @@ fn an_attach_after_the_leaders_death_is_refused() {
     let host = bare(true);
     let events = Arc::new(crate::session::harness::Events::default());
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
-    let _ = pump(
-        &host,
+    let _ = host.pump(|| {
         host.exit(RawExit {
             code: Some(1),
             signal: None,
-        }),
-    );
+        })
+    });
     assert_eq!(
         host.attach(2, Recorder::new(2, Arc::clone(&events))).err(),
         Some(HostError::Unavailable)
@@ -695,17 +682,16 @@ fn a_close_with_no_live_turn_still_stops_its_shells() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     claim_thread(&host, 1, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
         .expect("the shell list is read with no turn to interrupt");
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_none());
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": [], "nextCursor": null}),
-        )),
-    );
+        ))
+    });
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_some());
 }
 
@@ -718,7 +704,7 @@ fn a_close_pages_through_every_shell_before_stopping_them() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     claim_thread(&host, 1, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let first =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the first page");
     assert!(
@@ -726,13 +712,12 @@ fn a_close_pages_through_every_shell_before_stopping_them() {
         "the first page names no cursor"
     );
 
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &first,
             ace_json::json!({"data": [{"processId": "p1"}], "nextCursor": "c1"}),
-        )),
-    );
+        ))
+    });
     let second = line_ids(&lines, "thread/backgroundTerminals/list");
     assert_eq!(second.len(), 1, "the continuation is asked for: {lines:?}");
     assert!(lines[0].contains("\"cursor\":\"c1\""));
@@ -741,21 +726,20 @@ fn a_close_pages_through_every_shell_before_stopping_them() {
         "nothing is stopped before the last page"
     );
 
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &second[0],
             ace_json::json!({
                 "data": [{"processId": "p2"}],
                 "nextCursor": null,
             }),
-        )),
-    );
+        ))
+    });
     let stops = stopped_processes(&lines);
     assert_eq!(stops, vec!["p1"], "the first page's terminal stops first");
     let stop = line_ids(&lines, "thread/backgroundTerminals/terminate");
     assert_eq!(stop.len(), 1, "one stop is out at a time: {lines:?}");
-    let (_, lines) = pump(&host, host.line(&reply(&stop[0], ace_json::json!({}))));
+    let (_, lines) = host.pump(|| host.line(&reply(&stop[0], ace_json::json!({}))));
     let stops = stopped_processes(&lines);
     assert_eq!(
         stops,
@@ -788,12 +772,12 @@ fn a_malformed_terminal_page_fails_the_close_instead_of_reading_as_empty() {
         claim_thread(&host, 1, "t");
         busy_turn(&host, "t");
 
-        let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+        let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
         let interrupt = line_id(&lines, "turn/interrupt", Some("t")).expect("the interrupt");
-        let (_, lines) = pump(&host, host.line(&reply(&interrupt, ace_json::json!({}))));
+        let (_, lines) = host.pump(|| host.line(&reply(&interrupt, ace_json::json!({}))));
         let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
             .expect("the terminal list");
-        let (effects, lines) = pump(&host, host.line(&reply(&list, page.clone())));
+        let (effects, lines) = host.pump(|| host.line(&reply(&list, page.clone())));
 
         assert!(
             effects.iter().any(|effect| matches!(
@@ -825,16 +809,15 @@ fn a_malformed_terminal_cursor_fails_the_close_instead_of_ending_the_scan() {
         let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
         claim_thread(&host, 1, "t");
 
-        let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+        let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
         let list = line_id(&lines, "thread/backgroundTerminals/list", Some("t"))
             .expect("the terminal list");
-        let (effects, lines) = pump(
-            &host,
+        let (effects, lines) = host.pump(|| {
             host.line(&reply(
                 &list,
                 ace_json::json!({"data": [{"processId": "p1"}], "nextCursor": cursor}),
-            )),
-        );
+            ))
+        });
 
         assert!(
             effects.iter().any(|effect| matches!(
@@ -871,7 +854,7 @@ fn a_close_stops_more_terminals_than_the_peer_holds_one_at_a_time() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     claim_thread(&host, 1, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let mut list =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the first page");
 
@@ -881,13 +864,12 @@ fn a_close_stops_more_terminals_than_the_peer_holds_one_at_a_time() {
         let data: Vec<Value> = (start..start + PER_PAGE)
             .map(|number| ace_json::json!({"processId": format!("p{number}")}))
             .collect();
-        let (effects, lines) = pump(
-            &host,
+        let (effects, lines) = host.pump(|| {
             host.line(&reply(
                 &list,
                 ace_json::json!({"data": data, "nextCursor": format!("c{page}")}),
-            )),
-        );
+            ))
+        });
         assert!(
             !effects
                 .iter()
@@ -905,13 +887,12 @@ fn a_close_stops_more_terminals_than_the_peer_holds_one_at_a_time() {
     let last: Vec<Value> = (TERMINALS - 1..TERMINALS)
         .map(|number| ace_json::json!({"processId": format!("p{number}")}))
         .collect();
-    let (effects, lines) = pump(
-        &host,
+    let (effects, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": last, "nextCursor": null}),
-        )),
-    );
+        ))
+    });
     assert!(
         !effects
             .iter()
@@ -923,7 +904,7 @@ fn a_close_stops_more_terminals_than_the_peer_holds_one_at_a_time() {
 
     let mut stopped = 0;
     while let Some(stop) = stops.pop() {
-        let (effects, lines) = pump(&host, host.line(&reply(&stop, ace_json::json!({}))));
+        let (effects, lines) = host.pump(|| host.line(&reply(&stop, ace_json::json!({}))));
         stopped += 1;
         assert!(
             !effects
@@ -963,23 +944,21 @@ fn a_close_stops_each_terminal_once_even_when_the_pages_repeat_it() {
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     claim_thread(&host, 1, "t");
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let first =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the first page");
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &first,
             ace_json::json!({
                 "data": [{"processId": "p1"}, {"processId": "p2"}],
                 "nextCursor": "c1",
             }),
-        )),
-    );
+        ))
+    });
     let second =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the continuation");
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &second,
             ace_json::json!({
@@ -990,13 +969,13 @@ fn a_close_stops_each_terminal_once_even_when_the_pages_repeat_it() {
                 ],
                 "nextCursor": null,
             }),
-        )),
-    );
+        ))
+    });
 
     let mut stopped = stopped_processes(&lines);
     let mut stop = line_ids(&lines, "thread/backgroundTerminals/terminate");
     while let Some(current) = stop.pop() {
-        let (_, lines) = pump(&host, host.line(&reply(&current, ace_json::json!({}))));
+        let (_, lines) = host.pump(|| host.line(&reply(&current, ace_json::json!({}))));
         stopped.extend(stopped_processes(&lines));
         stop = line_ids(&lines, "thread/backgroundTerminals/terminate");
     }
@@ -1018,19 +997,18 @@ fn a_late_terminal_reply_from_a_failed_detach_never_counts_for_the_retry() {
     claim_thread(&host, 1, "t2");
 
     // The first close: t1's list is refused, so t2's stays outstanding.
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let first_t1 =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t1")).expect("t1's list");
     let first_t2 =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t2")).expect("t2's list");
-    let (effects, _) = pump(
-        &host,
+    let (effects, _) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "id": id_to_value(&first_t1),
             "error": {"code": -32603.0, "message": "no terminals"},
-        }))),
-    );
+        })))
+    });
     assert!(
         effects
             .iter()
@@ -1038,19 +1016,18 @@ fn a_late_terminal_reply_from_a_failed_detach_never_counts_for_the_retry() {
     );
 
     // The retry reads again.
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     let second_t2 =
         line_id(&lines, "thread/backgroundTerminals/list", Some("t2")).expect("t2's retry");
     assert_ne!(first_t2, second_t2);
 
     // The old close's t2 answer is not the retry's.
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &first_t2,
             ace_json::json!({"data": [{"processId": "stale"}], "nextCursor": null}),
-        )),
-    );
+        ))
+    });
     assert!(
         line_ids(&lines, "thread/backgroundTerminals/terminate").is_empty(),
         "a stale page stops nothing: {lines:?}"

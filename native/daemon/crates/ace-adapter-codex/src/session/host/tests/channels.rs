@@ -29,7 +29,7 @@ fn an_unknown_route_is_held_for_its_ancestry_rather_than_guessed() {
             "item": {"type": "agentMessage", "id": "m", "text": "hello"},
         },
     }));
-    run.apply(run.host.line(&line));
+    run.host.line(&line);
 
     // The read is the host's own request: it is written, and no channel sees
     // it as a frame of its own.
@@ -68,7 +68,7 @@ fn a_released_threads_late_frames_reach_no_channel() {
         "method": "thread/name/updated",
         "params": {"threadId": "never-opened", "name": "elsewhere"},
     }));
-    run.apply(run.host.line(&line));
+    run.host.line(&line);
     assert!(!run.frames(1).iter().any(|data| {
         data.get("params")
             .and_then(|params| params.get("threadId"))
@@ -87,7 +87,7 @@ fn shared_diagnostics_reach_every_channel_without_ending_the_host() {
     let _ = run.attach(2);
     assert!(run.wait_ready(1) && run.wait_ready(2));
 
-    run.apply(run.host.line("not json"));
+    run.host.line("not json");
     run.host.stderr_line("mcp server says hello");
 
     for tenant in [1, 2] {
@@ -145,18 +145,16 @@ fn a_frame_a_channel_does_not_admit_mutes_it_without_stopping_the_peer() {
     let handler = Arc::new(Muted {
         events: Arc::clone(&run.events),
     });
-    let attached = run
-        .host
+    run.host
         .attach(7, handler as Arc<dyn ChannelHandlers>)
         .expect("the host accepts a channel");
-    run.apply(attached);
     assert!(run.wait_ready(7));
 
-    run.apply(run.host.line(&ace_json::to_string(&ace_json::json!({
+    run.host.line(&ace_json::to_string(&ace_json::json!({
         "jsonrpc": "2.0",
         "method": "thread/started",
         "params": {"thread": {"id": "t"}},
-    }))));
+    })));
     assert!(run.events.until(5_000, |event| matches!(
         event,
         Event::AdmissionFailed { tenant: 7, .. }
@@ -175,20 +173,15 @@ fn a_frame_a_channel_does_not_admit_mutes_it_without_stopping_the_peer() {
 /// as the error the caller waits on, and the channel hears about the drop.
 #[test]
 fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
-    let (host, initial) = Host::new(HostConfig::shared(initialize(), 1_000.0));
-    // No child here: acknowledge the `initialize` write so the queue hands out
-    // the next line.
-    for effect in initial {
-        if let HostEffect::Write { ticket, .. } = effect {
-            host.written(ticket);
-        }
-    }
+    let host = Shell::start(HostConfig::shared(initialize(), 1_000.0));
+    // No child here: the shell acknowledges the `initialize` write, which hands
+    // out the next line.
+    let _ = host.pump(|| {});
     let events = Arc::new(crate::session::harness::Events::default());
-    let _ = host
-        .attach(1, Recorder::new(1, Arc::clone(&events)))
+    host.attach(1, Recorder::new(1, Arc::clone(&events)))
         .expect("a channel attaches before the handshake");
-    let effects = host
-        .request(
+    let (_, lines) = host.pump(|| {
+        host.request(
             1,
             "thread/read",
             Some(&ace_json::json!({"threadId": "owned"})),
@@ -196,32 +189,32 @@ fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
             Timeout::After(1_000.0),
         )
         .expect("the request is queued");
-    let sent = effects
+    });
+    let sent = lines
         .iter()
-        .find_map(|effect| match effect {
-            HostEffect::Write { wire, .. } => Some(wire.clone()),
-            _ => None,
-        })
+        .find(|line| line.contains("thread/read"))
         .expect("the request was written");
-    let wire_id = ace_json::parse(std::str::from_utf8(&sent).expect("utf-8"))
+    let wire_id = ace_json::parse(sent)
         .ok()
         .and_then(|value| value.get("id").and_then(Value::as_f64))
         .map(RpcId::Number)
         .expect("the wire id");
 
     // The owner first, so the dropped line can be attributed to it.
-    host.line(&ace_json::to_string(&ace_json::json!({
-        "jsonrpc": "2.0",
-        "method": "thread/started",
-        "params": {"thread": {"id": "owned"}},
-    })))
-    .into_iter()
-    .for_each(drop);
-    let effects = host.dropped(&DroppedLine {
-        bytes: 20_000_000,
-        phase: DroppedPhase::Line,
-        thread: Some(ace_json::JsString::from("owned")),
-        response: Some(wire_id),
+    let _ = host.pump(|| {
+        host.line(&ace_json::to_string(&ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "thread/started",
+            "params": {"thread": {"id": "owned"}},
+        })));
+    });
+    let (effects, _) = host.pump(|| {
+        host.dropped(&DroppedLine {
+            bytes: 20_000_000,
+            phase: DroppedPhase::Line,
+            thread: Some(ace_json::JsString::from("owned")),
+            response: Some(wire_id),
+        });
     });
     let settles: Vec<&HostEffect> = effects
         .iter()
@@ -252,18 +245,13 @@ fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
 /// and neither is one a channel let go.
 #[test]
 fn a_thread_is_foreign_to_every_channel_but_its_owner() {
-    let (host, initial) = Host::new(HostConfig::shared(initialize(), 60_000.0));
-    for effect in initial {
-        if let HostEffect::Write { ticket, .. } = effect {
-            host.written(ticket);
-        }
-    }
+    let host = bare_with(HostConfig::shared(initialize(), 60_000.0));
     let events = Arc::new(crate::session::harness::Events::default());
     let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
     let _ = host.attach(2, Recorder::new(2, Arc::clone(&events)));
 
-    let effects = host
-        .request(
+    let _ = host.pump(|| {
+        host.request(
             1,
             "thread/start",
             Some(&ace_json::json!({"cwd": "/tmp"})),
@@ -271,11 +259,7 @@ fn a_thread_is_foreign_to_every_channel_but_its_owner() {
             Timeout::After(1_000.0),
         )
         .expect("the open is queued");
-    for effect in effects {
-        if let HostEffect::Write { ticket, .. } = effect {
-            host.written(ticket);
-        }
-    }
+    });
     let wire = events
         .snapshot()
         .into_iter()
@@ -290,32 +274,27 @@ fn a_thread_is_foreign_to_every_channel_but_its_owner() {
             _ => None,
         })
         .expect("the open's wire id");
-    host.line(&reply(&wire, ace_json::json!({"thread": {"id": "open"}})))
-        .into_iter()
-        .for_each(drop);
+    let _ = host.pump(|| host.line(&reply(&wire, ace_json::json!({"thread": {"id": "open"}}))));
 
     let open = ace_json::JsString::from("open");
     assert!(!host.foreign(1, &open), "a channel's own thread");
     assert!(host.foreign(2, &open), "another channel's thread");
     assert!(!host.foreign(2, &ace_json::JsString::from("unknown")));
 
-    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let (_, lines) = host.pump(|| host.detach(1, Retirement::User, "user closed"));
     // A leaving channel still owns its thread until its unsubscribe lands.
     assert!(!host.foreign(1, &open));
     let list = line_id(&lines, "thread/backgroundTerminals/list", Some("open"))
         .expect("the terminals are read first");
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&reply(
             &list,
             ace_json::json!({"data": [], "nextCursor": null}),
-        )),
-    );
+        ))
+    });
     let unsub = line_id(&lines, "thread/unsubscribe", Some("open")).expect("the unsubscribe");
-    let (_, _) = pump(
-        &host,
-        host.line(&reply(&unsub, ace_json::json!({"status": "unsubscribed"}))),
-    );
+    let (_, _) =
+        host.pump(|| host.line(&reply(&unsub, ace_json::json!({"status": "unsubscribed"}))));
     assert!(
         host.foreign(1, &open),
         "a released thread is never evidence of a new owner"
@@ -363,20 +342,18 @@ fn a_request_whose_frame_was_not_admitted_is_refused() {
     let handler = Arc::new(Unadmitting {
         events: Arc::clone(&events),
     });
-    let _ = host
-        .attach(9, handler as Arc<dyn ChannelHandlers>)
+    host.attach(9, handler as Arc<dyn ChannelHandlers>)
         .expect("the channel attaches");
 
     // A request naming no thread or turn, with one channel that cannot take it.
-    let (_, lines) = pump(
-        &host,
+    let (_, lines) = host.pump(|| {
         host.line(&frame(ace_json::json!({
             "jsonrpc": "2.0",
             "id": "ask-1",
             "method": "mcpServer/elicitation/request",
             "params": {"serverName": "docs", "mode": "form"},
-        }))),
-    );
+        })))
+    });
     assert!(
         !events
             .snapshot()

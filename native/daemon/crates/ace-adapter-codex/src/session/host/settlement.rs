@@ -4,10 +4,6 @@
 use super::*;
 
 impl Inner {
-    pub(super) fn take(&mut self) -> Vec<HostEffect> {
-        std::mem::take(&mut self.out)
-    }
-
     /// A facade id for one of the host's own requests.
     pub(super) fn own_id(&mut self) -> u64 {
         let id = OWN_ID_BASE + self.next_own;

@@ -5,8 +5,9 @@ use super::*;
 
 impl Host {
     /// A host over an already spawned child: it sends `initialize` at once, as
-    /// the constructor does.
-    pub fn new(config: HostConfig) -> (Host, Vec<HostEffect>) {
+    /// the constructor does. Its effects wait until the shell sets its sink
+    /// (`set_sink`), so nothing the handshake decided is lost.
+    pub fn new(config: HostConfig) -> Host {
         let gate = HostGate::new();
         let peer = RpcPeer::new(config.peer());
         let host = Host {
@@ -40,11 +41,10 @@ impl Host {
                 idle_armed: false,
                 out: Vec::new(),
             }),
+            publication: Mutex::new(Publication::default()),
             gate,
         };
-        let mut effects = Vec::new();
-        {
-            let mut inner = host.lock();
+        host.input(|inner| {
             let initialize = inner.config.initialize.clone();
             match inner.peer.request(
                 "initialize",
@@ -55,9 +55,8 @@ impl Host {
                 Ok(peer) => inner.apply(peer),
                 Err(error) => inner.ready = Handshake::Failed(error.message().to_owned()),
             }
-            effects.extend(inner.take());
-        }
-        (host, effects)
+        });
+        host
     }
 
     /// The read gate the diverted child's chunks answer.
@@ -112,42 +111,39 @@ impl Host {
 
     /// Register a channel before initialization completes, so a dedicated
     /// channel sees every frame live (`attach`, `:302`).
-    pub fn attach(
-        &self,
-        tenant: u64,
-        handlers: Arc<dyn ChannelHandlers>,
-    ) -> Result<Vec<HostEffect>, HostError> {
-        let mut inner = self.lock();
-        // A leader that has died takes no new channel, even while its pipes
-        // still drain (`#attach`: a process that exited never opens one).
-        if inner.leader.is_some() || inner.exit.is_some() || inner.retiring {
-            return Err(HostError::Unavailable);
-        }
-        if inner.config.dedicated && !inner.tenants.is_empty() {
-            return Err(HostError::DedicatedInUse);
-        }
-        inner.cancel_idle();
-        inner.tenants.insert(
-            tenant,
-            Tenant {
-                handlers,
-                closed: None,
-                muted: false,
-                exited: false,
-            },
-        );
-        // The handshake's frames reached the process before this channel was
-        // registered: replay them so a dedicated channel still sees them.
-        let init: Vec<(Direction, Value)> = inner.init_frames.clone();
-        for (dir, data) in init {
-            inner.deliver(tenant, dir, &data, None);
-        }
-        match inner.ready.clone() {
-            Handshake::Open => inner.out.push(HostEffect::Opened { tenant }),
-            Handshake::Failed(message) => inner.fail_tenant(tenant, &message),
-            Handshake::Initializing => {}
-        }
-        Ok(inner.take())
+    pub fn attach(&self, tenant: u64, handlers: Arc<dyn ChannelHandlers>) -> Result<(), HostError> {
+        self.input(|inner| {
+            // A leader that has died takes no new channel, even while its pipes
+            // still drain (`#attach`: a process that exited never opens one).
+            if inner.leader.is_some() || inner.exit.is_some() || inner.retiring {
+                return Err(HostError::Unavailable);
+            }
+            if inner.config.dedicated && !inner.tenants.is_empty() {
+                return Err(HostError::DedicatedInUse);
+            }
+            inner.cancel_idle();
+            inner.tenants.insert(
+                tenant,
+                Tenant {
+                    handlers,
+                    closed: None,
+                    muted: false,
+                    exited: false,
+                },
+            );
+            // The handshake's frames reached the process before this channel was
+            // registered: replay them so a dedicated channel still sees them.
+            let init: Vec<(Direction, Value)> = inner.init_frames.clone();
+            for (dir, data) in init {
+                inner.deliver(tenant, dir, &data, None);
+            }
+            match inner.ready.clone() {
+                Handshake::Open => inner.out.push(HostEffect::Opened { tenant }),
+                Handshake::Failed(message) => inner.fail_tenant(tenant, &message),
+                Handshake::Initializing => {}
+            }
+            Ok(())
+        })
     }
 
     /// A channel's request, written through the shared peer (`send`, `:331`).
@@ -158,56 +154,59 @@ impl Host {
         params: Option<&Value>,
         id: u64,
         timeout: Timeout,
-    ) -> Result<Vec<HostEffect>, HostError> {
-        let mut inner = self.lock();
-        // A channel that left, or is leaving, issues nothing (`host.ts:153`).
-        let closed = match inner.tenants.get(&tenant) {
-            _ if inner.detaching.contains_key(&tenant) => Some("Codex channel closed".to_owned()),
-            Some(entry) => entry.closed.clone(),
-            None => Some("Codex channel closed".to_owned()),
-        };
-        if let Some(closed) = closed {
-            return Err(HostError::Refused(closed));
-        }
-        inner.sender = Some(tenant);
-        let requested = inner.peer.request(method, params, id, timeout);
-        match requested {
-            // The send frame is attributed while the sender is still known.
-            Ok(peer) => {
-                inner.calls.insert(id, tenant);
-                inner.apply(peer);
+    ) -> Result<(), HostError> {
+        self.input(|inner| {
+            // A channel that left, or is leaving, issues nothing (`host.ts:153`).
+            let closed = match inner.tenants.get(&tenant) {
+                _ if inner.detaching.contains_key(&tenant) => {
+                    Some("Codex channel closed".to_owned())
+                }
+                Some(entry) => entry.closed.clone(),
+                None => Some("Codex channel closed".to_owned()),
+            };
+            if let Some(closed) = closed {
+                return Err(HostError::Refused(closed));
             }
-            Err(error) => {
-                inner.sender = None;
-                return Err(HostError::Refused(error.message().to_owned()));
+            inner.sender = Some(tenant);
+            let requested = inner.peer.request(method, params, id, timeout);
+            match requested {
+                // The send frame is attributed while the sender is still known.
+                Ok(peer) => {
+                    inner.calls.insert(id, tenant);
+                    inner.apply(peer);
+                }
+                Err(error) => {
+                    inner.sender = None;
+                    return Err(HostError::Refused(error.message().to_owned()));
+                }
             }
-        }
-        inner.sender = None;
-        Ok(inner.take())
+            inner.sender = None;
+            Ok(())
+        })
     }
 
     /// A session's answer to a server request (`answer`).
-    pub fn answer(&self, id: &RpcId, result: &Value) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        let peer = inner.peer.answer(id, result);
-        inner.apply(peer);
-        inner.take()
+    pub fn answer(&self, id: &RpcId, result: &Value) {
+        self.input(|inner| {
+            let peer = inner.peer.answer(id, result);
+            inner.apply(peer);
+        });
     }
 
     /// A session's refusal of a server request.
-    pub fn answer_error(&self, id: &RpcId, code: f64, message: &str) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        let peer = inner.peer.answer_error(id, code, message);
-        inner.apply(peer);
-        inner.take()
+    pub fn answer_error(&self, id: &RpcId, code: f64, message: &str) {
+        self.input(|inner| {
+            let peer = inner.peer.answer_error(id, code, message);
+            inner.apply(peer);
+        });
     }
 
     /// One framed stdout line (`#received`).
-    pub fn line(&self, line: &str) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        let peer = inner.peer.line(line);
-        inner.apply(peer);
-        inner.take()
+    pub fn line(&self, line: &str) {
+        self.input(|inner| {
+            let peer = inner.peer.line(line);
+            inner.apply(peer);
+        });
     }
 
     /// One stderr line: diagnostics, to every channel.
@@ -219,73 +218,71 @@ impl Host {
     }
 
     /// The write callback ran: release its bytes and hand out the next line.
-    pub fn written(&self, ticket: u64) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        let peer = inner.peer.written(ticket);
-        inner.apply(peer);
-        inner.take()
+    pub fn written(&self, ticket: u64) {
+        self.input(|inner| {
+            let peer = inner.peer.written(ticket);
+            inner.apply(peer);
+        });
     }
 
     /// An armed deadline fired.
-    pub fn timer(&self, key: &str) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        if key == IDLE_TIMER {
-            inner.idle_armed = false;
-            if inner.tenants.is_empty() {
-                inner.retire(Retirement::Idle, false);
+    pub fn timer(&self, key: &str) {
+        self.input(|inner| {
+            if key == IDLE_TIMER {
+                inner.idle_armed = false;
+                if inner.tenants.is_empty() {
+                    inner.retire(Retirement::Idle, false);
+                }
+                return;
             }
-            return inner.take();
-        }
-        let peer = inner.peer.timer(key);
-        inner.apply(peer);
-        inner.take()
+            let peer = inner.peer.timer(key);
+            inner.apply(peer);
+        });
     }
 
     /// A line the framing layer dropped, attributed by the adapter.
-    pub fn dropped(&self, line: &DroppedLine) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        inner.dropped(line);
-        inner.take()
+    pub fn dropped(&self, line: &DroppedLine) {
+        self.input(|inner| inner.dropped(line));
     }
 
     /// The leader exited (`exit`, `:268`): the status is recorded and every
     /// routed call still pending settles exactly once, but the channels stay
     /// until the pipes are done, so the frames after the leader reach them.
-    pub fn exit(&self, exit: RawExit) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        if inner.leader.is_some() {
-            return inner.take();
-        }
-        inner.exiting = true;
-        inner.gate.drain();
-        let stopped = inner.peer.stop_requests("process exited");
-        inner.apply(stopped);
-        let exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
-        inner.leader = Some(exit);
-        inner.lead_retired();
-        inner.take()
+    pub fn exit(&self, exit: RawExit) {
+        self.input(|inner| {
+            if inner.leader.is_some() {
+                return;
+            }
+            inner.exiting = true;
+            inner.gate.drain();
+            let stopped = inner.peer.stop_requests("process exited");
+            inner.apply(stopped);
+            let exit = HostExit::from_raw(exit, inner.pid, inner.output_drained);
+            inner.leader = Some(exit);
+            inner.lead_retired();
+        });
     }
 
     /// The pipes are done (`close`, `:239`): settlements, then the held
     /// requests, then the exit to every channel.
-    pub fn closed(&self, exit: RawExit) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        inner.exiting = true;
-        inner.gate.drain();
-        let closed = inner.peer.close("process exited");
-        inner.apply(closed);
-        let leader = inner
-            .leader
-            .clone()
-            .unwrap_or_else(|| HostExit::from_raw(exit, inner.pid, true));
-        let exit = HostExit {
-            output_drained: inner.output_drained,
-            ..leader
-        };
-        if inner.exit.is_none() {
-            inner.exited(exit);
-        }
-        inner.take()
+    pub fn closed(&self, exit: RawExit) {
+        self.input(|inner| {
+            inner.exiting = true;
+            inner.gate.drain();
+            let closed = inner.peer.close("process exited");
+            inner.apply(closed);
+            let leader = inner
+                .leader
+                .clone()
+                .unwrap_or_else(|| HostExit::from_raw(exit, inner.pid, true));
+            let exit = HostExit {
+                output_drained: inner.output_drained,
+                ..leader
+            };
+            if inner.exit.is_none() {
+                inner.exited(exit);
+            }
+        });
     }
 
     /// The final drain was cut short, so the exit reports `outputDrained: false`.
@@ -296,75 +293,75 @@ impl Host {
     /// Stop routing to this channel (`detach`, `:346`). It issues nothing new,
     /// interrupts the turns it still runs, and keeps receiving its threads'
     /// frames until its unsubscribes land.
-    pub fn detach(&self, tenant: u64, retirement: Retirement, reason: &str) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        if inner.detaching.contains_key(&tenant)
-            || inner
-                .tenants
-                .get(&tenant)
-                .is_none_or(|entry| entry.closed.is_some())
-        {
-            return inner.take();
-        }
-        if inner.config.dedicated || inner.exiting {
-            // A dedicated process belongs to this channel; its exit is the
-            // channel's exit, published when the pipes are done.
-            inner.abort_calls(tenant, reason);
-            inner.retire(retirement, true);
-            return inner.take();
-        }
-        // A running turn cannot outlive its channel: the interrupt goes out
-        // while the channel still owns its threads, so its completion lands in
-        // the channel's queue before the exit. The threads are released once
-        // every interrupt is answered, as the session's close awaits them.
-        inner.next_attempt += 1;
-        let attempt = inner.next_attempt;
-        inner.detaching.insert(
-            tenant,
-            Detaching {
-                remaining: 0,
-                retirement,
-                reason: reason.to_owned(),
-                attempt,
-                phase: Leaving::Interrupts,
-                stops: VecDeque::new(),
-                stopping: false,
-            },
-        );
-        // An interrupt the peer will not take cannot stop the turn: nothing
-        // detaches, and the close reports it. A full write queue surfaces the
-        // same way, as the enqueue's own settlement.
-        if let Err(message) = inner.interrupt_turns(tenant, attempt) {
-            inner.detaching.shift_remove(&tenant);
-            inner.out.push(HostEffect::DetachFailed {
+    pub fn detach(&self, tenant: u64, retirement: Retirement, reason: &str) {
+        self.input(|inner| {
+            if inner.detaching.contains_key(&tenant)
+                || inner
+                    .tenants
+                    .get(&tenant)
+                    .is_none_or(|entry| entry.closed.is_some())
+            {
+                return;
+            }
+            if inner.config.dedicated || inner.exiting {
+                // A dedicated process belongs to this channel; its exit is the
+                // channel's exit, published when the pipes are done.
+                inner.abort_calls(tenant, reason);
+                inner.retire(retirement, true);
+                return;
+            }
+            // A running turn cannot outlive its channel: the interrupt goes out
+            // while the channel still owns its threads, so its completion lands in
+            // the channel's queue before the exit. The threads are released once
+            // every interrupt is answered, as the session's close awaits them.
+            inner.next_attempt += 1;
+            let attempt = inner.next_attempt;
+            inner.detaching.insert(
                 tenant,
-                reason: retirement,
-                message,
-            });
-            return inner.take();
-        }
-        if inner
-            .detaching
-            .get(&tenant)
-            .is_some_and(|state| state.remaining == 0)
-        {
-            // No turn to interrupt, but the channel's shells still run.
-            inner.stop_terminals(tenant);
-        }
-        inner.take()
+                Detaching {
+                    remaining: 0,
+                    retirement,
+                    reason: reason.to_owned(),
+                    attempt,
+                    phase: Leaving::Interrupts,
+                    stops: VecDeque::new(),
+                    stopping: false,
+                },
+            );
+            // An interrupt the peer will not take cannot stop the turn: nothing
+            // detaches, and the close reports it. A full write queue surfaces the
+            // same way, as the enqueue's own settlement.
+            if let Err(message) = inner.interrupt_turns(tenant, attempt) {
+                inner.detaching.shift_remove(&tenant);
+                inner.out.push(HostEffect::DetachFailed {
+                    tenant,
+                    reason: retirement,
+                    message,
+                });
+                return;
+            }
+            if inner
+                .detaching
+                .get(&tenant)
+                .is_some_and(|state| state.remaining == 0)
+            {
+                // No turn to interrupt, but the channel's shells still run.
+                inner.stop_terminals(tenant);
+            }
+        });
     }
 
     /// Stop the whole process (`retire`, `:379`); every channel on it exits.
-    pub fn retire(&self, reason: Retirement) -> Vec<HostEffect> {
-        let mut inner = self.lock();
-        if inner.retiring && inner.exit.is_none() {
-            // The stop in flight is the shell's: its failure reaches this
-            // caller too.
-            inner.out.push(HostEffect::Retiring { reason });
-            return inner.take();
-        }
-        inner.retire(reason, true);
-        inner.take()
+    pub fn retire(&self, reason: Retirement) {
+        self.input(|inner| {
+            if inner.retiring && inner.exit.is_none() {
+                // The stop in flight is the shell's: its failure reaches this
+                // caller too.
+                inner.out.push(HostEffect::Retiring { reason });
+                return;
+            }
+            inner.retire(reason, true);
+        });
     }
 
     /// The shell's stop did not confirm: a host that outlived it takes
@@ -392,6 +389,8 @@ impl Host {
         self.gate.answer(delivered);
     }
 
+    /// The host's state. A poisoned lock is recovered: the effects it decided
+    /// still have to reach the shell.
     pub(super) fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|error| error.into_inner())
     }
