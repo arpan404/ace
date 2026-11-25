@@ -88,7 +88,6 @@ fn full_access_runs_ordinary_calls_even_under_taint_with_permissions_and_classif
             classifier: false,
             place,
             remote: tool.starts_with("app__"),
-            remembered: Some(false),
             destructive: tool == "app__delete",
             overwrites: tool == "app__delete",
             ..full(tool, effect)

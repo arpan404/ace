@@ -760,8 +760,8 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
             .and_then(|effect| persons(call, effect, false))
             .unwrap_or_else(|| full_access::route(call));
     }
-    // The bot's Permissions next: a switch the person left off refuses what it covers, in every
-    // mode, before any Always allow, grant, review or request.
+    // In Auto-review, a switch the person left off refuses what it covers before any Always
+    // allow, grant, review or request.
     if let Some(why) = permitted::refusal(&call) {
         return Route::Refuse(why);
     }
@@ -783,7 +783,7 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
         return route;
     }
     // A server's destructive hint makes Spade ask, never skip asking (ADR 0202 §2): the person
-    // decides each call, in every mode, whatever they allowed always or granted. Their "no" for
+    // decides each call, whatever they allowed always or granted. Their "no" for
     // an undeclared tool still refuses it, and a sealed plugin server stays the sandbox's.
     if call.destructive && call.place != Place::Sandbox {
         if call.effect.is_none() && call.remembered == Some(false) {
@@ -792,7 +792,7 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
         return Route::ask(DESTRUCTIVE);
     }
     // A connected app's tool its server marks destructive, though its name doesn't make it a
-    // delete (`update_page`, `move_pages`): the reviewer judges each call, in every mode, told it
+    // delete (`update_page`, `move_pages`): the reviewer judges each call, told it
     // may overwrite, and whatever it won't approve goes to the person (ADR 0202, amendment 6).
     // The person's "no" for a tool that declares nothing still refuses it.
     if call.overwrites && call.place != Place::Sandbox {

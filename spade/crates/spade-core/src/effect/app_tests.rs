@@ -96,7 +96,7 @@ fn a_connected_apps_undeclared_list_and_search_run_with_no_card() {
             assert_eq!(route(call), Route::Run, "{name} {mode:?}");
         }
         // With untrusted content in view a read only its name vouches for is checked by the
-        // reviewer first, in both modes; never put to the person.
+        // reviewer in Auto-review. Full access runs the call.
         for mode in [Mode::AutoReview, Mode::FullAccess] {
             let tainted = Call {
                 tainted: true,
@@ -105,7 +105,10 @@ fn a_connected_apps_undeclared_list_and_search_run_with_no_card() {
             };
             assert_eq!(
                 route(tainted),
-                Route::Review(Some(GUESSED_READ.to_owned())),
+                match mode {
+                    Mode::AutoReview => Route::Review(Some(GUESSED_READ.to_owned())),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{name} tainted {mode:?}"
             );
         }
@@ -224,7 +227,7 @@ fn an_app_that_says_a_tool_may_write_narrows_a_read_its_name_makes() {
 }
 
 #[test]
-fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_check_for_steering() {
+fn only_auto_review_checks_tainted_app_writes_for_steering() {
     for mode in [Mode::AutoReview, Mode::FullAccess] {
         for remembered in [None, Some(true)] {
             for name in ["notion-create-pages", "duplicate_page"] {
@@ -236,7 +239,10 @@ fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_chec
                 };
                 assert_eq!(
                     route(call),
-                    Route::Review(Some(APP_TAINTED_REVIEW.to_owned())),
+                    match mode {
+                        Mode::AutoReview => Route::Review(Some(APP_TAINTED_REVIEW.to_owned())),
+                        Mode::FullAccess => Route::Run,
+                    },
                     "{name} {remembered:?} {mode:?}"
                 );
             }
@@ -267,7 +273,7 @@ fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_chec
 }
 
 #[test]
-fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_still_asks() {
+fn auto_review_checks_destructive_app_edits_and_deletes_each_time() {
     let marked = Mcp {
         destructive: true,
         annotated: true,
@@ -281,7 +287,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             };
             assert_eq!(
                 route(call),
-                Route::Review(Some(OVERWRITES.to_owned())),
+                match mode {
+                    Mode::AutoReview => Route::Review(Some(OVERWRITES.to_owned())),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{name} {mode:?}"
             );
             let tainted = Call {
@@ -290,7 +299,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             };
             assert_eq!(
                 route(tainted),
-                Route::Review(Some(OVERWRITES_TAINTED.to_owned())),
+                match mode {
+                    Mode::AutoReview => Route::Review(Some(OVERWRITES_TAINTED.to_owned())),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{name} tainted {mode:?}"
             );
             // Neither the person's earlier "yes" nor an Always allow skips the review.
@@ -306,7 +318,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             ] {
                 assert_eq!(
                     route(skip),
-                    Route::Review(Some(OVERWRITES.to_owned())),
+                    match mode {
+                        Mode::AutoReview => Route::Review(Some(OVERWRITES.to_owned())),
+                        Mode::FullAccess => Route::Run,
+                    },
                     "{name}"
                 );
             }
@@ -320,7 +335,14 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             mode,
             ..notion("notion-delete-pages", "", marked)
         };
-        assert_eq!(route(delete), Route::ask(DESTRUCTIVE), "{mode:?}");
+        assert_eq!(
+            to_auto_review(&delete, route(delete)),
+            match mode {
+                Mode::AutoReview => Route::Review(Some(DESTRUCTIVE.to_owned())),
+                Mode::FullAccess => Route::Run,
+            },
+            "{mode:?}"
+        );
     }
 }
 
