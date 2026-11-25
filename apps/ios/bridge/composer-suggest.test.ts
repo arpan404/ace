@@ -2,10 +2,11 @@ import "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { ClientCore } from "@ace/client";
-import { ThreadId } from "@ace/protocol";
+import { AppDevice, ThreadId } from "@ace/protocol";
 import { CatalogPage } from "./catalog-page.ts";
 import { ComposeSearch } from "./compose-search.ts";
-import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
+import { readMentionDevices } from "./composer-devices.ts";
+import { ComposerSuggest, sidebarAgents, sidebarThreads } from "./composer-suggest.ts";
 import {
   commands,
   connect,
@@ -77,6 +78,26 @@ function suggest(client: ClientCore, provider: "claude" | "codex" = "claude") {
 }
 const thread = { type: "thread", threadId: "here" };
 
+/** The composer's lists with the sources the phone wires in (`main.ts`): agents and devices. */
+function withSources(client: ClientCore) {
+  let reads = 0;
+  return new ComposerSuggest({
+    owner: client,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (delay, run) => {
+      const timer = setTimeout(run, delay);
+      return () => clearTimeout(timer);
+    },
+    now: () => Date.now(),
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "codex" }),
+    threads: () => sidebarThreads(client),
+    agents: () => sidebarAgents(client),
+    devices: () => readMentionDevices(client, () => `mentions-${++reads}`),
+    draft: new ComposeSearch(client, pump, (text) => text),
+  });
+}
+
 test("typing / lists the thread's skills and commands, and + offers only what the phone can run", async () => {
   const client = await ready(daemon());
   const lists = suggest(client);
@@ -135,6 +156,131 @@ test("@ lists the project's files and its other threads, and fast typing asks th
   expect(threads.rows.filter((row) => row.group === "Threads").map((row) => row.label)).toEqual([
     "Login fix",
   ]);
+});
+
+test("@ offers another thread's working agent, the machine's devices and the catalog's apps", async () => {
+  const fake = daemon("codex");
+  fake.apply("other", [facts.rootAgent("codex"), facts.turn("root")]);
+  fake.appDevices.addDevice(
+    AppDevice.parse({
+      id: "ios:11111111-2222-4333-8444-555555555555",
+      platform: "ios",
+      name: "iPad Pro",
+      state: "booted",
+      runtime: "iOS 26.1",
+    }),
+  );
+  const client = await ready(fake);
+  await until(() => sidebarAgents(client).some((agent) => agent.threadId === "other"), "the agent");
+  const lists = withSources(client);
+  // Read the catalog first, as focusing the composer does (`prefetch`).
+  lists.handle({ kind: "prefetch", scope: thread });
+  await until(() => lists.catalogs.get("thread:here")?.entries.length, "the catalog");
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "", seq: 1 });
+  const shown = await until(() => {
+    const listed = list();
+    return listed?.seq === 1 && listed.rows.some((row) => row.group === "Devices") && listed;
+  }, "the devices");
+
+  expect(shown.rows.filter((row) => row.group === "Agents").map((row) => row.label)).toEqual([
+    "Login fix",
+  ]);
+  expect(shown.rows.find((row) => row.group === "Agents")?.reference).toMatchObject({
+    addressee: { kind: "agent", threadId: "other", title: "Login fix" },
+  });
+  expect(shown.rows.filter((row) => row.group === "Devices").map((row) => row.label)).toEqual([
+    "Fake machine",
+    "iPhone 16 Pro",
+    "Pixel 9",
+    "iPad Pro",
+  ]);
+  expect(shown.rows.find((row) => row.group === "Devices")?.reference).toMatchObject({
+    device: { type: "device", id: "ios-test-host", kind: "laptop", online: true },
+  });
+  expect(shown.rows.filter((row) => row.group === "Apps").map((row) => row.label)).toEqual([
+    "search-docs",
+    "Quality tools",
+    "Google Drive",
+  ]);
+  expect(shown.rows.find((row) => row.label === "Google Drive")?.reference).toMatchObject({
+    catalog: { type: "mention", entryId: "codex:app:drive", name: "Google Drive" },
+  });
+});
+
+test("a picked agent, device and app go where the web puts them", async () => {
+  const fake = daemon("codex");
+  fake.apply("other", [facts.rootAgent("codex"), facts.turn("root")]);
+  fake.appDevices.addDevice(
+    AppDevice.parse({
+      id: "ios:11111111-2222-4333-8444-555555555555",
+      platform: "ios",
+      name: "iPad Pro",
+      state: "booted",
+      runtime: "iOS 26.1",
+    }),
+  );
+  const client = await ready(fake);
+  await until(() => sidebarAgents(client).some((agent) => agent.threadId === "other"), "the agent");
+  const lists = withSources(client);
+  lists.handle({ kind: "prefetch", scope: thread });
+  await until(() => lists.catalogs.get("thread:here")?.entries.length, "the catalog");
+  lists.handle({ kind: "query", scope: thread, list: "mention", query: "", seq: 1 });
+  const shown = await until(() => {
+    const listed = list();
+    return listed?.seq === 1 && listed.rows.some((row) => row.group === "Devices") && listed;
+  }, "the devices");
+  const picked = [
+    shown.rows.find((row) => row.group === "Agents"),
+    shown.rows.find((row) => row.label === "iPad Pro"),
+    shown.rows.find((row) => row.label === "Google Drive"),
+  ].map((row) => {
+    if (!row?.reference) throw new Error("No picked row");
+    return row.reference;
+  });
+
+  let text = "Use";
+  const references = picked.map((reference) => {
+    const label = String(reference.label);
+    text += ` ${label}`;
+    const start = text.length - label.length;
+    return Object.assign(reference, { start, end: start + label.length });
+  });
+  const session = open(connect(fake), "here");
+  await until(() => latest("thread.controls"), "the composer");
+  session.handle({ type: "send", text, opposite: false, requestId: "mention", references });
+  await until(() => commands("thread.send").length === 1, "the message");
+  const sentMessage = commands("thread.send")[0];
+
+  // Apps ride inline as the catalog mention; the device is structured context beside it.
+  expect(sentMessage?.input).toContainEqual(
+    expect.objectContaining({ type: "mention", name: "Google Drive" }),
+  );
+  expect(sentMessage?.context).toMatchObject({
+    items: [
+      {
+        type: "device",
+        id: "ios:11111111-2222-4333-8444-555555555555",
+        name: "iPad Pro",
+        kind: "simulator",
+        machine: { id: "ios-test-host", name: "Fake machine", here: true },
+        os: "iOS 26.1",
+        online: true,
+      },
+    ],
+  });
+  // The agent gets the words through `thread.address`, as the web's composer sends it.
+  const address = await until(() => commands("thread.address")[0], "the address");
+  expect(address).toMatchObject({
+    threadId: "here",
+    to: [{ kind: "agent", threadId: "other", title: "Login fix", provider: "codex" }],
+    devices: [{ type: "device", id: "ios:11111111-2222-4333-8444-555555555555" }],
+    share: "thread",
+    files: [],
+  });
+  expect(address?.about).toEqual(expect.any(String));
+  expect(address?.input).toContainEqual(
+    expect.objectContaining({ type: "mention", name: "Google Drive" }),
+  );
 });
 
 test("a message carries the references still written in it, and a picked skill goes inline", async () => {
