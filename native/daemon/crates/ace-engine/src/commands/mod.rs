@@ -7,8 +7,11 @@ use ace_json::Value;
 use crate::State;
 use crate::executor::TaskId;
 
+pub mod admissions;
 pub mod guest;
 pub mod prelude;
+pub mod validation;
+pub mod worktree;
 
 /// One command's payload.
 pub(crate) fn payload(command: &Value) -> &Value {
