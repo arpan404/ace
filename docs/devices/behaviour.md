@@ -507,7 +507,7 @@ switch off, `packages/devices/src` is today's TypeScript, unchanged.
 | `simulator-frames`                          | `platform/simulator_frames/mod.rs`  | not yet: the state machine returns effects, the capture's clock, timer and promises are U3 |
 | `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                               |
 | `simulator-jpeg`                            | `platform/simulator_jpeg/mod.rs`    | not yet: the state machine returns actions; HTTP is the capture's port (U3)                |
-| `media-paths`                               | -                                   | not yet (its stream decisions are U2-U3)                                                   |
+| `media-paths`                               | `platform/media_paths/mod.rs`       | not yet: paths, merge and egress are decisions; the media source is the capture's (U3)     |
 
 The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
 Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
@@ -516,6 +516,16 @@ TypeScript's reachable behaviour only: `(record[4] & 3) + 1` cannot be 3, so `av
 length-size-3 refusal is unreachable and is not reproduced. The splitter keeps the `.avcc`
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
+
+`media_paths/mod.rs` keeps the device's path decisions: the producer's move to ace-media, a
+refused move, the codec list (H.264 only), the path the merge is on, a cut at a switch, an
+interrupted path end asking for a keyframe, an ingest connection closing, and closing that waits
+for a move in flight before turning the producer off. `merge.rs` is the one-stream form of
+`@ace/media`'s `PathMerge` (a device runs one video stream): held units, the clean and
+interrupted settle, the byte and time hold limits, and deltas waiting for a keyframe after a
+give-up. `egress.rs` reads the producer stamp and turns an egress unit into the capture's unit.
+`withMediaWant` and `withVideoStatus` stay TypeScript: they are composition over the media
+object graph (which wrapper composes which `attach`), not a decision of their own.
 
 `simulator_jpeg/mod.rs` keeps the TypeScript's link and ask lifecycle: one MJPEG request at a
 time, a still's `after` frame count so a picture already arriving is never taken for a newer one,

@@ -23,6 +23,7 @@ pub mod keys;
 pub mod lifecycle;
 pub mod list;
 pub mod log_line;
+pub mod media_paths;
 pub mod mjpeg;
 pub mod posture;
 pub mod recording_limits;
