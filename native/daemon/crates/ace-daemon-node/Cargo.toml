@@ -47,13 +47,15 @@ zeroize = { version = "1" }
 # ace-adapter-acp: the ACP translator behind ACE_TRANSLATORS=acp (E1); the binding only translates.
 ace-adapter-acp = { path = "../ace-adapter-acp" }
 # ace-devices: the device platform's identity, package lifecycle and discovery files behind
-# ACE_DEVICE_PLATFORM; the binding only translates.
+# ACE_DEVICE_PLATFORM, and device inventory discovery, triggers and the coordinator behind
+# ACE_DEVICE_INVENTORY (D2); the binding only translates.
 ace-devices = { path = "../ace-devices" }
 # ace-git: Git behind @ace/git's interfaces behind ACE_GIT (G0 owns the foundations); the binding only translates.
 ace-git = { path = "../ace-git" }
 # ace-supervisor: spawning, containment and the inventory journal behind
 # @ace/provider-kit's process exports (E2a); the binding only translates.
 ace-supervisor = { path = "../ace-supervisor" }
+tokio-util = "0.7.20"
 # ace-transport: the loopback and remote listeners (T0 owns the skeleton); the binding only translates.
 ace-transport = { path = "../ace-transport" }
 # tokio: the I/O runtime for the supervisor's pumps, waiters and stop tasks.

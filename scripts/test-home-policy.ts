@@ -148,6 +148,12 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_SCRCPY_VIDEO !== undefined
       ? { ACE_SCRCPY_VIDEO: ambient.ACE_SCRCPY_VIDEO }
       : {}),
+    ...(ambient.ACE_DEVICE_INVENTORY !== undefined
+      ? { ACE_DEVICE_INVENTORY: ambient.ACE_DEVICE_INVENTORY }
+      : {}),
+    ...(ambient.ACE_DEVICE_INVENTORY_ADDON !== undefined
+      ? { ACE_DEVICE_INVENTORY_ADDON: ambient.ACE_DEVICE_INVENTORY_ADDON }
+      : {}),
     // The git implementation switch (ADR 0224, G0) and the gate's logs and
     // verify mode: the git shells read them in workers, where every other
     // ACE_* value stays scrubbed.

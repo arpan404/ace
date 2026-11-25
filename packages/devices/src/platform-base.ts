@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Simulators, type ScreenManager } from "@ace/screen";
 import { probeOutput, spawnRawSupervised, spawnSupervised } from "@ace/provider-kit/process";
 import { findExecutable } from "@ace/provider-kit/discovery";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import {
   AppDevice as DeviceSchema,
   DeviceInput as InputSchema,
@@ -101,6 +102,8 @@ export class DevicePlatformBase {
   private readonly controller = new AbortController();
   private readonly androidUI: AndroidOperations;
   private missingSDKs: (DeviceFailure & { platform: Device["platform"] })[] = [];
+  private lastIosOutcome: PromiseSettledResult<Device[]> | undefined;
+  private lastAndroidOutcome: PromiseSettledResult<Device[]> | undefined;
   private inputHint: DeviceError | undefined;
   private checkedInput = false;
   private toolsDownload: Promise<DeviceTools> | undefined;
@@ -414,25 +417,115 @@ export class DevicePlatformBase {
       else this.active--;
     }
   }
-  async list(): Promise<Device[]> {
-    const ios = async (): Promise<Device[]> =>
-      (await this.simulators.list()).map((device) =>
-        DeviceSchema.parse({
-          id: `ios:${device.udid}`,
-          platform: "ios",
-          name: device.name,
-          state: device.state === "Booted" ? "booted" : "shutdown",
-          runtime: simulatorRuntime(device.runtime),
-          ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
-        }),
-      );
+  /** Host platform, home, and env used by native inventory watchers (D2). */
+  inventoryWatchConfig(): {
+    platform: string;
+    home: string;
+    env: Readonly<Record<string, string | undefined>>;
+  } {
+    return {
+      platform: this.options.platform,
+      home: this.options.home,
+      env: this.options.env,
+    };
+  }
+  private async readIosList(): Promise<Device[]> {
+    return (await this.simulators.list()).map((device) =>
+      DeviceSchema.parse({
+        id: `ios:${device.udid}`,
+        platform: "ios",
+        name: device.name,
+        state: device.state === "Booted" ? "booted" : "shutdown",
+        runtime: simulatorRuntime(device.runtime),
+        ...(device.deviceTypeIdentifier ? { model: device.deviceTypeIdentifier } : {}),
+      }),
+    );
+  }
+  private async settleOutcome(read: Promise<Device[]>): Promise<PromiseSettledResult<Device[]>> {
+    const [result] = await Promise.allSettled([read]);
+    return result as PromiseSettledResult<Device[]>;
+  }
+  private async finalizeList(
+    entries: { platform: Device["platform"]; result: PromiseSettledResult<Device[]> }[],
+  ): Promise<Device[]> {
+    const devices: Device[] = [];
+    const missing: (DeviceFailure & { platform: Device["platform"] })[] = [];
+    for (const { platform, result } of entries) {
+      if (result.status === "fulfilled") devices.push(...result.value);
+      else if (result.reason instanceof DeviceError && result.reason.code === "sdk_missing") {
+        const { code, message, hint } = result.reason;
+        missing.push({ code, message, hint, platform });
+      } else throw result.reason;
+    }
+    this.setMissingSDKs(missing);
+    const adopted = this.adoptInventory(devices);
+    if (adopted) await adopted;
+    // Every platform's SDK is missing: the inventory itself fails (no other error got here).
+    const first = entries[0]?.result;
+    if (
+      first?.status === "rejected" &&
+      entries.every((entry) => entry.result.status === "rejected")
+    )
+      throw first.reason;
+    return devices;
+  }
+  /** Re-reads only the triggered list (`ios`, `avds`, or `adb`) when cached peers exist (D2). */
+  setInventoryListGuard(guard: (<T>(read: () => Promise<T>) => Promise<T>) | undefined): void {
+    this.android.setListGuard(guard);
+  }
+  invalidateAndroidIdentityCache(): void {
+    if (deviceInventoryBackend() === "native") this.android.invalidateIdentityCache();
+  }
+  async listSource(scope: "all" | "ios" | "avds" | "adb"): Promise<Device[]> {
+    if (scope === "all" || this.list !== DevicePlatformBase.prototype.list) return this.list();
+    if (scope === "ios") {
+      if (this.options.platform !== "darwin" || this.lastAndroidOutcome === undefined)
+        return this.list();
+      this.lastIosOutcome = await this.settleOutcome(this.readIosList());
+      return this.finalizeList([
+        { platform: "ios", result: this.lastIosOutcome },
+        { platform: "android", result: this.lastAndroidOutcome },
+      ]);
+    }
+    if (this.options.platform === "darwin" && this.lastIosOutcome === undefined) return this.list();
+    this.lastAndroidOutcome = await this.settleOutcome(this.android.list(scope));
+    return this.finalizeList(
+      this.options.platform === "darwin" && this.lastIosOutcome !== undefined
+        ? [
+            { platform: "ios", result: this.lastIosOutcome },
+            { platform: "android", result: this.lastAndroidOutcome },
+          ]
+        : [{ platform: "android", result: this.lastAndroidOutcome }],
+    );
+  }
+  private async listNative(): Promise<Device[]> {
     const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
       this.options.platform === "darwin"
         ? [
-            { platform: "ios", read: ios() },
-            { platform: "android", read: this.android.list() },
+            { platform: "ios", read: this.readIosList() },
+            { platform: "android", read: this.android.list("all") },
           ]
-        : [{ platform: "android", read: this.android.list() }];
+        : [{ platform: "android", read: this.android.list("all") }];
+    const outcomes = await Promise.allSettled(sources.map((source) => source.read));
+    const entries = sources.map((source, index) => ({
+      platform: source.platform,
+      result: outcomes[index] as PromiseSettledResult<Device[]>,
+    }));
+    for (const entry of entries) {
+      if (entry.platform === "ios") this.lastIosOutcome = entry.result;
+      else this.lastAndroidOutcome = entry.result;
+    }
+    return this.finalizeList(entries);
+  }
+  async list(): Promise<Device[]> {
+    if (deviceInventoryBackend() === "native") return this.listNative();
+    const sources: { platform: Device["platform"]; read: Promise<Device[]> }[] =
+      this.options.platform === "darwin"
+        ? [
+            { platform: "ios", read: this.readIosList() },
+            { platform: "android", read: this.android.list("all") },
+          ]
+        : [{ platform: "android", read: this.android.list("all") }];
     const outcomes = await Promise.allSettled(sources.map((source) => source.read));
     const devices: Device[] = [];
     const missing: (DeviceFailure & { platform: Device["platform"] })[] = [];
@@ -444,7 +537,8 @@ export class DevicePlatformBase {
       } else throw result.reason;
     }
     this.setMissingSDKs(missing);
-    await this.adoptInventory(devices);
+    const adopted = this.adoptInventory(devices);
+    if (adopted) await adopted;
     // Every platform's SDK is missing: the inventory itself fails (no other error got here).
     const [first] = outcomes;
     if (first?.status === "rejected" && outcomes.every((result) => result.status === "rejected"))
@@ -456,26 +550,28 @@ export class DevicePlatformBase {
     this.missingSDKs = missing;
   }
   /** What every platform's list does after the reads: forget gone processes, notice a missing
-   * serve-sim the first time an iOS device appears. */
-  protected async adoptInventory(devices: readonly Device[]): Promise<void> {
+   * serve-sim the first time an iOS device appears. Synchronous unless that check must run. */
+  protected adoptInventory(devices: readonly Device[]): void | Promise<void> {
     const present = new Set(
       devices.filter((device) => device.state === "booted").map((device) => device.id),
     );
     for (const id of this.appProcesses.keys()) if (!present.has(id)) this.appProcesses.delete(id);
-    if (!this.checkedInput && devices.some((device) => device.platform === "ios")) {
-      const [managed, serve, idb] = await Promise.all([
-        this.managedServeSim(),
-        findExecutable(this.options.env["ACE_SERVE_SIM"] ?? "serve-sim", this.options.env),
-        findExecutable("idb", this.options.env),
-      ]);
-      this.checkedInput = true;
-      if (!managed && !serve && !idb)
-        this.inputHint = new DeviceError(
-          "tool_missing",
-          "The Simulator's device tools aren't downloaded",
-          "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
-        );
-    }
+    if (this.checkedInput || !devices.some((device) => device.platform === "ios")) return;
+    return this.inspectInputTools();
+  }
+  private async inspectInputTools(): Promise<void> {
+    const [managed, serve, idb] = await Promise.all([
+      this.managedServeSim(),
+      findExecutable(this.options.env["ACE_SERVE_SIM"] ?? "serve-sim", this.options.env),
+      findExecutable("idb", this.options.env),
+    ]);
+    this.checkedInput = true;
+    if (!managed && !serve && !idb)
+      this.inputHint = new DeviceError(
+        "tool_missing",
+        "The Simulator's device tools aren't downloaded",
+        "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
+      );
   }
 
   protected async simctl(

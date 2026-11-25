@@ -145,5 +145,27 @@
       "message": "Android emulators aren't available on Linux arm64",
       "hint": "Google publishes the Android Emulator for x86-64 Linux only. Android phones on USB and devices on the network work here through adb."
     }
+  },
+  "adbTransports": {
+    "defaultPhysicalName": "Android device",
+    "tooManyTransports": {
+      "message": "Too many Android devices are connected",
+      "hint": "Disconnect unused devices or emulators."
+    },
+    "blocked": {
+      "noPermissions": {
+        "messageSuffix": " is connected, but this user can't open it over USB",
+        "hintLinux": "Linux needs a udev rule for Android devices: install your distribution's rules (Debian/Ubuntu: sudo apt install android-udev-rules; Fedora: sudo dnf install android-tools; Arch: sudo pacman -S android-udev), add yourself to the plugdev group (sudo usermod -aG plugdev $USER, then sign out and back in), unplug and replug the device, then run adb kill-server.",
+        "hintOther": "Unplug and replug the device, then run adb kill-server."
+      },
+      "network": {
+        "messageSuffix": " hasn't allowed this computer yet",
+        "hint": "On the device, allow the debugging prompt. For wireless debugging, pair first: Developer options > Wireless debugging > Pair device with pairing code, then run adb pair HOST:PORT and adb connect HOST:PORT."
+      },
+      "usb": {
+        "messageSuffix": " is waiting for you to allow USB debugging",
+        "hint": "Unlock the device and tap Allow on the \"Allow USB debugging?\" prompt. No prompt? Unplug and replug it, or revoke USB debugging authorizations in Developer options and reconnect."
+      }
+    }
   }
 }

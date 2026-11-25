@@ -2,7 +2,7 @@
 
 [package]
 name = "ace-devices"
-description = "The device platform behind @ace/devices' interfaces: Simulator and Android identity, package lifecycle plans and the emulator's discovery files (D3.1)"
+description = "Device discovery and pushed inventory, and the device platform behind @ace/devices' interfaces (ADR 0225, D2 and D3)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,9 +15,17 @@ workspace = true
 [dependencies]
 # ace-json: every JS-visible value serializes with JSON.parse/JSON.stringify semantics, never serde_json.
 ace-json = { path = "../ace-json" }
-# thiserror: one typed error enum for the crate, mapped in the binding.
-thiserror = { version = "2" }
+# ace-supervisor: every child process (adb start-server, SDK commands) runs supervised.
+ace-supervisor = { path = "../ace-supervisor" }
+# notify: filesystem watches for the AVD folder and CoreSimulator device set (D2).
+notify = { version = "8" }
 # serde: the results are structs in the TypeScript's field order, serialized by ace-json.
 serde = { version = "1", features = ["derive"] }
 # serde_json: reads the device word catalog this crate embeds (catalog/devices.json).
 serde_json = { version = "1" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# tokio: async TCP for host:track-devices-l and timers/channels for background watches.
+tokio = { version = "1.54", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+# tokio-util: CancellationToken for clean stop of track sockets and watchers.
+tokio-util = { version = "0.7.20" }

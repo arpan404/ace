@@ -33,7 +33,11 @@ import { enqueueDeviceInput, enqueueSharedInput } from "./input-queue.ts";
 import { DeviceCowork } from "./device-cowork.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
+import { homedir } from "node:os";
+import { deviceInventoryBackend } from "@ace/provider-kit/native-switches";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
+import { NativeDeviceInventoryWatch, type InventoryReadScope } from "./native-inventory.ts";
+import { DevicePlatform } from "./platform.ts";
 import { SimAgentState } from "./sim-state.ts";
 import { oneOffFrame } from "./one-off-screenshot.ts";
 import { StillTooLarge } from "./simulator-frames.ts";
@@ -68,11 +72,20 @@ export class DevicesService {
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
   /** The inventory read in flight, numbered in the order reads started. */
-  private listing: { read: number; devices: Promise<Device[]> } | undefined;
+  private listing:
+    | {
+        read: number;
+        scope: InventoryReadScope | "android";
+        publishInventory: boolean;
+        invalidatedAdbCache: boolean;
+        devices: Promise<Device[]>;
+      }
+    | undefined;
   private reads = 0;
   private inventoryViews = 0;
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
-  private readonly inventory: InventoryWatch;
+  private readonly sourceReads = new Set<Promise<unknown>>();
+  private readonly inventory: InventoryWatch | NativeDeviceInventoryWatch;
   private readonly cowork: DeviceCowork | undefined;
   constructor(options: DevicesOptions) {
     this.options = options;
@@ -84,20 +97,182 @@ export class DevicesService {
           })
         : undefined;
     this.enabled = options.enabled ?? true;
-    this.inventory = new InventoryWatch({
-      read: () => this.list(),
-      after: options.runtime.after,
-      intervalMs: options.inventoryIntervalMs ?? 4000,
-      log: options.log,
-    });
+    if (
+      deviceInventoryBackend() === "native" &&
+      typeof options.platform.setInventoryListGuard === "function"
+    ) {
+      options.platform.setInventoryListGuard((read) => this.guardedAndroidList(read));
+    }
+    this.inventory =
+      deviceInventoryBackend() === "native"
+        ? new NativeDeviceInventoryWatch({
+            readSource: (scope, liveness, invalidateAdbCache) =>
+              this.readInventorySource(scope, liveness, invalidateAdbCache),
+            after: options.runtime.after,
+            intervalMs: options.inventoryIntervalMs ?? 4000,
+            log: options.log,
+            watchConfig: () =>
+              typeof options.platform.inventoryWatchConfig === "function"
+                ? options.platform.inventoryWatchConfig()
+                : { platform: process.platform, home: homedir(), env: options.env },
+          })
+        : new InventoryWatch({
+            read: () => this.list(),
+            after: options.runtime.after,
+            intervalMs: options.inventoryIntervalMs ?? 4000,
+            log: options.log,
+          });
   }
   /** The inventory, joining a read already in flight. */
   async settleInventory(): Promise<void> {
+    if (deviceInventoryBackend() === "native" && this.sourceReads.size > 0) {
+      await Promise.allSettled([
+        ...(this.listing ? [this.listing.devices] : []),
+        ...this.sourceReads,
+      ]);
+      return;
+    }
     await this.listing?.devices.catch(() => {});
   }
+  private readInventorySource(
+    scope: InventoryReadScope,
+    liveness: boolean,
+    invalidateAdbCache: boolean,
+  ): Promise<Inventory> {
+    const task = this.runInventorySource(scope, liveness, invalidateAdbCache);
+    this.sourceReads.add(task);
+    void task.finally(() => this.sourceReads.delete(task)).catch(() => {});
+    return task;
+  }
+  private async runInventorySource(
+    scope: InventoryReadScope,
+    _liveness: boolean,
+    invalidateAdbCache: boolean,
+  ): Promise<Inventory> {
+    const platform = this.options.platform;
+    const canScope =
+      scope !== "all" &&
+      typeof platform.listSource === "function" &&
+      platform.list === DevicePlatform.prototype.list;
+    // Watch-driven reads never publish directly from refreshWith: NativeDeviceInventoryWatch
+    // reports the snapshot to Rust's coordinator, which gates publishing on read_id still being current.
+    const devices = canScope
+      ? await this.scopedList(scope, invalidateAdbCache)
+      : await this.watchFreshList(invalidateAdbCache);
+    return { devices, issues: platform.diagnostics() };
+  }
+  private startListing(
+    scope: InventoryReadScope,
+    read: () => Promise<Device[]>,
+    publishInventory: boolean,
+    invalidatedAdbCache = false,
+  ): Promise<Device[]> {
+    const listing = {
+      read: ++this.reads,
+      scope,
+      publishInventory,
+      invalidatedAdbCache,
+      devices: Promise.resolve<Device[]>([]),
+    };
+    listing.devices = this.refreshWith(read, publishInventory).finally(() => {
+      if (this.listing === listing) this.listing = undefined;
+    });
+    this.listing = listing;
+    return listing.devices;
+  }
+  private async guardedAndroidList<T>(read: () => Promise<T>): Promise<T> {
+    for (;;) {
+      const current = this.listing;
+      if (!current) {
+        let resolveDone!: () => void;
+        const done = new Promise<void>((resolve) => {
+          resolveDone = resolve;
+        });
+        const listing = {
+          read: ++this.reads,
+          scope: "android" as const,
+          publishInventory: false,
+          invalidatedAdbCache: false,
+          devices: done.then(() => [] as Device[]),
+        };
+        this.listing = listing;
+        try {
+          return await read();
+        } finally {
+          if (this.listing === listing) this.listing = undefined;
+          resolveDone();
+        }
+      }
+      await current.devices.catch(() => {});
+    }
+  }
+  private async scopedList(
+    scope: Exclude<InventoryReadScope, "all">,
+    invalidateAdbCache: boolean,
+  ): Promise<Device[]> {
+    for (;;) {
+      const current = this.listing;
+      if (!current) {
+        const platform = this.options.platform;
+        return this.startListing(
+          scope,
+          () => {
+            if (invalidateAdbCache && typeof platform.invalidateAndroidIdentityCache === "function")
+              platform.invalidateAndroidIdentityCache();
+            return platform.listSource(scope);
+          },
+          false,
+          invalidateAdbCache,
+        );
+      }
+      await current.devices.catch(() => {});
+    }
+  }
+  private async watchFreshList(invalidateAdbCache: boolean): Promise<Device[]> {
+    const before = this.reads;
+    for (;;) {
+      const current = this.listing;
+      if (!current) {
+        const platform = this.options.platform;
+        return this.startListing(
+          "all",
+          () => {
+            if (invalidateAdbCache && typeof platform.invalidateAndroidIdentityCache === "function")
+              platform.invalidateAndroidIdentityCache();
+            return platform.list();
+          },
+          false,
+          invalidateAdbCache,
+        );
+      }
+      if (
+        current.read > before &&
+        current.scope === "all" &&
+        !current.publishInventory &&
+        (!invalidateAdbCache || current.invalidatedAdbCache)
+      ) {
+        return current.devices;
+      }
+      await current.devices.catch(() => {});
+    }
+  }
   async list(): Promise<Device[]> {
+    if (deviceInventoryBackend() === "native") {
+      for (;;) {
+        const current = this.listing;
+        if (!current) return this.startListing("all", () => this.options.platform.list(), true);
+        if (current.scope === "all" && current.publishInventory) return current.devices;
+        await current.devices.catch(() => {});
+      }
+    }
     if (!this.listing) {
-      const listing = { read: ++this.reads, devices: Promise.resolve<Device[]>([]) };
+      const listing = {
+        read: ++this.reads,
+        scope: "all" as const,
+        publishInventory: true,
+        invalidatedAdbCache: false,
+        devices: Promise.resolve<Device[]>([]),
+      };
       listing.devices = this.refresh().finally(() => {
         if (this.listing === listing) this.listing = undefined;
       });
@@ -107,10 +282,19 @@ export class DevicesService {
   }
   /**
    * The inventory from a read that started after this call: a read already in flight may have
-   * seen the device before a boot or shutdown, so it is waited out rather than joined.
+   * seen the device before a boot, shutdown or source reconnect, so it is waited out rather than joined.
    */
   private async freshList(): Promise<Device[]> {
     const before = this.reads;
+    if (deviceInventoryBackend() === "native") {
+      for (;;) {
+        const current = this.listing;
+        if (!current) return this.list();
+        if (current.read > before && current.scope === "all" && current.publishInventory)
+          return current.devices;
+        await current.devices.catch(() => {});
+      }
+    }
     for (;;) {
       const current = this.listing;
       if (!current) return this.list();
@@ -118,10 +302,16 @@ export class DevicesService {
       await current.devices.catch(() => {});
     }
   }
-  private async refresh(): Promise<Device[]> {
+  private refresh(): Promise<Device[]> {
+    return this.refreshWith(() => this.options.platform.list(), true);
+  }
+  private async refreshWith(
+    read: () => Promise<Device[]>,
+    publishInventory: boolean,
+  ): Promise<Device[]> {
     if (this.closed)
       throw new DeviceError("busy", "Devices service is closed", "Reconnect to the daemon.");
-    const devices = await this.options.platform.list();
+    const devices = await read();
     if (devices.length > 1024)
       throw new DeviceError("limit", "Device inventory limit", "Remove unused simulators or AVDs.");
     const inventory = new Map(devices.map((device) => [device.id, device]));
@@ -158,7 +348,8 @@ export class DevicesService {
         void this.refreshPosture(session).catch(() => {});
       }
     }
-    this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
+    if (publishInventory)
+      this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
     return devices;
   }
   private async session(id: string): Promise<DeviceSession> {
@@ -1074,6 +1265,7 @@ export class DevicesService {
     this.closed = true;
     this.enabled = false;
     this.watching();
+    if (this.inventory instanceof NativeDeviceInventoryWatch) this.inventory.close();
     const results = await Promise.allSettled([
       ...[...this.sessions.values()].map(async (session) => {
         const resources = await Promise.allSettled([this.stop(session), session.logs.close()]);
