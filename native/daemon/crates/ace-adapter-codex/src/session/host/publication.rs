@@ -20,44 +20,101 @@ pub(super) struct Publication {
     /// Set once the shell has given the host its sink.
     sink: Option<Arc<dyn HostSink>>,
     publishing: bool,
-    /// Frames waiting, and the bytes they hold: what the gate watches.
-    frames: usize,
+    /// Effects waiting that carry something, and their bytes: what the gate
+    /// watches.
+    entries: usize,
     bytes: usize,
     /// The gate is closed because of this backlog.
     paced: bool,
 }
 
 impl Publication {
-    /// Queues one effect, counting the frame it holds.
-    fn hold(&mut self, effect: HostEffect, bytes: usize) {
-        if matches!(effect, HostEffect::Frame { .. }) {
-            self.frames += 1;
+    /// Queues one effect, counting the payload it holds.
+    fn hold(&mut self, effect: HostEffect, payload: Option<usize>) {
+        if let Some(bytes) = payload {
+            self.entries += 1;
             self.bytes += bytes;
         }
-        self.queue.push_back(Queued { effect, bytes });
+        self.queue.push_back(Queued { effect, payload });
     }
 
     /// Forgets everything waiting: a shell that unwound gets none of it.
     fn clear(&mut self) {
         self.queue.clear();
-        self.frames = 0;
+        self.entries = 0;
         self.bytes = 0;
     }
 
     /// The effect left the queue: its reservation goes with it.
     fn release(&mut self, queued: &Queued) {
-        if matches!(queued.effect, HostEffect::Frame { .. }) {
-            self.frames = self.frames.saturating_sub(1);
-            self.bytes = self.bytes.saturating_sub(queued.bytes);
+        if let Some(bytes) = queued.payload {
+            self.entries = self.entries.saturating_sub(1);
+            self.bytes = self.bytes.saturating_sub(bytes);
         }
     }
 }
 
-/// One effect waiting for the shell, with what its frame reserved.
+/// One effect waiting for the shell, with what it reserved.
 struct Queued {
     effect: HostEffect,
-    /// The frame's size, or 0 for an effect that is not a frame.
-    bytes: usize,
+    /// The effect's payload size, or `None` when it carries nothing (it then
+    /// takes no room in the intake budget).
+    payload: Option<usize>,
+}
+
+impl HostEffect {
+    /// What this effect carries for the shell, in bytes, or `None` when it
+    /// carries nothing. Every payload-bearing effect counts against the intake
+    /// budget, not just frames: a diagnostic or a malformed line piles up the
+    /// same way when the shell has stopped taking effects.
+    fn payload_bytes(&self) -> Option<usize> {
+        Some(match self {
+            HostEffect::Frame { data, .. } => payload_size(data),
+            HostEffect::Notification { method, params, .. }
+            | HostEffect::ServerRequest { method, params, .. } => {
+                method.len_utf16() + 2 + params.as_ref().map_or(0, payload_size)
+            }
+            HostEffect::Dropped { line, .. } => line.bytes,
+            HostEffect::Malformed { line, .. } | HostEffect::Stderr { line, .. } => line.len() + 2,
+            HostEffect::Error { message, .. }
+            | HostEffect::OpenFailed { message, .. }
+            | HostEffect::DetachFailed { message, .. } => message.len() + 2,
+            HostEffect::Write { wire, .. } => wire.len(),
+            HostEffect::Settle { result, .. } => {
+                result.as_ref().map_or(0, payload_size)
+            }
+            _ => return None,
+        })
+    }
+}
+
+/// A value's size as JSON text, counted without encoding it: keys, strings and
+/// the punctuation between them. Iterative, so a deeply nested frame cannot
+/// grow the stack (the parser has no depth limit).
+fn payload_size(value: &Value) -> usize {
+    let mut total = 0;
+    let mut stack = vec![value];
+    while let Some(value) = stack.pop() {
+        match value {
+            Value::Null => total += 4,
+            Value::Bool(true) => total += 4,
+            Value::Bool(false) => total += 5,
+            Value::Number(_) => total += 8,
+            Value::String(text) => total += text.len_utf16() + 2,
+            Value::Array(items) => {
+                total += 2 + items.len();
+                stack.extend(items.iter());
+            }
+            Value::Object(map) => {
+                total += 2 + map.len();
+                for (key, value) in map.iter() {
+                    total += key.len_utf16() + 3;
+                    stack.push(value);
+                }
+            }
+        }
+    }
+    total
 }
 
 /// The intake budget the host's gate closes at, as TS's `outputFlow` does: a
@@ -116,11 +173,12 @@ impl Host {
                 // only a backlog pays for measuring it.
                 let backlogged = publication.publishing || !publication.queue.is_empty();
                 for effect in inner.out.drain(..) {
-                    let bytes = match &effect {
-                        HostEffect::Frame { data, .. } if backlogged => data.to_json().len(),
-                        _ => 0,
+                    let payload = if backlogged {
+                        effect.payload_bytes()
+                    } else {
+                        None
                     };
-                    publication.hold(effect, bytes);
+                    publication.hold(effect, payload);
                 }
                 self.pace(&mut publication);
                 (result, self.claim(&mut publication))
@@ -135,14 +193,14 @@ impl Host {
     /// Closes the gate while the backlog is at the intake budget, and reopens
     /// it once the sink has drained it.
     fn pace(&self, publication: &mut Publication) {
-        let over = publication.frames >= INTAKE_FRAMES || publication.bytes >= INTAKE_BYTES;
+        let over = publication.entries >= INTAKE_FRAMES || publication.bytes >= INTAKE_BYTES;
         if over && !publication.paced {
             publication.paced = true;
             self.gate.set_backlog(true);
             return;
         }
         if publication.paced
-            && publication.frames <= INTAKE_FRAMES_RESUME
+            && publication.entries <= INTAKE_FRAMES_RESUME
             && publication.bytes <= INTAKE_BYTES_RESUME
         {
             publication.paced = false;
@@ -246,7 +304,8 @@ impl Host {
             // The sink that unwound hears nothing more of what it was queued.
             publication.clear();
             for effect in inner.out.drain(..) {
-                publication.hold(effect, 0);
+                let payload = effect.payload_bytes();
+                publication.hold(effect, payload);
             }
             self.pace(&mut publication);
             self.claim(&mut publication)

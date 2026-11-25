@@ -421,8 +421,9 @@ fn a_blocked_sink_closes_the_gate_at_the_intake_budget_and_draining_reopens_it()
         "the gate closes once the queue holds the intake budget"
     );
     assert!(
-        queued >= 255,
-        "the frame budget closed it after {queued} queued frames"
+        queued < 256,
+        "the budget counts every payload-bearing effect, so fewer inputs than the\
+         budget closed it: {queued}"
     );
 
     sink.let_go();
@@ -432,6 +433,40 @@ fn a_blocked_sink_closes_the_gate_at_the_intake_budget_and_draining_reopens_it()
         thing,
         Published::Frame { tenant: 1, method } if method == "thread/name/updated"
     )));
+}
+
+/// A backlog of non-frame payloads counts against the same budget: a blocked
+/// sink's flood of diagnostics closes the gate at the byte budget, so the
+/// child's lines cannot pile up while delivery is stopped.
+#[test]
+fn a_blocked_sink_counts_diagnostics_against_the_intake_budget() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    sink.hold_next_frame();
+    let first = {
+        let host = Arc::clone(&host);
+        std::thread::spawn(move || host.line(&renamed("first")))
+    };
+    assert!(sink.wait_parked(), "the publisher is inside a frame");
+
+    let line = "d".repeat(64 * 1024);
+    let mut sent = 0;
+    while !host.paused() && sent < 200 {
+        host.stderr_line(&line);
+        sent += 1;
+    }
+    assert!(
+        host.paused(),
+        "the byte budget closes the gate on diagnostics, after {sent} lines"
+    );
+    assert!(
+        sent <= 64,
+        "no more than the budget's worth is queued: {sent} lines of 64 KiB"
+    );
+
+    sink.let_go();
+    first.join().expect("the frame's input returns");
+    assert!(!host.paused(), "the sink drained: the gate reopens");
 }
 
 /// One thing the shell published, in the order it published it.
