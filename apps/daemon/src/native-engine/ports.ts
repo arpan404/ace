@@ -77,6 +77,10 @@ export interface EngineBindings {
   finishClose(): void;
   /** A provider or account the person turned off; the shell answers true when unconfigured. */
   providerEnabled(provider: string, instanceId?: string): boolean;
+  hasMoveTarget: boolean;
+  hasResetAt: boolean;
+  /** The account's reset reading, or undefined when no port was given. */
+  resetAt?(threadId: string): number | null | undefined;
 }
 
 /** The `options` JSON the binding reads: limits, idleMs and which ready ports were given. */
@@ -173,5 +177,10 @@ export function engineBindings(input: {
     finishClose: () => host.finishClose(),
     providerEnabled: (provider, instanceId) =>
       options.providerEnabled ? options.providerEnabled(provider as never, instanceId) : true,
+    hasMoveTarget: options.recovery?.moveTarget !== undefined,
+    hasResetAt: options.recovery?.resetAt !== undefined,
+    ...(options.recovery?.resetAt
+      ? { resetAt: (threadId: string) => options.recovery?.resetAt?.(threadId as never) }
+      : {}),
   };
 }

@@ -217,6 +217,21 @@ pub trait Ports {
         Err(PortError::Unbound("moveTarget"))
     }
 
+    /// Whether `ports.moveTarget` was given at all (`queue-commands.ts:188`).
+    fn has_move_target(&self) -> bool {
+        false
+    }
+
+    /// Whether `ports.resetAt` was given.
+    fn has_reset_at(&self) -> bool {
+        false
+    }
+
+    /// `ports.resetAt(thread)`: `None` when the port gave no reading, `Some(None)` for null.
+    fn reset_at(&self, _thread: &str) -> Option<Option<i64>> {
+        None
+    }
+
     fn machine(&self) -> Result<String, PortError> {
         Err(PortError::Unbound("machine"))
     }

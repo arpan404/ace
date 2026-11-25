@@ -15,6 +15,8 @@ export interface ReceiptDeps {
   closing(): boolean;
   ready(): boolean;
   store: Store;
+  /** `liveMove.fenceCommand`: a thread fenced to another machine refuses every command. */
+  fence?: ((threadId: string) => unknown) | undefined;
   host?: ((command: unknown) => unknown) | undefined;
   policy?: ((command: unknown, accept: () => unknown) => unknown) | undefined;
   receipt: Receipt;
@@ -29,6 +31,9 @@ export function receiptHandler(deps: ReceiptDeps): CommandHandler {
       if (!deps.ready()) return { commandId: command.id, ok: false, error: "engine_starting" };
       const receipt = () => JSON.parse(deps.receipt(JSON.stringify(command))) as CommandResult;
       return deps.store.atomic(() => {
+        const threadId = (command.payload as { threadId?: string }).threadId;
+        const fenced = threadId === undefined ? undefined : deps.fence?.(threadId);
+        if (fenced !== undefined) return fenced as CommandResult;
         const hosted = deps.host?.(command);
         if (hosted !== undefined) return hosted as CommandResult;
         const decided = deps.policy?.(command, () => receipt());

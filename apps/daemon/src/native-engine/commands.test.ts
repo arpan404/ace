@@ -231,4 +231,26 @@ describe.runIf(native)("E5.4d's refusals and rollback", () => {
       await seam.close();
     }
   });
+
+  test("a fenced thread's queue command is refused by the ownership fence", async () => {
+    const { seam, thread } = await seededQueue();
+    try {
+      const revision = seam.engine.queue(thread as never).revision;
+      seam.engine.bindOwnershipFence(((id: string) =>
+        id === thread ? { commandId: "pause", ok: false, error: "thread_moved" } : undefined) as never);
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "pause",
+            deviceId: "device",
+            payload: { type: "queue.pause", threadId: thread, expectedRevision: revision },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "pause", ok: false, error: "thread_moved" });
+      expect(seam.engine.queue(thread as never).revision).toBe(revision);
+    } finally {
+      await seam.close();
+    }
+  });
 });

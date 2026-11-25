@@ -297,6 +297,15 @@ impl NativeDatabase {
             bindings
                 .get_named_property("providerEnabled")
                 .map_err(|_| napi::Error::from_reason("providerEnabled is missing"))?,
+            bindings
+                .get_named_property("hasMoveTarget")
+                .map_err(|_| napi::Error::from_reason("hasMoveTarget is missing"))?,
+            bindings
+                .get_named_property("hasResetAt")
+                .map_err(|_| napi::Error::from_reason("hasResetAt is missing"))?,
+            bindings
+                .get_named_property::<FunctionRef<String, Option<f64>>>("resetAt")
+                .ok(),
         )?);
         let stack = self.transaction_state();
         let pump: PumpHandle = Arc::new(Mutex::new(Some(

@@ -35,7 +35,7 @@ pub fn limit_or_resume(
         if provider.as_deref() == Some("acp") {
             return Ok(fail("acp_account_fixed"));
         }
-        if core.ports.move_target(thread, None).is_err() {
+        if !core.ports.has_move_target() {
             return Ok(fail("migration_unavailable"));
         }
     }
@@ -67,7 +67,11 @@ pub fn limit_or_resume(
         return Ok(fail("switch_selection_required"));
     }
     if limit && matches!(action, "resume_at_reset" | "snooze_until_reset") {
-        let reset = queue.reset_at;
+        let reset = if core.ports.has_reset_at() {
+            core.ports.reset_at(thread).flatten()
+        } else {
+            queue.reset_at
+        };
         if reset.is_none() || reset.is_some_and(|at| at as f64 <= now) {
             return Ok(fail("reset_time_unknown"));
         }

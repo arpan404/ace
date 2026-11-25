@@ -124,6 +124,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
       closing: () => this.closingFlag,
       ready: () => this.readyFlag,
       store,
+      fence: (threadId) => this.ownershipFence?.(threadId as never),
       host: (command) => this.hostInteractions?.(command),
       policy: (command, accept) => this.commandPolicy?.(command, accept),
       receipt: (value) => (this.member("handle", "E5.4d") as Receipt)(value),

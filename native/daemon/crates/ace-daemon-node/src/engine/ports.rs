@@ -126,6 +126,9 @@ pub struct JsPorts {
     reject_pending: FunctionRef<(), ()>,
     finish_close: FunctionRef<(), ()>,
     provider_enabled: FunctionRef<FnArgs<(String, Option<String>)>, bool>,
+    has_move_target: bool,
+    has_reset_at: bool,
+    reset_at: Option<FunctionRef<String, Option<f64>>>,
     timers: RefCell<HashMap<u64, ArmedTimer>>,
     /// The Rust port of `timeOrderedIds` (`time-ordered-id.ts:11`), used when no `ids` port
     /// was given: the same UUIDv7 layout, the clock and random bytes from the OS.
@@ -173,6 +176,9 @@ impl JsPorts {
         reject_pending: FunctionRef<(), ()>,
         finish_close: FunctionRef<(), ()>,
         provider_enabled: FunctionRef<FnArgs<(String, Option<String>)>, bool>,
+        has_move_target: bool,
+        has_reset_at: bool,
+        reset_at: Option<FunctionRef<String, Option<f64>>>,
     ) -> napi::Result<JsPorts> {
         Ok(JsPorts {
             env: Cell::new(Some(env)),
@@ -206,6 +212,9 @@ impl JsPorts {
             reject_pending,
             finish_close,
             provider_enabled,
+            has_move_target,
+            has_reset_at,
+            reset_at,
             timers: RefCell::new(HashMap::new()),
             ids: RefCell::new(UuidV7::default()),
             promises: RefCell::new(HashMap::new()),
@@ -571,6 +580,20 @@ impl Ports for JsPorts {
 
     fn finish_close(&self) {
         let _ = self.call(&self.finish_close, ());
+    }
+
+    fn has_move_target(&self) -> bool {
+        self.has_move_target
+    }
+
+    fn has_reset_at(&self) -> bool {
+        self.has_reset_at
+    }
+
+    fn reset_at(&self, thread: &str) -> Option<Option<i64>> {
+        let function = self.reset_at.as_ref()?;
+        let value = self.call(function, thread.to_owned()).ok()?;
+        Some(value.map(|at| at as i64))
     }
 
     fn provider_enabled(&self, provider: &str, instance: Option<&str>) -> bool {
