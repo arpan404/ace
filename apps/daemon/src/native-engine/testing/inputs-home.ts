@@ -160,6 +160,11 @@ try {
     commandId: CommandId.parse("slash"),
   });
   journal.sending(thread.id, "input:slash", slash, "claude", 7);
+  // The same parts but no delivery yet: the seam's Rust `sending` signs this row.
+  journal.register(thread.id, "input:rust-slash", slash, {
+    kind: "person",
+    commandId: CommandId.parse("slash"),
+  });
 
   process.stdout.write(`seed ${thread.id}\n`);
   if (errors.length) throw new Error(`engine errors ${JSON.stringify(errors.map(String))}`);

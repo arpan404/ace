@@ -12,7 +12,8 @@
  * E5.4b's journal and run binding (`testing/inputs-home.ts`):
  *
  * - echo correlation: `late-admission.process` `:15`.
- * - a Claude command's first admission: `catalog-mentions.process` `:10`.
+ * - a Claude command's first admission, and the Rust signature of it: `catalog-mentions.process`
+ *   `:10`.
  * - run binding: `queued-run-binding.process` `:101`.
  *
  * The seed is a second process, so the real edge is a TypeScript writer and a native reader over
@@ -273,6 +274,14 @@ describe.runIf(native)("E5.4b input facts on a TypeScript-written home", () => {
   test("an echo correlates natively to the input the TypeScript engine sent: by native identity, by signature in its own generation, and not in another generation", async () => {
     const { seam, thread: id } = await seededInputs();
     try {
+      // The negative case first: nothing is matched yet, so a miss is a real miss.
+      const other = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo("two", "native-other"),
+        generation: 7,
+      });
+      expect(other).toEqual(echo("two", "native-other"));
+
       const identity = seam.probe.inputFacts("inputs.correlate", {
         thread: id,
         fact: echo("one", "native-item", { nativeId: "native-one" }),
@@ -295,14 +304,6 @@ describe.runIf(native)("E5.4b input facts on a TypeScript-written home", () => {
         item: "input:gen-two",
         draft: { origin: { kind: "person", commandId: "gen-two" }, synthetic: false },
       });
-
-      // The same text in another generation, under an item no echo names: the provider's own.
-      const other = seam.probe.inputFacts("inputs.correlate", {
-        thread: id,
-        fact: echo("two", "native-other"),
-        generation: 7,
-      });
-      expect(other).toEqual(echo("two", "native-other"));
     } finally {
       await seam.close();
     }
@@ -331,6 +332,51 @@ describe.runIf(native)("E5.4b input facts on a TypeScript-written home", () => {
       });
       expect(correlated).toMatchObject({
         item: "input:slash",
+        draft: { origin: { kind: "person", commandId: "slash" }, synthetic: false },
+      });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a Claude command signed through the Rust journal correlates with its own echo", async () => {
+    const { seam, thread: id } = await seededInputs();
+    try {
+      const slash: ContentPart[] = [
+        {
+          type: "mention",
+          entryId: "entry",
+          kind: "command",
+          name: "Review",
+          arguments: "now",
+          invocation: { type: "slash", name: "review" },
+        },
+        { type: "text", text: "look" },
+      ];
+      // The seed signed `input:slash` in TypeScript; the Rust `sending` signs the same parts.
+      seam.probe.inputFacts("inputs.sending", {
+        thread: id,
+        key: "input:rust-slash",
+        parts: slash,
+        provider: "claude",
+        generation: 7,
+      });
+      const first = claudeAdmissions(slash)[0];
+      if (typeof first !== "string") throw new Error("the slash command is not one text admission");
+      const ts = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo(first, "native-ts"),
+        generation: 7,
+      });
+      expect(ts).toMatchObject({ item: "input:slash" });
+      // The next echo of the same text can only match the Rust-signed row.
+      const rust = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo(first, "native-rust"),
+        generation: 7,
+      });
+      expect(rust).toMatchObject({
+        item: "input:rust-slash",
         draft: { origin: { kind: "person", commandId: "slash" }, synthetic: false },
       });
     } finally {
