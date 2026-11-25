@@ -382,6 +382,7 @@ reusable allow. A stored escalation needs matching review context and a prior
 refusal to replay.
 
 
+The macOS guard denies renaming, unlinking, or replacing credential path ancestors below the home directory.
 The macOS guard blocks common execution brokers and Apple Events. Guarded
 commands cannot read known credential files or reach the blocked Keychain and
 Spotlight services. The guard leaves trustd available for TLS and drops

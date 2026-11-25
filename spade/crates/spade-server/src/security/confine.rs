@@ -79,6 +79,7 @@ impl Confine for Security {
                 return Err("The guarded temporary directory cannot be a symlink.".to_owned());
             }
             let profile = spade_sandbox::seatbelt::credentials_only(
+                &self.home,
                 &[ace, self.spade_data.clone()],
                 Some(&workspace),
                 &secrets,

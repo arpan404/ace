@@ -104,15 +104,20 @@ pub fn profile_offline(policy: &Policy) -> String {
 
 /// The credential and execution-broker guard for a Full access outside command.
 pub fn credentials_only(
+    home: &Path,
     roots: &[std::path::PathBuf],
     workspace: Option<&Path>,
     secrets: &[std::path::PathBuf],
 ) -> String {
     let mut out = String::from("(version 1)\n(allow default)\n");
-    fn data_alias(path: &Path) -> Option<std::path::PathBuf> {
+    const DATA_ROOT: &str = "/System/Volumes/Data";
+    fn data_alias(path: &Path) -> Option<PathBuf> {
+        if let Ok(tail) = path.strip_prefix(DATA_ROOT) {
+            return Some(Path::new("/").join(tail));
+        }
         path.strip_prefix("/")
             .ok()
-            .map(|tail| Path::new("/System/Volumes/Data").join(tail))
+            .map(|tail| Path::new(DATA_ROOT).join(tail))
     }
     let paths = |paths: &[std::path::PathBuf]| {
         paths
@@ -125,10 +130,12 @@ pub fn credentials_only(
             })
             .collect::<Vec<_>>()
     };
+    let roots = paths(roots);
+    let secrets = paths(secrets);
     rule(
         &mut out,
         "deny file-read* file-write*",
-        paths(roots).iter().map(|path| subpath(path)),
+        roots.iter().map(|path| subpath(path)),
     );
     // Do not resolve the exception again after the caller validated its canonical name.
     rule(
@@ -146,17 +153,39 @@ pub fn credentials_only(
     rule(
         &mut out,
         "deny file-read* file-write*",
-        paths(secrets).iter().map(|p| subpath(p)),
+        secrets.iter().map(|p| subpath(p)),
     );
     rule(
         &mut out,
         "deny file-link file-write-create",
-        paths(secrets).iter().map(|path| subpath(path)),
+        secrets.iter().map(|path| subpath(path)),
     );
     rule(
         &mut out,
         "deny file-link",
-        paths(roots).iter().map(|path| subpath(path)),
+        roots.iter().map(|path| subpath(path)),
+    );
+    let real_home = crate::policy::real(home);
+    let alias_home = data_alias(&real_home);
+    let data_root = Path::new(DATA_ROOT);
+    let home_paths = [Some(home), Some(real_home.as_path()), alias_home.as_deref()];
+    // A directory rename checks unlink at the source and create at the destination.
+    // Match the directory itself so sibling trees can still be edited.
+    let protected_entries = roots
+        .iter()
+        .chain(&secrets)
+        .flat_map(|path| {
+            path.ancestors().take_while(|ancestor| {
+                ancestor.parent().is_some()
+                    && *ancestor != data_root
+                    && !home_paths.contains(&Some(*ancestor))
+            })
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    rule(
+        &mut out,
+        "deny file-write-unlink file-write-create",
+        protected_entries.into_iter().map(literal),
     );
     let brokers = [
         "/usr/bin/open",
@@ -454,7 +483,7 @@ mod tests {
         std::fs::create_dir_all(&workspace)?;
         std::fs::write(&private, "do not reopen")?;
         let canonical_workspace = workspace.canonicalize()?;
-        let profile = credentials_only(&[data], Some(&canonical_workspace), &[ssh]);
+        let profile = credentials_only(root, &[data], Some(&canonical_workspace), &[ssh]);
         let run = Command::new(SANDBOX_EXEC)
             .args([
                 "-p",
@@ -526,7 +555,7 @@ mod tests {
         )?;
         std::fs::write(package.join("cli.js"), "#!/usr/bin/env node\n")?;
         let canonical = workspace.canonicalize()?;
-        let profile = credentials_only(&[], Some(&canonical), &[]);
+        let profile = credentials_only(root.path(), &[], Some(&canonical), &[]);
         let guarded =
             |program: &str, args: &[&str]| -> Result<String, Box<dyn std::error::Error>> {
                 let output = Command::new(SANDBOX_EXEC)

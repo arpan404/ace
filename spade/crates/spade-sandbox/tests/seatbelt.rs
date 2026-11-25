@@ -562,3 +562,66 @@ fn an_offline_runs_environment_is_restored_only_inside_the_sandbox() {
         .unwrap_or_else(|error| panic!("{error}"));
     assert!(!bare.status.success());
 }
+
+fn guarded_outside(home: &Path, script: &str) -> std::io::Result<std::process::Output> {
+    use spade_sandbox::{credentials, seatbelt};
+    let profile = seatbelt::credentials_only(home, &[], None, &credentials::places(home));
+    Command::new(seatbelt::SANDBOX_EXEC)
+        .args(["-p", &profile, "/bin/sh", "-c", script])
+        .env_clear()
+        .env("HOME", home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+}
+
+#[test]
+fn an_outside_run_cannot_move_a_credential_stores_parent() -> Result<(), Box<dyn std::error::Error>>
+{
+    let world = world();
+    let secret = world.home.join(".config/gh/hosts.yml");
+    std::fs::create_dir_all(world.home.join(".config/gh"))?;
+    std::fs::write(&secret, "dummy credential")?;
+    let alias = Path::new("/System/Volumes/Data").join(secret.strip_prefix("/")?);
+    assert_eq!(std::fs::read_to_string(alias)?, "dummy credential");
+    let run = guarded_outside(
+        &world.home,
+        r#"
+        mv ~/.config ~/.config-moved && exit 10
+        mv "/System/Volumes/Data$HOME/.config" ~/.config-moved && exit 11
+        cat ~/.config/gh/hosts.yml && exit 12
+        mkdir ~/replacement || exit 13
+        mv ~/replacement ~/.gem && exit 14
+        exit 0
+        "#,
+    )?;
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(secret)?, "dummy credential");
+    assert!(!world.home.join(".config-moved").exists());
+    assert!(!world.home.join(".gem").exists());
+    Ok(())
+}
+
+#[test]
+fn an_outside_run_can_write_next_to_a_credential_store() -> std::io::Result<()> {
+    let world = world();
+    std::fs::create_dir_all(world.home.join(".config/gh"))?;
+    let run = guarded_outside(
+        &world.home,
+        "mkdir -p ~/.config/some-other-app && printf normal > ~/.config/some-other-app/settings",
+    )?;
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(world.home.join(".config/some-other-app/settings"))?,
+        "normal"
+    );
+    Ok(())
+}
