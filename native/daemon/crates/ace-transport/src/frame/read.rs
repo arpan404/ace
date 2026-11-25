@@ -78,6 +78,31 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
         &mut self.assembler
     }
 
+    /// Bytes read and not yet parsed.
+    pub(crate) fn buffered_bytes(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Fills the buffer without parsing anything, so a reader that is not
+    /// allowed to read frames still notices the peer's end: true while the
+    /// connection is up, false at a clean end. It stops at `limit` buffered
+    /// bytes and answers true there; the caller waits instead of reading on.
+    pub(crate) fn poll_watch(
+        &mut self,
+        cx: &mut Context<'_>,
+        limit: usize,
+    ) -> Poll<Result<bool, FrameError>> {
+        while self.buffer.len() < limit {
+            match self.poll_more(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(true)) => {}
+                Poll::Ready(Ok(false)) => return Poll::Ready(Ok(false)),
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+            }
+        }
+        Poll::Ready(Ok(true))
+    }
+
     /// Appends one read's bytes. False when the peer closed cleanly.
     fn poll_more(&mut self, cx: &mut Context<'_>) -> Poll<Result<bool, FrameError>> {
         let mut chunk = [0u8; READ_CHUNK];

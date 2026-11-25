@@ -20,6 +20,7 @@ use crate::deflate::{Deflater, negotiate};
 use crate::frame::assemble::MAX_FRAGMENTS;
 
 mod close;
+mod eof;
 
 type Client = WebSocketStream<DuplexStream>;
 

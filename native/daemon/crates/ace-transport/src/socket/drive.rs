@@ -16,7 +16,7 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{Inner, OPEN, Queued, Shared, SocketEvents, SocketHandle};
+use super::{DELIVERY_BYTES, Inner, OPEN, Queued, Shared, SocketEvents, SocketHandle};
 use crate::deflate::{Body, Deflate};
 use crate::driver::UpgradeIo;
 use crate::frame::assemble::{Message, conclude};
@@ -176,7 +176,11 @@ async fn run(
     limits: FrameLimits,
 ) {
     let (reader, writer) = tokio::io::split(stream);
-    let body = Body::with_payload_limit(deflate.as_ref(), limits.max_payload);
+    let body = if deflate.is_some() {
+        Body::compressed_with_limit(limits.max_payload)
+    } else {
+        Body::plain_with_limit(limits.max_payload)
+    };
     let source = FrameReader::with_limits(reader, body, limits);
     let sink = FrameWriter::new(writer);
     let reader = tokio::spawn(read(source, Arc::clone(&shared), woken));
@@ -193,6 +197,16 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
     let mut inflating = false;
     let ending = loop {
         let readable = shared.readable();
+        if !readable {
+            // No credit: no frame is read or delivered, but the connection is
+            // still watched, so a peer that drops is seen here.
+            match wait(&shared, &mut source, &mut woken).await {
+                Wait::Reading => continue,
+                Wait::Over => return,
+                Wait::End => break Ending::lost(),
+                Wait::Failed(error) => break Ending::failed(error),
+            }
+        }
         tokio::select! {
             biased;
             // The writer ended the conversation: it reports, so this side says
@@ -237,6 +251,46 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
         stats.inflated_in();
     }
     shared.end(ending);
+}
+
+/// Why a reader without credit stopped waiting.
+enum Wait {
+    /// A delivery may have restored credit, or a pause was lifted: look again.
+    Reading,
+    /// The writer ended the conversation, so this side says nothing more.
+    Over,
+    /// The peer's connection ended without a close frame.
+    End,
+    /// Waiting on the connection failed.
+    Failed(FrameError),
+}
+
+/// How many bytes a reader without credit may still pull: one delivery's worth,
+/// the size of the credit bound itself. Past it the socket waits for credit
+/// again, so a paused socket never buffers without limit.
+const WATCH_BYTES: usize = DELIVERY_BYTES as usize;
+
+/// Waits while the reader has no credit, without turning its back on the
+/// connection: it pulls unparsed bytes up to [`WATCH_BYTES`], so a peer that
+/// drops is noticed here instead of holding the socket until a consumer reads
+/// again. Nothing is parsed or delivered while waiting.
+async fn wait(shared: &Shared, source: &mut Source, woken: &mut mpsc::Receiver<()>) -> Wait {
+    let watching = source.buffered_bytes() < WATCH_BYTES;
+    tokio::select! {
+        biased;
+        _ = shared.over.cancelled() => Wait::Over,
+        watched = watch(source), if watching => match watched {
+            Ok(true) => Wait::Reading,
+            Ok(false) => Wait::End,
+            Err(error) => Wait::Failed(error),
+        },
+        _ = woken.recv() => Wait::Reading,
+    }
+}
+
+/// One watch fill as a future, so it can be selected beside the wake channel.
+async fn watch(source: &mut Source) -> Result<bool, FrameError> {
+    std::future::poll_fn(|cx| source.poll_watch(cx, WATCH_BYTES)).await
 }
 
 /// One frame's meaning: a completed message, nothing (a control frame handled

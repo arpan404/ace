@@ -30,17 +30,27 @@ pub struct Body {
 impl Body {
     /// No extension: RSV1 never arrives, and every message is its bytes.
     pub fn plain() -> Self {
-        Self::configured(None, MAX_MESSAGE_BYTES)
+        Self::plain_with_limit(MAX_MESSAGE_BYTES)
     }
 
     /// `permessage-deflate` negotiated: a message with RSV1 set is inflated.
     pub fn compressed() -> Self {
-        Self::configured(Some(Inflating::new()), MAX_MESSAGE_BYTES)
+        Self::compressed_with_limit(MAX_MESSAGE_BYTES)
     }
 
-    pub(crate) fn with_payload_limit(deflate: Option<&Deflate>, max_payload: usize) -> Self {
-        let inflate = deflate.map(|_| Inflating::with_payload_limit(max_payload));
-        Self::configured(inflate, max_payload)
+    /// No extension, with the inbound message bound a socket opened with
+    /// [`FrameLimits`](crate::frame::FrameLimits) asked for.
+    pub fn plain_with_limit(max_payload: usize) -> Self {
+        Self::configured(None, max_payload)
+    }
+
+    /// `permessage-deflate` negotiated, with the bound that socket asked for;
+    /// each message's bytes, after inflation, may not pass it.
+    pub fn compressed_with_limit(max_payload: usize) -> Self {
+        Self::configured(
+            Some(Inflating::with_payload_limit(max_payload)),
+            max_payload,
+        )
     }
 
     fn configured(inflate: Option<Inflating>, max_payload: usize) -> Self {
