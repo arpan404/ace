@@ -43,6 +43,21 @@ test("a role's route takes fallbacks in order, at most four, and each change sav
   );
 });
 
+test("adding a fallback moves focus into its picker, and cancelling returns it", async () => {
+  await spadeApp("/settings/spade/models", (here) => {
+    withEndpoint(here);
+    here.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    here.roles.global.helper = "openrouter/anthropic/sonnet";
+  });
+  const roles = within(await screen.findByRole("region", { name: "Roles" }));
+  const add = await roles.findByRole("button", { name: "Add a fallback" });
+  await userEvent.click(add);
+  const picker = await roles.findByRole("button", { name: "Helpers, a new fallback" });
+  expect(document.activeElement).toBe(picker);
+  await userEvent.click(roles.getByRole("button", { name: "Cancel adding fallback" }));
+  expect(document.activeElement).toBe(await roles.findByRole("button", { name: "Add a fallback" }));
+});
+
 test("a route offers no subscription, and a full one takes no more", async () => {
   await spadeApp("/settings/spade/models", (here) => {
     withEndpoint(here);

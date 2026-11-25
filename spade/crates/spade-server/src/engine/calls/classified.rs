@@ -62,7 +62,15 @@ pub(super) async fn classify(
         return Some(Classified::Failed(failed));
     }
     let (key, arguments) = (key.to_owned(), arguments.clone());
-    let work = tokio::task::spawn_blocking(move || tool.classed(&key, &arguments));
+    let permit = tokio::select! {
+        biased;
+        _ = stop.wait_for(|stopped| *stopped) => return None,
+        permit = crate::tools::work_budget::acquire(&engine.work_budget) => permit?,
+    };
+    let work = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        tool.classed(&key, &arguments)
+    });
     tokio::select! {
         done = tokio::time::timeout(engine.classify_time(), work) => Some(match done {
             Ok(Ok(classed)) => Classified::Done(classed),

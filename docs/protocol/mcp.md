@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.
+Show a chart, diagram, mockup or interactive page inline in your reply. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -163,7 +163,7 @@ Example:
 
 ## delegate
 
-Start child agents as threads on any provider or paired machine, for independent or parallel work. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll. More: guide ace-agents.
+Start child agents as threads on any provider or paired machine. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -174,7 +174,7 @@ Required capability: agents. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"Goal, files, constraints, how to verify: the child sees none of your conversation."},"role":{"type":"string","minLength":1,"maxLength":1024,"description":"Unique name saying what and where: 'Fix-869-toast', never 'Implementer'."},"runRole":{"description":"A role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Default: yours, or the one serving model.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Id or name, e.g. \"opus 5.5\".","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label; with machine, one from its machines entry.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"e.g. low, high, xhigh. Default: yours on the same model.","type":"string","minLength":1,"maxLength":64},"access":{"description":"Default inherit; never above yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"From machines; needs project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"Its project in machines.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One per child."} |
-| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait for results, as wait does. Omit to return at once."} |
+| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait for results. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"any returns on the first."} |
 
 Example:
@@ -1022,7 +1022,7 @@ Example:
 
 ## thread_link_pr
 
-Link this thread's pull request, by URL or number, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.
+Link this thread's pull request, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.
 
 Required capability: thread_control. Timeout: 630000 ms.
 

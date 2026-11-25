@@ -48,41 +48,32 @@ private struct MeasuredCanvas: UIViewRepresentable {
     let shelf: ViewShelf<WKWebView>?
     let onHeight: (CGFloat) -> Void
 
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
+    func makeUIView(context: Context) -> CanvasContainer {
+        let container = CanvasContainer()
         container.backgroundColor = .clear
         container.clipsToBounds = true
+        container.widthKnown = { [weak coordinator = context.coordinator, weak container] in
+            guard let coordinator, let container else { return }
+            coordinator.attach(in: container)
+        }
         return container
     }
-    func updateUIView(_ container: UIView, context: Context) {
+    func updateUIView(_ container: CanvasContainer, context: Context) {
         let coordinator = context.coordinator
         coordinator.onHeight = onHeight
-        guard coordinator.pageId != page.id else { return }
-        coordinator.release(to: shelf)
-        let view: WKWebView
-        if let kept = shelf?.take(page.id) {
-            view = kept
-        } else {
-            view = Self.makeWebView()
-            PerfProbe.add("canvas.loads", 1)
-            if PerfProbe.enabled, !Self.loaded.insert(page.id).inserted { PerfProbe.add("canvas.reloads", 1) }
-            view.loadHTMLString(page.document, baseURL: nil)
-        }
-        view.navigationDelegate = coordinator
-        view.frame = container.bounds
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        container.addSubview(view)
-        coordinator.show(view, page: page.id)
+        coordinator.shelf = shelf
+        coordinator.wanted = page
+        coordinator.attach(in: container)
     }
-    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
+    static func dismantleUIView(_ container: CanvasContainer, coordinator: Coordinator) {
         coordinator.release(to: coordinator.shelf)
     }
     func makeCoordinator() -> Coordinator { Coordinator(shelf: shelf, onHeight: onHeight) }
 
     /// Measurement only: pages loaded before, so loading one again is counted.
-    @MainActor private static var loaded: Set<String> = []
+    @MainActor fileprivate static var loaded: Set<String> = []
 
-    private static func makeWebView() -> WKWebView {
+    fileprivate static func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -97,14 +88,37 @@ private struct MeasuredCanvas: UIViewRepresentable {
     }
 
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate {
-        let shelf: ViewShelf<WKWebView>?
+        var shelf: ViewShelf<WKWebView>?
         var onHeight: (CGFloat) -> Void
+        /// The page the row shows now, laid out once the row's width is known.
+        var wanted: CanvasPage?
         private(set) var pageId: String?
         private weak var view: WKWebView?
         private var observation: NSKeyValueObservation?
         init(shelf: ViewShelf<WKWebView>?, onHeight: @escaping (CGFloat) -> Void) {
             self.shelf = shelf
             self.onHeight = onHeight
+        }
+        /// Puts the wanted page in `container` once it has its real width. Loaded at no width, the
+        /// page would lay out one word fragment a line and report that height, and the row would
+        /// open at it, then jump as the width arrived.
+        func attach(in container: CanvasContainer) {
+            guard let page = wanted, pageId != page.id, container.bounds.width >= 1 else { return }
+            release(to: shelf)
+            let view: WKWebView
+            if let kept = shelf?.take(page.id) {
+                view = kept
+            } else {
+                view = MeasuredCanvas.makeWebView()
+                PerfProbe.add("canvas.loads", 1)
+                if PerfProbe.enabled, !MeasuredCanvas.loaded.insert(page.id).inserted { PerfProbe.add("canvas.reloads", 1) }
+                view.frame = container.bounds
+                view.loadHTMLString(page.document, baseURL: nil)
+            }
+            view.navigationDelegate = self
+            view.frame = container.bounds
+            container.addSubview(view)
+            show(view, page: page.id)
         }
         /// Watches the page's reported height, starting with the one a kept view already has.
         func show(_ view: WKWebView, page: String) {
@@ -114,7 +128,8 @@ private struct MeasuredCanvas: UIViewRepresentable {
             observation = view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        guard let self, self.view === view, let reported = pageHeight(view.title ?? "") else { return }
+                        guard let self, self.view === view, view.bounds.width >= 1,
+                              let reported = pageHeight(view.title ?? "") else { return }
                         self.onHeight(reported)
                     }
                 }
@@ -134,6 +149,17 @@ private struct MeasuredCanvas: UIViewRepresentable {
             let scheme = navigationAction.request.url?.scheme
             decisionHandler(scheme == "about" || scheme == "data" ? .allow : .cancel)
         }
+    }
+}
+
+/// The canvas row's host view. Its web view always fills it, and it says each time it lays out
+/// at a real width, so the page loads only once that width is known.
+final class CanvasContainer: UIView {
+    var widthKnown: (() -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for view in subviews where view.frame != bounds { view.frame = bounds }
+        if bounds.width >= 1 { widthKnown?() }
     }
 }
 

@@ -18,7 +18,7 @@ test("Settings lists Spade's pages under its own label, and marks only the open 
   const nav = within(await screen.findByRole("navigation", { name: "Settings pages" }));
   const spade = within(nav.getByRole("region", { name: "Spade" }));
   expect(spade.getAllByRole("link").map((link) => link.textContent)).toEqual([
-    "Spade",
+    "General",
     "Models",
     "Apps",
     "Security",

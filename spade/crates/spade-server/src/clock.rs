@@ -6,9 +6,11 @@ pub trait Clock: Send + Sync {
     /// Milliseconds since the Unix epoch.
     fn now_ms(&self) -> i64;
 
-    /// Monotonic time for the needs-you coalescing window.
-    fn batch_now(&self) -> std::time::Instant {
-        std::time::Instant::now()
+    /// Milliseconds from an arbitrary fixed point that never runs backwards, for budgets and
+    /// waits. Defaults to [`Clock::now_ms`], so a test clock that steps keeps working; the
+    /// machine's own is read from a monotonic instant.
+    fn monotonic_ms(&self) -> i64 {
+        self.now_ms()
     }
 }
 
@@ -23,6 +25,12 @@ pub struct SystemClock;
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
         chrono::Utc::now().timestamp_millis()
+    }
+
+    fn monotonic_ms(&self) -> i64 {
+        static BASE: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let base = BASE.get_or_init(std::time::Instant::now);
+        i64::try_from(base.elapsed().as_millis()).unwrap_or(i64::MAX)
     }
 }
 

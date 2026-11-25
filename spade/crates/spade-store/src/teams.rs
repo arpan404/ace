@@ -361,6 +361,11 @@ impl Store {
             "DELETE FROM conversations WHERE id = ?1",
             params![conversation],
         )?;
+        // What it was offered goes with it (spade/docs/harness.md, Tools).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![spade_core::tools::snapshot::key(&conversation)],
+        )?;
         tx.commit()?;
         Ok(true)
     }

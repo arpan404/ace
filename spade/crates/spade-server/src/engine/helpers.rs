@@ -17,6 +17,7 @@ use serde_json::Value;
 use spade_core::context;
 use spade_core::event::{FromAgent, HelperAsk, Known};
 use spade_core::helper::{self, Profile, Stage};
+use spade_core::research;
 use spade_core::routing;
 use spade_core::tools::Registry;
 use spade_core::{Event, Transcript};
@@ -38,6 +39,19 @@ pub const TASK_CHARS: usize = 20_000;
 /// How often a job waiting on its helper looks again without being woken, so a missed wake
 /// costs a few seconds and never a lost result.
 const LOOK_AGAIN: Duration = Duration::from_secs(5);
+
+/// How often research looks at its first helper while waiting for it to begin answering, and
+/// every how many of those looks it reads the stored events (a first step that only calls).
+const PART_POLL: Duration = Duration::from_millis(20);
+const PART_STEP_LOOKS: u32 = 10;
+
+/// What one of research's part helpers came back with: its answer, whether it failed, and the
+/// pages it read (with the workspace path each was saved at).
+pub(crate) struct PartEnd {
+    pub content: String,
+    pub is_error: bool,
+    pub pages: Vec<research::Page>,
+}
 
 /// The `helper` call's arguments.
 #[derive(serde::Deserialize)]
@@ -131,7 +145,8 @@ impl Engine {
             .remove(id);
     }
 
-    /// The tools `id` may use: a helper's are its bot's, narrowed by its profile.
+    /// The tools `id` may use: a helper's are its bot's, narrowed by its profile. This is what a
+    /// call is checked against, not what the model is offered (see `engine/offer.rs`).
     pub(super) fn registry_for(&self, id: &str) -> Registry {
         // A worker's tools are never more than its parent's (ADR 0161).
         let registry = self.narrow_registry(id, self.tools.registry_for(id));
@@ -140,29 +155,19 @@ impl Engine {
             Some(row) if row.profile == spade_core::lane::PROFILE => {
                 registry.retain(|def| !spade_core::lane::TOOLS.contains(&def.spec.name.as_str()))
             }
-            Some(helper) => profile_of(&helper).registry(registry),
+            Some(helper) => profile_of(&helper).allowed(registry),
             None => registry,
         }
     }
 
-    /// The tools the model is offered in `id`: the same list for every bot, and a helper's
-    /// narrower one.
-    pub(super) fn offered_for(&self, id: &str) -> Vec<spade_models::ToolSpec> {
-        // A lane is offered its bot's list byte for byte, so the two share the provider's cache
-        // (ADR 0217 §8); a lane's call to a lane tool is refused like any tool outside a grant.
-        match self.helper_of(id) {
-            Some(helper) => profile_of(&helper)
-                .registry(self.tools.registry())
-                .offered(),
-            None => self.tools.registry().offered(),
-        }
-    }
-
-    /// The standing instructions for `id`: Spade's, or a helper's own.
+    /// The standing instructions for `id`. Every conversation starts from Spade's own, so a bot's,
+    /// a lane's and a helper's prompt top begins with the same bytes. A helper goes on with what
+    /// makes it a helper, pinned in its row when it was made (an old one with its old text, which
+    /// had no shared top): a restart rebuilds the same bytes either way.
     pub(super) fn system_for(&self, id: &str) -> String {
         match self.helper_of(id) {
-            Some(helper) => helper.system,
-            None => context::SYSTEM.to_owned(),
+            Some(helper) if !helper.system.is_empty() => helper.system,
+            _ => context::SYSTEM.to_owned(),
         }
     }
 
@@ -218,7 +223,7 @@ impl Engine {
     ) -> Result<StoredHelper, ToolOutput> {
         match self.store.helper_for_job(bot, job) {
             Ok(Some(helper)) => Ok(helper),
-            Ok(None) => self.start_helper(bot, job, arguments, model),
+            Ok(None) => self.start_helper(bot, job, arguments, model, false),
             Err(error) => Err(ToolOutput::error(format!(
                 "Spade could not start it: {error}"
             ))),
@@ -254,13 +259,16 @@ impl Engine {
 
     /// Stores the helper's conversation for `job` (the bot's job, or its rerun), queued: its
     /// task and no reply yet. `model` is a rerun's; otherwise the call's, the profile's or the
-    /// `helper` role's.
+    /// `helper` role's. `authored` marks the task as the bot's own words even when the bot's
+    /// context is clean: research's task is written by a model from web-search-ready questions,
+    /// so it is never taken for the person's.
     fn start_helper(
         self: &Arc<Self>,
         bot: &str,
         job: &str,
         arguments: &Arguments,
         model: Option<String>,
+        authored: bool,
     ) -> Result<StoredHelper, ToolOutput> {
         let task = arguments.task.trim();
         if task.is_empty() {
@@ -306,22 +314,36 @@ impl Engine {
                 .unwrap_or_else(|| self.role_model(bot, routing::Role::Helper)),
         };
         let base = routing::base_job(job);
-        // A task written while the bot had untrusted content in view may carry planted words:
-        // it reaches the helper as the bot's message, which taints the helper's turn.
+        // A task written while the bot had untrusted content in view may carry planted words, and
+        // one a model wrote (research's) always can: either reaches the helper as the bot's
+        // message, `<bot_message>`, which taints the helper's turn. A research run never takes
+        // its task for the person's, whatever its own context held.
         let events = self.load(bot).unwrap_or_default();
-        let tainted = !context::untrusted_in_view(&events, &self.registry_for(bot)).is_empty();
+        let tainted =
+            authored || !context::untrusted_in_view(&events, &self.registry_for(bot)).is_empty();
+        // The task alone is its first message: what makes it a helper is in its system prompt,
+        // after Spade's own rules, which outlives every compaction (docs/helpers.md).
         let mut message = Event::user_message(task);
-        if tainted
-            && let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message
-            && let Ok(Some(agent)) = self.store.agent_for_conversation(bot)
-        {
-            *from_agent = Some(FromAgent {
-                id: agent.id,
-                name: agent.name,
-                depth: 0,
-                machine: None,
-                contract: None,
-            });
+        if tainted {
+            let agent = match self.store.agent_for_conversation(bot) {
+                Ok(Some(agent)) => agent,
+                // Its words cannot be framed as its bot's, so the taint cannot be kept: fail
+                // closed rather than hand the helper a task that reads as the person's.
+                _ => {
+                    return Err(ToolOutput::error(
+                        "Spade could not tell which bot the helper is for.",
+                    ));
+                }
+            };
+            if let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message {
+                *from_agent = Some(FromAgent {
+                    id: agent.id,
+                    name: agent.name,
+                    depth: 0,
+                    machine: None,
+                    contract: None,
+                });
+            }
         }
         let reply = events
             .iter()
@@ -338,6 +360,7 @@ impl Engine {
             job: job.to_owned(),
             reply,
             profile: profile.name.clone(),
+            // Pinned, so a restart rebuilds the same bytes even if the profile changes.
             system: profile.system(),
             reads_only: profile.reads_only,
             tools: profile.tools.clone(),
@@ -353,7 +376,7 @@ impl Engine {
             // Stop stores its marker under this lock, then stops the helpers it finds: a helper
             // is either made before the marker, and found, or sees it here and is never made.
             match self.load(bot) {
-                Ok(events) if spade_core::turn::job_stopped(&events, base) => {
+                Ok(events) if stopped(&events, base) => {
                     return Err(ToolOutput::error(context::JOB_STOPPED));
                 }
                 Ok(_) => {}
@@ -376,6 +399,135 @@ impl Engine {
             Err(error) => Err(ToolOutput::error(format!(
                 "Spade could not start it: {error}"
             ))),
+        }
+    }
+
+    /// Starts the helper for part `n` of the bot's research job `job`: `explore` only, so it
+    /// reads and changes nothing, on the `helper` role. It waits queued until a slot is free;
+    /// research then fills the slots and waits for it.
+    pub(crate) fn start_research_part(
+        self: &Arc<Self>,
+        bot: &str,
+        job: &str,
+        n: usize,
+        task: &str,
+    ) -> Result<StoredHelper, String> {
+        let arguments = Arguments {
+            task: task.to_owned(),
+            profile: Some(helper::Profile::explore().name),
+            model: Some(routing::Role::Helper.name().to_owned()),
+            escalate: None,
+        };
+        self.start_helper(bot, &research::part_job(job, n), &arguments, None, true)
+            .map_err(|refused| refused.content)
+    }
+
+    /// Waits until research part `helper` has begun answering, or `deadline_ms` (Spade's clock)
+    /// passes: its stream has words, or its first step has finished (a first step may only make
+    /// calls). Its request writes the provider's cache for the prompt top every helper shares, so
+    /// the others start after it. `false` when the deadline came first, or it ended without a step.
+    pub(crate) async fn part_answering(&self, helper: &StoredHelper, deadline_ms: i64) -> bool {
+        let mut looks = 0;
+        loop {
+            if self.part_streaming(helper) {
+                return true;
+            }
+            if looks % PART_STEP_LOOKS == 0 && self.part_stepped(helper) {
+                return true;
+            }
+            if self.monotonic_ms() >= deadline_ms {
+                return false;
+            }
+            looks += 1;
+            tokio::time::sleep(PART_POLL).await;
+        }
+    }
+
+    /// Its words are streaming: the request has the provider's answer under way.
+    fn part_streaming(&self, helper: &StoredHelper) -> bool {
+        self.live(&helper.conversation)
+            .current
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.text.trim().is_empty())
+    }
+
+    /// Its first step has finished (it may only make calls) or it has ended.
+    fn part_stepped(&self, helper: &StoredHelper) -> bool {
+        match self.load(&helper.conversation) {
+            Ok(events) => {
+                events
+                    .iter()
+                    .any(|event| matches!(event, Event::Known(Known::StepFinished { .. })))
+                    || helper::ended(&events).is_some()
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Waits for research part `helper` to end, with the pages it read. Past `deadline_ms`
+    /// (Spade's clock) it is stopped, and this waits until it has actually ended before `None`
+    /// comes back, so the run never leaves a part working behind its result.
+    pub(crate) async fn wait_part_end(
+        self: &Arc<Self>,
+        helper: &StoredHelper,
+        deadline_ms: i64,
+    ) -> Option<PartEnd> {
+        let limit = Duration::from_millis(
+            u64::try_from(deadline_ms.saturating_sub(self.monotonic_ms())).unwrap_or(0),
+        );
+        match tokio::time::timeout(limit, self.part_end(helper)).await {
+            Ok(end) => end,
+            Err(_) => {
+                self.stop_helper_conversation(helper);
+                self.wait_parts_ended(std::slice::from_ref(&helper.conversation))
+                    .await;
+                None
+            }
+        }
+    }
+
+    /// Waits until each of `conversations` has ended (a stopped reply closes, a queued stop is
+    /// immediate). Used before a research job publishes its result, so no part outlives it.
+    pub(crate) async fn wait_parts_ended(&self, conversations: &[String]) {
+        for id in conversations {
+            loop {
+                // Listening before looking, so an end between the two is not missed.
+                let changed = self.helpers.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                match self.load(id) {
+                    Ok(events) if helper::stage(&events) == Stage::Ended => break,
+                    Ok(_) => {}
+                    Err(StoreError::NoConversation(_)) => break,
+                    Err(_) => {}
+                }
+                let _ = tokio::time::timeout(LOOK_AGAIN, changed).await;
+            }
+        }
+    }
+
+    async fn part_end(&self, helper: &StoredHelper) -> Option<PartEnd> {
+        loop {
+            // Listening before looking, so an end between the two is not missed.
+            let changed = self.helpers.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match self.load(&helper.conversation) {
+                Ok(events) => {
+                    if let Some(end) = helper::ended(&events) {
+                        return Some(PartEnd {
+                            content: end.content,
+                            is_error: end.is_error,
+                            pages: research::pages_read(&events),
+                        });
+                    }
+                }
+                Err(StoreError::NoConversation(_)) => return None,
+                Err(_) => {}
+            }
+            let _ = tokio::time::timeout(LOOK_AGAIN, changed).await;
         }
     }
 
@@ -425,7 +577,7 @@ impl Engine {
 
     /// Starts the bot's queued helpers while slots are free, and a worker for each running
     /// helper that has none (after a restart or a pause). Nothing starts while Spade is closing.
-    pub(super) fn fill_slots(self: &Arc<Self>, bot: &str) {
+    pub(crate) fn fill_slots(self: &Arc<Self>, bot: &str) {
         let helpers = match self.store.helpers_of(bot) {
             Ok(helpers) => only_helpers(helpers),
             Err(error) => {
@@ -483,45 +635,105 @@ impl Engine {
 
     /// Stops the bot's helpers a stop names: those of `reply`, and those of the jobs in `named`.
     /// A running one is stopped like any reply; a queued one is marked so it never starts.
-    pub(super) fn stop_helpers(self: &Arc<Self>, bot: &str, reply: Option<&str>, named: &[String]) {
+    /// Stops the helpers a stop names, and answers each research job's part conversations so the
+    /// caller can wait for them before publishing its result.
+    pub(super) fn stop_helpers(
+        self: &Arc<Self>,
+        bot: &str,
+        reply: Option<&str>,
+        named: &[String],
+    ) -> Vec<(String, Vec<String>)> {
+        let Ok(helpers) = self.store.helpers_of(bot) else {
+            return Vec::new();
+        };
+        let mut parts: Vec<(String, Vec<String>)> = Vec::new();
+        for helper in only_helpers(helpers) {
+            let job = routing::base_job(&helper.job);
+            // A research part's job is stored under its research job (`<job>/<n>`), and stops
+            // with it.
+            let owner = named
+                .iter()
+                .find(|named_job| named_job == &job || research::part_of(named_job, job));
+            if Some(helper.reply.as_str()) != reply && owner.is_none() {
+                continue;
+            }
+            self.stop_helper_conversation(&helper);
+            // A part's end is waited for before its research job's result is published.
+            if let Some(owner) = owner.filter(|owner| research::part_of(owner, job)) {
+                match parts.iter_mut().find(|(job, _)| job == owner) {
+                    Some((_, conversations)) => conversations.push(helper.conversation),
+                    None => parts.push((owner.clone(), vec![helper.conversation])),
+                }
+            }
+        }
+        self.helpers.changed.notify_waiters();
+        parts
+    }
+
+    /// Stops one helper: a queued one gets a stop marker (it never starts, even if a slot comes
+    /// free later), a running one is stopped like any reply.
+    pub(super) fn stop_helper_conversation(self: &Arc<Self>, helper: &StoredHelper) {
+        let id = helper.conversation.as_str();
+        let queued = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            match self.load(id) {
+                Ok(events) if helper::stage(&events) == Stage::Queued => {
+                    let marker = Event::Known(Known::StopRequested {
+                        reply: None,
+                        jobs: Vec::new(),
+                    });
+                    if let Err(error) = self.append(id, &marker) {
+                        tracing::error!(%error, "could not stop a queued helper");
+                    }
+                    true
+                }
+                _ => false,
+            }
+        };
+        if !queued && let Err(error) = self.stop(id) {
+            tracing::error!(%error, "could not store a helper's stop");
+        }
+    }
+
+    /// After a restart, before anything resumes: closes the parts a research job left behind when
+    /// its job was reported lost. Queued ones never start; running ones close as stopped.
+    pub(super) fn stop_parts_after_restart(&self, bot: &str, job: &str) {
         let Ok(helpers) = self.store.helpers_of(bot) else {
             return;
         };
         for helper in only_helpers(helpers) {
-            let job = routing::base_job(&helper.job).to_owned();
-            if Some(helper.reply.as_str()) != reply && !named.contains(&job) {
+            if !research::part_of(job, routing::base_job(&helper.job)) {
                 continue;
             }
-            let id = helper.conversation.as_str();
-            let queued = {
-                let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-                match self.load(id) {
-                    Ok(events) if helper::stage(&events) == Stage::Queued => {
-                        let marker = Event::Known(Known::StopRequested {
-                            reply: None,
-                            jobs: Vec::new(),
-                        });
-                        if let Err(error) = self.append(id, &marker) {
-                            tracing::error!(%error, "could not stop a queued helper");
-                        }
-                        true
-                    }
-                    _ => false,
-                }
-            };
-            if !queued && let Err(error) = self.stop(id) {
-                tracing::error!(%error, "could not store a helper's stop");
+            let ended = self
+                .load(&helper.conversation)
+                .is_ok_and(|events| helper::stage(&events) == Stage::Ended);
+            if !ended && let Err(error) = self.stop_helper_after_restart(&helper) {
+                tracing::error!(%error, "could not stop a research part");
             }
         }
         self.helpers.changed.notify_waiters();
     }
 
-    /// The helpers' conversations of a bot being deleted, so nothing is delivered to them.
+    /// The helpers' and lanes' conversations of a bot being deleted (including any helpers
+    /// nested under a lane), so nothing is delivered to them and their `web_fetch` index entries
+    /// are pruned together.
     pub(super) fn helper_conversations(&self, bot: &str) -> Vec<String> {
-        self.store
-            .helpers_of(bot)
-            .map(|helpers| helpers.into_iter().map(|h| h.conversation).collect())
-            .unwrap_or_default()
+        let mut all = Vec::new();
+        let mut queue = std::collections::VecDeque::from([bot.to_owned()]);
+        let mut seen = std::collections::HashSet::from([bot.to_owned()]);
+        while let Some(parent) = queue.pop_front() {
+            let Ok(helpers) = self.store.helpers_of(&parent) else {
+                continue;
+            };
+            for helper in helpers {
+                if seen.insert(helper.conversation.clone()) {
+                    all.push(helper.conversation.clone());
+                    queue.push_back(helper.conversation);
+                }
+            }
+        }
+        all
     }
 
     /// Asks the person about a helper's call: stored in the helper's conversation (where its
@@ -766,9 +978,12 @@ impl Engine {
             // job's end was stored and the helper's own stop was not (a crash between the two):
             // recovery by the bot's open jobs alone never sees such a helper.
             let parent = self.load(&helper.parent)?;
-            if helper.profile != spade_core::lane::PROFILE
-                && spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job))
-            {
+            let stopped = spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job));
+            // A research part's job is its research job's, reported lost by the restart: nothing
+            // would collect its answer, so it is stopped rather than resumed.
+            let left_behind = helper.profile != spade_core::lane::PROFILE
+                && research::part_left_behind(&parent, &helper.job);
+            if helper.profile != spade_core::lane::PROFILE && (stopped || left_behind) {
                 self.stop_helper_after_restart(&helper)?;
             }
             let events = self.load(&helper.conversation)?;
@@ -852,6 +1067,21 @@ impl Engine {
         }
         Ok(Some(shown))
     }
+}
+
+/// Whether a stop was stored for `job`, or for the job it is a part of: research stores its part
+/// helpers under `<research job>/<n>`, and a stop on the research stops them too, so one is never
+/// made after it.
+fn stopped(events: &[Event], job: &str) -> bool {
+    let base = routing::base_job(job);
+    if spade_core::turn::job_stopped(events, base) {
+        return true;
+    }
+    base.split_once('/').is_some_and(|(parent, n)| {
+        !n.is_empty()
+            && n.bytes().all(|b| b.is_ascii_digit())
+            && spade_core::turn::job_stopped(events, parent)
+    })
 }
 
 /// The rows of `rows` that are helpers, not lanes.

@@ -4,8 +4,8 @@ import UIKit
 @testable import Ace
 
 /// A table in an answer fits the row whenever its words do: short columns keep their width,
-/// prose wraps, code breaks inside its paths. Only a table whose words alone are wider than the
-/// row scrolls sideways, inside the row.
+/// prose wraps, code breaks inside its paths, and a table whose words alone are wider than the
+/// row still fits it, its long words wrapping. Nothing scrolls sideways.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MarkdownTableTests {
     @Test func columnsThatFitKeepTheirNaturalWidths() {
         #expect(MarkdownTableColumns.widths(natural: [80, 200.4], minimum: [40, 60], available: 400) == [80, 201])
@@ -30,10 +30,15 @@ import UIKit
         #expect(MarkdownTableColumns.widths(natural: [50, 200], minimum: [10, 60], available: 100) == [40, 60])
     }
 
-    @Test func onlyMinimumsWiderThanTheRoomMakeTheTableScroll() {
-        let widths = MarkdownTableColumns.widths(natural: [300, 300, 300], minimum: [150, 150, 150], available: 400)
-        #expect(widths.reduce(0, +) > 400)
-        #expect(widths.allSatisfy { $0 >= 150 && $0 <= 300 })
+    @Test func wordsWiderThanTheRoomStillFitItSharedByTheirText() {
+        let widths = MarkdownTableColumns.widths(natural: [300, 300, 600], minimum: [100, 100, 400], available: 400)
+        #expect(widths == [100, 100, 200])
+    }
+
+    @Test func aLongNameInOneColumnLeavesTheProseColumnRoomToRead() {
+        // | Fix-ios-black-screen-fling-sol-high | gpt-6.2-sol, high | the black screen on fling (your priority) |
+        let widths = MarkdownTableColumns.widths(natural: [290, 160, 320], minimum: [290, 70, 85], available: 340)
+        #expect(widths == [128, 70, 142])
     }
 
     @Test func inlineCodeInACellBreaksAfterItsSeparatorsAndProseIsLeftAlone() {
@@ -44,36 +49,27 @@ import UIKit
         #expect(broken == "see apps/\u{200B}ios/\u{200B}project.\u{200B}yml:\u{200B}35 now.")
     }
 
-    @Test func aLabelAndProseTableFitsTheRowWithoutScrolling() async throws {
+    @Test func aLabelAndProseTableFitsTheRowWithoutScrolling() {
         let answer = """
         | Child | What it's fixing |
         | --- | --- |
         | Tables | Wide tables in answers run past the screen. This child lays them out to fit, wrapping the prose column. |
         | Code | `apps/ios/project.yml:35` and `cloud.acehq.dev` ran off the edge of the text instead of wrapping inside it. |
         """
-        let views = try await laidOut(answer, width: 360) { views in
-            views.contains { ($0 as? UIScrollView).map { $0.bounds.width > 0 && $0.contentSize.width > 0 } ?? false }
-        }
-        let scrollers = views.compactMap { $0 as? UIScrollView }
-        #expect(!scrollers.isEmpty)
-        #expect(scrollers.allSatisfy {
-            $0.bounds.width > 0 && $0.bounds.width <= 360
-                && $0.contentSize.width > 0 && $0.contentSize.width <= $0.bounds.width + 1
-        })
+        let narrow = laidOut(answer, width: 360), wide = laidOut(answer, width: 2000)
+        #expect(narrow.width > 0 && narrow.width <= 360)
+        #expect(narrow.height > wide.height)
     }
 
-    @Test func aTableOfLongUnbreakableWordsScrollsInsideTheRow() async throws {
+    @Test func aTableOfLongUnbreakableWordsStillFitsTheRow() {
         let answer = """
         | One | Two | Three |
         | --- | --- | --- |
         | Supercalifragilisticexpialidocious | Antidisestablishmentarianism | Pneumonoultramicroscopicsilicovolcanoconiosis |
         """
-        let views = try await laidOut(answer, width: 360) { views in
-            views.contains { ($0 as? UIScrollView).map { $0.contentSize.width > $0.bounds.width + 1 } ?? false }
-        }
-        let table = try #require(views.compactMap { $0 as? UIScrollView }.first { $0.contentSize.width > $0.bounds.width + 1 })
-        #expect(table.bounds.width <= 360)
-        #expect(!views.contains { $0.accessibilityIdentifier == "markit-table" })
+        let narrow = laidOut(answer, width: 360), wide = laidOut(answer, width: 2000)
+        #expect(narrow.width > 0 && narrow.width <= 360)
+        #expect(narrow.height > wide.height)
     }
 
     @Test func mathInACellIsDrawnAsItsFormulaAndReadAsItsSource() throws {
@@ -132,25 +128,10 @@ import UIKit
 
     private static let traits = UITraitCollection(preferredContentSizeCategory: .large)
 
-    /// Draws `text` as an answer at `width` and returns its views once `ready` holds for them.
-    private func laidOut(_ text: String, width: CGFloat, ready: ([UIView]) -> Bool) async throws -> [UIView] {
-        let host = UIHostingController(rootView: AceMarkdown(text: text, flavor: AnswerMarkdown.flavor).frame(width: width))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = host
-        window.isHidden = false
-        defer { window.isHidden = true }
-        var views: [UIView] = []
-        for _ in 0..<40 {
-            host.view.setNeedsLayout()
-            host.view.layoutIfNeeded()
-            views = Self.views(in: host.view)
-            if ready(views) { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        return views
-    }
-
-    private static func views(in view: UIView) -> [UIView] {
-        [view] + view.subviews.flatMap { views(in: $0) }
+    /// The size a table takes when offered `width`.
+    private func laidOut(_ source: String, width: CGFloat) -> CGSize {
+        let table = MarkdownTableView(source: source, flavor: AnswerMarkdown.flavor, theme: AceMarkdownTheme.current(),
+                                      selectable: false, onLink: { _ in }, onReference: { _ in })
+        return UIHostingController(rootView: table).sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
     }
 }

@@ -54,6 +54,13 @@ pub enum FakeThought {
     Redacted { data: String },
 }
 
+#[derive(Debug, Clone)]
+enum StreamTail {
+    Hold(Arc<tokio::sync::Notify>),
+    Cut(Arc<tokio::sync::Notify>),
+    Eof,
+}
+
 /// How the fake answers one request.
 #[derive(Debug, Clone)]
 pub struct Script {
@@ -80,6 +87,59 @@ pub struct Script {
     pub calls: Vec<FakeCall>,
     /// Thinking before the text, in order.
     pub thoughts: Vec<FakeThought>,
+    /// Holds this answer before its first frame until the gate opens.
+    pub gate: Option<Gate>,
+    tail: Option<StreamTail>,
+    chat_argument_suffix: Option<String>,
+}
+
+/// A gate a scripted answer waits behind, so a test can hold a stream open and know exactly what
+/// had, or had not, happened while it was held. One-shot: once open, it stays open.
+#[derive(Debug, Clone)]
+pub struct Gate {
+    open: tokio::sync::watch::Sender<bool>,
+    holding: tokio::sync::watch::Sender<bool>,
+}
+
+impl Default for Gate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Gate {
+    pub fn new() -> Self {
+        Self {
+            open: tokio::sync::watch::channel(false).0,
+            holding: tokio::sync::watch::channel(false).0,
+        }
+    }
+
+    /// Holds an answer until [`Gate::open`], saying that something is being held.
+    async fn hold(&self) {
+        let _ = self.holding.send_replace(true);
+        let mut open = self.open.subscribe();
+        while !*open.borrow() {
+            if open.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Lets every answer held behind it go.
+    pub fn open(&self) {
+        let _ = self.open.send_replace(true);
+    }
+
+    /// Waits until something is held behind it: the request has arrived and its answer waits.
+    pub async fn holding(&self) {
+        let mut holding = self.holding.subscribe();
+        while !*holding.borrow() {
+            if holding.changed().await.is_err() {
+                return;
+            }
+        }
+    }
 }
 
 impl Script {
@@ -97,7 +157,41 @@ impl Script {
             cache_write: 0,
             calls: Vec::new(),
             thoughts: Vec::new(),
+            gate: None,
+            tail: None,
+            chat_argument_suffix: None,
         }
+    }
+
+    /// Holds this answer before its first frame until `gate` opens: what a test needs to see the
+    /// world while a stream has begun but its words have not arrived.
+    pub fn gated(mut self, gate: Gate) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+
+    /// Waits before the last stream frame until the test releases it.
+    pub fn hold_stream_end(mut self, release: Arc<tokio::sync::Notify>) -> Self {
+        self.tail = Some(StreamTail::Hold(release));
+        self
+    }
+
+    /// Waits at the end, then drops the transport before the last frame.
+    pub fn cut_stream_end(mut self, release: Arc<tokio::sync::Notify>) -> Self {
+        self.tail = Some(StreamTail::Cut(release));
+        self
+    }
+
+    /// Closes the HTTP body normally, with the last SSE frame missing.
+    pub fn omit_stream_end(mut self) -> Self {
+        self.tail = Some(StreamTail::Eof);
+        self
+    }
+
+    /// Appends to the first Chat Completions call after its finish reason.
+    pub fn late_chat_arguments(mut self, suffix: &str) -> Self {
+        self.chat_argument_suffix = Some(suffix.to_owned());
+        self
     }
 
     pub fn plain(mut self, text: &str) -> Self {
@@ -198,6 +292,8 @@ pub struct Seen {
     pub key: Option<String>,
     pub headers: Vec<(String, String)>,
     pub body: Value,
+    /// When it arrived, for tests of what starts only after something else began.
+    pub at: std::time::Instant,
 }
 
 #[derive(Clone)]
@@ -338,6 +434,7 @@ async fn answer(
     let streamed = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if let Ok(mut seen) = shared.seen.lock() {
         seen.push(Seen {
+            at: std::time::Instant::now(),
             path: path.clone(),
             key: if anthropic {
                 header("x-api-key")
@@ -380,6 +477,9 @@ async fn answer(
     if !script.hold.is_zero() {
         tokio::time::sleep(script.hold).await;
     }
+    if let Some(gate) = &script.gate {
+        gate.hold().await;
+    }
     if let (Some(body), false) = (&script.raw, streamed) {
         return json_response(body.clone());
     }
@@ -389,11 +489,23 @@ async fn answer(
     };
     match (anthropic, responses, streamed) {
         (true, _, false) => json_response(anthropic::reply(script, tokens)),
-        (true, _, true) => sse(anthropic::stream(script, tokens), script.delay),
+        (true, _, true) => sse(
+            anthropic::stream(script, tokens),
+            script.delay,
+            script.tail.clone(),
+        ),
         (false, true, false) => json_response(responses::reply(script, tokens)),
-        (false, true, true) => sse(responses::stream(script, tokens), script.delay),
+        (false, true, true) => sse(
+            responses::stream(script, tokens),
+            script.delay,
+            script.tail.clone(),
+        ),
         (false, false, false) => json_response(openai::reply(script, tokens)),
-        (false, false, true) => sse(openai::stream(script, tokens), script.delay),
+        (false, false, true) => sse(
+            openai::stream(script, tokens),
+            script.delay,
+            script.tail.clone(),
+        ),
     }
 }
 
@@ -413,14 +525,31 @@ pub(crate) struct Frame {
 }
 
 /// Sends `frames` as a server-sent event stream, pausing `delay` before each piece of text.
-fn sse(frames: Vec<Frame>, delay: Duration) -> Response {
-    let body = stream::unfold(frames.into_iter(), move |mut frames| async move {
-        let frame = frames.next()?;
-        if frame.text && !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        Some((Ok::<_, std::convert::Infallible>(frame.data), frames))
-    });
+fn sse(frames: Vec<Frame>, delay: Duration, tail: Option<StreamTail>) -> Response {
+    let body = stream::unfold(
+        (frames.into_iter(), tail),
+        move |(mut frames, tail)| async move {
+            let frame = frames.next()?;
+            if frames.len() == 0 {
+                match &tail {
+                    Some(StreamTail::Hold(release)) => release.notified().await,
+                    Some(StreamTail::Cut(release)) => {
+                        release.notified().await;
+                        return Some((
+                            Err(std::io::Error::other("scripted stream cut")),
+                            (frames, tail),
+                        ));
+                    }
+                    Some(StreamTail::Eof) => return None,
+                    None => {}
+                }
+            }
+            if frame.text && !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            Some((Ok(frame.data), (frames, tail)))
+        },
+    );
     (
         StatusCode::OK,
         [("content-type", "text/event-stream")],

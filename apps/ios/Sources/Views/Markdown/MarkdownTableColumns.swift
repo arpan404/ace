@@ -7,20 +7,24 @@ import CoreGraphics
 /// A table fits the room it has whenever its minimums do: columns that fit keep their natural
 /// width, so short labels never wrap, and the wide prose columns share what is left in
 /// proportion to their text, wrapping inside it, none past its minimum or past `share` of the
-/// room while another column still needs some. Only when the minimums alone overflow is the
-/// table wider than the room, and it scrolls sideways.
+/// room while another column still needs some. When the minimums alone overflow, no column's
+/// minimum counts for more than an equal share of the room, so one long name can't crowd the
+/// prose to a word a line; its pieces wrap inside its cell instead. A table is never wider than
+/// the room, so nothing on a phone has to scroll sideways.
 enum MarkdownTableColumns {
     /// The most of the room one column takes while another is narrower than its text.
     static let share: CGFloat = 0.6
 
     static func widths(natural: [CGFloat], minimum: [CGFloat], available: CGFloat) -> [CGFloat] {
         let natural = natural.map { ceil(max(0, $0)) }
-        let minimum = natural.indices.map { min(natural[$0], ceil(max(0, $0 < minimum.count ? minimum[$0] : 0))) }
+        var minimum = natural.indices.map { min(natural[$0], ceil(max(0, $0 < minimum.count ? minimum[$0] : 0))) }
         guard !natural.isEmpty else { return [] }
         if !available.isFinite || available <= 0 || natural.reduce(0, +) <= available { return natural }
         let cap = natural.count > 1 ? (available * share).rounded(.down) : available
-        // Too many columns or too long a token for the room: readable columns, scrolled.
-        if minimum.reduce(0, +) > available { return natural.indices.map { max(minimum[$0], min(natural[$0], cap)) } }
+        if minimum.reduce(0, +) > available {
+            let equal = (available / CGFloat(natural.count)).rounded(.down)
+            minimum = minimum.map { min($0, equal) }
+        }
 
         var widths = [CGFloat?](repeating: nil, count: natural.count)
         var room = available

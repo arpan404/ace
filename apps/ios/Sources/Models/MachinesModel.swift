@@ -69,6 +69,8 @@ import Observation
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
     @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
+    /// Runs after any machine's connection state changes, or a machine's runtime is added.
+    @ObservationIgnored var onConnectionChange: (() -> Void)?
     /// Runs once every listed machine has its runtime.
     @ObservationIgnored var afterLoad: (() -> Void)?
     /// Runs once a machine turned off here has let its runtime go, so what it showed outside the
@@ -344,6 +346,8 @@ import Observation
         accountMachines.removeAll { $0.hostId == hostId }
         return nil
     }
+    /// Each machine's connection state right now ("ready", "reconnecting", ...).
+    var connectionStates: [String] { inbox.all.map { $0.client.connection } }
     /// Back from the background: a suspended socket may be dead without having closed, so every
     /// machine checks its own now instead of at its next heartbeat.
     /// A machine on its account relay checks whether its direct address answers again.
@@ -438,6 +442,7 @@ import Observation
         client.onConnection = { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
+                self.onConnectionChange?()
                 let wasLinking = self.plans[hostId]?.linking == true
                 let step = self.plans[hostId]?.connection(state, at: self.clock())
                 // Ready on the relay with sends taken in: the daemon has linked the two ids.
@@ -449,6 +454,7 @@ import Observation
             client.onMachineIdentity = { [weak self] identity in Task { @MainActor in await self?.learned(identity, from: hostId) } }
         }
         inbox.attach(entry.hostId, name: entry.displayName, client: client)
+        onConnectionChange?()
         await open(client, entry: entry, target: target)
     }
     /// Does what a machine's route plan said: reopen its runtime on the other route, or probe the

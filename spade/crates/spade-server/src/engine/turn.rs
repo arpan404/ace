@@ -9,10 +9,10 @@ use std::panic::AssertUnwindSafe;
 use futures_util::{FutureExt, StreamExt};
 use spade_core::checkpoint::Checkpoints;
 use spade_core::context;
-use spade_core::event::{Call, FailureKind, Known, ReplyEnd, Tokens};
+use spade_core::event::{FailureKind, Known, ReplyEnd, Tokens};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::routing::fallback;
-use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
+use spade_core::turn::{Next, next_step, progress, stop_requested};
 use spade_core::{Event, Transcript, spending, title};
 use spade_models::{Delta, ToolCall};
 use tokio::sync::watch;
@@ -40,7 +40,7 @@ pub(super) struct Failure {
     pub kind: FailureKind,
     /// The endpoint the call went to, when the failure was the endpoint's.
     pub endpoint: Option<String>,
-    /// It may pass (unreachable, rate limited, a `5xx`, a dropped stream): the turn waits it out
+    /// It may pass (unreachable, rate limited, a `5xx`): the turn waits it out
     /// on an outage wake and sends the step again (ADR 0158, ADR 0160).
     pub transient: bool,
     /// How long the endpoint asked to be left alone.
@@ -238,8 +238,10 @@ async fn drive(
     // When this worker took the reply, for moving main's long work to a lane (ADR 0217 §2a). A
     // restart starts the clock again; the step count carries over in the events.
     let began = engine.now_ms();
+    let mut early = super::stream_calls::StreamCalls::default();
     loop {
         if *stop.borrow() {
+            early.discard().await;
             return Ended::Stopped(String::new());
         }
         let events = match engine.load(id) {
@@ -252,6 +254,7 @@ async fn drive(
             && stop_requested(&events, reply)
         {
             *driven = Some(reply.clone());
+            early.discard().await;
             return Ended::Stopped(String::new());
         }
         // Spade is closing: nothing of the turn runs now, so it pauses here (after the stop
@@ -260,6 +263,7 @@ async fn drive(
             && halts(*pause.borrow(), Point::Between)
         {
             *driven = Some(reply.clone());
+            early.discard().await;
             return Ended::Paused;
         }
         match next {
@@ -290,8 +294,9 @@ async fn drive(
                 if engine.note_overlaps(id) {
                     continue;
                 }
-                // A helper has no indexes: it starts from Spade's rules, its profile and its task
-                // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
+                // A helper has no indexes: it works from its bot's prompt, with Spade's rules for
+                // helpers and its profile's instructions in its first message. No step count or
+                // cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();
                 if !helper && super::index::if_needed(engine, id, &events).await {
                     continue;
@@ -332,7 +337,13 @@ async fn drive(
                 if compacted || super::compact::age_if_due(engine, id, &events) {
                     continue;
                 }
-                match model_step(engine, id, &reply, &events, &mut stop, pause).await {
+                early = super::stream_calls::StreamCalls::default();
+                let step =
+                    model_step(engine, id, &reply, &events, &mut stop, pause, &mut early).await;
+                if !matches!(&step, Step::Calls) {
+                    early.discard().await;
+                }
+                match step {
                     // One more step when the reply would leave an ask open (ADR 0215 §3), and
                     // a plugin's Stop hook may ask for one more step first (ADR 0151).
                     Step::Answered if super::asks::check(engine, id, &reply) => {}
@@ -346,8 +357,7 @@ async fn drive(
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
-                    // A stream cut by a failure that may pass: what streamed is dropped and the
-                    // step is sent again once the outage is waited out, like a resumed pause.
+                    // An endpoint that did not start a stream may be tried after an outage.
                     Step::FailedAs(_, error, failure) if failure.transient => {
                         if let Some(ended) =
                             outage(engine, id, &reply, &error, &failure, &mut stop, pause).await
@@ -363,11 +373,29 @@ async fn drive(
             Next::Calls { reply, calls } => {
                 *driven = Some(reply.clone());
                 match super::plugin_hooks::before_calls(engine, id, &reply, &events, &calls).await {
-                    Ok(true) => continue,
+                    Ok(true) => {
+                        early.discard().await;
+                        continue;
+                    }
                     Ok(false) => {}
-                    Err(error) => return Ended::Failed(String::new(), error.to_string()),
+                    Err(error) => {
+                        early.discard().await;
+                        return Ended::Failed(String::new(), error.to_string());
+                    }
                 }
-                match handle_calls(engine, id, &reply, &events, calls, &mut stop, pause).await {
+                let handled = handle_calls(
+                    engine,
+                    id,
+                    &reply,
+                    &events,
+                    calls,
+                    &mut stop,
+                    pause,
+                    super::stream_calls::Work::Stored(&mut early),
+                )
+                .await;
+                early.discard().await;
+                match handled {
                     Handled::Continue => {}
                     Handled::Paused => return Ended::Paused,
                     Handled::Stopped => return Ended::Stopped(String::new()),
@@ -421,6 +449,7 @@ async fn model_step(
     events: &[Event],
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
+    early: &mut super::stream_calls::StreamCalls,
 ) -> Step {
     let started_on = turn_model(engine, id, events, reply);
     // The models the step may run on (ADR 0205 §2), from the one its reply's last step ran on, so
@@ -539,14 +568,13 @@ async fn model_step(
                 Some(Ok(Delta::Reasoning(piece))) => {
                     reasoned(engine, id, &mut reasoning, &piece);
                 }
+                Some(Ok(Delta::CallClosed(call))) => {
+                    early.closed(engine, id, reply, events, call, stop.clone(), pause.clone());
+                }
                 Some(Ok(Delta::Call(call))) => calls.push(call),
                 Some(Ok(Delta::Done { usage, thoughts })) => {
                     let cost = spending::cost_micros(engine.models.price(&model), &usage);
-                    let calls = unique_call_ids(
-                        events,
-                        calls.into_iter().map(|c| Call { id: c.id, name: c.name, arguments: c.arguments }).collect(),
-                        || engine.ids.next("call"),
-                    );
+                    let calls = early.finish(engine, events, calls);
                     let made_calls = !calls.is_empty();
                     let step = Event::Known(Known::StepFinished {
                         reply: reply.to_owned(),
@@ -578,7 +606,8 @@ async fn model_step(
                 }
                 Some(Err(error)) => {
                     admitted.settle(&error.usage().unwrap_or_else(|| partly(&text)));
-                    let failure = Failure::of(&error, &model);
+                    let mut failure = Failure::of(&error, &model);
+                    failure.transient = false;
                     return Step::FailedAs(text, error.to_string(), failure);
                 }
                 None => {

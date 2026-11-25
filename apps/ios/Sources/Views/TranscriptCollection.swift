@@ -77,7 +77,7 @@ struct TranscriptCollection: UIViewRepresentable {
         private var keyboardUp = false
         private let tap = UITapGestureRecognizer()
         private let touches = TranscriptTouchWatcher(target: nil, action: nil)
-        private var phase = TranscriptScrollPhase.idle
+        private var sequence = TranscriptScrollSequence()
         private var releaseVelocity: Double?
         private var reported = TranscriptScrollGeometry()
         private var shownRows = Set<String>()
@@ -112,17 +112,18 @@ struct TranscriptCollection: UIViewRepresentable {
             view.addGestureRecognizer(touches)
             view.assistiveBegan = { [weak self] older, moves in
                 guard let self else { return false }
-                move(to: .interacting)
+                handle(.assistiveBegan)
                 return events.assistivePage(older, moves)
             }
-            view.assistiveEnded = { [weak self] in self?.move(to: .idle) }
+            view.assistiveEnded = { [weak self] in self?.handle(.assistiveEnded) }
             // The surface outlives the collection view (it is the feed's state): weak, or leaving
             // the thread would keep the view and its cells alive.
             surface.attach(view, locate: { [weak layout, weak view] id in
                 guard let layout, let view, let index = layout.geometry.position(of: id) else { return nil }
                 return CGRect(x: 0, y: layout.geometry.top(at: index), width: view.bounds.width,
                               height: layout.geometry.height(at: index))
-            }, animating: { [weak self] in self?.move(to: .animating) })
+            }, aiming: { [weak self] in self?.handle(.animationStarting) },
+               animating: { [weak self] in self?.handle(.animationStarted) })
         }
 
         func detach() {
@@ -141,29 +142,30 @@ struct TranscriptCollection: UIViewRepresentable {
         }
 
         func update(_ next: [TranscriptEntry], estimate: @escaping (String) -> CGFloat?, style: AnyHashable) {
-            guard let view, let layout, let source else { return }
+            guard view != nil, let layout, source != nil else { return }
             updating = true
             defer { updating = false; queueFlush() }
-            var ids: [String] = []
-            ids.reserveCapacity(next.count)
-            var byID: [String: TranscriptEntry] = [:]
-            for entry in next where byID[entry.id] == nil {
-                ids.append(entry.id)
-                byID[entry.id] = entry
-            }
+            let (ids, byID) = Self.window(next)
+            let declared = byID.compactMapValues(\.height)
             let restyled = self.style != nil && self.style != style
             self.style = style
             if ids == order {
+                _ = sequence.windowChange(movesOffset: { false })
                 waiting = nil
+                // A spacer re-estimated in place (Dynamic Type, a layout revision) takes its new
+                // height now, wherever it is, not when its cell next sizes itself on screen.
+                layout.resize(declared: declared, anchor: { self.anchorEntry(keeping: Set(ids), in: byID) })
                 let changed = adopt(byID)
                 reconfigure(restyled ? ids.filter { visible($0) } : changed)
                 return
             }
-            let anchor = anchorEntry(keeping: Set(ids))
+            let anchor = anchorEntry(keeping: Set(ids), in: byID)
             // An offset write can't land under a finger or a fling (ADR 0222): a window change
             // that would need one waits for the scroll to come to rest. The rows laid out now
             // still show what they hold now.
-            if phase.isReaders, layout.offsetChange(laying: ids, estimate: estimate, anchor: anchor) != 0 {
+            if sequence.windowChange(movesOffset: {
+                layout.offsetChange(laying: ids, declared: declared, estimate: estimate, anchor: anchor) != 0
+            }) {
                 PerfCounters.bump("window.held")
                 waiting = (next, estimate, style)
                 let changed = refresh(byID)
@@ -171,8 +173,39 @@ struct TranscriptCollection: UIViewRepresentable {
                 return
             }
             waiting = nil
+            lay(ids, byID, declared: declared, estimate: estimate, anchor: anchor, restyled: restyled)
+        }
+
+        /// Lays out the window change that waited for the scroll, whatever holds now: the
+        /// sequence decided it lands.
+        private func land() {
+            guard let held = waiting else { return }
+            waiting = nil
+            updating = true
+            defer { updating = false; queueFlush() }
+            let (ids, byID) = Self.window(held.entries)
+            style = held.style
+            lay(ids, byID, declared: byID.compactMapValues(\.height), estimate: held.estimate,
+                anchor: anchorEntry(keeping: Set(ids), in: byID), restyled: false)
+        }
+
+        /// The ids in order, each once, and the entry for each.
+        private static func window(_ next: [TranscriptEntry]) -> (ids: [String], byID: [String: TranscriptEntry]) {
+            var ids: [String] = []
+            ids.reserveCapacity(next.count)
+            var byID: [String: TranscriptEntry] = [:]
+            for entry in next where byID[entry.id] == nil {
+                ids.append(entry.id)
+                byID[entry.id] = entry
+            }
+            return (ids, byID)
+        }
+
+        private func lay(_ ids: [String], _ byID: [String: TranscriptEntry], declared: [String: CGFloat],
+                         estimate: @escaping (String) -> CGFloat?, anchor: String?, restyled: Bool) {
+            guard let view, let layout, let source else { return }
             let changed = adopt(byID)
-            layout.stage(ids, estimate: estimate, anchor: anchor)
+            layout.stage(ids, declared: declared, estimate: estimate, anchor: anchor)
             order = ids
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
@@ -217,16 +250,17 @@ struct TranscriptCollection: UIViewRepresentable {
             source.apply(snapshot, animatingDifferences: false)
         }
 
-        /// The entry at the viewport's physical top still laid out after the change: the reader's.
-        /// Away from the end, the first row on screen: a reader just short of the end, with the
-        /// composer's room still in view, keeps their rows still as a new row lands under them.
-        private func anchorEntry(keeping ids: Set<String>) -> String? {
+        /// The entry on screen still laid out after the change: the reader's
+        /// (`TranscriptStackGeometry.readerAnchor`). Away from the end, the first row on screen: a
+        /// reader just short of the end, with the composer's room still in view, keeps their rows
+        /// still as a new row lands under them.
+        private func anchorEntry(keeping ids: Set<String>, in next: [String: TranscriptEntry]) -> String? {
             guard let view, let layout else { return nil }
-            let geometry = layout.geometry
-            let range = geometry.indices(from: view.contentOffset.y, to: view.contentOffset.y + view.bounds.height)
-            let kept = range.lazy.map { geometry.ids[$0] }.filter { ids.contains($0) }
-            if !followsEnd, let row = kept.first(where: { self.entries[$0]?.isRow == true }) { return row }
-            return kept.first
+            let entries = entries
+            return layout.geometry.readerAnchor(
+                from: view.contentOffset.y, to: view.contentOffset.y + view.bounds.height, keeping: ids,
+                followsEnd: followsEnd, isRow: { (next[$0] ?? entries[$0])?.isRow == true },
+                isBlank: { (next[$0] ?? entries[$0])?.height != nil })
         }
 
         private func visible(_ id: String) -> Bool {
@@ -333,26 +367,30 @@ struct TranscriptCollection: UIViewRepresentable {
 
         // MARK: Phases
 
-        private func move(to next: TranscriptScrollPhase) {
-            guard next != phase else { return }
-            let old = phase
-            phase = next
-            let velocity = next == .decelerating ? releaseVelocity : nil
-            if next == .idle || next == .interacting { releaseVelocity = nil }
-            // A window change held for the scroll lands as it comes to rest, before the feed
-            // hears it has.
-            if !next.isReaders, let held = waiting {
-                waiting = nil
-                update(held.entries, estimate: held.estimate, style: held.style)
+        /// Hands `event` to the sequence and does what it decides, in its order: a held window
+        /// change lands and its geometry goes out before the feed hears the phase it lands for.
+        private func handle(_ event: TranscriptScrollSequence.Event) {
+            for action in sequence.handle(event) {
+                switch action {
+                case .land: land()
+                case .report: flush()
+                case .phase(let old, let next):
+                    let velocity = next == .decelerating ? releaseVelocity : nil
+                    if next == .idle || next == .interacting { releaseVelocity = nil }
+                    events.phase(old, next, reported, velocity)
+                case .checkAnimation(let which):
+                    DispatchQueue.main.asyncAfter(deadline: .now() + TranscriptPlaceKeeper.animationLimit / 1000) { [weak self] in
+                        self?.handle(.animationOverdue(which))
+                    }
+                }
             }
-            events.phase(old, next, reported, velocity)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             if updating { flushSoon() } else if resizing { flush() } else { reportGeometry() }
         }
 
-        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { move(to: .interacting) }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { handle(.dragBegan) }
 
         /// The finger lifted: UIKit's own release velocity, in points per second toward older rows.
         func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
@@ -361,33 +399,30 @@ struct TranscriptCollection: UIViewRepresentable {
         }
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-            move(to: decelerate ? .decelerating : .idle)
+            handle(.dragEnded(decelerates: decelerate))
         }
 
-        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { move(to: .idle) }
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { handle(.decelerationEnded) }
 
-        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { move(to: .idle) }
+        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { handle(.animationEnded) }
 
         func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
-            move(to: .animating)
+            handle(.animationStarting)
+            handle(.animationStarted)
             return true
         }
 
-        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { move(to: .idle) }
+        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { handle(.animationEnded) }
 
         /// A finger came down: the reader holds the feed from here, before any drag begins, so
-        /// nothing replaces the rows under it. A second finger during a drag changes nothing.
-        private func touchLanded() {
-            guard phase != .interacting else { return }
-            move(to: .tracking)
-        }
+        /// nothing replaces the rows under it.
+        private func touchLanded() { handle(.touchDown) }
 
         /// A touch that lifted without dragging, or stopped a fling and lifted, ends no UIKit
         /// callback.
         private func touchLifted() {
-            guard let view, phase == .tracking || phase == .decelerating, !view.isDecelerating, !view.isDragging
-            else { return }
-            move(to: .idle)
+            guard let view else { return }
+            handle(.touchUp(scrolling: view.isDecelerating || view.isDragging))
         }
 
         @objc private func tapped() {

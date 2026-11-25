@@ -230,6 +230,8 @@ export function createDevicesSession(context: SocketContext): SocketService {
     if (channel || closed) return;
     channel = reserveDevices(service, context.sessionId, {
       authorize: () => context.connected() && context.authorize("admin"),
+      // A viewer on this machine gets its video at the top rate from the first picture.
+      local: context.local === true,
       acceleration: context.options.mediaAcceleration,
       canReadThread: (threadId) => context.canReadThread(ThreadId.parse(threadId)),
       agentExists: (threadId, agentId) =>

@@ -387,7 +387,7 @@ import QuartzCore
         answers.bind(runtime)
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
-        sendUsagePins()
+        resumeUsagePins()
         restoreDeviceTabs()
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
         spadeResume()

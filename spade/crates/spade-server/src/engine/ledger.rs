@@ -165,6 +165,7 @@ mod tests {
             cache_write: None,
             per_call: None,
             per_search: None,
+            long_context: None,
         });
         let prompt = Prompt::default().person("word ".repeat(40_000));
         let cold = estimate(price, &prompt, Hint::default());
@@ -190,6 +191,7 @@ mod tests {
             cache_write: None,
             per_call: None,
             per_search: None,
+            long_context: None,
         });
         assert!(price.is_some());
         let short = Prompt::default().person("hi").max_tokens(100);

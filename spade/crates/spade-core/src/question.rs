@@ -35,13 +35,12 @@ pub const ANSWER_CHARS: usize = 4_000;
 pub const ANSWERED_BY_MESSAGE: &str = crate::context::ANSWERED;
 
 /// What a waiting call reads when the person chose to answer later.
-pub const DEFERRED: &str = "The person will answer later. Go on without it where you can, or end \
-your reply saying what waits on it. Their answer will arrive as a <question_answer>.";
+pub const DEFERRED: &str = "Deferred by the person. Continue without it or end your reply; answer \
+arrives as <question_answer>.";
 
-/// What a call with `wait: false` (or `blocking: false` / stated defaults) reads at once when no
-/// defaults were stated.
-pub const ASKED_FOR_LATER: &str = "Asked without waiting. The person answers when they like; go \
-on with your work. Their answer will arrive as a <question_answer>.";
+/// What a non-blocking call without stated defaults reads at once.
+pub const ASKED_FOR_LATER: &str =
+    "Asked without waiting. Continue working. Answer arrives as <question_answer>.";
 
 /// What a non-blocking `ask_user` call reads at once: [`ASKED_FOR_LATER`] when no defaults were
 /// stated, or a confirmation of the defaults to carry on with while the person answers later.
@@ -61,8 +60,7 @@ pub fn asked_for_later(questions: &[Question]) -> String {
         return ASKED_FOR_LATER.to_owned();
     }
     format!(
-        "Asked without waiting. Carry on with your stated default; the person answers when they \
-         like and their answer will arrive as a <question_answer>.\n\n{}",
+        "Asked without waiting. Continue with the stated defaults. Answer arrives as <question_answer>.\n\n{}",
         defaults.join("\n\n")
     )
 }

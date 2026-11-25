@@ -123,8 +123,7 @@ async fn a_sleeping_bot_reads_sleeping_with_its_reason_and_wakes_once_at_its_tim
         .wait_for_count(&conversation, "reply_finished", 2)
         .await?;
     assert!(
-        last_prompt(&spade)
-            .contains("Your sleep is over. You gave this reason: the deploy settles."),
+        last_prompt(&spade).contains("Sleep ended. Reason: the deploy settles."),
         "{}",
         last_prompt(&spade)
     );
@@ -224,7 +223,11 @@ async fn the_person_wakes_a_sleeping_bot_early_or_cancels_its_sleep() -> Result 
     spade
         .wait_for_count(&conversation, "reply_finished", 2)
         .await?;
-    assert!(last_prompt(&spade).contains("The person woke you early."));
+    assert!(
+        last_prompt(&spade).contains("Person woke you early."),
+        "{}",
+        last_prompt(&spade)
+    );
     let (status, _) = spade
         .post(&format!("/v1/agents/{agent}/wakes/{wake}/wake"), json!({}))
         .await?;

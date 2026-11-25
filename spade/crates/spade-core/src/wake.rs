@@ -342,27 +342,26 @@ pub fn note(open: &Open, cause: Cause, what: Option<&str>) -> Option<String> {
     let reason = if open.reason.is_empty() {
         String::new()
     } else {
-        format!(" You gave this reason: {}.", open.reason)
+        format!(" Reason: {}.", open.reason)
     };
     let body = match (&open.purpose, cause) {
         (
             Purpose::Retry { job: Some(_), .. } | Purpose::Outage { .. } | Purpose::Park { .. },
             _,
         ) => return None,
-        (Purpose::Retry { attempt, error, .. }, _) => format!(
-            "Your last reply failed ({error}), so Spade parked it and is trying again \
-             (attempt {attempt}). Carry on where you left off."
-        ),
-        (_, Cause::Person) => format!("The person woke you early.{reason} Carry on."),
-        (Purpose::Sleep, _) => format!("Your sleep is over.{reason} Carry on."),
+        (Purpose::Retry { attempt, error, .. }, _) => {
+            format!("Previous reply failed ({error}); retrying (attempt {attempt}). Continue.")
+        }
+        (_, Cause::Person) => format!("Person woke you early.{reason} Continue."),
+        (Purpose::Sleep, _) => format!("Sleep ended.{reason} Continue."),
         (Purpose::Wait, Cause::Timeout) => format!(
-            "You waited for {}, and your timeout passed first.{reason} Decide what to do next.",
+            "Timed out waiting for {}.{reason}",
             open.condition
                 .as_ref()
                 .map_or_else(String::new, Condition::words)
         ),
         (Purpose::Wait, _) => format!(
-            "What you waited for happened: {}.{reason} Carry on.",
+            "Condition met: {}.{reason} Continue.",
             what.map_or_else(
                 || open
                     .condition
@@ -436,12 +435,11 @@ pub fn untrusted(event: &Known) -> bool {
 pub fn progress_text(job: &str, name: &str, minutes: u32, tail: &str) -> String {
     let mut text = format!(
         "<job_progress job=\"{job}\" tool=\"{name}\" minutes=\"{minutes}\" from=\"spade\">\n\
-         This job has been running for {minutes} minutes. Read what it shows: if it is still \
-         making progress, end your reply and its result will arrive; if it is stuck, stop it or \
-         try another way.\n</job_progress>"
+         Running for {minutes}m. If progressing, end your reply and wait; if stuck, stop it or \
+         try another approach.\n</job_progress>"
     );
     if tail.is_empty() {
-        text.push_str("\n(It shows no output Spade can read.)");
+        text.push_str("\n(No readable output.)");
     } else {
         let quoted = serde_json::to_string(tail).unwrap_or_default();
         text.push_str(&format!(

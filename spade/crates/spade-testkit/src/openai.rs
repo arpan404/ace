@@ -100,6 +100,12 @@ pub(crate) fn stream(script: &Script, tokens: Tokens) -> Vec<Frame> {
         }
     }
     frames.push(chunk(json!({}), json!(finish(script))));
+    if let Some(suffix) = &script.chat_argument_suffix {
+        frames.push(chunk(
+            json!({ "tool_calls": [{ "index": 0, "function": { "arguments": suffix } }] }),
+            Value::Null,
+        ));
+    }
     let usage_event = json!({
         "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "fake",
         "choices": [], "usage": usage(tokens)

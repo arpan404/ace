@@ -25,12 +25,17 @@ test("the model picker lists what each endpoint serves with its facts, and takes
   const models = within(await screen.findByRole("listbox", { name: "Models" }));
   await models.findByRole("option", { name: /^Sonnet/ });
   // With no model for new bots set, the first choice leaves it to Spade.
-  expect(models.getAllByRole("option").map((option) => option.textContent)).toEqual([
+  const options = models.getAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual([
     "First usable modelSaved model",
-    "Saved model",
-    "Llama128K context",
-    "Sonnet200K context · images, tools",
+    "Saved modelCtrl+1",
+    "Llama128K contextCtrl+2",
+    "Sonnet200K context·Ctrl+3",
   ]);
+  const sonnet = options[3];
+  if (!sonnet) throw new Error("Expected Sonnet option");
+  expect(within(sonnet).getByRole("img", { name: "Images" })).toBeTruthy();
+  expect(within(sonnet).getByRole("img", { name: "Tools" })).toBeTruthy();
   expect(
     within(screen.getByRole("group", { name: "OpenRouter" })).getAllByRole("option"),
   ).toHaveLength(3);

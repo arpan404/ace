@@ -35,7 +35,7 @@ import {
 } from "./live-write-buffer.ts";
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
-import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
+import { ChatMembership, migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { openSidebarColumns } from "./sidebar-columns.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
@@ -172,6 +172,7 @@ export class Store {
   private readonly writes: StoreWriteGate;
   private listeners = new Set<Listener>();
   private writeHooks = new Set<Listener>();
+  readonly chatMembership = new ChatMembership();
   private readonly threadReads: ThreadReads;
   private readonly navigation: LongThreadQueries;
   private readonly sidebarReads: SidebarReads;

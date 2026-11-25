@@ -50,14 +50,15 @@ export function alertFromSpadeNotice(data: string, threadId: ThreadId): Notifica
   if (!parsed.success || parsed.data.reach !== "now") return undefined;
   const notice = parsed.data;
   const items = notice.items?.slice(0, 50).map((item) => ({
-      agent: item.agent,
-      ...(item.conversation ? { conversation: item.conversation } : {}),
-      ...(item.request ? { request: item.request } : {}),
-    }));
+    agent: item.agent,
+    ...(item.conversation ? { conversation: item.conversation } : {}),
+    ...(item.request ? { request: item.request } : {}),
+  }));
   // If a batch's items all belong to one conversation, deep-link directly to that owner.
   const firstItem = items?.[0];
   const singleOwner =
-    firstItem?.conversation && notice.items?.every((item) => item.conversation === firstItem.conversation)
+    firstItem?.conversation &&
+    notice.items?.every((item) => item.conversation === firstItem.conversation)
       ? firstItem
       : undefined;
   const targetAgent = singleOwner?.agent ?? notice.agent;

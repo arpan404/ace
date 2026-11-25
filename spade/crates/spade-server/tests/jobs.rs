@@ -61,7 +61,10 @@ async fn a_background_result_starts_a_new_turn_when_it_arrives() -> Result {
     );
     let seen = spade.fake.seen();
     let second = seen[1].body["messages"].to_string();
-    assert!(second.contains("in the background as job c1"), "{second}");
+    assert!(
+        second.contains("Running in background as job c1"),
+        "{second}"
+    );
     let last = seen
         .last()
         .map(|s| s.body["messages"].to_string())

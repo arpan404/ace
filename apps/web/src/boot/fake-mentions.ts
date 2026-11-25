@@ -92,10 +92,10 @@ export function seedFakeMentions(daemon: FakeDaemon, here: FakeSpadeApi, server:
                   devices: [
                     {
                       type: "device",
-                      id: "build-server",
+                      id: server.hostId,
                       name: "Build server",
                       kind: "server",
-                      machine: { id: "build-server", name: "Build server", here: false },
+                      machine: { id: server.hostId, name: "Build server", here: false },
                       os: "Linux",
                       online: true,
                     },

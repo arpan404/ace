@@ -256,9 +256,12 @@ export async function sourceControlStatus(
     const state = await repository.state(root);
     const { files, truncated } = await readChangedFiles(repository, root, state, limit);
     const sections = sectionsFromState(state, limit);
+    // HEAD after the files: a commit landing during the file list is the one reported.
+    const head = await repository.head(root);
     return {
       files,
       ...sections,
+      head,
       truncated: truncated || sections.truncated,
     };
   });

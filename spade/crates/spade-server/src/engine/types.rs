@@ -16,7 +16,7 @@ use crate::tools::{SkillLibrary, Toolbox};
 /// it needs, and the person's control is Stop (ADR 0158); no spend limits it (ADR 0166).
 #[derive(Debug, Clone)]
 pub struct Limits {
-    /// Tool calls of one step that run at once (`SPADE_PARALLEL_TOOLS`); the rest wait their turn.
+    /// Shared limit for early and ordinary foreground tool work (`SPADE_PARALLEL_TOOLS`).
     pub max_parallel_tools: usize,
     /// Helpers of one bot that run at once (`SPADE_HELPERS_AT_ONCE`); the rest wait queued.
     pub helpers_at_once: usize,

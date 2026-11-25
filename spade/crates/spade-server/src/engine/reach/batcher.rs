@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::json;
 use spade_core::escalation::Level;
@@ -35,7 +35,7 @@ impl Engine {
                         Ok(wait) => wait,
                         Err(error) => {
                             tracing::error!(%error, "could not read pending notices");
-                            Some(batch::WINDOW)
+                            Some(batch_wait(batch::WINDOW_MS))
                         }
                     }
                 };
@@ -53,7 +53,7 @@ impl Engine {
 
     fn reach_batch_tick(
         &self,
-        deadlines: &mut HashMap<String, Instant>,
+        deadlines: &mut HashMap<String, i64>,
     ) -> Result<Option<Duration>, StoreError> {
         let mut trees: BTreeMap<String, Tree> = BTreeMap::new();
         for (conversation, event) in self.store.pending_ask_notices()? {
@@ -85,12 +85,12 @@ impl Engine {
             deadlines.clear();
             return Ok(None);
         }
-        let now = self.clock.batch_now();
+        let now = self.monotonic_ms();
         deadlines.retain(|agent, _| trees.contains_key(agent));
         for (agent, (root, sources)) in trees {
             let deadline = deadlines
                 .entry(agent.clone())
-                .or_insert(now + batch::WINDOW);
+                .or_insert(now + batch::WINDOW_MS);
             if *deadline > now {
                 continue;
             }
@@ -100,14 +100,14 @@ impl Engine {
                 }
                 Err(error) => {
                     tracing::error!(%error, %agent, "could not flush pending notices");
-                    *deadline = now + batch::WINDOW;
+                    *deadline = now + batch::WINDOW_MS;
                 }
             }
         }
         Ok(deadlines
             .values()
             .min()
-            .map(|at| at.saturating_duration_since(self.clock.batch_now())))
+            .map(|at| batch_wait(at.saturating_sub(self.monotonic_ms()))))
     }
 
     fn flush_ask_notices(&self, root: &TreeRoot, sources: &[Source]) -> Result<(), StoreError> {
@@ -229,4 +229,8 @@ impl Engine {
             delivered
         })
     }
+}
+
+fn batch_wait(ms: i64) -> Duration {
+    Duration::from_millis(u64::try_from(ms).unwrap_or(0))
 }

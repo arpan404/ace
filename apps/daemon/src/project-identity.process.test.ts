@@ -112,6 +112,7 @@ test("New thread's match picks the checkout at the same folder, then the one use
   expect(await h.ask({ op: "workspaces.match", url, subpath: "web" })).toEqual({
     kind: "match",
     workspaceId: web,
+    keyVersion: 2,
   });
   // Two checkouts of the repository's top: the one used last, not the oldest.
   h.used(root);
@@ -119,11 +120,13 @@ test("New thread's match picks the checkout at the same folder, then the one use
   expect(await h.ask({ op: "workspaces.match", url })).toEqual({
     kind: "match",
     workspaceId: other,
+    keyVersion: 2,
   });
   h.used(root);
   expect(await h.ask({ op: "workspaces.match", url })).toEqual({
     kind: "match",
     workspaceId: root,
+    keyVersion: 2,
   });
 });
 

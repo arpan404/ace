@@ -307,9 +307,29 @@ impl Store {
         events: &[Event],
         now_ms: i64,
     ) -> Result<Vec<StoredEvent>> {
+        self.append_all_with_settings(conversation, events, &[], now_ms)
+    }
+
+    /// [`Store::append_all`], storing `settings` in the same transaction: a conversation's
+    /// offered tools are never published without the event that explains them, or the other way
+    /// (spade/docs/harness.md, Tools).
+    pub fn append_all_with_settings(
+        &self,
+        conversation: &str,
+        events: &[Event],
+        settings: &[(&str, &str)],
+        now_ms: i64,
+    ) -> Result<Vec<StoredEvent>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let stored = append_in(&tx, conversation, events, now_ms)?;
+        for (key, value) in settings {
+            tx.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )?;
+        }
         tx.commit()?;
         Ok(stored)
     }

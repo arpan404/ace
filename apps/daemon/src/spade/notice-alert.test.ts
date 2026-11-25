@@ -129,5 +129,4 @@ describe("Spade notices as ace's alerts", () => {
       items: items.slice(0, 50),
     });
   });
-
 });

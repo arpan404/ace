@@ -20,8 +20,14 @@ import { followBlocks } from "./thread-blocks.ts";
  * streaming rows stay live. Replies carry only where the window stands.
  */
 
-/** Bound grouping, layout and retained text to about two pages beside the live tail. */
-export const phoneWindow: WindowBounds = { capacity: 400, weight: 2 * 1024 * 1024 };
+/**
+ * The phone keeps every page the reader loaded until the app quits: an evicted page left blank
+ * room the reader could scroll back into before its rows were read again.
+ */
+export const phoneWindow: WindowBounds = {
+  capacity: Number.POSITIVE_INFINITY,
+  weight: Number.POSITIVE_INFINITY,
+};
 
 export const NativeTranscriptRequest = z
   .object({

@@ -1,6 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
+/** Archives a Release build. `project.yml` sets `ACE_PUSH: YES`, so signed archives carry
+ *  `Entitlements/AcePush.entitlements` (`aps-environment: production`). Unsigned archives pass
+ *  `ACE_PUSH=NO` so entitlement wiring can be checked without a paid team. */
 const root = resolve(import.meta.dirname, "..");
 const unsigned = process.argv.includes("--unsigned");
 const team = process.env.ACE_IOS_TEAM_ID;
@@ -28,7 +31,7 @@ const build = spawnSync(
     "4",
     "archive",
     ...(unsigned
-      ? ["CODE_SIGNING_ALLOWED=NO"]
+      ? ["CODE_SIGNING_ALLOWED=NO", "ACE_PUSH=NO"]
       : ["CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_STYLE=Automatic", `DEVELOPMENT_TEAM=${team}`]),
     `CURRENT_PROJECT_VERSION=${process.env.ACE_IOS_BUILD_NUMBER ?? "1"}`,
   ],

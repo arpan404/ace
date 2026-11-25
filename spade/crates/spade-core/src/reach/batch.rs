@@ -14,7 +14,7 @@ use crate::transcript::Transcript;
 use super::{Approvals, Category, Decision, Moment, Notice, Reach, Settings, decide};
 
 /// How long pending `needs_you` asks from the same bot or tree wait to coalesce into one notice.
-pub const WINDOW: std::time::Duration = std::time::Duration::from_millis(250);
+pub const WINDOW_MS: i64 = 250;
 
 /// Which kind of `needs_you` event one item in a batch came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

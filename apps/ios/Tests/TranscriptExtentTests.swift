@@ -3,29 +3,70 @@ import Testing
 @testable import Ace
 
 @MainActor @Suite struct TranscriptExtentTests {
-    @Test func pagingUsesTheResidentEdgeAndFillsRetainedSpaceAfterAFling() {
+    @Test func pagingUsesTheResidentEdgesAndFillsNewerRetainedSpaceAfterAFling() {
         let extent = TranscriptExtent()
         extent.update(["a", "b"], movement: .replace)
         extent.measure("a", height: 1000)
         extent.measure("b", height: 1000)
         extent.update(["c", "d"], movement: .newer)
-        #expect(extent.edge(top: 2100, bottom: 1000, viewport: 100, minimumAhead: 44, direction: -1) == .older)
-        #expect(extent.needsContent(top: 1900, bottom: 1000))
+        #expect(extent.edge(top: 100, bottom: 1000, viewport: 100, minimumAhead: 44, direction: -1) == .older)
+        #expect(!extent.needsNewerContent(bottom: 1000))
         extent.update(["a", "b"], movement: .older)
         #expect(extent.edge(top: 1000, bottom: 100, viewport: 100, minimumAhead: 44, direction: 1) == .newer)
-        #expect(extent.needsContent(top: 1000, bottom: 100))
+        #expect(extent.needsNewerContent(bottom: 100))
     }
 
-    @Test func anUpwardFlingPrefetchesTwoScreensFromTheResidentEdge() {
+    @Test func anUpwardFlingPrefetchesWithTwoScreensOfLoadedHistoryLeft() {
         let extent = TranscriptExtent()
         extent.update(["a"], movement: .replace)
         extent.measure("a", height: 1_000)
         extent.update(["b"], movement: .newer)
 
-        #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == .older)
-        #expect(extent.edge(top: 3_400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == nil)
-        #expect(extent.edge(top: 2_600, bottom: 1_600, viewport: 800, minimumAhead: 44, direction: 1) == nil)
-        #expect(extent.edge(top: 2_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
+        #expect(extent.edge(top: 1_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == .older)
+        #expect(extent.edge(top: 2_400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == nil)
+        #expect(extent.edge(top: 1_600, bottom: 1_600, viewport: 800, minimumAhead: 44, direction: 1) == nil)
+        #expect(extent.edge(top: 1_600, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
+    }
+
+    @Test func evictedOlderHistoryDoesNotAskForAnOlderPageWhileReadingNewer() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+        #expect(extent.edge(top: 400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 1) == nil)
+        #expect(extent.edge(top: 400, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: 0) == nil)
+    }
+
+    @Test func aFastFlingAsksForTheOlderPageAsSoonAsItsTravelWouldReachTheLoadedEdge() {
+        let extent = TranscriptExtent()
+        extent.update(["a"], movement: .replace)
+        extent.measure("a", height: 1_000)
+        extent.update(["b"], movement: .newer)
+        // The loaded edge is 4,000 pt (five screens) above the screen's top.
+        let fast = TranscriptFlingReach(offset: 0, velocity: 8_000).remaining(at: 0)
+        let slow = TranscriptFlingReach(offset: 0, velocity: 500).remaining(at: 0)
+
+        #expect(fast > 3_900 && fast < 4_100)
+        #expect(extent.edge(top: 4_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1,
+                            flingReach: fast) == .older)
+        #expect(extent.edge(top: 4_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1,
+                            flingReach: slow) == nil)
+        #expect(extent.edge(top: 4_000, bottom: 4_000, viewport: 800, minimumAhead: 44, direction: -1) == nil)
+    }
+
+    @Test func aFlingLooksAheadOnlyAsFarAsItStillCarries() {
+        let fling = TranscriptFlingReach(offset: 1_000, velocity: 8_000)
+        let stop = fling.stop
+
+        // Most of the travel spent: only what's left counts.
+        #expect(fling.remaining(at: stop - 300) == 300)
+        #expect(fling.remaining(at: stop) == 0)
+        // Past its stop (a page moved the content under it), nothing is left.
+        #expect(fling.remaining(at: stop + 50) == 0)
+        // A fling toward the live end carries the other way.
+        let down = TranscriptFlingReach(offset: 5_000, velocity: -2_000)
+        #expect(down.stop < 5_000)
+        #expect(down.remaining(at: 5_000) == 5_000 - down.stop)
     }
 
     @Test func pagingOlderKeepsTheHeightOfNewerRowsOutsideTheResidentWindow() {

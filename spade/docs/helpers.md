@@ -26,11 +26,20 @@ whether it is (below).
 Each helper is a hidden conversation of its own, stored with a `helpers` row: its bot's
 conversation, the job (the `helper` call's id), the bot's reply that started it, the profile
 as it was then (name, standing instructions, reads-only, tool list) and the model. Kept whole, so
-its prompt rebuilds to the same bytes after a restart even if a plugin's profile changed.
+what it may run stays what it was after a restart even if a plugin's profile changed.
 
-- It starts with one `user_message`, the task, and nothing of the bot's conversation. Its system
-  prompt is `helper::RULES` and the profile's instructions; no skill index, no notes index, no
-  title, no cowork notes.
+- Its system prompt is Spade's own instructions (the bytes every conversation's prompt starts
+  with) followed by what makes it a helper: `helper::RULES`, then the profile's instructions. Its
+  offered tools are its bot's, in the same order. So the tool list and Spade's rules are a prefix
+  its bot's prompt has too, and the provider's cache serves both up to where the bot's own task
+  and indexes begin ([design.md](design.md), Caching).
+- Its first message is the task alone. Nothing else of the bot's conversation comes with it: no
+  skill index, no notes index, no title, no cowork notes, and no task of the bot's. The rules sit
+  above the conversation, so a compaction never cuts them.
+- The system text is pinned in the helper's row when it is made, so a restart rebuilds the same
+  bytes even if a plugin's profile changed. A helper stored before helpers shared their bot's
+  prompt keeps the text it pinned then (Spade's rules and its profile's instructions, without the
+  shared part), so it still resumes on the prompt it had.
 - It is driven by the same turn worker and `next_step` as any reply: it streams, retries a step
   that failed before anything streamed, compacts, pauses for updates and Stop
   (`turn_paused`), and resumes from its events when Spade starts. A helper cut off mid-step by a
@@ -61,17 +70,21 @@ time limit (ADR 0158).
 - **Exactly once.** A job's result is delivered only if none is stored for that job yet (checked
   under the delivery lock, for every job). After a restart each helper job still open is run
   again rather than reported lost; it finds its helper and waits for it, or delivers at once if
-  the helper ended just before the restart.
+  the helper ended just before the restart. A helper whose job the bot does not have open is
+  closed as stopped instead: nothing would collect its answer (research's parts are this when
+  their research job was lost in the restart).
 - **Working.** While a helper job is open the bot's `jobs` count holds and its state is
   `working`, so the bot never reads as idle or done while a helper runs, also after the reply
   that started it has ended.
 - **Stop.** Stop on the bot's conversation stops the helpers of the reply it names and of the
   jobs it names (every running job): a running helper is stopped like any reply
   (`stop_requested`, then `reply_stopped`), a queued one gets a `stop_requested` with no reply and
-  never starts. The job ends "Stopped by the person…", which opens no reply. A helper is stored
-  under the lock Stop stores its marker under, and not at all once a stored stop names its job
-  or reply, so Stop either finds it or it is never made. After a restart, a helper job a stored
-  stop names is not run again: its helper is closed as stopped and the job ends stopped.
+  never starts. A job that starts helpers of its own (research does: one per part, stored as
+  `<research job>/<n>`) stops them with it. The job ends "Stopped by the person…", which opens no
+  reply. A helper is stored under the lock Stop stores its marker under, and not at all once a
+  stored stop names its job or reply, so Stop either finds it or it is never made. After a
+  restart, a helper job a stored stop names is not run again: its helper is closed as stopped and
+  the job ends stopped.
 
 What the result says, from `helper::ended`:
 
@@ -85,7 +98,7 @@ What the result says, from `helper::ended`:
 
 ## Profiles
 
-| Profile   | Instructions                                                  | Tools                       |
+| Profile   | Instructions                                                  | May run                     |
 | --------- | ------------------------------------------------------------- | --------------------------- |
 | `explore` | find and read what the task needs; report it with its sources | risk `read` only            |
 | `general` | do the task; report what it did and found                     | the bot's, less those below |
@@ -94,9 +107,17 @@ Every profile leaves out `helper`, `ask_user`, `memory_save`, `memory_update`, `
 (and any tool of risk `memory`), `skill_propose`, `task_status`, `bot_message`, `group_ask`, and
 every background tool (`research`, ace's `wait`): a helper's answer is its last message, and a
 background result would arrive after it. Deferred tools (ace's, connectors') are narrowed the
-same way, so `explore` keeps read-only ace and connector tools. A call to a tool the profile
-leaves out is answered with a refusal and never run, checked before anything the turn loop
-answers itself (a helper's `ask_user` would wait on a question nobody sees).
+same way, so `explore` keeps read-only ace and connector tools.
+
+A profile narrows what a helper may run, not what the model is offered: every helper is offered
+its bot's tool list, so the tool list and Spade's rules are the same bytes as its bot's. A call to
+a tool the profile leaves out is answered with a refusal and never run, checked before anything
+the turn loop answers itself (a helper's `ask_user` would wait on a question nobody sees), and the
+same holds for a call made through `call_tool`. It reads "Refused: a helper cannot use _name_.
+Finish the task with your tools and answer." when its bot has the tool or no helper may have it,
+and "There is no tool named _name_." otherwise. `tool_search` searches what the profile allows, so
+a deferred tool outside it is never found. Nothing a helper could not do is possible because the
+list is wider.
 
 **Plugin agents' profiles.** `engine::ProfileSource` is the seam: `fn profiles(&self, agent:
 &str) -> Vec<Profile>`, set once with `Engine::set_profile_source`. A `Profile` has a name, a
@@ -143,8 +164,10 @@ job ends. It never makes the bot's own reply wait.
 A helper's result carries `untrusted: true` on `job_finished` when anything untrusted was in the
 helper's view: a web page, an app's output, or a task written while the bot had untrusted
 content in view (such a task reaches the helper as the bot's message, `from_agent`, which taints
-the helper's turn). The turn that reads that result is untrusted, so its writes ask, exactly as if
-the bot had read the page itself.
+the helper's turn). A research part's task is always one of these, even when its bot's context was
+clean: the plan that writes it is a model's words, so it reaches the helper as a `<bot_message>`.
+The turn that reads that result is untrusted, so its writes ask, exactly as if the bot had read the
+page itself.
 
 ## Limits and spend
 

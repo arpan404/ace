@@ -6,8 +6,8 @@
 mod support;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -584,16 +584,14 @@ async fn pending_asks_across_a_bots_worker_tree_group_into_one_notice_under_the_
 }
 
 struct BatchClock {
-    start: Instant,
-    elapsed_ms: AtomicU64,
+    elapsed_ms: AtomicI64,
     scheduled: tokio::sync::Notify,
 }
 
 impl BatchClock {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            start: Instant::now(),
-            elapsed_ms: AtomicU64::new(0),
+            elapsed_ms: AtomicI64::new(0),
             scheduled: tokio::sync::Notify::new(),
         })
     }
@@ -610,10 +608,10 @@ impl Clock for BatchClock {
         SystemClock.now_ms()
     }
 
-    fn batch_now(&self) -> Instant {
+    fn monotonic_ms(&self) -> i64 {
         let elapsed = self.elapsed_ms.load(Ordering::SeqCst);
         self.scheduled.notify_one();
-        self.start + Duration::from_millis(elapsed)
+        elapsed
     }
 }
 

@@ -65,9 +65,10 @@ struct TranscriptTimePill: View {
 }
 
 extension ConversationFeed {
-    /// The reader's scroll started or rested: the pill shows while it moves.
+    /// The reader's scroll started or rested: the pill shows while it moves. A finger only down
+    /// (a tap) moves nothing.
     func timePillPhase(_ phase: TranscriptScrollPhase) {
-        let scrolling = phase == .tracking || phase == .interacting || phase == .decelerating
+        let scrolling = phase == .interacting || phase == .decelerating
         if scrolling { markTopTime() }
         timeMarker.scroll(scrolling)
     }

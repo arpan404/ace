@@ -35,6 +35,12 @@ const showsSession =
 export type ScreenPeer = {
   send: (message: ScreenServerMessage) => void;
   /**
+   * This connection is on this machine: the daemon's loopback listener decided that, never a
+   * client's claim. A view on this machine is paced at the local rate (ADR 0149: no link to
+   * estimate), and ace-media's other pictures go the same way.
+   */
+  local?: boolean;
+  /**
    * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
    * connection is: its session, device and admission (a main session, or a channel of its own).
    * Nothing else delivers a session's pictures (X3): without it, or while ace-media doesn't serve
@@ -122,7 +128,7 @@ export function screenConnection(
       codecs: operation.codecs ?? ["avc1.42E033"],
       // The viewer says its size with `stream.configure`; until then, a desktop pane.
       viewport: viewViewport({ width: 1280, height: 800, devicePixelRatio: 2 }),
-      local: false,
+      local: peer.local === true,
       audio: false,
       ...(link ? { link } : {}),
       shows: showsSession(sessionId),

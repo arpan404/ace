@@ -5,7 +5,8 @@ Status: accepted. Date: 2026-11-10. Owner decision of 2026-11-10. Narrowly amend
 credentials. Extended by [ADR 0214](0214-spade-provider-accounts-and-openai-sign-in.md) to the
 OAuth tokens of ChatGPT accounts Spade signs in to itself, kept the same way. Amended
 2026-11-22 (amendment 1, owner decision): Spade reads each secret once per process and owns its
-macOS keychain entries.
+macOS keychain entries. Amended 2026-11-23 (amendment 2): an authenticated gateway's token is a
+second keychain entry, never a stored header.
 
 ## Context
 
@@ -112,3 +113,24 @@ again for permission". Three causes of repeated macOS prompts are closed.
   stores tie an entry to the signed-in user, not to a binary, and don't prompt per binary.
 - **Testing.** Tests never touch a real keychain; the macOS shell has one ignored test run by
   hand (`cargo test -p spade-keys --test keys -- --ignored`).
+
+## Amendment 2 (2026-11-23): a gateway's token is a second entry, never a header
+
+An endpoint behind an authenticated Cloudflare AI Gateway needs two secrets: the provider's key,
+which travels as `Authorization`, and the gateway's own token, which travels as
+`cf-aig-authorization`. Spade kept one key per endpoint, so a person who typed the gateway token
+under extra headers had it stored as ordinary endpoint config. The same rule now covers both.
+
+- **Where.** The token is stored in the same credential store as the key, account
+  `gateway:<endpoint id>`, beside `endpoint:<endpoint id>`. The same read-once, own-the-entry rules
+  (amendment 1) apply to it.
+- **Never a header.** `cf-aig-authorization` is a credential header: setting it as an extra header
+  or as the session header is refused with an error naming `PUT /v1/keys/{endpoint}/gateway`. What
+  a client sets the token with is `PUT /v1/keys/{endpoint}/gateway` (`{"token": "..."}`); `DELETE`
+  on that path forgets it. The endpoint keeps only whether a token is there, so no API answer or
+  database row ever holds it.
+- **Every call carries it.** Calls, model lists and media calls on that endpoint send
+  `cf-aig-authorization: Bearer <token>` beside the endpoint's key. What an endpoint or an error
+  says loses both the header's value and the bare token (and the key, bare as well as in
+  `Bearer <key>`), so an endpoint echoing only the token shows nothing. A stored token blocks a
+  base URL change to another origin, and deleting the endpoint deletes the token.

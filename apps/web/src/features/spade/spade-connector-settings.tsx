@@ -3,22 +3,19 @@ import {
   spadeConnectorHealth,
   spadeConnectorLine,
   spadeLastUsedWords,
+  type SpadeAgent,
   type SpadeConnector,
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import {
-  SettingAddRow,
-  SettingCard,
-  SettingRow,
-  settingsGroup,
-} from "@/components/setting-row.tsx";
+import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { openExternal } from "@/boot/open-external.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
+import { AccountStateWords } from "@/features/settings/index.ts";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
@@ -26,6 +23,7 @@ import { UseInAnotherBot } from "./spade-app-bots.tsx";
 import { useAppConnect } from "./spade-app-connect.tsx";
 import { connectHere } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
+import { SpadeFace } from "./spade-face.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { LoadingRows } from "./spade-settings-loading.tsx";
 import { CouldNotRead, Refusal } from "./spade-settings-rows.tsx";
@@ -39,7 +37,11 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
  * and when a bot last used it; Reconnect when its sign-in ended, and Disconnect. Then Connect an
  * app.
  */
-export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
+export function ConnectorSettings(props: {
+  ready: boolean;
+  names: ReadonlyMap<string, string>;
+  botsById?: ReadonlyMap<string, SpadeAgent>;
+}) {
   const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
   // One catalogue: with the Store on, its Apps, where each app connects in place; without
@@ -47,8 +49,8 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
   const market = useBetaEnabled("marketplace") === true;
   const openMarket = useOpenMarket();
   return (
-    <section aria-label="Connected apps" className={settingsGroup}>
-      <SettingCard>
+    <>
+      <SettingSection label="Connected apps" anchor="connected-apps">
         {connectors.isPending ? (
           <LoadingRows label="Apps" rows={2} />
         ) : connectors.isError ? (
@@ -64,6 +66,7 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
                 key={connector.id}
                 connector={connector}
                 names={props.names}
+                botsById={props.botsById}
                 // "Used 3 hours ago" as of when the list was read: no clock of its own.
                 now={connectors.dataUpdatedAt}
               />
@@ -73,7 +76,7 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
             </SettingAddRow>
           </>
         )}
-      </SettingCard>
+      </SettingSection>
       {adding && connectors.data && (
         <AddConnectorDialog
           catalogue={connectors.data.catalogue}
@@ -87,7 +90,7 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
           onClose={() => setAdding(false)}
         />
       )}
-    </section>
+    </>
   );
 }
 
@@ -103,11 +106,12 @@ export function botNames(ids: readonly string[], names: ReadonlyMap<string, stri
  * One connected app: its state and account in one line, the bots that use it in the next. Its
  * action is the shared connect flow's (Reconnect, followed in place, a failure that says what
  * fixes it), or Use in another bot while it works; a device sign-in shows its code with Copy
- * code and Open. Disconnect is a quiet word at the end.
+ * code and Open. Disconnect is a quiet danger action at the end.
  */
 function ConnectorRow(props: {
   connector: SpadeConnector;
   names: ReadonlyMap<string, string>;
+  botsById?: ReadonlyMap<string, SpadeAgent> | undefined;
   now: number;
 }) {
   const { connector } = props;
@@ -120,6 +124,10 @@ function ConnectorRow(props: {
   const signedOut = connector.state === "needs_reconnect" || connector.state === "signing_in";
   const { device } = connector;
   const users = botNames(connector.bots, props.names);
+  const userBots = connector.bots.flatMap((id) => {
+    const bot = props.botsById?.get(id);
+    return bot ? [bot] : [];
+  });
   const copy = useCopy(() => toast.error({ title: "Couldn't copy the code" }));
   const connect = useAppConnect({
     app: {
@@ -156,7 +164,7 @@ function ConnectorRow(props: {
       setBusy(false);
     }
   };
-  const state = [
+  const statusLine = [
     connector.device ? spadeConnectorLine(connector) : spadeConnectorHealth(connector),
     connector.account,
     spadeCloudLine(connector),
@@ -173,15 +181,30 @@ function ConnectorRow(props: {
           <span className="block">
             {refused ? (
               <Refusal onConfirmed={() => void remove()}>{refused}</Refusal>
+            ) : connect.status ? (
+              connect.status
             ) : (
-              (connect.status ?? state)
+              <AccountStateWords tone={signedOut ? "action" : "ready"}>
+                {statusLine}
+              </AccountStateWords>
             )}
           </span>
-          <span className="block">
-            {[
-              users.length > 0 ? `Used by ${users.join(", ")}` : "No bot uses it",
-              spadeLastUsedWords(connector.lastUsedMs, props.now),
-            ].join(" · ")}
+          <span className="mt-0.5 flex items-center gap-1.5">
+            {userBots.length > 0 && (
+              <span aria-hidden className="inline-flex shrink-0 items-center -space-x-1">
+                {userBots.slice(0, 4).map((bot) => (
+                  <span key={bot.id} className="inline-flex rounded-full ring-1 ring-surface-1">
+                    <SpadeFace avatar={bot.avatar} size={16} />
+                  </span>
+                ))}
+              </span>
+            )}
+            <span className="truncate">
+              {[
+                users.length > 0 ? `Used by ${users.join(", ")}` : "No bot uses it",
+                spadeLastUsedWords(connector.lastUsedMs, props.now),
+              ].join(" · ")}
+            </span>
           </span>
         </>
       }
@@ -229,6 +252,7 @@ function ConnectorRow(props: {
         <Button
           size="sm"
           variant="ghost"
+          className="text-muted-foreground hover:text-destructive"
           aria-label={`Disconnect ${connector.name}`}
           disabled={busy || connect.busy}
           onClick={() => void remove()}
