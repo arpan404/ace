@@ -2,6 +2,22 @@ import Testing
 @testable import Ace
 
 struct SpadeTabFrameTests {
+    @Test func theSpadeTabIsThereAtLaunchWhenItShowedLastTime() {
+        // No machine has answered yet: the tab stays as the machines last left it.
+        #expect(HomeTabs.showsSpade(answers: [], remembered: true))
+        #expect(HomeTabs.showsSpade(answers: [nil, nil], remembered: true))
+        #expect(!HomeTabs.showsSpade(answers: [nil], remembered: false))
+        // A machine showing Spade shows it, whatever was remembered.
+        #expect(HomeTabs.showsSpade(answers: [nil, true], remembered: false))
+    }
+    @Test func theSpadeTabGoesOnlyOnceEveryMachineHasSaidNo() {
+        // One machine saying no while another hasn't answered keeps the tab, and its memory.
+        #expect(HomeTabs.showsSpade(answers: [false, nil], remembered: true))
+        #expect(HomeTabs.rememberedSpade(answers: [false, nil]) == nil)
+        #expect(!HomeTabs.showsSpade(answers: [false, false], remembered: true))
+        #expect(HomeTabs.rememberedSpade(answers: [false, false]) == false)
+        #expect(HomeTabs.rememberedSpade(answers: [false, true]) == true)
+    }
     @Test func glancesHoldThenReturnToRest() {
         for (time, expected) in [
             (0.0, SpadeTabFrame.rest), (0.7, .left), (1.2, .left),
