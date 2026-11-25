@@ -7,10 +7,6 @@ use ace_json::{JsString, Map, Value};
 
 use crate::translate::data::{object, string};
 
-/// How many UTF-16 units of a file's own name travel with a resource link
-/// (`content.ts:65`, `name.slice(0, 255)`).
-const MAX_NAME_UNITS: usize = 255;
-
 /// The prompts one send becomes (`native-command-inputs.ts:3`): a slash command in the
 /// input becomes one prompt per command, each carrying the same message context, with
 /// the mention replaced by its label. Input without a command stays one prompt.
@@ -130,40 +126,81 @@ fn encode_image(map: &Map) -> Result<Value, String> {
     };
     let mut out = Map::with_capacity(3);
     out.insert("type", Value::from("image"));
+    // `mimeType: part.mimeType`: absent stays absent, as JSON.stringify drops undefined
+    // (`content.ts:111`). ACP requires one, but guessing was never TS's answer.
     if let Some(mime) = map.get("mimeType").and_then(Value::as_str) {
         out.insert("mimeType", Value::from(mime));
-    } else if !image.mime_type.is_empty() {
-        out.insert("mimeType", Value::from(image.mime_type));
     }
     out.insert("data", Value::from(image.data));
     Ok(Value::Object(out))
 }
 
-/// The file's own name (`path.split("/").at(-1)`, at most 255 UTF-16 units).
+/// The file's own name (`path.split("/").at(-1) ?? path`, `content.ts:106`): whole, as
+/// TS sends it.
 fn file_name(path: &str) -> JsString {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    let mut units: Vec<u16> = name.encode_utf16().take(MAX_NAME_UNITS).collect();
-    if units.len() == MAX_NAME_UNITS && name.encode_utf16().count() > MAX_NAME_UNITS {
-        units = name.encode_utf16().take(MAX_NAME_UNITS).collect();
-    }
-    JsString::from_units(&units)
+    JsString::from(path.rsplit(['/', '\\']).next().unwrap_or(path))
 }
 
-/// `pathToFileURL(path).href` (`node:url`): an absolute path as a `file://` URL, with
-/// every byte outside the URL path set percent-encoded.
+/// `pathToFileURL(path).href` (`node:url`): an absolute path as a `file://` URL.
+///
+/// What Node leaves alone it leaves alone here: the URL path percent-encode set (controls,
+/// space, `"`, `#`, `<`, `>`, `?`, `` ` ``, `{`, `}`) and the bytes Node's own
+/// `encodePathChars` escapes (`%`, `\\`, tab, newline, carriage return) are encoded; `(`,
+/// `)`, `+`, `@`, `!`, `=`, `,`, `&`, `'`, `$`, `;`, `[`, `]` and the rest of a path stay as
+/// they are, and non-ASCII travels as UTF-8 percent-encoded bytes. A Windows drive stays in
+/// the path and a UNC share becomes the URL's host.
 pub fn path_to_file_url(path: &str) -> String {
-    let mut url = String::with_capacity(path.len() + 8);
+    let (host, path) = windows_host_and_path(path);
+    let mut url = String::with_capacity(path.len() + host.len() + 8);
     url.push_str("file://");
+    url.push_str(&host);
+    if !path.starts_with('/') {
+        url.push('/');
+    }
+    url.push_str(&encode_path(&path));
+    url
+}
+
+/// A Windows path's host and URL path: `C:\\a` keeps its drive in the path, `\\\\server\\share`
+/// makes the server the host.
+fn windows_host_and_path(path: &str) -> (String, String) {
+    let bytes = path.as_bytes();
+    if bytes.len() > 1 && bytes[0] == b'\\' && (bytes[1] == b'\\' || bytes[1] == b'/') {
+        let rest = &path[2..];
+        return match rest.find(['\\', '/']) {
+            Some(index) => (
+                rest[..index].to_owned(),
+                format!("/{}", rest[index + 1..].replace('\\', "/")),
+            ),
+            None => (rest.to_owned(), "/".to_owned()),
+        };
+    }
+    let drive = bytes.len() > 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/');
+    if drive {
+        return (String::new(), path.replace('\\', "/"));
+    }
+    (String::new(), path.to_owned())
+}
+
+fn encode_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
     for byte in path.bytes() {
-        let keep =
-            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/' | b':');
+        let keep = byte > 0x20
+            && byte < 0x7f
+            && !matches!(
+                byte,
+                b'"' | b'#' | b'<' | b'>' | b'?' | b'`' | b'{' | b'}' | b'%' | b'\\' | b'^' | b'|'
+            );
         if keep {
-            url.push(byte as char);
+            encoded.push(byte as char);
         } else {
-            url.push_str(&format!("%{byte:02X}"));
+            encoded.push_str(&format!("%{byte:02X}"));
         }
     }
-    url
+    encoded
 }
 
 #[cfg(test)]
@@ -245,7 +282,11 @@ mod tests {
             }))
         );
 
-        let image = json!({ "type": "image", "url": "data:image/png;base64,AAAA" });
+        let image = json!({
+            "type": "image",
+            "mimeType": "image/png",
+            "url": "data:image/png;base64,AAAA"
+        });
         assert_eq!(
             encode_content(&image),
             Ok(json!({ "type": "image", "mimeType": "image/png", "data": "AAAA" }))
@@ -259,11 +300,52 @@ mod tests {
     }
 
     #[test]
-    fn a_file_url_keeps_url_path_bytes_and_encodes_the_rest() {
+    fn a_file_url_encodes_what_node_encodes_and_leaves_the_rest() {
         assert_eq!(path_to_file_url("/work/a.ts"), "file:///work/a.ts");
         assert_eq!(
             path_to_file_url("/work/a b/ü.ts"),
             "file:///work/a%20b/%C3%BC.ts"
+        );
+        // Node's URL path set leaves these alone (`new URL('file:///a+(b),c')`).
+        assert_eq!(
+            path_to_file_url("/work/a+(b),c!@d=&e'f$;g[1].ts"),
+            "file:///work/a+(b),c!@d=&e'f$;g[1].ts"
+        );
+        assert_eq!(
+            path_to_file_url("/work/a#b?c%25.ts"),
+            "file:///work/a%23b%3Fc%2525.ts"
+        );
+        // A Windows drive and its backslashes reach the URL as a path.
+        assert_eq!(
+            path_to_file_url("C:\\work\\a b.ts"),
+            "file:///C:/work/a%20b.ts"
+        );
+        assert_eq!(
+            path_to_file_url("\\\\server\\share\\a.ts"),
+            "file://server/share/a.ts"
+        );
+    }
+
+    #[test]
+    fn a_resource_link_keeps_the_whole_file_name() {
+        let long = "x".repeat(400);
+        let link = json!({ "type": "file", "path": format!("/work/{long}.ts") });
+        let encoded = encode_content(&link).unwrap_or(Value::Null);
+        assert_eq!(
+            encoded.get("name").and_then(Value::as_str),
+            Some(format!("{long}.ts").as_str())
+        );
+    }
+
+    #[test]
+    fn an_image_without_a_mime_type_leaves_the_field_out() {
+        let image = json!({
+            "type": "image",
+            "url": "data:application/octet-stream;base64,AAAA"
+        });
+        assert_eq!(
+            encode_content(&image),
+            Ok(json!({ "type": "image", "data": "AAAA" }))
         );
     }
 }
