@@ -121,7 +121,7 @@ export class NativeDevicePlatform extends DevicePlatformBase {
     const plan = deviceAnswer<IosBoot>(() =>
       nativeDevices().devicePlatformIosBoot(device.id, device.state === "booted"),
     );
-    if (plan.boot) await this.simctl(device, ["boot"], authorize, 240_000);
+    if (plan.boot) await this.simctl(device, ["boot"], authorize, 120_000);
     const { open } = await this.xcode();
     authorize?.();
     await this.run(open, plan.show, 256 * 1024, undefined, undefined, authorize);

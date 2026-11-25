@@ -308,6 +308,13 @@ export class DevicePlatformBase {
    */
   downloadTools(runtime: Pick<DeviceRuntime, "spawn" | "after">): Promise<DeviceTools> {
     const { toolsDirectory: directory, node } = this.options;
+    let plan: { serveSim: boolean; scrcpy: boolean; timeoutMs: number };
+    try {
+      // The plan's refusal comes first: with the switch on it is the platform's own word.
+      plan = this.toolsPlan();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (!directory || !node)
       return Promise.reject(
         new DeviceError(
@@ -316,7 +323,6 @@ export class DevicePlatformBase {
           "Restart ace; its home directory should hold them.",
         ),
       );
-    const plan = this.toolsPlan();
     this.toolsDownload ??= downloadDeviceTools(
       { directory, node, runtime, env: this.options.env, timeoutMs: plan.timeoutMs },
       { serveSim: plan.serveSim, scrcpy: plan.scrcpy },
