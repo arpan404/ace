@@ -1,240 +1,96 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `title-input.ts` (E5.4c): the oldest real prose input of a thread, walked through the
-//! creation index one item at a time in bounded reads. The index's DDL stays TypeScript
-//! (`title-input.ts:12`); this module holds only the read.
+//! creation index one item at a time in bounded pages. The index's DDL stays TypeScript
+//! (`title-input.ts:12`); this module holds only the read, through `Repo::read_item_page`.
 
 use ace_json::Value;
 use ace_store::{Value as Cell, stmt_cache};
-use std::sync::Arc;
 
 use crate::EngineError;
+use crate::EngineStore;
+use crate::State;
 use crate::inputs::provisional_title::{UNTITLED_THREAD, provisional_title};
-use crate::repository::residency::{cell_int, cell_text};
+use crate::repository::residency::{cell_int, text};
 
-/// The items that carry a person's words (`title-input.ts:5`), character for character.
 const SEQS: &str = "SELECT created_seq FROM items WHERE thread_id=? AND json_extract(item,'$.type')='message' AND json_extract(item,'$.role')='user'
   AND COALESCE(json_extract(item,'$.synthetic'),0)=0
-  AND COALESCE(json_extract(item,'$.origin.kind'),'person') IN ('person','queue') ORDER BY created_seq";
-const HEAD: &str = "SELECT id,size FROM item_heads WHERE thread_id=? AND created_seq=?";
-const PREVIEW: &str = "SELECT item FROM item_previews WHERE id=?";
-const STREAM_SIZE: &str = "SELECT size FROM item_text_streams WHERE id=?";
-const CHUNKS: &str = "SELECT offset,bytes FROM item_source_chunks WHERE stream_id=? AND offset > ? AND offset < ? ORDER BY offset";
+  AND COALESCE(json_extract(item,'$.origin.kind'),'person') IN ('person','queue') AND created_seq > ? ORDER BY created_seq LIMIT 64";
 
 /// The page budget `oldestTitleInput` reads one item with (`title-input.ts:22`).
 const PAGE_BYTES: i64 = 256 * 1024;
-/// A page's fixed overhead, before the item's own size (`item-store.ts:294`).
-const PAGE_BASE: i64 = 512;
-/// Each item's own overhead in a page (`item-store.ts:296`).
-const ITEM_OVERHEAD: i64 = 64;
-/// The units of text a preview carries, across its parts (`item-text-store.ts:224`).
-const PREVIEW_UNITS: usize = 4096;
+/// The person-input sequences one page of the index walk holds (`intents.ts`'s page size).
+const PAGE: usize = 64;
 
-fn cell_bytes(cell: &Cell) -> Option<&[u8]> {
-    match cell {
-        Cell::Blob(bytes) => Some(bytes),
-        _ => None,
-    }
-}
-
-/// The text in bytes `[start, end)` of a text stream, read from the chunks that hold it.
-fn slice(
-    conn: &Arc<ace_store::Connection>,
-    stream_id: &str,
-    start: i64,
-    end: i64,
-) -> Result<String, EngineError> {
-    if end <= start {
-        return Ok(String::new());
-    }
-    let rows = stmt_cache::all_rows(
-        conn,
-        CHUNKS,
-        vec![
-            Cell::Text(stream_id.to_owned()),
-            Cell::Integer(start - 65_536),
-            Cell::Integer(end),
-        ],
-    )?;
-    let mut bytes: Vec<u8> = Vec::new();
-    for row in rows {
-        let Some(chunk) = row.get("bytes").and_then(cell_bytes) else {
-            return Err(EngineError::Records("Invalid text chunk".to_owned()));
-        };
-        let offset = row.get("offset").and_then(cell_int).unwrap_or(0);
-        let from = usize::try_from(start.saturating_sub(offset)).unwrap_or(0);
-        let to = usize::try_from(end - offset).unwrap_or(0).min(chunk.len());
-        if to > from {
-            bytes.extend_from_slice(&chunk[from..to]);
+impl State {
+    /// `oldestTitleInput` (`title-input.ts:17`): seek the first real prose input, skipping empty
+    /// attachment or handoff envelopes in bounded pages. The index is walked a page at a time,
+    /// and each item is read through the repository's own page.
+    pub fn oldest_title_input(
+        &mut self,
+        store: &EngineStore,
+        thread: &str,
+    ) -> Result<Option<Value>, EngineError> {
+        let mut after = 0;
+        loop {
+            let rows =
+                stmt_cache::all_rows(store.conn(), SEQS, vec![text(thread), Cell::Integer(after)])?;
+            if rows.is_empty() {
+                return Ok(None);
+            }
+            for row in &rows {
+                let Some(seq) = row.get("created_seq").and_then(cell_int) else {
+                    continue;
+                };
+                let page = self
+                    .repo
+                    .read_item_page(store, thread, seq + 1, 1, PAGE_BYTES)?;
+                let Some(item) = page.into_iter().next() else {
+                    continue;
+                };
+                if item.get("type").and_then(Value::as_str) != Some("message") {
+                    continue;
+                }
+                let Some(list) = item
+                    .get("parts")
+                    .and_then(Value::as_array)
+                    .map(|parts| parts.as_slice().to_vec())
+                else {
+                    continue;
+                };
+                if provisional_title(&list, UNTITLED_THREAD).as_str() != UNTITLED_THREAD {
+                    return Ok(Some(Value::Array(list.into())));
+                }
+            }
+            let last = rows
+                .last()
+                .and_then(|row| row.get("created_seq").and_then(cell_int))
+                .unwrap_or(after);
+            if rows.len() < PAGE || last <= after {
+                return Ok(None);
+            }
+            after = last;
         }
     }
-    let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
-    Ok(String::from_utf16_lossy(&units))
-}
-
-/// The stream's whole length now, which the stored descriptor may trail (`item-text-store.ts:175`).
-fn stream_size(conn: &Arc<ace_store::Connection>, stream_id: &str) -> Result<i64, EngineError> {
-    let row = stmt_cache::get_row(conn, STREAM_SIZE, vec![Cell::Text(stream_id.to_owned())])?;
-    row.and_then(|row| row.get("size").and_then(cell_int))
-        .ok_or_else(|| EngineError::Records("Invalid text source".to_owned()))
-}
-
-/// The stream's first `units`: the preview of finished text, read from the top.
-fn head(
-    conn: &Arc<ace_store::Connection>,
-    source: &Value,
-    units: usize,
-) -> Result<String, EngineError> {
-    let Some(stream_id) = source.get("streamId").and_then(Value::as_str) else {
-        return Ok(String::new());
-    };
-    let bytes = stream_size(conn, stream_id)?;
-    let end = (units as i64 * 2).min(bytes);
-    slice(conn, stream_id, 0, end)
-}
-
-/// The stream's last `units`: the preview of text still streaming. Never starts inside a
-/// surrogate pair.
-fn tail(
-    conn: &Arc<ace_store::Connection>,
-    source: &Value,
-    units: usize,
-) -> Result<String, EngineError> {
-    let Some(stream_id) = source.get("streamId").and_then(Value::as_str) else {
-        return Ok(String::new());
-    };
-    let bytes = stream_size(conn, stream_id)?;
-    let start = (bytes - units as i64 * 2).max(0);
-    let mut text = slice(conn, stream_id, start, bytes)?;
-    if text
-        .encode_utf16()
-        .next()
-        .is_some_and(|unit| (0xdc00..=0xdfff).contains(&unit))
-    {
-        let first = text.chars().next().map(char::len_utf8).unwrap_or(0);
-        text = text[first..].to_owned();
-    }
-    Ok(text)
-}
-
-/// An item as a page shows it: text cut to its bounded preview, filled from its streams
-/// (`item-text-store.ts:220`).
-fn read_item(conn: &Arc<ace_store::Connection>, id: &str) -> Result<Option<Value>, EngineError> {
-    let preview = stmt_cache::get_row(conn, PREVIEW, vec![Cell::Text(id.to_owned())])?;
-    // A message is read from its preview; one without it is a home this build cannot read.
-    let body = preview
-        .as_ref()
-        .and_then(|row| row.get("item"))
-        .and_then(cell_text)
-        .ok_or_else(|| EngineError::Records("Missing item preview".to_owned()))?;
-    let parsed = ace_json::parse(body).map_err(|error| EngineError::Records(error.to_string()))?;
-    Ok(Some(fill_streams(conn, parsed)?))
-}
-
-/// Replace each text part's preview with the stream's own text, within the preview budget.
-fn fill_streams(conn: &Arc<ace_store::Connection>, mut item: Value) -> Result<Value, EngineError> {
-    let streaming = item
-        .get("complete")
-        .and_then(Value::as_bool)
-        .map(|complete| !complete)
-        .unwrap_or(true);
-    let mut remaining = PREVIEW_UNITS;
-    let Some(parts) = item.get_mut("parts").and_then(Value::as_array_mut) else {
-        return Ok(item);
-    };
-    let count = parts.len();
-    for index in 0..count {
-        let at = if streaming { count - 1 - index } else { index };
-        let Some(part) = parts.get_mut(at).and_then(Value::as_object_mut) else {
-            continue;
-        };
-        if part.get("type").and_then(Value::as_str) != Some("text") {
-            continue;
-        }
-        let Some(source) = part.get("source").cloned() else {
-            continue;
-        };
-        let text = if streaming {
-            tail(conn, &source, remaining)?
-        } else {
-            head(conn, &source, remaining)?
-        };
-        remaining = remaining.saturating_sub(text.encode_utf16().count());
-        part.insert("text", Value::from(text));
-    }
-    Ok(item)
-}
-
-/// `oldestTitleInput` (`title-input.ts:17`): seek the first real prose input, skipping empty
-/// attachment or handoff envelopes in bounded pages.
-pub fn oldest_title_input(
-    conn: &Arc<ace_store::Connection>,
-    thread: &str,
-) -> Result<Option<Value>, EngineError> {
-    let rows = stmt_cache::all_rows(conn, SEQS, vec![Cell::Text(thread.to_owned())])?;
-    for row in rows {
-        let Some(seq) = row.get("created_seq").and_then(cell_int) else {
-            continue;
-        };
-        let head_row = stmt_cache::get_row(
-            conn,
-            HEAD,
-            vec![Cell::Text(thread.to_owned()), Cell::Integer(seq)],
-        )?;
-        let Some(head_row) = head_row else {
-            continue;
-        };
-        let (Some(id), Some(size)) = (
-            head_row.get("id").and_then(cell_text),
-            head_row.get("size").and_then(cell_int),
-        ) else {
-            continue;
-        };
-        let overhead = id.len() as i64 + 2 + ITEM_OVERHEAD;
-        if PAGE_BASE + size + overhead > PAGE_BYTES {
-            return Err(EngineError::Records(
-                "Item detail exceeds page capacity".to_owned(),
-            ));
-        }
-        let Some(item) = read_item(conn, id)? else {
-            continue;
-        };
-        if item.get("type").and_then(Value::as_str) != Some("message") {
-            continue;
-        }
-        let Some(list) = item
-            .get("parts")
-            .and_then(Value::as_array)
-            .map(|parts| parts.as_slice().to_vec())
-        else {
-            continue;
-        };
-        if provisional_title(&list, UNTITLED_THREAD) != UNTITLED_THREAD {
-            return Ok(Some(Value::Array(list.into())));
-        }
-    }
-    Ok(None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::testsupport::home;
-    use ace_json::Value;
+    use crate::repository::testsupport::{Shell, home};
+    use std::sync::Arc;
 
-    fn insert_message(conn: &Arc<ace_store::Connection>, id: &str, seq: i64, item: &Value) {
-        let body = ace_json::to_string(item);
+    /// One message row with its preview and its stored size.
+    fn insert(conn: &Arc<ace_store::Connection>, id: &str, seq: i64, text_body: &str, size: i64) {
+        let body = format!(
+            r#"{{"id":"{id}","agentId":"root","type":"message","role":"user","parts":[{{"type":"text","text":"{text_body}"}}],"origin":{{"kind":"person"}},"createdAt":1,"complete":true}}"#
+        );
         conn.exec(&format!(
             "INSERT INTO items VALUES ('{id}', 't', {seq}, '{}')",
             body.replace('\'', "''")
         ))
         .expect("item");
         conn.exec(&format!(
-            "INSERT INTO item_heads (id, thread_id, created_seq, size, item_type, text_prefix) \
-             VALUES ('{id}', 't', {seq}, {}, 'message', 0)",
-            body.len()
+            "INSERT INTO item_heads (id, thread_id, created_seq, size, item_type, text_prefix) VALUES ('{id}', 't', {seq}, {size}, 'message', 0)"
         ))
         .expect("head");
         conn.exec(&format!(
@@ -244,46 +100,21 @@ mod tests {
         .expect("preview");
     }
 
-    fn message(id: &str, parts: &str, origin: &str) -> Value {
-        ace_json::parse(&format!(
-            r#"{{"id":"{id}","agentId":"root","type":"message","role":"user","parts":{parts},"origin":{origin},"createdAt":1,"complete":true}}"#
-        ))
-        .expect("json")
-    }
-
     #[test]
     fn the_oldest_message_with_words_wins_and_empty_envelopes_are_skipped() {
         let conn = home("t", &crate::repository::testsupport::header("t"));
-        insert_message(
-            &conn,
-            "input:empty",
-            1,
-            &message(
-                "input:empty",
-                r#"[{"type":"text","text":"[file: a.png]"}]"#,
-                r#"{"kind":"person"}"#,
-            ),
-        );
-        insert_message(
-            &conn,
-            "input:queued",
-            2,
-            &message(
-                "input:queued",
-                r#"[{"type":"text","text":"the real one"}]"#,
-                r#"{"kind":"queue"}"#,
-            ),
-        );
-        let mut synthetic = message(
-            "input:synthetic",
-            r#"[{"type":"text","text":"ace wrote this"}]"#,
-            r#"{"kind":"person"}"#,
-        );
-        if let Some(object) = synthetic.as_object_mut() {
-            object.insert("synthetic", Value::Bool(true));
-        }
-        insert_message(&conn, "input:synthetic", 3, &synthetic);
-        let parts = oldest_title_input(&conn, "t")
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        insert(&conn, "input:empty", 1, "[file: a.png]", 100);
+        insert(&conn, "input:queued", 2, "the real one", 100);
+        insert(&conn, "input:synthetic", 3, "ace wrote this", 100);
+        conn.exec(
+            "UPDATE items SET item = json_set(item, '$.synthetic', 1) WHERE id = 'input:synthetic'",
+        )
+        .expect("synthetic");
+
+        let parts = state
+            .oldest_title_input(&store, "t")
             .expect("read")
             .expect("parts");
         let text = parts
@@ -293,9 +124,24 @@ mod tests {
             .and_then(Value::as_str);
         assert_eq!(text, Some("the real one"));
         assert!(
-            oldest_title_input(&conn, "no-such-thread")
+            state
+                .oldest_title_input(&store, "no-such-thread")
                 .expect("read")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_first_message_larger_than_the_page_budget_still_gives_its_parts() {
+        let conn = home("t", &crate::repository::testsupport::header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        // 300 KB stored, a preview the page can hold: the page measures the preview.
+        insert(&conn, "input:big", 1, &"x".repeat(4096), 300 * 1024);
+        let parts = state
+            .oldest_title_input(&store, "t")
+            .expect("read")
+            .expect("the 300 KB message's parts");
+        assert!(parts.is_array());
     }
 }

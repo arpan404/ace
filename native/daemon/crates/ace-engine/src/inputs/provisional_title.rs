@@ -5,7 +5,7 @@
 //! word boundary. Pure, and measured in UTF-16 code units as JavaScript measures a string.
 
 use ace_adapter_api::util::is_js_space;
-use ace_json::Value;
+use ace_json::{JsString, Value};
 
 use crate::inputs::signature::without_portable_handoff;
 
@@ -83,36 +83,27 @@ fn without_links(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut at = 0;
     while at < bytes.len() {
-        let open = if bytes[at] == b'!' && bytes.get(at + 1) == Some(&b'[') {
-            at + 1
+        let words_start = if bytes[at] == b'!' && bytes.get(at + 1) == Some(&b'[') {
+            Some(at + 2)
         } else if bytes[at] == b'[' {
-            at
+            Some(at + 1)
         } else {
-            out.push_str(&line[at..at + char_len(bytes, at)]);
-            at += char_len(bytes, at);
-            continue;
+            None
         };
-        let words_start = open + 1;
-        let Some(close) = line[words_start..]
-            .find(']')
-            .map(|index| words_start + index)
-        else {
-            out.push('[');
-            at = open + 1;
-            continue;
-        };
-        if bytes.get(close + 1) != Some(&b'(') {
-            out.push('[');
-            at = open + 1;
+        // A link only when the whole `!?[...](...)` matches: otherwise every character stays.
+        if let Some(words_start) = words_start
+            && let Some(close) = line[words_start..]
+                .find(']')
+                .map(|index| words_start + index)
+            && bytes.get(close + 1) == Some(&b'(')
+            && let Some(url_end) = line[close + 2..].find(')').map(|index| close + 2 + index)
+        {
+            out.push_str(&line[words_start..close]);
+            at = url_end + 1;
             continue;
         }
-        let Some(url_end) = line[close + 2..].find(')').map(|index| close + 2 + index) else {
-            out.push('[');
-            at = open + 1;
-            continue;
-        };
-        out.push_str(&line[words_start..close]);
-        at = url_end + 1;
+        out.push_str(&line[at..at + char_len(bytes, at)]);
+        at += char_len(bytes, at);
     }
     out
 }
@@ -236,22 +227,28 @@ fn prose(line: &str) -> String {
 /// The provisional title for a first message (`thread-title.ts:60`): "Fix the login redirect"
 /// for "# **Fix** @agent the [login](...) redirect". Longer than 60 characters, it ends at the
 /// last word that fits, with an ellipsis.
-pub fn provisional_title(parts: &[Value], fallback: &str) -> String {
+///
+/// The result is a JavaScript string, so a cut that lands inside a surrogate pair keeps the
+/// lone surrogate the way `String.prototype.slice` does.
+pub fn provisional_title(parts: &[Value], fallback: &str) -> JsString {
     let text = prose(&first_line(parts));
     if text.is_empty() {
-        return fallback.to_owned();
+        return JsString::from(fallback);
     }
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.len() <= TITLE_LIMIT {
+    let text = JsString::from(text);
+    if text.len_utf16() <= TITLE_LIMIT {
         return text;
     }
-    // Room for the ellipsis inside the limit.
-    let room = String::from_utf16_lossy(&units[..TITLE_LIMIT - 1]);
-    let cut = match room.rfind(' ') {
-        Some(space) if space > 0 => &room[..space],
-        _ => room.as_str(),
+    // Room for the ellipsis inside the limit, in UTF-16 code units as JavaScript slices.
+    let room = text.slice_units(0, TITLE_LIMIT - 1);
+    let units: Vec<u16> = room.units().collect();
+    let cut = match units.iter().rposition(|unit| *unit == u16::from(b' ')) {
+        Some(space) if space > 0 => JsString::from_units(&units[..space]),
+        _ => room,
     };
-    format!("{cut}\u{2026}")
+    let mut title = cut;
+    title.push_js(&JsString::from("\u{2026}"));
+    title
 }
 
 #[cfg(test)]
@@ -285,6 +282,34 @@ mod tests {
             provisional_title(&text(">   one    two"), UNTITLED_THREAD),
             "one two"
         );
+    }
+
+    #[test]
+    fn a_bang_before_a_link_that_does_not_parse_stays_its_own_character() {
+        // `!` then `[note]` with no `(url)`: the regex matches nothing, so the words keep the `!`.
+        assert_eq!(
+            provisional_title(&text("Hi![note] fix it"), UNTITLED_THREAD),
+            "Hi![note] fix it"
+        );
+        // A real image link still reads as its words.
+        assert_eq!(
+            provisional_title(&text("Hi![shot](a.png) now"), UNTITLED_THREAD),
+            "Hishot now"
+        );
+    }
+
+    #[test]
+    fn a_cut_inside_a_surrogate_pair_keeps_the_lone_surrogate() {
+        // 58 units, then an astral character whose pair straddles the 59-unit cut.
+        let mut long = "x".repeat(58);
+        long.push('\u{1f600}');
+        long.push_str(&"y".repeat(20));
+        let title = provisional_title(&text(&long), UNTITLED_THREAD);
+        let units: Vec<u16> = title.units().collect();
+        assert_eq!(units.len(), TITLE_LIMIT);
+        assert_eq!(units[58], 0xd83d, "the high surrogate is kept");
+        assert_eq!(units[59], 0x2026);
+        assert!(!title.is_well_formed());
     }
 
     #[test]

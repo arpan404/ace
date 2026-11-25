@@ -9,7 +9,7 @@ use ace_json::Value;
 use ace_store::{Value as Cell, stmt_cache};
 
 use crate::repository::residency::{cell_int, text};
-use crate::transitions::state::invalid;
+use crate::transitions::metadata::invalid;
 use crate::{EngineError, EngineStore, State};
 
 const OPTION: &str =

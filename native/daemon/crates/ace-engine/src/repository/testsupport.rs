@@ -245,6 +245,10 @@ impl Ports for Shell {
     fn head_seq(&self) -> Result<f64, PortError> {
         Ok(self.seq.get())
     }
+    /// The test shell caps nothing: the convention is the same text back.
+    fn cap_raw(&self, _thread: &str, raw: &str) -> Result<String, PortError> {
+        Ok(raw.to_owned())
+    }
     fn has_live_write(&self, _thread: &str) -> Result<bool, PortError> {
         Ok(self.pinned.get() || !self.buffered.borrow().is_empty())
     }

@@ -10,120 +10,16 @@
 use ace_json::Value;
 
 use crate::executor::Deferred;
+use crate::inputs::item_write::{input_payload, thread_row};
 use crate::inputs::journal;
-use crate::inputs::origin::{input_origin, person_input};
+use crate::inputs::origin::person_input;
 use crate::inputs::provisional_title::{UNTITLED_THREAD, provisional_title};
 use crate::inputs::runs::bind_item_run;
 use crate::snapshot::touched::Touched;
 use crate::{EngineError, EngineStore, State};
 use std::rc::Rc;
 
-/// The thread row as `store.getThread` gives it, for the fields an accepted input reads.
-struct ThreadRow {
-    title: Option<String>,
-    title_source: Option<String>,
-    has_sent_message: bool,
-}
-
-fn thread_row(store: &EngineStore, id: &str) -> Result<ThreadRow, EngineError> {
-    let Some(text) = store.get_thread(id)? else {
-        return Ok(ThreadRow {
-            title: None,
-            title_source: None,
-            has_sent_message: false,
-        });
-    };
-    let row = ace_json::parse(&text).map_err(|error| EngineError::Records(error.to_string()))?;
-    Ok(ThreadRow {
-        title: row.get("title").and_then(Value::as_str).map(str::to_owned),
-        title_source: row
-            .get("titleSource")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        has_sent_message: row
-            .get("hasSentMessage")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-    })
-}
-
-/// The parts of a command payload that carries a person's input, and the command id.
-fn input_payload(command: &Value) -> Option<(&str, &Value, &str)> {
-    let id = command.get("id").and_then(Value::as_str)?;
-    let payload = command.get("payload")?;
-    let kind = payload.get("type").and_then(Value::as_str)?;
-    if kind != "thread.create" && kind != "thread.send" {
-        return None;
-    }
-    let parts = payload.get("input")?;
-    Some((id, parts, kind))
-}
-
 impl State {
-    /// `repo.apply(thread, facts, at)` over a fact list this module built. E5.3's `apply` takes
-    /// the frame's JSON, so the list is serialized once here.
-    pub(crate) fn apply_facts(
-        &mut self,
-        store: &EngineStore,
-        thread: &str,
-        facts: &[Value],
-        at: f64,
-    ) -> Result<(), EngineError> {
-        let json = ace_json::to_string(&Value::Array(facts.to_vec().into()));
-        self.apply(store, thread, &json, at, None)
-    }
-
-    /// The root agent's key, or `"root"` before one exists (`repo.requireState(id).rootKey`).
-    fn input_agent(&mut self, store: &EngineStore, thread: &str) -> Result<String, EngineError> {
-        let snapshot = self.repo.require_state(store, thread)?;
-        let root = snapshot.borrow().state.root_key.clone();
-        Ok(root.unwrap_or_else(|| "root".to_owned()))
-    }
-
-    /// The origin a command's input has: the journal's if the input was accepted, else the one
-    /// the command itself implies.
-    fn accepted_origin(
-        &self,
-        store: &EngineStore,
-        thread: &str,
-        key: &str,
-        command: &Value,
-    ) -> Result<Value, EngineError> {
-        Ok(journal::origin(store.conn(), thread, key)?.unwrap_or_else(|| input_origin(command)))
-    }
-
-    /// `syntheticInput` (`transcript-inputs.ts:14`): ace's own input, already delivered.
-    pub fn synthetic_input(
-        &mut self,
-        store: &EngineStore,
-        thread: &str,
-        key: &str,
-        text: &str,
-        origin: &Value,
-        at: f64,
-    ) -> Result<(), EngineError> {
-        let mut part = ace_json::Map::new();
-        part.insert("type", Value::from("text"));
-        part.insert("text", Value::from(text));
-        let parts = vec![Value::Object(part)];
-        journal::register(store.conn(), thread, key, &parts, origin)?;
-        let agent = self.input_agent(store, thread)?;
-        let mut draft = ace_json::Map::new();
-        draft.insert("type", Value::from("message"));
-        draft.insert("role", Value::from("user"));
-        draft.insert("parts", Value::Array(parts.into()));
-        draft.insert("origin", origin.clone());
-        draft.insert("synthetic", Value::Bool(true));
-        draft.insert("complete", Value::Bool(true));
-        draft.insert("raw", Value::Array(Vec::new().into()));
-        let mut fact = ace_json::Map::new();
-        fact.insert("type", Value::from("item.upsert"));
-        fact.insert("agent", Value::from(agent.as_str()));
-        fact.insert("item", Value::from(key));
-        fact.insert("draft", Value::Object(draft));
-        self.apply_facts(store, thread, &[Value::Object(fact)], at)
-    }
-
     /// `acceptInput` (`:52`): a send the daemon accepts may name the thread, and the journal
     /// learns its origin. Its transcript item waits for delivery (ADR 0065).
     pub fn accept_input(
@@ -140,8 +36,18 @@ impl State {
         let origin = self.accepted_origin(store, thread, &key, command)?;
         let row = thread_row(store, thread)?;
         let person = person_input(&origin);
-        let provisional = matches!(row.title_source.as_deref(), None | Some("provisional"));
-        if person && provisional && row.title.as_deref() == Some("New thread") {
+        // `(titleSource === "provisional" || !titleSource)`: an empty source is falsy too.
+        let provisional = matches!(
+            row.title_source.as_deref(),
+            None | Some("") | Some("provisional")
+        );
+        if person
+            && provisional
+            && row
+                .title
+                .as_ref()
+                .is_some_and(|title| title == UNTITLED_THREAD)
+        {
             let title = provisional_title(
                 parts
                     .as_array()
@@ -218,11 +124,22 @@ impl State {
             let mut borrowed = snapshot
                 .try_borrow_mut()
                 .map_err(|_| EngineError::Reentrant)?;
+            // A commit forgets the transcript, and an upsert commits: read the item and the root
+            // back before the binding asks for them.
+            let root = borrowed.state.root_key.clone();
+            let mut touched = Touched::default();
+            touched.items.insert(key.clone());
+            if let Some(root) = root {
+                touched.agents.insert(root);
+            }
+            borrowed.hydrate(&touched)?;
             bind_item_run(&mut borrowed.state, &key, run)
         };
         if let Some(update) = update {
             let payloads = Value::Array(vec![update].into());
-            let touched = Touched::default();
+            // The binding changed the item in the state: the save writes its record.
+            let mut touched = Touched::default();
+            touched.items.insert(key.clone());
             self.save(
                 store,
                 thread,
@@ -298,8 +215,13 @@ impl State {
             let mut borrowed = snapshot
                 .try_borrow_mut()
                 .map_err(|_| EngineError::Reentrant)?;
+            let root = borrowed.state.root_key.clone();
             let mut touched = Touched::default();
             touched.items.insert(key.to_owned());
+            // The run binding checks the item's agent against the root, which is a record too.
+            if let Some(root) = root {
+                touched.agents.insert(root);
+            }
             borrowed.hydrate(&touched)?;
             borrowed.state.items.get(key).cloned()
         };
@@ -329,7 +251,10 @@ impl State {
         }
         let row = thread_row(store, thread)?;
         if row.title_source.as_deref() != Some("provisional")
-            || row.title.as_deref() == Some(UNTITLED_THREAD)
+            || row
+                .title
+                .as_ref()
+                .is_some_and(|title| title == UNTITLED_THREAD)
         {
             return Ok(());
         }
@@ -340,7 +265,7 @@ impl State {
                 .unwrap_or(&[]),
             UNTITLED_THREAD,
         );
-        if row.title.as_deref() != Some(title.as_str()) {
+        if row.title.as_ref() != Some(&title) {
             return Ok(());
         }
         let Some(core) = self.engine.upgrade() else {
@@ -349,7 +274,8 @@ impl State {
         let json = ace_json::to_string(parts);
         let thread = thread.to_owned();
         let ask = Rc::clone(&core);
-        core.defer(Deferred::Run(Box::new(move || {
+        // After publication, not before it: the receipt's thread is readable when it runs.
+        core.defer(Deferred::AfterPublish(Box::new(move || {
             ask.ports.on_naming_prompt(&thread, &json)
         })));
         Ok(())
@@ -365,4 +291,66 @@ fn is_unsteered_message(item: &Value) -> bool {
             .and_then(|origin| origin.get("kind"))
             .and_then(Value::as_str)
             != Some("steer")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home, message};
+
+    /// The fixture header with a root key, so the snapshot knows which agent is its root.
+    fn rooted_header() -> String {
+        header("t").replace(
+            "\"initialRoot\":{\"agent\":\"root\"",
+            "\"rootKey\":\"root\",\"initialRoot\":{\"agent\":\"root\"",
+        )
+    }
+
+    #[test]
+    fn a_retried_delivery_binds_the_item_an_earlier_attempt_left_on_a_cold_snapshot() {
+        let conn = home("t", &rooted_header());
+        // The root and its input are stored rows, not part of the header.
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'root', {})",
+            r#"'{"agent":{"id":"root","threadId":"t","origin":"root","native":{"provider":"codex"},"fidelity":"full","cwd":"/tmp","status":{"state":"idle"},"createdAt":1},"activity":"idle","lastSignalAt":2}'"#
+        ))
+        .expect("agent");
+        let item = ace_json::ser::to_string(&message("item-1", "t", "hi")).expect("item");
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'items', 'input:cmd', '{}')",
+            item.replace('\'', "''")
+        ))
+        .expect("item row");
+        conn.exec(
+            "INSERT INTO engine_inputs(thread_id,item_key,signature,origin) VALUES ('t','input:cmd','s','{\"kind\":\"person\"}')",
+        )
+        .expect("journal");
+
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        // The save's own collaborator stubs are E5.7's and E5.9's, not this read.
+        state.repo.probe_passthrough = true;
+        let snapshot = state.repo.require_state(&store, "t").expect("snapshot");
+        assert!(
+            snapshot.borrow().state.items.is_empty(),
+            "a cold snapshot holds no transcript until a read loads one"
+        );
+        let command = ace_json::parse(
+            r#"{"id":"cmd","payload":{"type":"thread.send","threadId":"t","input":[{"type":"text","text":"hi"}]}}"#,
+        )
+        .expect("command");
+        state
+            .admit_input(&store, &command, "t", Some("run-1"), 10.0)
+            .expect("admit");
+        let item = snapshot
+            .borrow_mut()
+            .items
+            .read("input:cmd")
+            .expect("read")
+            .expect("the earlier item is still the key's item");
+        let ace_core::items::Item::Message { base, .. } = item else {
+            panic!("the earlier item is a message");
+        };
+        assert_eq!(base.run_id.as_deref(), Some("run-1"), "the run is bound");
+    }
 }

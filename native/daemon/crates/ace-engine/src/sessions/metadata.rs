@@ -86,13 +86,14 @@ pub fn session(store: &EngineStore, id: &str) -> Result<SessionMetadata, EngineE
         Some(Cell::Null) | None => None,
         Some(cell) => {
             let text = cell_text(cell).unwrap_or_default();
-            let units = text.encode_utf16().count();
-            if units == 0 {
+            // `z.string().min(1).max(256)` counts code points (rule 17).
+            let points = text.chars().count();
+            if points == 0 {
                 return Err(EngineError::Records(
                     "Too small: expected string to have >=1 characters".to_owned(),
                 ));
             }
-            if units > 256 {
+            if points > 256 {
                 return Err(EngineError::Records(
                     "Too big: expected string to have <=256 characters".to_owned(),
                 ));
@@ -228,6 +229,28 @@ mod tests {
             .expect("unprepared");
         assert!(!session(&store, "t2").expect("read").workspace_ready);
         assert_eq!(session(&store, "missing").unwrap_err().to_string(), MISSING);
+    }
+
+    #[test]
+    fn an_instance_id_is_bounded_in_code_points_as_the_schema_bounds_it() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        // 256 emoji are 512 UTF-16 units and still fit `z.string().max(256)` (rule 17).
+        let emoji = "\u{1f600}".repeat(256);
+        create_session(&store, "t", "/tmp", None, None, Some(&emoji), None).expect("create");
+        assert_eq!(
+            session(&store, "t").expect("read").instance_id.as_deref(),
+            Some(emoji.as_str())
+        );
+        let too = format!("{emoji}\u{1f600}");
+        conn.exec(&format!(
+            "UPDATE engine_sessions SET instance_id='{too}' WHERE thread_id='t'"
+        ))
+        .expect("update");
+        assert_eq!(
+            session(&store, "t").unwrap_err().to_string(),
+            "Too big: expected string to have <=256 characters"
+        );
     }
 
     #[test]

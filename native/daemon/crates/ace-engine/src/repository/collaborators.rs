@@ -428,7 +428,6 @@ impl FrameFacts for State {
 impl SessionFacts for State {}
 impl AccessFacts for State {}
 impl RecoveryFacts for State {}
-impl MoveFacts for State {}
 
 #[cfg(test)]
 mod tests {

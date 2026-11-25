@@ -11,6 +11,7 @@ pub mod ace;
 pub mod ace_waits;
 pub mod binding;
 pub mod fate;
+pub mod item_write;
 pub mod journal;
 pub mod origin;
 pub mod posts;
