@@ -99,7 +99,20 @@ journal.replace(fate, CommandId.parse("resent"), CommandId.parse("again"));
 const uncertainFate = add(fate, "uncertain-fate", "maybe it ran");
 queue.uncertain(uncertainFate);
 add(fate, "waiting-fate", "still waiting");
+// The journal row first: `attachRun` UPDATEs it, and a missing row would leave no run to read.
+journal.register(fate, "input:waiting-fate", [{ type: "text", text: "still waiting" }], {
+  kind: "person",
+  commandId: CommandId.parse("waiting-fate"),
+});
 journal.attachRun(fate, "input:waiting-fate", "run-recorded");
+const delivered = add(fate, "delivered-fate", "took a run");
+for (const header of intents.headers(fate))
+  if (header.id === delivered) intents.mark(header, "done");
+journal.register(fate, "input:delivered-fate", [{ type: "text", text: "took a run" }], {
+  kind: "person",
+  commandId: CommandId.parse("delivered-fate"),
+});
+journal.attachRun(fate, "input:delivered-fate", "run-recorded");
 add(fate, "cancelled-fate", "stopped before delivery");
 add(fate, "removed-fate", "taken out of the queue");
 for (const header of intents.headers(fate)) {
@@ -107,10 +120,12 @@ for (const header of intents.headers(fate)) {
     intents.mark(header, "failed", "Cancelled before delivery");
   if (header.commandId === "removed-fate") intents.mark(header, "failed", "Removed from queue");
 }
-// `input:cancelled-fate` was written before its delivery failed; `input:written` has no intent.
+// `input:cancelled-fate` was written before its delivery stopped it; `input:written` has no
+// intent at all; `input:delivered-fate` was written and the journal hands it a run.
 for (const [id, text] of [
   ["input:cancelled-fate", "stopped before delivery"],
   ["input:written", "delivered with no intent"],
+  ["input:delivered-fate", "took a run"],
 ] as const)
   store.appendEvents(fate, [
     {

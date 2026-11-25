@@ -431,6 +431,9 @@ describe.runIf(native)("E5.4c input fate on a TypeScript-written home", () => {
       expect(at("uncertain-fate")).toEqual({ state: "uncertain" });
       // Waiting wins over the run the journal recorded for it.
       expect(at("waiting-fate")).toEqual({ state: "waiting" });
+      // A written input the journal handed to a run: the run comes back, so the read above is
+      // a real waiting answer and not a missing run.
+      expect(at("delivered-fate")).toEqual({ state: "delivered", runId: "run-recorded" });
       // Written before a Stop cancelled it: failed, not delivered.
       expect(at("cancelled-fate")).toEqual({
         state: "failed",
