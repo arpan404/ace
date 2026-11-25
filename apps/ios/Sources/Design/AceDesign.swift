@@ -186,9 +186,10 @@ import UIKit
         static var raised: Color { AceTheme.Colours.card }
         /// A pressed or chosen fill on the page, never a box.
         static var fill: Color { AceTheme.Colours.fill }
-        /// A grouped list's rows and the person's bubble: one step up from the page in either
-        /// appearance (the card colour is the page's own white in light).
+        /// Grouped rows and briefs sent by other threads, one step up from the page.
         static var group: Color { AceTheme.Colours.fill }
+        /// The person's bubble in a conversation, paired with `Ink.onAccent`.
+        static var personBubble: Color { AceTheme.Colours.accent }
     }
 
     // MARK: Motion
@@ -376,10 +377,11 @@ extension AceDesign.Space {
     static let belowSegment: CGFloat = 4
     /// Between the segmented control and the header.
     static let aboveSegment: CGFloat = 12
-    /// The thread's feed: its side padding and the gap between its parts.
+    /// The thread's feed: its side padding and the gaps within and between turns.
     static let feedSide: CGFloat = 20
     static let feedGap: CGFloat = 14
-    /// Inside the person's bubble.
+    static let turnGap = group
+    /// Inside a brief sent by another thread.
     static let bubbleV: CGFloat = 9
     static let bubbleH: CGFloat = 14
     /// Between the dock's chips, and under them.

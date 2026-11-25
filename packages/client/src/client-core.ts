@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { KeptHistory } from "./kept-history.ts";
+import { ThreadArchives } from "./thread-archives.ts";
 import { SendOps } from "./send-ops.ts";
 import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
@@ -51,6 +52,7 @@ import type {
   RegistryQuery,
   SidebarSource,
   StandingChallenge,
+  ThreadExport,
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
@@ -196,6 +198,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
   #history: KeptHistory | undefined;
+  #archives: ThreadArchives | undefined;
+  /** History windows being checked against the daemon after the archive answered them. */
+  #verifying = new Set<string>();
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
@@ -207,6 +212,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options.readSnapshots && new HostSnapshots(options.readSnapshots, options.expectedHostId);
     if (this.#snapshots && options.readSnapshots?.deletePrefix && options.now)
       this.#history = new KeptHistory(this.#snapshots, options.now);
+    if (this.#snapshots && options.archive)
+      this.#archives = new ThreadArchives(this.#snapshots, options.scheduler, options.archive);
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
@@ -263,6 +270,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#newSocket();
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
+            this.#archives?.connected(message.databaseId);
             this.#snapshots?.identify(message.hostId);
             this.#welcomed.resolve();
             if (options.storage.hostBinding) {
@@ -319,9 +327,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         // Only the machine's owner revoking this device deletes what was read through it.
         // Signing out, another account, an expired or refused grant or a new machine code
         // keep it all: it comes back when the person signs in again.
-        if (this.state === "fatal" && this.connection.error?.revoked === true)
+        if (this.state === "fatal" && this.connection.error?.revoked === true) {
+          this.#archives?.clear();
           // forget() drops what it can and resolves either way.
           void this.#snapshots?.forget().catch(() => {});
+        }
         this.notifications.emit(["connection"]);
       },
       () => {
@@ -376,6 +386,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (milliseconds, run) => options.scheduler.set(milliseconds, run),
       this.#persistence(),
       options.openTail,
+      this.#archives && this.#keep(this.#archives),
     );
     this.#sidebar = new Sidebar(
       limits,
@@ -646,6 +657,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       this.#subscriptions.close(),
       ...[...this.#collections].map((collection) => collection.close()),
       ...this.#checkpoints,
+      ...(this.#archives ? [this.#archives.close()] : []),
     ];
     this.#recordings.close();
     this.requests.clear(new ClientError("offline"));
@@ -680,9 +692,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
    */
   forgetThread(id: string): Promise<void> {
     this.#subscriptions.discard(id);
-    return Promise.all([this.#snapshots?.delete(`thread:${id}`), this.#history?.forget(id)]).then(
-      () => {},
-    );
+    return Promise.all([
+      this.#snapshots?.delete(`thread:${id}`),
+      this.#history?.forget(id),
+      this.#archives?.forget(id),
+    ]).then(() => {});
   }
   /**
    * Drop every read snapshot and every thread store no view holds. Threads still open stay live
@@ -691,6 +705,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   clearReadSnapshots(): Promise<void> {
     this.#subscriptions.discardUnheld();
     this.#history?.clear();
+    this.#archives?.clear();
     return this.#snapshots?.clearAll() ?? Promise.resolve();
   }
   cachedThread(id: string): ThreadSource | undefined {
@@ -1060,7 +1075,24 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
     return this.#threadReply({ type: "turns.page", ...input }, options);
   }
+  /**
+   * A history window. With an archive (ADR 0225), one it holds is answered at once, offline too,
+   * and checked against the daemon in the background unless all of it was read this session;
+   * every window the daemon answers joins the archive.
+   */
   async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
+    if (this.closed) throw new ClientError("offline");
+    const kept = await this.#archives?.window(input);
+    if (options.signal?.aborted) throw new ClientError("aborted");
+    if (kept) {
+      if (!kept.confirmed) this.#verifyWindow(input);
+      return kept.reply;
+    }
+    const reply = await this.#readWindow(input, options);
+    void this.#archives?.merge(reply, input.aroundSeq).catch(() => {});
+    return reply;
+  }
+  async #readWindow(input: ItemsWindowInput, options: RequestOptions) {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
     const { service, key } = await this.#windowQuery(input);
     const load = () => this.#threadReply({ type: "items.window", ...input }, options);
@@ -1075,6 +1107,32 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         options.signal,
       ) ?? load()
     );
+  }
+  /** Read a window the archive answered from disk again; a correction reaches `onArchiveRevised`. */
+  #verifyWindow(input: ItemsWindowInput): void {
+    const archives = this.#archives;
+    const key = JSON.stringify(input);
+    if (!archives || this.state !== "ready" || this.#verifying.has(key)) return;
+    this.#verifying.add(key);
+    void this.#threadReply({ type: "items.window", ...input }, {})
+      .then((reply) => archives.merge(reply, input.aroundSeq))
+      .then((changed) => {
+        if (changed) archives.revised(input.threadId);
+      })
+      .catch(() => {})
+      .finally(() => this.#verifying.delete(key));
+  }
+  #keep(archives: ThreadArchives) {
+    return (threadId: string, exported: ThreadExport) =>
+      void archives.keep(threadId, exported).catch(() => {});
+  }
+  /** Called with a thread whose archived history the daemon corrected (ADR 0225). */
+  onArchiveRevised(listener: (threadId: string) => void): () => void {
+    return this.#archives?.onRevised(listener) ?? (() => {});
+  }
+  /** The archived items with sequences in `[fromSeq, throughSeq]`, when one run holds them. */
+  archivedBetween(threadId: string, fromSeq: number, throughSeq: number) {
+    return this.#archives?.between(threadId, fromSeq, throughSeq);
   }
   /** A previously authorized disk copy only. Callers must label it stale and disable actions. */
   async cachedItemsWindow(

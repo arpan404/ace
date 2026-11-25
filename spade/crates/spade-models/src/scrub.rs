@@ -223,15 +223,19 @@ fn hidden_thought(thought: Thought, secrets: &[String]) -> Thought {
         Thought::Signed {
             signature,
             reasoning,
+            bound,
         } => Thought::Signed {
             signature,
             reasoning: reasoning.map(|r| hidden(&r, secrets)),
+            bound,
         },
-        Thought::Reasoning { text } => Thought::Reasoning {
+        Thought::Reasoning { text, bound } => Thought::Reasoning {
             text: hidden(&text, secrets),
+            bound,
         },
-        Thought::Block { data } => Thought::Block {
+        Thought::Block { data, bound } => Thought::Block {
             data: hidden_value(data, secrets),
+            bound,
         },
     }
 }

@@ -71,12 +71,14 @@ test("a client opens its connection by listing the trims it can undo", async () 
     .map((text) => ClientMessage.parse(JSON.parse(text)))
     .find((message) => message.type === "hello");
   // Spade's hidden threads (ADR 0123), raw payloads on demand (ADR 0088), the full-disk hold
-  // (ADR 0176) and the moved thread status (ADR 0191) joined the original two.
+  // (ADR 0176), the moved thread status (ADR 0191) and shared sidebar metadata joined the
+  // original two.
   expect(hello).toMatchObject({
     trims: [
       "spade-hidden",
       "item-defaults",
       "provider-capabilities",
+      "sidebar-shared",
       "raw-on-demand",
       "storage-hold",
       "moved-status",
