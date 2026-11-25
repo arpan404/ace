@@ -215,7 +215,6 @@ impl Tree {
             };
             match current.stage {
                 Stage::Turn => {
-                    current.stage = Stage::Read;
                     if let Some(turn) = active.get(&current.thread).cloned() {
                         let call = calls.take();
                         let mut params = Map::new();
@@ -228,14 +227,15 @@ impl Tree {
                             timeout_ms: None,
                         }];
                     }
+                    current.stage = Stage::Read;
                 }
                 Stage::Read => {
-                    current.stage = Stage::Terminate;
                     if self.cascade {
                         let (read, effects) = TerminalRead::start(&current.thread, calls);
                         current.read = Some(read);
                         return effects;
                     }
+                    current.stage = Stage::Terminate;
                 }
                 Stage::Terminate => {
                     if let Some(process) = current.processes.pop_front() {
@@ -386,3 +386,6 @@ fn terminate_request(call: u64, thread: &str, process: &str) -> Effect {
 /// `childKey("")` / `shellKey("")` prefixes without their key.
 const SUBAGENT: &str = "subagent:";
 const SHELL: &str = "shell:";
+
+#[cfg(test)]
+mod tests;

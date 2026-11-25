@@ -268,3 +268,6 @@ fn option_label(questions: &Value, id: &str, answer: &Value) -> String {
     }
     answer_id.to_owned()
 }
+
+#[cfg(test)]
+mod tests;
