@@ -15,6 +15,8 @@ export class RunCheckpoints {
   private root: (id: Id) => string;
   private now: () => number;
   private flights = new Map<Id, Promise<void>>();
+  /** Flights `finish`/`drainPending` started: the maintenance pool's own slots. Admissions never take one. */
+  private maintenance = 0;
   private unsubscribe: () => void;
   private closing = false;
   constructor(
@@ -84,14 +86,16 @@ export class RunCheckpoints {
   private finish(id: Id): Promise<void> {
     const existing = this.flights.get(id);
     if (existing) return existing;
-    if (this.closing || this.flights.size >= 16) return Promise.resolve();
+    if (this.closing || this.maintenance >= 16) return Promise.resolve();
     let completed = false;
+    this.maintenance++;
     const task = this.capturePending(id)
       .then(() => {
         completed = true;
       })
       .catch(() => {})
       .finally(() => {
+        this.maintenance--;
         this.flights.delete(id);
         // Due rows stay stored and the next finished thread drains them: an unreadable store
         // here must not reject this flight, which nothing awaits.
@@ -106,7 +110,7 @@ export class RunCheckpoints {
     return task;
   }
   private drainPending(): void {
-    if (this.closing || this.flights.size >= 16) return;
+    if (this.closing || this.maintenance >= 16) return;
     const candidates = this.store.atomic((db) =>
       db
         .prepare(
@@ -118,7 +122,7 @@ export class RunCheckpoints {
       const id = ThreadId.parse(row.thread_id);
       // finish() swallows its own capture failure and the next drain picks the rows up.
       if (!this.flights.has(id)) void this.finish(id).catch(() => {});
-      if (this.flights.size >= 16) break;
+      if (this.maintenance >= 16) break;
     }
   }
   /** The thread's latest root turn the turn order knows, whether or not it is still due. */
@@ -195,25 +199,22 @@ export class RunCheckpoints {
     while (this.flights.has(id)) await this.flights.get(id);
     // Admission holds this thread itself, over the whole capture and before, so no maintenance
     // pass can capture the same due rows again. It never waits for the maintenance pool.
-    let completed = false;
     let failure: unknown;
     let failed = false;
     const task = this.admit(id, command)
-      .then(() => {
-        completed = true;
-      })
       .catch((error: unknown) => {
         failed = true;
         failure = error;
       })
       .finally(() => {
         this.flights.delete(id);
-        if (completed)
-          try {
-            this.drainPending();
-          } catch {
-            // Left for the next drain.
-          }
+        // A failed admission leaves due rows behind the way a successful one may, so the next
+        // drain gets the same chance either way.
+        try {
+          this.drainPending();
+        } catch {
+          // Left for the next drain.
+        }
       });
     this.flights.set(id, task);
     await task;

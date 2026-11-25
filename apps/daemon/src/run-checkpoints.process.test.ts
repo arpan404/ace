@@ -9,11 +9,14 @@ import { Thread, ThreadId, Run, CommandId, AgentId } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 const git = promisify(execFile);
+/** No gate wait outlives this: a regression fails the test instead of hanging to the suite timeout. */
+const GATE_DEADLINE_MS = 5_000;
 /** Checkpoint captures held at the git edge, so a test can keep the maintenance pool busy. */
 class GatedCheckpoints extends GitService {
   holding = false;
   /** Resumed captures fail instead of running, except this thread's: its refs a test reads. */
   private realThread?: string;
+  private failure: "failed" | "quarantined" = "failed";
   private held: Array<{ threadId: string; resolve: () => void }> = [];
   private waits: Array<{ count: number; resolve: () => void }> = [];
   override async createCheckpoint(options: {
@@ -21,7 +24,8 @@ class GatedCheckpoints extends GitService {
     threadId: string;
     label: string;
   }): Promise<Checkpoint> {
-    if (this.holding)
+    // The real thread's captures always run, so its refs are readable while others are parked.
+    if (this.holding && this.realThread !== options.threadId)
       await new Promise<void>((resolve) => {
         this.held.push({ threadId: options.threadId, resolve });
         for (const wait of this.waits.filter(({ count }) => this.held.length >= count)) {
@@ -30,7 +34,9 @@ class GatedCheckpoints extends GitService {
         }
       });
     if (this.realThread !== undefined && this.realThread !== options.threadId)
-      throw new GitError("git_failed", "fixture capture failure");
+      throw this.failure === "quarantined"
+        ? new GitError("git_quarantined", "fixture capture quarantine")
+        : new GitError("git_failed", "fixture capture failure");
     return super.createCheckpoint(options);
   }
   /**
@@ -39,10 +45,33 @@ class GatedCheckpoints extends GitService {
    */
   failCapturesOtherThan(threadId: string): void {
     this.realThread = threadId;
+    this.failure = "failed";
+  }
+  /** As `failCapturesOtherThan`, with the failure an admission refuses to run behind. */
+  quarantineCapturesOtherThan(threadId: string): void {
+    this.realThread = threadId;
+    this.failure = "quarantined";
   }
   waitFor(count: number): Promise<void> {
     if (this.held.length >= count) return Promise.resolve();
-    return new Promise((resolve) => this.waits.push({ count, resolve }));
+    return new Promise((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        this.waits = this.waits.filter((candidate) => candidate !== wait);
+        reject(
+          new Error(
+            `gate waited ${GATE_DEADLINE_MS} ms for ${count} held captures, saw ${this.held.length}`,
+          ),
+        );
+      }, GATE_DEADLINE_MS);
+      const wait = {
+        count,
+        resolve: () => {
+          clearTimeout(deadline);
+          resolve();
+        },
+      };
+      this.waits.push(wait);
+    });
   }
   releaseThread(threadId: string): void {
     const index = this.held.findIndex((entry) => entry.threadId === threadId);
@@ -50,6 +79,15 @@ class GatedCheckpoints extends GitService {
   }
   releaseAll(): void {
     for (let i = 0; i < 100 && this.held.length > 0; i++) this.held.shift()?.resolve();
+  }
+  /**
+   * Stops gating and lets every held capture go. Teardown calls this first so nothing it awaits
+   * can still be parked on the gate.
+   */
+  reopen(): void {
+    this.holding = false;
+    for (const wait of this.waits.splice(0)) wait.resolve();
+    for (const entry of this.held.splice(0)) entry.resolve();
   }
 }
 /** A root turn of `threadId`; the test names them so the store paginates them. */
@@ -417,6 +455,8 @@ test("a turn boundary held at admission takes one snapshot, even when a maintena
     ]);
     // Admission takes the due row without waiting for the pool, and is held here too.
     const next = runtime.checkpoints.beforeSend(thread.id, CommandId.parse("second"));
+    // Handled from the start: a failed wait must not leave this rejection unobserved.
+    void next.catch(() => {});
     await checkpoints.waitFor(17);
     // Free two slots: the maintenance pass the second one allows must not capture the same row.
     checkpoints.releaseThread(busy[0]!.id);
@@ -466,7 +506,90 @@ test("a turn boundary held at admission takes one snapshot, even when a maintena
     });
   } finally {
     checkpoints.failCapturesOtherThan(thread.id);
-    checkpoints.releaseAll();
+    // Ungate before releasing so nothing released can park itself again and wedge this cleanup.
+    checkpoints.reopen();
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
+test("failed admissions leave the maintenance slots for a finished thread's after checkpoint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-run-admission-"));
+  await git("git", ["init", root]);
+  await git("git", ["-C", root, "config", "user.name", "ace test"]);
+  await git("git", ["-C", root, "config", "user.email", "test@ace.local"]);
+  await writeFile(join(root, "file.txt"), "before\n");
+  await git("git", ["-C", root, "add", "file.txt"]);
+  await git("git", ["-C", root, "commit", "-m", "Initial"]);
+  const data = await mkdtemp(join(tmpdir(), "ace-run-store-"));
+  const store = new Store(join(data, "events.sqlite"));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const newThread = (id: string, title: string) =>
+    Thread.parse({
+      id,
+      workspaceId,
+      provider: "codex",
+      rootAgentId: "root",
+      title,
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  const thread = newThread("thread", "Ends while 16 sends are held");
+  // Sixteen messages are admitted at once. Each parks its capture, so the senders alone would
+  // fill a pool that counted admissions against it.
+  const senders = Array.from({ length: 16 }, (_, i) => newThread(`sender-${i}`, `Sender ${i}`));
+  for (const created of [thread, ...senders])
+    store.appendEvents(created.id, [{ type: "thread.created", thread: created }]);
+  // Only the finishing thread reaches Git; the held senders fail their admission when they resume.
+  const checkpoints = new GatedCheckpoints();
+  checkpoints.quarantineCapturesOtherThan(thread.id);
+  const runtime = new WorkspaceRuntime(store, data, () => 1000, { gitService: checkpoints });
+  const turn = rootTurn(thread.id, "turn-one");
+  const due = () =>
+    store.atomic((db) =>
+      db.prepare("SELECT run_id FROM client_checkpoint_due WHERE thread_id=?").all(thread.id),
+    );
+  const admissions: Array<Promise<void>> = [];
+  try {
+    await runtime.checkpoints.beforeSend(thread.id, CommandId.parse("first"));
+    store.appendEvents(thread.id, [
+      { type: "run.started", run: turn },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+    ]);
+    await writeFile(join(root, "file.txt"), "after\n");
+
+    checkpoints.holding = true;
+    for (const [i, sender] of senders.entries())
+      admissions.push(runtime.checkpoints.beforeSend(sender.id, CommandId.parse(`send-${i}`)));
+    const rejected = Promise.allSettled(admissions);
+    await checkpoints.waitFor(16);
+    // The turn ends with every send still parked. No further event follows: the thread's own
+    // maintenance flight has room for the "after" it just queued.
+    store.appendEvents(thread.id, [
+      { type: "run.ended", runId: turn.id, state: "completed", endedAt: 2 },
+      { type: "thread.updated", status: { state: "done" } },
+    ]);
+    await vi.waitFor(() => expect(due()).toEqual([]), { timeout: GATE_DEADLINE_MS });
+    const captured = store.snapshotThread(thread.id).runs[turn.id]?.checkpoints;
+    expect(captured?.state).toBe("ready");
+    if (!captured?.after) throw new Error("Expected an after checkpoint");
+    const refs = await checkpoints.listCheckpoints({ repo: root, threadId: thread.id });
+    expect(refs.filter((ref) => ref.label.startsWith("After turn ")).map((ref) => ref.id)).toEqual([
+      captured.after,
+    ]);
+
+    // The held sends now fail. Their threads never admitted, and the finished one keeps its
+    // captured "after": a failed admission leaves the same clean state a successful one does.
+    checkpoints.reopen();
+    const outcomes = await rejected;
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(16);
+    expect(store.snapshotThread(thread.id).runs[turn.id]?.checkpoints).toEqual(captured);
+    expect(due()).toEqual([]);
+  } finally {
+    checkpoints.reopen();
     await runtime.close();
     await store.close();
     await rm(root, { recursive: true, force: true });
