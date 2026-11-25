@@ -18,7 +18,12 @@ use crate::repository::collaborators::{
 use crate::snapshot::Snapshot;
 use crate::{EngineError, EngineStore, State};
 
-struct StoreIds<'a>(&'a EngineStore);
+pub(crate) struct StoreIds<'a>(&'a EngineStore);
+
+/// The id service a fold allocates through.
+pub(crate) fn store_ids(store: &EngineStore) -> StoreIds<'_> {
+    StoreIds(store)
+}
 
 impl IdSource for StoreIds<'_> {
     fn next(&mut self, kind: &str) -> Option<String> {
@@ -26,14 +31,14 @@ impl IdSource for StoreIds<'_> {
     }
 }
 
-fn kind(value: &Value) -> &str {
+pub(super) fn kind(value: &Value) -> &str {
     value
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or_default()
 }
 
-fn text_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(super) fn text_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
@@ -89,69 +94,12 @@ impl State {
                 }
                 None => input,
             };
-            if (kind(&input) == "item.upsert" || kind(&input) == "item.reconciled")
-                && text_field(&input, "agent") == Some(root.as_str())
-                && input
-                    .get("draft")
-                    .and_then(|draft| draft.get("type"))
-                    .and_then(Value::as_str)
-                    == Some("notice")
-                && input
-                    .get("draft")
-                    .and_then(|draft| draft.get("code"))
-                    .and_then(Value::as_str)
-                    == Some("thread_title")
-            {
-                // `provider-facts.ts:51`-`:76`: a provider title replaces a provisional one.
-                let thread = store
-                    .get_thread(id)?
-                    .and_then(|json| ace_json::parse(&json).ok());
-                let title = input
-                    .get("draft")
-                    .and_then(|draft| draft.get("title"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|title| !title.is_empty());
-                let source = thread
-                    .as_ref()
-                    .and_then(|thread| thread.get("titleSource"))
-                    .and_then(Value::as_str);
-                let current = thread
-                    .as_ref()
-                    .and_then(|thread| thread.get("title"))
-                    .and_then(Value::as_str);
-                let takes = match source {
-                    Some("provisional") | Some("provider") => true,
-                    None => current == Some("New thread"),
-                    Some(_) => false,
-                };
-                if let Some(title) = title
-                    && takes
-                {
-                    let events = format!(
-                        "[{{\"type\":\"thread.updated\",\"title\":{},\"titleSource\":\"provider\"}}]",
-                        ace_json::to_string(&Value::from(title))
-                    );
-                    store.write_events(id, &events, now)?;
-                }
+            // The provider's title and goal corrections call the store through ports, not a
+            // collaborator (`provider-facts.ts:51`-`:76`).
+            if self.title_correction(store, id, &root, &input, now)? {
                 continue;
             }
-            if kind(&input) == "goal.updated" {
-                if text_field(&input, "agent") != Some(root.as_str()) {
-                    continue;
-                }
-                let current = store
-                    .get_thread(id)?
-                    .and_then(|json| ace_json::parse(&json).ok())
-                    .and_then(|value| value.get("goal").and_then(Value::as_str).map(str::to_owned));
-                let goal = input.get("goal").and_then(Value::as_str);
-                if let Some(goal) = self.goal_change(current.as_deref(), goal)? {
-                    let events = format!(
-                        "[{{\"type\":\"thread.updated\",\"goal\":{}}}]",
-                        ace_json::to_string(&goal)
-                    );
-                    store.write_events(id, &events, now)?;
-                }
+            if self.goal_correction(store, id, &root, &input, now)? {
                 continue;
             }
             let queue = if kind(&input) == "turn.started" {
@@ -192,15 +140,13 @@ impl State {
                 )?;
             }
             let fact_item = text_field(&fact, "item").map(str::to_owned);
-            let previous_type = fact_item.as_deref().and_then(|item| {
-                snapshot
-                    .borrow()
-                    .state
-                    .items
-                    .get(item)
-                    .map(|item| item.item_type().to_owned())
+            let previous_call = fact_item.as_deref().and_then(|item| {
+                match snapshot.borrow().state.items.get(item) {
+                    Some(ace_core::items::Item::ToolCall { call, .. }) => Some(call.clone()),
+                    _ => None,
+                }
             });
-            fact = self.cap_fact(fact, previous_type.as_deref())?;
+            fact = self.cap_fact(store, id, fact, previous_call.as_ref())?;
             let mut start_takes_input = None;
             if kind(&fact) == "turn.started" && text_field(&fact, "agent") == Some(root.as_str()) {
                 let trigger = text_field(&fact, "trigger").unwrap_or_default().to_owned();
@@ -413,7 +359,7 @@ impl State {
     }
 }
 
-fn set(value: &mut Value, key: &str, next: Value) {
+pub(super) fn set(value: &mut Value, key: &str, next: Value) {
     if let Some(object) = value.as_object_mut() {
         object.insert(key, next);
     }
@@ -439,100 +385,5 @@ fn events_of(events: &[ace_core::emit::Event]) -> Vec<Value> {
     match ace_json::parse(&json) {
         Ok(Value::Array(items)) => items.into_vec(),
         _ => Vec::new(),
-    }
-}
-
-impl State {
-    /// The failed statuses' shaped errors (`provider-facts.ts:211`-`:229`). The shaped status
-    /// reaches the stored record, its settled status, and the failed run's own `run.ended`.
-    fn shape_failed_statuses(
-        &mut self,
-        snapshot: &Rc<RefCell<Snapshot>>,
-        events: &mut [Value],
-    ) -> Result<(), EngineError> {
-        let failed: Vec<usize> = events
-            .iter()
-            .enumerate()
-            .filter(|(_, event)| {
-                kind(event) == "agent.status"
-                    && event
-                        .get("status")
-                        .and_then(|status| status.get("state"))
-                        .and_then(Value::as_str)
-                        == Some("failed")
-            })
-            .map(|(index, _)| index)
-            .collect();
-        for index in failed {
-            let Some(error) = events[index]
-                .get("status")
-                .and_then(|status| status.get("error"))
-                .cloned()
-            else {
-                continue;
-            };
-            let provider = snapshot.borrow().state.config.provider.clone();
-            let shaped = self.structured_error(error, &provider)?;
-            if let Some(status) = events[index]
-                .get_mut("status")
-                .and_then(Value::as_object_mut)
-            {
-                status.insert("error", shaped.clone());
-            }
-            let shaped_status = events[index].get("status").cloned();
-            let agent_id = text_field(&events[index], "agentId")
-                .unwrap_or_default()
-                .to_owned();
-            let mut borrowed = snapshot.borrow_mut();
-            let key = borrowed
-                .state
-                .indexes
-                .agent_keys_by_id
-                .get(&agent_id)
-                .cloned();
-            let Some(record) = key.and_then(|key| borrowed.state.agents.get_mut(&key)) else {
-                continue;
-            };
-            let shaped_agent_status = shaped_status
-                .as_ref()
-                .and_then(|status| ace_json::from_value(status).ok());
-            if let Some(status) = shaped_agent_status.clone() {
-                record.agent.status = status;
-            }
-            if record.last_error.is_some()
-                && let Ok(error) = ace_json::from_value(&shaped)
-            {
-                record.last_error = Some(error);
-            }
-            if record
-                .process_settled_status
-                .as_ref()
-                .is_some_and(|status| status.state() == "failed")
-                && let Some(status) = shaped_agent_status
-            {
-                record.process_settled_status = Some(status);
-            }
-            let Some(run) = record
-                .last_run
-                .clone()
-                .and_then(|id| borrowed.state.runs.get_mut(&id))
-            else {
-                continue;
-            };
-            if run.state != "failed" {
-                continue;
-            }
-            if let Ok(error) = ace_json::from_value(&shaped) {
-                run.error = Some(error);
-            }
-            let run_id = run.id.clone();
-            for event in events.iter_mut() {
-                if kind(event) == "run.ended" && text_field(event, "runId") == Some(run_id.as_str())
-                {
-                    set(event, "error", shaped.clone());
-                }
-            }
-        }
-        Ok(())
     }
 }

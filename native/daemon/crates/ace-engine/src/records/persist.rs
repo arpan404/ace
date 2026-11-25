@@ -7,9 +7,32 @@ use ace_core::section::Change;
 use ace_store::stmt_cache;
 use std::rc::Rc;
 
+use ace_json::Value;
+
 use super::budget::Cached;
 use super::{DELETE_APPENDS, DELETE_RECORD, Records, UPSERT_RECORD, insert_patch, text};
 use crate::EngineError;
+
+/// A record's typed form loses fields this build does not know; the stored value keeps them
+/// (`parseRecord` validates without stripping, `records.ts:15`), so a newer build's fields
+/// survive a write by this one.
+fn keep_unknown_fields(encoded: &str, base: &str) -> String {
+    let (Ok(Value::Object(typed)), Ok(Value::Object(original))) =
+        (ace_json::parse(encoded), ace_json::parse(base))
+    else {
+        return encoded.to_owned();
+    };
+    let mut merged = typed.clone();
+    for (key, value) in &original {
+        if !merged.contains_key(key) {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    if merged.len() == typed.len() {
+        return encoded.to_owned();
+    }
+    ace_json::to_string(&Value::Object(merged))
+}
 
 impl<T: Clone + 'static> Records<T> {
     /// `persist` (`records.ts:241`): pending patches of keys not replaced, then every written
@@ -53,6 +76,7 @@ impl<T: Clone + 'static> Records<T> {
                         .map(str::to_owned)
                         .or_else(|| self.cache.get::<T>(&key).map(|cached| cached.json))
                         .unwrap_or_default();
+                    let json = keep_unknown_fields(&json, &base);
                     if json != base || self.replaced.contains(&key) {
                         stmt_cache::run(
                             &self.conn,

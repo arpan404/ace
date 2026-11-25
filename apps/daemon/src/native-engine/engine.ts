@@ -43,6 +43,10 @@ export interface NativeEngineHandle {
   registryChanged?(json: string): void;
   timerFired?(key: number): void;
   settlePromise?(id: number, ok: boolean, message?: string): void;
+  livePersist?(token: number): void;
+  liveCommitted?(token: number): void;
+  liveQuarantined?(thread: string): void;
+  probeStream?(id: string, factsJson: string, now: number): boolean;
   onLimitPolicy?(id: number, listener: (id: string) => void): void;
   dropLimitPolicy?(id: number): void;
   pumpStats?(): { turns: number; polls: number; longestPollUs: number; slowPolls: number };
@@ -174,6 +178,9 @@ export class NativeEngine implements EngineSurface {
       resolveClose: (error) => this.finishClosePromise(error),
       timerFired: (key) => native?.timerFired?.(key),
       settlePromise: (id, ok, message) => native?.settlePromise?.(id, ok, message),
+      livePersist: (token) => native?.livePersist?.(token),
+      liveCommitted: (token) => native?.liveCommitted?.(token),
+      liveQuarantined: (thread) => native?.liveQuarantined?.(thread),
     };
     // The opener: the TypeScript repository's schema setup, in today's order (E5.3 step 1).
     openEngineData(store, options, () => (options.clock ?? { now: Date.now }).now());

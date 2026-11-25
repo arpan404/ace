@@ -201,6 +201,39 @@ describe.runIf(native)("engine persistence", () => {
     }
   });
 
+  test("an established delta takes the buffered live path and the store's flush settles it", async () => {
+    const seam = await engineSeam();
+    let threadId = "";
+    try {
+      await seam.engine.ready();
+      seam.probe.passThroughCollaborators();
+      threadId = seedStatefulThread(seam);
+      seam.probe.apply(threadId, turnFacts("hello"), 1_000);
+      // A delta on a committed thread goes through the store's one live buffer (E5.2 step 16).
+      const buffered = seam.probe.stream(
+        threadId,
+        [{ type: "item.delta", agent: "root", item: "item-1", field: "text", append: " more" }],
+        2_000,
+      );
+      expect(buffered).toBe(true);
+      // The buffer's own flush (its timer's call) runs the engine's `persist` and `committed`
+      // entries for this token inside the flush's transaction.
+      seam.store.flushLiveWrites();
+      expect(seam.store.hasLiveWrite(threadId as never)).toBe(false);
+      const rows = engineRows(seam, threadId);
+      const appends = rows.appends.filter((row) => row["key"] === "item-1");
+      expect(appends).toHaveLength(1);
+      expect(JSON.parse(String(appends[0]?.["patch"]))).toEqual({
+        path: ["parts", 0, "text"],
+        text: " more",
+        seed: { type: "text" },
+      });
+      expect(seam.probe.holds(threadId)).toBe(true);
+    } finally {
+      await seam.close();
+    }
+  });
+
   test("a rolled-back fold leaves no record in the budget, its rows are unchanged, and the next fold reloads from SQLite", async () => {
     const seam = await engineSeam();
     try {
@@ -246,11 +279,12 @@ describe.runIf(native)("engine persistence", () => {
       expect(seam.probe.holds(threadId)).toBe(true);
       seam.probe.quarantine(threadId);
       expect(seam.probe.holds(threadId)).toBe(false);
-      // No actor exists for this thread: `hasState` reloads the stored rows on its own.
+      // No actor exists for this thread: the stored row is still there, and the next fold
+      // reloads the state from SQLite on its own.
       expect(seam.engine.hasState(threadId as never)).toBe(true);
-      expect(seam.probe.holds(threadId)).toBe(true);
       expect(engineRows(seam, threadId).records).toEqual(rows.records);
       seam.probe.apply(threadId, turnFacts("after"), 2_000);
+      expect(seam.probe.holds(threadId)).toBe(true);
       expect(engineRows(seam, threadId).appends.length).toBeGreaterThan(rows.appends.length);
     } finally {
       await seam.close();

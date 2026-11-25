@@ -474,6 +474,40 @@ impl Core {
         Ok(f(&mut state))
     }
 
+    /// `repo.stream` (`repository.ts:363`): the live batch's refusals and fold inside one state
+    /// borrow, then the store's buffer outside it, since buffering can flush and the flush
+    /// re-enters this engine.
+    pub fn stream(&self, id: &str, facts_json: &str, now: f64) -> Result<bool, EngineError> {
+        let prepared =
+            self.with_state(|state| state.prepare_stream(&self.store, id, facts_json, now))??;
+        let Some(prepared) = prepared else {
+            return Ok(false);
+        };
+        self.store.prepare_live_write(prepared.bytes)?;
+        self.store
+            .buffer_live_write(id, &prepared.events, now, prepared.token)?;
+        self.with_state(|state| {
+            state.repo.live.insert(prepared.token, prepared.snapshot);
+        })?;
+        Ok(true)
+    }
+
+    /// The live buffer's `persist(token)` (E5.3 step 8): the pinned snapshot's rows.
+    pub fn live_persist(&self, token: u64) -> Result<(), EngineError> {
+        self.with_state(|state| state.live_persist(token))?
+    }
+
+    /// The live buffer's `committed(token)`: the pin settles its snapshot and the repository
+    /// records the commit.
+    pub fn live_committed(&self, token: u64) -> Result<(), EngineError> {
+        self.with_state(|state| state.live_committed(&self.store, token))?
+    }
+
+    /// The store's quarantine notification for one thread.
+    pub fn quarantined(&self, thread: &str) -> Result<(), EngineError> {
+        self.with_state(|state| state.quarantined(&self.store, thread))?
+    }
+
     /// A strong handle to this engine, for a synchronous entry that starts work.
     pub fn self_rc(&self) -> Option<Rc<Core>> {
         self.self_weak.borrow().upgrade()

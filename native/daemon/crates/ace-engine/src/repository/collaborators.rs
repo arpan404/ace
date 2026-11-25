@@ -11,9 +11,10 @@
 //! the last owner to land deletes it.
 
 use ace_core::ThreadState;
+use ace_core::item_model::ToolCall;
 use ace_json::Value;
 
-use crate::{EngineError, State};
+use crate::{EngineError, EngineStore, State};
 
 /// What `session(id)` answers: the thread's model and native session id (E5.6).
 #[derive(Debug, Clone, Default)]
@@ -95,9 +96,11 @@ pub trait FrameFacts: ProbeGate {
     fn coalesce_facts(&mut self, facts: Vec<Value>) -> Result<Vec<Value>, EngineError> {
         self.not_ported("coalescing a batch's facts", "E5.2", facts)
     }
-    /// `streamFacts` (`stream-facts.ts`), the live path.
+    /// `streamFacts` (`stream-facts.ts`), the live path: the fold over the repository's own
+    /// snapshot, returned as the batch's events.
     fn stream_facts(
         &mut self,
+        _store: &EngineStore,
         _thread: &str,
         _facts_json: &str,
         _now: f64,
@@ -108,8 +111,14 @@ pub trait FrameFacts: ProbeGate {
     fn streamed_facts_bytes(&mut self, _facts_json: &str) -> Result<f64, EngineError> {
         self.not_ported("a live stream's size", "E5.2", 0.0)
     }
-    /// `capFact` (`raw.ts`).
-    fn cap_fact(&mut self, fact: Value, _previous: Option<&str>) -> Result<Value, EngineError> {
+    /// `capFact` (`raw.ts`): the previous stored call of the same item, for its normalisation.
+    fn cap_fact(
+        &mut self,
+        _store: &EngineStore,
+        _thread: &str,
+        fact: Value,
+        _previous: Option<&ToolCall>,
+    ) -> Result<Value, EngineError> {
         self.not_ported("capping a fact", "E5.2", fact)
     }
     /// `boundedJson` (`@ace/provider-kit/ipc`).
@@ -356,9 +365,82 @@ pub trait MoveFacts: ProbeGate {
     }
 }
 
-impl FrameFacts for State {}
+impl FrameFacts for State {
+    /// `coalesceFacts` (`delta-batch.ts:4`): adjacent deltas of one item merge up to 4 KiB.
+    fn coalesce_facts(&mut self, facts: Vec<Value>) -> Result<Vec<Value>, EngineError> {
+        Ok(crate::frames::coalesce_facts(&facts))
+    }
+
+    /// `streamFacts` (`stream-facts.ts:7`): the canonical reducer over the resident snapshot.
+    fn stream_facts(
+        &mut self,
+        store: &EngineStore,
+        thread: &str,
+        facts_json: &str,
+        now: f64,
+    ) -> Result<String, EngineError> {
+        let facts = Self::facts(facts_json)?;
+        let snapshot = self.repo.require_state(store, thread)?;
+        let deadline = snapshot.borrow_mut().deadline(None);
+        let mut ids = super::fold::store_ids(store);
+        let mut borrowed = snapshot.borrow_mut();
+        let mut live = crate::snapshot::stream::LiveStream::new(&mut borrowed, deadline);
+        let events = crate::frames::stream_facts(&mut live, &facts, now as i64, &mut ids);
+        if let Some(error) = live.take_error() {
+            return Err(error);
+        }
+        drop(live);
+        let mut json = String::new();
+        ace_core::event_json::write_events(&events, &mut json);
+        Ok(json)
+    }
+
+    /// `streamedFactsBytes` (`fact-bytes.ts:7`): the batch's JSON size, in bytes.
+    fn streamed_facts_bytes(&mut self, facts_json: &str) -> Result<f64, EngineError> {
+        let facts = Self::facts(facts_json)?;
+        Ok(crate::frames::streamed_facts_bytes(&facts) as f64)
+    }
+
+    /// `capFact` (`raw.ts:8`): the ace-call normalisation and the store's `capRaw`.
+    fn cap_fact(
+        &mut self,
+        store: &EngineStore,
+        thread: &str,
+        fact: Value,
+        previous: Option<&ToolCall>,
+    ) -> Result<Value, EngineError> {
+        crate::frames::cap_fact(
+            &mut |raw| {
+                let capped = store.cap_raw(thread, &ace_json::to_string(&raw))?;
+                ace_json::parse(&capped).map_err(|error| EngineError::Records(error.to_string()))
+            },
+            fact,
+            previous,
+        )
+    }
+}
 impl InputFacts for State {}
 impl SessionFacts for State {}
 impl AccessFacts for State {}
 impl RecoveryFacts for State {}
 impl MoveFacts for State {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_production_frame_facts_coalesce_and_measure_a_batch() {
+        // E5.2 has landed, so a fold's first collaborator call is its own code, not NotPorted.
+        let mut state = State::default();
+        let batch = r#"[{"type":"item.delta","agent":"root","item":"i","field":"text","append":"a"},{"type":"item.delta","agent":"root","item":"i","field":"text","append":"b"}]"#;
+        let facts = State::facts(batch).unwrap();
+        let merged = state.coalesce_facts(facts).unwrap();
+        assert_eq!(merged.len(), 1, "the two appends are one fact");
+        let bytes = state.streamed_facts_bytes(batch).unwrap();
+        assert_eq!(
+            bytes as usize,
+            crate::frames::streamed_facts_bytes(&State::facts(batch).unwrap())
+        );
+    }
+}

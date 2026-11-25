@@ -269,3 +269,56 @@ fn appended_text_counts_against_the_budget_and_survives_eviction_and_replacement
         matches!(parts.first(), Some(ace_core::item_model::ContentPart::Text { text, .. }) if text.as_str() == "appended")
     );
 }
+
+#[test]
+fn a_field_this_build_does_not_know_survives_a_rewrite() {
+    // `parseRecord` validates without stripping (`records.ts:15`): a newer build's field stays on
+    // the stored record when this one rewrites it.
+    let conn = database();
+    stmt_cache::run(
+        &conn,
+        "INSERT INTO engine_state_records VALUES (?,?,?,?)",
+        vec![
+            Value::Text("t".to_owned()),
+            Value::Text("items".to_owned()),
+            Value::Text("i".to_owned()),
+            Value::Text(
+                r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"notice","level":"info","text":"hi","futureField":{"a":1}}"#
+                    .to_owned(),
+            ),
+        ],
+    )
+    .unwrap();
+    let budget = Rc::new(RefCell::new(RecordBudget::default()));
+    let mut items: Records<Item> = records(&conn, &budget, "items", decode::decode_record::<Item>);
+    let stored = items.read("i").unwrap().expect("the stored record");
+    let Item::Notice { text, .. } = &stored else {
+        panic!("a notice");
+    };
+    assert_eq!(text.as_str(), "hi");
+    let changed: Item = ace_json::from_value(
+        &ace_json::parse(
+            r#"{"id":"i","threadId":"t","agentId":"a","createdAt":1,"complete":false,"type":"notice","level":"info","text":"changed"}"#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    items.write("i", changed);
+    items.persist().unwrap();
+    let row = stmt_cache::get_row(
+        &conn,
+        "SELECT value FROM engine_state_records WHERE thread_id=? AND section='items' AND key=?",
+        vec![Value::Text("t".to_owned()), Value::Text("i".to_owned())],
+    )
+    .unwrap()
+    .expect("the rewritten row");
+    let stored = match row.get("value") {
+        Some(Value::Text(text)) => text.clone(),
+        _ => panic!("stored text"),
+    };
+    assert!(
+        stored.contains(r#""futureField":{"a":1}"#),
+        "the unknown field survives: {stored}"
+    );
+    assert!(stored.contains(r#""text":"changed""#));
+}

@@ -39,9 +39,9 @@ impl Repo {
     /// keeps its old stamp, so a later sync checks it again.
     pub fn sync(&mut self, store: &EngineStore) -> Result<(), EngineError> {
         let generation = store.rollback_generation()?;
-        if generation == self.generation {
-            return Ok(());
-        }
+        // Every resident snapshot is checked, even when the generation did not move since the
+        // last sync: a snapshot spared once because a live write pinned it must be checked again
+        // once that pin is gone, or a rolled-back state can stay resident forever.
         for id in self.snapshots.keys().cloned().collect::<Vec<_>>() {
             if store.has_live_write(&id)? {
                 continue;
@@ -283,5 +283,37 @@ mod tests {
             Some("stored-run"),
             "the released snapshot's read falls through to SQLite"
         );
+    }
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home};
+    use crate::snapshot::decode::decode_header;
+
+    #[test]
+    fn a_snapshot_spared_while_pinned_is_dropped_once_the_pin_is_gone() {
+        // Generation 1 with a live write pinned skips the snapshot; a later sync at the same
+        // generation must still drop it, or the rolled-back state stays resident.
+        let conn = home("sync", &header("sync"));
+        let (store, shell) = Shell::store_with_controls(&conn);
+        let mut repo = Repo::new(64);
+        let snapshot = repo
+            .state(&store, "sync")
+            .unwrap()
+            .expect("the stored state");
+        shell.rollback();
+        shell.pin(true);
+        repo.sync(&store).unwrap();
+        assert!(repo.holds("sync"), "a pinned snapshot is spared");
+        shell.pin(false);
+        repo.sync(&store).unwrap();
+        assert!(
+            !repo.holds("sync"),
+            "the pin is gone, so the stale snapshot goes"
+        );
+        assert!(snapshot.borrow().is_released());
+        let _ = decode_header(&header("sync")).unwrap();
     }
 }

@@ -86,20 +86,39 @@ pub(crate) struct Shell {
     ids: Cell<u64>,
     /// The shell refuses to open a frame: a pending live batch whose flush fails.
     fail_open: Cell<bool>,
+    /// Whether a live write is pending for every thread (the pin a sync must respect).
+    pinned: Cell<bool>,
+    /// Each buffered live write: thread, events, time and callback token.
+    pub buffered: RefCell<Vec<(String, String, f64, u64)>>,
     rolled_back: RefCell<Vec<String>>,
 }
 
 impl Shell {
     /// A store whose transaction frame cannot open: the read must surface it, not skip it.
     pub fn failing_store(conn: &Arc<Connection>) -> EngineStore {
-        Shell::make(conn, true)
+        Shell::make(conn, true).0
     }
 
     pub fn store(conn: &Arc<Connection>) -> EngineStore {
+        Shell::make(conn, false).0
+    }
+
+    /// The store and its controls: a test pins a thread's live write and bumps the generation.
+    pub fn store_with_controls(conn: &Arc<Connection>) -> (EngineStore, std::rc::Rc<Shell>) {
         Shell::make(conn, false)
     }
 
-    fn make(conn: &Arc<Connection>, fail_open: bool) -> EngineStore {
+    /// A live write pending for every thread, as a buffered batch's pin.
+    pub fn pin(&self, pinned: bool) {
+        self.pinned.set(pinned);
+    }
+
+    /// A rollback: the store bumps the generation.
+    pub fn rollback(&self) {
+        self.generation.set(self.generation.get() + 1.0);
+    }
+
+    fn make(conn: &Arc<Connection>, fail_open: bool) -> (EngineStore, std::rc::Rc<Shell>) {
         let shell = std::rc::Rc::new(Shell {
             conn: Arc::clone(conn),
             depth: Cell::new(0),
@@ -107,14 +126,17 @@ impl Shell {
             seq: Cell::new(0.0),
             ids: Cell::new(0),
             fail_open: Cell::new(fail_open),
+            pinned: Cell::new(false),
+            buffered: RefCell::new(Vec::new()),
             rolled_back: RefCell::new(Vec::new()),
         });
-        EngineStore {
+        let store = EngineStore {
             ports: shell.clone(),
-            stack: shell,
+            stack: shell.clone(),
             outermost: Cell::new(true),
             conn: Arc::clone(conn),
-        }
+        };
+        (store, shell)
     }
 }
 
@@ -219,7 +241,22 @@ impl Ports for Shell {
         Ok(self.seq.get())
     }
     fn has_live_write(&self, _thread: &str) -> Result<bool, PortError> {
-        Ok(false)
+        Ok(self.pinned.get() || !self.buffered.borrow().is_empty())
+    }
+    fn prepare_live_write(&self, _bytes: f64) -> Result<(), PortError> {
+        Ok(())
+    }
+    fn buffer_live_write(
+        &self,
+        thread: &str,
+        events: &str,
+        at: f64,
+        token: u64,
+    ) -> Result<(), PortError> {
+        self.buffered
+            .borrow_mut()
+            .push((thread.to_owned(), events.to_owned(), at, token));
+        Ok(())
     }
     fn rollback_generation(&self) -> Result<f64, PortError> {
         Ok(self.generation.get())

@@ -32,6 +32,15 @@ impl NativeEngine {
             .map_err(engine_error)
     }
 
+    /// Streams one live batch: E5.2's buffer takes it and its flush settles this snapshot.
+    #[napi]
+    pub fn probe_stream(&self, id: String, facts_json: String, now: f64) -> napi::Result<bool> {
+        self.engine
+            .core()
+            .stream(&id, &facts_json, now)
+            .map_err(engine_error)
+    }
+
     /// Folds one batch inside a transaction that then rolls back: the save's rows and its
     /// snapshot must not survive it.
     #[napi]

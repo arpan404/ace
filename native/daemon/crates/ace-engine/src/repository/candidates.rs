@@ -20,9 +20,12 @@ use std::sync::Arc;
 
 use crate::{EngineError, ThreadId};
 
-const THREADS: &str = "SELECT id AS thread_id FROM threads WHERE json_extract(status,'$.state') NOT IN ('new','done','failed') AND id > ? ORDER BY id LIMIT 256";
+// Each source scans at most 256 rows by its cursor and the predicate is evaluated here, so a
+// home with a million finished threads never scans them all in one step (E5.3 step 9). The
+// predicates and the order are the TypeScript union's (`repository.ts:259`-`:266`).
+const THREADS: &str = "SELECT id AS thread_id, json_extract(status,'$.state') AS state FROM threads WHERE id > ? ORDER BY id LIMIT 256";
 const INTENTS: &str = "SELECT thread_id, status, awaiting, uncertain, id FROM intents WHERE (thread_id, status, id) > (?, ?, ?) ORDER BY thread_id, status, id LIMIT 256";
-const QUEUES: &str = "SELECT thread_id FROM engine_queue WHERE thread_id > ? AND (continuation IS NOT NULL OR trigger IS NOT NULL OR limited=1 OR paused=1) ORDER BY thread_id LIMIT 256";
+const QUEUES: &str = "SELECT thread_id, continuation, trigger, limited, paused FROM engine_queue WHERE thread_id > ? ORDER BY thread_id LIMIT 256";
 const HAS_STATE: &str = "SELECT 1 FROM thread_state WHERE thread_id=?";
 
 /// Sorts after every status a row can carry (U+10FFFF is the highest code point).
@@ -172,9 +175,15 @@ impl Scan {
             stmt_cache::all_rows(conn, THREADS, vec![Value::Text(self.threads.last.clone())])?;
         let short = rows.len() < 256;
         for row in &rows {
-            if let Some(id) = row.get("thread_id").and_then(cell_text) {
-                self.threads.last = id.to_owned();
-                self.offer(id);
+            let Some(id) = row.get("thread_id").and_then(cell_text) else {
+                continue;
+            };
+            self.threads.last = id.to_owned();
+            // `json_extract(status,'$.state') NOT IN ('new','done','failed')`: a null state is
+            // SQL's NULL, which the TypeScript's NOT IN does not match either.
+            match row.get("state").and_then(cell_text) {
+                Some(state) if !matches!(state, "new" | "done" | "failed") => self.offer(id),
+                _ => {}
             }
         }
         self.threads.exhausted = short;
@@ -213,8 +222,16 @@ impl Scan {
         let rows = stmt_cache::all_rows(conn, QUEUES, vec![Value::Text(self.queues.last.clone())])?;
         let short = rows.len() < 256;
         for row in &rows {
-            if let Some(id) = row.get("thread_id").and_then(cell_text) {
-                self.queues.last = id.to_owned();
+            let Some(id) = row.get("thread_id").and_then(cell_text) else {
+                continue;
+            };
+            self.queues.last = id.to_owned();
+            let set = |key: &str| {
+                row.get(key)
+                    .is_some_and(|value| !matches!(value, Value::Null))
+            };
+            let one = |key: &str| row.get(key).and_then(cell_int) == Some(1);
+            if set("continuation") || set("trigger") || one("limited") || one("paused") {
                 self.offer(id);
             }
         }
@@ -509,5 +526,98 @@ mod tests {
         queue(&conn, "");
         intent(&conn, "", "pending");
         assert!(pages(&conn).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+    use ace_store::OpenOptions;
+
+    fn home() -> Arc<Connection> {
+        let path = std::env::temp_dir().join(format!(
+            "ace-engine-scan-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|since| since.as_nanos())
+                .unwrap_or(0)
+        ));
+        let conn = Connection::open(
+            path.to_str().unwrap_or_default(),
+            OpenOptions {
+                read_only: false,
+                timeout_ms: 0,
+            },
+        )
+        .unwrap();
+        conn.exec(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, status JSON NOT NULL); \
+             CREATE TABLE thread_state (thread_id TEXT PRIMARY KEY, state JSON NOT NULL, seq INTEGER NOT NULL); \
+             CREATE TABLE intents (id INTEGER PRIMARY KEY, thread_id TEXT, status TEXT, awaiting INTEGER, uncertain INTEGER); \
+             CREATE TABLE engine_queue (thread_id TEXT PRIMARY KEY, continuation TEXT, trigger TEXT, limited INTEGER, paused INTEGER);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn one_step_scans_at_most_a_page_of_rows_however_sparse_the_matches_are() {
+        // 256 finished threads before the first candidate: one step may scan only those 256, so
+        // it finds no candidate and the page does not close. Scanning the whole table in one
+        // step would find all 64 and close the page immediately.
+        let conn = home();
+        for index in 0..256 {
+            let id = format!("done-{index:04}");
+            stmt_cache::run(
+                &conn,
+                "INSERT INTO threads VALUES (?, ?)",
+                vec![
+                    Value::Text(id.clone()),
+                    Value::Text(r#"{"state":"done"}"#.to_owned()),
+                ],
+            )
+            .unwrap();
+            stmt_cache::run(
+                &conn,
+                "INSERT INTO thread_state VALUES (?, ?, 0)",
+                vec![
+                    Value::Text(id),
+                    Value::Text(r#"{"engineSnapshot":9}"#.to_owned()),
+                ],
+            )
+            .unwrap();
+        }
+        for index in 0..64 {
+            let id = format!("live-{index:04}");
+            stmt_cache::run(
+                &conn,
+                "INSERT INTO threads VALUES (?, ?)",
+                vec![
+                    Value::Text(id.clone()),
+                    Value::Text(r#"{"state":"working"}"#.to_owned()),
+                ],
+            )
+            .unwrap();
+            stmt_cache::run(
+                &conn,
+                "INSERT INTO thread_state VALUES (?, ?, 0)",
+                vec![
+                    Value::Text(id),
+                    Value::Text(r#"{"engineSnapshot":9}"#.to_owned()),
+                ],
+            )
+            .unwrap();
+        }
+        let mut scan = Scan::new(String::new());
+        assert!(
+            scan.step(&conn).unwrap().is_none(),
+            "the first step scanned only the first 256 rows"
+        );
+        let page = scan
+            .step(&conn)
+            .unwrap()
+            .expect("the second step closes the page");
+        assert_eq!(page.threads.len(), 64);
     }
 }

@@ -109,7 +109,7 @@ impl<T: Clone + serde::Serialize + 'static> ace_core::section::RecordSource<T> f
                     .map_err(|error| SourceError::new(error.to_string()))?,
             )
             .map_err(SourceError::new)?;
-            bytes += patch.text.len();
+            bytes += patch.text_bytes();
             value = restore_append(value, &patch).map_err(SourceError::new)?;
         }
         let decoded = (self.decode)(&value).map_err(|error| SourceError::new(error.to_string()))?;
@@ -314,7 +314,7 @@ impl<T: Clone + serde::Serialize + 'static> Records<T> {
             match patches.last_mut() {
                 Some(previous)
                     if previous.path == patch.path
-                        && units(&previous.text) + units(&patch.text) <= MAX_PATCH_UNITS =>
+                        && previous.text_units() + patch.text_units() <= MAX_PATCH_UNITS =>
                 {
                     previous.text.push_str(&patch.text);
                 }
@@ -324,7 +324,7 @@ impl<T: Clone + serde::Serialize + 'static> Records<T> {
             insert_patch(&self.conn, &self.thread, &self.group, key, &patch)?;
         }
         if let Some(mut entry) = entry {
-            entry.bytes += patch.text.len();
+            entry.bytes += patch.text_bytes();
             let bytes = entry.bytes;
             self.cache.set(key, entry, bytes);
         }
@@ -421,8 +421,4 @@ pub(crate) fn insert_patch(
         vec![text(thread), text(group), text(key), text(&patch.to_json())],
     )?;
     Ok(())
-}
-
-fn units(text: &str) -> usize {
-    text.encode_utf16().count()
 }

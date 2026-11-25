@@ -16,7 +16,9 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { AdapterRegistry, Engine, Store } from "@ace/daemon";
+import { EngineRepository } from "../engine/repository.ts";
 import type { Fact } from "@ace/core";
 import { Capabilities, Command, type CommandPayload } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
@@ -25,6 +27,8 @@ import { ManualClock, end, scriptFrames, start } from "../engine/test-support.ts
 const home = process.env.ACE_HOME;
 if (!home) throw new Error("ACE_HOME is required");
 const mode = process.argv[2] ?? "seed";
+/** The thread whose header this build must refuse, written after the engine closed. */
+let refused = "";
 
 const frames = scriptFrames();
 const clock = new ManualClock();
@@ -88,7 +92,8 @@ const engine = new Engine(store, {
   registry,
   clock,
   idleMs: 30_000,
-  silenceMs: 100,
+  // The live path refuses a delta batch past the thread's silence deadline; give it room.
+  silenceMs: 30_000,
   onError: (error) => errors.push(error),
 });
 
@@ -119,55 +124,55 @@ try {
     registry.register(
       adapter(
         [
-          { on: "send", frames: [frames.frame(start, message("working", "still going"))] },
+          // Ended turns: a working thread is a restart candidate, and restart recovery is E5.8's.
+          { on: "send", frames: [frames.frame(start, message("first", "still going"), end)] },
           { on: "send", frames: [frames.frame(start, message("done", "finished"), end)] },
-          {
-            on: "send",
-            frames: [
-              frames.frame(
-                start,
-                message("long", ""),
-                ...Array.from({ length: 40 }, () => delta("long", LONG_DELTA)),
-                end,
-              ),
-            ],
-          },
-          { on: "send", frames: [frames.frame(start, message("refused", "refused"), end)] },
+          { on: "send", frames: [frames.frame(start, message("long", ""))] },
+          // Left working on purpose: the scan visits it, cannot read it, and skips it.
+          { on: "send", frames: [frames.frame(start, message("refused", "refused"))] },
         ],
         contexts,
       ),
       { installed: true, auth: "logged_in", loginHint: "unused" },
     );
-    await create("working");
+    await create("first");
     await create("done");
     await create("long");
-    const refused = await create("refused");
-    await engine.flush();
-    // The header this build refuses: a snapshot version it does not read.
-    store.atomic((db) =>
-      db
-        .prepare("UPDATE thread_state SET state=json_set(state,'$.engineSnapshot',8) WHERE thread_id=?")
-        .run(refused),
+    // A second batch of appends on the committed item: only these are stored as patches.
+    const longSession = contexts.at(-1);
+    if (!longSession) throw new Error("the long thread opened no session");
+    // A frame of only deltas takes the live path and is stored as patches.
+    await longSession.onFrame(
+      frames.frame(...Array.from({ length: 40 }, () => delta("long", LONG_DELTA))),
     );
-    process.stdout.write(`seed threads ${store.listThreads().map((thread) => thread.id).join(",")}\n`);
+    await longSession.onFrame(frames.frame(end));
+    await engine.flush();
+    const refusedId = await create("refused");
+    await engine.flush();
+    refused = refusedId;
+    process.stdout.write(
+      `seed threads ${store
+        .listThreads()
+        .map((thread) => thread.id)
+        .join(",")}\n`,
+    );
   } else if (mode === "continue") {
-    // Recovery restarts the working thread: one send consumes this step.
-    registry.register(adapter([{ on: "send" }], contexts), {
-      installed: true,
-      auth: "logged_in",
-      loginHint: "unused",
-    });
-    await engine.ready();
-    const context = contexts[0];
-    if (!context) throw new Error("recovery opened no session");
-    await context.onFrame(
-      frames.frame(
+    // The TypeScript repository reads the header the native engine wrote and folds one more
+    // batch on top. No session and no actor: a command send would need E5.6's session rows.
+    const thread = process.env.ACE_THREAD;
+    if (!thread) throw new Error("ACE_THREAD is required");
+    const repo = new EngineRepository(store);
+    const before = repo.state(thread as never);
+    if (before === undefined) throw new Error("the native engine left no state to read");
+    repo.apply(
+      thread as never,
+      [
         message("ts-after", "after"),
         { type: "turn.ended", agent: "root", outcome: "completed" },
-      ),
+      ] as never,
+      clock.now(),
     );
-    await engine.flush();
-    process.stdout.write(`continue contexts ${contexts.length}\n`);
+    process.stdout.write(`continue version ${JSON.stringify(before.threadId)}\n`);
   } else {
     throw new Error(`unknown mode ${mode}`);
   }
@@ -175,4 +180,20 @@ try {
 } finally {
   await engine.close().catch(() => {});
   await store.close();
+  if (refused) {
+    // After the close's own flush: a header this build cannot read (a required section is gone),
+    // which startup reports and skips. Written on a raw connection so no engine rewrites it.
+    const raw = new DatabaseSync(join(home, "events.sqlite"));
+    try {
+      raw
+        .prepare("UPDATE thread_state SET state=json_remove(state,'$.items') WHERE thread_id=?")
+        .run(refused);
+      // The scan's candidate status, so startup visits the thread it must skip.
+      raw
+        .prepare("UPDATE threads SET status=? WHERE id=?")
+        .run(JSON.stringify({ state: "working", agents: 1 }), refused);
+    } finally {
+      raw.close();
+    }
+  }
 }

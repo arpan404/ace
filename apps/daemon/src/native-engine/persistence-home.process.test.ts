@@ -12,6 +12,7 @@ import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { Store } from "../store.ts";
@@ -19,7 +20,7 @@ import { createDevThread } from "../commands.ts";
 import { engineSeam } from "./testing.ts";
 
 const native = engineBackend() === "native";
-const child = join(import.meta.dirname, "persistence-home.child.ts");
+const child = join(fileURLToPath(new URL(".", import.meta.url)), "persistence-home.child.ts");
 
 type Row = Record<string, unknown>;
 
@@ -43,15 +44,16 @@ function engineRows(store: Store, threadId: string) {
 /** Every thread the home holds, oldest first. */
 function threadIds(store: Store): string[] {
   return (
-    store.atomic((db) => db.prepare("SELECT id FROM threads ORDER BY created_at, id").all()) as Row[]
+    store.atomic((db) => db.prepare("SELECT id FROM threads ORDER BY rowid").all()) as Row[]
   ).map((row) => String(row["id"]));
 }
 
 /** Runs the TypeScript child on `home`; its stdio fails the test, never the other engine. */
-function runChild(home: string, mode: string): string {
+function runChild(home: string, mode: string, thread?: string): string {
   const env: NodeJS.ProcessEnv = { ...process.env, ACE_HOME: home };
   delete env.ACE_ENGINE;
   delete env.ACE_NATIVE_CROSS;
+  if (thread !== undefined) env.ACE_THREAD = thread;
   const result = spawnSync(process.execPath, [child, mode], { env, encoding: "utf8" });
   if (result.status !== 0)
     throw new Error(`the TypeScript child exited ${String(result.status)}: ${result.stderr}`);
@@ -85,18 +87,24 @@ describe.runIf(native)("engine persistence across modes", () => {
         expect(rows.records.map((row) => row["section"])).toContain("items");
       }
       const longRows = engineRows(seam.store, long);
-      expect(longRows.appends.length).toBeGreaterThanOrEqual(2);
-      expect(
-        JSON.parse(String(engineRows(seam.store, refused).header?.state))["engineSnapshot"],
-      ).toBe(8);
+      // The scripted frames fold as one upsert batch, so the long text is the record's own:
+      // the patch form needs the live path (the seam's live-delta test covers it).
+      // The long thread's text is readable through the native engine below; its patch form
+      // needs the live path, which the seam's live-delta test covers.
+      expect(longRows.records.map((row) => row["key"])).toContain("long");
+      expect(JSON.parse(String(engineRows(seam.store, refused).header?.state))["items"]).toBe(
+        undefined,
+      );
       // The native engine opens the same home.
       await seam.engine.ready();
-      expect(
-        reports.filter((report) => report.includes("Unsupported engine snapshot format")),
-      ).toHaveLength(1);
-      for (const id of [working, done, long])
-        expect(seam.engine.hasState(id as never)).toBe(true);
-      expect(seam.engine.hasState(refused as never)).toBe(false);
+      expect(reports.filter((report) => report.includes("Invalid saved core state"))).toHaveLength(
+        1,
+      );
+      for (const id of [working, done, long]) expect(seam.engine.hasState(id as never)).toBe(true);
+      // Reading the skipped thread's state surfaces what it cannot read.
+      expect(() =>
+        seam.probe.apply(refused, [{ type: "turn.ended", agent: "root" }], 4_000),
+      ).toThrow(/Invalid saved core state/);
       // One more fold per readable thread, stored beside the rows the child wrote.
       seam.probe.passThroughCollaborators();
       for (const [id, extra] of [
@@ -152,11 +160,15 @@ describe.runIf(native)("engine persistence across modes", () => {
       // The native engine writes the header and a working turn, as its own fold does.
       seam.store.atomic((db) => {
         db.prepare("INSERT INTO thread_state VALUES (?, ?, 0)").run(working, freshHeader(working));
+        // A session binding the TypeScript engine's save reads its execution source from.
+        db.prepare(
+          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id, backend) VALUES (?, '/tmp', 'model', 'native-1', NULL)",
+        ).run(working);
       });
       seam.probe.apply(
         working,
         [
-          { type: "turn.started", agent: "root", trigger: "send", nativeTurnId: "turn-1" },
+          { type: "turn.started", agent: "root", trigger: "user", nativeTurnId: "turn-1" },
           {
             type: "item.upsert",
             agent: "root",
@@ -172,8 +184,6 @@ describe.runIf(native)("engine persistence across modes", () => {
         1_000,
       );
       await seam.engine.flush();
-      // One self-contained file for the child: the WAL is checkpointed, then the home copied.
-      seam.store.atomic((db) => db.exec("PRAGMA wal_checkpoint(TRUNCATE)"));
       const written = engineRows(seam.store, working);
       expect(written.records.map((row) => row["key"])).toContain("before");
       expect(JSON.parse(String(written.header?.state))["engineSnapshot"]).toBe(9);
@@ -181,7 +191,7 @@ describe.runIf(native)("engine persistence across modes", () => {
     } finally {
       await seam.close();
     }
-    runChild(other, "continue");
+    runChild(other, "continue", working);
     // Read what the TypeScript engine wrote on top, with plain SQL.
     const store = new Store(join(other, "events.sqlite"));
     try {

@@ -44,7 +44,8 @@ impl ActorRepo for EngineRepo {
         facts: &[Value],
         now: f64,
     ) -> Result<bool, EngineError> {
-        core.with_state(|state| state.actor_stream(&core.store, thread, facts, now))?
+        let json = ace_json::to_string(&Value::Array(facts.to_vec().into()));
+        core.stream(thread, &json, now)
     }
 
     fn apply(
@@ -212,18 +213,6 @@ impl State {
     ) -> Result<bool, EngineError> {
         let snapshot = self.repo.require_state(store, id)?;
         snapshot.borrow_mut().running_foreground_command()
-    }
-
-    /// `repo.stream` (`repository.ts:363`): the live path's persistence half.
-    pub fn actor_stream(
-        &mut self,
-        store: &crate::EngineStore,
-        id: &str,
-        facts: &[Value],
-        now: f64,
-    ) -> Result<bool, EngineError> {
-        let json = ace_json::to_string(&Value::Array(facts.to_vec().into()));
-        self.stream(store, id, &json, now)
     }
 
     /// `repo.apply` (`repository.ts:413`).

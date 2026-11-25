@@ -36,6 +36,8 @@ export interface EngineProbe {
   applyRolledBack(threadId: string, facts: readonly unknown[], now: number): void;
   /** The probe's pass-through collaborators (E5.3 scaffolding). */
   passThroughCollaborators(): void;
+  /** One live batch through `stream`: true when it was buffered. */
+  stream(threadId: string, facts: readonly unknown[], now: number): boolean;
   /** The record budget's figures. */
   budget(): { entries: number; bytes: number; evictions: number };
   /** Resident snapshots, and whether one thread's is resident. */
@@ -348,6 +350,8 @@ function probeFor(
     passThroughCollaborators: () => {
       required("probePassThroughCollaborators")();
     },
+    stream: (threadId, facts, now) =>
+      required("probeStream")(threadId, JSON.stringify(facts), now) as boolean,
     budget: () =>
       JSON.parse(required("probeBudget")() as string) as {
         entries: number;

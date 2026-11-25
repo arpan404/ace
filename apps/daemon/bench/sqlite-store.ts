@@ -18,7 +18,13 @@ import { join } from "node:path";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { randomUUID } from "node:crypto";
-import { AgentItem, ThreadId, type EventPayload, type ServerMessage } from "@ace/protocol";
+import {
+  AgentItem,
+  ThreadId,
+  type EventPayload,
+  type ServerMessage,
+  type WorkspaceId,
+} from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { Store, createDevThread } from "../src/index.ts";
 import { EngineRepository } from "../src/engine/repository.ts";

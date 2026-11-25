@@ -32,6 +32,10 @@ export interface PortHost {
   resolveClose(error: string | null): void;
   timerFired(key: number): void;
   settlePromise(id: number, ok: boolean, message?: string): void;
+  /** The live buffer's token callbacks (`repository.ts:396`-`:409`, E5.3). */
+  livePersist(token: number): void;
+  liveCommitted(token: number): void;
+  liveQuarantined(thread: string): void;
 }
 
 export interface EngineBindings {
@@ -148,9 +152,13 @@ export function engineBindings(input: {
     capRaw: (rawJson, threadId) =>
       JSON.stringify(store.capRaw(JSON.parse(rawJson) as never, threadId as never)),
     prepareLiveWrite: (bytes) => store.prepareLiveWrite(bytes),
-    bufferLiveWrite: () => {
-      throw new Error("NativeEngineIncomplete: buffering a live write lands in E5.2");
-    },
+    bufferLiveWrite: (threadId, eventsJson, at, token) =>
+      store.bufferLiveWrite(threadId as never, JSON.parse(eventsJson) as never, at, {
+        // The buffer calls these back inside its flush transaction; the engine settles the
+        // snapshot it pinned under this token (E5.3 step 8).
+        persist: () => host.livePersist(token),
+        committed: () => host.liveCommitted(token),
+      }),
     settleCall: (call, error) => host.settleCall(call, error),
     rejectPending: () => host.rejectPending(),
     finishClose: () => host.finishClose(),
