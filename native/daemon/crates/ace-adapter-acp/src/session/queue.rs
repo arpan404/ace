@@ -239,7 +239,7 @@ impl AcpCore {
     /// A refusal before the write proves the input unread; once a prompt of the batch went
     /// out it may have reached the agent, so the failure stays uncertain
     /// (`session.ts:630`, `intent-delivery.ts:140`-`:147`).
-    fn unread_or_uncertain(&self, batch: u64, message: &str) -> AcpErrorWire {
+    pub(crate) fn unread_or_uncertain(&self, batch: u64, message: &str) -> AcpErrorWire {
         if self.batches.get(&batch).is_some_and(|state| state.written) {
             AcpErrorWire::rpc_error(self.redact_message(message))
         } else {

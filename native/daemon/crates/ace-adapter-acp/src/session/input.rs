@@ -91,9 +91,10 @@ impl AcpCore {
     /// 5. The reply names any other outcome: the input was taken (`injected`,
     ///    `startedNewTurn`) and the send resolves, or the send is refused
     ///    (`session.ts:660`-`:662`) and never retried.
-    /// 6. The steer's reply never comes (a transport failure, or the session closing):
-    ///    the send settles with the error the peer reported, redacted, never as a refusal
-    ///    and never retried (`input.rs::finish_steer`).
+    /// 6. The steer's reply never comes (a transport failure, or the session closing): its
+    ///    frame already went out, so the send settles with the error the peer reported,
+    ///    redacted, as `uncertain` and never as a refusal, so the engine never sends it
+    ///    twice; a steer that never wrote is refused instead (`input.rs::finish_steer`).
     /// 7. A queued steer's fence is asked again when the queue reaches it
     ///    (`session.ts:717`-`:723`): when it is no longer current the steer is refused
     ///    unread as `SteerTargetLost`, never written into a later turn, and the rest of a
@@ -254,6 +255,11 @@ impl AcpCore {
             ace_supervisor::peer::Timeout::Disabled,
         ) {
             Ok(peer_effects) => {
+                // The steer's frame is handed to the wire: from here its failure is
+                // uncertain, never a refusal (`session.ts:630`, `intent-delivery.ts:140`).
+                if let Some(batch) = self.batches.get_mut(&batch) {
+                    batch.written = true;
+                }
                 let mut effects = Vec::new();
                 self.apply_peer_effects(peer_effects, &mut effects);
                 Ok(effects)
@@ -310,12 +316,9 @@ impl AcpCore {
                 }
             },
             Err(message) => {
-                let message = self.redact_message(&message);
-                self.finish_steer_batch(
-                    flight.batch,
-                    Err(AcpErrorWire::input_rejected(message)),
-                    effects,
-                );
+                // It was written, so a failure here may have reached the agent.
+                let error = self.unread_or_uncertain(flight.batch, &message);
+                self.finish_steer_batch(flight.batch, Err(error), effects);
             }
         }
         true

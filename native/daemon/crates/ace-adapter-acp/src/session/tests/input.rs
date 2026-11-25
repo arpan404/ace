@@ -82,6 +82,51 @@ fn a_current_fence_steers_into_the_running_prompt_in_one_step() {
     assert!(settlements(&settled, 9)[0].is_ok());
 }
 
+/// A steer whose frame went out and is then lost settles as uncertain, never as a refusal:
+/// TS's `batch.written` never covers a steer, so it refuses and the engine sends it again
+/// (behaviour.md 20).
+#[test]
+fn close_settles_a_written_steer_as_uncertain() {
+    let (mut core, _prompt) = core_with_prompt("t-written-steer");
+    let effects = send(&mut core, 80, Delivery::Steer, None);
+    assert_eq!(
+        sent_json_messages(&effects)[0]
+            .get("method")
+            .and_then(Value::as_str),
+        Some("_session/steering"),
+        "the steer reached the wire"
+    );
+
+    let mut closed = Vec::new();
+    core.close(ace_adapter_api::session::CloseReason::User, &mut closed);
+    assert_eq!(
+        settlements(&closed, 80),
+        vec![Err((
+            "ACE_ACP_RPC_ERROR".to_owned(),
+            "ACP session closed".to_owned()
+        ))]
+    );
+}
+
+/// The same when the reply itself fails: the peer's error settles the written steer as
+/// uncertain (`input.rs::finish_steer`'s error arm).
+#[test]
+fn a_written_steer_whose_reply_fails_settles_uncertain() {
+    let (mut core, _prompt) = core_with_prompt("t-steer-reply-fail");
+    let effects = send(&mut core, 81, Delivery::Steer, None);
+    assert!(sent_id(&effects, "_session/steering").is_some());
+
+    // The leader exits: the peer settles every call still waiting on it.
+    let exited = core.mark_exited();
+    let settled = settlements(&exited, 81);
+    assert_eq!(settled.len(), 1);
+    assert_eq!(
+        settled[0].as_ref().err().map(|(code, _)| code.as_str()),
+        Some("ACE_ACP_RPC_ERROR"),
+        "written, so uncertain"
+    );
+}
+
 #[test]
 fn a_steer_outcome_the_agent_did_not_take_refuses_the_send() {
     let (mut core, _prompt) = core_with_prompt("t-outcome");
