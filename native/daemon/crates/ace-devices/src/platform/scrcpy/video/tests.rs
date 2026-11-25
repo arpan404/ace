@@ -3,8 +3,6 @@
 
 use super::*;
 
-use super::*;
-
 fn nal(bytes: &[u8]) -> Vec<u8> {
     let mut out = vec![0, 0, 0, 1];
     out.extend_from_slice(bytes);

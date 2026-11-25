@@ -5,5 +5,6 @@
 //! belongs to the pinned server in `scrcpy-server.ts`; nothing here approximates one.
 pub mod clipboard;
 pub mod input;
+pub mod jar;
 pub mod protocol;
 pub mod video;

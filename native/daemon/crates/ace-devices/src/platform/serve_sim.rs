@@ -14,7 +14,9 @@ use std::time::Duration;
 use base64::Engine as _;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha512};
+
+use super::scrcpy::jar::{ScrcpyRelease, digest_sha256_hex, scrcpy_release, verified};
 
 use super::http::Client;
 use super::{Code, Error, Failure, words};
@@ -65,27 +67,6 @@ pub fn artifacts() -> Artifacts {
             url: "https://registry.npmjs.org/ws/-/ws-8.22.0.tgz".to_string(),
             integrity: "sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==".to_string(),
         },
-    }
-}
-
-/// The upstream scrcpy server ace speaks to: client and server must be the same release, so
-/// the version, size and SHA-256 are pinned together.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub struct ScrcpyRelease {
-    pub version: String,
-    pub bytes: u64,
-    pub sha256: String,
-    pub url: String,
-}
-
-/// The pinned scrcpy release.
-pub fn scrcpy_release() -> ScrcpyRelease {
-    ScrcpyRelease {
-        version: "5.0.1".to_string(),
-        bytes: 733_930,
-        sha256: "764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536".to_string(),
-        url: "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-server-v5.0.1"
-            .to_string(),
     }
 }
 
@@ -302,13 +283,6 @@ fn digest_sha512_base64(bytes: &[u8]) -> String {
     )
 }
 
-fn digest_sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
 async fn fetch(client: &Client, label: &str, url: &str, limit: u64) -> Result<Vec<u8>, Error> {
     client.get(url, limit, label).await
 }
@@ -454,7 +428,7 @@ fn install_scrcpy(
     cancel: &AtomicBool,
 ) -> Result<String, Error> {
     if let Some(explicit) = scrcpy_override(request) {
-        if verified(explicit, &release.sha256) {
+        if verified(Path::new(explicit), &release.sha256) {
             return Ok(explicit.to_string());
         }
         return Err(hints.scrcpy_unavailable(format!(
@@ -487,12 +461,6 @@ fn write_private_bytes(hints: &Hints, path: &Path, bytes: &[u8]) -> Result<(), E
     })
 }
 
-fn verified(path: &str, sha256: &str) -> bool {
-    fs::read(path)
-        .map(|bytes| digest_sha256_hex(&bytes) == sha256)
-        .unwrap_or(false)
-}
-
 /// `tools-entry`'s whole job on the native runtime: make sure serve-sim (a Mac) and scrcpy's
 /// server are installed, with today's URLs, checksums, limits, staging paths and atomic rename.
 pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
@@ -509,7 +477,7 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
         Path::new(&request.directory).join(format!("scrcpy-server-v{}", release.version));
     let needs_scrcpy = request.scrcpy
         && scrcpy_override(&request).is_none()
-        && !verified(&scrcpy_path.to_string_lossy(), &release.sha256);
+        && !verified(&scrcpy_path, &release.sha256);
     if !needs_serve_sim && !needs_scrcpy {
         return Ok(ToolsInstalled {
             serve_sim: request
@@ -628,7 +596,7 @@ fn install_scrcpy_existing(
     release: &ScrcpyRelease,
 ) -> Result<String, Error> {
     if let Some(explicit) = scrcpy_override(request) {
-        if verified(explicit, &release.sha256) {
+        if verified(Path::new(explicit), &release.sha256) {
             return Ok(explicit.to_string());
         }
         return Err(hints.scrcpy_unavailable(format!(
@@ -638,7 +606,7 @@ fn install_scrcpy_existing(
     }
     let path = Path::new(&request.directory).join(format!("scrcpy-server-v{}", release.version));
     let text = path.to_string_lossy().into_owned();
-    if verified(&text, &release.sha256) {
+    if verified(Path::new(&text), &release.sha256) {
         Ok(text)
     } else {
         Err(hints.scrcpy_unavailable("No directory for the scrcpy server".to_string()))
