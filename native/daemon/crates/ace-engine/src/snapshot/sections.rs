@@ -56,9 +56,19 @@ impl Snapshot {
                 continue;
             }
             if let Some(mut record) = self.agents.read(&key)? {
-                // The agent's runs live in their own section (`persistence.ts:50`-`:60`).
+                // The agent's runs live in their own section (`persistence.ts:50`-`:60`), and
+                // the runs those ids name are loaded with them: a restarted turn's `turn.ended`
+                // must find its run, not create a second one.
                 if record.native_runs.is_some() {
-                    record.native_runs = Some(self.native_runs(&key)?);
+                    let runs = self.native_runs(&key)?;
+                    for run_id in runs.values() {
+                        if !self.state.runs.contains_key(run_id)
+                            && let Some(run) = self.runs.read(run_id)?
+                        {
+                            self.state.runs.insert(run_id.clone(), run);
+                        }
+                    }
+                    record.native_runs = Some(runs);
                 }
                 self.state.agents.insert(key, record);
             }

@@ -12,11 +12,17 @@
  * It sends no provider requests and opens no sockets.
  */
 import { performance } from "node:perf_hooks";
-import { statSync } from "node:fs";
+import { mkdtempSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { engineBackend } from "@ace/provider-kit/native-switches";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { randomUUID } from "node:crypto";
 import { AgentItem, ThreadId, type EventPayload, type ServerMessage } from "@ace/protocol";
+import type { Fact } from "@ace/core";
 import { Store, createDevThread } from "../src/index.ts";
+import { EngineRepository } from "../src/engine/repository.ts";
+import { createEngineThread } from "../src/engine/create-thread.ts";
 import { subscribe } from "../src/subscription.ts";
 import { migrateEngine } from "../src/engine/migrations.ts";
 import { writeMeasurement } from "./output.ts";
@@ -101,6 +107,114 @@ const picked = [...largest, ...median].map((row) => ({
   items: row.items,
   mid: row.mid,
 }));
+
+/**
+ * `engineCommit`: one thread's fold-and-save commits of a fixed batch (one message, ten appends,
+ * a turn end), timed through the engine repository. Switch off runs `EngineRepository.apply`;
+ * switch on needs the `engine-probe` build and runs the same batch through the probe's fold
+ * (`ACE_ENGINE=native ACE_STORE=native`). The batch names no input, interaction or transition, so
+ * the probe's pass-through collaborators do what the TypeScript ones do here: nothing. The figure
+ * is printed beside the store's own timings; both sides fold equivalent work.
+ */
+function engineFacts(text: string, item: string): Fact[] {
+  return [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item,
+      draft: {
+        type: "message",
+        role: "assistant",
+        parts: [{ type: "text", text }],
+        complete: false,
+      },
+    },
+    ...Array.from({ length: 10 }, (): Fact => ({
+      type: "item.delta",
+      agent: "root",
+      item,
+      field: "text",
+      append: ` ${text}`,
+    })),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+  ];
+}
+
+const engineCommitRows = (store: Store, id: ThreadId) =>
+  store.atomic(
+    (db) =>
+      db
+        .prepare(
+          `SELECT (SELECT COUNT(*) FROM engine_inputs WHERE thread_id=?) AS inputs,
+                  (SELECT COUNT(*) FROM engine_interaction_requests WHERE thread_id=?) AS interactions,
+                  (SELECT COUNT(*) FROM intents WHERE thread_id=?) AS intents`,
+        )
+        .get(id, id, id) as { inputs: number; interactions: number; intents: number },
+  );
+
+function engineCommitOff(store: Store, workspace: WorkspaceId, home: string) {
+  const repo = new EngineRepository(store);
+  const id = ThreadId.parse(randomUUID());
+  createEngineThread(repo, {
+    id,
+    workspaceId: workspace,
+    title: "Engine commit",
+    selection: { provider: "codex", options: {} },
+    cwd: home,
+    at: Date.now(),
+    silenceMs: 30_000,
+  });
+  const batch = engineFacts("bench", "bench-item");
+  const samples: number[] = [];
+  let at = Date.now();
+  for (let index = 0; index < repeats; index++) {
+    at += 1;
+    samples.push(time(() => repo.apply(id, batch, at))[1]);
+  }
+  const rows = engineCommitRows(store, id);
+  return { samples, balanced: rows.inputs + rows.interactions + rows.intents };
+}
+
+/** The same batch through the probe's fold: needs the `engine-probe` build. */
+async function engineCommitOn(home: string) {
+  const { engineSeam } = await import("../src/native-engine/testing.ts");
+  const { createThreadState } = await import("@ace/core");
+  const seam = await engineSeam({ options: { home } });
+  try {
+    await seam.engine.ready();
+    seam.probe.passThroughCollaborators();
+    const workspace = seam.store.createWorkspace(seam.home, "Bench");
+    const thread = createDevThread(seam.store, workspace);
+    const state = createThreadState({
+      threadId: thread.id as never,
+      rootAgent: {
+        agent: "root" as never,
+        fidelity: "full" as never,
+        native: { provider: "codex", nativeId: "native-root" } as never,
+        cwd: seam.home,
+      },
+      config: { provider: "codex", silenceMs: 30_000 },
+    });
+    seam.store.atomic((db) =>
+      db
+        .prepare("INSERT INTO thread_state VALUES (?, ?, 0)")
+        .run(thread.id, JSON.stringify({ ...state, engineSnapshot: 9 })),
+    );
+    const batch = engineFacts("bench", "bench-item");
+    const samples: number[] = [];
+    let at = Date.now();
+    for (let index = 0; index < repeats; index++) {
+      at += 1;
+      const start = performance.now();
+      seam.probe.apply(thread.id, batch, at);
+      samples.push(performance.now() - start);
+    }
+    const rows = engineCommitRows(seam.store, thread.id);
+    return { samples, balanced: rows.inputs + rows.interactions + rows.intents };
+  } finally {
+    await seam.close();
+  }
+}
 
 const result: Record<string, unknown> = {
   db: path,
@@ -423,6 +537,20 @@ if (splitting) {
     walPagesPerCommit: +(walGrowth / 4120 / Math.max(1, commitsWritten)).toFixed(1),
     checkpointPassiveMs: +passiveMs.toFixed(1),
   };
+}
+
+// `engineCommit`: the engine's own fold-and-save commits, switch off and (with the probe build
+// and `ACE_ENGINE=native ACE_STORE=native`) on.
+{
+  const off = engineCommitOff(store, store.createWorkspace(path, "Engine commit"), path);
+  const figure: Record<string, unknown> = {
+    off: { ...stats(off.samples), rowsOutsideTheEngine: off.balanced },
+  };
+  if (engineBackend() === "native") {
+    const on = await engineCommitOn(mkdtempSync(join(tmpdir(), "ace-engine-commit-")));
+    figure.on = { ...stats(on.samples), rowsOutsideTheEngine: on.balanced, probe: true };
+  }
+  result.engineCommit = figure;
 }
 
 await store.close();

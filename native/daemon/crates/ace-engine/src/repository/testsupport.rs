@@ -14,7 +14,7 @@ use ace_store::{Connection, OpenOptions};
 use crate::ports::{OpenFrame, PortError, Ports, Timer};
 use crate::{EngineStack, EngineStore};
 
-pub(crate) const HEADER: &str = r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"claude","silenceMs":1000},"agents":{},"runs":{},"items":{},"interactions":{},"tasks":{},"interactionHistory":{},"taskHistory":{},"indexes":{"liveTools":{},"pendingInteractions":{},"runningTasks":{},"agentKeysById":{},"childrenByParent":{},"pendingSpawnLinks":{},"pendingItemLinks":{}},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#;
+pub(crate) const HEADER: &str = r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"codex","silenceMs":1000},"initialRoot":{"agent":"root","fidelity":"full","native":{"provider":"codex","nativeId":"native-root"},"cwd":"/tmp"},"agents":{},"runs":{},"items":{},"interactions":{},"tasks":{},"interactionHistory":{},"taskHistory":{},"indexes":{"liveTools":{},"pendingInteractions":{},"runningTasks":{},"agentKeysById":{},"childrenByParent":{},"pendingSpawnLinks":{},"pendingItemLinks":{}},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#;
 
 /// A fresh home with the opener's schema, and one thread whose state is `header`.
 pub(crate) fn home(thread: &str, header: &str) -> Arc<Connection> {
@@ -83,6 +83,7 @@ pub(crate) struct Shell {
     depth: Cell<u32>,
     generation: Cell<f64>,
     seq: Cell<f64>,
+    ids: Cell<u64>,
     rolled_back: RefCell<Vec<String>>,
 }
 
@@ -93,6 +94,7 @@ impl Shell {
             depth: Cell::new(0),
             generation: Cell::new(0.0),
             seq: Cell::new(0.0),
+            ids: Cell::new(0),
             rolled_back: RefCell::new(Vec::new()),
         });
         EngineStore {
@@ -124,7 +126,10 @@ impl Ports for Shell {
         "command".to_owned()
     }
     fn next_id(&self, kind: &str) -> String {
-        format!("{kind}-1")
+        // Distinct per allocation: a reused id would hide a second run for the same turn.
+        let next = self.ids.get() + 1;
+        self.ids.set(next);
+        format!("{kind}-{next}")
     }
     fn report(&self, _error: String) {}
     fn providers_activated(

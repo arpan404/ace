@@ -658,3 +658,57 @@ mod tests {
         assert_eq!(runs, vec!["interrupted".to_owned()]);
     }
 }
+
+#[cfg(test)]
+mod reload_tests {
+    use crate::State;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    #[test]
+    fn a_restarted_turn_ends_the_run_it_started_rather_than_creating_a_second_one() {
+        // The run ids come from the state's allocation service; the second engine must find the
+        // stored run by its native turn id, or the turn ends a new one and the original stays
+        // active.
+        let conn = home("runs", &header("runs"));
+        let store = Shell::store(&conn);
+        let mut before = State::default();
+        before.repo.probe_passthrough = true;
+        before
+            .apply(
+                &store,
+                "runs",
+                r#"[{"type":"turn.started","agent":"root","trigger":"user","nativeTurnId":"turn-1"}]"#,
+                1.0,
+                None,
+            )
+            .unwrap();
+        let started = before.repo.require_state(&store, "runs").unwrap();
+        let first: Vec<String> = started.borrow().state.runs.keys().cloned().collect();
+        assert_eq!(first.len(), 1, "one run for one turn");
+        drop(started);
+        drop(before);
+        let mut after = State::default();
+        after.repo.probe_passthrough = true;
+        after
+            .apply(
+                &store,
+                "runs",
+                r#"[{"type":"turn.ended","agent":"root","nativeTurnId":"turn-1","outcome":"interrupted"}]"#,
+                2.0,
+                None,
+            )
+            .unwrap();
+        let snapshot = after.repo.require_state(&store, "runs").unwrap();
+        let runs: Vec<(String, String, Option<String>)> = snapshot
+            .borrow()
+            .state
+            .runs
+            .iter()
+            .map(|(key, run)| (key.clone(), run.state.clone(), run.native_id.clone()))
+            .collect();
+        assert_eq!(runs.len(), 1, "the stored run is the one that ended");
+        assert_eq!(runs[0].0, first[0]);
+        assert_eq!(runs[0].1, "interrupted");
+        assert_eq!(runs[0].2.as_deref(), Some("turn-1"));
+    }
+}

@@ -142,7 +142,8 @@ impl BudgetSection {
         let mut budget = self.budget.borrow_mut();
         let weight = bytes * 4;
         let id = (self.serial, key.to_owned());
-        budget.entries.shift_remove(&id);
+        // An overwritten entry gives back its old charge first; only then is the new one added.
+        remove(&mut budget, &id);
         if weight > budget.max_bytes {
             return false;
         }
@@ -270,6 +271,20 @@ mod tests {
             "the long-lived section keeps no keys once they are evicted"
         );
         assert_eq!(budget.borrow().size(), 64);
+    }
+
+    #[test]
+    fn overwriting_one_entry_gives_back_its_old_weight() {
+        let budget = Rc::new(RefCell::new(RecordBudget::new(8, 100)));
+        let first = section(&budget);
+        // Ten bytes weigh forty; a second write of the same key must not double the charge.
+        first.set("a", cached("0123456789"), 10);
+        first.set("a", cached("0123456789"), 10);
+        assert_eq!(budget.borrow().byte_length(), 40);
+        // With the charge correct, a second entry still fits; a doubled one would evict `a`.
+        let other = section(&budget);
+        other.set("b", cached("0123456789"), 10);
+        assert!(first.get::<String>("a").is_some());
     }
 
     #[test]

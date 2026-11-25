@@ -74,7 +74,7 @@ function engineRows(seam: EngineSeam, threadId: string) {
 /** A turn that starts, writes a message and its text, then ends. */
 function turnFacts(text: string, agent = "root"): unknown[] {
   return [
-    { type: "turn.started", agent, trigger: "send", nativeTurnId: "turn-1" },
+    { type: "turn.started", agent, trigger: "user", nativeTurnId: "turn-1" },
     {
       type: "item.upsert",
       agent,
