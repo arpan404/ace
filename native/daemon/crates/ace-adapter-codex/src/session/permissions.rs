@@ -95,13 +95,27 @@ pub fn configured_turn_policy(value: &Value) -> Result<Map, String> {
         .get("config")
         .and_then(Value::as_object)
         .ok_or_else(|| CONFIGURED_DEFAULT_MISSING.to_owned())?;
-    let permissions = text(config.get("default_permissions")).or_else(|| {
-        let mode = text(config.get("sandbox_mode"))?;
-        let (_, profile) = SANDBOX_MODES
-            .iter()
-            .find(|(name, _)| *name == mode.as_str())?;
-        Some(JsString::from(*profile))
-    });
+    let permissions = match config.get("default_permissions") {
+        None | Some(Value::Null) => {
+            let mode = text(config.get("sandbox_mode"));
+            mode.and_then(|mode| {
+                SANDBOX_MODES
+                    .iter()
+                    .find(|(name, _)| *name == mode.as_str())
+                    .map(|(_, profile)| JsString::from(*profile))
+            })
+        }
+        // `z.string().min(1).max(256)`: a present value must be a profile name
+        // of that length, so a bad one never falls back to the sandbox mode.
+        Some(Value::String(name)) if !name.is_empty() && name.len_utf16() <= PROFILE_MAX => {
+            Some(name.clone())
+        }
+        Some(_) => {
+            return Err(format!(
+                "Codex default_permissions must be 1 to {PROFILE_MAX} characters"
+            ));
+        }
+    };
     let approval = config
         .get("approval_policy")
         .filter(|value| !value.is_null());
@@ -259,6 +273,25 @@ mod tests {
             ),
             json(r#"{"permissions":":read-only","approvalPolicy":"never","approvalsReviewer":"auto_review"}"#)
         );
+    }
+
+    #[test]
+    fn a_default_permission_outside_its_bound_or_not_a_string_is_refused() {
+        let long = "x".repeat(257);
+        for config in [
+            r#"{"config":{"default_permissions":"","approval_policy":"never"}}"#.to_owned(),
+            format!(
+                r#"{{"config":{{"default_permissions":"{long}","approval_policy":"never"}}}}"#
+            ),
+            // zod's parse fails here; it is not a reason to fall back to the sandbox.
+            r#"{"config":{"default_permissions":5,"sandbox_mode":"read-only","approval_policy":"never"}}"#.to_owned(),
+        ] {
+            assert_eq!(
+                configured_turn_policy(&json(&config)),
+                Err(format!("Codex default_permissions must be 1 to {PROFILE_MAX} characters")),
+                "{config}"
+            );
+        }
     }
 
     #[test]
