@@ -521,6 +521,15 @@ length-size-3 refusal is unreachable and is not reproduced. The splitter keeps t
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
 
+`one_off_screenshot.rs` keeps a one-off still's decisions: the source bounds (an empty or
+32 MiB+ screenshot is refused as invalid data), the ace-media fit (1920x2160, quality 80, no
+auto-orientation, 16 megapixel source), the scale against the stored width, the single-frame
+JPEG header whose session id is sanitized and cut to 64 UTF-16 units, and the emulator's
+screencap/pull/remove commands with their byte caps. `still_writer.rs` keeps a connection's
+screenshot queue: at most eight queued, refused while the transport holds more than 128 KiB,
+ids wrapping at 32 bits, and the close that refuses the queue and whatever waited in it. The
+image job, temporary file, SDK commands, piece encoding and transport are the shell's.
+
 `scrcpy/capture/mod.rs` keeps the capture's first decisions: whether a profile change is worth
 restarting the server (a new size or frame rate always; a lone bit rate only at 1.5x after 10 s),
 the profile a run asks for (`scrcpyMaxSize` over the transport), whether ace-media reads the

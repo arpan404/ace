@@ -25,6 +25,7 @@ pub mod list;
 pub mod log_line;
 pub mod media_paths;
 pub mod mjpeg;
+pub mod one_off_screenshot;
 pub mod posture;
 pub mod recording_limits;
 pub mod scrcpy;
@@ -39,6 +40,7 @@ pub mod simulator_rotation;
 pub mod simulator_source_rate;
 pub mod simulator_ui;
 pub mod simulators;
+pub mod still_writer;
 pub mod tools;
 pub mod words;
 
