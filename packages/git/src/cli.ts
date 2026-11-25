@@ -750,7 +750,18 @@ export class GitCli {
     env: Record<string, string> = {},
   ): Promise<T> {
     if (this.closed) return compute();
-    return this.facts.read(cwd, this.configKeyEnv(env), name, compute, keep);
+    const keyEnv = this.configKeyEnv(env);
+    if (this.nativeCore === undefined) return this.facts.read(cwd, keyEnv, name, compute, keep);
+    return this.nativeCore.configFactsRead(
+      { cwd, name, env: Object.entries(keyEnv) },
+      {
+        sources: (sourcesCwd, envPairs) =>
+          this.configSources(sourcesCwd, Object.fromEntries(envPairs)),
+        compute,
+        keep: (value) => keep?.(value as T) ?? true,
+      },
+      () => this.facts.read(cwd, keyEnv, name, compute, keep),
+    ) as Promise<T>;
   }
 
   /** Call environment and the inherited variables that place the global config files. */

@@ -213,6 +213,8 @@ interface PortMessage {
   bytes?: number;
   record?: unknown;
   lease?: unknown;
+  envJson?: string;
+  value?: unknown;
   listing?: unknown[];
   event?: unknown;
   pid?: number;
@@ -289,6 +291,16 @@ export class NativeCoreCli {
   private readonly streams = new Map<number, StreamTarget>();
   private readonly killed: Set<string>;
   private readonly leaseProbe: LeaseProbe;
+  /** The answers each `configFactsRead` call's ports need, by call id. */
+  private readonly configCalls = new Map<
+    number,
+    {
+      sources: (cwd: string, env: [string, string][]) => Promise<string[] | undefined>;
+      compute: () => Promise<unknown>;
+      keep: (value: unknown) => boolean;
+    }
+  >();
+  private nextConfigCall = 1;
   /** Unacknowledged stdin bytes per call, and the input paused by them. */
   private readonly stdinOutstanding = new Map<number, number>();
   private readonly stdinInputs = new Map<number, Readable>();
@@ -324,6 +336,60 @@ export class NativeCoreCli {
     } catch (error) {
       throwGitError(error);
     }
+  }
+
+  /**
+   * Reads one cached configuration fact (G2c). The cache, stamps and learning are
+   * the core's; `sources`, `compute` and `keep` answer its ports on this thread.
+   */
+  configFactsRead(
+    input: { cwd: string; name: string; env: [string, string][] },
+    ports: {
+      sources: (cwd: string, env: [string, string][]) => Promise<string[] | undefined>;
+      compute: () => Promise<unknown>;
+      keep: (value: unknown) => boolean;
+    },
+    typescript: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "configRead", part, selected, completed: "typescript" });
+      return typescript();
+    }
+    const callId = this.nextConfigCall++;
+    this.configCalls.set(callId, ports);
+    return new Promise<unknown>((resolve, reject) => {
+      const finish = (): void => {
+        this.configCalls.delete(callId);
+      };
+      try {
+        this.handle.configRead(
+          JSON.stringify({ callId, cwd: input.cwd, name: input.name, env: input.env }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "configRead", part, selected, completed: "native" });
+            finish();
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            resolve(JSON.parse(json ?? "null"));
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "configRead", part, selected, completed: "native" });
+        finish();
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
   }
 
   /**
@@ -807,6 +873,60 @@ export class NativeCoreCli {
   private onPort(eventJson: string, data: Uint8Array): void {
     const msg = JSON.parse(eventJson) as PortMessage;
     switch (msg.op) {
+      case "config_sources": {
+        const reqId = msg.reqId ?? 0;
+        const ports = this.configCalls.get(msg.callId ?? 0);
+        if (ports === undefined) {
+          this.handle.replyPort(reqId, JSON.stringify({ paths: null }));
+          return;
+        }
+        void ports
+          .sources(msg.cwd ?? "", JSON.parse(msg.envJson ?? "[]") as [string, string][])
+          .then((paths) => this.handle.replyPort(reqId, JSON.stringify({ paths: paths ?? null })))
+          .catch(() => this.handle.replyPort(reqId, JSON.stringify({ paths: null })));
+        return;
+      }
+      case "config_compute": {
+        const reqId = msg.reqId ?? 0;
+        const ports = this.configCalls.get(msg.callId ?? 0);
+        if (ports === undefined) {
+          this.handle.replyPort(reqId, JSON.stringify({ error: { code: "git_closed" } }));
+          return;
+        }
+        void ports.compute().then(
+          (value) =>
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({ value: JSON.parse(JSON.stringify(value ?? null)) }),
+            ),
+          (error: unknown) => {
+            const gitError = error instanceof GitError ? error : undefined;
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({
+                error: {
+                  code: gitError?.code ?? "git_failed",
+                  message: gitError?.message ?? String(error),
+                  details: gitError?.details ?? {},
+                },
+              }),
+            );
+          },
+        );
+        return;
+      }
+      case "config_keep": {
+        const reqId = msg.reqId ?? 0;
+        const ports = this.configCalls.get(msg.callId ?? 0);
+        const keep = ports?.keep(msg.value) ?? true;
+        this.handle.replyPort(reqId, JSON.stringify({ keep }));
+        return;
+      }
+      case "config_now": {
+        const reqId = msg.reqId ?? 0;
+        this.handle.replyPort(reqId, JSON.stringify({ ms: this.runtime.fileClock() }));
+        return;
+      }
       case "lease_local": {
         const reqId = msg.reqId ?? 0;
         const record = (msg.record as MutationLease | undefined) ?? null;

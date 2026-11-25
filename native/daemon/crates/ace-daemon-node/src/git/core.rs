@@ -19,8 +19,8 @@ use napi_derive::napi;
 use tokio::sync::mpsc;
 
 use super::bridge::{
-    JsCleanupSupervisorPort, JsGroupPort, JsLeasePorts, JsScheduler, JsSpawner, JsStreamCallbacks,
-    PortCallFn, PortHub, parse_git_error_code,
+    JsCleanupSupervisorPort, JsConfigPorts, JsGroupPort, JsLeasePorts, JsScheduler, JsSpawner,
+    JsStreamCallbacks, PortCallFn, PortHub, parse_git_error_code,
 };
 use super::wire::{self, Frame};
 use super::{caught, failed, unwind};
@@ -66,6 +66,8 @@ pub struct NativeGitCore {
     /// The process-wide lease state and the ports its operations ask the shell for.
     leases: Arc<LeaseState>,
     lease_ports: Arc<JsLeasePorts>,
+    /// The config-fact cache, whose ports ask each call's owner for its answers.
+    config_facts: Arc<ace_git::core::config::ConfigFacts>,
 }
 
 /// One core config frame, read with `ace-json` like every other JS value.
@@ -231,6 +233,11 @@ impl NativeGitCore {
             Arc::new(ports),
         )
         .map_err(|e| failed(ace_git::error::Error::from(e)))?;
+        let config_facts = Arc::new(ace_git::core::config::ConfigFacts::new(Arc::new(
+            JsConfigPorts {
+                hub: Arc::clone(&hub),
+            },
+        )));
         let lease_ports = Arc::new(JsLeasePorts {
             hub: Arc::clone(&hub),
             scheduler: lease_scheduler,
@@ -244,6 +251,7 @@ impl NativeGitCore {
             stdin_senders: Arc::new(Mutex::new(HashMap::new())),
             leases: Arc::clone(global_leases()),
             lease_ports,
+            config_facts,
         })
     }
 
@@ -522,6 +530,43 @@ impl NativeGitCore {
             match outcome {
                 Ok(json) => {
                     let _ = settle.call(Ok(json), ThreadsafeFunctionCallMode::NonBlocking);
+                }
+                Err(error) => {
+                    let _ = settle.call(
+                        Err(failed(ace_git::error::Error::from(error))),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Reads one cached configuration fact (G2c): the cache, stamps and learning are
+    /// the core's; the caller's `sources`, `compute`, `keep` and clock answer its ports.
+    #[napi(catch_unwind)]
+    pub fn config_read(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(map) = wire::object(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(
+                    ace_git::core::config::invalid_request(),
+                ))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let call = wire::count(&map, "callId").unwrap_or(0);
+        let cwd = wire::string(&map, "cwd").unwrap_or_default();
+        let name = wire::string(&map, "name").unwrap_or_default();
+        let env = wire::pairs(&map, "env").unwrap_or_default();
+        let facts = Arc::clone(&self.config_facts);
+        self.runtime.spawn(async move {
+            match facts.read(call, &cwd, &env, &name).await {
+                Ok(value) => {
+                    let _ = settle.call(
+                        Ok(ace_json::to_string(&value)),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
                 }
                 Err(error) => {
                     let _ = settle.call(

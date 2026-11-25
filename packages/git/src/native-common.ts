@@ -74,6 +74,8 @@ export interface NativeGitCoreHandle {
   prepareCall(reqJson: string, settle: NativeJsonSettle): void;
   /** Files whose change alters a checkout's configuration (G2c), from raw Git output. */
   configWatch(reqJson: string, settle: NativeJsonSettle): void;
+  /** One cached configuration fact (G2c); its ports are answered on this thread. */
+  configRead(reqJson: string, settle: NativeJsonSettle): void;
   pushSpawnEvent(
     spawnId: number,
     kind: string,
