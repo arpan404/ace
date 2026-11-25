@@ -40,6 +40,9 @@ impl Host {
                 ready: Handshake::Initializing,
                 idle_armed: false,
                 poisoned: false,
+                stop_state: StopState::None,
+                stop_generation: 0,
+                child_exited: false,
                 out: Vec::new(),
             }),
             publication: Mutex::new(Publication::default()),
@@ -269,10 +272,14 @@ impl Host {
     }
 
     /// The pipes are done (`close`, `:239`): settlements, then the held
-    /// requests, then the exit to every channel.
+    /// requests, then the exit to every channel. Only here is the child really
+    /// gone: a leader's exit alone leaves a tree that still holds the pipes
+    /// (the supervisor never signals on it, `ace-supervisor/src/child/mod.rs:5`
+    /// –`:8`), and a poison in that window must still stop it.
     pub fn closed(&self, exit: RawExit) {
         self.input(|inner| {
             inner.exiting = true;
+            inner.child_exited = true;
             inner.gate.drain();
             let closed = inner.peer.close("process exited");
             inner.apply(closed);
@@ -357,7 +364,14 @@ impl Host {
     }
 
     /// Stop the whole process (`retire`, `:379`); every channel on it exits.
+    /// A poisoned host has already published its exits, so its owner's retire
+    /// only stops the child — a stop the poison's own may not have made. One
+    /// already in flight is joined, and one that landed is not repeated.
     pub fn retire(&self, reason: Retirement) {
+        if self.poisoned() {
+            self.stop_child(reason, true);
+            return;
+        }
         self.input(|inner| {
             if inner.retiring && inner.exit.is_none() {
                 // The stop in flight is the shell's: its failure reaches this
@@ -370,10 +384,16 @@ impl Host {
     }
 
     /// The shell's stop did not confirm: a host that outlived it takes
-    /// backpressure again. A leader already dead started draining for its exit,
-    /// and a late failure cannot undo that.
+    /// backpressure again, and a poisoned host may be asked to stop again. A
+    /// leader already dead started draining for its exit, and a late failure
+    /// cannot undo that.
     pub fn stop_failed(&self) {
-        let inner = self.lock();
+        let mut inner = self.lock();
+        // Only the stop in flight can fail: a late report from one that already
+        // finished must not mark a newer stop, or the state before it, failed.
+        if inner.stop_state == StopState::InFlight {
+            inner.stop_state = StopState::Failed;
+        }
         if inner.exiting {
             return;
         }

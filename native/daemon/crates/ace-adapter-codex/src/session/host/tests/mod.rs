@@ -7,6 +7,7 @@
 
 mod channels;
 mod exit;
+mod poison;
 mod publication;
 mod stop;
 
