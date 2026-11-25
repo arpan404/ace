@@ -4,8 +4,8 @@
 //! is never inside another transaction. The shell implements this trait over its public methods;
 //! the trait itself holds the actor's decisions and no I/O.
 
+use crate::EngineError;
 use crate::futures::future::LocalBoxFuture;
-use crate::{EngineError, Tx};
 use ace_json::Value;
 use std::rc::Rc;
 
@@ -29,10 +29,10 @@ pub trait LiveStore {
     fn live_write_blocked(&self) -> bool;
     /// `Store.prepareLiveWrite(bytes)`: the admission the mailbox retries.
     fn prepare_live_write(&self, bytes: f64) -> Result<(), EngineError>;
-    /// Append the engine's events to the connection's one live buffer.
+    /// Append the engine's events to the connection's one live buffer, in the order the engine
+    /// produced them. The buffer is not the transaction stack, so no frame is needed.
     fn buffer_live_write(
         &self,
-        tx: &Tx<'_>,
         thread: &str,
         events: &[Value],
         at: f64,
@@ -72,7 +72,6 @@ impl LiveStore for UnportedLive {
 
     fn buffer_live_write(
         &self,
-        _tx: &Tx<'_>,
         _thread: &str,
         _events: &[Value],
         _at: f64,

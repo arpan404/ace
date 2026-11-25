@@ -486,37 +486,25 @@ pub async fn flush(core: Rc<Core>, thread: ThreadId, exclude: Option<crate::exec
     let live = core.actor_deps.borrow().live.clone();
     live.writable().await;
     loop {
-        let receiver = core.with_state(|state| {
+        let waiter = core.with_state(|state| {
             let actor = state.actors.by_thread.get_mut(&thread)?;
-            let own = exclude.is_some() && actor.mailbox_task == exclude;
-            if !own && (actor.running || !actor.mailbox.is_empty()) {
-                let (sender, receiver) = oneshot::channel();
-                actor.flush_waiters.push(sender);
-                return Some(receiver);
+            let own = actor.mailbox_task.is_some() && actor.mailbox_task == exclude;
+            if own || (!actor.running && actor.mailbox.is_empty()) {
+                return None;
             }
-            Some(oneshot::channel().1)
+            let (sender, receiver) = oneshot::channel();
+            actor.flush_waiters.push(sender);
+            Some(receiver)
         });
-        match receiver {
+        match waiter {
+            // The mailbox is idle (or this flush was reached from its own op): done.
+            Ok(None) | Err(_) => break,
             Ok(Some(receiver)) => {
-                if receiver.await.is_err() {
-                    return;
-                }
-                // A waiter is drained only when the mailbox goes idle; if it was a fresh
-                // already-resolved pair, the loop re-checks.
-                let pending = core
-                    .with_state(|state| {
-                        state
-                            .actors
-                            .by_thread
-                            .get(&thread)
-                            .is_some_and(|actor| actor.running || !actor.mailbox.is_empty())
-                    })
-                    .unwrap_or(false);
-                if !pending {
-                    break;
-                }
+                // The mailbox may already be parked; waking it makes it look again and resolve
+                // the waiter this flush just added.
+                core.record_wake(&thread);
+                let _ = receiver.await;
             }
-            _ => return,
         }
     }
     live.flush_live_writes();

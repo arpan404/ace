@@ -17,6 +17,7 @@ pub mod hosts;
 pub mod inputs;
 pub mod intents;
 pub mod js_session;
+pub mod js_translator;
 pub mod liveness;
 pub mod meters;
 pub mod models;
@@ -24,6 +25,8 @@ pub mod moves;
 pub mod ports;
 #[cfg(feature = "engine-probe")]
 pub mod probe;
+#[cfg(feature = "engine-probe")]
+pub mod probe_actor;
 pub mod queue;
 pub mod records;
 pub mod recovery;
@@ -162,6 +165,12 @@ pub struct NativeEngine {
     /// The connection's stack, for the probe's bookkeeping checks.
     #[cfg(feature = "engine-probe")]
     stack: Rc<RefCell<StackState>>,
+    /// The actor's dependencies and the shell's live-buffer hooks (E5.2).
+    actor: Rc<actor::ActorRuntime>,
+    live_hooks: Rc<RefCell<Option<actor::LiveHooks>>>,
+    /// The probe's per-thread logs, with `engine-probe`.
+    #[cfg(feature = "engine-probe")]
+    probe_threads: Rc<RefCell<probe_actor::ProbeThreads>>,
 }
 
 fn engine_error(error: ace_engine::EngineError) -> napi::Error {
@@ -258,11 +267,8 @@ impl NativeDatabase {
         // the store seam names the item that lands it.
         let idle_ms = ace_engine::limits::validate_idle_ms(inputs.idle_ms.unwrap_or(0.0))
             .map_err(engine_error)?;
-        let deps = Rc::new(ace_engine::actor::ActorDeps::production(
-            Rc::new(ace_engine::frames::live::UnportedLive)
-                as Rc<dyn ace_engine::frames::LiveStore>,
-            idle_ms,
-        ));
+        let (actor_runtime, live_hooks) = self::actor::runtime(Rc::clone(&ports), idle_ms);
+        let deps = Rc::clone(&actor_runtime.deps);
         let engine = Engine::new(
             Rc::clone(&ports) as Rc<dyn Ports>,
             Rc::new(SharedStack {
@@ -295,6 +301,10 @@ impl NativeDatabase {
             )))),
             #[cfg(feature = "engine-probe")]
             stack,
+            actor: actor_runtime,
+            live_hooks,
+            #[cfg(feature = "engine-probe")]
+            probe_threads: Rc::new(RefCell::new(probe_actor::ProbeThreads::default())),
         };
         let _ = env;
         Ok(native)

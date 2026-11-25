@@ -122,7 +122,7 @@ pub fn frame(
     if overflowed {
         return Ack::Rejected("Provider mailbox capacity exceeded".to_string());
     }
-    let seal_now = core
+    let decision = core
         .with_state(|state| {
             let limits = state.limits;
             let actor = state.actors.by_thread.get_mut(thread)?;
@@ -134,20 +134,34 @@ pub fn frame(
             actor.pending_bytes += bytes;
             flow::update_pressure(actor, &limits);
             let ack = actor.pending_ack.get_or_insert_with(BatchAck::default);
-            if ack.js.is_none() {
+            let joined = if ack.js.is_none() {
                 ack.js = js_ack;
-            }
-            Some(
+                false
+            } else {
+                // This frame joined a batch whose promise is already open; its own is settled
+                // at once, and the caller returns the batch's.
+                true
+            };
+            Some((
                 state.flush_depth > 0
                     || actor.queued + actor.pending.len() >= limits.max_queued_frames as usize
                     || actor.queued_bytes + actor.pending_bytes >= limits.max_queued_bytes as usize
                     || actor.pending.len() >= 256
                     || actor.pending_bytes >= 262_144,
-            )
+                joined,
+            ))
         })
         .ok()
-        .flatten()
-        .unwrap_or(false);
+        .flatten();
+    let (seal_now, joined) = decision.unwrap_or((false, false));
+    if joined {
+        // This frame joined a batch whose promise is already open: its own resolves at once, and
+        // the caller returns the batch's.
+        if let Some(call) = js_ack {
+            let deps = core.actor_deps.borrow().clone();
+            deps.acks.settle(call, None);
+        }
+    }
     arm_batch_timer(core, thread);
     if seal_now {
         seal(core, thread);

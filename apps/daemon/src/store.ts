@@ -858,18 +858,20 @@ export class Store {
   isHistoryWriting(): boolean {
     return this.historyWriting;
   }
+  writableNow(): boolean {
+    return !this.writes.isHeld() && !this.historyWriting && !this.streaming.buffer.failed;
+  }
   /** Wait until neither history publication nor maintenance holds writes. */
   async writable(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     for (;;) {
+      if (this.writableNow()) return;
       if (this.writes.isHeld()) {
         await this.writes.open(signal);
         continue;
       }
       if (!this.historyWriting) {
-        if (!this.streaming.buffer.failed) return;
-        // A failed live batch retries on its own backoff; it settles by committing or by
-        // quarantining the threads whose rows cannot be stored.
+        // A failed live batch retries; it settles by committing or by quarantining its threads.
         await this.streaming.buffer.settled(signal);
         continue;
       }
