@@ -13,6 +13,7 @@ fn session() -> Session {
     let mut session = Session::new(crate::session::state::SessionConfig {
         scope: "scope-1".to_owned(),
         started: 0.0,
+        cwd: "/repo".to_owned(),
         bearer: None,
         redact: Box::new(|line: &str| line.to_owned()),
         foreign: Box::new(|_| false),

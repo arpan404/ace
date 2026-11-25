@@ -16,10 +16,13 @@ use ace_supervisor::jsonrpc::RpcId;
 use ace_supervisor::peer::Direction;
 use indexmap::{IndexMap, IndexSet};
 
+use super::catalog::{ExtensionCatalog, OptionalFrames};
+use super::commands::Commands;
 use super::discovery::Discovery;
 use super::frames::{Calls, Effect, FrameDir, Frames};
 use super::host::Admission;
 use super::lifetime::{Lifetime, Redactor};
+use super::mcp::McpControls;
 use crate::translate::helpers::is_async_question;
 use crate::translate::retention::RecentSet;
 
@@ -113,6 +116,8 @@ pub struct SessionConfig {
     pub scope: String,
     /// `io.now()` at open.
     pub started: f64,
+    /// `ctx.cwd`: the directory the skills read names.
+    pub cwd: String,
 
     /// The ace MCP bearer, for `redactMcpCredential`.
     pub bearer: Option<String>,
@@ -131,6 +136,14 @@ pub struct Session {
     pub(crate) root: String,
     pub(crate) frames: Frames,
     pub(crate) calls: Calls,
+    /// The commands this session has in flight (E3-codex.4).
+    pub(crate) commands: Commands,
+    /// The MCP servers ace wrote and the reads it owes (E3-codex.4).
+    pub(crate) mcp: McpControls,
+    /// The optional skills, app and MCP-server surfaces (E3-codex.4).
+    pub(crate) catalog: ExtensionCatalog,
+    /// Which frames only those surfaces could have sent (E3-codex.4).
+    pub(crate) optional_frames: OptionalFrames,
     pub(crate) lifetime: Lifetime,
     pub(crate) discovery: Discovery,
     pub(crate) foreign: Foreign,
@@ -170,6 +183,10 @@ impl Session {
             root: String::new(),
             frames: Frames::new(config.bearer.clone()),
             calls: Calls::new(),
+            commands: Commands::new(),
+            mcp: McpControls::new(),
+            catalog: ExtensionCatalog::new(config.cwd),
+            optional_frames: OptionalFrames::default(),
             lifetime: Lifetime::new(generation, config.redact, config.bearer),
             discovery: Discovery::new(),
             foreign: config.foreign,

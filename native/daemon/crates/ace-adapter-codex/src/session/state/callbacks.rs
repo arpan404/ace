@@ -64,12 +64,14 @@ impl Session {
     /// notification asks for (`:392`). `catalog.changed` is the extension
     /// catalog's (E3-codex.4).
     pub fn notification(&mut self, method: &str, params: Option<&Value>) -> Vec<Effect> {
+        // The catalog's own invalidation comes first, as it does in the
+        // TypeScript's `onNotification`.
+        let mut effects = self.catalog_changed(method, params);
         let params = params
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
         let thread = text_of(params.get("threadId"));
-        let mut effects = Vec::new();
         if method == "turn/completed" && thread == self.root {
             effects.extend(self.reconcile_loaded(&format!("discovery:{}", turn_of(&params))));
         }
@@ -110,6 +112,15 @@ impl Session {
         if let Some(effects) = self.read_terminal_page(call, reply) {
             return effects;
         }
+        if let Some(effects) = self.command_settled(call, reply) {
+            return effects;
+        }
+        if let Some(effects) = self.mcp_settled(call, reply) {
+            return effects;
+        }
+        if let Some(effects) = self.catalog_settled(call, reply) {
+            return effects;
+        }
         if let Some(effects) = self.queue_settled(call, reply) {
             return effects;
         }
@@ -140,6 +151,10 @@ impl Session {
         self.pending.clear();
         self.async_questions.clear();
         self.plans.clear();
+        effects.extend(self.commands.clear());
+        effects.extend(self.mcp.clear());
+        self.catalog.clear();
+        self.optional_frames.clear();
         effects
     }
 
