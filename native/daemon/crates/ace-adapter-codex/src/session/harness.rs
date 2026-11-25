@@ -24,7 +24,7 @@ use super::app_server::{AppServerConfig, AppServerEffect};
 use super::host::{
     Admission, ChannelHandlers, Host, HostConfig, HostEffect, HostExit, RequestAnswer, Retirement,
 };
-use super::lease::{Lease, LeaseEffect};
+use super::lease::{Lease, LeaseEffect, UNLOAD_CLOSED_THREADS};
 
 /// The provider line bound (`maxLineBytes`).
 pub const LINE_LIMIT: usize = 16 * 1024 * 1024;
@@ -184,31 +184,11 @@ impl Events {
 pub struct Recorder {
     tenant: u64,
     events: Arc<Events>,
-    answer: Answer,
-}
-
-/// What a recorder does with a server request.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Answer {
-    Empty,
-    Deferred,
-}
-
-impl Answer {
-    /// Whether a recorder defers its answer to the session.
-    #[allow(dead_code)]
-    fn deferred(self) -> bool {
-        self == Answer::Deferred
-    }
 }
 
 impl Recorder {
     pub fn new(tenant: u64, events: Arc<Events>) -> Arc<Recorder> {
-        Arc::new(Recorder {
-            tenant,
-            events,
-            answer: Answer::Empty,
-        })
+        Arc::new(Recorder { tenant, events })
     }
 }
 
@@ -236,9 +216,6 @@ impl ChannelHandlers for Recorder {
             method: method.clone(),
             params: params.cloned(),
         });
-        if self.answer.deferred() {
-            return RequestAnswer::Deferred;
-        }
         RequestAnswer::Answered(ace_json::json!({}))
     }
 
@@ -359,6 +336,13 @@ pub fn bun() -> String {
         }
     }
     panic!("the moved Codex host cases need bun on PATH");
+}
+
+/// A lease's process arguments, as `thread-lease.ts` builds them.
+pub fn lease_args() -> Vec<&'static str> {
+    let mut args = UNLOAD_CLOSED_THREADS.to_vec();
+    args.push("app-server");
+    args
 }
 
 /// The spawn spec the fake app-server is started with.
@@ -561,11 +545,7 @@ impl HostRun {
             stderr: Mutex::new(LineFramer::new(LINE_LIMIT)),
         });
         let child = spawn_child(
-            &spec(
-                &root,
-                &["-c", "thread_unload_delay_secs=0", "app-server"],
-                writers,
-            ),
+            &spec(&root, &lease_args(), writers),
             Diverted::new(Nothing, Arc::clone(&consumer) as Arc<dyn OutputConsumer>),
             runtime.handle(),
             Some(&DivertTarget {
@@ -722,11 +702,7 @@ impl LeaseRun {
             framing: Mutex::new(Framing::new(super::pool::CODEX_ELISION)),
         });
         let child = spawn_child(
-            &spec(
-                &root,
-                &["-c", "thread_unload_delay_secs=0", "app-server"],
-                writers,
-            ),
+            &spec(&root, &lease_args(), writers),
             Diverted::new(Nothing, Arc::clone(&consumer) as Arc<dyn OutputConsumer>),
             runtime.handle(),
             Some(&DivertTarget {

@@ -8,7 +8,11 @@
 use std::sync::Arc;
 
 use ace_json::Value;
+use ace_supervisor::jsonrpc::RpcId;
+use ace_supervisor::peer::Timeout;
 use ace_supervisor::spawn::RawExit;
+
+use crate::session::harness::Recorder;
 
 use super::*;
 use crate::session::harness::{Event, HostRun, Scratch};
@@ -375,4 +379,100 @@ fn a_frame_a_channel_does_not_admit_mutes_it_without_stopping_the_peer() {
     assert_eq!(failed, 1, "a muted channel hears one failure");
     assert!(!run.host.gone());
     run.stop();
+}
+
+/// `host.ts:466`: a reply the framing layer dropped settles its request once,
+/// as the error the caller waits on, and the channel hears about the drop.
+#[test]
+fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
+    let (host, initial) = Host::new(HostConfig::shared(initialize(), 1_000.0));
+    // No child here: acknowledge the `initialize` write so the queue hands out
+    // the next line.
+    for effect in initial {
+        if let HostEffect::Write { ticket, .. } = effect {
+            host.written(ticket);
+        }
+    }
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host
+        .attach(1, Recorder::new(1, Arc::clone(&events)))
+        .expect("a channel attaches before the handshake");
+    let effects = host
+        .request(
+            1,
+            "thread/read",
+            Some(&ace_json::json!({"threadId": "owned"})),
+            7,
+            Timeout::After(1_000.0),
+        )
+        .expect("the request is queued");
+    let sent = effects
+        .iter()
+        .find_map(|effect| match effect {
+            HostEffect::Write { wire, .. } => Some(wire.clone()),
+            _ => None,
+        })
+        .expect("the request was written");
+    let wire_id = ace_json::parse(std::str::from_utf8(&sent).expect("utf-8"))
+        .ok()
+        .and_then(|value| value.get("id").and_then(Value::as_f64))
+        .map(RpcId::Number)
+        .expect("the wire id");
+
+    // The owner first, so the dropped line can be attributed to it.
+    host.line(&ace_json::to_string(&ace_json::json!({
+        "jsonrpc": "2.0",
+        "method": "thread/started",
+        "params": {"thread": {"id": "owned"}},
+    })))
+    .into_iter()
+    .for_each(drop);
+    let effects = host.dropped(&DroppedLine {
+        bytes: 20_000_000,
+        phase: DroppedPhase::Line,
+        thread: Some(ace_json::JsString::from("owned")),
+        response: Some(wire_id),
+    });
+    let settles: Vec<&HostEffect> = effects
+        .iter()
+        .filter(|effect| matches!(effect, HostEffect::Settle { id: 7, .. }))
+        .collect();
+    assert_eq!(settles.len(), 1, "the caller's promise settles once");
+    assert!(matches!(
+        settles[0],
+        HostEffect::Settle { result: Err(_), .. }
+    ));
+    assert!(
+        !events
+            .snapshot()
+            .iter()
+            .any(|event| matches!(event, Event::Uncertain { .. })),
+        "a rejected request is not also uncertain"
+    );
+    assert!(events.snapshot().iter().any(|event| matches!(
+        event,
+        Event::Dropped {
+            tenant: 1,
+            bytes: 20_000_000
+        }
+    )));
+}
+
+/// `host.ts:226`–`:234`: shared output pauses while any channel is out of
+/// room, and the last resume releases it.
+#[test]
+fn shared_output_pauses_while_any_channel_is_out_of_room() {
+    let gate = HostGate::new();
+    assert!(!gate.paused());
+    gate.set_paused(1, true);
+    assert!(gate.paused());
+    gate.set_paused(2, true);
+    gate.set_paused(1, false);
+    assert!(gate.paused(), "one channel still has no room");
+    gate.set_paused(2, false);
+    assert!(!gate.paused());
+    // A channel that leaves stops holding the others back.
+    gate.set_paused(3, true);
+    gate.release(3);
+    assert!(!gate.paused());
 }
