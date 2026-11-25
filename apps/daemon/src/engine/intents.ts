@@ -71,8 +71,8 @@ export class IntentStore {
     }
     return statement;
   }
-  add(command: Command, id: ThreadId, resolutionId?: string, generation?: number): void {
-    this.store.atomic(() => {
+  add(command: Command, id: ThreadId, resolutionId?: string, generation?: number): number {
+    return this.store.atomic(() => {
       const p = command.payload;
       const row = this.sql(`INSERT INTO intents
         (command_id,thread_id,kind,payload,status,resolution_id,position,delivery,trigger,resolution_generation) VALUES (?,?,?,?,'pending',?,?,?,?,?)`).run(
@@ -86,7 +86,9 @@ export class IntentStore {
         p.type === "thread.send" || p.type === "thread.create" ? (p.trigger ?? null) : null,
         generation ?? null,
       );
-      this.queue.track(Number(row.lastInsertRowid), id, command);
+      const intent = Number(row.lastInsertRowid);
+      this.queue.track(intent, id, command);
+      return intent;
     });
   }
   latestGeneration(id: ThreadId): number {

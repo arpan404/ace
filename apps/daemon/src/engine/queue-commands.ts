@@ -3,6 +3,7 @@ import {
   aimSteerAtRun,
   queueSteerSelection,
   reaimSteerAtRun,
+  recordSteerAim,
 } from "./steer-selection.ts";
 import { editedContext } from "./edited-context.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
@@ -85,6 +86,8 @@ export function handleQueue(
       ) {
         if (agentDevices.has(command.deviceId)) dependencies.repo.steerNotes.steeredAgain(entry.id);
         else dependencies.repo.steerNotes.personSteered(entry.id);
+        // Choosing Steer aims the message at the turn running now, replacing the one it kept.
+        recordSteerAim(dependencies.repo, entry.id, p.threadId, edited);
       }
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
       queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());

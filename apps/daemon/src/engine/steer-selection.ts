@@ -60,8 +60,30 @@ function aimAtActiveRun(repo: EngineRepository, command: Command, id: ThreadId):
   if (p.type !== "thread.send" || !repo.steersByCancel?.(id)) return command;
   const state = repo.state(id);
   if (!state) return command;
-  const runId = state.agents[state.rootKey ?? ""]?.activeRun ?? null;
-  return Command.parse({ ...command, payload: { ...p, runId } });
+  return Command.parse({ ...command, payload: { ...p, runId: activeRootRun(repo, id) } });
+}
+
+/** The root's running turn, or `null` while the thread sits between turns. */
+export function activeRootRun(repo: EngineRepository, id: ThreadId): string | null {
+  const state = repo.state(id);
+  return state?.agents[state.rootKey ?? ""]?.activeRun ?? null;
+}
+
+/**
+ * Records the turn an admitted steer went into, beside its payload rather than in it: a payload
+ * `runId` fences every steer that carries one, so only a live cancel-steered session is stamped.
+ * The lane's cancel path reads this aim where a session that steers by cancelling has no payload
+ * target, such as a steer sent while the session is still opening.
+ */
+export function recordSteerAim(
+  repo: EngineRepository,
+  intent: number,
+  id: ThreadId,
+  command: Command,
+): void {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.delivery !== "steer") return;
+  repo.steerAims.record(intent, activeRootRun(repo, id));
 }
 
 /**

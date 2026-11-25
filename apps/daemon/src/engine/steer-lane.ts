@@ -1,4 +1,5 @@
 import type { Capabilities, ThreadId } from "@ace/protocol";
+import type { ProviderSession } from "@ace/engine-api";
 import type { ThreadActor } from "./actor.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
@@ -90,7 +91,7 @@ export class SteerLane {
     const run = rootRun(repo.requireState(actor.id));
     const session = actor.session;
     if (run === undefined || !session) return;
-    const target = repo.pending.steerTarget(intent.id);
+    const target = this.aim(intent, session);
     if (target !== undefined && steerLostRun(repo, actor.id, target))
       return this.deliver(actor, intent);
     actor.steerYield = { run, state: "pending", intentId: intent.id };
@@ -102,6 +103,16 @@ export class SteerLane {
       this.ports.report(error);
     }
     this.ports.wake(actor.id);
+  }
+  /**
+   * The turn a steer was aimed at: the one its payload names, else the one recorded as it was
+   * admitted. `undefined` when it names none. Only a session that steers by cancelling reads an
+   * aim at all; every other provider steers natively and must never consult it.
+   */
+  private aim(intent: IntentHeader, session: ProviderSession): string | null | undefined {
+    if (!session.steerViaCancel) return undefined;
+    const stamped = this.ports.repo.pending.steerTarget(intent.id);
+    return stamped !== undefined ? stamped : this.ports.repo.steerAims.aim(intent.id);
   }
   private route(intent: IntentHeader): SteerRoute {
     const { repo } = this.ports;
@@ -137,10 +148,11 @@ export class SteerLane {
     if (actor.steerYield && run !== undefined && actor.steerYield.run !== run)
       actor.steerYield = undefined;
     if (actor.session.steerViaCancel) {
-      const target = repo.pending.steerTarget(intent.id);
+      const target = this.aim(intent, actor.session);
       // The turn this steer was sent into has ended, so it must not cancel the one running now
       // or hold the lane behind it: yieldTurn sees the lost target and hands the message back to
-      // the queue as the next one.
+      // the queue as the next one. A steer admitted before its session opened has no payload
+      // target; its recorded aim is what keeps it from cancelling the turn its first prompt starts.
       if (target !== undefined && steerLostRun(repo, intent.threadId, target)) return "yield";
     }
     const person = isPersonSteer(intent, repo.steerNotes.personChose(intent.id));

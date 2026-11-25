@@ -27,7 +27,7 @@ const server = fileURLToPath(
 );
 
 /** An Antigravity thread on the ACP double, recording each session it opens and what it took. */
-async function antigravity(first: string, releaseDir?: string) {
+async function antigravity(first: string, releaseDir?: string, wait = true) {
   const frames = scriptFrames();
   const h = await fixture([], frames, {
     provider: "antigravity",
@@ -109,7 +109,8 @@ async function antigravity(first: string, releaseDir?: string) {
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
-  if (held)
+  // A caller that sends a steer before the session is live takes the thread as it is.
+  if (held && wait)
     await expect
       .poll(() => Object.values(h.store.snapshotThread(id).items), { timeout: 10_000 })
       .toContainEqual(
@@ -118,7 +119,7 @@ async function antigravity(first: string, releaseDir?: string) {
           call: expect.objectContaining({ status: "running" }),
         }),
       );
-  else await expect.poll(() => running().length, { timeout: 10_000 }).toBe(1);
+  else if (!held) await expect.poll(() => running().length, { timeout: 10_000 }).toBe(1);
   const send = (text: string) =>
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }] }).ok;
   return { h, id, sessions, running, send };
@@ -617,6 +618,51 @@ test("a steer that lost its turn doesn't block a newer steer", async () => {
     expect(events(dir)).toEqual(["release", "release", "cancel"]);
     expect(sessions[0]?.prompts.filter((prompt) => prompt === "stop now")).toHaveLength(1);
     expect(sessions[0]?.prompts.filter((prompt) => prompt === "early steer")).toHaveLength(1);
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a steer sent while an ACP session is still opening never cancels the turn its first prompt starts", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-for-steer", dir, false);
+  try {
+    // The session is not live yet, so no turn runs and nothing can be aimed at: the steer is
+    // admitted before the thread has a session to cancel.
+    expect(steer(h, id, "late steer")).toBe(true);
+    // B: the turn the first prompt starts, held by the double on a read it can't finish.
+    await expect
+      .poll(
+        () =>
+          Object.values(h.store.snapshotThread(id).items).some(
+            (item) => item.type === "tool_call" && item.call.status === "running",
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    const first = activeRootRun(h, id);
+    if (!first) throw new Error("Expected the first prompt's turn to be active");
+
+    // The lane takes the steer while B runs and cancels nothing: it was never aimed at B.
+    await expect.poll(() => h.engine.queue(id).pendingCount, { timeout: 10_000 }).toBe(0);
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "active" });
+
+    // B ends by itself, and the steer goes in once after it, as its own message.
+    release(dir, 1);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 10_000 })
+      .toEqual(["hold-for-steer", "late steer"]);
+    await h.engine.flush();
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "late steer")).toHaveLength(1);
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "completed" });
+    // The steer is its own turn after B, not a follow-up inside the turn it never aimed at.
+    expect(Object.keys(h.store.snapshotThread(id).runs)).toHaveLength(2);
+    expect(h.store.getThread(id)?.status.state).toBe("done");
+    expect(events(dir)).toEqual(["release"]);
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
   } finally {
     if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
     rmSync(dir, { recursive: true, force: true });

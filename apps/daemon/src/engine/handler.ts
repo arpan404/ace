@@ -14,7 +14,13 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { admitSteer, aimSteerAtRun, fenceSteer, queueSteerSelection } from "./steer-selection.ts";
+import {
+  admitSteer,
+  aimSteerAtRun,
+  fenceSteer,
+  queueSteerSelection,
+  recordSteerAim,
+} from "./steer-selection.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import {
   ExecutionOptions,
@@ -534,7 +540,8 @@ export function engineHandler(
               .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
             now(),
           );
-        repo.add(admitted, threadId, resolutionId);
+        const intentId = repo.add(admitted, threadId, resolutionId);
+        recordSteerAim(repo, intentId, threadId, admitted);
         repo.acceptInput(admitted, threadId, now());
         queueSteerSelection(repo, threadId, steer, now());
         if (p.type === "thread.create" || p.type === "thread.send") {

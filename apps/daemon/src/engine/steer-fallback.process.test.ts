@@ -99,6 +99,31 @@ test("a steer on a provider that steers natively is admitted with no run of its 
   }
 });
 
+test("a native steer goes in at once even when its recorded aim names a turn that ended", async () => {
+  // The recorded aim exists for every steer, but only a session that steers by cancelling reads
+  // it. A native steer must never be fenced by it: here the aim names a turn that never ran.
+  const h = transitionHarness({ steerTiming: "after_tool", backgroundTools: "moves" });
+  try {
+    const id = await runningCommand(h);
+    const before = h.inputs.length;
+    expect(agentMessage(h, id, "Use the cached build", "steer", "native-steer").ok).toBe(true);
+    // Written between admission and the lanes: the steer lane runs once this stack unwinds.
+    h.store
+      .statement(
+        "UPDATE engine_steer_aims SET run='lost-turn' WHERE intent_id=(SELECT id FROM intents WHERE command_id='native-steer')",
+      )
+      .run();
+    await h.engine.flush();
+    expect(h.inputs.slice(before)).toMatchObject([
+      { text: "Use the cached build", delivery: "steer" },
+    ]);
+    expect(h.engine.queue(id).messages).toEqual([]);
+    expect(h.errors).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
 test("the person's Steer on an agent's queued message goes in as their own steer", async () => {
   const h = transitionHarness({ steerTiming: "after_tool", backgroundTools: "moves" });
   try {

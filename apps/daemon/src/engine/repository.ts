@@ -41,6 +41,7 @@ import { readRawBlob } from "./raw.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
 import { QueueStore } from "./queue-store.ts";
 import { SteerNotes } from "./steer-notes.ts";
+import { SteerAims } from "./steer-aims.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 import { indexEngineRecords } from "../engine-record-indexes.ts";
@@ -71,6 +72,8 @@ export class EngineRepository {
   private metadata: SessionMetadata;
   readonly queue: QueueStore;
   readonly steerNotes: SteerNotes;
+  /** The turn each admitted steer went into, read only where a session steers by cancelling. */
+  readonly steerAims: SteerAims;
   readonly inputs: InputJournal;
   readonly interactions: InteractionLedger;
   readonly pending: IntentStore;
@@ -138,8 +141,9 @@ export class EngineRepository {
     this.capture = store.atomic((_db) =>
       this.store.statement("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
     );
-    // Before the queue: its snapshot reads which steers fell back.
+    // Before the queue: its snapshot reads which steers fell back, and its prune forgets aims.
     this.steerNotes = new SteerNotes(store);
+    this.steerAims = new SteerAims(store);
     this.queue = new QueueStore(store);
     store.atomic((db) =>
       db.exec(
@@ -510,8 +514,9 @@ export class EngineRepository {
     return this.readiness.acceptsPersonInput(state);
   }
 
-  add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.pending.add(
+  /** Admits the input, returning the intent it was stored as. */
+  add(command: Command, id: ThreadId, resolutionId?: string): number {
+    return this.pending.add(
       command,
       id,
       resolutionId,
