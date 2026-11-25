@@ -198,8 +198,9 @@ impl AcpCore {
                 batch,
                 bytes,
             });
+            // `enqueue`'s queueChanged runs once per prompt (`session.ts:687`-`:689`).
+            self.queue_changed(effects);
         }
-        self.queue_changed(effects);
         self.drain(effects);
     }
 

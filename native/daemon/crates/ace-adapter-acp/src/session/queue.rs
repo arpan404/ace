@@ -193,7 +193,12 @@ impl AcpCore {
             self.guided = true;
         }
         self.active = false;
+        // This send resolves (`session.ts:788`), and then a shell the turn left running
+        // without proof refuses the rest of the queue (`:786`-`:787`).
         self.settle_job(active.batch, Ok(Value::Null.to_json()), effects);
+        if self.shells.blocked() {
+            self.reject_queue("ACP shell execution completion is unconfirmed", effects);
+        }
         self.drain(effects);
     }
 

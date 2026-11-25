@@ -254,6 +254,8 @@ pub struct AcpCore {
     pub(crate) open: Option<OpenState>,
     next_internal_id: u64,
     pub(crate) process_exited: bool,
+    /// The MCP lease was ended, once (`session.ts:912`).
+    pub(crate) lease_ended: bool,
 }
 
 impl AcpCore {
@@ -334,6 +336,7 @@ impl AcpCore {
             open: None,
             next_internal_id: 1,
             process_exited: false,
+            lease_ended: false,
         };
         let mut effects = Vec::with_capacity(1);
         let mut start_note = Map::with_capacity(1);
@@ -520,6 +523,7 @@ impl AcpCore {
         self.closed = true;
         self.clear_all_deadlines(&mut effects);
         self.cancel_questions(None, None, &mut effects);
+        self.end_lease(&mut effects);
         self.reject_queue("ACP process exited", &mut effects);
 
         let peer_effects = self.peer.close("ACP process exited");
@@ -550,6 +554,19 @@ impl AcpCore {
         effects
     }
 
+    /// `ctx.mcp?.end()` (`session.ts:73`, `:259`, `:912`): the lease ends once, and the
+    /// facade owns it, so it hears it as a context callback.
+    pub(crate) fn end_lease(&mut self, effects: &mut Vec<AcpEffect>) {
+        if self.lease_ended {
+            return;
+        }
+        self.lease_ended = true;
+        effects.push(AcpEffect::Callback {
+            name: "endMcp",
+            json: "[]".to_owned(),
+        });
+    }
+
     pub(crate) fn fail(&mut self, message: &str, effects: &mut Vec<AcpEffect>) {
         if self.closed {
             return;
@@ -565,6 +582,7 @@ impl AcpCore {
         self.emit_note("transport", Value::Object(note), effects);
 
         self.cancel_questions(None, None, effects);
+        self.end_lease(effects);
         self.reject_queue(&clean_msg, effects);
         let peer_effects = self.peer.stop_requests(&clean_msg);
         self.apply_peer_effects(peer_effects, effects);

@@ -68,11 +68,12 @@ impl AcpCore {
             owners.insert(descendant.id.clone());
         }
         self.cancel_questions(Some(&owners), None, effects);
-        // notify() reports a failed send through the peer's onError (`session.ts:870`).
-        let notified = self
-            .notify(agent_methods::SESSION_CANCEL, Some(&cancel_params(&id)))
-            .map_err(|err| AcpErrorWire::rpc_error(err.message().to_owned()))?;
-        effects.extend(notified);
+        // `notify(...).catch(() => {})` (`session.ts:871`): a cancel the transport could
+        // not carry still arms the grace deadlines below.
+        if let Ok(notified) = self.notify(agent_methods::SESSION_CANCEL, Some(&cancel_params(&id)))
+        {
+            effects.extend(notified);
+        }
         if let Some(child) = &child {
             // A child that goes silent after its cancel is given up as interrupted, as the
             // translator does at the same deadline (`session.ts:872`-`:876`).
@@ -89,13 +90,12 @@ impl AcpCore {
         }
         for descendant in &descendants {
             if descendant.live && descendant.cancel {
-                let notified = self
-                    .notify(
-                        agent_methods::SESSION_CANCEL,
-                        Some(&cancel_params(&descendant.id)),
-                    )
-                    .map_err(|err| AcpErrorWire::rpc_error(err.message().to_owned()))?;
-                effects.extend(notified);
+                if let Ok(notified) = self.notify(
+                    agent_methods::SESSION_CANCEL,
+                    Some(&cancel_params(&descendant.id)),
+                ) {
+                    effects.extend(notified);
+                }
             }
         }
         Ok(())
@@ -367,6 +367,9 @@ impl AcpCore {
             self.cancel_questions(None, None, effects);
             self.reject_queue("ACP session closed", effects);
         }
+        // `ctx.mcp?.end()` (`session.ts:912`): the lease goes with the session. The facade
+        // owns the lease, so it hears it as a context callback.
+        self.end_lease(effects);
         let closed = self.peer.close("ACP session closed");
         self.apply_peer_effects(closed, effects);
     }

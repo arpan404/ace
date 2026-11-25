@@ -97,6 +97,65 @@ fn a_queued_steer_whose_fence_is_still_current_is_sent() {
     );
 }
 
+/// A turn that leaves a shell running without proof refuses the prompts behind it, as
+/// `rejectQueue` does at the prompt's end (`session.ts:786`-`:787`); its own send resolves.
+#[test]
+fn a_prompt_that_leaves_a_shell_running_refuses_the_queue_behind_it() {
+    let (mut core, prompt) = core_with_prompt("t-blocked-shell");
+    core.shells.prompt_started();
+    core.shells.receive(&json!({
+        "sessionId": "sess-1",
+        "update": { "sessionUpdate": "tool_call", "toolCallId": "sh-1", "kind": "execute", "status": "in_progress" }
+    }));
+    core.steer_via_cancel = true;
+    let queued = send(&mut core, 61, Delivery::Steer, None);
+    assert_eq!(core.queue_len(), 1, "{queued:?}");
+
+    let ended = core.stdout_bytes(&prompt_reply(&prompt, "cancelled"));
+    let active = settlements(&ended, 1);
+    assert_eq!(active.len(), 1);
+    assert!(active[0].is_ok(), "the turn's own send resolves");
+    let refused = settlements(&ended, 61);
+    assert_eq!(refused.len(), 1);
+    let Err((code, message)) = &refused[0] else {
+        panic!("the queue behind a blocked shell is refused: {refused:?}");
+    };
+    assert_eq!(code, "ACE_INPUT_REJECTED");
+    assert_eq!(message, "ACP shell execution completion is unconfirmed");
+}
+
+/// `queueChanged` runs once per prompt pushed (`session.ts:687`-`:689`), so the recorded
+/// notes match the TypeScript's.
+#[test]
+fn one_queue_changed_note_is_published_per_prompt() {
+    let mut core = session_core("t-queue-notes");
+    let input = vec![
+        json!({ "type": "mention", "name": "one", "invocation": { "type": "slash", "name": "one" } }),
+        json!({ "type": "mention", "name": "two", "invocation": { "type": "slash", "name": "two" } }),
+    ];
+    let mut effects = Vec::new();
+    core.send(
+        InputSend {
+            operation: 62,
+            input: &input,
+            delivery: Delivery::Queue,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut effects,
+    );
+    let notes = effects
+        .iter()
+        .filter(|effect| {
+            matches!(effect, AcpEffect::Frame { channel, text, .. }
+                if channel == "recorder" && text.contains("queue-changed"))
+        })
+        .count();
+    // Two pushes, then the drain's own report once the first prompt went out.
+    assert_eq!(notes, 3, "one note per prompt, and the drain's");
+}
+
 #[test]
 fn steer_via_cancel_queues_a_steer_instead_of_steering() {
     let (mut core, _prompt) = core_with_prompt("t-cancel-steer");

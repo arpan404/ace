@@ -232,6 +232,54 @@ fn interrupting_a_child_arms_its_own_grace() {
     );
 }
 
+/// A cancel the transport could not carry never fails the interrupt, and the grace the
+/// stop needs is still armed (`session.ts:870`-`:876`, `.catch(() => {})`).
+#[test]
+fn a_cancel_that_never_went_out_still_arms_the_grace() {
+    let mut core = session_core("t-cancel-fails");
+    send(&mut core, 1);
+    // The peer stopped taking requests, as it does once the leader exits.
+    core.mark_exited();
+    let mut effects = Vec::new();
+    let result = core.interrupt(
+        InterruptTarget {
+            agent: None,
+            cascade: false,
+        },
+        &mut effects,
+    );
+    assert!(result.is_ok(), "{result:?}");
+    assert!(
+        core.deadlines.wire_key("root").is_some(),
+        "the stop is still given up at the grace"
+    );
+}
+
+/// The session's close ends ace's MCP lease once (`ctx.mcp?.end()`, `session.ts:912`).
+#[test]
+fn close_ends_the_mcp_lease_once() {
+    let mut core = session_core("t-lease");
+    let mut effects = Vec::new();
+    core.close(CloseReason::User, &mut effects);
+    let ended = effects
+        .iter()
+        .filter(|effect| matches!(effect, AcpEffect::Callback { name, .. } if *name == "endMcp"))
+        .count();
+    assert_eq!(ended, 1);
+    // A second close, and the exit that follows it, change nothing.
+    let mut after = Vec::new();
+    core.close(CloseReason::Shutdown, &mut after);
+    core.finish(json!({ "code": 0 }), "0")
+        .into_iter()
+        .for_each(|effect| after.push(effect));
+    assert!(
+        after
+            .iter()
+            .all(|effect| !matches!(effect, AcpEffect::Callback { name, .. } if *name == "endMcp")),
+        "the lease ends once"
+    );
+}
+
 #[test]
 fn stop_task_is_refused() {
     let mut core = session_core("t-stop-task");
