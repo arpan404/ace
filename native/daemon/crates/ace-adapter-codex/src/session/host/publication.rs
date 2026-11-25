@@ -79,24 +79,49 @@ impl Host {
 
     /// Hands the queued effects to the sink, one at a time, in order, until
     /// the queue is empty. A decision made from inside an effect joins this
-    /// same queue and follows the effects already decided.
+    /// same queue and follows the effects already decided. A sink that unwinds
+    /// gives the turn back on its way out (`Claim`), so one panic never wedges
+    /// publication; the effect it was given is the one that is lost.
     fn publish(&self) {
+        let mut claim = Claim {
+            host: self,
+            held: true,
+        };
         loop {
             let next = {
                 let mut publication = self.publication();
                 let Some(sink) = publication.sink.clone() else {
                     publication.publishing = false;
+                    claim.held = false;
                     return;
                 };
                 match publication.queue.pop_front() {
                     Some(effect) => (sink, effect),
                     None => {
                         publication.publishing = false;
+                        claim.held = false;
                         return;
                     }
                 }
             };
             next.0.effect(self, next.1);
         }
+    }
+}
+
+/// The publication turn `publish` holds. Dropping it held (a sink that
+/// unwound) gives the turn back, so the next input claims it and drains what
+/// the panicking one left queued.
+struct Claim<'a> {
+    host: &'a Host,
+    held: bool,
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        if !self.held {
+            return;
+        }
+        self.host.publication().publishing = false;
     }
 }

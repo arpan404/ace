@@ -155,6 +155,46 @@ fn a_frame_waits_for_the_settlement_the_host_decided_before_it() {
     );
 }
 
+/// A sink that unwinds once does not wedge publication: the turn it held is
+/// given back, and later inputs are published as usual.
+#[test]
+fn a_sink_panic_releases_the_publication_turn() {
+    let sink = Arc::new(Holding::default());
+    let host = sink.start();
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        7,
+        Timeout::After(1_000.0),
+    )
+    .expect("the call is queued");
+    let deadline = sink.deadline(&host, 1_000.0);
+
+    sink.lose_next_settlement();
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.timer(&deadline)));
+    assert!(unwound.is_err(), "the sink unwinds on the settlement");
+
+    // The next input still reaches the shell, so the turn was not left held.
+    let before = sink.published().len();
+    host.request(
+        1,
+        "thread/read",
+        Some(&ace_json::json!({"threadId": "t"})),
+        8,
+        Timeout::Disabled,
+    )
+    .expect("a later call is queued");
+    let published = sink.published();
+    assert!(
+        published[before..]
+            .iter()
+            .any(|thing| matches!(thing, Published::Effect(HostEffect::Write { .. }))),
+        "a later input is still published: {:?}",
+        &published[before..]
+    );
+}
+
 /// One thing the shell published, in the order it published it.
 #[derive(Debug, Clone, PartialEq)]
 enum Published {
@@ -211,6 +251,7 @@ struct Holding {
     log: Arc<Mutex<Vec<Published>>>,
     read: Mutex<usize>,
     hold: Mutex<bool>,
+    lose: Mutex<bool>,
     parked: Mutex<bool>,
     parked_wake: Condvar,
     release: Mutex<bool>,
@@ -296,6 +337,11 @@ impl Holding {
         *self.hold.lock().expect("hold") = true;
     }
 
+    /// Unwinds on the next settlement, once.
+    fn lose_next_settlement(&self) {
+        *self.lose.lock().expect("lose") = true;
+    }
+
     fn wait_parked(&self) -> bool {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut parked = self.parked.lock().expect("parked");
@@ -335,6 +381,17 @@ impl HostSink for Holding {
                 handler.frame(*dir, data);
             }
             return;
+        }
+        let lose = {
+            let mut lose = self.lose.lock().expect("lose");
+            let losing = *lose && matches!(effect, HostEffect::Settle { .. });
+            if losing {
+                *lose = false;
+            }
+            losing
+        };
+        if lose {
+            panic!("the shell lost this settlement");
         }
         let hold = {
             let mut hold = self.hold.lock().expect("hold");
