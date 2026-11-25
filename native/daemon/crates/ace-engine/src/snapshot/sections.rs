@@ -55,7 +55,11 @@ impl Snapshot {
             if self.state.agents.contains_key(&key) {
                 continue;
             }
-            if let Some(record) = self.agents.read(&key)? {
+            if let Some(mut record) = self.agents.read(&key)? {
+                // The agent's runs live in their own section (`persistence.ts:50`-`:60`).
+                if record.native_runs.is_some() {
+                    record.native_runs = Some(self.native_runs(&key)?);
+                }
                 self.state.agents.insert(key, record);
             }
         }
