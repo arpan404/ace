@@ -134,7 +134,7 @@ import UIKit
         #expect(stacked.replies == "\u{1b}]10;rgb:0101/0202/0303\u{1b}\\")
     }
 
-    @Test func resetsRestoreTheDefaultsAndAFullResetForgetsProgramColoursAndLinks() {
+    @Test func resetsRestoreTheDefaultsAndAFullResetForgetsProgramColours() {
         var s = screen("\u{1b}]4;1;#ff0000;2;#00ff00\u{07}\u{1b}]10;#010203\u{07}\u{1b}]11;#040506\u{07}",
                        "\u{1b}]8;;https://example.com\u{07}")
         feed("\u{1b}]104;1\u{07}", into: &s)
@@ -147,8 +147,17 @@ import UIKit
         #expect(s.colours.colour(.background) == TerminalColours.defaultBackground)
         feed("\u{1b}c", into: &s)
         #expect(s.colours == TerminalColours())
-        #expect(s.links.isEmpty)
         #expect(s.currentLink == 0)
+    }
+
+    /// Scrollback outlives a full reset and its cells name links by index: a link printed after
+    /// the reset must not take an index older text still points at.
+    @Test func aFullResetKeepsTheLinksOlderTextStillPointsAt() {
+        var s = screen("\u{1b}]8;;https://before.example\u{07}old\u{1b}]8;;\u{07}")
+        let before = Int(s.lines[0].cells[0].style.link)
+        feed("\u{1b}c\u{1b}]8;;https://after.example\u{07}new\u{1b}]8;;\u{07}", into: &s)
+        #expect(s.links[before - 1] == "https://before.example")
+        #expect(s.links.firstIndex(of: "https://after.example").map { $0 + 1 } != before)
     }
 
     // MARK: Everything else

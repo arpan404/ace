@@ -146,7 +146,8 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
     /// The hyperlink under a point in the view, if any.
     private func link(at point: CGPoint) -> String? {
         guard let session else { return nil }
-        let row = Int(floor((point.y + contentOffset.y - inset) / fonts.lineHeight))
+        // A scroll view's own coordinates already include its offset.
+        let row = Int(floor((point.y - inset) / fonts.lineHeight))
         let column = Int(floor((point.x - inset) / fonts.cellWidth))
         return session.read { $0.hyperlink(row: row, column: column) }
     }

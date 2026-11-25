@@ -58,7 +58,7 @@ struct TerminalScreen: Sendable {
     /// so a program printing an endless stream of distinct links can't grow the screen.
     private(set) var links: [String] = []
     private(set) var currentLink: UInt16 = 0
-    static let maxLinks = 64
+    static let maxLinks = 256
     var style = TerminalStyle.plain
     var top = 0
     var bottom: Int
@@ -435,7 +435,8 @@ struct TerminalScreen: Sendable {
         cursorShape = .block
         title = ""
         colours = TerminalColours()
-        links = []
+        // Scrollback survives a reset and its cells name links by index, so the addresses stay;
+        // the registry is bounded (`maxLinks`) and a known address keeps its index.
         currentLink = 0
     }
 
