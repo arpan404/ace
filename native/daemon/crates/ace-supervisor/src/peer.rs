@@ -18,6 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ace_json::{JsString, Map, Value};
@@ -202,11 +203,24 @@ pub enum Timeout {
 /// What one stdin owns (`rpc-owner.ts:14`): the id reservations and the bounded
 /// write queue. A replacement peer shares both, so a retired id is never reused,
 /// an old reply cannot claim a new call, and its first write waits for the old
-/// in-flight write's `written`.
+/// in-flight write's `written`. Each ticket names the peer that enqueued it, so
+/// only that peer acknowledges its own in-flight write.
 #[derive(Clone)]
 pub struct PeerOwner {
     ids: Arc<Mutex<RpcIds>>,
-    writer: Arc<Mutex<WriterQueue>>,
+    inner: Arc<Mutex<OwnerInner>>,
+    next_peer: Arc<AtomicU64>,
+}
+
+struct OwnerInner {
+    writer: WriterQueue,
+    /// Live tickets: queued ones carry their wire, active ones only their owner.
+    tickets: HashMap<u64, Ticket>,
+}
+
+struct Ticket {
+    owner: u64,
+    wire: Option<Vec<u8>>,
 }
 
 impl PeerOwner {
@@ -214,7 +228,22 @@ impl PeerOwner {
     pub fn new(max_queued_bytes: usize) -> PeerOwner {
         PeerOwner {
             ids: Arc::new(Mutex::new(RpcIds::new(MAX_EXPLICIT_IDS))),
-            writer: Arc::new(Mutex::new(WriterQueue::new(max_queued_bytes))),
+            inner: Arc::new(Mutex::new(OwnerInner {
+                writer: WriterQueue::new(max_queued_bytes),
+                tickets: HashMap::new(),
+            })),
+            next_peer: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn join(&self) -> u64 {
+        self.next_peer.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, OwnerInner> {
+        match self.inner.lock() {
+            Ok(inner) => inner,
+            Err(poisoned) => poisoned.into_inner(),
         }
     }
 
@@ -226,31 +255,70 @@ impl PeerOwner {
         ids.reserve(id)
     }
 
-    fn enqueue(&self, bytes: usize) -> Result<u64, StreamError> {
-        match self.writer.lock() {
-            Ok(mut writer) => writer.enqueue(bytes),
-            Err(poisoned) => poisoned.into_inner().enqueue(bytes),
+    fn enqueue(&self, owner: u64, wire: Vec<u8>) -> Result<u64, StreamError> {
+        let mut inner = self.lock();
+        let ticket = inner.writer.enqueue(wire.len())?;
+        inner.tickets.insert(
+            ticket,
+            Ticket {
+                owner,
+                wire: Some(wire),
+            },
+        );
+        Ok(ticket)
+    }
+
+    /// The next queued line, whichever peer owns it: the pipe is shared, so any
+    /// peer may hand its bytes to stdin.
+    fn claim(&self) -> Option<(u64, Vec<u8>)> {
+        let mut inner = self.lock();
+        let ticket = inner.writer.claim()?;
+        let wire = inner.tickets.get_mut(&ticket)?.wire.take()?;
+        Some((ticket, wire))
+    }
+
+    /// Only the owning peer acknowledges a write; false leaves the queue alone.
+    fn written(&self, owner: u64, ticket: u64) -> bool {
+        let mut inner = self.lock();
+        let owned = inner
+            .tickets
+            .get(&ticket)
+            .is_some_and(|entry| entry.owner == owner);
+        if !owned {
+            return false;
+        }
+        inner.writer.written(ticket);
+        inner.tickets.remove(&ticket);
+        true
+    }
+
+    /// Cancel one of this peer's queued writes; an active one stays charged.
+    fn cancel(&self, owner: u64, ticket: u64) -> bool {
+        let mut inner = self.lock();
+        if inner.tickets.get(&ticket).map(|entry| entry.owner) != Some(owner) {
+            return false;
+        }
+        if inner.writer.cancel(ticket) {
+            inner.tickets.remove(&ticket);
+            true
+        } else {
+            false
         }
     }
 
-    fn claim(&self) -> Option<u64> {
-        match self.writer.lock() {
-            Ok(mut writer) => writer.claim(),
-            Err(poisoned) => poisoned.into_inner().claim(),
-        }
-    }
-
-    fn written(&self, ticket: u64) {
-        match self.writer.lock() {
-            Ok(mut writer) => writer.written(ticket),
-            Err(poisoned) => poisoned.into_inner().written(ticket),
-        }
-    }
-
-    fn cancel(&self, ticket: u64) -> bool {
-        match self.writer.lock() {
-            Ok(mut writer) => writer.cancel(ticket),
-            Err(poisoned) => poisoned.into_inner().cancel(ticket),
+    /// Drop this peer's queued writes and leave the shared queue open.
+    fn cancel_owner(&self, owner: u64) {
+        let mut inner = self.lock();
+        let mine: Vec<u64> = inner
+            .tickets
+            .iter()
+            .filter(|(_, entry)| entry.owner == owner)
+            .map(|(ticket, _)| *ticket)
+            .collect();
+        for ticket in mine {
+            if inner.writer.cancel(ticket) {
+                inner.tickets.remove(&ticket);
+            }
         }
     }
 }
@@ -273,12 +341,11 @@ struct Pending {
 pub struct RpcPeer {
     config: PeerConfig,
     owner: PeerOwner,
+    owner_id: u64,
     pending: Vec<(RpcId, Pending)>,
     incoming: usize,
     /// Reply writes still holding an incoming slot until `written`.
     replies: HashSet<u64>,
-    /// The wire for every ticket the queue has not handed out yet.
-    writes: HashMap<u64, Vec<u8>>,
     /// The first error that stopped requests; inputs still observe frames.
     stopped: Option<PeerError>,
     /// `close` ran: no later line reaches the state.
@@ -295,13 +362,14 @@ impl RpcPeer {
     /// write queue (in-flight bytes and the one active write) the retired peer
     /// left. The first peer's `max_queued_bytes` fixed the queue's cap.
     pub fn with_owner(config: PeerConfig, owner: PeerOwner) -> RpcPeer {
+        let owner_id = owner.join();
         RpcPeer {
             config,
             owner,
+            owner_id,
             pending: Vec::new(),
             incoming: 0,
             replies: HashSet::new(),
-            writes: HashMap::new(),
             stopped: None,
             closed: false,
         }
@@ -386,11 +454,10 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.owner.enqueue(wire.len()) {
+        match self.owner.enqueue(self.owner_id, wire) {
             Ok(ticket) => {
                 pending.ticket = Some(ticket);
                 self.pending.push((request_id, pending));
-                self.writes.insert(ticket, wire);
                 self.pump(&mut effects);
             }
             Err(error) => {
@@ -426,11 +493,8 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.owner.enqueue(wire.len()) {
-            Ok(ticket) => {
-                self.writes.insert(ticket, wire);
-                self.pump(&mut effects);
-            }
+        match self.owner.enqueue(self.owner_id, wire) {
+            Ok(_) => self.pump(&mut effects),
             Err(error) => effects.push(PeerEffect::Failed {
                 message: error.to_string(),
             }),
@@ -519,7 +583,9 @@ impl RpcPeer {
     /// The write callback ran: release its bytes and hand out the next queued
     /// write, so at most one line is in flight (`rpc-writer.ts`).
     pub fn written(&mut self, ticket: u64) -> Vec<PeerEffect> {
-        self.owner.written(ticket);
+        if !self.owner.written(self.owner_id, ticket) {
+            return Vec::new();
+        }
         if self.replies.remove(&ticket) {
             self.finish_incoming();
         }
@@ -618,11 +684,7 @@ impl RpcPeer {
         }
         // Cancel this peer's queued writes; the shared queue stays open for a
         // replacement peer on the same stdin.
-        let queued: Vec<u64> = self.writes.keys().copied().collect();
-        for ticket in queued {
-            self.owner.cancel(ticket);
-        }
-        self.writes.clear();
+        self.owner.cancel_owner(self.owner_id);
         effects
     }
 
@@ -637,10 +699,8 @@ impl RpcPeer {
         result: Result<Value, PeerError>,
         effects: &mut Vec<PeerEffect>,
     ) {
-        if let Some(ticket) = pending.ticket
-            && self.owner.cancel(ticket)
-        {
-            self.writes.remove(&ticket);
+        if let Some(ticket) = pending.ticket {
+            self.owner.cancel(self.owner_id, ticket);
         }
         cancel_timer(pending.timer.as_deref(), effects);
         effects.push(PeerEffect::Settle {
@@ -669,9 +729,8 @@ impl RpcPeer {
             dir: Direction::Send,
             value,
         });
-        match self.owner.enqueue(wire.len()) {
+        match self.owner.enqueue(self.owner_id, wire) {
             Ok(ticket) => {
-                self.writes.insert(ticket, wire);
                 self.replies.insert(ticket);
                 self.pump(&mut effects);
             }
@@ -686,14 +745,8 @@ impl RpcPeer {
     }
 
     fn pump(&mut self, effects: &mut Vec<PeerEffect>) {
-        while let Some(ticket) = self.owner.claim() {
-            let Some(wire) = self.writes.remove(&ticket) else {
-                // Nothing left to write for it: release the slot and go on.
-                self.owner.written(ticket);
-                continue;
-            };
+        if let Some((ticket, wire)) = self.owner.claim() {
             effects.push(PeerEffect::Write { wire, ticket });
-            break;
         }
     }
 }
@@ -1360,6 +1413,31 @@ mod tests {
     }
 
     #[test]
+    fn a_retired_peer_acknowledges_only_its_own_write() {
+        let owner = PeerOwner::new(32 * 1024 * 1024);
+        let mut retired = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
+        call(&mut retired, "old", None, 1, Timeout::Disabled);
+        retired.close("retired");
+
+        let mut replacement = RpcPeer::with_owner(PeerConfig::default(), owner);
+        let queued = call(&mut replacement, "new", None, 2, Timeout::Disabled);
+        assert!(writes(&queued).is_empty());
+
+        // The replacement did not write ticket 0, so it cannot acknowledge it.
+        assert!(writes(&replacement.written(0)).is_empty());
+        // The owner's acknowledgment releases the queue's next line, whose bytes
+        // are the replacement's queued payload.
+        let released = retired.written(0);
+        assert_eq!(
+            writes(&released),
+            vec![(1, r#"{"jsonrpc":"2.0","id":2,"method":"new"}"#.to_owned())]
+        );
+        // A non-owner still cannot acknowledge the replacement's ticket.
+        assert!(retired.written(1).is_empty());
+        assert!(writes(&replacement.written(1)).is_empty());
+    }
+
+    #[test]
     fn a_replacement_peer_keeps_the_pipes_id_reservations() {
         let owner = PeerOwner::new(32 * 1024 * 1024);
         let mut retired = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
@@ -1371,7 +1449,8 @@ mod tests {
         let mut replacement = RpcPeer::with_owner(PeerConfig::default(), owner.clone());
         let new = call(&mut replacement, "new", None, 2, Timeout::Disabled);
         assert!(writes(&new).is_empty());
-        let released = replacement.written(0);
+        assert!(writes(&replacement.written(0)).is_empty());
+        let released = retired.written(0);
         assert!(writes(&released)[0].1.contains(r#""id":2,"#));
         let late = replacement.line(r#"{"id":1,"result":"old"}"#);
         assert_eq!(order(&late), vec!["frame:recv"]);
