@@ -136,6 +136,13 @@ export class SteerLane {
     const run = rootRun(state);
     if (actor.steerYield && run !== undefined && actor.steerYield.run !== run)
       actor.steerYield = undefined;
+    if (actor.session.steerViaCancel) {
+      const target = repo.pending.steerTarget(intent.id);
+      // The turn this steer was sent into has ended, so it must not cancel the one running now
+      // or hold the lane behind it: yieldTurn sees the lost target and hands the message back to
+      // the queue as the next one.
+      if (target !== undefined && steerLostRun(repo, intent.threadId, target)) return "yield";
+    }
     const person = isPersonSteer(intent, repo.steerNotes.personChose(intent.id));
     return steerRoute({ person }, state, capabilities, actor.steerYield, actor.session);
   }
