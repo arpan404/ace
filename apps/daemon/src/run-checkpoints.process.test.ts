@@ -596,3 +596,218 @@ test("failed admissions leave the maintenance slots for a finished thread's afte
     await rm(data, { recursive: true, force: true });
   }
 });
+
+test("a free maintenance slot reaches a due thread behind busy ones", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-run-slot-"));
+  await git("git", ["init", root]);
+  await git("git", ["-C", root, "config", "user.name", "ace test"]);
+  await git("git", ["-C", root, "config", "user.email", "test@ace.local"]);
+  await writeFile(join(root, "file.txt"), "before\n");
+  await git("git", ["-C", root, "add", "file.txt"]);
+  await git("git", ["-C", root, "commit", "-m", "Initial"]);
+  const data = await mkdtemp(join(tmpdir(), "ace-run-store-"));
+  const store = new Store(join(data, "events.sqlite"));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const newThread = (id: string, title: string) =>
+    Thread.parse({
+      id,
+      workspaceId,
+      provider: "codex",
+      rootAgentId: "root",
+      title,
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  // A drain page holds seventeen due threads. Sixteen of them sit in the maintenance pool and the
+  // seventeenth is parked in an admission, so a page of the first seventeen candidates is all
+  // busy while two maintenance slots are free.
+  const busy = Array.from({ length: 17 }, (_, i) =>
+    newThread(`busy-${String(i).padStart(2, "0")}`, `Busy ${i}`),
+  );
+  const behind = newThread("z-behind", "Waits behind the busy ones");
+  const finisher = newThread("y-finisher", "Finishes and frees a slot");
+  for (const created of [...busy, behind, finisher])
+    store.appendEvents(created.id, [{ type: "thread.created", thread: created }]);
+  const checkpoints = new GatedCheckpoints();
+  const runtime = new WorkspaceRuntime(store, data, () => 1000, { gitService: checkpoints });
+  const busyRuns = busy.map((holder, i) => rootTurn(holder.id, `busy-turn-${i}`));
+  const behindRun = rootTurn(behind.id, "behind-turn");
+  const finisherRun = rootTurn(finisher.id, "finisher-turn");
+  const dueRuns = (threadId: ThreadId) =>
+    store.atomic((db) =>
+      db.prepare("SELECT run_id FROM client_checkpoint_due WHERE thread_id=?").all(threadId),
+    );
+  // A turn whose client checkpoints wait for their "after": ending it makes that row due.
+  const working = (threadId: ThreadId, run: ReturnType<typeof rootTurn>) =>
+    store.appendEvents(threadId, [
+      { type: "run.started", run },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+      { type: "run.client.updated", runId: run.id, checkpoints: { state: "pending" } },
+    ]);
+  const ended = (threadId: ThreadId, run: ReturnType<typeof rootTurn>, endedAt: number) =>
+    store.appendEvents(threadId, [
+      { type: "run.ended", runId: run.id, state: "completed", endedAt },
+    ]);
+  try {
+    // Every busy "after" is due while its thread still works, so no maintenance pass takes it.
+    for (const [i, holder] of busy.entries()) {
+      working(holder.id, busyRuns[i]!);
+      ended(holder.id, busyRuns[i]!, 2);
+    }
+    // The thread behind them reports done before its turn ends: its own finish finds nothing due.
+    store.appendEvents(behind.id, [
+      { type: "run.started", run: behindRun },
+      { type: "thread.updated", status: { state: "done" } },
+    ]);
+    store.appendEvents(behind.id, [
+      { type: "run.client.updated", runId: behindRun.id, checkpoints: { state: "pending" } },
+    ]);
+    ended(behind.id, behindRun, 2);
+    working(finisher.id, finisherRun);
+
+    // Every busy due row is now captured under an admission that has not ended, so each of those
+    // threads is a due candidate that also holds an active flight.
+    checkpoints.holding = true;
+    const parked = busy.map((holder, i) =>
+      runtime.checkpoints.beforeSend(holder.id, CommandId.parse(`park-${i}`)),
+    );
+    for (const pending of parked) void pending.catch(() => {});
+    await checkpoints.waitFor(17);
+    // Marked done while their own admission holds them: finish() hands back that flight, so no
+    // maintenance slot is taken and each due row stays where the drain would look for it.
+    for (const holder of busy)
+      store.appendEvents(holder.id, [{ type: "thread.updated", status: { state: "done" } }]);
+    expect(dueRuns(behind.id)).toHaveLength(1);
+
+    // The gate reopens for new captures; parked ones stay parked. Another thread finishing frees
+    // a maintenance slot and drains, and its page is the seventeen busy threads no longer.
+    checkpoints.holding = false;
+    ended(finisher.id, finisherRun, 3);
+    store.appendEvents(finisher.id, [{ type: "thread.updated", status: { state: "done" } }]);
+    await vi.waitFor(() => expect(dueRuns(behind.id)).toEqual([]), { timeout: GATE_DEADLINE_MS });
+    const captured = store.snapshotThread(behind.id).runs[behindRun.id]?.checkpoints;
+    expect(captured?.state).toBe("ready");
+    if (!captured?.after) throw new Error("Expected an after checkpoint");
+    const refs = await checkpoints.listCheckpoints({ repo: root, threadId: behind.id });
+    expect(refs.filter((ref) => ref.label === "After turn 1").map((ref) => ref.id)).toEqual([
+      captured.after,
+    ]);
+  } finally {
+    // The parked admissions are not what this test asserts: they fail instead of snapshotting.
+    checkpoints.failCapturesOtherThan(behind.id);
+    checkpoints.reopen();
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
+test("a failed send's due checkpoint is captured once maintenance is free", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-run-refused-"));
+  await git("git", ["init", root]);
+  await git("git", ["-C", root, "config", "user.name", "ace test"]);
+  await git("git", ["-C", root, "config", "user.email", "test@ace.local"]);
+  await writeFile(join(root, "file.txt"), "before\n");
+  await git("git", ["-C", root, "add", "file.txt"]);
+  await git("git", ["-C", root, "commit", "-m", "Initial"]);
+  const data = await mkdtemp(join(tmpdir(), "ace-run-store-"));
+  const store = new Store(join(data, "events.sqlite"));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const newThread = (id: string, title: string) =>
+    Thread.parse({
+      id,
+      workspaceId,
+      provider: "codex",
+      rootAgentId: "root",
+      title,
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  const target = newThread("target", "Due while every slot is held");
+  // Sixteen turns fill the maintenance pool: their captures park at the gate and their due rows
+  // wait with them.
+  const holders = Array.from({ length: 16 }, (_, i) => newThread(`holder-${i}`, `Holder ${i}`));
+  const sender = newThread("sender", "Refused at admission");
+  for (const created of [target, ...holders, sender])
+    store.appendEvents(created.id, [{ type: "thread.created", thread: created }]);
+  const checkpoints = new GatedCheckpoints();
+  const runtime = new WorkspaceRuntime(store, data, () => 1000, { gitService: checkpoints });
+  const holderRuns = holders.map((holder, i) => rootTurn(holder.id, `holder-turn-${i}`));
+  const targetRun = rootTurn(target.id, "target-turn");
+  const dueRuns = (threadId?: ThreadId) =>
+    store.atomic((db) =>
+      threadId === undefined
+        ? db.prepare("SELECT thread_id FROM client_checkpoint_due").all()
+        : db.prepare("SELECT run_id FROM client_checkpoint_due WHERE thread_id=?").all(threadId),
+    );
+  const working = (threadId: ThreadId, run: ReturnType<typeof rootTurn>) =>
+    store.appendEvents(threadId, [
+      { type: "run.started", run },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+      { type: "run.client.updated", runId: run.id, checkpoints: { state: "pending" } },
+    ]);
+  try {
+    checkpoints.holding = true;
+    for (const [i, holder] of holders.entries()) {
+      working(holder.id, holderRuns[i]!);
+      store.appendEvents(holder.id, [
+        { type: "run.ended", runId: holderRuns[i]!.id, state: "completed", endedAt: 2 },
+        { type: "thread.updated", status: { state: "done" } },
+      ]);
+    }
+    await checkpoints.waitFor(16);
+    // The whole pool frees up. These captures are not what this test asserts, so they fail
+    // instead of snapshotting; their drains find nothing due and capture nothing.
+    checkpoints.failCapturesOtherThan(target.id);
+    checkpoints.holding = false;
+    for (const holder of holders) checkpoints.releaseThread(holder.id);
+    await runtime.checkpoints.settled();
+    await vi.waitFor(() => expect(dueRuns()).toEqual([]), { timeout: GATE_DEADLINE_MS });
+
+    // The target reports done before its turn ends, so its own finish finds nothing to capture
+    // and its "after" lands with no pass running: it waits for the next drain.
+    store.appendEvents(target.id, [
+      { type: "run.started", run: targetRun },
+      { type: "thread.updated", status: { state: "done" } },
+    ]);
+    store.appendEvents(target.id, [
+      { type: "run.client.updated", runId: targetRun.id, checkpoints: { state: "pending" } },
+    ]);
+    await writeFile(join(root, "file.txt"), "after\n");
+    store.appendEvents(target.id, [
+      { type: "run.ended", runId: targetRun.id, state: "completed", endedAt: 3 },
+    ]);
+    expect(dueRuns(target.id)).toHaveLength(1);
+
+    // A send parks its capture and is then refused. Its admission ends with a free maintenance
+    // slot and no further event, so its own drain is what has to reach the waiting due row.
+    checkpoints.holding = true;
+    const send = runtime.checkpoints.beforeSend(sender.id, CommandId.parse("send"));
+    const outcome = send.then(
+      () => "admitted",
+      () => "rejected",
+    );
+    await checkpoints.waitFor(1);
+    checkpoints.holding = false;
+    checkpoints.quarantineCapturesOtherThan(target.id);
+    checkpoints.releaseThread(sender.id);
+    expect(await outcome).toBe("rejected");
+    await vi.waitFor(() => expect(dueRuns(target.id)).toEqual([]), { timeout: GATE_DEADLINE_MS });
+    const captured = store.snapshotThread(target.id).runs[targetRun.id]?.checkpoints;
+    expect(captured?.state).toBe("ready");
+    if (!captured?.after) throw new Error("Expected an after checkpoint");
+    const refs = await checkpoints.listCheckpoints({ repo: root, threadId: target.id });
+    expect(refs.filter((ref) => ref.label === "After turn 1").map((ref) => ref.id)).toEqual([
+      captured.after,
+    ]);
+  } finally {
+    checkpoints.reopen();
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});

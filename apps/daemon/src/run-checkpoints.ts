@@ -111,12 +111,15 @@ export class RunCheckpoints {
   }
   private drainPending(): void {
     if (this.closing || this.maintenance >= 16) return;
+    // Threads already flying are skipped in SQL, not after the limit: otherwise a run of busy
+    // candidates would fill the page and starve the due thread behind it.
+    const flying = JSON.stringify([...this.flights.keys()]);
     const candidates = this.store.atomic((db) =>
       db
         .prepare(
-          "SELECT DISTINCT d.thread_id FROM client_checkpoint_due d JOIN threads t ON t.id=d.thread_id WHERE json_extract(t.status,'$.state') IN ('done','failed') LIMIT 17",
+          "SELECT DISTINCT d.thread_id FROM client_checkpoint_due d JOIN threads t ON t.id=d.thread_id WHERE json_extract(t.status,'$.state') IN ('done','failed') AND d.thread_id NOT IN (SELECT value FROM json_each(?)) LIMIT 17",
         )
-        .all(),
+        .all(flying),
     );
     for (const row of candidates) {
       const id = ThreadId.parse(row.thread_id);
