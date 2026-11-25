@@ -244,8 +244,8 @@ describe("reactions", () => {
     c.stored({ type: "reaction", message: "m2", emoji: "👍", by: "person" });
     c.stored({ type: "reaction", message: "m2", emoji: "🙏", by: "bot" });
     c.stored({ type: "reaction", message: "m2", emoji: "❤️", by: "person" });
-    expect(c.view().reactions.get("m2")).toEqual({ person: "❤️", bot: "🙏" });
+    expect(c.view().reactions.get("m2")).toEqual({ person: "❤️", bot: "🙏", order: ["bot", "person"] });
     c.stored({ type: "reaction", message: "m2", emoji: "", by: "person", removed: true });
-    expect(c.view().reactions.get("m2")).toEqual({ bot: "🙏" });
+    expect(c.view().reactions.get("m2")).toEqual({ bot: "🙏", order: ["bot"] });
   });
 });
