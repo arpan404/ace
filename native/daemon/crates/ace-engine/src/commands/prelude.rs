@@ -35,6 +35,7 @@ const HANDLED: [&str; 11] = [
 /// The provider facts `providerCommandDisabled` reads.
 struct Facts<'a> {
     core: &'a Core,
+    state: &'a State,
 }
 
 /// The thread row as `store.getThread` gives it.
@@ -61,11 +62,26 @@ impl ProviderAdmissionFacts for Facts<'_> {
     }
 
     fn default_instance(&self, provider: &str) -> Option<String> {
-        self.core.ports.select_instance(provider, None)
+        // `registry.has(provider) ? selectInstance(provider, backend) : undefined`.
+        if !self.state.registry.has(provider) {
+            return None;
+        }
+        let backend = self
+            .state
+            .registry
+            .get(provider, None)
+            .ok()
+            .and_then(|entry| entry.backend.clone());
+        self.core
+            .ports
+            .default_instance(provider, backend.as_deref())
     }
 
-    fn enabled(&self, provider: &str, instance: Option<&str>) -> bool {
-        self.core.ports.provider_enabled(provider, instance)
+    fn enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, String> {
+        self.core
+            .ports
+            .provider_enabled(provider, instance)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -150,8 +166,13 @@ pub fn handle(
         )));
     }
     {
-        let facts = Facts { core };
-        if ace_core::provider_admission::provider_command_disabled(p, &facts) {
+        let facts = Facts {
+            core,
+            state: &*state,
+        };
+        let disabled = ace_core::provider_admission::provider_command_disabled(p, &facts)
+            .map_err(|message| EngineError::Port(crate::ports::PortError::Threw(message)))?;
+        if disabled {
             return Ok(Some(error(&id, "provider_disabled")));
         }
     }

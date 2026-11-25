@@ -208,8 +208,17 @@ pub trait Ports {
         None
     }
     /// `options.providerEnabled` (E5.4).
-    fn provider_enabled(&self, _provider: &str, _instance: Option<&str>) -> bool {
-        true
+    fn provider_enabled(
+        &self,
+        _provider: &str,
+        _instance: Option<&str>,
+    ) -> Result<bool, PortError> {
+        Ok(true)
+    }
+
+    /// `options.selectInstance` for a provider the registry has.
+    fn default_instance(&self, _provider: &str, _backend: Option<&str>) -> Option<String> {
+        None
     }
     /// `options.machine` (E5.4).
     /// `ports.moveTarget(thread, requested)` (E5.8): the account a limit move goes to.

@@ -603,13 +603,12 @@ impl Ports for JsPorts {
         Some(value.map(|at| at as i64))
     }
 
-    fn provider_enabled(&self, provider: &str, instance: Option<&str>) -> bool {
+    fn provider_enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, PortError> {
         self.call(
             &self.provider_enabled,
             FnArgs {
                 data: (provider.to_owned(), instance.map(str::to_owned)),
             },
         )
-        .unwrap_or(true)
     }
 }
