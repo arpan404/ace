@@ -1098,7 +1098,8 @@ fn open_restores_the_saved_mode_a_model_reply_reset() {
         Some("plan")
     );
 
-    // The agent refuses the restore: the open still succeeds, with nothing refused.
+    // The agent refuses the restore: the open still succeeds, nothing is refused, and
+    // the daemon hears the mode that runs instead (`session.ts:577`-`:585`).
     let restore_err = json!({
         "jsonrpc": "2.0",
         "id": 5,
@@ -1112,6 +1113,87 @@ fn open_restores_the_saved_mode_a_model_reply_reset() {
     };
     let parsed = ace_json::parse(open_json).unwrap_or(Value::Null);
     assert_eq!(parsed.get("refusedOptions"), Some(&json!([])));
+    let announced = settled.iter().find_map(|effect| match effect {
+        AcpEffect::Callback { name, json } if *name == "onPermissionMode" => {
+            ace_json::parse(json).ok()
+        }
+        _ => None,
+    });
+    assert_eq!(
+        announced,
+        Some(json!(["default"])),
+        "a refused restore announces the mode that runs"
+    );
+}
+
+/// A model's reply can drop the mode it reported: ace asks for the mode it wanted even
+/// though nothing runs now (`session.ts:577`-`:585`, `undefined !== wantedMode`).
+#[test]
+fn open_restores_the_saved_mode_a_model_reply_cleared() {
+    let mut config = AcpCoreConfig::new("t-cleared", "/work", AcpSessionQuirks::generic());
+    config.permission_mode = Some("plan".to_owned());
+    config.model = Some("model-b".to_owned());
+    let reply = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+            "sessionId": "sess-1",
+            "configOptions": [
+                option("model", "model", "model-a"),
+                option("mode", "mode", "default")
+            ]
+        }
+    });
+    let (mut core, _opened, _effects) = open_with_saved_reply(config, 25, &reply);
+
+    let mode_ok = json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": { "configOptions": [option("model", "model", "model-a"), option("mode", "mode", "plan")] }
+    });
+    let mut after_mode = core.stdout_bytes(format!("{}\n", mode_ok.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_mode);
+
+    // The model's reply clears the mode it reports, while the agent still lists it.
+    let model_cleared = json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": { "configOptions": [
+            option("model", "model", "model-b"),
+            {
+                "id": "mode",
+                "category": "mode",
+                "type": "select",
+                "options": [{ "value": "plan" }, { "value": "default" }]
+            }
+        ] }
+    });
+    let mut after_model = core.stdout_bytes(format!("{}\n", model_cleared.to_json()).as_bytes());
+    ack_writes(&mut core, &mut after_model);
+    assert!(settlements(&after_model, 25).is_empty());
+    let sent = sent_json_messages(&after_model);
+    assert_eq!(
+        sent[0].pointer("/params/configId").and_then(Value::as_str),
+        Some("mode"),
+        "a cleared mode is restored, not only announced"
+    );
+    assert_eq!(
+        sent[0].pointer("/params/value").and_then(Value::as_str),
+        Some("plan")
+    );
+
+    let restored = json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": { "configOptions": [
+            option("model", "model", "model-b"),
+            option("mode", "mode", "plan")
+        ] }
+    });
+    let settled = core.stdout_bytes(format!("{}\n", restored.to_json()).as_bytes());
+    let done = settlements(&settled, 25);
+    assert_eq!(done.len(), 1);
+    assert!(done[0].is_ok(), "the restore settles the open: {done:?}");
 }
 
 /// One `configOptions` select listing both saved values.
@@ -1250,6 +1332,55 @@ fn an_uncapturable_reply_closes_the_peer_and_drops_the_lines_after_it() {
         )),
         "a closed peer drops the lines after the failure"
     );
+}
+
+/// A saved effort that never answers is reported refused and the start goes on: TS's
+/// `selectEffort` calls `configuration.select` directly and catches every failure
+/// (`session.ts:525`-`:533`), so its timeout never fails the session.
+#[test]
+fn a_saved_effort_that_times_out_is_refused_and_the_open_still_succeeds() {
+    let mut config = AcpCoreConfig::new("t-effort-timeout", "/work", AcpSessionQuirks::generic());
+    config.effort = Some("high".to_owned());
+    let reply = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+            "sessionId": "sess-1",
+            "configOptions": [{
+                "id": "reasoning_effort",
+                "category": "thought_level",
+                "type": "select",
+                "currentValue": "low",
+                "options": [{ "value": "low" }, { "value": "high" }]
+            }]
+        }
+    });
+    let (mut core, opened, _effects) = open_with_saved_reply(config, 24, &reply);
+    assert!(
+        settlements(&opened, 24).is_empty(),
+        "the effort selection is still pending"
+    );
+    let sent = sent_json_messages(&opened);
+    assert_eq!(
+        sent[0].pointer("/params/configId").and_then(Value::as_str),
+        Some("reasoning_effort")
+    );
+    let Some(key) = opened.iter().find_map(|effect| match effect {
+        AcpEffect::ArmTimer { key, .. } if key.starts_with("request:") => Some(key.clone()),
+        _ => None,
+    }) else {
+        panic!("the effort request arms its deadline");
+    };
+
+    let timed_out = core.timer(&key);
+    let done = settlements(&timed_out, 24);
+    assert_eq!(done.len(), 1, "the open still settles: {done:?}");
+    let Ok(open_json) = &done[0] else {
+        panic!("a timed-out effort never fails the start: {done:?}");
+    };
+    let parsed = ace_json::parse(open_json).unwrap_or(Value::Null);
+    assert_eq!(parsed.get("refusedOptions"), Some(&json!(["effort"])));
+    assert!(!core.closed);
 }
 
 #[test]

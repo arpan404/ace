@@ -180,7 +180,7 @@ impl AcpCore {
             );
             let Ok(pending) = prepared else {
                 // Not listed now: renamed, dropped, or a loaded session reporting none.
-                self.refuse_step(&step);
+                self.refuse_step(&step, effects);
                 continue;
             };
             let method = pending.request.method.clone();
@@ -235,6 +235,9 @@ impl AcpCore {
             return false;
         };
         let mut failure = None;
+        // A swallowed step is a mode restored after a model's reply: TS catches its
+        // failure and announces the mode that runs instead (`session.ts:577`-`:585`).
+        let mut announce = false;
         match result {
             Ok(reply) => {
                 let (cfg, outcome) = self
@@ -249,7 +252,9 @@ impl AcpCore {
                     }
                     Err(err) => {
                         self.report_selection_error(&err, &active, effects);
-                        if !active.swallow {
+                        if active.swallow {
+                            announce = true;
+                        } else {
                             post.refused.push(active.pending.kind_refused());
                         }
                     }
@@ -261,16 +266,25 @@ impl AcpCore {
                     .apply_select_error(&active.pending, &message);
                 self.push_config_effects(cfg, effects);
                 self.report_selection_error(&err, &active, effects);
-                if !active.swallow {
+                if active.swallow {
+                    announce = true;
+                } else {
                     post.refused.push(active.pending.kind_refused());
                 }
-                if message.contains("request timed out") {
-                    // A selection that never answered ends the session (`session.ts:555`).
+                // A mode or model that never answered ends the session through `select`
+                // (`session.ts:555`); `selectEffort` catches its own timeout, so that one
+                // is only refused (`session.ts:525`-`:533`).
+                if active.pending.kind != SelectorKind::Effort
+                    && message.contains("request timed out")
+                {
                     failure = Some(self.redact_message(&message));
                 }
             }
         }
         self.restore_mode_after_model(&active, &mut post, effects);
+        if announce {
+            self.announce_running_mode(effects);
+        }
         if let Some(message) = failure {
             self.open = Some(OpenState {
                 facade_id: post.facade_id,
@@ -287,13 +301,16 @@ impl AcpCore {
         true
     }
 
-    fn refuse_step(&mut self, step: &SavedStep) {
+    fn refuse_step(&mut self, step: &SavedStep, effects: &mut Vec<AcpEffect>) {
         let Some(post) = saved_post_mut(&mut self.open) else {
             return;
         };
         post.remaining.remove(0);
         if !step.swallow {
             post.refused.push(step.selection.refused_name());
+        }
+        if step.swallow {
+            self.announce_running_mode(effects);
         }
     }
 
@@ -312,18 +329,22 @@ impl AcpCore {
         if now == active.before_mode {
             return;
         }
-        match (&self.wanted_mode, &now) {
-            (Some(wanted), Some(running)) if wanted != running => {
+        // `wantedMode && now !== wantedMode`: a cleared mode still asks for it back.
+        match &self.wanted_mode {
+            Some(wanted) if now.as_deref() != Some(wanted.as_str()) => {
                 post.remaining.insert(
                     0,
                     SavedStep::restored(SavedSelection::PermissionMode(wanted.clone())),
                 );
             }
-            _ => {
-                if let Some(effect) = self.configuration.announce_mode() {
-                    self.push_config_effects(vec![effect], effects);
-                }
-            }
+            _ => self.announce_running_mode(effects),
+        }
+    }
+
+    /// `configuration.announceMode()`: the daemon hears the mode that actually runs.
+    fn announce_running_mode(&mut self, effects: &mut Vec<AcpEffect>) {
+        if let Some(effect) = self.configuration.announce_mode() {
+            self.push_config_effects(vec![effect], effects);
         }
     }
 
