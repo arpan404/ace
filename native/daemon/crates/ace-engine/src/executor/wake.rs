@@ -14,13 +14,19 @@ impl ExecutorWake {
     /// Pushes `item` onto the inbox, then does the producer move. After admission has closed
     /// it returns `Refused` and pushes nothing.
     pub fn push(&self, item: Item) -> Push {
+        // Counted for its whole check-push-move span: a close that races this push waits it out,
+        // and a turn never reads "drained" while an admitted item is still on its way in.
+        self.shared.inflight.fetch_add(1, SeqCst);
         if self.shared.closed.load(SeqCst) {
+            self.shared.inflight.fetch_sub(1, SeqCst);
             return Push::Refused;
         }
         if self.shared.inbox.push(item).is_err() {
+            self.shared.inflight.fetch_sub(1, SeqCst);
             return Push::Refused;
         }
         self.shared.moved();
+        self.shared.inflight.fetch_sub(1, SeqCst);
         Push::Accepted
     }
 }

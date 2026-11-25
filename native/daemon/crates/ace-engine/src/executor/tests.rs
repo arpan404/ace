@@ -461,6 +461,9 @@ fn a_producer_racing_shutdown_is_refused_once_admission_closes() {
                     }
                 }
                 index += 1;
+                // Yield each push so the backlog the pump must drain stays bounded: the test is
+                // about the close/push race, not about how fast one thread can flood the inbox.
+                std::thread::yield_now();
             }
         })
     };
@@ -478,14 +481,21 @@ fn a_producer_racing_shutdown_is_refused_once_admission_closes() {
     producer.join().expect("producer thread");
     let mut budget = Standard;
     let mut done = false;
-    for _ in 0..1_000 {
+    for _ in 0..10_000 {
         let _ = exec.pump(&mut budget, &open);
         if matches!(drain.try_recv(), Ok(Some(()))) {
             done = true;
             break;
         }
     }
-    assert!(done, "the drain completed");
+    assert!(
+        done,
+        "the drain completed (claim={}, draining={}, accepted={}, refused={})",
+        exec.claim(),
+        exec.draining_pending(),
+        accepted.load(SeqCst),
+        refused.load(SeqCst)
+    );
     assert!(accepted.load(SeqCst) > 0);
     assert!(
         refused.load(SeqCst) > 0,

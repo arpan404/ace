@@ -150,7 +150,9 @@ impl Executor {
     fn end(&self, polls: usize, budget: &mut dyn Budget) -> End {
         let work_left = !self.shared.inbox.is_empty()
             || !self.shared.control.is_empty()
-            || !self.shared.work.is_empty();
+            || !self.shared.work.is_empty()
+            // A producer mid-push keeps the turn going: its item is admitted but not yet visible.
+            || self.shared.inflight.load(SeqCst) != 0;
         if work_left && !budget.spent(polls) {
             return End::Again;
         }

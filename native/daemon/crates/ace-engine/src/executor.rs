@@ -102,6 +102,10 @@ pub struct Shared {
     /// `idle` never infers work from queue lengths: a producer paused between its count and its
     /// push still keeps the engine busy.
     ordinary_queued: AtomicUsize,
+    /// Producers between their admission check and their push's move. A push that races
+    /// `close_admission` may still land in the inbox, so close waits these out and the end of a
+    /// turn never signals "drained" while one is in flight.
+    inflight: AtomicUsize,
     notifier: Box<dyn Notifier>,
     next_task: AtomicU64,
 }
@@ -199,6 +203,7 @@ impl Executor {
                 control: ConcurrentQueue::unbounded(),
                 work: ConcurrentQueue::unbounded(),
                 ordinary_queued: AtomicUsize::new(0),
+                inflight: AtomicUsize::new(0),
                 notifier,
                 next_task: AtomicU64::new(1),
             }),
@@ -330,6 +335,11 @@ impl Executor {
         self.shared.closed.store(true, SeqCst);
         self.shared.inbox.close();
         self.draining.set(Some(sender));
+        // A push that passed the admission check before it closed may still be landing: once it
+        // has, every admitted item is in the inbox and the drain below runs all of them.
+        while self.shared.inflight.load(SeqCst) != 0 {
+            std::thread::yield_now();
+        }
         self.shared.moved();
         receiver
     }
@@ -358,6 +368,12 @@ impl Executor {
     /// The claim's current value, for the probe and the tests.
     pub fn claim(&self) -> u8 {
         self.shared.claim.load(SeqCst)
+    }
+
+    /// The close's drain is still armed (the probe's failure message).
+    #[cfg(test)]
+    pub(crate) fn draining_pending(&self) -> bool {
+        self.draining.take().is_some()
     }
 
     #[cfg(test)]
