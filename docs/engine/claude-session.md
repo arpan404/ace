@@ -490,3 +490,31 @@ As for Pi (E3-pi.2b), E3-claude.6 asks for one new test. Approve?
 </content>
 
 </invoke>
+
+### Answers (2026-11-25)
+
+The owner approved one prompt-less handshake of the installed `claude` 2.1.331 and the restart
+test. The recording is [fixtures/claude/handshake-2.1.331](../../fixtures/claude/handshake-2.1.331/README.md).
+
+1. Accepted: a known-type line's data is the CLI's line.
+2. **Settled by the recording.** `canUseTool` becomes `--permission-prompt-tool stdio`. The full
+   host-mode argv is `--output-format stream-json --verbose --input-format stream-json
+--permission-prompt-tool stdio`, then `--setting-sources=<list>`, `--strict-mcp-config` (isolated
+   only), `--include-hook-events` and `--include-partial-messages`, in that order
+   (`argv.coding.json`, `argv.isolated.json`). Options the recording didn't set (model, resume,
+   session id, MCP config, effort, permission mode, extra args) follow the docs.
+3. **Settled.** The SDK adds `CLAUDE_CODE_SDK_READS_SESSION_STATE=1` and nothing else; `PWD`
+   follows `cwd` and `OLDPWD` is dropped (`env-added.json`). The native session adds the same
+   variable to ace's environment.
+4. **Settled.** No system prompt is `"systemPrompt": [""]` in the `initialize` request, not a flag;
+   the `claude_code` preset sends no `systemPrompt` field. Empty `settingSources` is
+   `--setting-sources=`. The isolated case is built from the recording, no longer marked.
+5. Accepted.
+6. Accepted: answer `cancelled`, send no `supportedDialogKinds`. The recorded `initialize` request
+   carries none either.
+7. Accepted.
+8. Accepted, best-effort as today.
+9. Deferred until publishing comes up.
+10. Accepted: an error reply with the `[d.ts]` envelope, and the request kept as a `wire` frame.
+11. Approved as a separate item after E3-claude.4, for every provider, with its bench.
+12. Approved (the owner): E3-claude.6 adds the one restart test, on E3-pi.2b's terms.
