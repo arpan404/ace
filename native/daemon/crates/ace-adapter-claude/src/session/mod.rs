@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Session modules: the sans-IO wire (`wire`), its redacted frame capture (`capture`), the task
-//! index (`tasks`) and the failures the facade maps back to TypeScript (`error`).
+//! index (`tasks`), controls (`controls`), interactions (`interactions`), hooks (`hooks`), input
+//! (`input`) and the failures the facade maps back to TypeScript (`error`).
 
 pub mod capture;
+pub mod controls;
 pub mod error;
+pub mod hooks;
+pub mod input;
+pub mod interactions;
 pub mod tasks;
 pub mod wire;
 
@@ -13,7 +18,7 @@ pub use ace_adapter_api::FrameDirection as FrameDir;
 pub use wire::ClaudeWire;
 
 /// The effects of one input, in the order the state changed.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Effect {
     /// One frame, already captured (elided and redacted).
     Frame {

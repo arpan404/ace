@@ -18,31 +18,39 @@ use agent_stream_json::{Line, MessageKind, classify};
 
 use crate::session::capture::capture;
 use crate::session::error::ClaudeError;
+use crate::session::input::Writes;
+use crate::session::interactions::Interactions;
 use crate::session::tasks::SessionTasks;
 pub use crate::session::{Effect, FrameDir, WireConfig};
 
 /// The frame channel for the eleven message types and for `control_cancel_request`.
 const SDK: &str = "sdk";
 /// The frame channel for every other control line, unknown types and malformed stdout.
-const WIRE: &str = "wire";
+pub(crate) const WIRE: &str = "wire";
 /// The note channels the facade sends (`claude-session.md` section 2).
 const LIFECYCLE: &str = "lifecycle";
 const COMMANDS: &str = "commands.runtime";
 const CATALOG: &str = "catalog.runtime";
 const ACCOUNTS: &str = "accounts";
 const RECEIPT: &str = "interrupt_receipt";
-/// `spawnSdkProcess`'s `maxLineBytes` (`sdk-process.ts:50`).
-const LINE_BYTES: usize = 16 * 1024 * 1024;
+/// `spawnSdkProcess`'s `maxLineBytes` (`sdk-process.ts:50`), also the outbound line bound.
+pub(crate) const LINE_BYTES: usize = 16 * 1024 * 1024;
 /// `droppedLineNotes`' default interval (`dropped-line-notes.ts:26`).
 const NOTES_MS: f64 = 1_000.0;
 /// The timer key the drop notes share.
 const NOTES_KEY: &str = "notes";
 /// `ensureOpen`'s text, which a pending control settles with at finish.
-const CLOSED: &str = "Claude session is closed";
+pub(crate) const CLOSED: &str = "Claude session is closed";
+/// claude-session.md intended difference 5: an outbound line over 16 MiB.
+pub(crate) const OUTBOUND: &str = "Claude outbound frame capacity reached";
 
 pub struct ClaudeWire {
-    config: WireConfig,
-    controls: Controls,
+    pub(crate) config: WireConfig,
+    pub(crate) controls: Controls,
+    pub(crate) interactions: Interactions,
+    pub(crate) writes: Writes,
+    /// The `UserPromptSubmit` callbacks still waiting for `answer_hook`.
+    pub(crate) pending_hooks: Vec<String>,
     tasks: SessionTasks,
     stdout: JsonLines,
     stderr: DroppingGate,
@@ -53,7 +61,7 @@ pub struct ClaudeWire {
     stderr_skip_lf: bool,
     notes: DroppedNotes,
     confirmed: bool,
-    finished: bool,
+    pub(crate) finished: bool,
 }
 
 impl ClaudeWire {
@@ -61,6 +69,9 @@ impl ClaudeWire {
         ClaudeWire {
             config,
             controls: Controls::new(),
+            interactions: Interactions::new(),
+            writes: Writes::new(),
+            pending_hooks: Vec::new(),
             tasks: SessionTasks::new(),
             stdout: JsonLines::new(LINE_BYTES),
             stderr: DroppingGate::new(LINE_BYTES),
@@ -224,11 +235,40 @@ impl ClaudeWire {
             }
             // The CLI cancelled a pending interaction: `control_cancel_request` is a `sdk`
             // frame even though its type starts with `control_` (`session.ts:247`-`:253`).
-            Line::Cancel { value, .. } => effects.extend(self.framed(FrameDir::Recv, SDK, &value)),
-            // E3-claude.3 answers and settles these; part 1 keeps the wire frame.
-            Line::HostRequest { value, .. }
-            | Line::ControlResponse { value, .. }
-            | Line::Unknown { value } => {
+            Line::HostRequest {
+                request_id,
+                request,
+                value,
+            } => {
+                match self.frame(FrameDir::Recv, WIRE, &value) {
+                    Ok(effect) => effects.push(effect),
+                    Err(message) => {
+                        effects.push(Effect::Fatal { message });
+                        return effects;
+                    }
+                }
+                effects.extend(self.host_request(&request_id, request, &value));
+            }
+            Line::ControlResponse {
+                request_id,
+                outcome,
+                value,
+            } => {
+                match self.frame(FrameDir::Recv, WIRE, &value) {
+                    Ok(effect) => effects.push(effect),
+                    Err(message) => {
+                        effects.push(Effect::Fatal { message });
+                        return effects;
+                    }
+                }
+                effects.extend(self.control_settled(&request_id, outcome, &value));
+            }
+            // `session.ts:247`-`:253`: cancel first, then the `sdk` frame.
+            Line::Cancel { request_id, value } => {
+                effects.extend(self.interaction_cancelled(&request_id));
+                effects.extend(self.framed(FrameDir::Recv, SDK, &value));
+            }
+            Line::Unknown { value } => {
                 effects.extend(self.framed(FrameDir::Recv, WIRE, &value));
             }
         }
@@ -255,17 +295,31 @@ impl ClaudeWire {
     /// One captured frame, or the `Fatal` its capture failure becomes. `sdk-process.ts`'s line
     /// listener does not catch `onWire`'s throw: it reaches the daemon's fatal log, which ends
     /// the session. Reporting `Fatal` gives the same end without taking the daemon down.
-    fn framed(&self, dir: FrameDir, channel: &'static str, value: &Value) -> Vec<Effect> {
+    pub(crate) fn framed(
+        &self,
+        dir: FrameDir,
+        channel: &'static str,
+        value: &Value,
+    ) -> Vec<Effect> {
         match self.frame(dir, channel, value) {
             Ok(effect) => vec![effect],
             Err(message) => vec![Effect::Fatal { message }],
         }
     }
 
-    fn frame(&self, dir: FrameDir, channel: &'static str, value: &Value) -> Result<Effect, String> {
-        capture(value, self.config.bearer.as_deref())
+    pub(crate) fn frame(
+        &self,
+        dir: FrameDir,
+        channel: &'static str,
+        value: &Value,
+    ) -> Result<Effect, String> {
+        self.capture(value)
             .map(|text| Effect::Frame { dir, channel, text })
-            .map_err(|error| error.to_string())
+    }
+
+    /// The one capture per frame: elide, redact the bearer, then the bounds.
+    pub(crate) fn capture(&self, value: &Value) -> Result<String, String> {
+        capture(value, self.config.bearer.as_deref()).map_err(|error| error.to_string())
     }
 
     fn stderr_frames(&mut self, frames: Vec<Framed>) -> Vec<Effect> {
