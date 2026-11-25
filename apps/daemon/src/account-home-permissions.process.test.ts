@@ -192,7 +192,7 @@ test("validateHome repairs an added OpenCode account's data folder before a sess
       },
     },
   );
-  cleanups.push(() => registry.close());
+  cleanups.push(async () => registry.close());
   await registry.register(instance);
   const data = join(instance.homeDir, "data", "opencode");
   await chmod(data, 0o600);

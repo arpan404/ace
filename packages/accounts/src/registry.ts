@@ -78,12 +78,12 @@ function summarize(
 
 /** Repairs a folder just before work runs in it, for a CLI that damages its own account home. */
 export interface RegistryHooks {
-  prepareHome?: (instance: ProviderInstance) => Promise<void>;
+  prepareHome?: ((instance: ProviderInstance) => Promise<void>) | undefined;
 }
 
 export class AccountRegistry {
   private readonly quotaListeners = new Set<(id: string) => void>();
-  private readonly prepareHome?: (instance: ProviderInstance) => Promise<void>;
+  private readonly prepareHome: ((instance: ProviderInstance) => Promise<void>) | undefined;
   subscribeQuota(listener: (id: string) => void): () => void {
     this.quotaListeners.add(listener);
     return () => this.quotaListeners.delete(listener);
