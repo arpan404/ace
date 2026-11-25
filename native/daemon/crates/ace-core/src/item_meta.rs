@@ -249,6 +249,10 @@ pub struct ToolResult {
     pub scale: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<ToolResultSize>,
+
+    /// Fields a newer build wrote; the raw record keeps them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Where an ace result renders.
@@ -359,5 +363,16 @@ mod origin_extra_tests {
         let origin: super::MessageOrigin = serde_json::from_str(json).unwrap();
         let text = serde_json::to_string(&origin).unwrap();
         assert!(text.contains(r#""futureOrigin":{"a":1}"#), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod tool_result_extra_tests {
+    #[test]
+    fn a_tool_results_unknown_field_survives() {
+        let json = r#"{"isError":false,"content":[],"durationMs":1,"futureResult":{"a":1}}"#;
+        let result: super::ToolResult = serde_json::from_str(json).unwrap();
+        let text = serde_json::to_string(&result).unwrap();
+        assert!(text.contains(r#""futureResult":{"a":1}"#), "{text}");
     }
 }
