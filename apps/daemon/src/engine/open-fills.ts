@@ -21,18 +21,30 @@ export interface OpenFill {
   gained?: () => void;
   /** The driver is starting: a fill whose readers fall back until it commits starts here. */
   start?(): void;
+  /**
+   * A step kept failing. The fill must not be abandoned; this tells it its partial data may be
+   * unusable, so its readers can fall back to the full read until a later step succeeds.
+   */
+  failed?(error: unknown): void;
   /** The driver stopped: a fill waiting on a later request gives up its waiters. */
   stop?(): void;
 }
 
-/** Schedules one idle tick; the returned function cancels it. Injected so tests drive time. */
-export type FillSchedule = (task: () => void) => () => void;
+/**
+ * Schedules one idle tick after `delayMs`; the returned function cancels it. Injected so a test
+ * drives the tick with its own clock.
+ */
+export type FillSchedule = (task: () => void, delayMs: number) => () => void;
 
-/** `setImmediate` yields to I/O between steps, so a fill never holds the main thread. */
-const idleTick: FillSchedule = (task) => {
-  const handle = setImmediate(task);
-  return () => clearImmediate(handle);
+/** A zero-delay timeout yields to I/O between steps, so a fill never holds the main thread. */
+const idleTick: FillSchedule = (task, delayMs) => {
+  const handle = setTimeout(task, delayMs);
+  return () => clearTimeout(handle);
 };
+
+/** A failing fill retries from this delay, doubling to the cap; it is never abandoned. */
+const retryFloorMs = 250;
+const retryCeilingMs = 30_000;
 
 const createFillsTable = `CREATE TABLE IF NOT EXISTS engine_open_fills (
   name TEXT PRIMARY KEY, cursor TEXT, done INTEGER NOT NULL DEFAULT 0
@@ -88,6 +100,8 @@ export abstract class DurableFill implements OpenFill {
         db.prepare(saveFill).run(this.name, page.next ?? null, page.done ? 1 : 0);
       },
       {
+        // The events this step appended publish in this pass like any other commit's.
+        publishesOwn: true,
         committed: () => {
           this.cursor = next;
           this.finished = done;
@@ -104,7 +118,8 @@ export abstract class DurableFill implements OpenFill {
 
 /**
  * One driver per engine: one step per idle tick, round-robin, yielding to I/O in between. A step
- * that throws is reported and given up after a few tries, so a broken fill cannot spin the loop.
+ * that throws is reported and retried with backoff; a fill is never abandoned, so a transient
+ * store failure cannot strand the readers that wait on it.
  */
 export class OpenFills {
   private readonly fills: OpenFill[];
@@ -114,8 +129,8 @@ export class OpenFills {
   private stopped = false;
   private started = false;
   private next = 0;
+  /** Consecutive failed steps per fill; cleared by a step that works. */
   private readonly failures = new Map<OpenFill, number>();
-  private readonly givenUp = new Set<OpenFill>();
   private settle: (() => void) | undefined;
   readonly completed: Promise<void>;
   private readonly report: (error: unknown) => void;
@@ -127,7 +142,7 @@ export class OpenFills {
     this.completed = new Promise((resolve) => (this.settle = resolve));
     for (const fill of fills) fill.gained = () => this.resume();
   }
-  /** How a test drives the tick with its own clock instead of `setImmediate`. */
+  /** How a test drives the tick with its own clock instead of a timer. */
   useSchedule(schedule: FillSchedule): void {
     this.schedule = schedule;
   }
@@ -143,40 +158,45 @@ export class OpenFills {
     if (this.started || this.stopped) return;
     this.started = true;
     for (const fill of this.fills) fill.start?.();
-    this.cancel = this.schedule(() => this.tick());
+    this.cancel = this.schedule(() => this.tick(), 0);
   }
   /** One bounded step. Tests drive the same step the idle tick does. */
   pump(): boolean {
-    const active = this.fills.filter((fill) => !fill.complete() && !this.givenUp.has(fill));
+    const active = this.fills.filter((fill) => !fill.complete());
     if (!active.length) {
       this.finish();
       return false;
     }
-    let worked = false;
+    let attempted = false;
+    const start = this.next;
     for (let offset = 0; offset < active.length; offset++) {
-      const fill = active[(this.next + offset) % active.length];
+      const fill = active[(start + offset) % active.length];
       if (!fill) continue;
-      this.next = (this.next + offset + 1) % active.length;
       try {
-        if (fill.step()) {
-          worked = true;
-          this.failures.delete(fill);
+        const worked = fill.step();
+        this.failures.delete(fill);
+        // One successful step per tick keeps each blocking window bounded; the next tick
+        // starts at the fill after it.
+        if (worked) {
+          this.next = (start + offset + 1) % active.length;
+          return true;
         }
       } catch (error) {
+        attempted = true;
         const failures = (this.failures.get(fill) ?? 0) + 1;
         this.failures.set(fill, failures);
-        if (failures >= 3) this.givenUp.add(fill);
+        // Reported every time; at three in a row its readers are told to fall back. The other
+        // fills still take their turn: a failed step wrote nothing, so it costs no rows.
         this.report(error);
+        if (failures === 3 || failures % 10 === 0) fill.failed?.(error);
       }
-      // One step per tick keeps each blocking window bounded.
-      if (worked) return true;
     }
-    return false;
+    return attempted;
   }
   /** A fill gained work after the startup pass finished (a thread asked for its rebuild). */
   resume(): void {
     if (this.stopped || !this.started) return;
-    this.cancel ??= this.schedule(() => this.tick());
+    this.cancel ??= this.schedule(() => this.tick(), 0);
   }
   stop(): void {
     this.stopped = true;
@@ -185,19 +205,28 @@ export class OpenFills {
     for (const fill of this.fills) fill.stop?.();
     this.settle?.();
   }
+  /** The wait before the next tick: none after progress, doubling while steps keep failing. */
+  private retryDelay(): number {
+    const worst = Math.max(0, ...this.failures.values());
+    return worst === 0 ? 0 : Math.min(retryCeilingMs, retryFloorMs * 2 ** (worst - 1));
+  }
   private tick(): void {
     this.cancel = undefined;
     if (this.stopped) return;
-    const worked = this.pump();
+    const attempted = this.pump();
     if (this.stopped) return;
-    if (worked && this.fills.some((fill) => !fill.complete() && !this.givenUp.has(fill)))
-      this.cancel = this.schedule(() => this.tick());
-    else this.finish();
+    if (!this.fills.some((fill) => !fill.complete())) {
+      this.finish();
+      return;
+    }
+    // No step ran and nothing failed: a fill is waiting to be asked, and `resume` restarts it.
+    if (!attempted && this.retryDelay() === 0) return;
+    this.cancel = this.schedule(() => this.tick(), this.retryDelay());
   }
   private finish(): void {
     this.cancel?.();
     this.cancel = undefined;
-    if (this.fills.some((fill) => !fill.complete() && !this.givenUp.has(fill))) return;
+    if (this.fills.some((fill) => !fill.complete())) return;
     this.settle?.();
   }
 }

@@ -71,11 +71,14 @@ export class TransitionReadiness implements OpenFill {
   /** Threads the pass will rebuild; asking moves one to the front. */
   private queued: ThreadId[] = [];
   private waiters = new Map<ThreadId, (() => void)[]>();
+  /** The last thread each discovery source read, for its keyset page. */
   private agentCursor = "";
   private blockerCursor = "";
   private discovered = false;
   /** The pass has started: until it reaches a thread, that thread's blockers are not trusted. */
   private warming = false;
+  /** A step kept failing: readers stop waiting on it, for the threads it is not mid-rebuild on. */
+  private fallback = false;
   constructor(store: Store, now: () => number) {
     this.store = store;
     this.now = now;
@@ -133,6 +136,9 @@ export class TransitionReadiness implements OpenFill {
     // are what there is, and nothing waits on a rebuild that will never come.
     if (!this.warming) return true;
     if (this.rebuiltThreads.has(id)) return true;
+    // A failing pass still leaves an untouched thread's blockers as the last boot wrote them,
+    // which is exactly what main's read trusted. One it was part-way through is not trusted.
+    if (this.fallback && !this.rebuilding.has(id)) return true;
     return (
       !this.store
         .statement(
@@ -161,10 +167,6 @@ export class TransitionReadiness implements OpenFill {
     this.queued = [id, ...this.queued.filter((queued) => queued !== id)];
     this.gained?.();
   }
-  /** The thread's state is new this boot (an imported thread): rebuild it soonest. */
-  requestAll(ids: Iterable<ThreadId>): void {
-    for (const id of ids) this.request(id);
-  }
   start(): void {
     this.warming = true;
   }
@@ -181,12 +183,24 @@ export class TransitionReadiness implements OpenFill {
     }
     return false;
   }
+  /** A step kept failing: nothing waits on it any more, and no partial blocker set is trusted. */
+  failed(): void {
+    this.fallback = true;
+    for (const waiting of this.waiters.values()) for (const resolve of waiting) resolve();
+    this.waiters.clear();
+  }
   complete(): boolean {
     return this.discovered && !this.queued.length && !this.rebuilding.size;
   }
 
   /** One bounded step of one thread's rebuild, committed or not. */
   private rebuildStep(id: ThreadId): boolean {
+    // A thread rebuilt this boot (created or settled since it was queued) is never cleared again:
+    // clearing it would drop its current blockers while its rebuilt flag still said trusted.
+    if (this.rebuiltThreads.has(id)) {
+      this.queued = this.queued.filter((queued) => queued !== id);
+      return true;
+    }
     const before = this.rebuilding.get(id) ?? ({ phase: "clear" } as Rebuild);
     let next = before;
     let finished = false;
@@ -219,6 +233,7 @@ export class TransitionReadiness implements OpenFill {
       },
       {
         committed: () => {
+          this.fallback = false;
           if (finished) this.settle(id);
           else this.rebuilding.set(id, next);
         },
@@ -247,37 +262,37 @@ export class TransitionReadiness implements OpenFill {
   }
   /**
    * Up to a page of threads, merged from the agent records and the existing blockers so a thread
-   * with blockers and no agent rows is visited too. Both sources are read in `thread_id` order.
+   * with blockers and no agent rows is visited too. Each source is a plain keyset page over its
+   * `thread_id` prefix, so a step visits a bounded number of rows however many records a thread
+   * has: ordering by that prefix lets the scan stop at the page's last row.
    */
   private discover(): { threads: ThreadId[]; done: boolean } {
     // Half a page from each source: one step never reads more than a fill batch of rows.
     const half = Math.floor(fillBatch / 2);
     const agents = this.discoverSource(
-      "SELECT thread_id FROM engine_state_records WHERE section='agents' AND thread_id>? GROUP BY thread_id ORDER BY thread_id LIMIT ?",
+      "SELECT thread_id FROM engine_state_records WHERE section='agents' AND thread_id>? ORDER BY thread_id LIMIT ?",
       "agentCursor",
       half,
     );
     const blockers = this.discoverSource(
-      "SELECT DISTINCT thread_id FROM engine_transition_blockers WHERE thread_id>? ORDER BY thread_id LIMIT ?",
+      "SELECT thread_id FROM engine_transition_blockers WHERE thread_id>? ORDER BY thread_id LIMIT ?",
       "blockerCursor",
       half,
     );
-    const merged = [...new Set([...agents.ids, ...blockers.ids])].toSorted();
-    const page = merged.slice(0, fillBatch);
-    const last = page[page.length - 1];
-    if (last !== undefined) {
-      // Move each source's cursor to its last id this page took, so nothing is read twice.
-      const passed = (ids: ThreadId[]) => ids.findLast((id) => id <= last);
-      this.agentCursor = passed(agents.ids) ?? this.agentCursor;
-      this.blockerCursor = passed(blockers.ids) ?? this.blockerCursor;
-    }
-    return { threads: page, done: agents.short && blockers.short };
+    if (agents.rows.length)
+      this.agentCursor = agents.rows[agents.rows.length - 1] ?? this.agentCursor;
+    if (blockers.rows.length)
+      this.blockerCursor = blockers.rows[blockers.rows.length - 1] ?? this.blockerCursor;
+    const threads = [...new Set([...agents.rows, ...blockers.rows])]
+      .filter((id) => !this.rebuiltThreads.has(id))
+      .toSorted();
+    return { threads, done: agents.short && blockers.short };
   }
   private discoverSource(sql: string, cursor: "agentCursor" | "blockerCursor", limit: number) {
-    const rows = this.store.statement(sql).all(this[cursor], limit);
-    return {
-      ids: rows.map((row) => ThreadId.parse(row.thread_id)),
-      short: rows.length < limit,
-    };
+    const rows = this.store
+      .statement(sql)
+      .all(this[cursor], limit)
+      .map((row) => ThreadId.parse(row.thread_id));
+    return { rows, short: rows.length < limit };
   }
 }

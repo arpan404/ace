@@ -40,15 +40,21 @@ export class QueueAttachmentsFill extends DurableFill {
     this.queue = queue;
   }
   protected page(db: DatabaseSync, cursor: string | undefined) {
+    // Keyset over the primary key with no filter, so a step visits a bounded 256 rows whatever
+    // the predicate leaves; only a matching intent's payload is parsed.
     const rows = db
       .prepare(
-        `SELECT id,thread_id,payload FROM intents
-        WHERE kind IN ('thread.create','thread.send')
-          AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1)
-          AND id>? ORDER BY id LIMIT ?`,
+        `SELECT id,thread_id,kind,status,awaiting,uncertain,payload FROM intents
+        WHERE id>? ORDER BY id LIMIT ?`,
       )
       .all(Number(cursor ?? 0), fillBatch);
     for (const row of rows) {
+      const live = row.status === "pending" || row.status === "queued" || row.status === "running";
+      if (
+        (row.kind !== "thread.create" && row.kind !== "thread.send") ||
+        !(live || row.awaiting === 1 || row.uncertain === 1)
+      )
+        continue;
       this.queue.track(
         Number(row.id),
         QueueSnapshot.shape.threadId.parse(row.thread_id),

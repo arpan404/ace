@@ -33,16 +33,9 @@ export class WorkspaceReservations {
     return row ? z.string().parse(row.root) : fallback;
   }
   initializeSessions(): void {
-    // Reconcile older aliases once at startup, before any provider or terminal can open.
-    for (const row of this.statement("SELECT thread_id,cwd FROM engine_sessions").all()) {
-      const path = z.string().parse(row.cwd);
-      const root = canonicalRoot(path);
-      if (root !== path)
-        this.statement("UPDATE engine_sessions SET cwd=? WHERE thread_id=?").run(
-          root,
-          ThreadId.parse(row.thread_id),
-        );
-    }
+    // The alias reconciliation is a bounded fill after open (`session-roots`); open only sets up
+    // the index. Every supported home already has it: it landed with the engine schema 9 release
+    // (2026-10-21), and homes older than the schema floor are refused.
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS engine_sessions_root ON engine_sessions(cwd,thread_id)",
     );
@@ -71,8 +64,10 @@ export class WorkspaceReservations {
       : this.statement(
           `SELECT root FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id WHERE t.id=?`,
         ).get(id);
+    // A stored path that is a symlink alias fences its canonical root too, before the fill
+    // (`session-roots`) has rewritten it.
     const root = session?.cwd ?? project?.root;
-    return typeof root === "string" && this.reserved(root);
+    return typeof root === "string" && this.reserved(canonicalRoot(root));
   }
   /** Project folders the daemon knows (their canonical roots), for idle per-checkout upkeep. */
   knownRoots(limit = 1000): string[] {
@@ -92,7 +87,10 @@ export class WorkspaceReservations {
     const sessionsExist = Boolean(
       this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_sessions'").get(),
     );
-    for (const root of new Set(roots.map(canonicalRoot))) {
+    // Both the path as given and its canonical form: the moving thread and a peer may have been
+    // created with different alias forms of one root, and the fill (`session-roots`) has not
+    // necessarily rewritten the older row yet.
+    for (const root of new Set(roots.flatMap((path) => [path, canonicalRoot(path)]))) {
       // Scope by indexed root/workspace first. No transcript or event history is read.
       const sessions = sessionsExist
         ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=?").all(root)
@@ -149,7 +147,7 @@ export class WorkspaceReservations {
   }
 }
 
-function canonicalRoot(path: string): string {
+export function canonicalRoot(path: string): string {
   try {
     return realpathSync(path);
   } catch {

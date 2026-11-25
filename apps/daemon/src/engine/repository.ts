@@ -45,6 +45,7 @@ import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 import { ensureOpenFillsTable, OpenFills } from "./open-fills.ts";
 import { QueueAttachmentsFill, QueueRowsFill } from "./fills/queue-fills.ts";
+import { SessionRootsFill } from "./fills/session-roots.ts";
 import { indexEngineRecords } from "../engine-record-indexes.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
@@ -127,6 +128,9 @@ export class EngineRepository {
     store.atomic(indexEngineRecords);
     this.attachments = new AttachmentCorrelations(store);
     indexTitleInputs(store);
+    // Every supported home already has this index: it landed on 2026-10-21, before the engine
+    // schema 9 release and the daemon's schema floor, and homes older than that are refused. So
+    // the statement is O(1) on a home ace opens; only a refused home could need the build.
     store.atomic((db) =>
       db.exec(
         "CREATE INDEX IF NOT EXISTS engine_entity_ids ON engine_state_records(thread_id,section,json_extract(value,'$.id')) WHERE section IN ('interactions','tasks')",
@@ -141,6 +145,8 @@ export class EngineRepository {
     // Before the queue: its snapshot reads which steers fell back.
     this.steerNotes = new SteerNotes(store);
     this.queue = new QueueStore(store);
+    // As `engine_entity_ids` above: the engine_queue table and this index are in the schema 9
+    // release (2026-10-21), older than the schema floor, so a supported home has it already.
     store.atomic((db) =>
       db.exec(
         "CREATE INDEX IF NOT EXISTS engine_queue_recovery ON engine_queue(thread_id) WHERE continuation IS NOT NULL OR trigger IS NOT NULL OR limited=1 OR paused=1",
@@ -152,12 +158,19 @@ export class EngineRepository {
     this.transitions = new TransitionState(store);
     this.readiness = new TransitionReadiness(store, now);
     // Schema setup above; every data pass that used to run here is a bounded fill (ADR 0170).
+    // The `CREATE INDEX IF NOT EXISTS` the openers run (here, queue-store, intents, input-journal,
+    // interaction-ledger, attachment-correlations, title-input, thread-cleanup-journal,
+    // engine-record-indexes, workspace-reservations) all name indexes every supported home
+    // already has: each landed on 2026-10-21, before the engine schema 9 release and the daemon's
+    // schema floor, and a home older than that is refused rather than opened. On such a home they
+    // are O(1); none is built here for a home ace supports.
     ensureOpenFillsTable(store);
     this.fills = new OpenFills(
       store,
       [
         new QueueRowsFill(store),
         new QueueAttachmentsFill(store, this.queue),
+        new SessionRootsFill(store),
         this.readiness,
         new InputOrphansFill(store),
         new CursorEmptyFill(store),

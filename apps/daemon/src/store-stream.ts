@@ -22,6 +22,11 @@ export type FailureReport = (error: unknown) => void;
 export interface TransactionOutcome {
   /** The live buffer's rows publish in this pass before its usage notification. */
   publishes?: boolean;
+  /**
+   * The transaction appended events itself (a fill's migration, say) and wants them published in
+   * this pass like any other commit's; the live buffer, which publishes its own rows, omits it.
+   */
+  publishesOwn?: boolean;
   committed(report?: FailureReport): void;
   rolledBack(report?: FailureReport): void;
 }

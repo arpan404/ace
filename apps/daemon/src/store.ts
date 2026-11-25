@@ -567,9 +567,8 @@ export class Store {
     return this.rolledBack;
   }
   /**
-   * `outcome` marks rows that publish themselves (the live buffer's). Nested in an open
-   * transaction, they settle only when the outermost one does: its commit runs `committed`
-   * in sequence with the transaction's own events, and any rollback runs `rolledBack`.
+   * `outcome` learns the fate of its rows: nested in an open transaction, only with the
+   * outermost. Its commit runs beside the transaction's own events; a rollback runs `rolledBack`.
    */
   private transaction<T>(run: () => T, outcome?: TransactionOutcome): T {
     if (!this.streaming.flushing) this.flushLiveWrites();
@@ -649,12 +648,13 @@ export class Store {
     // into the commit callback, so listeners never run under its reporter.
     if (outcome?.publishes) pass.step(() => outcome.committed(report));
     let from = 0;
+    const own = !outcome || outcome.publishesOwn;
     for (const settlement of settlements) {
-      if (!outcome) pass.step(() => this.publishFresh(events.slice(from, settlement.at), report));
+      if (own) pass.step(() => this.publishFresh(events.slice(from, settlement.at), report));
       from = settlement.at;
       settleOutcomes([settlement], "committed", this.onError, pass);
     }
-    if (!outcome) pass.step(() => this.publishFresh(events.slice(from), report));
+    if (own) pass.step(() => this.publishFresh(events.slice(from), report));
     for (const listener of this.usageListeners) {
       try {
         listener();

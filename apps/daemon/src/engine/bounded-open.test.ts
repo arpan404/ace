@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, ThreadId, type CommandPayload } from "@ace/protocol";
@@ -7,6 +7,8 @@ import { createThreadState } from "@ace/core";
 import { Store, createDevThread } from "@ace/daemon";
 import { EngineRepository } from "./repository.ts";
 import { InputOrphansFill } from "./input-journal.ts";
+import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
+import { canonicalRoot } from "../workspace-reservations.ts";
 
 /**
  * Opening a home does only schema setup (ADR 0170): the data passes that used to run there are
@@ -31,6 +33,31 @@ function open() {
   const workspace = store.createWorkspace(home, "Workspace");
   const thread = createDevThread(store, workspace);
   return { home, store, repo, thread, workspace };
+}
+
+/** A store whose statements report the arguments of an `engine_inputs` page read. */
+function statementSpy(store: Store, reads: unknown[][]): Store {
+  const wrap = (db: import("node:sqlite").DatabaseSync) =>
+    ({
+      prepare(sql: string) {
+        const statement = db.prepare(sql);
+        if (!sql.includes("FROM engine_inputs")) return statement;
+        return {
+          all: (...args: import("node:sqlite").SQLInputValue[]) => {
+            reads.push(args);
+            return statement.all(...args);
+          },
+          get: (...args: import("node:sqlite").SQLInputValue[]) => statement.get(...args),
+          run: (...args: import("node:sqlite").SQLInputValue[]) => statement.run(...args),
+          iterate: (...args: import("node:sqlite").SQLInputValue[]) => statement.iterate(...args),
+        };
+      },
+    }) as unknown as import("node:sqlite").DatabaseSync;
+  return {
+    atomic: (run: (db: import("node:sqlite").DatabaseSync) => unknown, outcome?: object) =>
+      store.atomic((db) => run(wrap(db)), outcome as Parameters<typeof store.atomic>[1]),
+    statement: (sql: string) => store.statement(sql),
+  } as unknown as Store;
 }
 
 function openCursor() {
@@ -164,14 +191,42 @@ test("a Cursor thread opened before the migration fill reaches it opens on the S
   repo.createSession(thread.id, "/tmp");
   expect(repo.fills.complete("cursor-empty")).toBe(false);
 
-  // The session open reads the backend before the fill has visited the thread.
+  // Both reads a launch makes — the engine's backend and the session binding it opens with —
+  // answer for the migration before the fill has visited the thread.
   expect(repo.backend(thread.id)).toBe("cursor-sdk");
+  expect(repo.session(thread.id)).toMatchObject({
+    backend: "cursor-sdk",
+    instanceId: cursorDefaultInstanceId,
+  });
   expect(
     store.atomic(
       (db) =>
         db.prepare("SELECT backend FROM engine_sessions WHERE thread_id=?").get(thread.id)?.backend,
     ),
   ).toBe("cursor-sdk");
+});
+
+test("the Cursor fill publishes the migration it commits", () => {
+  const { store, repo, thread } = openCursor();
+  repo.save(
+    createThreadState({ threadId: thread.id, config: { provider: "cursor", silenceMs: 100 } }),
+    [],
+    1_000,
+  );
+  repo.createSession(thread.id, "/tmp");
+  const seen: { threadId: string; backend?: string }[] = [];
+  const stop = store.subscribe((events) => {
+    for (const event of events)
+      if (event.payload.type === "thread.updated" && event.payload.backend)
+        seen.push({ threadId: event.threadId, backend: event.payload.backend });
+  });
+  try {
+    while (!repo.fills.complete("cursor-empty")) repo.fills.pump();
+  } finally {
+    stop();
+  }
+  // The fill's step commits under an outcome; its event must still reach subscribers.
+  expect(seen).toContainEqual({ threadId: thread.id, backend: "cursor-sdk" });
 });
 
 test("orphaned input rows are gone once the fill completes, and a stop mid-fill resumes from its cursor", () => {
@@ -195,8 +250,11 @@ test("orphaned input rows are gone once the fill completes, and a stop mid-fill 
       (db) => db.prepare("SELECT COUNT(*) AS n FROM engine_inputs WHERE thread_id=?").get(gone)?.n,
     ),
   ).toBe(45);
-  const resumed = new InputOrphansFill(store);
+  // The restart reads the saved cursor, never the first page again.
+  const readFrom: unknown[][] = [];
+  const resumed = new InputOrphansFill(statementSpy(store, readFrom));
   while (!resumed.complete()) resumed.step();
+  expect(readFrom[0]?.[0]).toBe(256);
   expect(
     store.atomic(
       (db) => db.prepare("SELECT COUNT(*) AS n FROM engine_inputs WHERE thread_id=?").get(gone)?.n,
@@ -207,4 +265,19 @@ test("orphaned input rows are gone once the fill completes, and a stop mid-fill 
       (db) => db.prepare("SELECT COUNT(*) AS n FROM engine_inputs WHERE thread_id=?").get(live)?.n,
     ),
   ).toBe(1);
+});
+
+test("the session roots fill canonicalizes a stored alias, and a reservation matches it meanwhile", () => {
+  const { store, repo, thread, home } = open();
+  const alias = join(home, "alias");
+  symlinkSync(home, alias, "dir");
+  repo.createSession(thread.id, alias);
+  const canonical = canonicalRoot(home);
+  expect(canonicalRoot(alias)).toBe(canonical);
+  // Before the fill rewrites the row, a fence on the canonical root still sees the thread.
+  store.workspaceReservations.reserve(thread.id, "move", [canonical]);
+  expect(store.workspaceReservations.threadReserved(thread.id)).toBe(true);
+
+  while (!repo.fills.complete("session-roots")) repo.fills.pump();
+  expect(repo.session(thread.id).cwd).toBe(canonical);
 });

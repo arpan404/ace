@@ -482,8 +482,13 @@ export class Engine {
     }
     // Open runs schema setup only; these idle fills do the data work, one bounded step a tick
     // (ADR 0170). They start after `ready()` is armed, so recovery never waits for one.
-    this.repo.readiness.onRebuilt = () => this.wakeQueued();
-    this.repo.fills.useSchedule((task) => this.batchScheduler.setTimer(task, 0));
+    // A reserved thread (a switch waiting on its rebuild) has a slot, so only `wake` reaches its
+    // workers; a thread without one is dispatched by `wakeQueued`.
+    this.repo.readiness.onRebuilt = (id) => {
+      this.wake(id);
+      this.wakeQueued();
+    };
+    this.repo.fills.useSchedule((task, delay) => this.batchScheduler.setTimer(task, delay));
     this.repo.fills.start();
   }
   private stopSettled(id: ThreadId): void {

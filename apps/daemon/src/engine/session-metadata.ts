@@ -18,6 +18,7 @@ export class SessionMetadata {
     workspaceReady: boolean;
     options?: ExecutionOptions;
   } {
+    this.migrateEmptyCursor(id);
     const row = this.repo.store
       .statement("SELECT * FROM engine_sessions WHERE thread_id = ?")
       .get(id);
@@ -123,25 +124,26 @@ export class SessionMetadata {
   backend(id: ThreadId): ProviderBackend | undefined {
     // Recovery and teardown also read the binding of a tombstoned thread. They must
     // not resolve its execution workspace, which intentionally rejects deleted threads.
-    const backend = this.repo.store.atomic((db) => {
+    this.migrateEmptyCursor(id);
+    const backend = this.repo.store.atomic((_db) => {
       const row = this.repo.store
         .statement("SELECT backend FROM engine_sessions WHERE thread_id=?")
         .get(id);
       if (!row) throw new Error("Missing engine session metadata");
-      const stored =
-        row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
-      // The empty-thread migration runs as a fill after open; a thread it has not reached yet
-      // gets the same check here, so opening it uses the backend it would have had.
-      if (
-        stored !== "cursor-sdk" &&
-        this.repo.fills?.complete("cursor-empty") === false &&
-        this.repo.store.getThread(id)?.provider === "cursor" &&
-        migrateEmptyCursorThread(db, this.repo.store, id)
-      )
-        return "cursor-sdk";
-      return stored;
+      return row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
     });
     if (backend) return backend;
     return this.repo.requireState(id).config.provider === "cursor" ? "acp" : undefined;
+  }
+  /**
+   * The empty-thread migration runs as a fill after open. Until it completes, a session read
+   * applies its check to this one thread first, so no reader (an open, a switch's default
+   * reservation, recovery) uses a binding the fill would have replaced.
+   */
+  private migrateEmptyCursor(id: ThreadId): void {
+    if (this.repo.fills?.complete("cursor-empty") !== false) return;
+    this.repo.store.atomic((db) => {
+      migrateEmptyCursorThread(db, this.repo.store, id);
+    });
   }
 }
