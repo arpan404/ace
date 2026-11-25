@@ -48,6 +48,8 @@ fn count_nodes(value: &Value) -> usize {
 }
 
 /// `actor::native_frame`: one `SessionEvent::Frame` from a native session, in the bridge's order.
+/// `set_paused` is the session's read gate: the flow mirror runs through it, per frame.
+#[allow(clippy::too_many_arguments)]
 pub fn native_frame(
     core: &Rc<Core>,
     thread: &ThreadId,
@@ -56,6 +58,7 @@ pub fn native_frame(
     now: f64,
     started: f64,
     flow: &mut NativeFlow,
+    set_paused: Rc<dyn Fn(bool)>,
 ) -> Ack {
     let text = frame.data.get();
     match check_payload(text) {
@@ -89,14 +92,7 @@ pub fn native_frame(
         None,
     );
     // The flow mirror runs after each delivered frame (`:165`).
-    let live = core.actor_deps.borrow().live.clone();
-    let _ = live;
-    let set: Rc<dyn Fn(bool)> = Rc::new(|_paused| {});
-    let core_for_flow = Rc::clone(core);
-    let thread = thread.clone();
-    let mut mirrored = std::mem::take(flow);
-    mirrored.mirror(&core_for_flow, &thread, set);
-    *flow = mirrored;
+    flow.mirror(core, thread, set_paused);
     ack
 }
 
@@ -118,5 +114,25 @@ pub fn translator(
             Some(native.as_ref() as *const dyn ace_adapter_api::Translator)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_payload;
+
+    #[test]
+    fn the_bridge_limits_are_the_provider_payload_constructors() {
+        let big = format!("\"{}\"", "x".repeat(1024 * 1024));
+        assert_eq!(
+            check_payload(&big).expect_err("over the byte limit"),
+            "Provider payload exceeds byte limit"
+        );
+        let nodes = format!("[{}]", vec!["0"; 32_769].join(","));
+        assert_eq!(
+            check_payload(&nodes).expect_err("over the node limit"),
+            "Provider payload exceeds structural limit"
+        );
+        assert!(check_payload("{not json").is_err(), "not JSON is refused");
     }
 }
