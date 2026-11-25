@@ -129,15 +129,23 @@ fn text(map: &Map, key: &str) -> Option<String> {
 }
 
 /// Liveness only, never cleanup proof. Reused ports cannot answer a different token.
-pub async fn query_lease_owner(lease: &LeaseRecord) -> LeaseOwnerState {
+/// One 1 s budget through the injected scheduler, as TypeScript gives the probe.
+pub async fn query_lease_owner(
+    lease: &LeaseRecord,
+    ports: &dyn crate::core::lease::LeasePorts,
+) -> LeaseOwnerState {
     let Some(endpoint) = lease.owner.clone() else {
         return LeaseOwnerState::Unknown;
     };
     let id = lease.id.clone();
     let probe = tokio::task::spawn_blocking(move || query_blocking(&endpoint, &id));
-    match tokio::time::timeout(PROBE_TIMEOUT * 2, probe).await {
-        Ok(Ok(state)) => state,
-        _ => LeaseOwnerState::Unknown,
+    tokio::select! {
+        biased;
+        () = ports.pause(PROBE_TIMEOUT.as_millis() as u64) => LeaseOwnerState::Unknown,
+        outcome = probe => match outcome {
+            Ok(state) => state,
+            Err(_) => LeaseOwnerState::Unknown,
+        },
     }
 }
 
@@ -217,9 +225,13 @@ mod tests {
             port: stopped_port(),
             token: "00000000-0000-4000-8000-000000000001".to_owned(),
         }));
-        assert_eq!(query_lease_owner(&stopped).await, LeaseOwnerState::Gone);
+        let ports = crate::core::lease::TestPorts::default();
         assert_eq!(
-            query_lease_owner(&lease(None)).await,
+            query_lease_owner(&stopped, &ports).await,
+            LeaseOwnerState::Gone
+        );
+        assert_eq!(
+            query_lease_owner(&lease(None), &ports).await,
             LeaseOwnerState::Unknown
         );
     }
@@ -241,22 +253,32 @@ mod tests {
             }),
         )
         .expect("endpoint");
+        let ports = crate::core::lease::TestPorts::default();
         let mine = lease(Some(OwnerEndpoint {
             port: owner.port,
             token: owner.token.clone(),
         }));
         assert!(owned_by_this_process(&mine));
-        assert_eq!(query_lease_owner(&mine).await, LeaseOwnerState::Active);
+        assert_eq!(
+            query_lease_owner(&mine, &ports).await,
+            LeaseOwnerState::Active
+        );
         let held = LeaseRecord {
             id: "held".to_owned(),
             ..mine.clone()
         };
-        assert_eq!(query_lease_owner(&held).await, LeaseOwnerState::Quarantined);
+        assert_eq!(
+            query_lease_owner(&held, &ports).await,
+            LeaseOwnerState::Quarantined
+        );
         let foreign = lease(Some(OwnerEndpoint {
             port: owner.port,
             token: "00000000-0000-4000-8000-0000000000ff".to_owned(),
         }));
         assert!(!owned_by_this_process(&foreign));
-        assert_eq!(query_lease_owner(&foreign).await, LeaseOwnerState::Gone);
+        assert_eq!(
+            query_lease_owner(&foreign, &ports).await,
+            LeaseOwnerState::Gone
+        );
     }
 }

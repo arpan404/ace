@@ -256,7 +256,6 @@ pub async fn clear_leftover_locks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::lease::LeaseRecord;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -293,14 +292,17 @@ mod tests {
         let repo = scratch("stale");
         let lock_file = format!("{repo}/.git/index.lock");
         lock(&lock_file, now_ms() - 60_000);
-        let listing = Listing(Some(vec![GitProcess {
-            pid: 1,
-            cwd: Some(repo.clone()),
-            checkout: Some(repo.clone()),
-            started_at: Some(now_ms() - 30_000),
-            git_group: Some(true),
-        }]));
-        let removed = clear_leftover_locks(&repo, &Scan::new(&listing), now_ms())
+        let ports = crate::core::lease::TestPorts {
+            listing: Some(vec![GitProcess {
+                pid: 1,
+                cwd: Some(repo.clone()),
+                checkout: Some(repo.clone()),
+                started_at: Some(now_ms() - 30_000),
+                git_group: Some(true),
+            }]),
+            ..crate::core::lease::TestPorts::default()
+        };
+        let removed = clear_leftover_locks(&repo, &Scan::new(&ports), now_ms())
             .await
             .expect("sweep");
         assert_eq!(removed, vec![lock_file.clone()]);
@@ -315,14 +317,17 @@ mod tests {
         let stamp = now_ms() - 60_000;
         lock(&lock_file, stamp);
         // The writer started 1.8 s after the stored stamp: a coarse filesystem rounded it.
-        let listing = Listing(Some(vec![GitProcess {
-            pid: 1,
-            cwd: Some(repo.clone()),
-            checkout: Some(repo.clone()),
-            started_at: Some(stamp + 1_800),
-            git_group: Some(true),
-        }]));
-        let removed = clear_leftover_locks(&repo, &Scan::new(&listing), now_ms())
+        let ports = crate::core::lease::TestPorts {
+            listing: Some(vec![GitProcess {
+                pid: 1,
+                cwd: Some(repo.clone()),
+                checkout: Some(repo.clone()),
+                started_at: Some(stamp + 1_800),
+                git_group: Some(true),
+            }]),
+            ..crate::core::lease::TestPorts::default()
+        };
+        let removed = clear_leftover_locks(&repo, &Scan::new(&ports), now_ms())
             .await
             .expect("sweep");
         assert!(removed.is_empty());
@@ -335,8 +340,11 @@ mod tests {
         let repo = scratch("no-listing");
         let lock_file = format!("{repo}/.git/index.lock");
         lock(&lock_file, now_ms() - 60_000);
-        let listing = Listing(None);
-        let removed = clear_leftover_locks(&repo, &Scan::new(&listing), now_ms())
+        let ports = crate::core::lease::TestPorts {
+            listing: None,
+            ..crate::core::lease::TestPorts::default()
+        };
+        let removed = clear_leftover_locks(&repo, &Scan::new(&ports), now_ms())
             .await
             .expect("sweep");
         assert!(removed.is_empty());
@@ -344,62 +352,14 @@ mod tests {
         let _ = fs::remove_dir_all(&repo);
     }
 
-    /// A port set whose only meaningful member is the injected process scan.
-    struct Listing(Option<Vec<GitProcess>>);
-
-    impl crate::core::lease::LeasePorts for Listing {
-        fn local_lease(
-            &self,
-            _record: &LeaseRecord,
-        ) -> crate::core::spawn::BoxFuture<'_, crate::core::lease::LocalLease> {
-            Box::pin(std::future::ready(crate::core::lease::LocalLease::default()))
-        }
-        fn processes(&self) -> crate::core::spawn::BoxFuture<'_, Option<Vec<GitProcess>>> {
-            Box::pin(std::future::ready(self.0.clone()))
-        }
-        fn group_alive(&self, _pid: u32) -> crate::core::spawn::BoxFuture<'_, bool> {
-            Box::pin(std::future::ready(false))
-        }
-        fn now_ms(&self) -> crate::core::spawn::BoxFuture<'_, i64> {
-            Box::pin(std::future::ready(0))
-        }
-        fn running_when_gone(
-            &self,
-            _lease: &LeaseRecord,
-            _listing: &[GitProcess],
-        ) -> crate::core::spawn::BoxFuture<'_, Option<Vec<u32>>> {
-            Box::pin(std::future::ready(None))
-        }
-        fn recover(
-            &self,
-            _lease: &LeaseRecord,
-        ) -> crate::core::spawn::BoxFuture<'_, crate::core::error::CleanupResult> {
-            Box::pin(std::future::ready(
-                crate::core::error::CleanupResult::Unconfirmed {
-                    reason: "none".to_owned(),
-                },
-            ))
-        }
-        fn retired(&self, _event: &crate::core::lease::RetiredLease) {}
-        fn pause(&self, _milliseconds: u64) -> crate::core::spawn::BoxFuture<'_, ()> {
-            Box::pin(std::future::ready(()))
-        }
-        fn has_evidence(&self) -> bool {
-            true
-        }
-        fn wait_ms(&self) -> u64 {
-            0
-        }
-    }
-
     #[tokio::test]
     async fn a_fresh_lock_is_left_alone_without_a_process_listing() {
         let repo = scratch("fresh");
         let lock_file = format!("{repo}/.git/index.lock");
         lock(&lock_file, now_ms() - 1_000);
-        let listing = Listing(Some(Vec::new()));
+        let ports = crate::core::lease::TestPorts::default();
         // The sweep's grace: a lock written a second ago is far younger.
-        let removed = clear_leftover_locks(&repo, &Scan::new(&listing), now_ms() - 60_000)
+        let removed = clear_leftover_locks(&repo, &Scan::new(&ports), now_ms() - 60_000)
             .await
             .expect("sweep");
         assert!(removed.is_empty());

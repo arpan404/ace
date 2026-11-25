@@ -14,10 +14,10 @@ use crate::core::deadline::validate_timeout_ms;
 use crate::core::diagnostics::GitDiagnostics;
 use crate::core::error::{CleanupResult, GitError, GitErrorCode, json_string_array};
 use crate::core::failure::{StderrTail, failure_message};
-use crate::core::job::{GitJob, StoppedJobs, global_stopped_jobs};
+use crate::core::job::{GitJob, StoppedJobs};
 use crate::core::spawn::{
     BoxFuture, ProcessEvent, ProcessPorts, SchedulerAdapter, SpawnRequest, classify_spawn_error,
-    drain_process_exit, group_gone, inherited_env_pairs, kill_tree, running_children,
+    drain_process_exit, group_gone, kill_tree,
 };
 
 /// Maximum concurrent calls admitted by one `GitCliCore` instance.
@@ -211,7 +211,6 @@ pub struct GitCliCore {
     pub ports: Arc<ProcessPorts>,
     pub configured_binary: Option<String>,
     pub timeout_ms: u64,
-    resolved_binary: Mutex<Option<String>>,
     closed: AtomicBool,
     active_calls: AtomicUsize,
     active_zero: Notify,
@@ -237,7 +236,6 @@ impl GitCliCore {
             ports,
             configured_binary: config.configured_binary,
             timeout_ms,
-            resolved_binary: Mutex::new(None),
             closed: AtomicBool::new(false),
             active_calls: AtomicUsize::new(0),
             active_zero: Notify::new(),
@@ -257,18 +255,7 @@ impl GitCliCore {
         if let Some(ref bin) = self.configured_binary {
             return bin.clone();
         }
-        if let Ok(guard) = self.resolved_binary.lock()
-            && let Some(ref resolved) = *guard
-        {
-            return resolved.clone();
-        }
         "git".to_owned()
-    }
-
-    pub fn set_resolved_binary(&self, binary: Option<String>) {
-        if let Ok(mut guard) = self.resolved_binary.lock() {
-            *guard = binary;
-        }
     }
 
     pub fn active_calls(&self) -> usize {
@@ -407,7 +394,8 @@ impl GitCliCore {
         call_id: u64,
     ) -> Result<ExecuteRawOutput, GitError> {
         let binary = opts.binary.clone().unwrap_or_else(|| self.binary());
-        let mut env_map: BTreeMap<String, String> = inherited_env_pairs().into_iter().collect();
+        let mut env_map: BTreeMap<String, String> =
+            (self.ports.environment)().into_iter().collect();
         env_map.insert("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned());
         env_map.insert("LC_ALL".to_owned(), "C".to_owned());
         if !opts.write {
@@ -418,8 +406,9 @@ impl GitCliCore {
         }
         let mut effective_args = opts.args.clone();
         if self.ports.platform == "win32" {
-            effective_args = windows_hookless_args(&effective_args);
-            windows_hookless_env(&mut env_map);
+            let hooks_dir = self.ports.hooks_dir.as_ref().map(|dir| dir());
+            effective_args = windows_hookless_args(&effective_args, hooks_dir.as_deref());
+            windows_hookless_env(&mut env_map, hooks_dir.as_deref());
             windows_long_paths_env(&mut env_map);
         }
         if opts.strip_askpass {
@@ -468,7 +457,7 @@ impl GitCliCore {
             _ => None,
         };
         if let Some(p) = pid {
-            running_children().add(p);
+            self.ports.running_children.add(p);
             self.ports.notify_pid(p, true);
         }
 
@@ -682,27 +671,24 @@ impl GitCliCore {
                         }
                     }
                     Some(ProcessEvent::SpawnError { code, message }) => {
-                        if code.as_deref() == Some("ENOENT") && self.configured_binary.is_none() {
-                            self.set_resolved_binary(None);
-                        }
                         spawn_error = Some((code, message));
                     }
                     Some(ProcessEvent::Exit { pid: exit_pid, .. }) => {
                         if let Some(p) = exit_pid.or(pid) {
-                            running_children().remove(p);
+                            self.ports.running_children.remove(p);
                             self.ports.notify_pid(p, false);
                         }
                     }
                     Some(ProcessEvent::Close { code, signal }) => {
                         if let Some(p) = pid {
-                            running_children().remove(p);
+                            self.ports.running_children.remove(p);
                             self.ports.notify_pid(p, false);
                         }
                         close_result = Some((code, signal));
                     }
                     None => {
                         if let Some(p) = pid {
-                            running_children().remove(p);
+                            self.ports.running_children.remove(p);
                             self.ports.notify_pid(p, false);
                         }
                         close_result = Some((None, None));
@@ -734,7 +720,7 @@ impl GitCliCore {
 
         if failure.is_some() || enough.is_some() {
             if let Some(p) = pid {
-                running_children().remove(p);
+                self.ports.running_children.remove(p);
                 self.ports.notify_pid(p, false);
             }
             let drain_scheduler = Arc::clone(&self.ports.scheduler);
@@ -913,7 +899,7 @@ impl GitCliCore {
     }
 
     pub fn job_alive(&self, pid: u32) -> bool {
-        self.stopped_jobs.job_alive(pid) || global_stopped_jobs().job_alive(pid)
+        self.stopped_jobs.job_alive(pid)
     }
 }
 
@@ -997,6 +983,18 @@ fn output_tail(chunks: &[Vec<u8>]) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+/// The injected private hooks directory factory; Windows only, where `/dev/null` is not a path.
+pub fn default_hooks_dir() -> Option<Arc<dyn Fn() -> String + Send + Sync>> {
+    #[cfg(windows)]
+    {
+        Some(Arc::new(|| windows_private_hooks_dir().to_owned()))
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 fn windows_private_hooks_dir() -> &'static str {
     static DIR: OnceLock<String> = OnceLock::new();
     DIR.get_or_init(|| {
@@ -1015,12 +1013,15 @@ fn windows_private_hooks_dir() -> &'static str {
 }
 
 /// Windows only: rewrite `-c core.hooksPath=/dev/null` to a private empty directory.
-pub fn windows_hookless_args(args: &[String]) -> Vec<String> {
+pub fn windows_hookless_args(args: &[String], hooks_dir: Option<&str>) -> Vec<String> {
     args.iter()
         .enumerate()
         .map(|(index, arg)| {
             if index > 0 && args[index - 1] == "-c" && arg == "core.hooksPath=/dev/null" {
-                format!("core.hooksPath={}", windows_private_hooks_dir())
+                format!(
+                    "core.hooksPath={}",
+                    hooks_dir.unwrap_or_else(|| windows_private_hooks_dir())
+                )
             } else {
                 arg.clone()
             }
@@ -1029,7 +1030,7 @@ pub fn windows_hookless_args(args: &[String]) -> Vec<String> {
 }
 
 /// Windows only: rewrite `GIT_CONFIG_KEY_i=core.hooksPath` with `/dev/null` value.
-pub fn windows_hookless_env(env: &mut BTreeMap<String, String>) {
+pub fn windows_hookless_env(env: &mut BTreeMap<String, String>, hooks_dir: Option<&str>) {
     let count = env
         .get("GIT_CONFIG_COUNT")
         .and_then(|v| v.parse::<usize>().ok())
@@ -1040,7 +1041,12 @@ pub fn windows_hookless_env(env: &mut BTreeMap<String, String>) {
         if env.get(&key_name).map(String::as_str) == Some("core.hooksPath")
             && env.get(&val_name).map(String::as_str) == Some("/dev/null")
         {
-            env.insert(val_name, windows_private_hooks_dir().to_owned());
+            env.insert(
+                val_name,
+                hooks_dir
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| windows_private_hooks_dir().to_owned()),
+            );
         }
     }
 }

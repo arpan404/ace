@@ -18,9 +18,8 @@ use super::wire::{self, Frame};
 use ace_git::core::cli::StreamCallbacks;
 use ace_git::core::error::{CleanupResult, GitError, GitErrorCode};
 use ace_git::core::spawn::{
-    BoxFuture, CancelHandle, CleanupSupervisorPort, EventQueue, GitLocatorPort, GroupPort,
-    OutputChunk, ProcessChild, ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess,
-    TimeoutScheduler,
+    BoxFuture, CancelHandle, CleanupSupervisorPort, EventQueue, GroupPort, OutputChunk,
+    ProcessChild, ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess, TimeoutScheduler,
 };
 use napi::Status;
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
@@ -567,40 +566,6 @@ async fn call_group_alive(hub: &PortHub, pid: u32, spawn_id: Option<u64>) -> boo
         return false;
     };
     wire::object(&reply).is_some_and(|parsed| wire::flag(&parsed, "alive"))
-}
-
-pub(crate) struct JsLocatorPort {
-    pub(crate) hub: Arc<PortHub>,
-}
-
-impl GitLocatorPort for JsLocatorPort {
-    fn locate_git(
-        &self,
-        env: Vec<(String, String)>,
-        _cancel: Arc<AtomicBool>,
-    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> {
-        let hub = Arc::clone(&self.hub);
-        Box::pin(async move {
-            let req_id = hub.alloc_id();
-            let pairs: Vec<ace_json::Value> = env
-                .iter()
-                .map(|(key, value)| {
-                    ace_json::Value::Array(ace_json::Array::from(vec![
-                        ace_json::Value::from(key.as_str()),
-                        ace_json::Value::from(value.as_str()),
-                    ]))
-                })
-                .collect();
-            let env = ace_json::Value::Array(ace_json::Array::from(pairs));
-            let json = Frame::new()
-                .text("op", "locate_git")
-                .number("reqId", req_id)
-                .set("env", env)
-                .json();
-            let reply = hub.request_with_id(req_id, json, Vec::new()).await?;
-            wire::object(&reply).and_then(|parsed| wire::string(&parsed, "path"))
-        })
-    }
 }
 
 pub(crate) struct JsCleanupSupervisorPort {

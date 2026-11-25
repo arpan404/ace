@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Bounded, redacted stderr tail and plain failure messages.
-//! Ported from `packages/git/src/failure-text.ts` (G2a, ADR 0224 §8a rule 3).
+//! Ported from `packages/git/src/failure-text.ts` (G2a, ADR 0224 section 8a rule 3).
 
 use std::collections::VecDeque;
 use std::sync::OnceLock;

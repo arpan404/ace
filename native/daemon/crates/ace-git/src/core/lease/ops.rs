@@ -112,9 +112,16 @@ pub async fn run(
     }
 }
 
+/// A path as JavaScript holds it. A lone surrogate cannot name a file, and
+/// Node's filesystem calls reject it, so it is an invalid argument here too.
 fn path_arg(args: &Map) -> Result<String, GitError> {
     match args.get("path") {
-        Some(Value::String(path)) => Ok(path.to_string_lossy().into_owned()),
+        Some(Value::String(path)) => path.clone().into_string().map_err(|_| {
+            GitError::new(
+                GitErrorCode::InvalidArgument,
+                "a lease path must be a well-formed UTF-16 string",
+            )
+        }),
         _ => Err(GitError::new(
             GitErrorCode::InvalidArgument,
             "a lease operation needs a path",
@@ -127,7 +134,12 @@ fn path_list(args: &Map) -> Result<Vec<String>, GitError> {
         Some(Value::Array(items)) => items
             .iter()
             .map(|item| match item {
-                Value::String(path) => Ok(path.to_string_lossy().into_owned()),
+                Value::String(path) => path.clone().into_string().map_err(|_| {
+                    GitError::new(
+                        GitErrorCode::InvalidArgument,
+                        "a lease path must be a well-formed UTF-16 string",
+                    )
+                }),
                 _ => Err(GitError::new(
                     GitErrorCode::InvalidArgument,
                     "a lease operation needs paths",

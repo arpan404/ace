@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use crate::core::error::CleanupResult;
 
@@ -135,17 +135,6 @@ impl StoppedJobs {
             true
         }
     }
-}
-
-/// Process-wide stopped-job registry matching `git-job.ts`'s `stopped` map.
-pub fn global_stopped_jobs() -> &'static StoppedJobs {
-    static STOPPED: OnceLock<StoppedJobs> = OnceLock::new();
-    STOPPED.get_or_init(StoppedJobs::new)
-}
-
-/// Whether anything of a stopped Windows Git job led by `pid` may still be alive.
-pub fn job_alive(pid: u32) -> bool {
-    global_stopped_jobs().job_alive(pid)
 }
 
 /// One Git call's Windows Job Object lifecycle.

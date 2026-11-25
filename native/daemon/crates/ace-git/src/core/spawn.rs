@@ -4,7 +4,6 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -107,6 +106,19 @@ pub async fn sleep_with(scheduler: &dyn TimeoutScheduler, milliseconds: u64) {
 pub struct OutputChunk {
     pub bytes: Vec<u8>,
     pub delivered: Option<Delivered>,
+    /// The stream's flow, so the queue can resume that stream by itself.
+    flow: Option<Arc<dyn StreamFlow>>,
+}
+
+/// One output stream's flow, behind a trait so a test can watch a resume.
+pub trait StreamFlow: Send + Sync {
+    fn resume(&self);
+}
+
+impl StreamFlow for Flow {
+    fn resume(&self) {
+        Flow::resume(self);
+    }
 }
 
 impl std::fmt::Debug for OutputChunk {
@@ -114,6 +126,7 @@ impl std::fmt::Debug for OutputChunk {
         f.debug_struct("OutputChunk")
             .field("bytes", &self.bytes.len())
             .field("delivered", &self.delivered.is_some())
+            .field("flow", &self.flow.is_some())
             .finish()
     }
 }
@@ -124,6 +137,26 @@ impl OutputChunk {
         Self {
             bytes,
             delivered: None,
+            flow: None,
+        }
+    }
+
+    /// A chunk the supervisor's pump delivered, with the flow its stream waits on.
+    pub fn supervised(bytes: Vec<u8>, delivered: Delivered) -> Self {
+        let flow = Some(Arc::clone(&delivered.flow()) as Arc<dyn StreamFlow>);
+        Self {
+            bytes,
+            delivered: Some(delivered),
+            flow,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_flow(bytes: Vec<u8>, flow: Arc<dyn StreamFlow>) -> Self {
+        Self {
+            bytes,
+            delivered: None,
+            flow: Some(flow),
         }
     }
 }
@@ -140,9 +173,21 @@ pub struct EventQueue {
 #[derive(Default)]
 struct EventQueueState {
     events: VecDeque<ProcessEvent>,
-    /// Set when the queue filled and paused a stream; resumed when it has room.
-    paused: Option<Arc<Flow>>,
+    /// One slot per stream: a full queue pauses each stream once, and each
+    /// resumes when the queue has room again. A single slot would let stderr
+    /// overwrite stdout's pause and stall the other pipe until its deadline.
+    paused_stdout: Option<Arc<dyn StreamFlow>>,
+    paused_stderr: Option<Arc<dyn StreamFlow>>,
     closed: bool,
+}
+
+impl EventQueueState {
+    fn paused_slot(&mut self, stream: OutputStream) -> &mut Option<Arc<dyn StreamFlow>> {
+        match stream {
+            OutputStream::Stdout => &mut self.paused_stdout,
+            OutputStream::Stderr => &mut self.paused_stderr,
+        }
+    }
 }
 
 impl EventQueue {
@@ -156,35 +201,37 @@ impl EventQueue {
     /// Queues one output chunk, answering the pump once it is in the queue (or
     /// pausing it when the queue is full).
     pub fn push_output(&self, stream: OutputStream, chunk: OutputChunk) {
-        let delivered = chunk.delivered;
-        let (flow, taken) = {
-            let Ok(state) = self.state.lock() else {
-                return;
-            };
-            let full = state.events.len() >= EVENT_QUEUE_CHUNKS;
-            (full.then(|| delivered.as_ref().map(Delivered::flow)), !full)
-        };
-        let event = match stream {
-            OutputStream::Stdout => ProcessEvent::Stdout(OutputChunk {
-                bytes: chunk.bytes,
-                delivered: None,
-            }),
-            OutputStream::Stderr => ProcessEvent::Stderr(OutputChunk {
-                bytes: chunk.bytes,
-                delivered: None,
-            }),
-        };
-        {
+        let OutputChunk {
+            bytes,
+            delivered,
+            flow,
+        } = chunk;
+        // The pump only learns of the pause after the chunk is in the queue.
+        let full = {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
-            state.events.push_back(event);
-            if let Some(Some(flow)) = flow {
-                state.paused = Some(flow);
+            let full = state.events.len() >= EVENT_QUEUE_CHUNKS;
+            if full && flow.is_some() {
+                *state.paused_slot(stream) = flow.clone();
             }
-        }
+            let event = match stream {
+                OutputStream::Stdout => ProcessEvent::Stdout(OutputChunk {
+                    bytes,
+                    delivered: None,
+                    flow,
+                }),
+                OutputStream::Stderr => ProcessEvent::Stderr(OutputChunk {
+                    bytes,
+                    delivered: None,
+                    flow,
+                }),
+            };
+            state.events.push_back(event);
+            full
+        };
         if let Some(delivered) = delivered {
-            delivered.taken(taken);
+            delivered.taken(!full);
         }
         self.notify.notify_one();
     }
@@ -208,17 +255,18 @@ impl EventQueue {
     /// The next event in order, or `None` once the stream closed.
     pub async fn recv(&self) -> Option<ProcessEvent> {
         loop {
-            let mut resume = None;
+            let mut resume: Vec<Arc<dyn StreamFlow>> = Vec::new();
             {
                 let Ok(mut state) = self.state.lock() else {
                     return None;
                 };
                 if let Some(event) = state.events.pop_front() {
                     if state.events.len() < EVENT_QUEUE_CHUNKS {
-                        resume = state.paused.take();
+                        resume.extend(state.paused_stdout.take());
+                        resume.extend(state.paused_stderr.take());
                     }
                     drop(state);
-                    if let Some(flow) = resume {
+                    for flow in resume {
                         flow.resume();
                     }
                     return Some(event);
@@ -358,6 +406,12 @@ pub struct ProcessPorts {
     /// Reports one stdin write reaching the child, so the shell that streams
     /// stdin (`Readable`, as Node's `pipe` does) can resume after pausing.
     pub stdin_ack_hook: Option<Arc<dyn Fn(u64, usize) + Send + Sync>>,
+    /// The daemon's environment, read per call: injection point for tests and the shell.
+    pub environment: Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>,
+    /// The Git processes this daemon still owns (`runningChildren`), shared across instances.
+    pub running_children: Arc<RunningChildren>,
+    /// Windows: the private empty directory `core.hooksPath` points at, created on first use.
+    pub hooks_dir: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub runtime: tokio::runtime::Handle,
 }
 
@@ -376,6 +430,9 @@ impl ProcessPorts {
             job_ports: default_job_ports(),
             pid_hook: None,
             stdin_ack_hook: None,
+            environment: Arc::new(inherited_env_pairs),
+            running_children: Arc::new(RunningChildren::default()),
+            hooks_dir: crate::core::cli::default_hooks_dir(),
             runtime,
         }
     }
@@ -503,13 +560,8 @@ impl SupervisorSink {
 
 impl EventSink for SupervisorSink {
     fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered) {
-        self.queue.push_output(
-            stream,
-            OutputChunk {
-                bytes,
-                delivered: Some(delivered),
-            },
-        );
+        self.queue
+            .push_output(stream, OutputChunk::supervised(bytes, delivered));
     }
 
     fn end(&self, _stream: OutputStream) {}
@@ -716,7 +768,13 @@ impl ProcessSpawner for SupervisorSpawner {
             }
             Err(err) => {
                 let msg = err.to_string();
-                let code = infer_spawn_errno(&msg);
+                // The supervisor names node's errno for a spawn the OS refused.
+                let code = match &err {
+                    ace_supervisor::errors::SupervisorError::SpawnFailed { code, .. } => {
+                        code.map(str::to_owned)
+                    }
+                    _ => None,
+                };
                 exit_notify.notify_waiters();
                 queue.push(ProcessEvent::SpawnError { code, message: msg });
                 queue.push(ProcessEvent::Close {
@@ -732,24 +790,6 @@ impl ProcessSpawner for SupervisorSpawner {
         };
         Box::pin(std::future::ready(out))
     }
-}
-
-fn infer_spawn_errno(message: &str) -> Option<String> {
-    if message.contains("os error 2)")
-        || message.contains("os error 3)")
-        || message.contains("No such file or directory")
-        || message.contains("cannot find the file")
-        || message.contains("cannot find the path")
-    {
-        return Some("ENOENT".to_owned());
-    }
-    if message.contains("os error 13)") || message.contains("Permission denied") {
-        return Some("EACCES".to_owned());
-    }
-    if message.contains("os error 20)") || message.contains("Not a directory") {
-        return Some("ENOTDIR".to_owned());
-    }
-    None
 }
 
 fn parse_signal(signal: &str) -> SignalName {
@@ -923,120 +963,6 @@ pub fn inherited_env_pairs() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Port of `developerToolsGit` in `packages/git/src/git-binary.ts`.
-pub async fn developer_tools_git(
-    platform: &str,
-    env: &[(String, String)],
-    cancel: Arc<AtomicBool>,
-) -> Option<String> {
-    if cancel.load(Ordering::Acquire) {
-        return None;
-    }
-    if platform == "win32" {
-        return windows_path_git(env, &cancel);
-    }
-    if platform != "darwin" {
-        return None;
-    }
-    let path_var = env
-        .iter()
-        .find(|(k, _)| k == "PATH")
-        .map(|(_, v)| v.as_str());
-    if first_on_path(path_var, &cancel).as_deref() != Some("/usr/bin/git") {
-        return None;
-    }
-    if cancel.load(Ordering::Acquire) {
-        return None;
-    }
-    let env_owned = env.to_vec();
-    let found = tokio::time::timeout(
-        Duration::from_secs(10),
-        tokio::process::Command::new("/usr/bin/xcrun")
-            .args(["--find", "git"])
-            .env_clear()
-            .envs(env_owned)
-            .output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    if cancel.load(Ordering::Acquire) || !found.status.success() {
-        return None;
-    }
-    let text = std::str::from_utf8(&found.stdout).ok()?.trim().to_owned();
-    if text.is_empty()
-        || !Path::new(&text).is_absolute()
-        || text.contains('\n')
-        || text == "/usr/bin/git"
-    {
-        return None;
-    }
-    is_executable(&text).then_some(text)
-}
-
-fn first_on_path(path_var: Option<&str>, cancel: &AtomicBool) -> Option<String> {
-    let sep = if cfg!(windows) { ';' } else { ':' };
-    for dir in path_var.unwrap_or("").split(sep) {
-        if dir.is_empty() || !Path::new(dir).is_absolute() {
-            continue;
-        }
-        let candidate = Path::new(dir).join("git");
-        if is_executable_path(&candidate) {
-            return Some(candidate.to_string_lossy().into_owned());
-        }
-        if cancel.load(Ordering::Acquire) {
-            return None;
-        }
-    }
-    None
-}
-
-fn windows_path_git(env: &[(String, String)], cancel: &AtomicBool) -> Option<String> {
-    let path_var = env
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case("PATH"))
-        .map(|(_, v)| v.as_str())
-        .unwrap_or("");
-    for dir in path_var.split(';') {
-        if cancel.load(Ordering::Acquire) {
-            return None;
-        }
-        let dir = dir.trim().trim_matches('"');
-        if dir.is_empty() {
-            continue;
-        }
-        for ext in [".exe", ".com"] {
-            let candidate = Path::new(dir).join(format!("git{ext}"));
-            if candidate.is_file() {
-                return Some(candidate.to_string_lossy().into_owned());
-            }
-        }
-    }
-    None
-}
-
-fn is_executable(path: &str) -> bool {
-    is_executable_path(Path::new(path))
-}
-
-fn is_executable_path(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !meta.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        meta.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
-}
-
 /// Classify a spawn error into `not_a_repo`, `git_missing`, or `git_failed` (`classifySpawn`).
 pub fn classify_spawn_error(
     code: Option<&str>,
@@ -1066,6 +992,50 @@ pub fn classify_spawn_error(
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[derive(Default)]
+    struct RecordingFlow {
+        resumes: AtomicUsize,
+    }
+
+    impl StreamFlow for RecordingFlow {
+        fn resume(&self) {
+            self.resumes.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_pauses_both_streams_and_one_pop_resumes_both() {
+        let queue = EventQueue::new();
+        let stdout_flow = Arc::new(RecordingFlow::default());
+        let stderr_flow = Arc::new(RecordingFlow::default());
+        for index in 0..EVENT_QUEUE_CHUNKS {
+            queue.push_output(
+                OutputStream::Stdout,
+                OutputChunk::new(format!("stdout {index}").into_bytes()),
+            );
+        }
+        // The queue is full: each stream's own pause must be kept.
+        queue.push_output(
+            OutputStream::Stdout,
+            OutputChunk::with_flow(
+                b"more stdout".to_vec(),
+                Arc::clone(&stdout_flow) as Arc<dyn StreamFlow>,
+            ),
+        );
+        queue.push_output(
+            OutputStream::Stderr,
+            OutputChunk::with_flow(
+                b"more stderr".to_vec(),
+                Arc::clone(&stderr_flow) as Arc<dyn StreamFlow>,
+            ),
+        );
+        for _ in 0..EVENT_QUEUE_CHUNKS + 2 {
+            assert!(queue.recv().await.is_some());
+        }
+        assert_eq!(stdout_flow.resumes.load(Ordering::SeqCst), 1);
+        assert_eq!(stderr_flow.resumes.load(Ordering::SeqCst), 1);
+    }
 
     #[tokio::test]
     async fn events_come_out_in_the_order_they_were_queued() {

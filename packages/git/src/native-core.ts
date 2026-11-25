@@ -311,7 +311,6 @@ export class NativeCoreCli {
       useJsScheduler: options.processRuntime?.scheduleTimeout !== undefined,
       useJsSignalGroup: options.processRuntime?.signalGroup !== undefined,
       useJsGroupAlive: options.processRuntime?.groupAlive !== undefined,
-      useJsLocateGit: options.processRuntime?.locateGit !== undefined,
       useJsCleanupSupervisor: this.useJsCleanupSupervisor,
       // A cleanup supervisor owns the proof that killed writers stopped: no evidence to weigh.
       leaseEvidence: !this.useJsCleanupSupervisor,
@@ -383,10 +382,6 @@ export class NativeCoreCli {
         }
       }
     });
-  }
-
-  setResolvedBinary(binary: string | undefined): void {
-    this.handle.setResolvedBinary(binary ?? null);
   }
 
   jobAlive(pid: number): boolean {

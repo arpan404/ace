@@ -12,17 +12,15 @@ use ace_git::core::cli::{
 use ace_git::core::deadline::validate_timeout_ms;
 use ace_git::core::error::{GitError, GitErrorCode};
 use ace_git::core::lease::{LeasePorts, LeaseState, global_leases};
-use ace_git::core::spawn::{
-    ProcessPorts, SupervisorSpawner, TokioScheduler, default_platform, running_children,
-};
+use ace_git::core::spawn::{ProcessPorts, SupervisorSpawner, TokioScheduler, default_platform};
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use tokio::sync::mpsc;
 
 use super::bridge::{
-    JsCleanupSupervisorPort, JsGroupPort, JsLeasePorts, JsLocatorPort, JsScheduler, JsSpawner,
-    JsStreamCallbacks, PortCallFn, PortHub, parse_git_error_code,
+    JsCleanupSupervisorPort, JsGroupPort, JsLeasePorts, JsScheduler, JsSpawner, JsStreamCallbacks,
+    PortCallFn, PortHub, parse_git_error_code,
 };
 use super::wire::{self, Frame};
 use super::{caught, failed, unwind};
@@ -80,7 +78,6 @@ struct CoreConfig {
     use_js_scheduler: bool,
     use_js_signal_group: bool,
     use_js_group_alive: bool,
-    use_js_locate_git: bool,
     use_js_cleanup_supervisor: bool,
     lease_evidence: bool,
     lease_wait_ms: Option<u64>,
@@ -97,7 +94,6 @@ impl CoreConfig {
             use_js_scheduler: wire::flag(&map, "useJsScheduler"),
             use_js_signal_group: wire::flag(&map, "useJsSignalGroup"),
             use_js_group_alive: wire::flag(&map, "useJsGroupAlive"),
-            use_js_locate_git: wire::flag(&map, "useJsLocateGit"),
             use_js_cleanup_supervisor: wire::flag(&map, "useJsCleanupSupervisor"),
             lease_evidence: wire::flag(&map, "leaseEvidence"),
             lease_wait_ms: wire::count(&map, "leaseWaitMs"),
@@ -205,11 +201,6 @@ impl NativeGitCore {
         }
         if cfg.use_js_group_alive {
             ports.group_alive_override = Some(Arc::new(JsGroupPort {
-                hub: Arc::clone(&hub),
-            }));
-        }
-        if cfg.use_js_locate_git {
-            ports.locate_git = Some(Arc::new(JsLocatorPort {
                 hub: Arc::clone(&hub),
             }));
         }
@@ -471,18 +462,12 @@ impl NativeGitCore {
 
     #[napi(catch_unwind)]
     pub fn running_children(&self) -> napi::Result<Vec<u32>> {
-        Ok(running_children().snapshot())
+        Ok(self.core.ports.running_children.snapshot())
     }
 
     #[napi(catch_unwind)]
     pub fn job_alive(&self, pid: u32) -> napi::Result<bool> {
         Ok(self.core.job_alive(pid))
-    }
-
-    #[napi(catch_unwind)]
-    pub fn set_resolved_binary(&self, binary: Option<String>) -> napi::Result<()> {
-        self.core.set_resolved_binary(binary);
-        Ok(())
     }
 
     #[napi(catch_unwind)]

@@ -196,7 +196,7 @@ pub async fn recover_mutation_leases(
     for entry in &discovered {
         let local = local_lease(ports, registry, &entry.record).await;
         if !local.present
-            && crate::core::lease::owner::query_lease_owner(&entry.record).await
+            && crate::core::lease::owner::query_lease_owner(&entry.record, ports).await
                 == LeaseOwnerState::Active
         {
             return crate::core::lease::admission::mutation_state(path, ports, registry).await;

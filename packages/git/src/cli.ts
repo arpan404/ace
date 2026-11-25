@@ -623,7 +623,6 @@ export class GitCli {
     if (this.configuredBinary === undefined && this.ready === attempt) {
       attempt.binary = binary;
       this.resolvedBinary = binary;
-      this.nativeCore?.setResolvedBinary(binary);
     }
     // Windows searches a bare name in the working directory, a checkout, before PATH.
     if (
@@ -907,7 +906,6 @@ export class GitCli {
           ) {
             this.ready = undefined;
             this.resolvedBinary = undefined;
-            this.nativeCore?.setResolvedBinary(undefined);
           }
           throw error;
         });

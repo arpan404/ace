@@ -172,6 +172,76 @@ pub(crate) fn missing(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::NotFound
 }
 
+/// Lease ports for Rust tests: an injected listing, a fixed clock, no supervisor.
+#[cfg(test)]
+pub(crate) struct TestPorts {
+    pub listing: Option<Vec<GitProcess>>,
+    pub now: i64,
+    pub evidence: bool,
+    pub wait_ms: u64,
+}
+
+#[cfg(test)]
+impl Default for TestPorts {
+    fn default() -> Self {
+        Self {
+            listing: Some(Vec::new()),
+            now: 0,
+            evidence: true,
+            wait_ms: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+impl LeasePorts for TestPorts {
+    fn local_lease(&self, _record: &LeaseRecord) -> BoxFuture<'_, LocalLease> {
+        Box::pin(std::future::ready(LocalLease::default()))
+    }
+
+    fn processes(&self) -> BoxFuture<'_, Option<Vec<GitProcess>>> {
+        Box::pin(std::future::ready(self.listing.clone()))
+    }
+
+    fn group_alive(&self, _pid: u32) -> BoxFuture<'_, bool> {
+        Box::pin(std::future::ready(false))
+    }
+
+    fn now_ms(&self) -> BoxFuture<'_, i64> {
+        Box::pin(std::future::ready(self.now))
+    }
+
+    fn running_when_gone(
+        &self,
+        _lease: &LeaseRecord,
+        _listing: &[GitProcess],
+    ) -> BoxFuture<'_, Option<Vec<u32>>> {
+        Box::pin(std::future::ready(None))
+    }
+
+    fn recover(&self, _lease: &LeaseRecord) -> BoxFuture<'_, CleanupResult> {
+        Box::pin(std::future::ready(CleanupResult::Unconfirmed {
+            reason: "no supervisor".to_owned(),
+        }))
+    }
+
+    fn retired(&self, _event: &RetiredLease) {}
+
+    fn pause(&self, milliseconds: u64) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(milliseconds)).await;
+        })
+    }
+
+    fn has_evidence(&self) -> bool {
+        self.evidence
+    }
+
+    fn wait_ms(&self) -> u64 {
+        self.wait_ms
+    }
+}
+
 /// A shared, process-wide lease registry, as module state in TypeScript.
 pub fn global_leases() -> &'static Arc<LeaseState> {
     static LEASES: std::sync::OnceLock<Arc<LeaseState>> = std::sync::OnceLock::new();

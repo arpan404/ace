@@ -105,7 +105,7 @@ async fn assess(
     } else if local.mine {
         LeaseOwnerState::Orphaned
     } else {
-        query_lease_owner(&entry.record).await
+        query_lease_owner(&entry.record, ports).await
     };
     let directory = parent_dir(&entry.file);
     let roots: Vec<RootKind> = entry
@@ -173,7 +173,7 @@ async fn still_abandoned(
     if entry.facts.owner == LeaseOwnerState::Orphaned {
         return local.mine;
     }
-    query_lease_owner(&entry.facts.record).await == LeaseOwnerState::Gone
+    query_lease_owner(&entry.facts.record, ports).await == LeaseOwnerState::Gone
 }
 
 /// Removes the intent after rechecking its owner, then the Git locks its processes left.
@@ -297,7 +297,13 @@ pub async fn assert_available(
             }
             Err(error) => return Err(GitError::from_io(&error)),
         };
-        let (assessed, _) = survey(&root, ports, registry, false).await?;
+        let (assessed, _) = match survey(&root, ports, registry, false).await {
+            Ok(surveyed) => surveyed,
+            Err(error) if error.code == GitErrorCode::FilesystemError && is_missing(&error) => {
+                return Err(not_a_repo(path));
+            }
+            Err(error) => return Err(error),
+        };
         let facts: Vec<LeaseFacts> = assessed.iter().map(|entry| entry.facts.clone()).collect();
         let state = lease_state(&facts, &root);
         if state.status == "available" {
@@ -321,6 +327,22 @@ pub async fn assert_available(
 
 fn leases_value(state: &MutationState) -> Value {
     Value::Array(state.leases.iter().map(LeaseRecord::to_value).collect())
+}
+
+/// Whether a filesystem failure was a path that is no longer there.
+fn is_missing(error: &GitError) -> bool {
+    matches!(
+        error.details.get("errno"),
+        Some(Value::String(errno)) if errno.as_str() == "ENOENT"
+    )
+}
+
+/// Admission's own error for a checkout that disappeared while it was surveyed.
+fn not_a_repo(path: &str) -> GitError {
+    GitError::new(
+        GitErrorCode::NotARepo,
+        format!("Git working directory no longer exists: {path}"),
+    )
 }
 
 /// The error naming the first fencing lease: which repository, which checkout, what holds it.
