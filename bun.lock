@@ -204,6 +204,7 @@
       "dependencies": {
         "@ace/client": "workspace:*",
         "@ace/design-tokens": "workspace:*",
+        "@ace/editor": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/native-host": "workspace:*",
         "@ace/notify": "workspace:*",
