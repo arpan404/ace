@@ -416,10 +416,47 @@ impl AcpCore {
         if self.active_write_ticket == Some(ticket) {
             self.active_write_ticket = None;
         }
+        // The line this ticket carried is on the pipe: a steer waiting on it was written.
+        self.confirm_steer_write(ticket);
         let peer_effects = self.peer.written(ticket);
+        // The writer just handed out the next queued line. A steer whose request was
+        // queued behind another write takes that ticket now; the peer's queue is FIFO, so
+        // the oldest steer still waiting for one is the line that was pumped.
+        let pumped = peer_effects.iter().find_map(|effect| match effect {
+            PeerEffect::Write { ticket, .. } => Some(*ticket),
+            _ => None,
+        });
+        if let Some(ticket) = pumped {
+            self.assign_steer_ticket(ticket);
+        }
         let mut effects = Vec::new();
         self.apply_peer_effects(peer_effects, &mut effects);
         effects
+    }
+
+    /// A write acknowledgement for a steer's ticket marks its send written.
+    fn confirm_steer_write(&mut self, ticket: u64) {
+        let batches: Vec<u64> = self
+            .steering
+            .values()
+            .filter(|flight| flight.ticket == Some(ticket))
+            .map(|flight| flight.batch)
+            .collect();
+        for batch in batches {
+            if let Some(state) = self.batches.get_mut(&batch) {
+                state.written = true;
+            }
+        }
+    }
+
+    /// The peer pumped a queued line; the oldest steer still without a ticket owns it.
+    fn assign_steer_ticket(&mut self, ticket: u64) {
+        for flight in self.steering.values_mut() {
+            if flight.ticket.is_none() {
+                flight.ticket = Some(ticket);
+                return;
+            }
+        }
     }
 
     /// Stdin write failed (`OutputConsumer::stdin_error`).

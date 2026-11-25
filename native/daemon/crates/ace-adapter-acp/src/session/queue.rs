@@ -43,6 +43,9 @@ pub(crate) struct SteerFlight {
     /// What to queue as the next prompt when the turn could not take the steer
     /// (`session.ts:659`).
     pub fallback: Job,
+    /// The write ticket the peer handed out for this request, once it did: the steer is
+    /// `written` only when the shell confirms that ticket (`session.ts:630`).
+    pub ticket: Option<u64>,
 }
 
 /// The prompt in flight (`session.ts:769`-`:785`).

@@ -247,7 +247,12 @@ impl AcpCore {
         params.insert("_meta", Value::Object(meta));
         let params = Value::Object(params);
         let call = self.alloc_internal_id();
-        self.steering.insert(call, SteerFlight { batch, fallback });
+        let flight = SteerFlight {
+            batch,
+            fallback,
+            ticket: None,
+        };
+        self.steering.insert(call, flight);
         match self.peer.request(
             agent_methods::SESSION_STEERING,
             Some(&params),
@@ -255,10 +260,18 @@ impl AcpCore {
             ace_supervisor::peer::Timeout::Disabled,
         ) {
             Ok(peer_effects) => {
-                // The steer's frame is handed to the wire: from here its failure is
-                // uncertain, never a refusal (`session.ts:630`, `intent-delivery.ts:140`).
-                if let Some(batch) = self.batches.get_mut(&batch) {
-                    batch.written = true;
+                // `written` means the line left the writer, not that it was taken: the
+                // ticket the peer hands out here is confirmed by the shell's
+                // acknowledgement (`AcpCore::written`), and until then the steer is unread
+                // (`session.ts:630`, `intent-delivery.ts:140`-`:147`). A request the peer
+                // settled instead of writing (a refused enqueue, an oversized line) has no
+                // ticket, and its failure is a refusal.
+                let ticket = peer_effects.iter().find_map(|effect| match effect {
+                    ace_supervisor::peer::PeerEffect::Write { ticket, .. } => Some(*ticket),
+                    _ => None,
+                });
+                if let Some(flight) = self.steering.get_mut(&call) {
+                    flight.ticket = ticket;
                 }
                 let mut effects = Vec::new();
                 self.apply_peer_effects(peer_effects, &mut effects);
