@@ -3,6 +3,7 @@
 //! `packages/projection/src/index.ts`, and the thread column encoders (5.3b) from
 //! `apps/daemon/src/thread-columns.ts`.
 
+pub mod attention;
 mod columns;
 mod strip;
 mod thread;

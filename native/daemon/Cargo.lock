@@ -185,6 +185,7 @@ dependencies = [
  "ace-adapter-api",
  "ace-core",
  "ace-json",
+ "ace-projection",
  "ace-store",
  "async-task",
  "base64 0.22.1",
