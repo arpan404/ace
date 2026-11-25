@@ -238,3 +238,17 @@ fn a_failed_read_keeps_the_last_snapshot() {
         .expect("a catalog page");
     assert!(notes(&effects).is_empty());
 }
+
+#[test]
+fn a_page_that_is_not_codexs_shape_ends_the_read_without_a_re_read() {
+    let mut session = session();
+    let effects = session.catalog_start();
+    let (call, ..) = request(&effects[0]);
+    // An invalidation arrives while the read is in flight.
+    assert!(session.catalog_changed("skills/changed", None).is_empty());
+    let effects = session
+        .catalog_settled(call, Ok(&json(r#"{"nextCursor":null}"#)))
+        .expect("a catalog page");
+    // The TypeScript returns from the read here: no publish, no re-read.
+    assert!(effects.is_empty());
+}

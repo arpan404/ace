@@ -95,7 +95,11 @@ pub(super) fn steer_target_lost_text(message: &str) -> bool {
     if lower == NO_ACTIVE_TURN {
         return true;
     }
-    if message.contains('\n') {
+    // JS's `.` matches no line terminator: `\n`, `\r`, `\u{2028}`, `\u{2029}`.
+    if message
+        .chars()
+        .any(|ch| matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
+    {
         return false;
     }
     let Some(rest) = lower.strip_prefix(EXPECTED_ACTIVE) else {

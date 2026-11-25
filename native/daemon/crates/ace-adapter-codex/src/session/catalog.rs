@@ -166,10 +166,12 @@ impl Session {
             Ok(result) => result.as_object().cloned().unwrap_or_default(),
             // An optional API preserves the last successful snapshot when it is
             // unavailable.
-            Err(_) => return Some(self.catalog_finish(read, None)),
+            Err(_) => return Some(self.catalog_finish(read, None, true)),
         };
+        // A reply without a list is not a surface this build can read: the
+        // TypeScript returns from the read itself, so no re-read follows.
         let Some(data) = body.get("data").and_then(Value::as_array) else {
-            return Some(self.catalog_finish(read, None));
+            return Some(self.catalog_finish(read, None, false));
         };
         let room = ENTRIES.saturating_sub(read.data.len());
         read.data.extend(data.iter().take(room).cloned());
@@ -188,7 +190,7 @@ impl Session {
             }
             _ => {
                 let data = std::mem::take(&mut read.data);
-                Some(self.catalog_finish(read, Some(data)))
+                Some(self.catalog_finish(read, Some(data), true))
             }
         }
     }
@@ -256,7 +258,12 @@ impl Session {
 
     /// A read's end: publish unless a push overtook it, then start the re-read
     /// an invalidation asked for.
-    fn catalog_finish(&mut self, read: Read, data: Option<Vec<Value>>) -> Vec<Effect> {
+    fn catalog_finish(
+        &mut self,
+        read: Read,
+        data: Option<Vec<Value>>,
+        reread: bool,
+    ) -> Vec<Effect> {
         let method = read.method;
         let mut effects = Vec::new();
         if let Some(data) = data
@@ -264,7 +271,9 @@ impl Session {
         {
             effects.extend(self.publish(&method, &data));
         }
-        if self.catalog.dirty.shift_remove(&method) {
+        // A read that could not be read at all leaves its mark spent, as the
+        // TypeScript's `finally` does.
+        if self.catalog.dirty.shift_remove(&method) && reread {
             effects.extend(self.catalog_refresh(&method));
         }
         effects

@@ -510,3 +510,26 @@ fn a_replacement_steers_refusal_starts_no_turn_when_none_is_running() {
     assert_eq!(settled(&effects[0]).message, "no active turn to steer");
     assert!(session.commands.starts.is_empty());
 }
+
+#[test]
+fn a_refusal_split_by_a_line_terminator_is_no_steer_lost() {
+    for text in [
+        "expected active turn id turn-1\u{2028} but found replacement",
+        "expected active turn id turn-1\r but found replacement",
+        "expected active turn id turn-1\u{2029} but found replacement",
+    ] {
+        let mut session = running();
+        let parts = parts("correction");
+        let effects = session.send(send(60, &parts, Delivery::Steer, None, &message_id));
+        let (call, ..) = request(&effects[0]);
+        session
+            .active
+            .insert("root-1".to_owned(), "replacement".to_owned());
+        let effects = session.settled(call, Err(text));
+        // JS's `.` refuses a line terminator, so this is no steer-lost: the
+        // refusal surfaces raw with nothing retried.
+        assert_eq!(effects.len(), 1, "{text:?}");
+        assert_eq!(settled(&effects[0]).message, text);
+        assert!(session.commands.starts.is_empty());
+    }
+}
