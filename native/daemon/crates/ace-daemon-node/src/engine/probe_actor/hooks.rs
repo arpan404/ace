@@ -344,10 +344,14 @@ impl NativeEngine {
     #[napi]
     pub fn probe_attach_native_translator(&self, thread_id: String) {
         let core = self.engine.core();
-        let deps = core.actor_deps.borrow().clone();
-        deps.translators.borrow_mut().insert(
-            thread_id,
-            (0, ActorTranslator::Native(Box::new(ProbeTranslator))),
-        );
+        core.with_state(|state| {
+            if let Some(mut actor) = state.actors.get_mut(&thread_id) {
+                actor.translator = Some((
+                    actor.generation,
+                    ActorTranslator::Native(Box::new(ProbeTranslator)),
+                ));
+            }
+        })
+        .ok();
     }
 }

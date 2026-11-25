@@ -74,15 +74,22 @@ describe.runIf(native)("evicted actor effects", () => {
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     try {
       const session = await seam.probe.attachSession("a", { translator: translator() });
-      await tick();
-      seam.probe.enqueue("a", "old");
+      seam.probe.failApply("a", 1);
+      const retryArmed = seam.clock.waitForDelay(100);
+      const old = track(session.context.onFrame(frame(0)));
+      seam.probe.seal("a");
+      await retryArmed;
       seam.engine.rootAgent(thread("b"));
       seam.engine.rootAgent(thread("a"));
       await tick();
       expect(seam.probe.registeredWakers()).toBe(1);
+      seam.clock.advance(seam.clock.time + 100);
+      await seam.engine.flush();
+      expect(old).toEqual({ done: true });
+      expect(seam.probe.registeredWakers()).toBe(1);
       seam.probe.enqueue("a", "replacement");
       await tick();
-      expect(session.log().enqueued).toEqual(["old", "replacement"]);
+      expect(session.log().enqueued).toEqual(["replacement"]);
     } finally {
       await seam.close();
     }

@@ -63,7 +63,106 @@ describe.runIf(native)("the native actor and frames", () => {
     }
   });
 
-  test("a frame waiting on the writer when its actor is evicted releases its handle", async () => {
+  test("a batch stays committed when its publication evicts the actor", async () => {
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    try {
+      const session = await seam.probe.attachSession("a", { translator: translator() });
+      let evicted = false;
+      const unsubscribe = seam.store.subscribe((events) => {
+        if (evicted || !events.some((event) => event.threadId === "a")) return;
+        evicted = true;
+        seam.engine.rootAgent(thread("b"));
+      });
+      try {
+        const ack = track(session.context.onFrame(frame(0)));
+        seam.probe.seal("a");
+        await seam.engine.flush();
+        expect(evicted).toBe(true);
+        expect(seam.engine.liveThreadIds()).toEqual(["b"]);
+        expect(ack.done).toBe(true);
+        expect(ack.error).toBeUndefined();
+        expect(session.log().applied.some((entry) => entry.facts === 1 && entry.committed)).toBe(
+          true,
+        );
+      } finally {
+        unsubscribe();
+      }
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a pledged victim runs its queued and staged ops before its last batch", async () => {
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    try {
+      const session = await seam.probe.attachSession("a", { translator: translator() });
+      seam.probe.enqueue("a", "queued");
+      let ack: ReturnType<typeof track> | undefined;
+      seam.store.atomic(() => {
+        seam.probe.enqueue("a", "staged");
+        ack = track(session.context.onFrame(frame(0)));
+        seam.engine.rootAgent(thread("b"));
+      });
+      const before = session.log().order.length;
+      expect(seam.engine.liveThreadIds()).toEqual(["b"]);
+      await seam.engine.flush();
+      expect(session.log().order.slice(before)).toEqual(["op:queued", "op:staged", "apply"]);
+      expect(ack).toEqual({ done: true });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("an evicted batch's JavaScript acknowledgement runs before the next retirement", async () => {
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    try {
+      const session = await seam.probe.attachSession("a", { translator: translator() });
+      const retiredAtAck = session.context.onFrame(frame(0)).then(() => session.log().expired);
+      seam.probe.seal("a");
+      seam.probe.enqueueRetire("a");
+      seam.engine.rootAgent(thread("b"));
+      await expect(retiredAtAck).resolves.toEqual([]);
+      await seam.engine.flush();
+      expect(session.log().expired).toEqual([0]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a stopping batch uses its own translator and dependencies after replacement", async () => {
+    const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
+    const translated: string[] = [];
+    const counted = (label: string) =>
+      ({
+        translate() {
+          translated.push(label);
+          return [{ type: "signal" }];
+        },
+        tick: () => [],
+        takeDiagnostics: () => [],
+      }) as never;
+    try {
+      const original = await seam.probe.attachSession("a", { translator: counted("original") });
+      const ack = track(original.context.onFrame(frame(0)));
+      seam.probe.seal("a");
+      await seam.probe.attachSession("b", { translator: counted("other") });
+      const replacement = await seam.probe.attachSession("a", {
+        translator: counted("replacement"),
+      });
+      await seam.engine.flush();
+      expect(translated).toEqual(["original"]);
+      expect(ack).toEqual({ done: true });
+      expect(replacement.log().applied).toEqual([]);
+      expect(seam.probe.liveFrames()).toBe(0);
+      await Promise.all([replacement.context.onFrame(frame(1)), seam.engine.flush()]);
+      expect(translated).toEqual(["original", "replacement"]);
+      expect(replacement.log().applied.map((entry) => entry.facts)).toEqual([1]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a parked batch stays with the evicted actor until the writer opens", async () => {
     // (a) `live-write-buffer`
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     const session = await seam.probe.attachSession("a", { translator: translator() });
@@ -74,10 +173,11 @@ describe.runIf(native)("the native actor and frames", () => {
       // The op is taken and parked on the store's writable gate when the victim leaves.
       await tick();
       await seam.probe.attachSession("b", { translator: translator() });
+      expect(ack.done).toBe(false);
       await hold.release();
-      await tick(24);
-      // The in-flight op cannot be moved to the drain: it settles as an orphan, released.
-      expect(ack.error).toBe("Provider frame failed to commit");
+      await seam.engine.flush();
+      expect(ack).toEqual({ done: true });
+      expect(session.log().applied.map((entry) => entry.facts)).toEqual([1]);
       expect(seam.probe.liveFrames()).toBe(0);
     } finally {
       await seam.close();
@@ -100,7 +200,7 @@ describe.runIf(native)("the native actor and frames", () => {
     }
   });
 
-  test("an evicted actor's task never folds its batch into the replacement", async () => {
+  test("an evicted actor retries its batch with its original generation", async () => {
     // (a) `reliability`
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     const session = await seam.probe.attachSession("a", { translator: translator() });
@@ -117,14 +217,19 @@ describe.runIf(native)("the native actor and frames", () => {
       const before = session.log().applied.length;
       seam.clock.advance(seam.clock.time + 100);
       await tick(24);
-      expect(ack.error).toBe("Provider frame failed to commit");
-      expect(session.log().applied.length).toBe(before);
+      expect(ack).toEqual({ done: true });
+      expect(
+        session
+          .log()
+          .applied.slice(before)
+          .map(({ facts, generation }) => [facts, generation]),
+      ).toEqual([[1, 0]]);
     } finally {
       await seam.close();
     }
   });
 
-  test("a busy store during an eviction's drain retries instead of failing the actor", async () => {
+  test("a stopping actor retries a busy store", async () => {
     // (a) `reliability`
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     const session = await seam.probe.attachSession("a", { translator: translator() });
@@ -148,7 +253,7 @@ describe.runIf(native)("the native actor and frames", () => {
     }
   });
 
-  test("a failing drain stops at the poison and releases the batches behind it", async () => {
+  test("a poisoned stopping actor releases the batches behind the failure", async () => {
     // (a) `resource-limits`
     const seam = await bareSeam({ limits: { maxActiveThreads: 1 } });
     const session = await seam.probe.attachSession("a", { translator: translator() });

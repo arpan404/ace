@@ -27,7 +27,7 @@ pub use deps::{
 pub use probe::run_op_opened;
 pub use promotion::restore_promotion;
 pub use state::{ActorInstance, ActorRef, Actors, FrameRef, Pending};
-pub use task::{drain_op, spawn_mailbox};
+pub use task::spawn_mailbox;
 pub use timer::keeps_timer;
 
 use crate::executor::TaskId;
@@ -104,6 +104,7 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     })?;
     let mut actor = ActorInstance::new(thread.clone(), generation);
     actor.release_requested = released;
+    actor.deps = Some(Rc::clone(&deps));
     actor.instance = core.with_state(|state| {
         let instance = state.actors.next_instance;
         state.actors.next_instance += 1;
@@ -175,38 +176,36 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
 
 /// `stop()` (`actor.ts:599`): seal first, then stop everything the actor holds.
 pub fn stop(core: &Rc<Core>, thread: &ThreadId) {
-    intake::seal(core, thread);
-    let deps = core.actor_deps.borrow().clone();
-    let leases = core
-        .with_state(|state| {
-            let Some(mut actor) = state.actors.get_mut(thread) else {
-                return Vec::new();
-            };
-            actor.stopped = true;
-            actor.pressure = false;
-            for drain in actor.drains.drain(..) {
-                let _ = drain.send(());
-            }
-            let tokens: Vec<u64> = actor.leases.keys().copied().collect();
-            actor.leases.clear();
-            tokens
-        })
-        .unwrap_or_default();
-    timer::disarm(core, thread);
-    if !leases.is_empty() {
-        deps.links.release_leases(core, &leases);
+    if let Some(actor) = state::current(core, thread) {
+        stop_instance(core, &actor);
     }
+}
+
+pub(crate) fn stop_instance(core: &Rc<Core>, actor: &ActorRef) {
+    intake::catch_up_instance(core, actor);
+    intake::seal_instance(core, actor);
+    let drains = {
+        let mut state = actor.borrow_mut();
+        state.stopped = true;
+        state.pressure = false;
+        std::mem::take(&mut state.drains)
+    };
+    timer::disarm_instance(core, actor);
+    leases::release_instance_inputs(core, actor);
+    for drain in drains {
+        let _ = drain.send(());
+    }
+    core.record_actor_wake(actor);
 }
 
 /// `flush_all` (E5.1's `actor::flush_all`): seal and flush every actor, excluding the caller.
 pub async fn flush_all(core: &Rc<Core>, exclude: Option<TaskId>) -> Result<(), EngineError> {
-    let threads: Vec<ThreadId> = core.with_state(|state| {
-        let threads: Vec<ThreadId> = state.actors.by_thread.keys().cloned().collect();
+    let instances: Vec<_> = core.with_state(|state| {
         state.actors.seals += 1;
-        threads
+        state.actors.instances().cloned().collect()
     })?;
-    for thread in threads {
-        mailbox::flush(Rc::clone(core), thread, exclude).await;
+    for actor in instances {
+        mailbox::task::flush_instance(core, &actor, exclude).await;
     }
     Ok(())
 }
@@ -223,15 +222,27 @@ pub fn close_stop(core: &Rc<Core>) {
         .unwrap_or_default();
     for thread in threads {
         stop(core, &thread);
-        if let Some(actor) = state::current(core, &thread) {
-            actor.borrow_mut().waker = None;
-        }
     }
+}
+
+/// Terminal close also drops wakers when the deadline cut the mailbox joins short.
+pub(crate) fn release_wakers(core: &Core) {
+    let wakers: Vec<_> = core
+        .with_state(|state| {
+            state
+                .actors
+                .instances()
+                .filter_map(|actor| actor.borrow_mut().waker.take())
+                .collect()
+        })
+        .unwrap_or_default();
+    drop(wakers);
 }
 
 /// Whether the actors hold no work E5.1 must wait for.
 pub fn quiescent(state: &State, exclude: Option<TaskId>) -> bool {
-    state.actors.live().all(|actor| {
+    state.actors.instances().all(|actor| {
+        let actor = actor.borrow();
         let own = exclude.is_some() && actor.mailbox_task == exclude;
         mailbox::actor_quiescent(&actor) || own
     })

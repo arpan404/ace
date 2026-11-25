@@ -48,14 +48,13 @@ pub fn schedule(core: &Core, thread: &ThreadId) {
 }
 
 pub(crate) fn schedule_instance(core: &Core, actor: &ActorRef) {
-    let (thread, generation, session_attached, release_requested, inactive) = {
+    let (thread, session_attached, release_requested, inactive) = {
         let state = actor.borrow();
         (
             state.id.clone(),
-            state.generation,
             state.session_attached,
             state.release_requested,
-            state.stopped || state.detached || state.poisoned,
+            state.stopped || state.poisoned,
         )
     };
     if inactive {
@@ -64,13 +63,13 @@ pub(crate) fn schedule_instance(core: &Core, actor: &ActorRef) {
     let deps = instance_deps(core, actor);
     let now = core.ports.now();
     // The translator is taken out for the call: a JavaScript one can re-enter the engine.
-    let mut taken = deps.take_translator(&thread);
+    let mut taken = actor.borrow_mut().translator.take();
     let translator = match &mut taken {
         Some((_, crate::actor::deps::ActorTranslator::Js(js))) => js.next_deadline(),
         Some((_, crate::actor::deps::ActorTranslator::Native(native))) => native.next_deadline(),
         None => None,
     };
-    deps.return_translator(&thread, generation, taken);
+    actor.borrow_mut().return_translator(taken);
     let view = match deps.repo.schedule_view(core, &thread) {
         Ok(Some(view)) => view,
         Ok(None) => return disarm_instance(core, actor),
@@ -107,7 +106,6 @@ pub(crate) fn schedule_instance(core: &Core, actor: &ActorRef) {
     {
         let state = actor.borrow();
         if state.stopped
-            || state.detached
             || state.poisoned
             || keeps_timer(state.timer.as_ref().map(|(_, armed)| armed), at, now)
         {
@@ -117,7 +115,7 @@ pub(crate) fn schedule_instance(core: &Core, actor: &ActorRef) {
     disarm_instance(core, actor);
     let timer = core.ports.set_timer((at - now).max(0.0));
     let mut state = actor.borrow_mut();
-    if state.stopped || state.detached || state.poisoned {
+    if state.stopped || state.poisoned {
         drop(state);
         core.ports.cancel_timer(timer.key);
         return;

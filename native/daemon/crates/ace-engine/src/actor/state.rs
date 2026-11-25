@@ -85,7 +85,6 @@ pub struct ActorInstance {
     pub running: bool,
     pub timer: Option<(Timer, ArmedTimer)>,
     pub stopped: bool,
-    pub detached: bool,
     pub mailbox_task: Option<TaskId>,
     pub staged: IndexMap<u64, Rc<RefCell<crate::actor::mailbox::Staged>>>,
     pub waker: Option<Waker>,
@@ -120,7 +119,6 @@ impl ActorInstance {
             running: false,
             timer: None,
             stopped: false,
-            detached: false,
             mailbox_task: None,
             staged: IndexMap::new(),
             waker: None,
@@ -135,6 +133,17 @@ impl ActorInstance {
             self.queued + self.pending.len(),
             self.queued_bytes + self.pending_bytes,
         )
+    }
+
+    /// Restores a borrowed translator only while its session still owns this instance.
+    pub fn return_translator(&mut self, taken: Option<(u64, ActorTranslator)>) {
+        if self.translator.is_none()
+            && taken
+                .as_ref()
+                .is_some_and(|(generation, _)| *generation == self.generation)
+        {
+            self.translator = taken;
+        }
     }
 
     /// `retireGeneration()` (`actor.ts:149`), then `ActorLinks::expire`.
@@ -179,7 +188,7 @@ impl Drop for Promotion {
 /// Nothing a discarded actor held resolves: its acknowledgements reject, as a failed commit does.
 /// A JavaScript acknowledgement is settled through its facade call, exactly as `settle` does.
 pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
-    let (pending, pending_ack, mailbox) = {
+    let (pending, pending_ack, mailbox, timer, batch_timer) = {
         let mut actor = actor.borrow_mut();
         // A slot that never reached its actor never admits: the transaction's deferred admission
         // is a no-op, so it cannot charge a restored actor for work that was discarded.
@@ -190,8 +199,13 @@ pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
             std::mem::take(&mut actor.pending),
             actor.pending_ack.take(),
             std::mem::take(&mut actor.mailbox),
+            actor.timer.take().map(|(timer, _)| timer.key),
+            actor.batch_timer.take().map(|timer| timer.key),
         )
     };
+    for key in [timer, batch_timer].into_iter().flatten() {
+        core.ports.cancel_timer(key);
+    }
     // Frames this actor will never translate release the shell's objects with it.
     crate::actor::intake::release_handles(core, actor, &pending);
     for op in mailbox.iter() {
@@ -233,6 +247,8 @@ pub struct Seat {
 pub struct Actors {
     pub by_thread: IndexMap<ThreadId, ActorRef>,
     pub seats: IndexMap<ThreadId, Seat>,
+    /// Evicted actors whose accepted tail still belongs to engine flush and close.
+    pub stopping: IndexMap<u64, ActorRef>,
     /// Slots held by actors created in a transaction that has not committed.
     pub reserved: IndexMap<ThreadId, ()>,
     /// Victims pledged by an uncommitted creation; the promotion keeps the actors aside.
@@ -265,6 +281,10 @@ impl Actors {
     /// The occupied slots: committed actors plus held reservations.
     pub fn occupied(&self) -> usize {
         self.seats.values().filter(|seat| !seat.provisional).count() + self.reserved.len()
+    }
+
+    pub fn instances(&self) -> impl Iterator<Item = &ActorRef> {
+        self.by_thread.values().chain(self.stopping.values())
     }
 
     /// Actors in insertion order, skipping actors kept aside for a rollback.

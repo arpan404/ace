@@ -19,14 +19,10 @@ pub async fn run_when_writable(
     core: &Rc<Core>,
     actor: &ActorRef,
     run: &mut RunFn,
-    drained: bool,
 ) -> Result<bool, EngineError> {
     loop {
-        {
-            let state = actor.borrow();
-            if (state.detached && !drained) || state.poisoned {
-                return Ok(false);
-            }
+        if actor.borrow().poisoned {
+            return Ok(false);
         }
         let live = instance_deps(core, actor).live.clone();
         if live.writable_now() {
@@ -70,11 +66,6 @@ pub(crate) fn settle_instance(
         actor.poisoned || actor.overflowed
     };
     settle_ack(&instance_deps(core, actor), ack, reject)
-}
-
-/// Settles a drained op by its fold's outcome.
-pub fn settle_drained(core: &Core, actor: &ActorRef, ack: BatchAck, ok: bool) {
-    settle_ack(&instance_deps(core, actor), ack, !ok);
 }
 
 fn settle_ack(deps: &crate::actor::ActorDeps, mut ack: BatchAck, reject: bool) -> bool {
@@ -121,6 +112,7 @@ pub async fn park(actor: &ActorRef) {
     let mut once = false;
     futures::future::poll_fn(|cx| {
         if once {
+            actor.borrow_mut().waker = None;
             return Poll::Ready(());
         }
         once = true;
@@ -162,31 +154,37 @@ pub fn backlog(core: &Core, thread: &ThreadId) -> (usize, usize) {
 
 /// `flush()` (`actor.ts:589`): seal, wait for writability, then until the mailbox is idle.
 pub async fn flush(core: Rc<Core>, thread: ThreadId, exclude: Option<crate::executor::TaskId>) {
-    intake::catch_up(&core, &thread);
-    intake::seal(&core, &thread);
-    let live = core.actor_deps.borrow().live.clone();
+    if let Some(actor) = current(&core, &thread) {
+        flush_instance(&core, &actor, exclude).await;
+    } else {
+        let live = core.actor_deps.borrow().live.clone();
+        live.writable().await;
+        live.flush_live_writes();
+    }
+}
+
+pub(crate) async fn flush_instance(
+    core: &Rc<Core>,
+    actor: &ActorRef,
+    exclude: Option<crate::executor::TaskId>,
+) {
+    intake::catch_up_instance(core, actor);
+    intake::seal_instance(core, actor);
+    let live = instance_deps(core, actor).live.clone();
     live.writable().await;
     loop {
-        let waiter = core.with_state(|state| {
-            let mut actor = state.actors.get_mut(&thread)?;
-            let own = actor.mailbox_task.is_some() && actor.mailbox_task == exclude;
-            if own || (!actor.running && actor.mailbox.is_empty()) {
-                return None;
+        let receiver = {
+            let mut state = actor.borrow_mut();
+            let own = state.mailbox_task.is_some() && state.mailbox_task == exclude;
+            if own || (!state.running && state.mailbox.is_empty()) {
+                break;
             }
             let (sender, receiver) = oneshot::channel();
-            actor.flush_waiters.push(sender);
-            Some(receiver)
-        });
-        match waiter {
-            // The mailbox is idle (or this flush was reached from its own op): done.
-            Ok(None) | Err(_) => break,
-            Ok(Some(receiver)) => {
-                // The mailbox may already be parked; waking it makes it look again and resolve
-                // the waiter this flush just added.
-                core.record_wake(&thread);
-                let _ = receiver.await;
-            }
-        }
+            state.flush_waiters.push(sender);
+            receiver
+        };
+        core.record_actor_wake(actor);
+        let _ = receiver.await;
     }
     live.flush_live_writes();
 }
@@ -218,14 +216,11 @@ pub fn fire_tick(core: &Rc<Core>, actor: &ActorRef) {
         core,
         actor,
         Box::new(move |core, actor| {
-            let (id, generation) = {
-                let state = actor.borrow();
-                (state.id.clone(), state.generation)
-            };
+            let id = actor.borrow().id.clone();
             let thread = &id;
             let now = core.ports.now();
             let deps = instance_deps(core, actor);
-            let mut taken = deps.take_translator(thread);
+            let mut taken = actor.borrow_mut().translator.take();
             let mut facts: Vec<ace_json::Value> = match &mut taken {
                 Some((_, crate::actor::deps::ActorTranslator::Js(js))) => {
                     js.tick(now).unwrap_or_default()
@@ -237,7 +232,7 @@ pub fn fire_tick(core: &Rc<Core>, actor: &ActorRef) {
                     .collect(),
                 None => Vec::new(),
             };
-            deps.return_translator(thread, generation, taken);
+            actor.borrow_mut().return_translator(taken);
             facts.push(ace_json::json!({"type": "tick"}));
             // A busy store retries the tick, as the TypeScript's `runWhenWritable` does; any
             // other failure reaches the mailbox's own failure path.

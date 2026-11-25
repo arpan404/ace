@@ -63,17 +63,10 @@ fn tool_boundary(fact: &Value) -> bool {
 
 /// `fold_batch` (`actor.ts:367`–`:426`).
 pub fn fold_batch(core: &Rc<Core>, actor: &ActorRef, op: &mut BatchOp) -> Result<(), EngineError> {
-    let generation = actor.borrow().generation;
-    fold_batch_for(core, actor, generation, op)
-}
-
-pub fn fold_batch_for(
-    core: &Rc<Core>,
-    actor: &ActorRef,
-    generation: u64,
-    op: &mut BatchOp,
-) -> Result<(), EngineError> {
-    let id = actor.borrow().id.clone();
+    let (id, generation) = {
+        let state = actor.borrow();
+        (state.id.clone(), state.generation)
+    };
     let thread = &id;
     let deps = instance_deps(core, actor);
     let stale: Vec<u32> = op
@@ -107,7 +100,7 @@ pub fn fold_batch_for(
         // once, and enrichment (which can fail with a retryable store error) runs again instead.
         if memory.translated.is_none() {
             memory.translated = Some(translate_batch(
-                core, &deps, thread, &live, cursor_sdk, generation,
+                core, actor, &deps, thread, &live, cursor_sdk,
             )?);
         }
         if let Some(translated) = memory.translated.as_ref()
@@ -194,14 +187,26 @@ pub struct Translation {
 /// enrichment: both run after this, so a ruffled retry reuses what the translator already said.
 fn translate_batch(
     core: &Rc<Core>,
-    deps: &Rc<ActorDeps>,
+    actor: &ActorRef,
+    deps: &ActorDeps,
     thread: &ThreadId,
     frames: &[&FrameRef],
     cursor_sdk: bool,
-    generation: u64,
 ) -> Result<Translation, EngineError> {
     let now = core.ports.now();
-    let mut taken = deps.take_translator(thread);
+    let mut taken = actor.borrow_mut().translator.take();
+    if !matches!(taken, Some((_, ActorTranslator::Js(_)))) {
+        let handles: Vec<_> = frames
+            .iter()
+            .filter_map(|frame| match frame {
+                FrameRef::Js { handle, .. } => Some(*handle),
+                FrameRef::Native(_) => None,
+            })
+            .collect();
+        if !handles.is_empty() {
+            deps.acks.release(&handles);
+        }
+    }
     let translated = match &mut taken {
         Some((_, ActorTranslator::Js(js))) => js.translate_batch(frames, now),
         Some((_, ActorTranslator::Native(native))) => {
@@ -231,7 +236,7 @@ fn translate_batch(
         }
         None => Ok(frames.iter().map(|_| TranslatedFrame::default()).collect()),
     };
-    deps.return_translator(thread, generation, taken);
+    actor.borrow_mut().return_translator(taken);
     let translated = translated?;
     let mut journal = Vec::new();
     let mut out = Vec::with_capacity(frames.len());

@@ -3,7 +3,6 @@
 //! without building a JavaScript object, and with `ProviderPayload`'s limits enforced where the
 //! bridge's constructor enforces them.
 
-use crate::actor::deps::ActorTranslator;
 use crate::actor::flow::NativeFlow;
 use crate::actor::intake::{self, Ack, FrameInput, Measure};
 use crate::actor::state::FrameRef;
@@ -163,21 +162,6 @@ pub fn account_value(frame: &Frame) -> Option<Value> {
 pub fn fact_to_value(fact: ace_core::RawFact) -> Option<Value> {
     let text = ace_json::ser::to_string(&fact).ok()?;
     ace_json::parse(&text).ok()
-}
-
-/// A native translator, if one is attached to the thread.
-pub fn translator(
-    core: &Core,
-    thread: &ThreadId,
-) -> Option<*const dyn ace_adapter_api::Translator> {
-    let deps = core.actor_deps.borrow();
-    let mut translators = deps.translators.borrow_mut();
-    match translators.get_mut(thread) {
-        Some((_, ActorTranslator::Native(native))) => {
-            Some(native.as_ref() as *const dyn ace_adapter_api::Translator)
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]

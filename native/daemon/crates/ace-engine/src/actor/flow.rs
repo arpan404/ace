@@ -2,7 +2,7 @@
 //! Flow control (`actor.ts:84`-`:113`): the two thresholds that pause a session's output and
 //! resume it, and the native session's mirror of them into its read gate.
 
-use crate::actor::state::ActorInstance;
+use crate::actor::state::{ActorInstance, current, instance_deps};
 use crate::executor::Lane;
 use crate::limits::EngineLimits;
 use crate::{Core, ThreadId};
@@ -43,20 +43,23 @@ pub fn paused(core: &Core, thread: &ThreadId) -> bool {
 
 /// `outputFlow.wait` (`actor.ts:87`): the store's writable gate, then the actor's drains.
 pub async fn wait(core: Rc<Core>, thread: ThreadId) {
-    let live = core.actor_deps.borrow().live.clone();
+    let Some(actor) = current(&core, &thread) else {
+        let live = core.actor_deps.borrow().live.clone();
+        live.writable().await;
+        return;
+    };
+    let live = instance_deps(&core, &actor).live.clone();
     live.writable().await;
-    let receiver = core.with_state(|state| {
-        let mut actor = state.actors.get_mut(&thread)?;
-        if !actor.pressure {
-            return None;
+    let receiver = {
+        let mut state = actor.borrow_mut();
+        if state.stopped || !state.pressure {
+            return;
         }
         let (sender, receiver) = crate::futures::channel::oneshot::channel();
-        actor.drains.push(sender);
-        Some(receiver)
-    });
-    if let Ok(Some(receiver)) = receiver {
-        let _ = receiver.await;
-    }
+        state.drains.push(sender);
+        receiver
+    };
+    let _ = receiver.await;
 }
 
 /// The native session's read gate, mirrored from `paused` after each delivered frame

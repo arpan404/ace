@@ -46,19 +46,13 @@ impl NativeEngine {
             Rc::clone(&self.actor.acks) as Rc<dyn ace_engine::actor::deps::FrameAcks>,
             self.actor.deps.idle_ms,
         ));
-        if let Some(helper) = self.actor.helper.borrow().clone() {
-            deps.translators.borrow_mut().insert(
-                thread_id.clone(),
-                (
-                    generation.map(|value| value as u64).unwrap_or(0),
-                    ActorTranslator::Js(Box::new(JsTranslator {
-                        thread: thread_id.clone(),
-                        helper,
-                        ports: Rc::clone(&self.ports),
-                    })),
-                ),
-            );
-        }
+        let translator = self.actor.helper.borrow().clone().map(|helper| {
+            ActorTranslator::Js(Box::new(JsTranslator {
+                thread: thread_id.clone(),
+                helper,
+                ports: Rc::clone(&self.ports),
+            }))
+        });
         self.actor.install_deps(core, Rc::clone(&deps));
         *self.actor.probe.borrow_mut() = Some(Rc::clone(&log));
         self.probe_threads
@@ -69,9 +63,11 @@ impl NativeEngine {
         core.with_state(|state| {
             if let Some(mut actor) = state.actors.get_mut(&thread_id) {
                 actor.session_attached = true;
+                actor.deps = Some(deps);
                 if let Some(generation) = generation {
                     actor.generation = generation as u64;
                 }
+                actor.translator = translator.map(|translator| (actor.generation, translator));
             }
         })
         .map_err(engine_error)?;
@@ -94,17 +90,12 @@ impl NativeEngine {
     pub fn probe_retire(&self, thread_id: String) {
         let core = self.engine.core();
         let retired = core
-            .with_state(|state| {
-                state.actors.get_mut(&thread_id).map(|mut actor| {
-                    let generation = actor.retire_generation();
-                    actor.generation = generation + 1;
-                    generation
-                })
-            })
+            .with_state(|state| state.actors.by_thread.get(&thread_id).cloned())
             .ok()
             .flatten();
-        if let Some(generation) = retired {
-            let deps = core.actor_deps.borrow().clone();
+        if let Some(actor) = retired {
+            let generation = actor.borrow_mut().retire_generation();
+            let deps = ace_engine::actor::state::instance_deps(core, &actor);
             deps.links.expire(core, &thread_id, generation);
         }
     }

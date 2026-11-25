@@ -78,11 +78,9 @@ pub fn overflow(core: &Rc<Core>, actor: &ActorRef) -> Result<(), EngineError> {
     deps.links.abort_session(core, &thread, true);
     let generation = {
         let mut state = actor.borrow_mut();
-        if state.poisoned || state.stopped {
-            state.generation
-        } else {
-            state.retire_generation()
-        }
+        state.session_attached = false;
+        state.translator = None;
+        state.retire_generation()
     };
     deps.links.expire(core, &thread, generation);
     timer::disarm_instance(core, actor);

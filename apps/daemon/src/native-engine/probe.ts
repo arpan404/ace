@@ -132,7 +132,6 @@ export function probeFor(
       ) => void;
       const retire = required("probeRetire") as (thread: string) => void;
       const logOf = required("probeActorLog") as (thread: string) => string;
-      frames.attach(threadId, spec.translator);
       // The context installs the batch helper, so it comes before the actor starts.
       const context = actorContext(
         native,
@@ -141,6 +140,7 @@ export function probeFor(
         threadId,
         spec.generation ?? 0,
         options.limits?.maxFrameBytes ?? 4 * 1024 * 1024,
+        spec.translator,
       ) as ActorContext;
       attach(threadId, spec.stream ?? null, spec.generation ?? null);
       return {

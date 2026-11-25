@@ -83,7 +83,7 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     let (stopped, current, poisoned, overflowed) = {
         let state = actor.borrow();
         (
-            state.stopped || state.detached,
+            state.stopped,
             state.generation,
             state.poisoned,
             state.overflowed,
@@ -139,7 +139,7 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     let js_ack = if opens_batch { deps.acks.alloc() } else { None };
     let stale = {
         let state = actor.borrow();
-        state.stopped || state.detached || generation != state.generation
+        state.stopped || generation != state.generation
     };
     if stale {
         if let Some(call) = js_ack {
@@ -245,11 +245,7 @@ fn arm_batch_timer(core: &Rc<Core>, actor: &ActorRef) {
     let timer = core.ports.set_batch_timer(1.0);
     {
         let mut state = actor.borrow_mut();
-        if state.stopped
-            || state.detached
-            || state.batch_timer.is_some()
-            || state.pending.is_empty()
-        {
+        if state.stopped || state.batch_timer.is_some() || state.pending.is_empty() {
             drop(state);
             core.ports.cancel_timer(timer.key);
             return;

@@ -5,7 +5,7 @@ use super::limits;
 use crate::actor::deps::BatchAck;
 use crate::actor::state::{ActorInstance, ActorRef, Pending, current};
 use crate::actor::{flow, fold, intake};
-use crate::executor::{Deferred, Lane};
+use crate::executor::Deferred;
 use crate::{Core, EngineError, ThreadId};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -97,13 +97,16 @@ fn admit(
 /// `enqueue(run)` (`actor.ts:191`): seal first, then admit the wrapped run. A timer that fired
 /// before this call is caught up first, so its tick keeps its place ahead of this op.
 pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    intake::catch_up(core, thread);
-    intake::seal(core, thread);
-    if core.store.is_open() {
-        stage(core, thread, run);
+    let Some(actor) = current(core, thread) else {
         return;
+    };
+    intake::catch_up_instance(core, &actor);
+    intake::seal_instance(core, &actor);
+    if core.store.is_open() {
+        stage(core, &actor, run);
+    } else {
+        admit_instance_run(core, &actor, run);
     }
-    admit_run(core, thread, run);
 }
 
 /// A run the caller made must open its own transaction, exactly as `accept` wraps it
@@ -111,13 +114,6 @@ pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
 fn atomic_run(run: RunFn) -> RunFn {
     let mut inner = run;
     Box::new(move |core, actor| core.store.atomic(|_tx| inner(core, actor)))
-}
-
-/// `accept` outside a transaction: the capacity check, then the queue.
-pub(crate) fn admit_run(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    if let Some(actor) = current(core, thread) {
-        admit_instance_run(core, &actor, run);
-    }
 }
 
 pub(crate) fn admit_instance_run(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
@@ -139,136 +135,75 @@ pub(crate) fn admit_instance_run(core: &Rc<Core>, actor: &ActorRef, run: RunFn) 
 
 /// A run made inside an open transaction: a staged slot keeps its place, counts nothing, and is
 /// admitted only once committed (step 7).
-fn stage(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    let slot = core
-        .with_state(|state| {
-            let next = state.actors.next_slot;
-            state.actors.next_slot += 1;
-            let shared = Rc::new(RefCell::new(Staged::Pending));
-            if let Some(mut actor) = state.actors.get_mut(thread) {
-                actor.staged.insert(next, Rc::clone(&shared));
-                actor.mailbox.push_back(Op::Staged(next));
-            }
-            next
-        })
-        .ok();
-    let Some(slot) = slot else {
+fn stage(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
+    if actor.borrow().stopped {
+        return;
+    }
+    let Ok(slot) = core.with_state(|state| {
+        let next = state.actors.next_slot;
+        state.actors.next_slot += 1;
+        next
+    }) else {
         return;
     };
-    let shared = core
-        .with_state(|state| {
-            state
-                .actors
-                .get(thread)
-                .and_then(|actor| actor.staged.get(&slot).cloned())
-        })
-        .ok()
-        .flatten();
-    let Some(shared) = shared else {
-        return;
-    };
+    let shared = Rc::new(RefCell::new(Staged::Pending));
+    {
+        let mut state = actor.borrow_mut();
+        state.staged.insert(slot, Rc::clone(&shared));
+        state.mailbox.push_back(Op::Staged(slot));
+    }
     let guard = StagedAdmit {
         owner: Rc::downgrade(core),
-        thread: thread.clone(),
-        slot,
+        actor: Rc::downgrade(actor),
         shared,
-        run: Some(run),
-        admitted: false,
+        committed: false,
     };
-    let future = Box::pin(async move {
-        let mut guard = guard;
-        guard.admitted = true;
-        if let Some(core) = guard.owner.upgrade() {
-            admit_staged(&core, &guard.thread, guard.slot, guard.run.take());
-        }
-        guard.run = None;
-    });
-    core.defer(Deferred::Spawn(Lane::Work, future));
-    core.record_wake(thread);
+    // Commit decisions run in token order. An earlier stage admits before a later promotion
+    // seals its victim, including when the victim has already left the thread registry.
+    core.defer(Deferred::Run(Box::new(move || guard.commit(run))));
+    core.record_actor_wake(actor);
 }
 
-/// Owns a staged slot's op: on rollback it is dropped, which discards the slot and wakes the
-/// mailbox to skip it.
 struct StagedAdmit {
     owner: Weak<Core>,
-    thread: ThreadId,
-    slot: u64,
+    actor: Weak<RefCell<ActorInstance>>,
     shared: Rc<RefCell<Staged>>,
-    run: Option<RunFn>,
-    admitted: bool,
+    committed: bool,
+}
+
+impl StagedAdmit {
+    fn commit(mut self, run: RunFn) {
+        self.committed = true;
+        let (Some(core), Some(actor)) = (self.owner.upgrade(), self.actor.upgrade()) else {
+            return;
+        };
+        if !matches!(*self.shared.borrow(), Staged::Pending) {
+            return;
+        }
+        let admitted = admit(&mut actor.borrow_mut(), &limits(&core), 0, 1);
+        *self.shared.borrow_mut() = if admitted {
+            Staged::Ready(Box::new(RunOp {
+                run: atomic_run(run),
+                bytes: 0,
+                frames: 1,
+                ack: None,
+            }))
+        } else {
+            Staged::Discarded
+        };
+        core.record_actor_wake(&actor);
+    }
 }
 
 impl Drop for StagedAdmit {
     fn drop(&mut self) {
-        if self.admitted {
-            return;
-        }
-        if let Some(core) = self.owner.upgrade() {
+        if !self.committed {
             *self.shared.borrow_mut() = Staged::Discarded;
-            core.record_wake(&self.thread);
+            if let (Some(core), Some(actor)) = (self.owner.upgrade(), self.actor.upgrade()) {
+                core.record_actor_wake(&actor);
+            }
         }
     }
-}
-
-/// On commit, the staged slot is admitted exactly where TypeScript's `accept` would run it: the
-/// capacity check against the counts as they are now.
-fn admit_staged(core: &Rc<Core>, thread: &ThreadId, slot: u64, run: Option<RunFn>) {
-    let Some(run) = run else {
-        return;
-    };
-    // A slot whose actor was discarded in the same transaction is never admitted: nothing is
-    // charged to the actor restored in its place.
-    let still_pending = core
-        .with_state(|state| {
-            let shared = state.actors.get(thread)?.staged.get(&slot)?.clone();
-            Some(matches!(*shared.borrow(), Staged::Pending))
-        })
-        .ok()
-        .flatten()
-        .unwrap_or(false);
-    if !still_pending {
-        return;
-    }
-    let limits = limits(core);
-    if !current(core, thread).is_some_and(|actor| admit(&mut actor.borrow_mut(), &limits, 0, 1)) {
-        discard_staged(core, thread, slot);
-        return;
-    };
-    let shared = core
-        .with_state(|state| {
-            state
-                .actors
-                .get(thread)
-                .and_then(|actor| actor.staged.get(&slot).cloned())
-        })
-        .ok()
-        .flatten();
-    if let Some(shared) = shared {
-        *shared.borrow_mut() = Staged::Ready(Box::new(RunOp {
-            run: atomic_run(run),
-            bytes: 0,
-            frames: 1,
-            ack: None,
-        }));
-    }
-    core.record_wake(thread);
-}
-
-/// Drops a slot that was not admitted, and wakes the mailbox to skip it.
-fn discard_staged(core: &Core, thread: &ThreadId, slot: u64) {
-    let shared = core
-        .with_state(|state| {
-            state
-                .actors
-                .get(thread)
-                .and_then(|actor| actor.staged.get(&slot).cloned())
-        })
-        .ok()
-        .flatten();
-    if let Some(shared) = shared {
-        *shared.borrow_mut() = Staged::Discarded;
-    }
-    core.record_wake(thread);
 }
 
 /// Takes the front entry, resolving staged slots.
@@ -279,7 +214,11 @@ pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
 pub(crate) fn select_next(actor: &mut ActorInstance) -> Next {
     loop {
         let Some(front) = actor.mailbox.front() else {
-            return Next::Park;
+            return if actor.stopped {
+                Next::Exit
+            } else {
+                Next::Park
+            };
         };
         let Op::Staged(slot) = *front else {
             if let Some(op) = actor.mailbox.pop_front() {

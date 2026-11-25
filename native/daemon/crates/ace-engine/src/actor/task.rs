@@ -26,14 +26,19 @@ pub fn spawn_mailbox(core: &Rc<Core>, thread: &ThreadId) {
 /// One actor's task: catch up, run one op, yield, or park on both timers.
 async fn mailbox_loop(core: Rc<Core>, actor: ActorRef) {
     loop {
-        if actor.borrow().detached {
-            return;
-        }
         intake::catch_up_instance(&core, &actor);
         let next = mailbox::queue::select_next(&mut actor.borrow_mut());
         match next {
             mailbox::Next::Exit => {
-                actor.borrow_mut().waker = None;
+                let instance = {
+                    let mut state = actor.borrow_mut();
+                    state.waker = None;
+                    state.mailbox_task = None;
+                    mailbox::resolve_flush_waiters(&mut state);
+                    state.instance
+                };
+                core.with_state(|state| state.actors.stopping.shift_remove(&instance))
+                    .ok();
                 return;
             }
             mailbox::Next::Wait => yield_once().await,
@@ -67,41 +72,21 @@ async fn run_op(core: &Rc<Core>, actor: &ActorRef, op: mailbox::Op) -> bool {
             let ack = std::mem::take(&mut batch.ack);
             let mut run: mailbox::RunFn =
                 Box::new(move |core, actor| fold::fold_batch(core, actor, &mut batch));
-            run_and_settle(
-                core,
-                actor,
-                &mut run,
-                frames,
-                bytes,
-                Some(ack),
-                handles,
-                false,
-            )
-            .await
+            run_and_settle(core, actor, &mut run, frames, bytes, Some(ack), handles).await
         }
         mailbox::Op::Run(mut run_op) => {
             let mut call = run_op.run;
             let frames = run_op.frames;
             let bytes = run_op.bytes;
             let ack = run_op.ack.take();
-            run_and_settle(
-                core,
-                actor,
-                &mut call,
-                frames,
-                bytes,
-                ack,
-                Vec::new(),
-                false,
-            )
-            .await
+            run_and_settle(core, actor, &mut call, frames, bytes, ack, Vec::new()).await
         }
         mailbox::Op::Settle(ack) => mailbox::settle_rejected_instance(core, actor, ack),
         mailbox::Op::Overflow => {
             // The overflow behind the same writable gate as any op: a held store waits, as the
             // TypeScript's `runWhenWritable` does, instead of aborting the session mid-write.
             let mut run: mailbox::RunFn = Box::new(failure::overflow);
-            if let Err(error) = mailbox::run_when_writable(core, actor, &mut run, false).await {
+            if let Err(error) = mailbox::run_when_writable(core, actor, &mut run).await {
                 failure::fail_instance(core, actor, error);
             }
             false
@@ -110,7 +95,6 @@ async fn run_op(core: &Rc<Core>, actor: &ActorRef, op: mailbox::Op) -> bool {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_and_settle(
     core: &Rc<Core>,
     actor: &ActorRef,
@@ -119,13 +103,12 @@ async fn run_and_settle(
     bytes: usize,
     ack: Option<BatchAck>,
     handles: Vec<u32>,
-    drained: bool,
 ) -> bool {
     // The pump never runs inside a transaction; the check confirms it.
     let outcome = if core.store.is_open() {
         Err(EngineError::NotOutermost)
     } else {
-        mailbox::run_when_writable(core, actor, run, drained).await
+        mailbox::run_when_writable(core, actor, run).await
     };
     let ran = match outcome {
         Ok(ran) => ran,
@@ -138,74 +121,7 @@ async fn run_and_settle(
         // The batch never translated: the shell's frame objects go with its acknowledgement.
         mailbox::release_js_handles(core, actor, &handles);
     }
-    if drained {
-        // The actor is gone: the fold's outcome settles the acknowledgement, nothing is charged.
-        if let Some(ack) = ack {
-            mailbox::settle_drained(core, actor, ack, ran);
-        }
-        return ran;
-    }
-    if actor.borrow().detached {
-        // The actor was evicted while this op waited: its acknowledgement rejects, and the
-        // replacement's backlog is untouched.
-        return match ack {
-            Some(ack) => mailbox::settle_rejected_instance(core, actor, ack),
-            None => false,
-        };
-    }
-    match ack {
-        Some(ack) => mailbox::task::settle_instance(core, actor, frames, bytes, ack),
-        None => {
-            mailbox::task::settle_instance(core, actor, frames, bytes, BatchAck::default());
-            false
-        }
-    }
-}
-
-/// Runs one op an eviction took, on the pump, through the same wrapper the mailbox uses: the
-/// fold runs with the actor's captured generation and its outcome settles the acknowledgement.
-pub async fn drain_op(core: &Rc<Core>, actor: &ActorRef, generation: u64, op: mailbox::Op) -> bool {
-    match op {
-        mailbox::Op::Batch(mut batch) => {
-            let frames = batch.frames.len();
-            let bytes = batch.bytes;
-            let handles = mailbox::js_handles(&batch.frames);
-            let ack = std::mem::take(&mut batch.ack);
-            let mut run: mailbox::RunFn = Box::new(move |core, actor| {
-                fold::fold_batch_for(core, actor, generation, &mut batch)
-            });
-            run_and_settle(
-                core,
-                actor,
-                &mut run,
-                frames,
-                bytes,
-                Some(ack),
-                handles,
-                true,
-            )
-            .await
-        }
-        mailbox::Op::Run(mut run) => {
-            let frames = run.frames;
-            let bytes = run.bytes;
-            let ack = run.ack.take();
-            let mut call = run.run;
-            run_and_settle(core, actor, &mut call, frames, bytes, ack, Vec::new(), true).await
-        }
-        mailbox::Op::Settle(ack) => {
-            mailbox::settle_drained(core, actor, ack, false);
-            false
-        }
-        mailbox::Op::Overflow => {
-            let mut run: mailbox::RunFn = Box::new(failure::overflow);
-            matches!(
-                mailbox::run_when_writable(core, actor, &mut run, true).await,
-                Ok(true)
-            )
-        }
-        mailbox::Op::Staged(_) => true,
-    }
+    mailbox::task::settle_instance(core, actor, frames, bytes, ack.unwrap_or_default())
 }
 
 /// A macrotask: the next poll runs the work queued behind this turn.

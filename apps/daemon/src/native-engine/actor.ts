@@ -20,22 +20,12 @@ interface Translated {
 /** The session's frames, held by handle for the batch that will translate them. */
 export class FrameTable {
   private readonly frames = new Map<number, Frame>();
-  private readonly translators = new Map<string, Translator>();
   private readonly now: () => number;
   private next = 1;
   constructor(now: () => number = () => Date.now()) {
     this.now = now;
   }
 
-  attach(threadId: string, translator: Translator): void {
-    this.translators.set(threadId, translator);
-  }
-  detach(threadId: string): void {
-    this.translators.delete(threadId);
-  }
-  translatorOf(threadId: string): Translator | undefined {
-    return this.translators.get(threadId);
-  }
   add(frame: Frame): number {
     const handle = this.next++;
     this.frames.set(handle, frame);
@@ -58,15 +48,14 @@ export class FrameTable {
    * `translate(frame, now)` and then `takeDiagnostics()`, so the per-frame clock and the order
    * of translate and diagnostics are the TypeScript's.
    */
-  translate(threadId: string, requestJson: string): string {
+  translate(translator: Translator, requestJson: string): string {
     const request = JSON.parse(requestJson) as {
       frames?: number[];
       tick?: number;
       nextDeadline?: boolean;
     };
-    const translator = this.translators.get(threadId);
-    if (request.nextDeadline) return JSON.stringify(translator?.nextDeadline?.() ?? null);
-    if (request.tick !== undefined) return JSON.stringify(translator?.tick(request.tick) ?? []);
+    if (request.nextDeadline) return JSON.stringify(translator.nextDeadline?.() ?? null);
+    if (request.tick !== undefined) return JSON.stringify(translator.tick(request.tick) ?? []);
     const out: Translated[] = [];
     for (const handle of request.frames ?? []) {
       const frame = this.frames.get(handle);
@@ -76,8 +65,8 @@ export class FrameTable {
         continue;
       }
       // The TypeScript reads the clock per frame, so two frames of one batch can see two times.
-      const facts = translator?.translate(frame, this.now()) ?? [];
-      const diagnostics = translator?.takeDiagnostics?.() ?? [];
+      const facts = translator.translate(frame, this.now()) ?? [];
+      const diagnostics = translator.takeDiagnostics?.() ?? [];
       const entry: Translated = { facts, diagnostics };
       // The Cursor SDK path needs the whole frame in Rust: its record, the send test and its
       // account (`actor.ts:475`–`:491`).
@@ -114,9 +103,10 @@ export function actorContext(
   threadId: string,
   generation: number,
   maxFrameBytes: number,
+  translator: Translator,
 ): ActorContext {
-  native.attachTranslatorHelper?.((thread: string, request: string) =>
-    frames.translate(thread, request),
+  native.attachTranslatorHelper?.((_thread: string, request: string) =>
+    frames.translate(translator, request),
   );
   return {
     onFrame(frame: Frame): Promise<void> {
