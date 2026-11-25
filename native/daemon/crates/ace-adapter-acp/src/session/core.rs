@@ -426,6 +426,14 @@ impl AcpCore {
         effects
     }
 
+    /// No child will ever report (the spawn threw): fail every pending call, then
+    /// publish `Drained` so each promise settles and the close barrier opens.
+    pub fn abandon(&mut self) -> Vec<AcpEffect> {
+        let mut effects = self.fail_session("ACP session abandoned before start");
+        effects.push(AcpEffect::Drained);
+        effects
+    }
+
     /// Fail the session (`session.ts:338`–`:355`). Idempotent once closed.
     pub fn fail_session(&mut self, message: &str) -> Vec<AcpEffect> {
         let mut effects = Vec::new();

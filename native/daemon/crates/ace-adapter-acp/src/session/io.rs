@@ -113,11 +113,7 @@ impl AcpSessionCore {
 
     /// Abandon before any child exists: fail pending calls and publish `Drained`.
     pub fn abandon(&self) {
-        self.input(|core| {
-            let mut effects = core.fail_session("ACP session abandoned before start");
-            effects.push(AcpEffect::Drained);
-            effects
-        });
+        self.input(AcpCore::abandon);
     }
 
     fn commit(&self, core: &mut AcpCore, effects: Vec<AcpEffect>) {

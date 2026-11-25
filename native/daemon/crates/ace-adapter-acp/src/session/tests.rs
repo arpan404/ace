@@ -7,7 +7,7 @@ use ace_supervisor::peer::Timeout;
 
 use super::core::{
     AcpCore, AcpCoreConfig, AcpEffect, CODE_OPEN_FAILED, CODE_RESUME_UNAVAILABLE,
-    CODE_RESUME_UNSUPPORTED,
+    CODE_RESUME_UNSUPPORTED, CODE_RPC_ERROR,
 };
 use super::frames::MAX_PROVIDER_PAYLOAD_BYTES;
 use super::io::AcpSessionCore;
@@ -447,8 +447,14 @@ fn session_load_drops_replay_but_tracks_live_updates_in_same_chunk_after_reply()
     assert!(settlements(&e3, 7)[0].is_ok());
 }
 
+/// What the pending call's promise must settle as, for each path.
+enum Expected {
+    Ok(&'static str),
+    Err(&'static str, &'static str),
+}
+
 #[test]
-fn every_pending_call_settles_exactly_once_across_all_termination_paths() {
+fn every_pending_call_settles_exactly_once_with_the_result_its_trigger_decides() {
     enum Path {
         Reply,
         RpcError,
@@ -459,17 +465,51 @@ fn every_pending_call_settles_exactly_once_across_all_termination_paths() {
         Finish,
     }
 
-    let table: &[(&str, Path)] = &[
-        ("normal reply + duplicate late reply", Path::Reply),
-        ("rpc error + duplicate late reply", Path::RpcError),
-        ("peer timeout + late reply", Path::PeerTimeout),
-        ("open stall timer + late reply + finish", Path::OpenStall),
-        ("fail_session + second fail + finish", Path::Fail),
-        ("stdout_closed + finish", Path::StdoutClosed),
-        ("finish + duplicate reply", Path::Finish),
+    let table: &[(&str, Path, Expected)] = &[
+        (
+            "normal reply + duplicate late reply",
+            Path::Reply,
+            Expected::Ok("{\"ok\":true}"),
+        ),
+        (
+            "rpc error + duplicate late reply",
+            Path::RpcError,
+            Expected::Err(CODE_RPC_ERROR, "{\"code\":-32603,\"message\":\"boom\"}"),
+        ),
+        (
+            "peer timeout + late reply",
+            Path::PeerTimeout,
+            Expected::Err(CODE_RPC_ERROR, "JSON-RPC request timed out: custom/ping"),
+        ),
+        (
+            "open stall timer + late reply + finish",
+            Path::OpenStall,
+            Expected::Err(
+                CODE_OPEN_FAILED,
+                "ACP session opening made no progress within 30 seconds",
+            ),
+        ),
+        (
+            "fail_session + second fail + finish",
+            Path::Fail,
+            Expected::Err(CODE_RPC_ERROR, "transport broke"),
+        ),
+        (
+            "stdout_closed + finish",
+            Path::StdoutClosed,
+            Expected::Err(
+                CODE_RPC_ERROR,
+                "ACP transport stdout closed before process termination",
+            ),
+        ),
+        (
+            "finish + duplicate reply",
+            Path::Finish,
+            Expected::Err(CODE_RPC_ERROR, "ACP process exited"),
+        ),
     ];
 
-    for (label, path) in table {
+    for (label, path, expected) in table {
         let config = AcpCoreConfig::new("t", "/work", AcpSessionQuirks::generic());
         let (mut core, _) = AcpCore::new(config);
         let mut all_effects = Vec::new();
@@ -572,6 +612,18 @@ fn every_pending_call_settles_exactly_once_across_all_termination_paths() {
             1,
             "{label}: expected exactly one settlement, got {got:?}"
         );
+        match expected {
+            Expected::Ok(json) => {
+                assert_eq!(&got[0], &Ok((*json).to_owned()), "{label}");
+            }
+            Expected::Err(code, message) => {
+                assert_eq!(
+                    got[0].as_ref().err(),
+                    Some(&((*code).to_owned(), (*message).to_owned())),
+                    "{label}"
+                );
+            }
+        }
     }
 }
 
@@ -1119,6 +1171,41 @@ fn open_with_saved_reply(
     ack_writes(&mut core, &mut opened);
     effects.extend(opened.clone());
     (core, opened, effects)
+}
+
+/// Abandon ends the call that is still pending and only then drains: without that
+/// settlement the facade's open promise would never settle (`io.rs:115`).
+#[test]
+fn abandon_settles_a_call_still_pending_before_it_drains() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-abandon",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let Ok(sent) = core.request("custom/ping", Some(&json!({})), 77, Timeout::Disabled) else {
+        panic!("request refused");
+    };
+    assert!(
+        sent.iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. })),
+        "the call is still pending: {sent:?}"
+    );
+
+    let effects = core.abandon();
+    let settled = settlements(&effects, 77);
+    assert_eq!(
+        settled.len(),
+        1,
+        "abandon settles the pending call: {settled:?}"
+    );
+    assert_eq!(
+        settled[0],
+        Err((
+            CODE_RPC_ERROR.to_owned(),
+            "ACP session abandoned before start".to_owned()
+        ))
+    );
+    assert!(matches!(effects.last(), Some(AcpEffect::Drained)));
 }
 
 #[test]
