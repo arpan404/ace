@@ -6,24 +6,30 @@
 
 use crate::emit::get;
 use crate::indexes::pending_interaction_keys;
-use crate::state::ThreadState;
+use crate::state::{AgentRecord, ThreadState};
 
 /// What Continue sends after a Stop, a restart or a usage limit. The person's go-ahead, written
 /// as their own words.
 pub const CONTINUE_MESSAGE: &str = "Continue where you left off.";
 
+/// What the question reads, loaded by the caller: the root's record and its open interactions,
+/// never a copy of the whole state.
+pub struct PersonInputFacts<'a> {
+    /// A provider-sourced queued message: it waits on the provider, not on the fold.
+    pub provider_queue: bool,
+    /// The root's record, or none before a thread has one.
+    pub root: Option<&'a AgentRecord>,
+    /// Keys of the root's open interactions, loaded.
+    pub pending: &'a [String],
+}
+
 /// Whether the provider can take a person's message as its next turn now. The person talks to
 /// the root agent, so only the root's own turn matters; a provider-side queue drains first.
-/// The state passed here is loaded: the caller reads the root and the indexed records first.
-pub fn accepts_person_input(state: &ThreadState, now: i64) -> bool {
-    if state.queue_sources.provider != 0 {
+pub fn accepts_person_input_facts(facts: &PersonInputFacts<'_>, now: i64) -> bool {
+    if facts.provider_queue {
         return false;
     }
-    let Some(root) = state
-        .root_key
-        .as_deref()
-        .and_then(|key| get(&state.agents, key))
-    else {
+    let Some(root) = facts.root else {
         return true;
     };
     if root.active_run.is_some()
@@ -36,7 +42,26 @@ pub fn accepts_person_input(state: &ThreadState, now: i64) -> bool {
     if root.wake_until.is_some_and(|until| until > now) {
         return false;
     }
-    pending_interaction_keys(state, Some(root.agent.id.as_str())).is_empty()
+    facts.pending.is_empty()
+}
+
+/// `acceptsPersonInput` over a state whose root and interactions are already loaded.
+pub fn accepts_person_input(state: &ThreadState, now: i64) -> bool {
+    let root = state
+        .root_key
+        .as_deref()
+        .and_then(|key| get(&state.agents, key));
+    let pending = root
+        .map(|root| pending_interaction_keys(state, Some(root.agent.id.as_str())))
+        .unwrap_or_default();
+    accepts_person_input_facts(
+        &PersonInputFacts {
+            provider_queue: state.queue_sources.provider != 0,
+            root,
+            pending: &pending,
+        },
+        now,
+    )
 }
 
 #[cfg(test)]

@@ -215,6 +215,19 @@ impl Repo {
                 continue;
             };
             let overhead = id.len() as i64 + 2 + ITEM_OVERHEAD;
+            // A non-text body has no smaller preview: its stored size decides before it is
+            // loaded (`item-store.ts:300`).
+            if !previewed(kind) {
+                let stored = row.get("size").and_then(cell_int).unwrap_or(0);
+                if bytes + stored + overhead > byte_limit {
+                    if items.is_empty() {
+                        return Err(EngineError::Records(
+                            "Item detail exceeds page capacity".to_owned(),
+                        ));
+                    }
+                    break;
+                }
+            }
             let item = body(store.conn(), id, kind)?;
             let size = ace_json::to_string(&item).len() as i64 + overhead;
             if bytes + size > byte_limit {
@@ -286,6 +299,30 @@ mod tests {
             .and_then(Value::as_array)
             .expect("parts");
         assert_eq!(parts.len(), 1);
+    }
+
+    #[test]
+    fn a_non_text_body_is_refused_by_its_stored_size_before_it_is_loaded() {
+        let conn = home("t", &crate::repository::testsupport::header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        // A 300 KB stored body whose JSON is small: the TypeScript rejects it by the stored
+        // size before loading it (item-store.ts:300), and so must this page.
+        conn.exec(
+            "INSERT INTO items VALUES ('call-1', 't', 1, '{\"type\":\"tool_call\",\"id\":\"call-1\"}')",
+        )
+        .expect("item");
+        conn.exec(
+            "INSERT INTO item_heads (id, thread_id, created_seq, size, item_type, text_prefix) \
+             VALUES ('call-1', 't', 1, 307200, 'tool_call', 0)",
+        )
+        .expect("head");
+        let error = state
+            .repo
+            .read_item_page(&store, "t", 2, 1, 256 * 1024)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, "Item detail exceeds page capacity");
     }
 
     #[test]

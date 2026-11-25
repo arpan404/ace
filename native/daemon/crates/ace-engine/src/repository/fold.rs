@@ -299,8 +299,9 @@ impl State {
                 snapshot.borrow_mut().finish_prepare(&item);
             }
             if kind(&fact) == "tick" {
-                let state = snapshot.borrow();
-                self.readiness_refresh_blocked(&state.state)?;
+                // The hook reads the snapshot's records: release the fold's borrow first.
+                let thread = snapshot.borrow().state.thread_id.clone();
+                self.refresh_blocked_now(&thread, now as i64)?;
             }
             emitted.extend(events);
         }
