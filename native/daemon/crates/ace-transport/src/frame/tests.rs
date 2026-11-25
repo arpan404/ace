@@ -750,3 +750,84 @@ async fn a_watch_fill_never_passes_its_limit() {
         "the fill stopped at its limit, not a read past it"
     );
 }
+
+#[tokio::test]
+async fn a_buffered_frame_is_whole_only_once_its_payload_is_there() {
+    // Both extended length forms: the header, its extended length and the mask
+    // count towards the frame, not just the payload.
+    for size in [300usize, 70_000] {
+        let frame = masked(true, Opcode::Binary, &vec![7u8; size]);
+        let (mut client, server) = tokio::io::duplex(1 << 17);
+        client
+            .write_all(&frame[..frame.len() - 1])
+            .await
+            .expect("all but the last byte is written");
+        let mut reader = FrameReader::new(server);
+
+        let short = frame.len() - 1;
+        std::future::poll_fn(|cx| reader.poll_watch(cx, short))
+            .await
+            .expect("the short frame is buffered");
+        assert!(
+            !reader.has_buffered_frame().expect("a readable header"),
+            "a {size}-byte payload one byte short is not whole"
+        );
+
+        client
+            .write_all(&frame[frame.len() - 1..])
+            .await
+            .expect("the last byte is written");
+        std::future::poll_fn(|cx| reader.poll_watch(cx, frame.len()))
+            .await
+            .expect("the last byte is buffered");
+        assert!(
+            reader.has_buffered_frame().expect("a readable header"),
+            "a {size}-byte payload is whole once its last byte arrives"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_interrupted_parse_knows_when_its_frame_is_whole() {
+    let frame = masked(true, Opcode::Binary, &vec![7u8; 300]);
+    let (mut client, server) = tokio::io::duplex(1 << 16);
+    client
+        .write_all(&frame[..frame.len() - 1])
+        .await
+        .expect("all but the last byte is written");
+    let mut reader = FrameReader::new(server);
+    // A cancelled read leaves the parser inside the payload, not at its start.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), reader.next())
+            .await
+            .is_err(),
+        "the frame waits for its tail"
+    );
+    assert_eq!(
+        reader.buffered_bytes(),
+        frame.len() - 1 - 8,
+        "the 4-byte header and the mask were consumed before the interruption"
+    );
+    assert!(
+        !reader.has_buffered_frame().expect("a readable header"),
+        "the payload is one byte short"
+    );
+
+    client
+        .write_all(&frame[frame.len() - 1..])
+        .await
+        .expect("the last byte is written");
+    std::future::poll_fn(|cx| reader.poll_watch(cx, 300))
+        .await
+        .expect("the last byte is buffered");
+    assert!(
+        reader.has_buffered_frame().expect("a readable header"),
+        "the frame is whole"
+    );
+    let parsed = reader
+        .next()
+        .await
+        .expect("a frame")
+        .expect("a valid frame");
+    assert_eq!(parsed.payload.len(), 300);
+}

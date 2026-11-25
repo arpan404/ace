@@ -204,8 +204,18 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
         if !readable {
             // Nothing ends before the buffer is parsed, and parsing waits for
             // credit: a paused reader keeps what arrived instead of dropping it.
-            if ended && source.buffered_bytes() == 0 {
-                break Ending::lost();
+            if ended {
+                if source.buffered_bytes() == 0 {
+                    break Ending::lost();
+                }
+                // Only a whole frame is worth waiting for credit: a tail that
+                // can never arrive ends the socket here instead of holding it
+                // open forever.
+                match source.has_buffered_frame() {
+                    Ok(true) => {}
+                    Ok(false) => break Ending::failed(FrameError::incomplete()),
+                    Err(error) => break Ending::failed(error),
+                }
             }
             // No credit: no frame is read or delivered, but the connection is
             // still watched, so a peer that drops is seen here.

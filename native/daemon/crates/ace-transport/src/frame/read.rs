@@ -4,7 +4,6 @@
 //! flight, before a payload is read; the driver feeds each frame back to that
 //! same assembler after it decides what the frame is.
 
-use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -83,6 +82,32 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
         self.buffer.len()
     }
 
+    /// Whether one whole frame waits in the buffer, so parsing it needs no
+    /// read. A cancelled parse can leave the reader inside a frame, so the
+    /// state and the header already read say what is still missing; an
+    /// unreadable header is that header's error, not a short buffer.
+    pub(crate) fn has_buffered_frame(&self) -> Result<bool, FrameError> {
+        match self.state {
+            State::First => match frame_length(&self.buffer, self.allow_rsv1)? {
+                Some(whole) => Ok(whole <= self.buffer.len()),
+                None => Ok(false),
+            },
+            State::Extended => {
+                let Some(first) = self.first else {
+                    return Ok(false);
+                };
+                let extended = extended_len(first.short);
+                let Some(header) = self.buffer.get(..extended) else {
+                    return Ok(false);
+                };
+                let length = payload_length(first.short, header)?;
+                Ok(self.buffer.len() >= extended.saturating_add(4).saturating_add(length))
+            }
+            State::Mask => Ok(self.buffer.len() >= self.length.saturating_add(4)),
+            State::Payload => Ok(self.buffer.len() >= self.length),
+        }
+    }
+
     /// Fills the buffer without parsing anything, so a reader that is not
     /// allowed to read frames still notices the peer's end: true while the
     /// connection is up, false at a clean end. It stops at `limit` buffered
@@ -149,12 +174,7 @@ impl<R: AsyncRead + Unpin, B: MessageBody> FrameReader<R, B> {
                 Poll::Ready(Ok(false)) if self.buffer.is_empty() => {
                     return Poll::Ready(Ok(false));
                 }
-                Poll::Ready(Ok(false)) => {
-                    return Poll::Ready(Err(FrameError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "connection closed in the middle of a frame",
-                    ))));
-                }
+                Poll::Ready(Ok(false)) => return Poll::Ready(Err(FrameError::incomplete())),
             }
         }
         Poll::Ready(Ok(true))
@@ -291,4 +311,30 @@ fn unmask(payload: &mut [u8], mask: [u8; 4]) {
     for (index, byte) in payload.iter_mut().enumerate() {
         *byte ^= mask[index & 3];
     }
+}
+
+/// The whole length of the frame at the front of `bytes` - both header bytes,
+/// any extended length, the mask and the payload - or `None` while those
+/// header bytes are still incomplete. A header that cannot be parsed is its
+/// error, not a short buffer.
+fn frame_length(bytes: &[u8], allow_rsv1: bool) -> Result<Option<usize>, FrameError> {
+    let Some(head) = bytes.get(..2) else {
+        return Ok(None);
+    };
+    let first = parse_first([head[0], head[1]], allow_rsv1)?;
+    let extended = extended_len(first.short);
+    let length = if extended == 0 {
+        usize::from(first.short)
+    } else {
+        let Some(header) = bytes.get(2..2 + extended) else {
+            return Ok(None);
+        };
+        payload_length(first.short, header)?
+    };
+    Ok(Some(
+        2usize
+            .saturating_add(extended)
+            .saturating_add(4)
+            .saturating_add(length),
+    ))
 }

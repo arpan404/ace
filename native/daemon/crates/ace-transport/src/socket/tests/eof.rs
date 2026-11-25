@@ -183,7 +183,8 @@ async fn a_partial_frame_buffered_while_paused_still_ends_with_1006() {
     spent_credit(&mut events, &mut client).await;
 
     // A header, its mask and two payload bytes, then the FIN: the frame can
-    // never complete, which ends the socket exactly as it would unpaused.
+    // never complete, so the socket must end without waiting for credit that
+    // would let it parse a frame that is missing its tail.
     let frame = masked_frame(0x1, b"truncated");
     client
         .write_all(&frame[..8])
@@ -194,7 +195,47 @@ async fn a_partial_frame_buffered_while_paused_still_ends_with_1006() {
         .await
         .expect("the peer drops without a close frame");
 
+    match next(&mut events).await {
+        SocketEvent::Error { code, .. } => assert_eq!(code, "io", "the frame cannot complete"),
+        other => panic!("expected the truncated frame's error, got {other:?}"),
+    }
+    assert_close_1006(&mut events).await;
+    assert_eq!(handle.ready_state(), CLOSED);
+    assert_dropped(&mut client).await;
+}
+
+#[tokio::test]
+async fn a_message_before_a_partial_frame_is_delivered_then_the_socket_ends() {
+    let (server, mut client) = tokio::io::duplex(1 << 16);
+    let (handle, mut events) = crate::socket::open(Box::new(server), None, None);
+    spent_credit(&mut events, &mut client).await;
+
+    // A complete message and the head of a second one, then the FIN: the
+    // message waits for credit, the tail never arrives.
+    client
+        .write_all(&masked_frame(0x1, b"kept"))
+        .await
+        .expect("the message is written");
+    let frame = masked_frame(0x2, b"truncated");
+    client
+        .write_all(&frame[..8])
+        .await
+        .expect("a partial frame is written");
+    client
+        .shutdown()
+        .await
+        .expect("the peer drops without a close frame");
+
+    // One delivery's credit buys the buffered message and nothing else: the
+    // partial frame behind it ends the socket without a second delivery.
     handle.delivered(MESSAGE_OVERHEAD);
+    match next(&mut events).await {
+        SocketEvent::Message { data, binary } => {
+            assert_eq!(data, b"kept", "the buffered message survives the end");
+            assert!(!binary);
+        }
+        other => panic!("expected the buffered message, got {other:?}"),
+    }
     match next(&mut events).await {
         SocketEvent::Error { code, .. } => assert_eq!(code, "io", "the frame cannot complete"),
         other => panic!("expected the truncated frame's error, got {other:?}"),

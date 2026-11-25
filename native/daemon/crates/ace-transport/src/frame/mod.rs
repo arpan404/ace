@@ -178,6 +178,14 @@ impl FrameError {
         Self::TooBig(message.into())
     }
 
+    /// The peer's end arrived inside a frame, which can never complete.
+    pub(crate) fn incomplete() -> Self {
+        Self::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "connection closed in the middle of a frame",
+        ))
+    }
+
     /// The word the shell reports on the socket's `error` event.
     pub fn error_code(&self) -> &'static str {
         match self {
