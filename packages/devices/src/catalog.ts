@@ -37,7 +37,7 @@ export function catalogWord(key: string): CatalogWord {
 }
 
 /** A tool word the catalog holds (a download's hint, its timeout's text). */
-export function catalogHint(key: CatalogHintKey): string {
+export function catalogHint(key: CatalogHintKey | string): string {
   const word = toolWords[key];
   if (!word) throw new Error(`ace's device catalog names no tool word for ${key}`);
   return word;

@@ -5,7 +5,7 @@ import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
 import type { DeviceFailure } from "@ace/protocol/devices";
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
-import { catalogWord } from "./catalog.ts";
+import { catalogHint, catalogWord } from "./catalog.ts";
 import { type RefusalWord, answered, nativeDevices, Refused } from "./native-devices-addon.ts";
 
 export type DeviceErrorCode = DeviceFailure["code"];
@@ -36,6 +36,10 @@ export function catalogRefusal(key: string): DeviceError {
 export function catalogFailure(key: string, message: string): DeviceError {
   const word = catalogWord(key);
   return new DeviceError(word.code, message, word.hint);
+}
+/** A tool word's hint with a built message: the key names a `tools` entry, not a refusal. */
+export function catalogToolFailure(key: string, message: string): DeviceError {
+  return new DeviceError("not_supported", message, catalogHint(key));
 }
 /** The addon's refusal as today's `DeviceError`, so `instanceof` and its code both hold. */
 export function deviceRefusal(word: RefusalWord): DeviceError {

@@ -79,6 +79,17 @@ impl Default for TreeOptions {
     }
 }
 
+impl TreeOptions {
+    /// The schema's bounds, for a caller that reached the addon without the TypeScript's Zod
+    /// parse: `maxDepth` 0..=16 and `maxNodes` 1..=512.
+    pub fn checked(self) -> Result<Self, Error> {
+        if self.max_depth > 16 || self.max_nodes == 0 || self.max_nodes > 512 {
+            return Err(Error::Invalid("tree options are out of range".into()));
+        }
+        Ok(self)
+    }
+}
+
 /// A find over a tree, as `ScreenUIFindOptions` accepted it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FindOptions {
@@ -442,6 +453,7 @@ struct Frame {
 
 /// A bounded parser for uiautomator's node-only XML. DTDs/entities are rejected.
 pub fn tree(xml: &str, options: TreeOptions) -> Result<Tree, Error> {
+    let options = options.checked()?;
     if xml.len() > 1024 * 1024 || xml.contains("<!") {
         return Err(invalid("androidTreeBudget"));
     }
@@ -687,6 +699,35 @@ mod tests {
              <node index=\"0\" text=\"{label}\" class=\"android.widget.Button\" clickable=\"true\" \
              enabled=\"true\" bounds=\"[0,0][10,10]\" /></hierarchy>"
         )
+    }
+
+    #[test]
+    fn tree_options_keep_the_schemas_bounds() {
+        assert!(TreeOptions::default().checked().is_ok());
+        assert!(
+            TreeOptions {
+                max_depth: 17,
+                max_nodes: 128
+            }
+            .checked()
+            .is_err()
+        );
+        assert!(
+            TreeOptions {
+                max_depth: 0,
+                max_nodes: 0
+            }
+            .checked()
+            .is_err()
+        );
+        assert!(
+            TreeOptions {
+                max_depth: 16,
+                max_nodes: 513
+            }
+            .checked()
+            .is_err()
+        );
     }
 
     #[test]

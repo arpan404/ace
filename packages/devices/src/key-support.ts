@@ -1,5 +1,5 @@
 import type { AppDevice, DeviceInput } from "@ace/protocol/devices";
-import { catalogFailure, catalogRefusal, DeviceError } from "./sdk.ts";
+import { catalogRefusal, catalogToolFailure, DeviceError } from "./sdk.ts";
 import { nativeInput, nativeKeyRefusal } from "./native-input.ts";
 
 export type DeviceKey = Extract<DeviceInput, { kind: "key" }>["key"];
@@ -27,7 +27,7 @@ export function keyRefusal(
 export function refuseAndroidKey(key: DeviceKey): never {
   throw (
     keyRefusal({ platform: "android", name: "" }, key) ??
-    catalogFailure("androidNoKeyHint", `Android has no ${key} key`)
+    catalogToolFailure("androidNoKeyHint", `Android has no ${key} key`)
   );
 }
 
@@ -35,6 +35,6 @@ export function refuseAndroidKey(key: DeviceKey): never {
 export function refuseSimulatorKey(key: DeviceKey): never {
   throw (
     keyRefusal({ platform: "ios", name: "" }, key) ??
-    catalogFailure("iosNoKeyHint", `iOS Simulator has no ${key} key`)
+    catalogToolFailure("iosNoKeyHint", `iOS Simulator has no ${key} key`)
   );
 }

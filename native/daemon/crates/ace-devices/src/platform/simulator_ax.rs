@@ -347,6 +347,7 @@ fn mapped(element: &Element, path: &str, layout: Layout, screen: &Screen) -> Nod
 
 /// Map serve-sim's accessibility tree to ADR 0011 nodes, turned back onto the framebuffer.
 pub fn tree(raw: &Value, screen: &Screen, options: TreeOptions) -> Result<Tree, Error> {
+    let options = options.checked()?;
     let Some(roots) = roots(raw) else {
         return Err(Refusal::word("simulatorTreeMalformed").into());
     };
