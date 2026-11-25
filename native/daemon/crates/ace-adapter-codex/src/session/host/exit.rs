@@ -135,6 +135,9 @@ impl Inner {
         self.detaching.clear();
         self.calls.clear();
         self.active.clear();
+        // Nobody can answer a served request any more: its attribution ends
+        // with the host instead of lingering until the host is dropped.
+        self.router.forget_served();
         let holds: Vec<Hold> = self.holds.drain(..).map(|(_, hold)| hold).collect();
         for hold in holds {
             for item in &hold.items {

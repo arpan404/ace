@@ -38,13 +38,6 @@ impl Publication {
         self.queue.push_back(Queued { effect, payload });
     }
 
-    /// Forgets everything waiting: a shell that unwound gets none of it.
-    fn clear(&mut self) {
-        self.queue.clear();
-        self.entries = 0;
-        self.bytes = 0;
-    }
-
     /// The effect left the queue: its reservation goes with it.
     fn release(&mut self, queued: &Queued) {
         if let Some(bytes) = queued.payload {

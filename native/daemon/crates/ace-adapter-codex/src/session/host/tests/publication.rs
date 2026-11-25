@@ -506,13 +506,15 @@ fn a_poisoned_host_is_replaced_by_the_pool() {
     );
 }
 
-/// A server request still queued when its channel leaves is served to that
-/// channel, and its answer is still the channel's own send frame: the host
-/// keeps the request's attribution across the detach, so a reply never reaches
-/// Codex as an unowned frame. TS answers in the same step it dispatches, so a
-/// detach can never come between the two there.
+/// A server request still queued when its channel leaves is still served to it,
+/// but the reply it produces lands after the channel's exit: a sink that drops
+/// a channel at its exit never delivers it, and the host reports nothing. TS
+/// does the same — `#sent` (`host.ts:437`) ignores a delivery a closed tenant
+/// refuses (`deliver`, `host.ts:169`), and the router forgot the attribution at
+/// release (`host-routing.ts:81`) — so a reply to a request whose channel
+/// closed is dropped silently.
 #[test]
-fn a_reply_to_a_request_queued_when_its_channel_left_is_still_its_frame() {
+fn a_reply_produced_after_its_channels_exit_is_dropped_silently() {
     let sink = Arc::new(Holding::default());
     let host = sink.start_alone();
 
@@ -531,8 +533,8 @@ fn a_reply_to_a_request_queued_when_its_channel_left_is_still_its_frame() {
         "method": "mcpServer/elicitation/request",
         "params": {"serverName": "docs", "mode": "form"},
     })));
-    // The channel owns no thread, so its close completes at once: the host
-    // forgets its routes while the request still waits in the queue.
+    // The channel owns no thread, so its close completes at once and its exit
+    // is queued behind the request it is still owed an answer for.
     host.detach(1, Retirement::User, "user closed");
     sink.let_go();
     first.join().expect("the frame's input returns");
@@ -542,19 +544,20 @@ fn a_reply_to_a_request_queued_when_its_channel_left_is_still_its_frame() {
         published
             .iter()
             .any(|thing| matches!(thing, Published::Request { tenant: 1, .. })),
-        "the channel is still asked for its request: {published:#?}"
+        "the channel is asked for its request before it leaves: {published:#?}"
     );
     assert!(
-        published.iter().any(|thing| matches!(
+        !published.iter().any(|thing| matches!(
             thing,
-            Published::Frame {
-                tenant: 1,
-                dir: Direction::Send,
-                id: Some(id),
-                ..
-            } if id == "ask-1"
+            Published::Frame { tenant: 1, dir: Direction::Send, id: Some(id), .. } if id == "ask-1"
         )),
-        "the answer is the channel's own send frame: {published:#?}"
+        "the reply is never delivered to a channel that left: {published:#?}"
+    );
+    assert!(
+        !published
+            .iter()
+            .any(|thing| matches!(thing, Published::Effect(HostEffect::Error { .. }))),
+        "and nothing is reported for it, as TS logs nothing: {published:#?}"
     );
 }
 
@@ -1135,6 +1138,18 @@ impl HostSink for Holding {
         if let HostEffect::Retire { reason, awaited } = effect {
             self.stop(host, reason, awaited);
             return;
+        }
+        if let HostEffect::Exited { tenant, exit } = &effect {
+            // A session leaves with its exit: the sink forgets its channel, so
+            // nothing after it is delivered there.
+            let channel = self
+                .handlers
+                .lock()
+                .expect("channel handlers")
+                .remove(tenant);
+            if let Some(channel) = channel {
+                channel.exited(exit);
+            }
         }
         // Frames and callbacks reach their channel here, in the order the host
         // published them: the channel records each delivery in the same log.

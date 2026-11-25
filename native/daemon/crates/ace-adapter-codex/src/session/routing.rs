@@ -246,6 +246,12 @@ impl<T: Clone + Eq> HostRouter<T> {
         threads
     }
 
+    /// The process is gone: a served request nobody answered will never be, so
+    /// its attribution goes with the host.
+    pub fn forget_served(&mut self) {
+        self.served.clear();
+    }
+
     /// A server request routed to a tenant; its answer is that tenant's frame.
     pub fn serve(&mut self, id: RpcId, tenant: T) {
         while self.served.len() >= SERVED_LIMIT {
@@ -707,6 +713,24 @@ mod tests {
             "the reply is the departed tenant's frame, never nobody's"
         );
         assert_eq!(router.served.len(), 0, "one answer belongs to one tenant");
+    }
+
+    /// The host's exit ends an answer nobody gave: a served request is not
+    /// attributed to a tenant of a process that is gone.
+    #[test]
+    fn the_hosts_exit_forgets_an_unanswered_served_request() {
+        let mut router = HostRouter::<u64>::default();
+        router.serve(RpcId::Text(thread("ask-1")), 3);
+        router.release(&3);
+        router.forget_served();
+        assert_eq!(router.served.len(), 0);
+        assert_eq!(
+            router.sent(
+                &frame(r#"{"jsonrpc":"2.0","id":"ask-1","result":{}}"#),
+                None
+            ),
+            None
+        );
     }
 
     /// A turn belongs to its thread's owner only while it runs.

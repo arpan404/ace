@@ -1179,13 +1179,20 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   its notification or server request, the refusal, a dropped line, a malformed line, a diagnostic
   and the host's failures (`Host::hand_over`), and a server request's answer goes back through
   `answer`/`answer_error` so the reply keeps the order too.
-- **A write the sink never submitted**: if the shell's sink unwinds while holding a write, that
-  ticket is failed in the peer (`RpcPeer::write_failed`), as `rpc-writer.ts:107`–`:120` fails a
-  submission that throws: the call it carried settles and the shared stdin moves on.
-- **A served request keeps its reply**: the host records the tenant that was served when it queues
-  the dispatch, and keeps that attribution after the tenant leaves until the answer arrives, so a
-  reply is always the served channel's own send frame and never an unowned one (TS answers in the
-  same step it dispatches, so a detach cannot come between them there).
+- **A sink that unwinds poisons the host**: a panic in the shell is a bug, not a protocol event,
+  so the drain catches it once. The host stops the child directly, never through the queue
+  (`HostSink::stop`, idempotent against a stop already decided); effects already decided keep their
+  place, and only what the poison decides is appended — a failure for each call still pending and
+  an exit for each channel without one — so every call ends with exactly one settlement or failure
+  and every channel with one exit. After that each delivery has its own catch: a second panic skips
+  that effect, logs it and continues. TS has no equivalent (`behaviour.md` §15): a throwing
+  callback there is an uncaught error. Nothing here may reintroduce `RpcPeer::write_failed`: a
+  submitted write whose callback unwinds is the shell's, and the host's cleanup never waits on it.
+- **A served request keeps its reply until it is answered**: the host records the tenant that was
+  served when it queues the dispatch and keeps that attribution until the answer arrives (freed at
+  the host's exit). A reply produced after its channel closed is dropped silently, as TS does:
+  `#sent` (`host.ts:437`) ignores what a closed tenant refuses (`deliver`, `host.ts:169`), and the
+  router forgets the attribution at release (`host-routing.ts:81`).
 - **A backlog closes the gate**: every effect is measured as it is queued, so a single input that
   releases a hold above the byte budget closes the gate too; an effect that waits behind another
   input stays in that queue,
