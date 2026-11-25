@@ -59,6 +59,14 @@ async fn connect(compressed: bool) -> TcpStream {
     client
 }
 
+/// One masked frame of a fragmented message, with the FIN bit chosen: empty
+/// fragments are enough to pass the fragment bound.
+fn masked_fragment(opcode: u8, fin: bool, payload: &[u8]) -> Vec<u8> {
+    let mut frame = masked_text(payload, false);
+    frame[0] = (if fin { 0x80 } else { 0 }) | opcode;
+    frame
+}
+
 fn masked_text(payload: &[u8], compressed: bool) -> Vec<u8> {
     let mut frame = vec![if compressed { 0xc1 } else { 0x81 }];
     match payload.len() {
@@ -199,4 +207,27 @@ async fn drops_a_socket_on_tcp_eof_inside_a_frame_after_echoing() {
     timeout(Duration::from_secs(5), peer_fin(true, true))
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn refuses_a_message_past_the_fragment_bound_the_reference_keeps() {
+    // 16,385 fragments of one message: one past `ws`'s 16,384, which the
+    // reference server in the comparison keeps, so both legs must refuse it.
+    let mut client = connect(false).await;
+    let mut bytes = masked_fragment(0x1, false, b"");
+    for _ in 0..16_384 {
+        bytes.extend(masked_fragment(0x0, false, b""));
+    }
+    client.write_all(&bytes).await.unwrap();
+
+    let mut answer = [0u8; 4];
+    timeout(Duration::from_secs(10), client.read_exact(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        answer,
+        [0x88, 0x02, 0x03, 0xf0],
+        "a message past the fragment bound closes with 1008"
+    );
 }

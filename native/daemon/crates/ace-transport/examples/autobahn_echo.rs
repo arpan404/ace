@@ -60,12 +60,13 @@ impl UpgradeAdmission for AcceptAll {
     fn release(&self, _reservation: u64) {}
 }
 
-// The suite sends messages up to 16 MiB and up to 65,536 fragments, so the
-// defaults the daemon's listeners use would refuse its largest cases. The
-// fragment bound is `ws`'s; only the payload bound moves, and only here.
+// The suite sends messages up to 16 MiB (9.1.6), past the daemon's 1 MiB
+// payload bound, so that bound moves here and only here. The fragment bound
+// stays `ws`'s 16,384: the reference server in the comparison keeps it too, so
+// both legs refuse the same cases.
 const LIMITS: FrameLimits = FrameLimits {
     max_payload: 16 * 1024 * 1024,
-    max_fragments: 65_536,
+    max_fragments: 16_384,
 };
 
 /// Opens the socket and echoes what arrives.
