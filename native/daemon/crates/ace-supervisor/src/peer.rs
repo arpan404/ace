@@ -101,8 +101,9 @@ pub enum PeerEffect {
         params: Option<Value>,
     },
     Notification {
+        /// The frame's `params` are not copied here: the `Frame` effect of the same line
+        /// carries them once (`peer.rs:line`).
         method: JsString,
-        params: Option<Value>,
     },
     /// The line was not a JSON-RPC envelope, or not JSON at all.
     Malformed {
@@ -145,10 +146,9 @@ impl fmt::Debug for PeerEffect {
                 .field("method", method)
                 .field("params", &params.as_ref().map(Value::to_json))
                 .finish(),
-            PeerEffect::Notification { method, params } => formatter
+            PeerEffect::Notification { method } => formatter
                 .debug_struct("Notification")
                 .field("method", method)
-                .field("params", &params.as_ref().map(Value::to_json))
                 .finish(),
             PeerEffect::Malformed { line } => formatter
                 .debug_struct("Malformed")
@@ -689,10 +689,7 @@ impl RpcPeer {
             FrameKind::Request => self.received_request(&value, &mut effects),
             FrameKind::Notification => {
                 if let Some(method) = method_of(&value) {
-                    effects.push(PeerEffect::Notification {
-                        method,
-                        params: params_of(&value),
-                    });
+                    effects.push(PeerEffect::Notification { method });
                 }
             }
             FrameKind::Response => self.received_response(&value, &mut effects),

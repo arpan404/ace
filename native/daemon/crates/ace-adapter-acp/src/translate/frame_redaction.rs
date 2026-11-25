@@ -189,6 +189,13 @@ fn replace_all(haystack: &[u16], needle: &[u16], replacement: &[u16]) -> Vec<u16
 
 /// A frame's JSON with lease secrets redacted.
 pub fn redacted_frame_json(data: &Value, secrets: &[String]) -> (String, Value) {
+    let (json, redacted) = redacted_frame_json_ref(data, secrets);
+    (json, redacted.unwrap_or_else(|| data.clone()))
+}
+
+/// `redacted_frame_json` without the copy: the value is `None` when nothing was redacted,
+/// so a caller that already holds `data` keeps it (`frames.rs`).
+pub fn redacted_frame_json_ref(data: &Value, secrets: &[String]) -> (String, Option<Value>) {
     let json = ace_json::ser::to_string(data).unwrap_or_else(|_| "null".to_owned());
     let mut clean = true;
     for secret in secrets {
@@ -210,11 +217,11 @@ pub fn redacted_frame_json(data: &Value, secrets: &[String]) -> (String, Value) 
         }
     }
     if clean {
-        return (json, data.clone());
+        return (json, None);
     }
     let value = redact_lease(data, secrets);
     let text = ace_json::ser::to_string(&value).unwrap_or_else(|_| "null".to_owned());
-    (text, value)
+    (text, Some(value))
 }
 
 #[cfg(test)]

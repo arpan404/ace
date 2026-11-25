@@ -241,7 +241,10 @@ async function runMode(mode: Mode, output: string, provider: BenchProvider): Pro
     };
     const session = await provider.session(home)(ctx);
     try {
-      // The window is the ten turns: the open handshake is not part of the frame path's cost.
+      // One unmeasured turn: the translator's first-frame paths and the child's first writes
+      // warm up here, not in the window. Both legs run it, so the comparison stays even.
+      await session.send(provider.prompt(0), "queue");
+      // The window is the ten turns: neither the open handshake nor the warm-up is counted.
       frames = 0;
       const load1 = loadavg()[0] ?? 0;
       const cpuStart = process.cpuUsage();

@@ -11,7 +11,7 @@ use std::collections::{HashSet, VecDeque};
 use ace_adapter_api::frame::FrameDirection;
 use ace_json::{JsString, Map, Value};
 use ace_supervisor::jsonrpc::RpcId;
-use ace_supervisor::lines::{LineFramer, restore};
+use ace_supervisor::lines::{LineFramer, restore_borrowed};
 use ace_supervisor::peer::{
     Direction, INTERNAL_ERROR, PeerConfig, PeerEffect, PeerError, PeerOwner, RpcPeer, Timeout,
 };
@@ -378,7 +378,7 @@ impl AcpCore {
             Ok(framed) => {
                 if framed.count > 0 {
                     for raw_line in framed.text.split('\n') {
-                        let line = restore(raw_line);
+                        let line = restore_borrowed(raw_line);
                         let peer_effects = self.peer.line(&line);
                         self.apply_peer_effects(peer_effects, &mut effects);
                     }
@@ -396,7 +396,7 @@ impl AcpCore {
             Ok(framed) => {
                 if framed.count > 0 {
                     for raw_line in framed.text.split('\n') {
-                        let line = restore(raw_line);
+                        let line = restore_borrowed(raw_line);
                         self.emit_text_frame(FrameDirection::Stderr, "stdio", &line, &mut effects);
                     }
                 }
@@ -456,7 +456,7 @@ impl AcpCore {
         let trailing = self.stdout_framer.finish();
         if trailing.count > 0 {
             for raw_line in trailing.text.split('\n') {
-                let line = restore(raw_line);
+                let line = restore_borrowed(raw_line);
                 let peer_effects = self.peer.line(&line);
                 self.apply_peer_effects(peer_effects, &mut effects);
             }
@@ -517,7 +517,7 @@ impl AcpCore {
         let out_tail = self.stdout_framer.finish();
         if out_tail.count > 0 {
             for raw_line in out_tail.text.split('\n') {
-                let line = restore(raw_line);
+                let line = restore_borrowed(raw_line);
                 let peer_effects = self.peer.line(&line);
                 self.apply_peer_effects(peer_effects, &mut effects);
             }
@@ -525,7 +525,7 @@ impl AcpCore {
         let err_tail = self.stderr_framer.finish();
         if err_tail.count > 0 {
             for raw_line in err_tail.text.split('\n') {
-                let line = restore(raw_line);
+                let line = restore_borrowed(raw_line);
                 self.emit_text_frame(FrameDirection::Stderr, "stdio", &line, &mut effects);
             }
         }
@@ -610,6 +610,9 @@ impl AcpCore {
         // TS acts on no part of such a line (`jsonrpc.ts:285`, `:299`): it stops before
         // the write or the dispatch.
         let mut capture_failed: Option<(String, bool)> = None;
+        // The frame the next notification's `params` come from: the peer emits both, and
+        // only the frame owns the tree, so this borrows instead of copying it.
+        let mut recv_frame: Option<Value> = None;
         for effect in peer_effects {
             if let Some((message, sent)) = capture_failed.clone() {
                 match effect {
@@ -671,6 +674,7 @@ impl AcpCore {
                             }
                         }
                     }
+                    recv_frame = Some(value);
                 }
                 PeerEffect::Write { wire, ticket } => {
                     self.active_write_ticket = Some(ticket);
@@ -683,8 +687,10 @@ impl AcpCore {
                 PeerEffect::ServerRequest { id, method, params } => {
                     self.handle_server_request(id, method, params, effects);
                 }
-                PeerEffect::Notification { method, params } => {
-                    self.handle_notification(&method, params.as_ref(), effects);
+                PeerEffect::Notification { method } => {
+                    let params = recv_frame.as_ref().and_then(|value| value.get("params"));
+                    self.handle_notification(&method, params, effects);
+                    recv_frame = None;
                 }
                 PeerEffect::Malformed { line } => {
                     self.emit_text_frame(FrameDirection::Recv, "stdio-text", &line, effects);
@@ -843,8 +849,11 @@ impl AcpCore {
         if method.as_str() != client_methods::SESSION_UPDATE {
             return;
         }
-        let params_val = params.cloned().unwrap_or_else(|| Value::Object(Map::new()));
-        let params_map = object(&params_val);
+        // Borrowed: this runs for every `session/update` frame, and the whole tree is only
+        // read here (`session.ts:217`).
+        let empty = Value::Object(Map::new());
+        let params_val = params.unwrap_or(&empty);
+        let params_map = object(params_val);
         let update_val = params_map.get("update").unwrap_or(&Value::Null);
         let update = object(update_val);
         let session_id = js_string(params_map.get("sessionId").unwrap_or(&Value::Null))
@@ -887,8 +896,8 @@ impl AcpCore {
         if self.loading {
             return;
         }
-        self.routing.receive(&params_val);
-        self.shells.receive(&params_val);
+        self.routing.receive(params_val);
+        self.shells.receive(params_val);
         if !self.routing.has_live_children() {
             self.clear_deadline("children", effects);
         }

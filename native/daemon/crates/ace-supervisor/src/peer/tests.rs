@@ -188,13 +188,8 @@ fn unknown_methods_and_fields_are_kept_raw() {
     assert_eq!(order(&effects), vec!["frame:recv", "notify:thread/started"]);
     assert_eq!(frames(&effects), vec![(Direction::Recv, note.to_owned())]);
     match &effects[1] {
-        PeerEffect::Notification { method, params } => {
-            assert_eq!(method.as_str(), "thread/started");
-            assert_eq!(
-                params.as_ref().map(Value::to_json).as_deref(),
-                Some(r#"{"thread":{"id":"t"},"zeta":1}"#)
-            );
-        }
+        // The params stay in the frame effect alone, not in a second copy.
+        PeerEffect::Notification { method } => assert_eq!(method.as_str(), "thread/started"),
         _ => panic!("expected a notification"),
     }
 
