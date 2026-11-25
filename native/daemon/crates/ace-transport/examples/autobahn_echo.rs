@@ -25,6 +25,7 @@ use ace_transport::deflate::Deflate;
 use ace_transport::driver::{Grace, UpgradeHandler, UpgradeIo};
 use ace_transport::frame::FrameLimits;
 use ace_transport::head::{self, BAD_REQUEST, Parsed};
+use ace_transport::limits::ConnectionLimits;
 use ace_transport::peer::Peer;
 use ace_transport::prefixed::Prefixed;
 use ace_transport::socket::{self, MESSAGE_OVERHEAD, SocketEvent};
@@ -104,39 +105,91 @@ impl SocketSink for Echo {
 /// Reads one connection's head, then hands the stream to the handshake above.
 async fn serve(handler: Arc<WebSocketUpgrades>, mut stream: TcpStream) {
     let mut buffer = Vec::new();
-    loop {
-        match head::parse(&buffer) {
-            Parsed::Head(request, used) => {
-                let Ok(peer) = Peer::of(&stream) else {
-                    return;
-                };
-                let prefix = Bytes::copy_from_slice(&buffer[used..]);
-                let prefixed = Prefixed::new(
-                    prefix,
-                    Box::new(stream) as Box<dyn ConnIo>,
-                    Duration::from_secs(5),
-                );
-                handler
-                    .upgrade_raw(
-                        request,
-                        prefixed,
-                        peer,
-                        CancellationToken::new(),
-                        Grace::new(),
-                    )
-                    .await;
-                return;
-            }
-            Parsed::Incomplete => {
-                let mut chunk = [0_u8; 8 * 1024];
-                match stream.read(&mut chunk).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+    // The daemon's own first-head deadline: a peer that never finishes its head
+    // cannot hold the connection (or a task) for longer than that.
+    let deadline = ConnectionLimits::loopback().first_head;
+    let read = tokio::time::timeout(deadline, async {
+        loop {
+            match head::parse(&buffer) {
+                Parsed::Head(request, used) => return Some((request, used)),
+                Parsed::Incomplete => {
+                    let mut chunk = [0_u8; 8 * 1024];
+                    match stream.read(&mut chunk).await {
+                        Ok(0) | Err(_) => return None,
+                        Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+                    }
+                }
+                Parsed::TooLarge | Parsed::Malformed => {
+                    let _ = stream.write_all(BAD_REQUEST).await;
+                    return None;
                 }
             }
-            Parsed::TooLarge | Parsed::Malformed => {
-                let _ = stream.write_all(BAD_REQUEST).await;
-                return;
+        }
+    })
+    .await;
+    let Ok(Some((request, used))) = read else {
+        return;
+    };
+    let Ok(peer) = Peer::of(&stream) else {
+        return;
+    };
+    let prefix = Bytes::copy_from_slice(&buffer[used..]);
+    let prefixed = Prefixed::new(
+        prefix,
+        Box::new(stream) as Box<dyn ConnIo>,
+        Duration::from_secs(5),
+    );
+    handler
+        .upgrade_raw(
+            request,
+            prefixed,
+            peer,
+            CancellationToken::new(),
+            Grace::new(),
+        )
+        .await;
+}
+
+/// Where an accepting loop takes connections from, so a test can make one
+/// accept fail the way `EMFILE` does.
+trait Connections {
+    fn accept(
+        &mut self,
+    ) -> impl Future<Output = std::io::Result<(TcpStream, std::net::SocketAddr)>>;
+}
+
+impl Connections for TcpListener {
+    fn accept(
+        &mut self,
+    ) -> impl Future<Output = std::io::Result<(TcpStream, std::net::SocketAddr)>> {
+        TcpListener::accept(self)
+    }
+}
+
+/// How long a failed accept waits before trying again, as the daemon's own loop
+/// does (`accept.rs`'s `ACCEPT_RETRY`).
+const ACCEPT_RETRY: Duration = Duration::from_millis(10);
+
+/// Accepts for as long as the listener can, surviving a transient failure the
+/// way Node's server does: report the first of a run, back off, keep accepting.
+async fn accept_loop<C: Connections>(
+    mut listener: C,
+    handler: Arc<WebSocketUpgrades>,
+    report: impl Fn(&std::io::Error),
+) {
+    let mut reported = false;
+    loop {
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                reported = false;
+                tokio::spawn(serve(Arc::clone(&handler), stream));
+            }
+            Err(error) => {
+                if !reported {
+                    report(&error);
+                    reported = true;
+                }
+                tokio::time::sleep(ACCEPT_RETRY).await;
             }
         }
     }
@@ -152,11 +205,12 @@ async fn main() -> std::io::Result<()> {
         }),
         Arc::new(Echo),
     ));
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let handler = Arc::clone(&handler);
-        tokio::spawn(serve(handler, stream));
-    }
+    accept_loop(listener, handler, |error| {
+        // The scratch server's only channel; the library itself never prints.
+        eprintln!("autobahn_echo: accept failed: {error}");
+    })
+    .await;
+    Ok(())
 }
 
 #[cfg(test)]

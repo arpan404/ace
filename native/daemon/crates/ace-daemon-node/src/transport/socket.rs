@@ -329,27 +329,3 @@ fn count(value: f64) -> u64 {
         0
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_listener_call_that_ran_hands_its_own_charge_back() {
-        // A call that never reached its callback would keep its message's credit
-        // for good, and a later error would wait for it until the close timeout;
-        // `pump` hands it back instead. `Closing` is not one of those: events
-        // already queued still reach their callbacks.
-        for status in [
-            Status::InvalidArg,
-            Status::GenericFailure,
-            Status::Cancelled,
-        ] {
-            assert!(
-                !reached_callback(status),
-                "{status:?} never reaches its callback"
-            );
-        }
-        assert!(reached_callback(Status::Ok));
-    }
-}

@@ -273,3 +273,69 @@ async fn a_thousand_round_trips_leave_the_next_connection_working() {
         .unwrap();
     expect_echo(&mut next, b"after", false).await;
 }
+
+/// A listener whose first `fails` accepts fail the way `EMFILE` does, then a
+/// real one.
+struct FailingOnce {
+    listener: TcpListener,
+    fails: usize,
+}
+
+impl Connections for FailingOnce {
+    fn accept(
+        &mut self,
+    ) -> impl Future<Output = std::io::Result<(TcpStream, std::net::SocketAddr)>> {
+        let failure = (self.fails > 0).then(|| {
+            self.fails -= 1;
+            std::io::Error::from_raw_os_error(24) // EMFILE
+        });
+        async move {
+            match failure {
+                Some(error) => Err(error),
+                None => self.listener.accept().await,
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn an_accept_that_fails_is_reported_once_and_the_listener_keeps_serving() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let handler = WebSocketUpgrades::with_deflate(
+        Arc::new(AcceptAll {
+            next: AtomicU64::new(1),
+        }),
+        Arc::new(Echo),
+    );
+    // Three failures in a row, then the real listener: the loop must report the
+    // run once, back off, and serve the connection that follows.
+    let failures = Arc::new(AtomicU64::new(0));
+    let counted = Arc::clone(&failures);
+    tokio::spawn(accept_loop(
+        FailingOnce { listener, fails: 3 },
+        Arc::new(handler),
+        move |_| {
+            counted.fetch_add(1, Ordering::Relaxed);
+        },
+    ));
+
+    let mut client = timeout(Duration::from_secs(2), connect_to(address, false))
+        .await
+        .expect("the connection after the failures is served");
+    client
+        .write_all(&masked_fragment(0x1, true, b"after"))
+        .await
+        .unwrap();
+    timeout(
+        Duration::from_secs(2),
+        expect_echo(&mut client, b"after", false),
+    )
+    .await
+    .expect("the echo arrives");
+    assert_eq!(
+        failures.load(Ordering::Relaxed),
+        1,
+        "a run of accept failures is reported once"
+    );
+}

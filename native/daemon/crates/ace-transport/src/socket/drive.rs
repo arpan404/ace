@@ -302,11 +302,6 @@ async fn read(mut source: Source, shared: Arc<Shared>, mut woken: mpsc::Receiver
 /// from `delivered` or from the last frame leaving the wire parks a permit, so
 /// none is lost between the check and the await.
 async fn settled(shared: &Shared) {
-    eprintln!(
-        "settled: enter delivering={} settling={}",
-        shared.delivering(),
-        shared.settling()
-    );
     if !shared.delivering() {
         return;
     }
@@ -316,11 +311,6 @@ async fn settled(shared: &Shared) {
         if !shared.settling() {
             return;
         }
-        eprintln!(
-            "settled: waiting delivering={} buffered={}",
-            shared.delivering(),
-            shared.buffered.load(std::sync::atomic::Ordering::Relaxed)
-        );
         let notified = shared.settle.notified();
         tokio::select! {
             biased;
