@@ -370,6 +370,52 @@ fn an_answer_for_a_command_is_not_answered_by_its_turn_ending() {
 }
 
 #[test]
+fn a_dropped_line_note_keeps_the_parses_answer_and_the_reported_phase() {
+    let mut session = session();
+    let notification = crate::session::dropped::attribute_dropped_line(
+        "{\"method\":\"item/completed\",\"params\":{\"threadId\":\"root-1\",\"item\":{\"id\":42,\"text\":\"unfinished",
+    );
+    let effects = session.dropped(&super::super::host::DroppedLine {
+        bytes: 9,
+        phase: super::super::host::DroppedPhase::Complete,
+        attributed: notification,
+    });
+    let recorded = note(&effects[0]).expect("the loss is a note");
+    assert_eq!(
+        recorded.get("phase").and_then(Value::as_str),
+        Some("complete")
+    );
+    assert_eq!(
+        recorded
+            .pointer("/attributed/response")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        recorded
+            .pointer("/attributed/threadId")
+            .and_then(Value::as_str),
+        Some("root-1")
+    );
+    // A reply whose id did not survive the prefix is still a reply.
+    let reply = crate::session::dropped::attribute_dropped_line("{\"result\":{},\"id\":42");
+    let effects = session.dropped(&super::super::host::DroppedLine {
+        bytes: 20_000_000,
+        phase: super::super::host::DroppedPhase::End,
+        attributed: reply,
+    });
+    let recorded = note(&effects[0]).expect("the loss is a note");
+    assert_eq!(recorded.get("phase").and_then(Value::as_str), Some("end"));
+    assert_eq!(
+        recorded
+            .pointer("/attributed/response")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert!(recorded.pointer("/attributed/id").is_none());
+}
+
+#[test]
 fn a_notification_refreshes_the_queue_and_the_discovery_scan() {
     let mut session = session();
     let effects = session.notification(

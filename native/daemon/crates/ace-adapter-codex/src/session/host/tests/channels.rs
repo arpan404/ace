@@ -211,8 +211,11 @@ fn a_dropped_reply_settles_its_request_once_and_reports_the_drop() {
         host.dropped(&DroppedLine {
             bytes: 20_000_000,
             phase: DroppedPhase::Line,
-            thread: Some(ace_json::JsString::from("owned")),
-            response: Some(wire_id),
+            attributed: crate::session::dropped::LineAttribution {
+                id: Some(wire_id),
+                thread_id: Some(ace_json::JsString::from("owned")),
+                response: true,
+            },
         });
     });
     let settles: Vec<&HostEffect> = effects

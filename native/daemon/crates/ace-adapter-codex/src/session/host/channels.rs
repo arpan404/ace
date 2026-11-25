@@ -333,7 +333,7 @@ impl Inner {
     pub(super) fn dropped(&mut self, line: &DroppedLine) {
         let mut rejected = false;
         if line.phase != DroppedPhase::End
-            && let Some(id) = &line.response
+            && let Some(id) = &line.attributed.id
         {
             let message = dropped_message(line.bytes);
             let peer = self
@@ -354,7 +354,7 @@ impl Inner {
                 }
             }
         }
-        let affected = match &line.thread {
+        let affected = match &line.attributed.thread_id {
             Some(thread) => match self.router.owner(thread).copied() {
                 Some(owner) => vec![owner],
                 None => self.tenant_ids(),

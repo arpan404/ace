@@ -16,19 +16,12 @@ use super::{
 };
 
 impl Session {
-    /// `dropped(line)`: the loss, as a note.
+    /// `dropped(line)`: `emit("note", { event: "output-line-dropped", ...line })`
+    /// (`:337`-`:338`), with the parse's own `response` and the phase the
+    /// framing layer reported.
     pub fn dropped(&mut self, line: &DroppedLine) -> Vec<Effect> {
-        use crate::session::host::DroppedPhase;
-        let phase = match line.phase {
-            DroppedPhase::Line => "start",
-            DroppedPhase::End => "end",
-        };
-        let attributed = crate::session::dropped::LineAttribution {
-            id: line.response.clone(),
-            thread_id: line.thread.clone(),
-            response: line.response.is_some(),
-        };
-        let note = crate::session::frames::dropped_note(line.bytes, phase, &attributed);
+        let note =
+            crate::session::frames::dropped_note(line.bytes, line.phase.as_str(), &line.attributed);
         self.emit_note(&note)
     }
 
