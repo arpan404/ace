@@ -6,6 +6,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { expect, it } from "vitest";
 import { runtimeFixture } from "./host-runtime-test-support.ts";
 
+const wire = new URL("./host-wire.ts", import.meta.url).pathname;
+
 it("a frame ace stores too late fences the turn, the late ack is harmless and no further send reaches Cursor", async () => {
   const lateStored = Promise.withResolvers<void>();
   await using fixture = await runtimeFixture({ ackTimeoutMs: 200 }, async (frame) => {
