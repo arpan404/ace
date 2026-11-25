@@ -82,6 +82,9 @@ enum Flight {
         client_user_message_id: Option<String>,
         fenced: bool,
         answering: Option<String>,
+        /// Already sent to the turn that replaced the first one: TS retries a
+        /// steer once (`:127`), so this reply's error surfaces as it is.
+        retried: bool,
     },
     /// A `turn/start`: its reply settles the operation.
     Turn {
@@ -264,6 +267,7 @@ impl Session {
                         client_user_message_id: client_user_message_id.clone(),
                         fenced: send.fence.is_some(),
                         answering,
+                        retried: false,
                     },
                 );
                 effects.push(steer_request(
@@ -372,6 +376,7 @@ impl Session {
                 client_user_message_id,
                 fenced,
                 answering,
+                retried,
             } => self.steer_settled(
                 SteerSettled {
                     thread,
@@ -381,6 +386,7 @@ impl Session {
                     client_user_message_id,
                     fenced,
                     answering,
+                    retried,
                 },
                 reply,
             ),

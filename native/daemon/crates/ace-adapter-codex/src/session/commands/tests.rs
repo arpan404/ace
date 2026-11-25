@@ -446,3 +446,67 @@ fn a_turn_start_over_the_frame_bound_settles_after_its_launch_options() {
     assert_eq!(settled(&effects[0]).message, message);
     assert!(session.commands.starts.is_empty());
 }
+
+#[test]
+fn a_replacement_steers_refusal_surfaces_raw_instead_of_retrying_again() {
+    let mut session = running();
+    let text = parts("correction");
+    let effects = session.send(send(50, &text, Delivery::Steer, None, &message_id));
+    let (call, ..) = request(&effects[0]);
+    // The turn is replaced once.
+    session
+        .active
+        .insert("root-1".to_owned(), "turn-2".to_owned());
+    let effects = session.settled(call, Err("expected active turn id turn-1 but found turn-2"));
+    let (retry, method, params) = request(&effects[0]);
+    assert_eq!(method, "turn/steer");
+    assert_eq!(
+        params.get("expectedTurnId").and_then(Value::as_str),
+        Some("turn-2")
+    );
+    // A third turn is running, and the retry is refused too: the error
+    // surfaces as it is, with no third steer and no turn start.
+    session
+        .active
+        .insert("root-1".to_owned(), "turn-3".to_owned());
+    let effects = session.settled(
+        retry,
+        Err("expected active turn id turn-2 but found turn-3"),
+    );
+    assert_eq!(effects.len(), 1);
+    let failure = settled(&effects[0]);
+    assert_eq!(
+        failure.message,
+        "expected active turn id turn-2 but found turn-3"
+    );
+    assert_ne!(
+        failure.code,
+        ace_adapter_api::bridge::queue::STEER_TARGET_LOST
+    );
+    assert_ne!(failure.code, ace_adapter_api::bridge::queue::INPUT_REJECTED);
+    assert!(session.commands.flights.is_empty());
+    assert!(session.commands.starts.is_empty());
+}
+
+#[test]
+fn a_replacement_steers_refusal_starts_no_turn_when_none_is_running() {
+    let mut session = running();
+    let text = parts("correction");
+    let effects = session.send(send(51, &text, Delivery::Steer, None, &message_id));
+    let (call, ..) = request(&effects[0]);
+    session
+        .active
+        .insert("root-1".to_owned(), "turn-2".to_owned());
+    let effects = session.settled(call, Err("no active turn to steer"));
+    let (retry, ..) = request(&effects[0]);
+    // The retry is refused after the replacement left too, and no turn runs.
+    session.active.clear();
+    let effects = session.settled(retry, Err("no active turn to steer"));
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::LaunchOptions { .. }))
+    );
+    assert_eq!(settled(&effects[0]).message, "no active turn to steer");
+    assert!(session.commands.starts.is_empty());
+}

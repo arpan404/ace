@@ -62,6 +62,7 @@ pub(super) struct SteerSettled {
     pub(super) client_user_message_id: Option<String>,
     pub(super) fenced: bool,
     pub(super) answering: Option<String>,
+    pub(super) retried: bool,
 }
 
 impl Session {
@@ -80,6 +81,17 @@ impl Session {
             );
         };
         let text = reply_message(message).unwrap_or_else(|| message.to_owned());
+        // A replacement steer is the one retry TS allows (`:127`-`:130`), so
+        // its own refusal is the answer: no third steer, no turn start, and no
+        // mapping of the provider's words.
+        if steer.retried {
+            return self.follow(
+                steer.operation,
+                &steer.thread,
+                steer.answering,
+                Err(Failure::failed(message)),
+            );
+        }
         if steer.fenced {
             if steer_target_lost_text(&text) {
                 return self.follow(
@@ -122,6 +134,7 @@ impl Session {
                     client_user_message_id: steer.client_user_message_id.clone(),
                     fenced: steer.fenced,
                     answering: steer.answering,
+                    retried: true,
                 },
             );
             return vec![steer_request(
