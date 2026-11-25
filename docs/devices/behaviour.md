@@ -249,3 +249,97 @@ cost above. Nothing here was measured against a real Simulator or device.
 | `devices-setting`                                                                                                                                                | b     | `devices-setting.ts` and `lazy-devices.ts`: the stored switch and lazy start                                                                             |
 
 Counts: 46 (a) files (5 of them live), 41 (b) (1 live), 0 (c).
+
+## 6. Intended differences in the Rust port
+
+The Rust platform is held to §3, with these deliberate differences, each proven in Rust:
+
+- **A value the schemas reject is a typed `DeviceError`, not a raw `ZodError`.** Today
+  `DevicePlatform.install` (`platform.ts:528`), `openApp` (`:554`) and `openUrl` (`:595`) parse the
+  path, app id and URL with Zod inside the operation, so a relative path, a malformed app id or a
+  URL without a scheme surfaces as a `ZodError` that carries no `DeviceFailure` code. With
+  `ACE_DEVICE_PLATFORM=native` the same input is refused as `invalid_data`, with a message and a
+  hint, before any SDK command runs (`ace-devices/src/platform/lifecycle.rs`). The device surface
+  is `DeviceFailure`, so callers gain the code they needed to branch on; nothing is accepted that
+  the schemas rejected.
+- **A physical Android device's location is decided before appearance is applied.** Today
+  `configure` (`platform.ts:623`–`:635`) sets night mode and only then refuses the location on a
+  phone, leaving the appearance changed on a request that failed. The Rust platform decides the
+  whole request first (`lifecycle::configure`), so a refused configuration changes nothing.
+- **An unreadable `wm size` override refuses the read instead of falling back to the physical
+  size.** `androidDimensions` (`commands.ts:115`–`:129`) takes `override ?? physical`, so a
+  malformed override line fails the read (as a `ZodError`) rather than reporting the physical
+  size; `ace-devices`' `commands::android_dimensions` keeps that outcome and returns it as
+  `invalid_data` with today's message and hint.
+
+## 7. D3.1 review fixes (2026-11-25)
+
+The platform's review found TypeScript behaviours the Rust side had drifted from. They are fixed
+in `ace-devices` only, and today's TypeScript is left as it was (owner rule):
+
+- **Windows SDK roots follow `path.win32`.** A drive-rooted `C:\sdk`, `C:/sdk`, `\sdk` or a UNC
+  share is absolute on a Windows host even when the checking build host is macOS
+  (`platform/sdk.rs`, `is_absolute`).
+- **`xcode-select -p` keeps the 4,096-unit schema cap and a null exit code.** A probe that
+  answered with `code: null` is a failed selection, not a probe that never ran; only a probe that
+  threw is "Xcode developer directory is unavailable" (`sdk::xcode_selection`,
+  `sdk::xcode_probe_failure`).
+- **A resolved Android activity is still an app id.** The component `resolve-activity` prints
+  must fit 256 UTF-16 units, as `AppId` requires (`lifecycle::open_app`).
+- **Emulator discovery stops at the first match.** The shell reads discovery files in order and
+  asks `emulator::grpc_file` about each, so it never opens a FIFO or an unreadable sibling after
+  the emulator's own file matched.
+- **Every D3.1 path reaches Rust.** `DevicePlatform.list`, `boot`, `shutdown` and the tools
+  download plan are `ace-devices` decisions; Android capture takes `wm size` from
+  `commands::android_dimensions`, so the documented `sizeUndecoded` refusal is reachable.
+- **A listed Simulator's name stays a JavaScript string.** The listed entry crosses the binding
+  as JSON text and the record's name is a `JsString`, so a lone surrogate the SDK printed is
+  listed and returned in the same UTF-16 units (`platform/list.rs`).
+
+## 8. D3.1 round-3 review fixes (2026-11-25)
+
+The recheck found five more places the port had drifted. Each is fixed test-first, in Rust or in
+the shell that wires it, and the TypeScript that stays is the switch-off path unchanged.
+
+- **The boot wait's program is one raw argument.** `adb shell` takes the readiness loop as a
+  single unquoted argument, as TS passes it; `adb_shell`'s single-quoting made the device read
+  the whole loop as a command name (`boot::android_boot`).
+- **Downloads and unpacking run on the native runtime.** `serve-sim-install`, `serve-sim-version`,
+  `serve-sim-helpers`, `tools-entry` and `Simulators`' parse are `ace-devices` decisions:
+  `serve_sim::install` fetches the pinned tarballs over the native HTTP client, checks the
+  registry's sha512 (and scrcpy's sha256), enforces the same 32 MiB and release-size limits,
+  writes the same `.serve-sim-<id>.partial` staging directory and renames it into place atomically;
+  `serve_sim::managed`, `version`, `supported` and `replaces_helper` answer the lookup and helper
+  questions; `simulators::list` parses `simctl list devices --json` with the schema's caps and
+  keeps names as `JsString`.
+- **A Simulator's listed state and the 240 s budget decide its boot.** The native boot asks the
+  plan about the inventory's entry, not the caller's possibly stale record, and gives
+  `boot`/`bootstatus` the base's 240 s.
+- **The switch-off leg is unchanged.** The Android boot refuses a missing emulator before the
+  window and `adb devices` probes on both legs, exactly as the base did. No command probe takes
+  the platform's injected clock on either leg: the native platform's Xcode adapter runs
+  `xcode-select -p` through `run`, which keeps today's timers, so `resolveXcode`'s own scheduler
+  applies only when it is called directly, not through the platform (which it never is). The
+  posture helper keeps its injected clock on the native platform, where a compressed test clock
+  cannot stand in for a command's own deadline.
+- **The catalog check reads both backends.** `check:devices-catalog` fails when a device source
+  spells a catalog message or hint itself (generic hint phrases excepted), and every device word
+  `platform-base.ts`, `commands.ts` and `android-platform.ts` raise now comes from `catalog.ts`.
+
+## 9. D3.1 round-4 review fixes (2026-11-25)
+
+- **`ACE_SCRCPY_SERVER` crosses explicitly.** The install request carries the setting the shell
+  read, so a verified override is used without a request and a wrong one keeps the TypeScript's
+  refusal (`serve_sim::install`, `device-tools.ts`).
+- **Staging and deadlines match the shell.** The staging directory is named with the id the
+  shell gives, directories are created 0700 and files 0600, and a timed-out install checks a
+  cancellation flag immediately before its rename, so a late unpack never publishes; its partial
+  file and staging directory are removed.
+- **D2's scoped reads survive D3.** `Platform.scopedListing()` lets the native facade keep
+  `listSource` re-reading only the triggered source, with the peer's cached outcome.
+- **The install client trusts the operating system's store.** `rustls` + `rustls-native-certs`
+  replace reqwest's platform verifier, whose `webpki-root-certs` dependency is CDLA-Permissive-2.0
+  and outside ace's licence allowlist; `cargo deny check bans licenses sources` passes.
+- **The catalog owns the tool words.** The download hints and the timeout text live in
+  `catalog/devices.json`'s `tools` section, which both backends read; the check compares them and
+  fails on a source that spells one.

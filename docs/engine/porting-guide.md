@@ -1169,6 +1169,38 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   child (E3.0b) and one `RpcPeer`. A tenant is a session's channel with its own `EventQueue`; a
   host fans each routed frame out to its owner's queue only, and init frames to every tenant that
   attaches.
+- **Effects, published in order**: every input's effects join one queue under the host's lock and
+  one caller at a time hands them to the shell (`HostSink`), so two inputs never swap the effects
+  they decided: a settlement a timer decided is never published after the exit a pipe close decided
+  later, and no frame is published before the settlement decided before it (ADR 0223 §7 rule 3,
+  `bridge.rs`). The shell sets its sink once, before its first input. Only admission is decided
+  under the lock (`ChannelHandlers::admit`: a refused frame mutes its channel and is never
+  dispatched); every callback a channel can observe is an effect in that same order: the frame,
+  its notification or server request, the refusal, a dropped line, a malformed line, a diagnostic
+  and the host's failures (`Host::hand_over`), and a server request's answer goes back through
+  `answer`/`answer_error` so the reply keeps the order too.
+- **A sink that unwinds poisons the host**: a panic in the shell is a bug, not a protocol event,
+  so the drain catches it once. The host stops the child directly, never through the queue
+  (`HostSink::stop`, idempotent against a stop already decided); effects already decided keep their
+  place, and only what the poison decides is appended — a failure for each call still pending and
+  an exit for each channel without one — so every call ends with exactly one settlement or failure
+  and every channel with one exit. After that each delivery has its own catch: a second panic skips
+  that effect, logs it and continues. TS has no equivalent (`behaviour.md` §15): a throwing
+  callback there is an uncaught error. Nothing here may reintroduce `RpcPeer::write_failed`: a
+  submitted write whose callback unwinds is the shell's, and the host's cleanup never waits on it.
+- **A served request keeps its reply until it is answered**: the host records the tenant that was
+  served when it queues the dispatch and keeps that attribution until the answer arrives (freed at
+  the host's exit). A reply produced after its channel closed is dropped silently, as TS does:
+  `#sent` (`host.ts:437`) ignores what a closed tenant refuses (`deliver`, `host.ts:169`), and the
+  router forgets the attribution at release (`host-routing.ts:81`).
+- **A backlog closes the gate**: every effect is measured as it is queued, so a single input that
+  releases a hold above the byte budget closes the gate too; an effect that waits behind another
+  input stays in that queue,
+  and once it holds TS's intake budget — 256 entries or 4 MiB, reopened below 64 and 1 MiB
+  (`apps/daemon/src/engine/actor.ts:84`–`:103`, `apps/daemon/src/engine/limits.ts:9`–`:17`; TS
+  counts frames, the host counts every payload-bearing effect so diagnostics and malformed lines
+  cannot pile up either) — the host closes its read gate, so a stalled shell never lets the
+  child's pumps read into an unbounded queue.
 - **The pool's identity**: a native pool is created per TypeScript `CodexHostPool` instance (a
   `WeakMap` in the facade, E3-codex.5), so the tests that share one pool share one native pool.
   `CodexHostPool.close()` also closes its native twin. That is a one-line change in
@@ -1179,7 +1211,7 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   `bun` fails the test, it never skips. Same cases, same expectations, none added.
 - **Must not**: spawn without diversion; let one tenant's frames reach another's queue.
 - **Reviewer checks**: the routing table (`received`, `:113`–`:153`) is ported branch for branch;
-  retirement reasons are `host.ts:49`'s set.
+  retirement reasons are `host.ts:49`'s set; no input publishes its effects on its own thread.
 
 #### E3-codex.3 The session's per-frame state and capture
 
