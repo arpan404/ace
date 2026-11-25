@@ -93,6 +93,9 @@ struct Pending {
 /// A timer that returns the shell's cancel function.
 type ArmTimer = FunctionRef<FnArgs<(f64, f64)>, Option<FunctionRef<(), ()>>>;
 
+/// `options.selectInstance`: the account a provider runs on by default.
+type SelectInstance = FunctionRef<FnArgs<(String, Option<String>)>, Option<String>>;
+
 /// Every port the engine calls, as function references.
 pub struct JsPorts {
     env: Cell<Option<Env>>,
@@ -130,6 +133,7 @@ pub struct JsPorts {
     has_reset_at: bool,
     admits: FunctionRef<(), bool>,
     reset_at: Option<FunctionRef<String, Option<f64>>>,
+    select_instance: Option<SelectInstance>,
     timers: RefCell<HashMap<u64, ArmedTimer>>,
     /// The Rust port of `timeOrderedIds` (`time-ordered-id.ts:11`), used when no `ids` port
     /// was given: the same UUIDv7 layout, the clock and random bytes from the OS.
@@ -181,6 +185,7 @@ impl JsPorts {
         has_reset_at: bool,
         admits: FunctionRef<(), bool>,
         reset_at: Option<FunctionRef<String, Option<f64>>>,
+        select_instance: Option<SelectInstance>,
     ) -> napi::Result<JsPorts> {
         Ok(JsPorts {
             env: Cell::new(Some(env)),
@@ -218,6 +223,7 @@ impl JsPorts {
             has_reset_at,
             admits,
             reset_at,
+            select_instance,
             timers: RefCell::new(HashMap::new()),
             ids: RefCell::new(UuidV7::default()),
             promises: RefCell::new(HashMap::new()),
@@ -601,6 +607,18 @@ impl Ports for JsPorts {
         let function = self.reset_at.as_ref()?;
         let value = self.call(function, thread.to_owned()).ok()?;
         Some(value.map(|at| at as i64))
+    }
+
+    fn select_instance(&self, provider: &str, backend: Option<&str>) -> Option<String> {
+        let function = self.select_instance.as_ref()?;
+        self.call(
+            function,
+            FnArgs {
+                data: (provider.to_owned(), backend.map(str::to_owned)),
+            },
+        )
+        .ok()
+        .flatten()
     }
 
     fn provider_enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, PortError> {

@@ -77,6 +77,8 @@ export interface EngineBindings {
   finishClose(): void;
   /** A provider or account the person turned off; the shell answers true when unconfigured. */
   providerEnabled(provider: string, instanceId?: string): boolean;
+  /** The default account a provider runs on (`handler.ts:108`-`:111`). */
+  selectInstance?(provider: string, backend?: string): string | undefined;
   hasMoveTarget: boolean;
   hasResetAt: boolean;
   admits(): boolean;
@@ -178,6 +180,12 @@ export function engineBindings(input: {
     finishClose: () => host.finishClose(),
     providerEnabled: (provider, instanceId) =>
       options.providerEnabled ? options.providerEnabled(provider as never, instanceId) : true,
+    ...(options.selectInstance
+      ? {
+          selectInstance: (provider: string, backend?: string) =>
+            options.selectInstance?.(provider, backend as never),
+        }
+      : {}),
     hasMoveTarget: options.recovery?.moveTarget !== undefined,
     hasResetAt: options.recovery?.resetAt !== undefined,
     admits: () => options.recovery?.admits?.() ?? true,

@@ -309,6 +309,7 @@ impl NativeDatabase {
             bindings
                 .get_named_property::<FunctionRef<String, Option<f64>>>("resetAt")
                 .ok(),
+            bindings.get_named_property("selectInstance").ok(),
         )?);
         let stack = self.transaction_state();
         let pump: PumpHandle = Arc::new(Mutex::new(Some(

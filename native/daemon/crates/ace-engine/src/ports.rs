@@ -216,9 +216,9 @@ pub trait Ports {
         Ok(true)
     }
 
-    /// `options.selectInstance` for a provider the registry has.
-    fn default_instance(&self, _provider: &str, _backend: Option<&str>) -> Option<String> {
-        None
+    /// `options.selectInstance` for a provider the registry has (`handler.ts:108`-`:111`).
+    fn default_instance(&self, provider: &str, backend: Option<&str>) -> Option<String> {
+        self.select_instance(provider, backend)
     }
     /// `options.machine` (E5.4).
     /// `ports.moveTarget(thread, requested)` (E5.8): the account a limit move goes to.
