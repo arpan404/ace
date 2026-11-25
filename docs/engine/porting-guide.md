@@ -1150,7 +1150,8 @@ fakes, and everything the E1 translator owns. Five tasks, in order.
   `Notification{method, params}`, `Malformed{line}`, `ArmTimer`, `CancelTimer`, `Failed{message}`.
   Method-not-found replies, the pending bound and the timeout messages are `jsonrpc.ts`'s strings.
   Order: a `recv` frame precedes the effect it causes, as `onFrame` precedes dispatch today.
-- **Tests**: none new. E3-codex.5 and E3-acp.3 prove it through their session files.
+- **Tests**: Rust unit tables cover the peer's limits, ids and effect ordering; E3-codex.5 and
+  E3-acp.3 prove it through their session files.
 - **Must not**: use `jsonrpsee` (ADR 0223 §2) or `agent-client-protocol`'s connection; read a
   clock.
 - **Reviewer checks**: each `jsonrpc.ts` branch has its effect; error messages compared string by
@@ -1385,6 +1386,23 @@ E5.1's builder brief is [e5-1-brief.md](e5-1-brief.md). It corrects this table's
 first all-green run of `main-integration.process` is at E5.8 and of `engine.process` at E5.10,
 not with E5.2 to E5.4 (they open sessions, deliver, restart and stop background tasks);
 `adapters.ts` stays TypeScript. Its step 12 is the test seam and the per-item proof order.
+
+E5.3's builder brief is [e5-3-brief.md](e5-3-brief.md): engine rows on the store's connection,
+event rows through the store's writer, migrations staying TypeScript, the lazy record section in
+`ace-core`, and the sliced startup scan.
+
+E5.2's builder brief is [e5-2-brief.md](e5-2-brief.md). It corrects this table's E5.2 row:
+`signal-batching`, `sdk-burst`, `streaming-behaviour` and the storage row open real sessions, so
+they are first green at E5.6, not with E5.2. E5.2's own proof is the seam and its Rust tests. It
+also fixes the `ActorRepo` and `ActorLinks` traits that E5.3 to E5.10 implement for the actor.
+
+E5.4's builder brief is [e5-4-brief.md](e5-4-brief.md). It splits E5.4 into six rounds (E5.4a to
+E5.4f) and corrects this table's E5.4 row with the owner's decisions of 2026-11-24:
+`person-command` stays TypeScript (the facade's normalization); `readMessageFacts` moves to E5.5;
+E5.4 ports the synchronous receipt dependencies its "receipt dependencies" table lists, which drop
+from the E5.5 to E5.10 rows while their execution stays there; it amends E5.1 with three
+synchronous ports and one probe hook; and most of the commands row first passes natively at E5.6
+or later, as its proof table says.
 
 | Item                                     | TypeScript replaced                                                                                                                                                                                                                                                                                                                                                                                                  | Rust (`ace-engine/src/`)                                                                                                  | (a) files that prove it (behaviour.md §19 rows)                                                                                                   | (b) cases to move                                                                                                                                                                          |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
