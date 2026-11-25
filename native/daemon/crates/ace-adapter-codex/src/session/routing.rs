@@ -252,6 +252,12 @@ impl<T: Clone + Eq> HostRouter<T> {
         self.served.clear();
     }
 
+    /// The tenant that was served a request, without consuming the
+    /// attribution: a reply is that tenant's frame (`host.ts:437`).
+    pub fn serving(&self, id: &RpcId) -> Option<T> {
+        self.served.get(id).cloned()
+    }
+
     /// A server request routed to a tenant; its answer is that tenant's frame.
     pub fn serve(&mut self, id: RpcId, tenant: T) {
         while self.served.len() >= SERVED_LIMIT {

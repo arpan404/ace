@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The peer's effects: writes, timers, settlements, and the host's own calls.
 
+use super::channels::RefusedSend;
 use super::*;
 
 impl Inner {
@@ -58,15 +59,16 @@ impl Inner {
     /// Apply the peer's effects in order, dispatching the ones the host owns.
     pub(super) fn apply(&mut self, effects: Vec<PeerEffect>) {
         let mut pending: Option<Pending> = None;
+        // A send frame the channel refused: its line is dropped instead of
+        // written, and its call fails with the refusal (`jsonrpc.ts:291`-`:292`).
+        let mut refused: Option<RefusedSend> = None;
         for effect in effects {
             match effect {
                 PeerEffect::Frame {
                     dir: Direction::Send,
                     value,
                 } => {
-                    if let Some(message) = self.sent(&value) {
-                        self.report_all(&message);
-                    }
+                    refused = self.sent(&value);
                 }
                 PeerEffect::Frame {
                     dir: Direction::Recv,
@@ -87,14 +89,28 @@ impl Inner {
                     }
                 }
                 PeerEffect::Settle { id, result } => self.settle(id, result),
-                PeerEffect::Write { wire, ticket } => {
-                    self.out.push(HostEffect::Write { wire, ticket })
-                }
+                PeerEffect::Write { wire, ticket } => match refused.take() {
+                    // Every frame a channel sends is vetted before the peer
+                    // claims it (`api.rs`), so a refusal here is a defect: the
+                    // line still goes out, because an unacknowledged ticket the
+                    // host dropped would stall shared stdin, and the channel
+                    // hears the refusal.
+                    Some(refusal) => {
+                        self.out.push(HostEffect::Error {
+                            tenant: refusal.tenant,
+                            message: refusal.message,
+                        });
+                        self.out.push(HostEffect::Write { wire, ticket });
+                    }
+                    None => self.out.push(HostEffect::Write { wire, ticket }),
+                },
                 PeerEffect::ArmTimer { key, ms } => self.out.push(HostEffect::ArmTimer { key, ms }),
                 PeerEffect::CancelTimer { key } => self.out.push(HostEffect::CancelTimer { key }),
                 PeerEffect::Failed { message } => self.report_all(&message),
             }
         }
+        // A veto's verdict is good for the one frame of this input.
+        self.admitted_send = None;
     }
 
     /// A request the host made itself: its answer goes back into the walk.
