@@ -44,11 +44,15 @@ struct SourceTextView: UIViewRepresentable {
     let document: SourceDocument
     let wrap: Bool
     let editable: Bool
+    /// Settings › Editor: the font, row height and indentation the text is drawn and typed in.
+    var preferences: EditorPreferences = .current()
     /// A line (1-based) to bring into view once, highlighted.
     let line: Int?
     let handle: SourceHandle
     /// Called once the edited text first differs from what was loaded, and again if it returns.
     var dirty: ((Bool) -> Void)?
+    /// The person typed: a keystroke landed in the text.
+    var typed: (() -> Void)? = nil
     /// The lines (1-based) the person selected while reading, nil once nothing is; with `mention`,
     /// the selection's edit menu also offers Mention in message.
     var selected: ((ClosedRange<Int>?) -> Void)? = nil
@@ -68,6 +72,7 @@ struct SourceTextView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SourceContainer {
         let view = SourceContainer()
+        view.preferences = preferences
         view.text.delegate = context.coordinator
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         tap.cancelsTouchesInView = false
@@ -85,6 +90,7 @@ struct SourceTextView: UIViewRepresentable {
         context.coordinator.parent = self
         handle.view = view.text
         view.text.isEditable = editable
+        view.preferences = preferences
         if view.notes != notes { view.notes = notes; view.gutter.setNeedsDisplay() }
         if context.coordinator.key != document.key {
             let same = !context.coordinator.key.isEmpty && document.file != nil && context.coordinator.file == document.file
@@ -126,12 +132,24 @@ struct SourceTextView: UIViewRepresentable {
             pending = nil
             let now = !textView.text.utf8.elementsEqual(original.utf8)
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
+            parent.typed?()
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            // Indent with Spaces: a tab typed on a hardware keyboard writes the indent step, as
+            // the web's editor does. Indenting with tabs keeps a real tab.
+            let written = text == "\t" ? parent.preferences.indent : text
             if parent.edited != nil, let container = textView.superview?.superview as? SourceContainer {
-                pending = container.replacement(range, with: text)
+                pending = container.replacement(range, with: written)
             }
-            return true
+            guard written != text else { return true }
+            if let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+               let end = textView.position(from: start, offset: range.length),
+               let span = textView.textRange(from: start, to: end) {
+                textView.replace(span, withText: written)
+            } else {
+                textView.insertText(written)
+            }
+            return false
         }
         @objc func tapped() { parent.touched?() }
         func textViewDidBeginEditing(_ textView: UITextView) { parent.touched?() }
@@ -186,6 +204,10 @@ final class SourceContainer: UIView {
     var wrap = false {
         didSet { if wrap != oldValue { setNeedsLayout() } }
     }
+    /// Settings › Editor's font, row height and indentation; a change refonts the text in place.
+    var preferences = EditorPreferences() {
+        didSet { if preferences != oldValue { applyPreferences() } }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -217,10 +239,15 @@ final class SourceContainer: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    var font: UIFont {
-        UIFont.monospacedSystemFont(ofSize: UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.size, compatibleWith: traitCollection), weight: .regular)
+    /// The chosen size, scaled by Dynamic Type as the rest of ace's code is.
+    private var scaledFontSize: CGFloat {
+        UIFontMetrics(forTextStyle: .footnote).scaledValue(for: CGFloat(preferences.fontSize), compatibleWith: traitCollection)
     }
-    private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
+    var font: UIFont {
+        UIFont.monospacedSystemFont(ofSize: scaledFontSize, weight: .regular)
+    }
+    /// A row's height: the chosen line height, never tighter than the glyphs.
+    private var lineHeight: CGFloat { preferences.lineHeight(forFontSize: scaledFontSize) }
     private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
     /// The 1-based line holding UTF-16 offset `offset`.
     func line(at offset: Int) -> Int { lineIndex(at: offset) + 1 }
@@ -231,9 +258,26 @@ final class SourceContainer: UIView {
         paragraph.minimumLineHeight = lineHeight
         paragraph.maximumLineHeight = lineHeight
         paragraph.lineBreakMode = .byCharWrapping
-        paragraph.defaultTabInterval = charWidth * 4
+        paragraph.defaultTabInterval = charWidth * CGFloat(preferences.tabSize)
         paragraph.tabStops = []
         return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
+    }
+
+    /// After a Settings › Editor change: the text already in the view takes the new font, row
+    /// height and tab stops, keeping the colours read for it.
+    private func applyPreferences() {
+        let base = attributes()
+        text.typingAttributes = base
+        let whole = NSRange(location: 0, length: text.textStorage.length)
+        text.textStorage.beginEditing()
+        if let paragraph = base[.paragraphStyle] {
+            text.textStorage.addAttribute(.paragraphStyle, value: paragraph, range: whole)
+        }
+        text.textStorage.addAttribute(.font, value: font, range: whole)
+        text.textStorage.endEditing()
+        countLines()
+        setNeedsLayout()
+        gutter.setNeedsDisplay()
     }
 
     /// Colours being read for the text on screen, off the main thread.
@@ -279,7 +323,7 @@ final class SourceContainer: UIView {
                 widest = max(widest, column)
                 column = 0
             } else {
-                column += unit == 9 ? 4 : (unit < 0x1100 ? 1 : 2)
+                column += unit == 9 ? preferences.tabSize : (unit < 0x1100 ? 1 : 2)
             }
         }
         lineStarts = starts

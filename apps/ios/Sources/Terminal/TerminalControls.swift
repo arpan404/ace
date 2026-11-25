@@ -93,14 +93,25 @@ extension TerminalScreen: TerminalHandler {
     }
 
     mutating func osc(_ text: String) {
-        let parts = text.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let code = parts.first.flatMap({ Int($0) }) else { return }
-        let value = parts.count > 1 ? String(parts[1]) : ""
-        switch code {
-        case 0, 2: setTitle(value)
-        case 10 where value == "?": replies += "\u{1b}]10;rgb:e6e6/e6e6/e6e6\u{1b}\\"
-        case 11 where value == "?": replies += "\u{1b}]11;rgb:1414/1414/1414\u{1b}\\"
-        default: break // hyperlinks, palette changes and clipboard writes are not taken
+        for command in TerminalOSC.parse(text) {
+            switch command {
+            case .title(let value):
+                setTitle(value)
+            case .hyperlink(let address):
+                setLink(address)
+            case .setIndexed(let index, let colour):
+                setColour(colour, at: index)
+            case .queryIndexed(let index):
+                replies += "\u{1b}]4;\(index);\(TerminalColours.reply(colours.colour(at: index)))\u{1b}\\"
+            case .setSpecial(let slot, let colour):
+                setColour(colour, slot)
+            case .querySpecial(let slot):
+                replies += "\u{1b}]\(slot.code);\(TerminalColours.reply(colours.colour(slot)))\u{1b}\\"
+            case .resetIndexed(let indexes):
+                resetColours(indexes: indexes)
+            case .resetSpecial(let slot):
+                resetColour(slot)
+            }
         }
     }
 

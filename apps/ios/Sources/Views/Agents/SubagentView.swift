@@ -118,14 +118,13 @@ struct SubagentView: View {
     }
 }
 
-/// What the parent asked, where a thread starts with the person's message: the bubble folds a
-/// long prompt as the person's long messages do.
+/// What the parent agent asked, in a neutral bubble that folds a long prompt.
 private struct PromptBubble: View {
     let prompt: SubagentInfo.Prompt
     let parent: String
     var body: some View {
         VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
-            UserBubble(text: prompt.bubble.segments.map(\.text).joined(), bubble: prompt.bubble, id: "prompt")
+            UserBubble(text: prompt.bubble.segments.map(\.text).joined(), bubble: prompt.bubble, id: "prompt", style: .neutral)
             Text(Date(timeIntervalSince1970: prompt.at / 1000), format: .dateTime.hour().minute())
                 .font(AceDesign.Typeface.meta)
                 .foregroundStyle(AceDesign.Ink.subtle)

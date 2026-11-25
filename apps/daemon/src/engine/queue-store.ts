@@ -27,6 +27,11 @@ export const RecoveryRecord = QueueState.extend({
   exited: z.boolean(),
 });
 export type RecoveryRecord = z.infer<typeof RecoveryRecord>;
+export class MissingQueueMetadata extends Error {
+  constructor() {
+    super("Missing queue metadata");
+  }
+}
 export const maxMessages = 256;
 const withState = "thread_id IN (SELECT thread_id FROM thread_state)";
 /**
@@ -116,7 +121,7 @@ export class QueueStore {
   }
   get(id: ThreadId): RecoveryRecord {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
-    if (!row) throw new Error("Missing queue metadata");
+    if (!row) throw new MissingQueueMetadata();
     return RecoveryRecord.parse({
       pendingCount: this.count(id) + (row.continuation && !this.uncertainRecovery(id) ? 1 : 0),
       holdToken: row.hold_token,
