@@ -32,7 +32,24 @@ export interface EngineProbe {
   claim(): string;
   turns(): Promise<ProbeTurns>;
   woken(): string[];
-  emptyCandidates(): void;
+  /** The E5.3 fold seam: a batch through `apply`, and one inside a rolled-back transaction. */
+  apply(threadId: string, facts: readonly unknown[], now: number): void;
+  applyRolledBack(threadId: string, facts: readonly unknown[], now: number): void;
+  /** The probe's pass-through collaborators (E5.3 scaffolding). */
+  passThroughCollaborators(): void;
+  /** One live batch through `stream`: true when it was buffered. */
+  stream(threadId: string, facts: readonly unknown[], now: number): boolean;
+  /** The record budget's figures. */
+  budget(): { entries: number; bytes: number; evictions: number };
+  /** Resident snapshots, and whether one thread's is resident. */
+  resident(): number;
+  holds(threadId: string): boolean;
+  /** The store's rollback generation, as the engine reads it. */
+  rollbackGeneration(): number;
+  /** The quarantine path: pin removed, snapshot evicted. */
+  quarantine(threadId: string): void;
+  /** The startup candidate scan's pages over the current home. */
+  candidatePages(): string[][];
   stats(): Promise<ProbeTurns>;
   /** A close step that awaits `port`: the deadline test's module-step stall. */
   stallCloseStep(port: () => Promise<void>): void;
@@ -203,16 +220,25 @@ export interface PortLog {
 }
 
 export interface EngineSeam {
+  /** The home every engine of this seam shares. */
+  home: string;
   store: Store;
   engine: Engine;
   clock: ManualClock;
   ports: PortLog;
   probe: EngineProbe;
   close(): Promise<void>;
+  /** Closes the engine and opens a fresh one on the same home (E5.3's reopen proof). */
+  reopen(): Promise<EngineSeam>;
 }
 
 export interface EngineSeamInput {
   seed?: (store: Store) => void | Promise<void>;
+  /**
+   * Runs after the engine is constructed and before its first pump turn: a test seeds rows the
+   * opener created (E5.3's `thread_state`, which a fresh home has only once the opener ran).
+   */
+  afterOpen?: (store: Store) => void;
   seedWithTypeScript?: { script: string; args?: readonly string[] };
   options?: Partial<EngineOptions> & { home?: string };
 }
@@ -288,6 +314,7 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
   const ports = portLog();
   const options = logged(input.options ?? {}, clock, ports);
   const engine = new Engine(store, options);
+  input.afterOpen?.(store);
   const native = (engine as unknown as NativeEngine).binding;
   if (native === undefined) throw new Error("the engine seam built the TypeScript engine");
   const probe = probeFor(
@@ -297,8 +324,8 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
     options,
     clock,
   );
-  probe.emptyCandidates();
-  return {
+  const seam: EngineSeam = {
+    home,
     store,
     engine,
     clock,
@@ -310,5 +337,36 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
       await store.close();
       rmSync(home, { recursive: true, force: true });
     },
+    async reopen() {
+      await engine.close().catch(() => {});
+      await store.close();
+      const nextClock = new ManualClock();
+      const next = new Store(path, console.error, {
+        bufferScheduler: {
+          delay: (callback: () => void, ms: number) => nextClock.setTimer(callback, ms),
+        },
+      });
+      const nextPorts = portLog();
+      const nextEngine = new Engine(next, logged(input.options ?? {}, nextClock, nextPorts));
+      const nextNative = (nextEngine as unknown as NativeEngine).binding;
+      const nextProbe = probeFor(
+        nextNative,
+        new FrameTable(() => nextClock.now()),
+        nextEngine as unknown as NativeEngine,
+        logged(input.options ?? {}, nextClock, nextPorts),
+        nextClock,
+      );
+      return {
+        home,
+        store: next,
+        engine: nextEngine,
+        clock: nextClock,
+        ports: nextPorts,
+        probe: nextProbe,
+        close: seam.close,
+        reopen: seam.reopen,
+      };
+    },
   };
+  return seam;
 }

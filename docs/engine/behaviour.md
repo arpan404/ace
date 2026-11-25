@@ -714,3 +714,28 @@ Counts: engine 173 (a 149, b 24); core 40 (a 39, — 1); test kit 5 (a 5); Codex
 Claude 50 (a 42, — 8); Cursor 48 (a 26, b 8, — 14); OpenCode 41 (a 35, b 4, — 2); ACP 35
 (a 33, b 2); Pi 20 (a 18, b 2); process layer 82 (a 29, b 15, — 38). In all 555 files: 428
 (a), 64 (b), 0 (c), 63 (—).
+
+## 20. Differences the Rust port records
+
+Behaviour the TypeScript daemon has today that the Rust port does not copy, because the
+TypeScript behaviour is a defect (owner decision, 2026-11-24: bugs found in the TypeScript
+daemon are fixed in the Rust port only, never on main). Each has a native-only test beside the
+Rust that replaces it; when the TypeScript engine is deleted, this section becomes the changelog
+of those fixes.
+
+| Area              | TypeScript today                                                                                                                                                                                                  | Rust                                                                                                                                                                                                                                                                           | Test                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Rollback sync     | One global `snapshotGeneration` (`repository.ts:204`): a resident snapshot spared by one sync while a live write is pinned is never checked against a later generation, so a rolled-back state can stay resident. | The generation is kept **per snapshot**. A pinned snapshot keeps its old stamp and is checked again after its own commit (E5.3 step 8, `repository/residency.rs`).                                                                                                             | `repository::save`'s rollback cases.                                                  |
+| Quarantine        | A quarantined live write evicts the snapshot only through its actor (`actor.ts:276`), so a thread with no actor keeps the discarded buffer's state resident at the stored `seq`.                                  | The engine's quarantine listener evicts and releases the snapshot whether or not an actor exists, then tells the actor (`repository/residency.rs::quarantined`).                                                                                                               | `persistence.test.ts`, "a quarantined thread with no actor reloads its stored state". |
+| Restarted thought | Closing a streaming thought after a restart relies on the core's proxy reads: `state.items[key]` loads the record when `turn.ended` reads the open-text index.                                                    | The enumerated index sections' records are loaded with the index (`snapshot/mod.rs::load_indexes`), so a thought streaming before a restart closes when its turn ends.                                                                                                         | `snapshot::tests::a_thought_still_streaming_at_restart_closes_when_its_turn_ends`.    |
+| Record budget     | A state read (`state()`) caches nothing: every section is a lazy proxy, so a reloaded thread's budget is empty until core reads a record.                                                                         | The index sections core enumerates are read at load (they are the live set, never the transcript), so a reloaded snapshot's budget holds those few short rows. The bounded limit (8192 entries / 8 MiB, `records/budget.rs`) and every other section's laziness are unchanged. | `persistence.test.ts`, the rolled-back fold case.                                     |
+
+### Startup retry classification, and the JavaScript message gap
+
+`skippableAtStartup` refuses a store retry: SQLite's primary busy (5), locked (6) and full (13)
+codes, masked off the extended code the store reports, are retried, never skipped. The store's own
+`"Store is busy"` and a pinned live batch that is retrying arrive as port errors, and are retried
+too. A JavaScript error that reaches Rust as a message alone (`ports.rs` keeps only the reason
+text) cannot be classified by code: a JavaScript `"database is locked"` is reported and retried as
+a damaged thread would be skipped. Recorded here as a gap; closing it needs the port error to
+carry SQLite's code.

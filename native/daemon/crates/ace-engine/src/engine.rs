@@ -32,6 +32,7 @@ impl Engine {
         inputs: Inputs,
         registry_json: &str,
         notifier: Box<dyn executor::Notifier>,
+        connection: &std::sync::Arc<ace_store::Connection>,
         actor_deps: Rc<actor::ActorDeps>,
     ) -> Result<Engine, EngineError> {
         let limits = limits::resolve(inputs.limits)?;
@@ -41,6 +42,7 @@ impl Engine {
             ports: Rc::clone(&ports),
             stack,
             outermost: Cell::new(true),
+            conn: std::sync::Arc::clone(connection),
         };
         let mut state = State {
             limits,
