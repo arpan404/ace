@@ -1,16 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Cases moved from the six TypeScript host process files (`host-ack`, `host-frame-storage`,
-//! `host-stderr`, `host-stop`, `host-stray-output`, `sdk-admission`, owner decision of
-//! 2026-11-25): each keeps its TypeScript name and asserts the daemon side the core owns. The
-//! cases whose behaviour is the host child's (`host-wire.ts`, which stays TypeScript), the
-//! session's redaction (`@ace/redaction`) or SDK discovery (the facade) stay in their files.
+//! Cases moved from the six TypeScript host process files (owner decision, 2026-11-25). Each
+//! Rust test keeps the TypeScript case's name and asserts the daemon side the core owns; the
+//! TypeScript cases themselves are deleted from those files, so nothing exists twice.
 //!
-//! Moved one for one from:
-//! - `host-ack`: the late acknowledgement, and the open deadline a stuck frame is fenced by.
-//! - `host-frame-storage`: the storage reason on a request, and the stop cause on a notification.
-//! - `host-stderr`: the host surviving an oversized stderr line.
-//! - `host-stray-output`: raw output and the turn going on, a JSON line that is not JSON-RPC, and
-//!   stray text joined to a JSON-RPC message.
+//! Moved one for one:
+//! - `host-ack`: "a storage acknowledgement that arrives after the host stopped waiting leaves the
+//!   host running"; "a frame stuck in storage while opening is fenced within the open request's
+//!   deadline".
+//! - `host-frame-storage`: "a frame ace fails to store is reported to the host as ace's storage
+//!   failure"; "a host stopped because ace failed to store its frame names ace's storage as the
+//!   cause".
+//! - `host-stderr`: "a Cursor host survives an oversized stderr line from a process it inherits
+//!   stderr to".
+//! - `host-stray-output`: "a non-JSON line on the host's stdout is kept as redacted raw output and
+//!   the turn goes on"; "a JSON line from the host that is not a JSON-RPC message still stops the
+//!   host"; "stray text joined to a JSON-RPC message on one line still stops the host".
+//!
+//! Also moved with them, because the same rule owns them: a stderr line split across reads (the
+//! E3.0c hold's line order, found in review), and the two batch cases below, whose failure is
+//! ace's storage failing (`session.ts:93`-`:98`).
+//!
+//! Kept in TypeScript: `host-stop` (the stop plan is the facade's) and `sdk-admission` (SDK
+//! discovery, Windows-only), and the cases whose behaviour is the host child's (`host-wire.ts`),
+//! the session's redaction or discovery, which stay in their files.
 
 use super::*;
 use crate::session::error::ACE_CURSOR_RPC;
@@ -33,18 +45,22 @@ fn a_storage_acknowledgement_that_arrives_after_the_host_stopped_waiting_leaves_
 #[test]
 fn a_frame_stuck_in_storage_while_opening_is_fenced_within_the_open_request_deadline() {
     let mut host = core();
-    let effects = host
+    // The open is out, and the host's first frame arrived but is still uncommitted: the turn's
+    // record is stuck in storage when the open's deadline fires.
+    let opened = host
         .request("open", Some(&Value::Null), 7, None)
         .expect("an open request");
-    let key = effects
+    // The pipe took the open's line, so the next write can go out.
+    let opened = ack(&mut host, opened);
+    let key = opened
         .iter()
         .find_map(|effect| match effect {
             HostEffect::ArmTimer { key, .. } => Some(key.clone()),
             _ => None,
         })
         .expect("the open deadline");
-    // The deadline fires while the host's frame is still uncommitted: the open settles, not the
-    // host, and the session can fence the turn (`host.ts:196`).
+    let frame = host.stdout_bytes(format!("{}\n", request_line("host:1", DELTA)).as_bytes());
+    assert_eq!(frames(&frame).len(), 1);
     let settled = host.timer(&key);
     let outcome = settled
         .iter()
@@ -56,7 +72,13 @@ fn a_frame_stuck_in_storage_while_opening_is_fenced_within_the_open_request_dead
     let error = outcome.expect_err("the open timed out");
     assert_eq!(error.code, ACE_CURSOR_RPC);
     assert_eq!(error.message, "JSON-RPC request timed out: open");
-    // The host is still running and answering.
+    // The stuck frame is answered once when its store lands, and reading goes on.
+    let answered = host.committed(1);
+    assert_eq!(
+        writes(&answered),
+        vec![r#"{"jsonrpc":"2.0","id":"host:1","result":{"committed":true}}"#.to_owned()]
+    );
+    assert!(writes(&host.committed(1)).is_empty());
     let effects = feed(&mut host, &[&request_line("host:9", DELTA)]);
     assert_eq!(frames(&effects).len(), 1);
 }
@@ -95,6 +117,30 @@ fn a_host_stopped_because_ace_failed_to_store_its_frame_names_aces_storage_as_th
         )
     );
     assert!(writes(&effects).is_empty());
+}
+
+#[test]
+fn a_stderr_line_split_across_two_reads_keeps_its_head() {
+    let mut host = core();
+    // The SDK's own writes land mid-line: `"Err"`, then `"or: auth expired\n"`.
+    assert!(host.stderr_bytes(b"Err").is_empty());
+    let effects = host.stderr_bytes(b"or: auth expired\n");
+    assert_eq!(
+        port(&effects, PORT_STDERR),
+        Some(r#"{"line":"Error: auth expired"}"#.to_owned())
+    );
+}
+
+#[test]
+fn a_stderr_line_split_across_three_reads_keeps_its_head() {
+    let mut host = core();
+    assert!(host.stderr_bytes(b"Er").is_empty());
+    assert!(host.stderr_bytes(b"ror: auth").is_empty());
+    let effects = host.stderr_bytes(b" expired\n");
+    assert_eq!(
+        port(&effects, PORT_STDERR),
+        Some(r#"{"line":"Error: auth expired"}"#.to_owned())
+    );
 }
 
 #[test]
@@ -153,5 +199,40 @@ fn stray_text_joined_to_a_json_rpc_message_on_one_line_still_stops_the_host() {
     assert_eq!(
         port(&effects, PORT_STOP),
         Some(format!(r#"{{"reason":"{MALFORMED}"}}"#))
+    );
+}
+
+#[test]
+fn a_batch_whose_inner_frame_is_not_an_envelope_is_aces_storage_failure() {
+    let mut host = core();
+    let inner = DELTA.replace(r#""schemaVersion":1"#, r#""schemaVersion":8"#);
+    let batch = format!(
+        r#"{{"schemaVersion":1,"operationId":"op","generation":"g","segment":0,"kind":"batch","body":{{"frames":[{inner}]}}}}"#
+    );
+    let lines = feed(&mut host, &[&request_line("host:1", &batch)]);
+    assert!(frames(&lines).is_empty());
+    assert_eq!(
+        writes(&lines),
+        vec![
+            r#"{"jsonrpc":"2.0","id":"host:1","error":{"code":-32603,"message":"ace could not store a Cursor SDK frame: Malformed SDK frame batch"}}"#
+                .to_owned()
+        ]
+    );
+}
+
+#[test]
+fn a_notification_batch_whose_inner_frame_is_not_an_envelope_stops_the_host_as_a_store_failure() {
+    let mut host = core();
+    let inner = DELTA.replace(r#""schemaVersion":1"#, r#""schemaVersion":8"#);
+    let batch = format!(
+        r#"{{"schemaVersion":1,"operationId":"op","generation":"g","segment":0,"kind":"batch","body":{{"frames":[{inner}]}}}}"#
+    );
+    let effects = feed(&mut host, &[&notification_line(&batch)]);
+    assert_eq!(
+        port(&effects, PORT_STOP),
+        Some(
+            r#"{"reason":"ace could not store a Cursor SDK frame: Malformed SDK frame batch"}"#
+                .to_owned()
+        )
     );
 }

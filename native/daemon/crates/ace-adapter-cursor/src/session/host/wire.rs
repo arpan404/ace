@@ -21,6 +21,15 @@ use crate::session::bounded::{self, DEFAULT_MAX_BYTES};
 use crate::session::envelope;
 use crate::session::error::{ACE_CURSOR_RPC, HostErrorWire, SessionError};
 
+/// A batch member's failure is ace's storage failing, as `session.ts:93`-`:98` makes it: the
+/// unbatch and each inner frame's bound run inside `onFrame` there (`host.ts:161`-`:164`).
+fn stored(error: SessionError) -> SessionError {
+    SessionError::Peer(format!(
+        "ace could not store a Cursor SDK frame: {}",
+        error.message()
+    ))
+}
+
 impl CursorHostCore {
     pub(super) fn lines(&mut self, framed: &FramedLines, out: &mut Vec<HostEffect>) {
         if framed.count == 0 {
@@ -105,7 +114,7 @@ impl CursorHostCore {
                 &SessionError::UnknownRequest.message(),
             );
         }
-        match self.receive_frame(line, params.as_ref(), out) {
+        match self.receive_frame(line, params, out) {
             Ok((first, count)) => {
                 self.acks.track(Some(id), first, count);
                 Vec::new()
@@ -133,7 +142,7 @@ impl CursorHostCore {
                 Vec::new()
             }
             "frame" => {
-                match self.receive_frame(line, params.as_ref(), out) {
+                match self.receive_frame(line, params, out) {
                     Ok((first, count)) => self.acks.track(None, first, count),
                     // An unacknowledged frame that was not stored leaves the turn incomplete,
                     // so the host stops; the cause says whose fault it was (`host.ts:181`-`:188`).
@@ -161,50 +170,49 @@ impl CursorHostCore {
     fn receive_frame(
         &mut self,
         line: Option<&str>,
-        params: Option<&Value>,
+        params: Option<Value>,
         out: &mut Vec<HostEffect>,
     ) -> Result<(u64, u64), SessionError> {
-        let null = Value::Null;
-        let value = params.unwrap_or(&null);
-        // The text of a frame that is not a batch is the host's own span when it wrote one
-        // canonically; the bound runs first either way, so a broken one is refused before the
-        // envelope is read (`host.ts:147`).
+        let value = params.unwrap_or(Value::Null);
+        // The bound runs first, on the parsed value (`host.ts:147`). A frame that is not a batch
+        // crosses with the host's own span when it wrote one canonically (it does: `host-wire.ts`
+        // writes every line with `boundedJson`), so nothing is serialised twice. `parse_raw` is a
+        // validating scan of a line the peer already parsed, kept because it is how the span is
+        // found at all; it allocates nothing (`pi/wire.rs:748` admits the same way).
         let raw = line.and_then(|line| ace_json::parse_raw(line).ok());
-        let span = raw.as_ref().and_then(|raw| raw.get("params"));
-        let span = span
+        let span = raw
+            .as_ref()
+            .and_then(|raw| raw.get("params"))
             .filter(|span| span.is_canonical())
             .map(|span| span.text());
-        let serialized = match span {
-            Some(_) => {
-                bounded::bounded_check(value, self.limits.max_frame_bytes)?;
-                None
-            }
-            None => Some(bounded::bounded_json(value, self.limits.max_frame_bytes)?),
-        };
-        let envelope = envelope::parse(value)?;
+        bounded::bounded_check(&value, self.limits.max_frame_bytes)?;
+        let envelope = envelope::parse(&value)?;
         if envelope.generation != &self.generation {
             return Err(SessionError::GenerationMismatch);
         }
-        let batch = envelope.is_batch();
-        let error = if !batch && envelope.kind.as_str() == "error" {
+        let error = if !envelope.is_batch() && envelope.kind.as_str() == "error" {
             error_body(envelope.body)
         } else {
             None
         };
-        let frames: Vec<(Value, String)> = if batch {
-            let mut frames = Vec::new();
-            for inner in envelope::unbatch(value)? {
-                let text = bounded::bounded_json(&inner, DEFAULT_MAX_BYTES)?;
-                frames.push((inner, text));
+        let mut frames: Vec<(Value, String)> = Vec::new();
+        if envelope.is_batch() {
+            // A batch's inner frames are the session's work in TypeScript (`session.ts:93`-`:98`),
+            // so their failures are ace's storage failing, not the host's protocol (`host.ts:161`).
+            let inner = envelope::unbatch(&value).map_err(stored)?;
+            for frame in inner {
+                let text = bounded::bounded_json(&frame, DEFAULT_MAX_BYTES)
+                    .map_err(SessionError::from)
+                    .map_err(stored)?;
+                frames.push((frame, text));
             }
-            frames
         } else {
             let text = match span {
                 Some(span) => span.to_owned(),
-                None => serialized.unwrap_or_default(),
+                None => bounded::bounded_json(&value, self.limits.max_frame_bytes)?,
             };
-            vec![(value.clone(), text)]
-        };
+            frames.push((value, text));
+        }
         let first = self.next_frame + 1;
         let mut effects = Vec::with_capacity(frames.len());
         for (data, text) in frames {

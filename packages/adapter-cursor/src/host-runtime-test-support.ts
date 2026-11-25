@@ -34,7 +34,7 @@ export interface FakeSdkScenario {
  * The fake writes "sdk-send", "sdk-cancel" and "sdk-cancelled" (cancel resolved) to stderr. A
  * runtime that abandons its host writes the host's fatal line and exits, as the entry does.
  */
-const runtimeHost = (scenario: FakeSdkScenario) => `
+export const runtimeHost = (scenario: FakeSdkScenario) => `
 const sdk = await import(process.versions.bun ? ${JSON.stringify(sdkModule(true))} : ${JSON.stringify(sdkModule(false))});
 const { hostWire } = await import(${JSON.stringify(wireModule)});
 const { HostRuntime } = await import(${JSON.stringify(runtimeModule)});
