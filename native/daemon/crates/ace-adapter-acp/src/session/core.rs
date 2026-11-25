@@ -419,16 +419,6 @@ impl AcpCore {
         // The line this ticket carried is on the pipe: a steer waiting on it was written.
         self.confirm_steer_write(ticket);
         let peer_effects = self.peer.written(ticket);
-        // The writer just handed out the next queued line. A steer whose request was
-        // queued behind another write takes that ticket now; the peer's queue is FIFO, so
-        // the oldest steer still waiting for one is the line that was pumped.
-        let pumped = peer_effects.iter().find_map(|effect| match effect {
-            PeerEffect::Write { ticket, .. } => Some(*ticket),
-            _ => None,
-        });
-        if let Some(ticket) = pumped {
-            self.assign_steer_ticket(ticket);
-        }
         let mut effects = Vec::new();
         self.apply_peer_effects(peer_effects, &mut effects);
         effects
@@ -445,16 +435,6 @@ impl AcpCore {
         for batch in batches {
             if let Some(state) = self.batches.get_mut(&batch) {
                 state.written = true;
-            }
-        }
-    }
-
-    /// The peer pumped a queued line; the oldest steer still without a ticket owns it.
-    fn assign_steer_ticket(&mut self, ticket: u64) {
-        for flight in self.steering.values_mut() {
-            if flight.ticket.is_none() {
-                flight.ticket = Some(ticket);
-                return;
             }
         }
     }
@@ -922,6 +902,8 @@ impl AcpCore {
             self.cancelling_children.shift_remove(&id);
             self.clear_deadline(&format!("child:{id}"), effects);
         }
+        // A child that ended releases the prompt it held (`session.ts:251`).
+        self.drain(effects);
     }
 
     /// Handle incoming agent-to-client JSON-RPC requests (`session.ts:798`–`:819`).
@@ -1064,6 +1046,8 @@ impl AcpCore {
             if self.routing.expire(&child_js) && !self.routing.has_live_children() {
                 self.clear_deadline("children", effects);
             }
+            // A child given up at its grace no longer holds the queue (`session.ts:905`).
+            self.drain(effects);
         }
     }
 

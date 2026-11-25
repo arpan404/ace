@@ -261,15 +261,13 @@ impl AcpCore {
         ) {
             Ok(peer_effects) => {
                 // `written` means the line left the writer, not that it was taken: the
-                // ticket the peer hands out here is confirmed by the shell's
+                // ticket the peer gave this request is confirmed by the shell's
                 // acknowledgement (`AcpCore::written`), and until then the steer is unread
-                // (`session.ts:630`, `intent-delivery.ts:140`-`:147`). A request the peer
-                // settled instead of writing (a refused enqueue, an oversized line) has no
-                // ticket, and its failure is a refusal.
-                let ticket = peer_effects.iter().find_map(|effect| match effect {
-                    ace_supervisor::peer::PeerEffect::Write { ticket, .. } => Some(*ticket),
-                    _ => None,
-                });
+                // (`session.ts:630`, `intent-delivery.ts:140`-`:147`). It is this call's
+                // own ticket even when the line queued behind another: a line queued ahead
+                // (a cancel, an answer) must never stand for the steer. A request the peer
+                // settled instead of writing has no ticket, and its failure is a refusal.
+                let ticket = self.peer.write_ticket(call);
                 if let Some(flight) = self.steering.get_mut(&call) {
                     flight.ticket = ticket;
                 }

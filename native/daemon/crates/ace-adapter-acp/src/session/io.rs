@@ -12,7 +12,8 @@ use ace_supervisor::errors::NodeIoError;
 use ace_supervisor::peer::{PeerError, PeerOwner, Timeout};
 use ace_supervisor::spawn::{Delivered, OutputStream, RawExit};
 
-use super::core::{AcpCore, AcpCoreConfig, AcpEffect};
+use super::core::{AcpCore, AcpCoreConfig, AcpEffect, AcpErrorWire};
+use super::input::InputSend;
 
 /// Inherited-pipe cutoff after leader exit (1,000 ms, same as `PiSessionCore`).
 const CUTOFF: &str = "cutoff";
@@ -147,6 +148,76 @@ impl AcpSessionCore {
     fn lock(&self) -> MutexGuard<'_, AcpCore> {
         self.core.lock().unwrap_or_else(|error| error.into_inner())
     }
+
+    /// `session.ts`'s send: admission, steer or queue, then the drain (E3-acp.2).
+    pub fn send(&self, send: InputSend<'_>) {
+        self.input(|core| {
+            let mut effects = Vec::new();
+            core.send(send, &mut effects);
+            effects
+        });
+    }
+
+    /// `interrupt` (`session.ts:856`): its frames, then the operation's settlement, so the
+    /// facade hears the refusal only after the frames it caused were published.
+    pub fn interrupt(&self, target: ace_adapter_api::session::InterruptTarget, operation: u64) {
+        let mut core = self.lock();
+        let mut effects = Vec::new();
+        let result = core.interrupt(target, &mut effects);
+        effects.push(settled(operation, result));
+        self.commit(&mut core, effects);
+    }
+
+    /// `resolve` (`session.ts:820`): the person's answer to an agent's request.
+    pub fn resolve(&self, key: &str, resolution: &Value, operation: u64) {
+        let mut core = self.lock();
+        let mut effects = Vec::new();
+        let result = core.resolve(key, resolution, &mut effects);
+        effects.push(settled(operation, result));
+        self.commit(&mut core, effects);
+    }
+
+    /// `setModel` (`session.ts:572`): settles the facade's `operation` with its reply.
+    pub fn set_model(&self, operation: u64, model: &str) {
+        self.input(|core| {
+            let mut effects = Vec::new();
+            core.set_model(operation, model, &mut effects);
+            effects
+        });
+    }
+
+    /// `setMode` (`session.ts:587`).
+    pub fn set_mode(&self, operation: u64, mode: &str) {
+        self.input(|core| {
+            let mut effects = Vec::new();
+            core.set_mode(operation, mode, &mut effects);
+            effects
+        });
+    }
+
+    /// `stopTask` (`session.ts:898`): ACP has no per-task control.
+    pub fn stop_task(&self, task: &str, operation: u64) {
+        let mut core = self.lock();
+        let result = core.stop_task(task);
+        self.commit(&mut core, vec![settled(operation, result)]);
+    }
+
+    /// The native mode the session reports running (`session.ts:522`): the configuration's
+    /// current mode, which a getter over the core gives the facade.
+    pub fn permission_mode(&self) -> Option<String> {
+        self.lock()
+            .configuration
+            .current(super::selectors::SelectorKind::Mode)
+    }
+
+    /// `close` (`session.ts:901`): the session's own teardown; the stop plan is the facade's.
+    pub fn close_session(&self, reason: ace_adapter_api::session::CloseReason) {
+        self.input(|core| {
+            let mut effects = Vec::new();
+            core.close(reason, &mut effects);
+            effects
+        });
+    }
 }
 
 impl OutputConsumer for AcpSessionCore {
@@ -197,6 +268,14 @@ impl OutputConsumer for AcpSessionCore {
             effects.extend(core.finish(detail, &summary));
             effects
         });
+    }
+}
+
+/// A facade operation settled with what the command decided, the failure included.
+fn settled(operation: u64, result: Result<(), AcpErrorWire>) -> AcpEffect {
+    AcpEffect::Settle {
+        id: operation,
+        result: result.map(|()| "null".to_owned()),
     }
 }
 

@@ -97,7 +97,8 @@ impl AcpCore {
             self.active = true;
             if let Some(command_id) = job.command_id.as_deref() {
                 // Identity before echo, before the prompt that carries it (behaviour.md 8).
-                let mut callback = Map::with_capacity(1);
+                let mut callback = Map::with_capacity(2);
+                callback.insert("commandId", Value::from(command_id));
                 callback.insert("nativeId", Value::from(command_id));
                 effects.push(AcpEffect::Callback {
                     name: "onInputMessage",
