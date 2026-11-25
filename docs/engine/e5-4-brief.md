@@ -665,16 +665,18 @@ and who handles it. The DDL stays TypeScript (decision 8). The fills are the E5.
 E5.4 adds no fill, no fill cursor and no open-time statement. Fills run as E5.3's pump tasks and
 never inside a receipt.
 
-> **Status (2026-11-24):** the fills in the "After the main fix" column are deferred with the E5.3
-> brief's prerequisite section. Until that ADR 0170 change lands for both engines, E5.4 ports
-> today's open-time statements as they are and its readers keep today's behaviour, with no fill
-> fallbacks. The queue's pending-from-intents read is the exception: it lands on main on its own and
-> E5.4a ports it.
+> **Status (owner decision, 2026-11-24):** no fills and no main PRs. E5.4 ports today's open-time
+> statements as they are, and its readers keep today's fallbacks. The queue's pending read is fixed
+> in Rust in E5.4a: pending work is always read from intents, even with no queue row. Record it as an
+> intended difference, with a native-only test.
 
-## Main fixes E5.4 depends on
+## TypeScript bugs E5.4 fixes in Rust
 
-Each is its own TypeScript PR on main. Its test is written first and must fail on main before the
-fix. The native port then copies the fixed behaviour.
+Owner decision, 2026-11-24: TypeScript daemon bugs are fixed in the Rust port only, never on main.
+Each fix below lands in its E5.4 round as an intended difference from TypeScript, recorded in
+`docs/engine/behaviour.md`. Its test runs only with the switch on (`describe.runIf(native)` or a Rust
+unit test), and the proof run treats it as an expected on/off difference. Where the text below
+says "TS fix" or "main", read it as "the Rust port".
 
 1. **Bounded open fills** (the E5.3 brief's prerequisite, `ace/fix-bounded-open-fills`). 4a waits
    for it to merge, then ports its queue readers. Its tests are listed in the E5.3 brief.

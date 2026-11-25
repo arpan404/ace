@@ -72,14 +72,13 @@ E5.3 runs in parallel with E5.2 and E5.4 and lands after E5.1.
 
 ## Prerequisite fix on main (TypeScript, its own PR, before E5.3)
 
-> **Status (owner's planner, 2026-11-24): deferred.** Three build rounds of this section on
-> `ace/fix-bounded-open-fills` each turned up new P1s: an unbounded per-thread rebuild that writes on a
-> cold read, divergence from the native transaction shell, and queued work slipping past the
-> provisional workspace fence. The section's one clear correctness bug, a queue that shows empty
-> while live intents exist, lands on its own (`ace/fix-queue-pending-from-intents`). The rest gets
-> its own design pass and one ADR 0170 change that covers both engines. Until then **E5.3 ports
-> today's open-time behaviour as it is**, with the same statements in the same order, so switching on changes
-> nothing at open. The text below is kept as the starting point for that design pass.
+> **Status (owner decision, 2026-11-24): no TypeScript fix.** Bugs found in the TypeScript daemon
+> are fixed in the Rust port only, never on main. This section is therefore **not** a PR to main.
+> E5.3 ports today's open-time statements as they are, in the same order. The bounded open-time
+> design (ADR 0170) becomes a later Rust-only item, starting from this text and the lessons on
+> `ace/fix-bounded-open-fills`: an unbounded per-thread rebuild, divergence from the native
+> transaction shell, and the provisional workspace fence. The queue that shows empty while live
+> intents exist is fixed in Rust in E5.4a, as a recorded difference with a native-only test.
 
 The opener (step 1) runs the TypeScript repository's constructors on every native boot, and those
 constructors do history-sized data work at open today. That breaks ADR 0170 §1–§3 on main with the
