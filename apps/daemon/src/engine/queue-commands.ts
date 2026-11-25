@@ -137,7 +137,12 @@ export function handleQueue(
       if (continuation) dependencies.repo.pending.finishContinuation(p.threadId);
       // The durable continuation remains available to Resume. Creating a runnable
       // recovery intent here would bypass a later manual or Stop hold.
-      if (!heldContinuation) dependencies.repo.add(replacement, p.threadId);
+      if (!heldContinuation) {
+        const added = dependencies.repo.add(replacement, p.threadId);
+        // A replacement steer is admitted like a fresh one: it keeps the turn running now as its
+        // aim, so a cancel-steered session cancels that turn, never a later one it never saw.
+        recordSteerAim(dependencies.repo, added, p.threadId, replacement);
+      }
       if (!continuation)
         dependencies.repo.acceptInput(replacement, p.threadId, dependencies.clock.now());
       // Only the ambiguity hold may be released, never a later pause or recovery hold.

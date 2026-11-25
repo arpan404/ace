@@ -344,3 +344,46 @@ test("a text-only edit never aims a steer at the turn running now", async () => 
     });
   });
 });
+
+test("a resent steer is aimed at the turn running when it goes back in", async () => {
+  await withSteerThread(({ repo, id, run, dependencies }) => {
+    const held = repo.add(
+      Command.parse({
+        id: "held-steer",
+        deviceId: "device",
+        payload: {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "steer once" }],
+          delivery: "steer",
+        },
+      }),
+      id,
+    );
+    repo.steerAims.record(held, null);
+    repo.queue.uncertain(held);
+    expect(
+      handleQueue(
+        Command.parse({
+          id: "resend-steer",
+          deviceId: "device",
+          payload: {
+            type: "queue.resend",
+            threadId: id,
+            expectedRevision: repo.queue.get(id).revision,
+            messageId: "held-steer",
+          },
+        }),
+        dependencies,
+      ),
+    ).toMatchObject({ ok: true });
+    const replacement = [...repo.pending.headers(id)].find(
+      (header) => header.commandId === "resend-steer",
+    );
+    if (!replacement) throw new Error("Expected the resent steer");
+    // The replacement is a steer again, so it keeps the turn running as its aim, as a fresh one
+    // does: a cancel-steered session cancels that turn, never a later one it never saw.
+    expect(replacement.delivery).toBe("steer");
+    expect(repo.steerAims.aim(replacement.id)).toBe(run);
+  });
+});
