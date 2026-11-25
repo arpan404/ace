@@ -244,7 +244,20 @@ impl Session {
         read.snapshot
             .insert("turns", Value::Array(ready.turns.into()));
         read.omitted = ready.omitted;
-        read.notes = ready.notes;
+        // A note's own `threadId` and `read` are the read's to say: whoever
+        // built the notes cannot know this read's number, and the fold emits
+        // them as they are.
+        let read_number = read.history;
+        read.notes = ready
+            .notes
+            .into_iter()
+            .map(|note| {
+                let mut note = note.as_object().cloned().unwrap_or_default();
+                note.insert("threadId", Value::from(thread.clone()));
+                note.insert("read", Value::from(read_number as f64));
+                Value::Object(note)
+            })
+            .collect();
         // Summaries omit commands. Only Codex's live-terminal list can rule out
         // a background shell (`:176`).
         let needs_terminals = self.discovery.uncertain.contains(&thread)

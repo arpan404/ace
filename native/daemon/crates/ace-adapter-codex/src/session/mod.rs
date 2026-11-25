@@ -8,6 +8,7 @@ pub mod app_server;
 pub mod discovery;
 pub mod dropped;
 pub mod frames;
+pub mod history;
 pub mod host;
 pub mod input;
 pub mod lease;
