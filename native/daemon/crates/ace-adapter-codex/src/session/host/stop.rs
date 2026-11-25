@@ -216,7 +216,9 @@ impl Inner {
         }
     }
 
-    /// A thread's last page is in: stop each terminal it named.
+    /// A thread's last page is in: each terminal it named is stopped once, in
+    /// the order the pages listed it (`stopShells`'s `Set`,
+    /// `session-commands.ts:181`).
     fn stop_listed_terminals(
         &mut self,
         tenant: u64,
@@ -224,39 +226,53 @@ impl Inner {
         thread: &JsString,
         terminals: Vec<JsString>,
     ) {
-        let mut queued = Vec::with_capacity(terminals.len());
-        for process in &terminals {
-            match self.enqueue_own(
-                "thread/backgroundTerminals/terminate",
-                &[("threadId", thread), ("processId", process)],
-                TERMINALS_MS,
-            ) {
-                Ok((id, peer)) => {
-                    self.own
-                        .insert(id, OwnPurpose::ShellStop { tenant, attempt });
-                    queued.push(peer);
-                }
-                Err(error) => {
-                    for peer in queued {
-                        self.apply(peer);
-                    }
-                    self.detach_failed(
-                        tenant,
-                        &format!("Could not stop the background terminals: {error}"),
-                    );
-                    return;
-                }
+        let Some(state) = self.detaching.get_mut(&tenant) else {
+            return;
+        };
+        // This thread's pages are read: its terminals take their turn next.
+        state.remaining = state.remaining.saturating_sub(1);
+        let mut seen = HashSet::with_capacity(terminals.len());
+        for process in terminals {
+            if seen.insert(process.clone()) {
+                state.stops.push_back((thread.clone(), process));
             }
         }
-        if let Some(state) = self.detaching.get_mut(&tenant) {
-            // This thread's pages become its terminals, one step each.
-            state.remaining = state.remaining.saturating_sub(1) + terminals.len();
+        self.stop_next_terminal(tenant, attempt);
+    }
+
+    /// The next terminal's stop goes out, if the last one is answered: the
+    /// peer's pending slots are shared with every other call, so a scan of any
+    /// size never runs it out of room (`stopShells` awaits each terminate).
+    fn stop_next_terminal(&mut self, tenant: u64, attempt: u64) {
+        let next = self.detaching.get(&tenant).and_then(|state| {
+            if state.stopping {
+                None
+            } else {
+                state.stops.front().cloned()
+            }
+        });
+        let Some((thread, process)) = next else {
+            self.terminals_settled(tenant);
+            return;
+        };
+        match self.enqueue_own(
+            "thread/backgroundTerminals/terminate",
+            &[("threadId", &thread), ("processId", &process)],
+            TERMINALS_MS,
+        ) {
+            Ok((id, peer)) => {
+                self.own
+                    .insert(id, OwnPurpose::ShellStop { tenant, attempt });
+                if let Some(state) = self.detaching.get_mut(&tenant) {
+                    state.stopping = true;
+                }
+                self.apply(peer);
+            }
+            Err(error) => self.detach_failed(
+                tenant,
+                &format!("Could not stop the background terminals: {error}"),
+            ),
         }
-        for peer in queued {
-            self.apply(peer);
-        }
-        // A thread with no terminal is already done.
-        self.terminals_settled(tenant);
     }
 
     /// One background terminal answered.
@@ -282,18 +298,21 @@ impl Inner {
             return;
         }
         if let Some(state) = self.detaching.get_mut(&tenant) {
-            state.remaining = state.remaining.saturating_sub(1);
+            state.stopping = false;
+            state.stops.pop_front();
         }
-        self.terminals_settled(tenant);
+        self.stop_next_terminal(tenant, attempt);
     }
 
     /// Every terminal of every thread is stopped: the threads go next.
     fn terminals_settled(&mut self, tenant: u64) {
-        if self
-            .detaching
-            .get(&tenant)
-            .is_some_and(|state| state.phase == Leaving::Terminals && state.remaining == 0)
-        {
+        let settled = self.detaching.get(&tenant).is_some_and(|state| {
+            state.phase == Leaving::Terminals
+                && state.remaining == 0
+                && state.stops.is_empty()
+                && !state.stopping
+        });
+        if settled {
             self.unsubscribe_threads(tenant);
         }
     }

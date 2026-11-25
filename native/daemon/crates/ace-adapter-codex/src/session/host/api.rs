@@ -327,6 +327,8 @@ impl Host {
                 reason: reason.to_owned(),
                 attempt,
                 phase: Leaving::Interrupts,
+                stops: VecDeque::new(),
+                stopping: false,
             },
         );
         // An interrupt the peer will not take cannot stop the turn: nothing

@@ -32,7 +32,7 @@ mod stop;
 pub use gate::HostGate;
 use holds::{Held, Hold};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ace_json::{JsString, Map, Value};
@@ -376,6 +376,11 @@ struct Detaching {
     /// late answer from a failed close never releases a retried one.
     attempt: u64,
     phase: Leaving,
+    /// Terminals still to stop, by thread, once each, in the order their pages
+    /// listed them. One stop is out at a time (`session-commands.ts:181`).
+    stops: VecDeque<(JsString, JsString)>,
+    /// A stop is out: the next waits for its answer.
+    stopping: bool,
 }
 
 /// How far a leaving channel has gone: its turns are interrupted, its

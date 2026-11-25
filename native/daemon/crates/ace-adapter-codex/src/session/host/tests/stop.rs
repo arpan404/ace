@@ -7,6 +7,27 @@ use super::*;
 use crate::session::harness::{Event, Recorder};
 use crate::session::pool::initialize;
 
+/// The process ids of the terminals `lines` stop, in the order they were
+/// written.
+fn stopped_processes(lines: &[String]) -> Vec<String> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let value = ace_json::parse(line).ok()?;
+            if value.get("method").and_then(Value::as_str)
+                != Some("thread/backgroundTerminals/terminate")
+            {
+                return None;
+            }
+            value
+                .get("params")?
+                .get("processId")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
 /// Records a running turn for a thread the channel already owns.
 fn busy_turn(host: &Host, thread: &str) {
     let _ = pump(
@@ -567,14 +588,13 @@ fn a_close_stops_the_channels_background_terminals_before_it_unsubscribes() {
             ace_json::json!({"data": [{"processId": "p1"}, {"processId": "p2"}]}),
         )),
     );
-    let stops: Vec<&String> = lines
-        .iter()
-        .filter(|line| line.contains("thread/backgroundTerminals/terminate"))
-        .collect();
-    assert_eq!(stops.len(), 2, "one stop per terminal: {stops:?}");
-    assert!(stops[0].contains("\"processId\":\"p1\""));
-    assert!(stops[1].contains("\"processId\":\"p2\""));
-    let stop_ids = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    let mut stop_ids = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    assert_eq!(stop_ids.len(), 1, "one stop is out at a time: {lines:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("\"processId\":\"p1\""))
+    );
     assert!(
         line_id(&lines, "thread/unsubscribe", Some("t")).is_none(),
         "the thread leaves only after its terminals stop"
@@ -582,7 +602,18 @@ fn a_close_stops_the_channels_background_terminals_before_it_unsubscribes() {
 
     let (_, lines) = pump(&host, host.line(&reply(&stop_ids[0], ace_json::json!({}))));
     assert!(line_id(&lines, "thread/unsubscribe", Some("t")).is_none());
-    let (_, lines) = pump(&host, host.line(&reply(&stop_ids[1], ace_json::json!({}))));
+    stop_ids = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    assert_eq!(
+        stop_ids.len(),
+        1,
+        "p2's stop follows p1's answer: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("\"processId\":\"p2\""))
+    );
+    let (_, lines) = pump(&host, host.line(&reply(&stop_ids[0], ace_json::json!({}))));
     assert!(
         line_id(&lines, "thread/unsubscribe", Some("t")).is_some(),
         "the last terminal stopped: the thread is unsubscribed"
@@ -720,13 +751,17 @@ fn a_close_pages_through_every_shell_before_stopping_them() {
             }),
         )),
     );
-    let stops: Vec<&String> = lines
-        .iter()
-        .filter(|line| line.contains("thread/backgroundTerminals/terminate"))
-        .collect();
-    assert_eq!(stops.len(), 2, "both pages' terminals stop: {stops:?}");
-    assert!(stops[0].contains("\"processId\":\"p1\""));
-    assert!(stops[1].contains("\"processId\":\"p2\""));
+    let stops = stopped_processes(&lines);
+    assert_eq!(stops, vec!["p1"], "the first page's terminal stops first");
+    let stop = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    assert_eq!(stop.len(), 1, "one stop is out at a time: {lines:?}");
+    let (_, lines) = pump(&host, host.line(&reply(&stop[0], ace_json::json!({}))));
+    let stops = stopped_processes(&lines);
+    assert_eq!(
+        stops,
+        vec!["p2"],
+        "the second page's terminal follows: {lines:?}"
+    );
 }
 
 /// A page the page schema refuses fails the cleanup: it is never read as an
@@ -822,6 +857,154 @@ fn a_malformed_terminal_cursor_fails_the_close_instead_of_ending_the_scan() {
             "the channel stays attached: {cursor}"
         );
     }
+}
+
+/// A scan bigger than the shared peer's pending slots still stops every
+/// terminal: one terminate is out at a time, each sent when the last is
+/// answered (`stopShells`, `session-commands.ts:181`).
+#[test]
+fn a_close_stops_more_terminals_than_the_peer_holds_one_at_a_time() {
+    const TERMINALS: usize = 1_025;
+    const PER_PAGE: usize = 256;
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let mut list =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the first page");
+
+    // Every page but the last: the continuation is asked for, nothing stopped.
+    for page in 0..(TERMINALS / PER_PAGE) {
+        let start = page * PER_PAGE;
+        let data: Vec<Value> = (start..start + PER_PAGE)
+            .map(|number| ace_json::json!({"processId": format!("p{number}")}))
+            .collect();
+        let (effects, lines) = pump(
+            &host,
+            host.line(&reply(
+                &list,
+                ace_json::json!({"data": data, "nextCursor": format!("c{page}")}),
+            )),
+        );
+        assert!(
+            !effects
+                .iter()
+                .any(|effect| matches!(effect, HostEffect::DetachFailed { .. })),
+            "page {page} never fails the close: {effects:#?}"
+        );
+        assert!(
+            line_ids(&lines, "thread/backgroundTerminals/terminate").is_empty(),
+            "nothing is stopped before the last page"
+        );
+        list = line_ids(&lines, "thread/backgroundTerminals/list")[0].clone();
+    }
+
+    // The last page starts the stops, one terminal at a time.
+    let last: Vec<Value> = (TERMINALS - 1..TERMINALS)
+        .map(|number| ace_json::json!({"processId": format!("p{number}")}))
+        .collect();
+    let (effects, lines) = pump(
+        &host,
+        host.line(&reply(
+            &list,
+            ace_json::json!({"data": last, "nextCursor": null}),
+        )),
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, HostEffect::DetachFailed { .. })),
+        "the whole scan fits the peer: {effects:#?}"
+    );
+    let mut stops = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    assert_eq!(stops.len(), 1, "one terminate is out at a time: {lines:?}");
+
+    let mut stopped = 0;
+    while let Some(stop) = stops.pop() {
+        let (effects, lines) = pump(&host, host.line(&reply(&stop, ace_json::json!({}))));
+        stopped += 1;
+        assert!(
+            !effects
+                .iter()
+                .any(|effect| matches!(effect, HostEffect::DetachFailed { .. })),
+            "stop {stopped} never fails the close: {effects:#?}"
+        );
+        let next = line_ids(&lines, "thread/backgroundTerminals/terminate");
+        assert!(
+            next.len() <= 1,
+            "another terminal waits for this answer: {lines:?}"
+        );
+        if stopped < TERMINALS {
+            assert_eq!(next.len(), 1, "stop {stopped} asks for the next one");
+            assert!(
+                line_ids(&lines, "thread/unsubscribe").is_empty(),
+                "the thread leaves only after its last terminal"
+            );
+        } else {
+            assert!(next.is_empty(), "the last terminal was already out");
+            assert!(
+                line_id(&lines, "thread/unsubscribe", Some("t")).is_some(),
+                "every terminal stopped: the thread is unsubscribed"
+            );
+        }
+        stops = next;
+    }
+    assert_eq!(stopped, TERMINALS, "every listed terminal was stopped once");
+}
+
+/// Each listed terminal is stopped once, even when the pages repeat it
+/// (`stopShells` collects them in a `Set`, `session-commands.ts:181`).
+#[test]
+fn a_close_stops_each_terminal_once_even_when_the_pages_repeat_it() {
+    let host = bare(true);
+    let events = Arc::new(crate::session::harness::Events::default());
+    let _ = host.attach(1, Recorder::new(1, Arc::clone(&events)));
+    claim_thread(&host, 1, "t");
+
+    let (_, lines) = pump(&host, host.detach(1, Retirement::User, "user closed"));
+    let first =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the first page");
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &first,
+            ace_json::json!({
+                "data": [{"processId": "p1"}, {"processId": "p2"}],
+                "nextCursor": "c1",
+            }),
+        )),
+    );
+    let second =
+        line_id(&lines, "thread/backgroundTerminals/list", Some("t")).expect("the continuation");
+    let (_, lines) = pump(
+        &host,
+        host.line(&reply(
+            &second,
+            ace_json::json!({
+                "data": [
+                    {"processId": "p2"},
+                    {"processId": "p1"},
+                    {"processId": "p3"},
+                ],
+                "nextCursor": null,
+            }),
+        )),
+    );
+
+    let mut stopped = stopped_processes(&lines);
+    let mut stop = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    while let Some(current) = stop.pop() {
+        let (_, lines) = pump(&host, host.line(&reply(&current, ace_json::json!({}))));
+        stopped.extend(stopped_processes(&lines));
+        stop = line_ids(&lines, "thread/backgroundTerminals/terminate");
+    }
+    assert_eq!(
+        stopped,
+        vec!["p1", "p2", "p3"],
+        "each terminal once, in list order"
+    );
 }
 
 /// A terminal reply from a failed close is not the retry's: only the current
