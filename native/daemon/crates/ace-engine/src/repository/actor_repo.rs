@@ -10,7 +10,7 @@ use ace_json::Value;
 
 use crate::actor::deps::{ActorRepo, Route, ScheduleView, Unported};
 use crate::repository::collaborators::{InputFacts, MoveFacts};
-use crate::repository::residency::text;
+use crate::repository::residency::{cell_int, text};
 use crate::{Core, EngineError, State, ThreadId};
 
 /// The production `ActorRepo`: the repository E5.3 ports, over the store's connection.
@@ -165,10 +165,15 @@ impl ActorRepo for EngineRepo {
         Ok(count.max(0) as u64)
     }
 
-    /// `max(pending.latestGeneration, interactions.latestGeneration)` for the intents' half.
+    /// The actor resumes after the latest generation from either ledger.
     fn latest_generation(&self, core: &Core, thread: &ThreadId) -> Result<u64, EngineError> {
-        let generation = crate::intents::store::latest_generation(core.store.conn(), thread)?;
-        Ok(generation.max(0) as u64)
+        const REQUESTS: &str = "SELECT COALESCE(MAX(generation),0) AS generation FROM engine_interaction_requests WHERE thread_id=?";
+        let conn = core.store.conn();
+        let intents = crate::intents::store::latest_generation(conn, thread)?;
+        let requests = ace_store::stmt_cache::get_row(conn, REQUESTS, vec![text(thread)])?
+            .and_then(|row| row.get("generation").and_then(cell_int))
+            .unwrap_or(0);
+        Ok(intents.max(requests).max(0) as u64)
     }
 
     fn mark_yielded_end(
@@ -295,5 +300,53 @@ impl State {
     ) -> Result<bool, EngineError> {
         const RELEASED: &str = "SELECT 1 AS released FROM threads WHERE id=? AND (archived_at IS NOT NULL OR json_extract(client,'$.settledAt') IS NOT NULL)";
         Ok(ace_store::stmt_cache::get_row(store.conn(), RELEASED, vec![text(id)])?.is_some())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::ActorDeps;
+    use crate::executor::{Notified, Notifier};
+    use crate::frames::live::UnportedLive;
+    use crate::repository::testsupport::{Shell, header, home};
+    use std::rc::Rc;
+
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    #[test]
+    fn the_actor_seed_uses_a_newer_interaction_generation() {
+        let thread = "generation".to_owned();
+        let conn = home(&thread, &header(&thread));
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,submitted_generation)
+             VALUES ('send','generation','thread.send','{}','done',2);
+             INSERT INTO engine_interaction_requests
+             VALUES ('generation','request','native',NULL,'binding',5,'pending');",
+        )
+        .unwrap();
+        let (_, shell) = Shell::store_with_controls(&conn);
+        let engine = crate::Engine::new(
+            shell.clone(),
+            shell,
+            crate::Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            &conn,
+            Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+        )
+        .unwrap();
+        assert_eq!(
+            EngineRepo
+                .latest_generation(engine.core(), &thread)
+                .unwrap(),
+            5
+        );
     }
 }
