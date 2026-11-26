@@ -1,25 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * E5.4a's seam tests on homes the TypeScript engine wrote. Each runs only with the switch on and
- * names the (a) test that replaces it:
+ * The seam tests on homes the TypeScript engine wrote. Each runs only with the switch on and
+ * names the (a) test that replaces it.
+ *
+ * E5.4a's reads (`testing/commands-home.ts`):
  *
  * - queue reads: `queue-context.process` `:15`.
  * - `commandFailure`/`commandExecution`: `input-fate.process` `:38`.
  * - stale retirement: `stale-inputs.process` `:47`.
  *
- * The seed is a second process (`testing/commands-home.ts`), so the real edge is a TypeScript
- * writer and a native reader over the same SQLite file.
+ * E5.4b's journal and run binding (`testing/inputs-home.ts`):
+ *
+ * - echo correlation: `late-admission.process` `:15`.
+ * - a Claude command's first admission, and the Rust signature of it: `catalog-mentions.process`
+ *   `:10`.
+ * - run binding: `queued-run-binding.process` `:101`.
+ *
+ * The seed is a second process, so the real edge is a TypeScript writer and a native reader over
+ * the same SQLite file.
  */
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { CommandId } from "@ace/protocol";
+import { admissions as claudeAdmissions } from "@ace/adapter-claude/input";
+import { CommandId, type ContentPart } from "@ace/protocol";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import type { Store } from "../store.ts";
 import { engineSeam, type EngineSeam } from "./testing.ts";
 
 const native = engineBackend() === "native";
-const child = join(fileURLToPath(new URL(".", import.meta.url)), "testing/commands-home.ts");
+const queueChild = join(fileURLToPath(new URL(".", import.meta.url)), "testing/commands-home.ts");
+const inputsChild = join(fileURLToPath(new URL(".", import.meta.url)), "testing/inputs-home.ts");
 
 /** The seeded threads, oldest first. */
 function threads(store: Store): string[] {
@@ -40,9 +51,34 @@ function queueUpdated(store: Store, id: string): number {
 }
 
 async function seeded(): Promise<{ seam: EngineSeam; queue: string; stale: string }> {
-  const seam = await engineSeam({ seedWithTypeScript: { script: child } });
+  const seam = await engineSeam({ seedWithTypeScript: { script: queueChild } });
   const [queue, stale] = threads(seam.store) as [string, string];
   return { seam, queue, stale };
+}
+
+async function seededInputs(): Promise<{ seam: EngineSeam; thread: string }> {
+  const seam = await engineSeam({ seedWithTypeScript: { script: inputsChild } });
+  const rows = threads(seam.store);
+  if (rows.length !== 1) throw new Error(`the seed wrote ${String(rows.length)} threads`);
+  // E5.4's rounds do not recover threads (E5.8 does): the seam's ready settles its own refusal,
+  // and these tests read the home through the probe either way.
+  await seam.engine.ready().catch(() => {});
+  return { seam, thread: rows[0]! };
+}
+
+/** One echo of a provider's user message. */
+function echo(text: string, item = "native-item", extra: Record<string, unknown> = {}) {
+  return {
+    type: "item.upsert",
+    agent: "root",
+    item,
+    draft: {
+      type: "message",
+      role: "user",
+      parts: [{ type: "text", text }],
+      ...extra,
+    },
+  };
 }
 
 describe.runIf(native)("E5.4a queue writes beside a store hook", () => {
@@ -228,6 +264,146 @@ describe.runIf(native)("E5.4a queue reads on a TypeScript-written home", () => {
         reason: null,
         messages: [],
       });
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
+describe.runIf(native)("E5.4b input facts on a TypeScript-written home", () => {
+  test("an echo correlates natively to the input the TypeScript engine sent: by native identity, by signature in its own generation, and not in another generation", async () => {
+    const { seam, thread: id } = await seededInputs();
+    try {
+      // The negative case first: nothing is matched yet, so a miss is a real miss.
+      const other = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo("two", "native-other"),
+        generation: 7,
+      });
+      expect(other).toEqual(echo("two", "native-other"));
+
+      const identity = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo("one", "native-item", { nativeId: "native-one" }),
+        generation: 7,
+      });
+      expect(identity).toMatchObject({
+        item: "input:gen-one",
+        draft: {
+          origin: { kind: "person", commandId: "gen-one" },
+          synthetic: false,
+        },
+      });
+
+      const own = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo("two"),
+        generation: 8,
+      });
+      expect(own).toMatchObject({
+        item: "input:gen-two",
+        draft: { origin: { kind: "person", commandId: "gen-two" }, synthetic: false },
+      });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a Claude input with a slash command correlates by its first admission's text", async () => {
+    const { seam, thread: id } = await seededInputs();
+    try {
+      const slash: ContentPart[] = [
+        {
+          type: "mention",
+          entryId: "entry",
+          kind: "command",
+          name: "Review",
+          arguments: "now",
+          invocation: { type: "slash", name: "review" },
+        },
+        { type: "text", text: "look" },
+      ];
+      const first = claudeAdmissions(slash)[0];
+      if (typeof first !== "string") throw new Error("the slash command is not one text admission");
+      const correlated = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo(first),
+        generation: 7,
+      });
+      expect(correlated).toMatchObject({
+        item: "input:slash",
+        draft: { origin: { kind: "person", commandId: "slash" }, synthetic: false },
+      });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a Claude command signed through the Rust journal correlates with its own echo", async () => {
+    const { seam, thread: id } = await seededInputs();
+    try {
+      const slash: ContentPart[] = [
+        {
+          type: "mention",
+          entryId: "entry",
+          kind: "command",
+          name: "Review",
+          arguments: "now",
+          invocation: { type: "slash", name: "review" },
+        },
+        { type: "text", text: "look" },
+      ];
+      // The seed signed `input:slash` in TypeScript; the Rust `sending` signs the same parts.
+      seam.probe.inputFacts("inputs.sending", {
+        thread: id,
+        key: "input:rust-slash",
+        parts: slash,
+        provider: "claude",
+        generation: 7,
+      });
+      const first = claudeAdmissions(slash)[0];
+      if (typeof first !== "string") throw new Error("the slash command is not one text admission");
+      const ts = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo(first, "native-ts"),
+        generation: 7,
+      });
+      expect(ts).toMatchObject({ item: "input:slash" });
+      // The next echo of the same text can only match the Rust-signed row.
+      const rust = seam.probe.inputFacts("inputs.correlate", {
+        thread: id,
+        fact: echo(first, "native-rust"),
+        generation: 7,
+      });
+      expect(rust).toMatchObject({
+        item: "input:rust-slash",
+        draft: { origin: { kind: "person", commandId: "slash" }, synthetic: false },
+      });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a started run takes the inputs its generation was sent, and no others", async () => {
+    const { seam, thread: id } = await seededInputs();
+    try {
+      const seventh = seam.probe.inputFacts("bindStartedRun", {
+        thread: id,
+        run: "run-later",
+        generation: 7,
+      }) as { item: { runId?: string; parts: { text: string }[] } }[];
+      expect(seventh).toHaveLength(1);
+      expect(seventh[0]!.item.runId).toBe("run-later");
+      expect(seventh[0]!.item.parts.map((part) => part.text)).toEqual(["one"]);
+
+      const eighth = seam.probe.inputFacts("bindStartedRun", {
+        thread: id,
+        run: "run-later",
+        generation: 8,
+      }) as { item: { runId?: string; parts: { text: string }[] } }[];
+      expect(eighth).toHaveLength(1);
+      expect(eighth[0]!.item.runId).toBe("run-later");
+      expect(eighth[0]!.item.parts.map((part) => part.text)).toEqual(["two"]);
     } finally {
       await seam.close();
     }

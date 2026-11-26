@@ -138,52 +138,54 @@ impl InputFacts for State {
     }
 
     /// 4b's: the input journal and correlation. 4a leaves E5.3's probe pass-through in place.
-    fn correlate(&mut self, _thread: &str, fact: Value) -> Result<Option<Value>, EngineError> {
-        self.not_ported("correlating a provider fact", "E5.4b", Some(fact))
+    /// `inputs.correlate` (`input-journal.ts:224`). `None` drops the fact.
+    fn correlate(
+        &mut self,
+        thread: &str,
+        fact: Value,
+        generation: Option<f64>,
+    ) -> Result<Option<Value>, EngineError> {
+        self.correlate_with(thread, fact, None, generation)
     }
 
-    /// 4b's.
+    /// `inputs.keyFor` (`:157`).
     fn input_key_for(
         &mut self,
-        _thread: &str,
-        _native_input_id: &str,
+        thread: &str,
+        native_input_id: &str,
     ) -> Result<Option<String>, EngineError> {
-        self.not_ported("a native input's key", "E5.4b", None)
+        self.input_key_for_with(thread, native_input_id)
     }
 
-    /// 4b's.
-    fn attribute_input(&mut self, _thread: &str, fact: Value) -> Result<Value, EngineError> {
-        self.not_ported("attributing an ace input", "E5.4b", fact)
+    /// `aceInputs.attribute` (`ace-inputs.ts:31`).
+    fn attribute_input(&mut self, thread: &str, fact: Value) -> Result<Value, EngineError> {
+        self.attribute_input_with(thread, fact)
     }
 
-    /// 4b's.
-    fn ace_wait_fact(
-        &mut self,
-        _thread: &str,
-        _fact: &Value,
-    ) -> Result<Option<Value>, EngineError> {
-        self.not_ported("an ace wait fact", "E5.4b", None)
+    /// `aceWaitFact` (`ace-waits.ts:10`).
+    fn ace_wait_fact(&mut self, thread: &str, fact: &Value) -> Result<Option<Value>, EngineError> {
+        self.ace_wait_fact_with(thread, fact)
     }
 
-    /// 4b's.
+    /// `bindConsumedInput` (`transcript-inputs.ts:176`): the generation is the session's own.
     fn bind_consumed_input(
         &mut self,
-        _thread: &str,
-        _key: &str,
-        _generation: Option<f64>,
-        _now: f64,
+        thread: &str,
+        key: &str,
+        generation: Option<f64>,
+        now: f64,
     ) -> Result<Vec<Value>, EngineError> {
-        self.not_ported("a consumed input's binding", "E5.4b", Vec::new())
+        self.bind_consumed_input_with(thread, key, generation, now)
     }
 
-    /// 4b's.
+    /// `bindStartedRun` (`transcript-inputs.ts:157`).
     fn bind_started_run(
         &mut self,
-        _thread: &str,
-        _run: &str,
-        _generation: Option<f64>,
+        thread: &str,
+        run: &str,
+        generation: Option<f64>,
     ) -> Result<Vec<Value>, EngineError> {
-        self.not_ported("a started run's binding", "E5.4b", Vec::new())
+        self.bind_started_run_with(thread, run, generation)
     }
 
     /// E5.5's `root-run-start.ts`.

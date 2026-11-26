@@ -129,8 +129,14 @@ pub trait FrameFacts: ProbeGate {
 
 /// E5.4's input facts.
 pub trait InputFacts: ProbeGate {
-    /// `inputs.correlate`: `None` drops the fact.
-    fn correlate(&mut self, _thread: &str, fact: Value) -> Result<Option<Value>, EngineError> {
+    /// `inputs.correlate`: `None` drops the fact. `generation` is the frame's session
+    /// generation, and none while the fold replays stored history (`provider-facts.ts:97`).
+    fn correlate(
+        &mut self,
+        _thread: &str,
+        fact: Value,
+        _generation: Option<f64>,
+    ) -> Result<Option<Value>, EngineError> {
         self.not_ported("correlating a provider fact", "E5.4", Some(fact))
     }
     /// `inputs.keyFor`.

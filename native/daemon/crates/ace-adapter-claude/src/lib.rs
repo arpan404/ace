@@ -3,4 +3,5 @@
 //! translator closure into translate; E3-claude ports the session into session.
 
 pub mod session;
+pub mod input;
 pub mod translate;

@@ -51,3 +51,7 @@ base64 = "0.22"
 # JavaScript regex and WHATWG URL semantics for stored command validation.
 regress = { version = "0.12", features = ["utf16"] }
 url = "2"
+# ace-adapter-claude, ace-adapter-pi: the input journal re-signs an input with the rendering the
+# provider's own adapter sends (E5.4b), so the two stay one copy.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
+ace-adapter-pi = { path = "../ace-adapter-pi" }
