@@ -520,7 +520,7 @@ Every provider, probe and shell ace starts goes through `@ace/provider-kit/proce
   Identity is the strict `ProcessIdentity` (`pid`, `start`, `uid`, `group`,
   `process-identity.ts:197`–`:203`), so a reused pid is never signalled. `start` is encoded per
   platform, and the journal's readers compare it as a string: Linux `<boot_id>:<starttime
-  ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twice to prove the
+ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twice to prove the
   process didn't change (`:244`–`:263`); macOS `<tv_sec>:<tv_usec>` of the kernel start time from
   `proc_pidinfo` (`:265`–`:281`); Windows the creation `FILETIME` and the owner's SID
   (`:285`–`:291`). Rows: `processes(pid, entry)` (`process-inventory.ts:85`) and `escapees`,

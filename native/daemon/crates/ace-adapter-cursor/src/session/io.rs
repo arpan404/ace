@@ -125,6 +125,13 @@ impl CursorSessionShell {
         self.input(|core| core.close(operation, reason));
     }
 
+    /// No child will ever report (the spawn threw): the exit and the drain are published now,
+    /// so every promise settles (`session.ts`'s catch around the host's open).
+    pub fn abandon(&self) {
+        self.input(|core| core.pipes_closed());
+        self.input(|core| core.exit(None, None, "spawn-error", None, None));
+    }
+
     /// The facade answered the exit port (`session.ts:156`-`:181`).
     pub fn exit(
         &self,

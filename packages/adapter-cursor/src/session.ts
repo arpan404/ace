@@ -14,6 +14,7 @@ import { CursorHost, type HostOptions } from "./host.ts";
 import { cursorCapabilitiesForSandbox } from "./policy.ts";
 import { Limits, type CursorEnvelope, type CursorLimits } from "./contracts.ts";
 import { unbatch } from "./frame-batch.ts";
+import { sessionBackend } from "@ace/provider-kit/native-switches";
 
 export interface CursorSessionOptions extends HostOptions {
   instanceId: string;
@@ -46,6 +47,8 @@ export async function openCursorSession(
   context: SessionContext,
   options: CursorSessionOptions,
 ): Promise<ProviderSession> {
+  if (sessionBackend("cursor") === "native")
+    return (await import("./native-session.ts")).openNativeCursorSession(context, options);
   context.signal.throwIfAborted();
   if (context.resume && context.resume.backend !== "cursor-sdk")
     throw new Error("Cursor SDK cannot resume an ACP checkpoint; use explicit context handoff");
