@@ -24,6 +24,8 @@ struct FakeHelper {
     ended: Arc<AtomicBool>,
     /// The helper reported its exit.
     exited: Arc<AtomicBool>,
+    /// It outlives SIGTERM, like a helper whose main queue is blocked (`FAKE_IGNORE_STOP`).
+    ignores_stop: Arc<AtomicBool>,
     events: Arc<Mutex<Option<Arc<dyn ChildEvents>>>>,
 }
 
@@ -79,8 +81,9 @@ impl HelperProcess for FakeProcess {
         if let Ok(mut kills) = self.0.kills.lock() {
             kills.push(signal);
         }
-        if signal == SignalName::Term || !self.0.ended.load(Ordering::Relaxed) {
-            self.0.exit();
+        match signal {
+            SignalName::Term if self.0.ignores_stop.load(Ordering::Relaxed) => {}
+            SignalName::Term | SignalName::Kill => self.0.exit(),
         }
         true
     }
@@ -195,4 +198,87 @@ async fn beyond_the_helper_limit_the_least_recently_used_idle_apps_helper_exits(
         "the app used last keeps its helper"
     );
     assert!(world.helper(2).wrote() == 1);
+}
+
+/// An eviction that lands while a helper is being spawned still records that helper as the
+/// app's predecessor, so the app's successor waits for it to exit; two helpers for one app
+/// never run at once (`client.ts:166`-`:177`, `:241`-`:251`; `client.process.test.ts:210`).
+#[tokio::test]
+async fn an_eviction_during_a_start_keeps_its_helper_as_the_predecessor() {
+    let helpers: Arc<Mutex<Vec<FakeHelper>>> = Arc::new(Mutex::new(Vec::new()));
+    let starts_after_exit: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+    let slot: Arc<Mutex<Option<ComputerClient>>> = Arc::new(Mutex::new(None));
+    let spawns = Arc::new(AtomicU32::new(0));
+    let ids = Arc::new(AtomicU32::new(0));
+    let mut options = ComputerClientOptions::new(
+        Arc::new(|| Box::pin(async { Ok("/fake/ace-screen-helper".to_owned()) })),
+        Arc::new(move || format!("r{}", ids.fetch_add(1, Ordering::Relaxed) + 1)),
+    );
+    options.max_helpers = 1;
+    options.idle_ms = 60_000;
+    options.grace_ms = 50;
+    options.force_kill_ms = 100;
+    options.spawn = {
+        let helpers = Arc::clone(&helpers);
+        let starts_after_exit = Arc::clone(&starts_after_exit);
+        let slot = Arc::clone(&slot);
+        let spawns = Arc::clone(&spawns);
+        Arc::new(move |_command, _args, _env, events| {
+            let number = spawns.fetch_add(1, Ordering::Relaxed);
+            let earlier_exited = helpers
+                .lock()
+                .map(|helpers| {
+                    helpers
+                        .iter()
+                        .all(|helper| helper.exited.load(Ordering::Relaxed))
+                })
+                .unwrap_or(false);
+            if let Ok(mut starts) = starts_after_exit.lock() {
+                starts.push(earlier_exited);
+            }
+            if number == 0 {
+                // The eviction lands while this spawn is in flight.
+                let client = slot
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.clone())
+                    .unwrap_or_else(|| panic!("the client"));
+                let mut pool = client.pool();
+                super::drop_entry(&client.shared, &mut pool, "calculator");
+            }
+            let helper = FakeHelper {
+                // The first helper outlives SIGTERM, so a successor beside it would show.
+                ignores_stop: Arc::new(AtomicBool::new(number == 0)),
+                events: Arc::new(Mutex::new(Some(events))),
+                ..FakeHelper::default()
+            };
+            if let Ok(mut helpers) = helpers.lock() {
+                helpers.push(helper.clone());
+            }
+            Ok(Box::new(FakeProcess(helper)) as Box<dyn HelperProcess>)
+        })
+    };
+    let client = ComputerClient::new(options);
+    if let Ok(mut slot) = slot.lock() {
+        *slot = Some(client.clone());
+    }
+    let first = client
+        .request("state", &payload("calculator"), RequestOptions::default())
+        .await;
+    assert!(first.is_err(), "its connection was evicted under it");
+    let second = client
+        .request("state", &payload("calculator"), RequestOptions::default())
+        .await;
+    assert!(
+        second.is_ok(),
+        "the successor starts once the old helper exits"
+    );
+    assert_eq!(
+        starts_after_exit
+            .lock()
+            .map(|starts| starts.clone())
+            .unwrap_or_default(),
+        vec![true, true],
+        "the successor started only after the evicted start's helper exited"
+    );
 }

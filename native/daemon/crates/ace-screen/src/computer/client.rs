@@ -137,6 +137,10 @@ struct Entry {
     connection: Connection,
     /// Whether this connection ever spawned a helper; one that never did retires nothing.
     spawned: Arc<AtomicBool>,
+    /// A spawn is in flight for this entry. Set under the pool lock before the process starts,
+    /// so an eviction that lands during it still records the helper as retired and its
+    /// successor waits for its exit (`client.ts:166`-`:177`, `:241`-`:251`).
+    starting: bool,
     idle: bool,
     /// Use order, for least-recently-used eviction.
     used: u64,
@@ -340,6 +344,7 @@ fn entry_for(shared: &Arc<Shared>, pool: &mut Pool, key: &str) -> Connection {
             generation,
             connection: connection.clone(),
             spawned,
+            starting: false,
             idle: false,
             used,
             stop_idle: None,
@@ -430,8 +435,9 @@ fn drop_entry(shared: &Arc<Shared>, pool: &mut Pool, key: &str) {
         token.cancel();
     }
     entry.connection.close();
-    // One that never spawned leaves the app's retired connection, if any, as it is.
-    if !entry.spawned.load(Ordering::Relaxed) {
+    // One that never spawned (and has no spawn in flight) leaves the app's retired connection,
+    // if any, as it is.
+    if !entry.spawned.load(Ordering::Relaxed) && !entry.starting {
         return;
     }
     pool.retiring
@@ -485,6 +491,43 @@ impl PoolStart {
         }
     }
 
+    /// Claim this entry for one spawn, under the pool lock, right before spawning: an eviction
+    /// that lands from here on sees `starting` and keeps the spawned helper as the app's
+    /// predecessor instead of letting a successor start beside it.
+    fn claim(&self) -> bool {
+        let Some(shared) = self.shared.upgrade() else {
+            return false;
+        };
+        let mut pool = shared
+            .pool
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(entry) = pool.entries.get_mut(&self.key) else {
+            return false;
+        };
+        if entry.generation != self.generation || entry.connection.is_closed() {
+            return false;
+        }
+        entry.starting = true;
+        true
+    }
+
+    /// The spawn failed: nothing is in flight for this entry any more.
+    fn unclaim(&self) {
+        let Some(shared) = self.shared.upgrade() else {
+            return;
+        };
+        let mut pool = shared
+            .pool
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(entry) = pool.entries.get_mut(&self.key)
+            && entry.generation == self.generation
+        {
+            entry.starting = false;
+        }
+    }
+
     /// The retired helper at this app's key is this one, now exited: let the app start over.
     fn retire(&self, before: &Connection) {
         let Some(shared) = self.shared.upgrade() else {
@@ -533,9 +576,18 @@ impl HelperStart for PoolStart {
             if start.closed() {
                 return Err(ComputerError::stopped());
             }
+            if !start.claim() {
+                return Err(ComputerError::stopped());
+            }
             let mut args = vec!["--computer".to_owned()];
             args.extend(start.options.helper_args.iter().cloned());
-            let process = (start.options.spawn)(command, args, environment, events)?;
+            let process = match (start.options.spawn)(command, args, environment, events) {
+                Ok(process) => process,
+                Err(error) => {
+                    start.unclaim();
+                    return Err(error);
+                }
+            };
             start.spawned.store(true, Ordering::Relaxed);
             Ok(process)
         })
