@@ -12,12 +12,11 @@ use ace_adapter_api::bridge::queue::{INPUT_REJECTED, STEER_TARGET_LOST};
 use ace_adapter_api::session::{CloseReason, Delivery};
 use ace_json::{Map, Value};
 
+mod close;
 mod send;
 
-pub(crate) use send::{
-    CloseFlight, Interrupting, SendStage, Sending, close, close_stopped, interrupt,
-    interrupt_close, request_stop, send,
-};
+pub(crate) use close::{CloseFlight, close, close_stopped, interrupt_close, request_stop};
+pub(crate) use send::{Interrupting, SendStage, Sending, interrupt, send};
 
 use super::envelope::CursorLimits;
 use super::error::{ACE_CURSOR_RPC, HostErrorWire};
@@ -123,11 +122,12 @@ pub fn send_params(
 }
 
 /// The `cancel` frame's body (`session.ts:249`, `:291`), in the literal's key order.
+/// `commandId` is dropped when it is `None`, as `boundedJson` drops an `undefined` value.
 pub fn cancel_body(replacement: bool, command_id: Option<&str>) -> Value {
     let mut body = Map::with_capacity(2);
     body.insert("replacement", Value::Bool(replacement));
-    if replacement {
-        body.insert("commandId", command_id.map_or(Value::Null, Value::from));
+    if replacement && let Some(command_id) = command_id {
+        body.insert("commandId", Value::from(command_id));
     }
     Value::Object(body)
 }
@@ -196,7 +196,7 @@ mod tests {
     use ace_json::json;
 
     use super::{
-        CursorOpen, STEER_LOST_MESSAGE, close_params, configure_params, open_params,
+        CursorOpen, STEER_LOST_MESSAGE, cancel_body, close_params, configure_params, open_params,
         refused_by_host, send_params,
     };
     use crate::session::envelope::CursorLimits;
@@ -275,6 +275,22 @@ mod tests {
         assert_eq!(
             CursorLimits::default().to_value().to_json(),
             r#"{"maxWorkers":8,"maxFrameBytes":1048576,"maxPendingBytes":2097152,"maxCallbacks":32,"maxIdentities":2048,"maxInputBytes":262144,"maxCheckpointBytes":8589934592,"historyPageSize":100,"heapMb":2048,"timeoutMs":30000,"sendTimeoutMs":300000,"ackTimeoutMs":300000,"graceMs":5000}"#
+        );
+    }
+
+    #[test]
+    fn a_replacement_cancel_drops_an_absent_command_id_and_a_plain_cancel_carries_none() {
+        // `session.ts:249` writes `{ replacement: true, commandId }`; `boundedJson` drops an
+        // `undefined` value, so no key is stored at all.
+        assert_eq!(cancel_body(true, None).to_json(), r#"{"replacement":true}"#);
+        assert_eq!(
+            cancel_body(true, Some("c1")).to_json(),
+            r#"{"replacement":true,"commandId":"c1"}"#
+        );
+        // `session.ts:291` writes no command id, even if one is offered.
+        assert_eq!(
+            cancel_body(false, Some("c1")).to_json(),
+            r#"{"replacement":false}"#
         );
     }
 

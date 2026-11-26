@@ -20,6 +20,9 @@ impl CursorSessionCore {
             .unwrap_or_default()
             .to_owned();
         if kind == "open" {
+            // `SandboxSupport` (`session.ts:33`, `:107`-`:110`) feeds `cursorCapabilitiesForSandbox`,
+            // which ignores its argument and keys on the platform (`policy.ts:44`-`:50`), so the
+            // adapter's catalog is the same either way and no field here is read.
             self.callback("onCapabilities", &self.capabilities.clone());
             if let Some(agent_id) = data.get("agentId").and_then(Value::as_js_str) {
                 let json = frames::identity_args(&self.instance_id, &agent_id.clone());
@@ -54,24 +57,23 @@ impl CursorSessionCore {
         self.pending_callbacks.push((name, json.to_owned()));
     }
 
-    /// A frame the session builds (`session.ts:58`-`:83`): the envelope text, then the event.
+    /// A frame the session builds (`session.ts:58`-`:83`): the envelope text, then the event. A
+    /// body over the bound is an error, as `boundedJson` throws there rather than dropping it.
     pub(crate) fn frame(
         &mut self,
         dir: FrameDirection,
         kind: &str,
         body: &Value,
         out: &mut Vec<CoreEffect>,
-    ) {
+    ) -> Result<(), super::super::error::HostErrorWire> {
         let text = frames::session_frame(
             &self.generation,
             &self.state.operation,
             self.state.segment,
             kind,
             body,
-        );
-        let Ok(text) = text else {
-            return;
-        };
+        )
+        .map_err(|error| super::super::commands::plain(&error.message()))?;
         let seq = self.queue.reserve_seq();
         out.push(CoreEffect::Event(SessionEvent::Frame {
             seq,
@@ -79,5 +81,6 @@ impl CursorSessionCore {
             channel: CHANNEL.to_owned(),
             text,
         }));
+        Ok(())
     }
 }

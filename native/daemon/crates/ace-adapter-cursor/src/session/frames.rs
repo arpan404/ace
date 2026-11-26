@@ -158,11 +158,6 @@ pub fn open_agent_id(reply: &Value) -> Result<JsString, SessionError> {
     }
 }
 
-/// `SandboxSupport.safeParse`'s success and value (`session.ts:33`, `:107`-`:110`).
-pub fn sandbox_supported(body: &Value) -> bool {
-    matches!(body.get("sandboxSupported"), Some(Value::Bool(true)))
-}
-
 /// `SettledError.safeParse` (`session.ts:44`): an error frame that ends the turn.
 pub fn settled_error(body: &Value) -> bool {
     matches!(body.get("settled"), Some(Value::Bool(true)))
@@ -194,8 +189,8 @@ fn code_points(text: &JsString) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        exit_args, host_exit_body, identity_args, result_status, sandbox_supported, session_frame,
-        settled_error, unexpected_stop_message,
+        exit_args, host_exit_body, identity_args, result_status, session_frame, settled_error,
+        unexpected_stop_message,
     };
     use ace_json::{Value, json};
 
@@ -297,8 +292,6 @@ mod tests {
         );
         assert!(super::open_agent_id(&json!({"agentId": ""})).is_err());
         assert!(super::open_agent_id(&json!({"agentId": "😀".repeat(513)})).is_err());
-        assert!(sandbox_supported(&json!({"sandboxSupported": true})));
-        assert!(!sandbox_supported(&json!({"sandboxSupported": "yes"})));
         assert!(settled_error(&json!({"settled": true})));
         assert!(!settled_error(&json!({"settled": 1})));
         assert_eq!(

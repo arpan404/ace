@@ -89,6 +89,9 @@ pub struct CursorSessionCore {
     pub(super) sending: Option<super::commands::Sending>,
     /// The close, memoized as `closing` is (`session.ts:183`).
     pub(super) closing: Option<super::commands::CloseFlight>,
+    /// The close's outcome once it settled: `None` inside means it resolved (`session.ts`'s
+    /// `closing` keeps the settled promise, rejection included).
+    pub(super) close_outcome: Option<Option<HostErrorWire>>,
     /// The interrupt in flight (`session.ts:285`-`:303`).
     pub(super) interrupting: Option<super::commands::Interrupting>,
     /// Each published frame's session number and the host number it acknowledges.
@@ -131,6 +134,7 @@ impl CursorSessionCore {
             opening: None,
             sending: None,
             closing: None,
+            close_outcome: None,
             interrupting: None,
             acknowledgements: HashMap::new(),
             pending_callbacks: Vec::new(),
@@ -233,8 +237,9 @@ impl CursorSessionCore {
         &mut self,
         facade_id: u64,
         send: CursorSend<'_>,
-    ) -> Result<Vec<CoreEffect>, HostErrorWire> {
-        super::commands::send(self, facade_id, send)
+        out: &mut Vec<CoreEffect>,
+    ) -> Result<(), HostErrorWire> {
+        super::commands::send(self, facade_id, send, out)
     }
 
     /// `interrupt` (`session.ts:285`-`:303`).
@@ -243,8 +248,9 @@ impl CursorSessionCore {
         facade_id: u64,
         agent: Option<&str>,
         cascade: bool,
-    ) -> Result<Vec<CoreEffect>, HostErrorWire> {
-        super::commands::interrupt(self, facade_id, agent, cascade)
+        out: &mut Vec<CoreEffect>,
+    ) -> Result<(), HostErrorWire> {
+        super::commands::interrupt(self, facade_id, agent, cascade, out)
     }
 
     /// `close` (`session.ts:182`-`:194`), memoized: a second caller waits on the first close.

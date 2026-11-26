@@ -20,9 +20,9 @@
 //! place in line order, before the next line is read. The core cannot push that frame itself -
 //! its text needs the caller's redaction - so it publishes `Port { name: "stray" }` and holds
 //! every later event until the caller answers [`CursorHostCore::note`] with `"host-output"`.
-//! The caller answers synchronously inside the same delivery, so a hold lasts one batch; while it
-//! lasts the io shell pauses the read gate, which is how held events stay inside the queue's
-//! bound (a held event never outlives what the pipe already delivered).
+//! [`CursorHostCore::holding`] is what the io shell reports to the read gate: while a hold is
+//! open the shell answers the next delivered chunk `taken(false)`, so the pipes stop reading and
+//! a held tree can only grow by the read-ahead they had already buffered.
 
 mod ports;
 mod stderr;

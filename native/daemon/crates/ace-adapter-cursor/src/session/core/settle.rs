@@ -92,7 +92,14 @@ impl CursorSessionCore {
             }
         };
         if let Some(snapshot) = opening.snapshot {
-            self.frame(FrameDirection::Note, frames::KIND_SNAPSHOT, &snapshot, out);
+            // `session.ts:217`: the snapshot note is part of opening, so a body it cannot carry
+            // fails the open instead of leaving the evidence out silently.
+            if let Err(error) =
+                self.frame(FrameDirection::Note, frames::KIND_SNAPSHOT, &snapshot, out)
+            {
+                out.push(settle_error(opening.facade_id, error));
+                return;
+            }
         }
         let mut reply = ace_json::Map::with_capacity(1);
         reply.insert("nativeSessionId", Value::String(agent_id));
@@ -107,6 +114,7 @@ impl CursorSessionCore {
         let Some(sending) = self.sending.take() else {
             return;
         };
+        let facade_id = sending.facade_id;
         match sending.stage {
             crate::session::commands::SendStage::Cancel => match result {
                 Ok(_) => {
@@ -128,16 +136,13 @@ impl CursorSessionCore {
                     self.sending = Some(sending);
                     if let Err(error) = self.start_send(out) {
                         self.state.control = false;
-                        let id = self.sending.take().map_or(0, |flight| flight.facade_id);
-                        if id != 0 {
-                            out.push(settle_error(id, error));
-                        }
+                        out.push(settle_error(facade_id, error));
                     }
                 }
                 Err(error) => {
                     self.state.control = false;
                     out.push(settle_error(
-                        sending.facade_id,
+                        facade_id,
                         crate::session::commands::input_rejected(error.message),
                     ));
                 }
@@ -146,7 +151,7 @@ impl CursorSessionCore {
                 Ok(value) => {
                     self.state.control = false;
                     out.push(CoreEffect::Event(SessionEvent::Settle {
-                        id: sending.facade_id,
+                        id: facade_id,
                         result: Ok(value),
                     }));
                 }
@@ -159,13 +164,15 @@ impl CursorSessionCore {
                     } else {
                         error
                     };
-                    out.push(settle_error(sending.facade_id, error));
+                    out.push(settle_error(facade_id, error));
                 }
             },
         }
     }
 
     /// `host.request("send", ...)` (`session.ts:263`-`:272`), after the cancel when there was one.
+    /// A synchronous failure is the catch at `session.ts:273`-`:280`: the turn is no longer active,
+    /// its state is uncertain, and the input's promise rejects with the mapped error.
     pub(crate) fn start_send(&mut self, out: &mut Vec<CoreEffect>) -> Result<(), HostErrorWire> {
         self.state.active = true;
         self.state.terminal = false;
@@ -186,13 +193,26 @@ impl CursorSessionCore {
             &sending.input,
         );
         sending.internal = self.alloc_internal();
-        let effects = self
+        match self
             .host
             .request("send", Some(&params), sending.internal, None)
-            .map_err(|error| crate::session::commands::rpc_error(error.message()))?;
-        self.sending = Some(sending);
-        out.extend(self.map_host(effects));
-        Ok(())
+        {
+            Ok(effects) => {
+                self.sending = Some(sending);
+                out.extend(self.map_host(effects));
+                Ok(())
+            }
+            Err(error) => {
+                self.state.active = false;
+                self.state.uncertain = !self.state.terminal;
+                let error = if crate::session::commands::refused_by_host(&error.message()) {
+                    crate::session::commands::input_rejected(error.message())
+                } else {
+                    crate::session::commands::rpc_error(error.message())
+                };
+                Err(error)
+            }
+        }
     }
 }
 

@@ -159,6 +159,22 @@ fn the_fallback_operation_id_takes_the_next_sequence_number() {
         frames(&effects),
         vec![(2, FrameDirection::Recv, String::from("delta"))]
     );
+    // The frame is the session's 2 and the host's 1: the acknowledgement names the host's own,
+    // so a swapped map would answer nothing here.
+    let answered: Vec<String> = core
+        .committed(2)
+        .iter()
+        .filter_map(|effect| match effect {
+            CoreEffect::Write { wire, .. } => std::str::from_utf8(wire)
+                .ok()
+                .map(|text| text.trim_end().to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        answered,
+        vec![r#"{"jsonrpc":"2.0","id":"h","result":{"committed":true}}"#.to_owned()]
+    );
 }
 
 #[test]
@@ -213,6 +229,7 @@ fn a_send_is_refused_after_its_bounded_input_budget() {
     let mut core = session_core();
     opened(&mut core);
     let input = ace_json::json!([{"type": "text", "text": "a".repeat(300_000)}]);
+    let mut effects = Vec::new();
     let refused = core
         .send(
             2,
@@ -223,9 +240,9 @@ fn a_send_is_refused_after_its_bounded_input_budget() {
                 delivery: Delivery::Queue,
                 steer_lost: false,
             },
+            &mut effects,
         )
-        .err()
-        .expect("over the input budget");
+        .expect_err("over the input budget");
     assert_eq!(refused.code, INPUT_REJECTED_CODE);
     assert_eq!(refused.message, "SDK string exceeds byte budget");
     assert!(!core.state.control);
@@ -273,4 +290,62 @@ fn a_host_refusal_is_input_rejected_and_another_failure_leaves_the_turn_uncertai
     assert_eq!(settled(&effects), vec![Err(String::from("ACE_CURSOR_RPC"))]);
     assert!(core.state.uncertain);
     assert!(!core.state.active);
+}
+
+#[test]
+fn a_send_whose_cancel_cannot_be_written_is_refused_and_leaves_no_control_behind() {
+    let mut core = session_core();
+    opened(&mut core);
+    let effects = send(&mut core, 2, Some("c1"), Delivery::Queue, false).expect("a send");
+    let effects = ack(&mut core, effects);
+    let (id, _, _) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the send request");
+    let _ = reply(&mut core, id, r#"{}"#);
+    assert!(core.state.active);
+    // The host stops itself on a line ace cannot route. The session is still open: `closing`
+    // has not run and `exit` has not either, so only the peer is gone (`peer.rs:504`).
+    let stopped = feed(&mut core, r#"{"hello":1}"#);
+    assert_eq!(ports(&stopped), vec![String::from("stop")]);
+    assert!(!core.state.closed);
+    // The steer cancels the running turn first, and that write cannot reach the dead peer.
+    let (effects, result) = send_with_effects(&mut core, 3, Some("c2"), Delivery::Steer, false);
+    let error = result.expect_err("the cancel cannot be written");
+    // `session.ts:250`'s catch: the input never reached Cursor, so it is a refusal.
+    assert_eq!(error.code, INPUT_REJECTED_CODE);
+    // The steer's cancel frame went out before the request, and the finally cleared `control`.
+    assert_eq!(
+        frames(&effects),
+        vec![(1, FrameDirection::Send, String::from("cancel"))]
+    );
+    assert!(!core.state.control);
+    assert!(core.sending.is_none());
+    assert!(core.state.active, "the running turn is still the turn");
+    // The next send tries its cancel again; the refusal is the dead peer's, never a control
+    // already in flight.
+    let refused = send(&mut core, 4, Some("c3"), Delivery::Queue, false)
+        .err()
+        .expect("the peer is gone");
+    assert_eq!(refused.code, INPUT_REJECTED_CODE);
+    assert_ne!(refused.message, "SDK control already in flight");
+}
+
+#[test]
+fn a_send_whose_request_cannot_be_written_leaves_the_turn_uncertain_and_inactive() {
+    let mut core = session_core();
+    opened(&mut core);
+    let stopped = feed(&mut core, r#"{"hello":1}"#);
+    assert_eq!(ports(&stopped), vec![String::from("stop")]);
+    // No turn runs, so there is no cancel: the send request itself cannot be written.
+    let error = send(&mut core, 2, Some("c1"), Delivery::Queue, false)
+        .err()
+        .expect("the peer is gone");
+    assert_eq!(error.code, "ACE_CURSOR_RPC");
+    // `session.ts:273`-`:280`: the catch clears `active` and marks the turn uncertain, and the
+    // finally clears `control`.
+    assert!(!core.state.control);
+    assert!(!core.state.active);
+    assert!(core.state.uncertain);
+    assert!(core.sending.is_none());
 }

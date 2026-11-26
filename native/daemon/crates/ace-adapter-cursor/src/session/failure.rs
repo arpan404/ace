@@ -214,6 +214,14 @@ mod tests {
     fn a_real_eof_with_metadata_auth_expired_reports_the_hosts_death_as_auth_expired() {
         // `discoveryFailureCode(error, "auth_expired")` finds nothing in "EOF" and takes the
         // metadata's code; the detail is not a `discovery_failed` reason, so it is not attached.
+        //
+        // This pins the mapping; it is not a fix test. The refactor that moved the fallback into
+        // `failure_fallback` has no reachable behaviour change: `discoveryFailureCode` answers a
+        // `DiscoveryFailureCode`, which never holds `discovery_failed`
+        // (`provider-kit/src/discovery-failure.ts:75`-`:77`), so the old
+        // `code.filter(|c| c != discovery_failed).or(metadata_code)` and this file's
+        // `failure_fallback(metadata_code, exit)` pick the same code for every input the
+        // classifier can answer.
         let death = exited(Some(1), "exit");
         let code = failure_fallback(Some("auth_expired"), Some(&death));
         assert_eq!(code, "auth_expired");

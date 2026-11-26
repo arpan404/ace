@@ -39,6 +39,9 @@ struct GateInner {
     /// The event queue is at its bound: the pumps stop even while the engine's
     /// own flow has room, so a stalled JS thread can't grow the queue.
     overflowed: bool,
+    /// The session holds events for line order (the Cursor stray-line hold): the
+    /// pumps stop for the same reason `overflowed` stops them.
+    held: bool,
 }
 
 impl ReadGate {
@@ -61,22 +64,31 @@ impl ReadGate {
             return;
         }
         inner.overflowed = full;
-        if !full && inner.state == GateState::Open {
-            resume_both(&inner);
+        if !full {
+            resume_if_open(&inner);
+        }
+    }
+
+    /// The session holds events it cannot deliver in order yet (`true`), or released them
+    /// (`false`): the pumps stop through the next delivered chunk's answer, like `overflow`, so
+    /// the hold cannot grow past the pipes' read-ahead while the consumer is stalled.
+    pub fn hold(&self, held: bool) {
+        let mut inner = self.lock();
+        if inner.held == held {
+            return;
+        }
+        inner.held = held;
+        if !held {
+            resume_if_open(&inner);
         }
     }
 
     /// Answers one delivered chunk under the gate's lock: `delivered.taken(false)` for Paused
-    /// and Failed (or a queue at its bound), `taken(true)` for Open and Draining. Never read
-    /// the state and answer later.
+    /// and Failed (or a queue at its bound, or a session holding events), `taken(true)` for Open
+    /// and Draining. Never read the state and answer later.
     pub fn answer(&self, delivered: Delivered) {
         let inner = self.lock();
-        let more = match inner.state {
-            GateState::Draining => true,
-            GateState::Paused | GateState::Failed => false,
-            GateState::Open => !inner.overflowed,
-        };
-        delivered.taken(more);
+        delivered.taken(takes_more(inner.state, inner.overflowed, inner.held));
     }
 
     /// Under the lock. Paused→Open resumes both streams. In Draining it changes nothing now
@@ -88,11 +100,9 @@ impl ReadGate {
             GateState::Open if paused => inner.state = GateState::Paused,
             GateState::Paused if !paused => {
                 inner.state = GateState::Open;
-                // A queue at its bound keeps the pumps stopped; taking its
-                // backlog resumes them.
-                if !inner.overflowed {
-                    resume_both(&inner);
-                }
+                // A queue at its bound or a hold keeps the pumps stopped; taking its
+                // backlog or the note resumes them.
+                resume_if_open(&inner);
             }
             GateState::Draining => inner.paused_while_draining = Some(paused),
             GateState::Open | GateState::Paused | GateState::Failed => {}
@@ -141,9 +151,7 @@ impl ReadGate {
         } else if recorded == Some(true) {
             GateState::Paused
         } else if recorded == Some(false) {
-            if !inner.overflowed {
-                resume_both(&inner);
-            }
+            resume_if_open(&inner);
             GateState::Open
         } else {
             saved.unwrap_or(GateState::Open)
@@ -165,10 +173,58 @@ fn drain_locked(inner: &mut GateInner) {
     resume_both(inner);
 }
 
+/// Whether one delivered chunk may read more. A drain reads to EOF whatever is held.
+fn takes_more(state: GateState, overflowed: bool, held: bool) -> bool {
+    match state {
+        GateState::Draining => true,
+        GateState::Paused | GateState::Failed => false,
+        GateState::Open => !overflowed && !held,
+    }
+}
+
+/// The pumps read on when the gate is open and both stops are clear.
+fn resume_if_open(inner: &GateInner) {
+    if inner.state == GateState::Open && !inner.overflowed && !inner.held {
+        resume_both(inner);
+    }
+}
+
 /// Both pumps read on: the backlog the engine's flow had held back is wanted now.
 fn resume_both(inner: &GateInner) {
     if let Some(output) = &inner.output {
         output.resume(OutputStream::Stdout);
         output.resume(OutputStream::Stderr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GateState, ReadGate, takes_more};
+
+    #[test]
+    fn a_held_gate_answers_no_more_chunks_until_the_hold_is_released() {
+        assert!(!takes_more(GateState::Open, false, true));
+        assert!(takes_more(GateState::Open, false, false));
+        // A queue at its bound and a hold both stop an open gate.
+        assert!(!takes_more(GateState::Open, true, false));
+        assert!(!takes_more(GateState::Open, true, true));
+        // A paused or failed gate takes nothing, held or not.
+        assert!(!takes_more(GateState::Paused, false, false));
+        assert!(!takes_more(GateState::Failed, false, false));
+        // Draining reads to EOF whatever is held.
+        assert!(takes_more(GateState::Draining, true, true));
+    }
+
+    #[test]
+    fn a_hold_release_clears_it_and_a_repeat_is_harmless() {
+        let gate = ReadGate::new();
+        gate.hold(true);
+        assert!(gate.lock().held);
+        gate.hold(true);
+        assert!(gate.lock().held);
+        gate.hold(false);
+        assert!(!gate.lock().held);
+        gate.hold(false);
+        assert!(!gate.lock().held);
     }
 }

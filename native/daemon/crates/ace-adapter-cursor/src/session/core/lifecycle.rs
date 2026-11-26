@@ -41,7 +41,9 @@ impl CursorSessionCore {
         let mut effects = Vec::new();
         self.state.exited = true;
         let body = frames::host_exit_body(self.state.deliberate, code, signal, reason, detail);
-        self.frame(
+        // The body is the caller's bounded prose, so a bound failure here is not reachable; the
+        // exit's callback and drain must still cross even if it were.
+        let _ = self.frame(
             FrameDirection::Note,
             frames::KIND_HOST_EXIT,
             &body,
@@ -65,7 +67,9 @@ impl CursorSessionCore {
                     let mut body = ace_json::Map::with_capacity(1);
                     body.insert("text", Value::from(text));
                     let body = Value::Object(body);
-                    self.frame(
+                    // A diagnostic over the note's bound is dropped, but the hold is released
+                    // either way: a stray line must never stall the host's reads.
+                    let _ = self.frame(
                         FrameDirection::Note,
                         frames::KIND_HOST_OUTPUT,
                         &body,

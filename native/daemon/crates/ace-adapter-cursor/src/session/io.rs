@@ -88,25 +88,26 @@ impl CursorSessionShell {
     }
 
     /// `send` (`session.ts:230`-`:284`): the refusal is returned to the caller, which throws it.
+    /// The effects its attempt caused (the steer's cancel frame included) still cross first.
     pub fn send(
         &self,
         operation: u64,
         send: super::commands::CursorSend<'_>,
     ) -> Option<ace_adapter_api::bridge::queue::SessionErrorWire> {
         let mut core = self.lock();
-        match core.send(operation, send) {
-            Ok(effects) => {
-                self.commit(&mut core, effects);
-                None
-            }
-            Err(error) => Some(ace_adapter_api::bridge::queue::SessionErrorWire {
+        let mut effects = Vec::new();
+        let result = core.send(operation, send, &mut effects);
+        self.commit(&mut core, effects);
+        result
+            .err()
+            .map(|error| ace_adapter_api::bridge::queue::SessionErrorWire {
                 code: error.code,
                 message: error.message,
-            }),
-        }
+            })
     }
 
-    /// `interrupt` (`session.ts:285`-`:303`).
+    /// `interrupt` (`session.ts:285`-`:303`). A cancel that could not be written still closes the
+    /// host; its own error settles the interrupt once the close does, so this returns no refusal.
     pub fn interrupt(
         &self,
         operation: u64,
@@ -114,16 +115,15 @@ impl CursorSessionShell {
         cascade: bool,
     ) -> Option<ace_adapter_api::bridge::queue::SessionErrorWire> {
         let mut core = self.lock();
-        match core.interrupt(operation, agent, cascade) {
-            Ok(effects) => {
-                self.commit(&mut core, effects);
-                None
-            }
-            Err(error) => Some(ace_adapter_api::bridge::queue::SessionErrorWire {
+        let mut effects = Vec::new();
+        let result = core.interrupt(operation, agent, cascade, &mut effects);
+        self.commit(&mut core, effects);
+        result
+            .err()
+            .map(|error| ace_adapter_api::bridge::queue::SessionErrorWire {
                 code: error.code,
                 message: error.message,
-            }),
-        }
+            })
     }
 
     /// `close` (`session.ts:182`-`:194`), settling `operation`.
@@ -219,6 +219,10 @@ impl CursorSessionShell {
         if !events.is_empty() {
             self.queue.publish(events);
         }
+        // The stray-line hold owns the pumps too: while the core holds events for line order,
+        // the next delivered chunk is answered `taken(false)`, so the hold can only grow by the
+        // pipes' bounded read-ahead. `note("host-output")` releases it here.
+        self.gate.hold(core.host.holding());
     }
 
     fn attach_gate(&self) {

@@ -10,7 +10,7 @@ use super::*;
 fn an_interrupt_cancels_then_closes_and_settles_with_its_cancel_error() {
     let mut core = session_core();
     opened(&mut core);
-    let effects = core.interrupt(2, None, true).expect("an interrupt");
+    let effects = interrupt(&mut core, 2, None, true).expect("an interrupt");
     assert_eq!(
         frames(&effects),
         vec![(1, FrameDirection::Send, String::from("cancel"))]
@@ -45,8 +45,7 @@ fn an_interrupt_cancels_then_closes_and_settles_with_its_cancel_error() {
 fn an_interrupt_refuses_a_child_and_a_busy_control() {
     let mut core = session_core();
     opened(&mut core);
-    let refused = core
-        .interrupt(2, Some("child"), true)
+    let refused = interrupt(&mut core, 2, Some("child"), true)
         .err()
         .expect("a child");
     assert!(
@@ -56,7 +55,7 @@ fn an_interrupt_refuses_a_child_and_a_busy_control() {
     );
     let effects = send(&mut core, 3, Some("c1"), Delivery::Queue, false).expect("a send");
     let _ = ack(&mut core, effects);
-    let refused = core.interrupt(4, None, true).err().expect("busy");
+    let refused = interrupt(&mut core, 4, None, true).err().expect("busy");
     assert_eq!(refused.message, "SDK control already in flight");
 }
 
@@ -133,9 +132,7 @@ fn the_stop_port_carries_no_reason_and_only_its_answer_settles_the_close() {
 fn a_cascading_interrupt_stops_the_one_host_its_children_run_in() {
     let mut core = session_core();
     opened(&mut core);
-    let effects = core
-        .interrupt(2, None, true)
-        .expect("a cascading interrupt");
+    let effects = interrupt(&mut core, 2, None, true).expect("a cascading interrupt");
     assert_eq!(
         frames(&effects),
         vec![(1, FrameDirection::Send, String::from("cancel"))]
@@ -165,18 +162,55 @@ fn a_cascading_interrupt_stops_the_one_host_its_children_run_in() {
         vec![Ok(String::from("null"))]
     );
     // Nothing in the host — child tasks included — can take input after it.
-    let refused = core
-        .send(
-            3,
-            CursorSend {
-                command_id: None,
-                operation_id: None,
-                input: &ace_json::json!([{"type": "text", "text": "after"}]),
-                delivery: Delivery::Queue,
-                steer_lost: false,
-            },
-        )
+    let refused = send(&mut core, 3, None, Delivery::Queue, false)
         .err()
         .expect("the host is closed");
     assert_eq!(refused.message, "SDK host is closed");
+}
+
+#[test]
+fn an_interrupt_whose_cancel_cannot_be_written_still_closes_and_settles_after_the_stop() {
+    let mut core = session_core();
+    opened(&mut core);
+    let stopped = feed(&mut core, r#"{"hello":1}"#);
+    assert_eq!(ports(&stopped), vec![String::from("stop")]);
+    // `session.ts:293`-`:298`: the inner finally still runs, so the close is attempted and the
+    // child is stopped when that cannot be written either.
+    let effects = interrupt(&mut core, 2, None, true).expect("the close runs");
+    assert_eq!(
+        frames(&effects),
+        vec![(1, FrameDirection::Send, String::from("cancel"))]
+    );
+    assert!(requests(&effects).is_empty());
+    assert_eq!(ports(&effects), vec![String::from("stop")]);
+    assert!(core.state.closed);
+    assert!(core.state.control, "the outer finally runs after the close");
+    // The close's rejection is the interrupt's: it settles with the cancel's error once stopped.
+    let stopped = core.note("stop", None);
+    assert_eq!(settled(&stopped), vec![Err(String::from("ACE_CURSOR_RPC"))]);
+    assert!(!core.state.control);
+    assert!(core.closing.is_none());
+}
+
+#[test]
+fn a_close_after_the_first_settled_does_not_stop_the_child_a_second_time() {
+    let mut core = session_core();
+    opened(&mut core);
+    let closed = core.close(2, CloseReason::User);
+    let effects = ack(&mut core, closed);
+    let (close, _, _) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the close request");
+    let effects = reply(&mut core, close, r#"{}"#);
+    assert_eq!(ports(&effects), vec![String::from("stop")]);
+    assert_eq!(
+        settled(&core.note("stop", None)),
+        vec![Ok(String::from("null"))]
+    );
+    // `closing ??=` keeps the settled promise: a later close resolves without a second stop.
+    let late = core.close(3, CloseReason::Shutdown);
+    assert_eq!(ports(&late), Vec::<String>::new());
+    assert!(requests(&late).is_empty());
+    assert_eq!(settled(&late), vec![Ok(String::from("null"))]);
 }

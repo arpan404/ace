@@ -24,6 +24,11 @@
 //! Kept in TypeScript: `host-stop` (the stop plan is the facade's) and `sdk-admission` (SDK
 //! discovery, Windows-only), and the cases whose behaviour is the host child's (`host-wire.ts`),
 //! the session's redaction or discovery, which stay in their files.
+//!
+//! The `ace took too long to store a Cursor SDK frame (acknowledgement expired)` fence notice is
+//! the host child's own (`ack-budgets.ts`, `frame-batch.ts`), not the daemon core's: the daemon's
+//! side of the same rule is that its own request deadline expires and the frame is still answered
+//! once its store lands, which is what the two deadline cases here assert.
 
 use super::*;
 use crate::session::error::ACE_CURSOR_RPC;
@@ -31,15 +36,33 @@ use crate::session::error::ACE_CURSOR_RPC;
 #[test]
 fn a_storage_acknowledgement_that_arrives_after_the_host_stopped_waiting_leaves_the_host_running() {
     let mut host = core();
+    // The host asks for one frame, then gives up waiting on its own deadline (`wire.confirmed`'s
+    // `ackMs`) and asks again: its requests are independent, and the first stays unanswered.
     let effects = feed(&mut host, &[&request_line("host:1", DELTA)]);
     assert_eq!(frames(&effects).len(), 1);
-    // The daemon answers once, and its late second answer changes nothing.
-    let answered = host.committed(1);
-    assert_eq!(writes(&answered).len(), 1);
-    assert!(host.committed(1).is_empty());
-    // The host goes on answering.
     let effects = feed(&mut host, &[&request_line("host:2", DELTA)]);
     assert_eq!(frames(&effects).len(), 1);
+    // The daemon's answer for the first request lands after the host stopped waiting: it is
+    // answered once, the host does not stop, and the second request still gets its own answer.
+    let answered = host.committed(1);
+    assert_eq!(
+        writes(&ack(&mut host, answered)),
+        vec![r#"{"jsonrpc":"2.0","id":"host:1","result":{"committed":true}}"#.to_owned()]
+    );
+    assert!(host.committed(1).is_empty());
+    let answered = host.committed(2);
+    assert_eq!(
+        writes(&ack(&mut host, answered)),
+        vec![r#"{"jsonrpc":"2.0","id":"host:2","result":{"committed":true}}"#.to_owned()]
+    );
+    // The host goes on answering.
+    let effects = feed(&mut host, &[&request_line("host:3", DELTA)]);
+    assert_eq!(frames(&effects).len(), 1);
+    let answered = host.committed(3);
+    assert_eq!(
+        writes(&ack(&mut host, answered)),
+        vec![r#"{"jsonrpc":"2.0","id":"host:3","result":{"committed":true}}"#.to_owned()]
+    );
     assert!(!host.holding());
 }
 

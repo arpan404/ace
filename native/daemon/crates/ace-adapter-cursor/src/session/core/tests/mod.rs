@@ -147,7 +147,20 @@ pub(super) fn send(
     delivery: Delivery,
     steer_lost: bool,
 ) -> Result<Vec<CoreEffect>, HostErrorWire> {
-    core.send(
+    let (effects, result) = send_with_effects(core, facade_id, command_id, delivery, steer_lost);
+    result.map(|()| effects)
+}
+
+/// A send with the effects it caused even when it was refused: its frame may already be out.
+pub(super) fn send_with_effects(
+    core: &mut CursorSessionCore,
+    facade_id: u64,
+    command_id: Option<&str>,
+    delivery: Delivery,
+    steer_lost: bool,
+) -> (Vec<CoreEffect>, Result<(), HostErrorWire>) {
+    let mut effects = Vec::new();
+    let result = core.send(
         facade_id,
         CursorSend {
             command_id,
@@ -156,5 +169,18 @@ pub(super) fn send(
             delivery,
             steer_lost,
         },
-    )
+        &mut effects,
+    );
+    (effects, result)
+}
+
+pub(super) fn interrupt(
+    core: &mut CursorSessionCore,
+    facade_id: u64,
+    agent: Option<&str>,
+    cascade: bool,
+) -> Result<Vec<CoreEffect>, HostErrorWire> {
+    let mut effects = Vec::new();
+    core.interrupt(facade_id, agent, cascade, &mut effects)
+        .map(|()| effects)
 }
