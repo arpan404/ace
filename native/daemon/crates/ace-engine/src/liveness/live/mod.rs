@@ -118,6 +118,14 @@ pub fn active(core: &Core, state: &mut State, id: &str) -> Result<bool, EngineEr
     Ok(false)
 }
 
+/// `providerWork(id)`: the workspace fence's provider-work check for one thread.
+pub fn provider_work(core: &Core, state: &mut State, id: &str) -> Result<bool, EngineError> {
+    let snapshot = state.repo.state(&core.store, id)?;
+    Ok(snapshot.is_some_and(|snapshot| {
+        crate::transitions::switch_ready::runs_provider_work(&snapshot.borrow().state)
+    }))
+}
+
 /// `unfinished(id)`: idle retained work needs cleanup, but has no finished outcome to keep.
 pub fn unfinished(core: &Core, state: &mut State, id: &str) -> Result<bool, EngineError> {
     let Some(thread) = crate::commands::prelude::thread_row(core, id)? else {

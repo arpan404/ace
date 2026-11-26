@@ -188,6 +188,29 @@ fn a_session_that_is_still_working_counts_its_agents_and_one_that_is_closing_cou
 }
 
 #[test]
+fn provider_work_is_read_for_the_fences_and_aces_own_task_is_not() {
+    let home = Home::new("INSERT INTO engine_queue (thread_id) VALUES ('t')");
+    let core = home.core();
+    let none = core
+        .with_state(|state| provider_work(core, state, "t"))
+        .unwrap()
+        .unwrap();
+    assert!(!none);
+    // A running task the provider owns is work a switch would end.
+    home.exec(
+        "INSERT INTO engine_state_records VALUES ('t', 'runningTasks', 'task', 'true'); UPDATE thread_state SET seq = seq + 1 WHERE thread_id='t'",
+    );
+    home.exec(
+        "INSERT INTO engine_state_records VALUES ('t', 'tasks', 'task', '{\"id\":\"task\",\"agentId\":\"agent-1\",\"kind\":\"shell\",\"title\":\"Run\",\"status\":\"running\",\"ambient\":false,\"stoppable\":true,\"owner\":\"provider\",\"startedAt\":1}')",
+    );
+    let provider = core
+        .with_state(|state| provider_work(core, state, "t"))
+        .unwrap()
+        .unwrap();
+    assert!(provider);
+}
+
+#[test]
 fn an_uncertain_message_keeps_a_thread_unfinished() {
     let home = Home::new("INSERT INTO engine_queue (thread_id) VALUES ('t')");
     home.exec(
