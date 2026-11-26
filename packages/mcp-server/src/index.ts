@@ -84,7 +84,9 @@ export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
 
 export { modelImageGeometry } from "./image-geometry.ts";
 
-export { PublicToolError, PublicToolCode, ErrorId } from "./public-error.ts";
+export { PublicToolError, PublicToolCode, ErrorId, publicErrorCatalog } from "./public-error.ts";
+export { controlHints } from "./control-hints.ts";
+export { advertisedInputSchema, advertisedOutputSchema } from "./advertised-schema.ts";
 export { parseToolArguments, toolFailure } from "./tool-failure.ts";
 
 export { modelImageRuntime, type ModelImageRuntime } from "./model-image-runtime.ts";
@@ -119,7 +121,7 @@ export {
   type SessionFacts,
 } from "./brief.ts";
 export { SessionAwareness, type AwarenessPort } from "./awareness.ts";
-export { aceInstructions, guideTopics } from "./status.ts";
+export { aceInstructions, guideTopics, toolFamilies } from "./status.ts";
 export type { SessionGuidance } from "./injection.ts";
 export { renderRoles, type SessionRole, type SessionRoles } from "./roles.ts";
 export {

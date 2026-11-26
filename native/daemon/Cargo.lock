@@ -43,6 +43,7 @@ dependencies = [
  "indexmap",
  "serde",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -79,6 +80,7 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-json",
+ "ace-redaction",
  "ace-supervisor",
  "indexmap",
  "serde",
@@ -143,8 +145,10 @@ dependencies = [
  "ace-store",
  "ace-supervisor",
  "ace-transport",
+ "agent-stream-json",
  "bytes",
  "getrandom 0.4.3",
+ "indexmap",
  "napi",
  "napi-build",
  "napi-derive",
@@ -164,6 +168,7 @@ dependencies = [
  "ace-supervisor",
  "base64",
  "flate2",
+ "indexmap",
  "notify",
  "regex",
  "rustls",
@@ -205,6 +210,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-forge"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "ace-protocol",
+ "ace-redaction",
+ "ace-store",
+ "ace-supervisor",
+ "regex",
+ "sha2 0.10.9",
+ "thiserror",
+]
+
+[[package]]
 name = "ace-git"
 version = "0.1.0"
 dependencies = [
@@ -231,6 +250,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-mcp"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "thiserror",
+]
+
+[[package]]
+name = "ace-models"
+version = "0.1.0"
+dependencies = [
+ "ace-adapter-acp",
+ "ace-json",
+ "ace-protocol",
+ "regex",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "ace-projection"
 version = "0.1.0"
 dependencies = [
@@ -253,6 +293,14 @@ dependencies = [
  "schemars",
  "serde_json",
  "typify",
+]
+
+[[package]]
+name = "ace-redaction"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "regex",
 ]
 
 [[package]]

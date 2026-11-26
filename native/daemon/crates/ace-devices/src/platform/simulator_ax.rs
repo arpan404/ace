@@ -297,10 +297,10 @@ fn mapped(element: &Element, path: &str, layout: Layout, screen: &Screen) -> Nod
         layout.turn,
     );
     let bounds = Bounds {
-        x: crate::platform::scrcpy::protocol::js_round(shown.x * screen.width),
-        y: crate::platform::scrcpy::protocol::js_round(shown.y * screen.height),
-        w: crate::platform::scrcpy::protocol::js_round(shown.width * screen.width),
-        h: crate::platform::scrcpy::protocol::js_round(shown.height * screen.height),
+        x: crate::platform::jsnum::round(shown.x * screen.width),
+        y: crate::platform::jsnum::round(shown.y * screen.height),
+        w: crate::platform::jsnum::round(shown.width * screen.width),
+        h: crate::platform::jsnum::round(shown.height * screen.height),
     };
     let mut states: Vec<String> = Vec::new();
     if toggles(&kind) && element.value == "1" {

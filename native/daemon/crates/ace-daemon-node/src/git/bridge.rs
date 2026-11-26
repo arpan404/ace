@@ -879,3 +879,120 @@ pub(crate) fn parse_git_error_code(raw: &str) -> Option<GitErrorCode> {
         _ => None,
     }
 }
+
+/// The cache's ports, answered on the JS thread by the caller of `configRead`:
+/// its config sources, its computation, its `keep`, and its clock.
+pub(crate) struct JsConfigPorts {
+    pub(crate) hub: Arc<PortHub>,
+}
+
+impl JsConfigPorts {
+    async fn request(&self, json: String) -> Option<ace_json::Map> {
+        let req_id = self.hub.alloc_id();
+        let reply = self
+            .hub
+            .request_with_id(
+                req_id,
+                json.replace("__REQ__", &req_id.to_string()),
+                Vec::new(),
+            )
+            .await?;
+        wire::object(&reply)
+    }
+}
+
+fn error_from(map: &ace_json::Map) -> GitError {
+    let code = wire::string(map, "code")
+        .as_deref()
+        .and_then(ace_git::core::error::GitErrorCode::parse)
+        .unwrap_or(ace_git::core::error::GitErrorCode::GitFailed);
+    let message = wire::string(map, "message").unwrap_or_default();
+    let details = match map.get("details") {
+        Some(ace_json::Value::Object(details)) => details.clone(),
+        _ => ace_json::Map::new(),
+    };
+    GitError::with_details(code, message, details)
+}
+
+impl ace_git::core::config::ConfigPorts for JsConfigPorts {
+    fn sources(
+        &self,
+        call: u64,
+        cwd: &str,
+        env_json: &str,
+    ) -> ace_git::core::spawn::BoxFuture<'_, Option<Vec<String>>> {
+        let json = format!(
+            "{{\"op\":\"config_sources\",\"reqId\":__REQ__,\"callId\":{call},\"cwd\":{},\"envJson\":{}}}",
+            ace_json::to_string(&ace_json::Value::from(cwd)),
+            ace_json::to_string(&ace_json::Value::from(env_json))
+        );
+        Box::pin(async move {
+            let map = self.request(json).await?;
+            match map.get("paths") {
+                Some(ace_json::Value::Array(items)) => items
+                    .iter()
+                    .map(|item| match item {
+                        ace_json::Value::String(path) => Some(path.to_string_lossy().into_owned()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => None,
+            }
+        })
+    }
+
+    fn compute(
+        &self,
+        call: u64,
+    ) -> ace_git::core::spawn::BoxFuture<'_, Result<ace_json::Value, GitError>> {
+        let json = format!("{{\"op\":\"config_compute\",\"reqId\":__REQ__,\"callId\":{call}}}");
+        Box::pin(async move {
+            let Some(map) = self.request(json).await else {
+                return Err(GitError::new(
+                    ace_git::core::error::GitErrorCode::GitClosed,
+                    "The config caller stopped answering",
+                ));
+            };
+            if let Some(error) = map.get("error") {
+                let ace_json::Value::Object(error) = error else {
+                    return Err(GitError::new(
+                        ace_git::core::error::GitErrorCode::GitFailed,
+                        "The config caller failed",
+                    ));
+                };
+                return Err(error_from(error));
+            }
+            Ok(map.get("value").cloned().unwrap_or(ace_json::Value::Null))
+        })
+    }
+
+    fn keep(
+        &self,
+        call: u64,
+        value: &ace_json::Value,
+    ) -> ace_git::core::spawn::BoxFuture<'_, bool> {
+        let json = format!(
+            "{{\"op\":\"config_keep\",\"reqId\":__REQ__,\"callId\":{call},\"value\":{}}}",
+            ace_json::to_string(value)
+        );
+        Box::pin(async move {
+            self.request(json)
+                .await
+                .is_some_and(|map| wire::flag(&map, "keep"))
+        })
+    }
+
+    fn now_ms(&self, call: u64) -> ace_git::core::spawn::BoxFuture<'_, i64> {
+        let json = format!("{{\"op\":\"config_now\",\"reqId\":__REQ__,\"callId\":{call}}}");
+        Box::pin(async move {
+            self.request(json)
+                .await
+                .map_or(0, |map| match map.get("ms") {
+                    Some(ace_json::Value::Number(number)) => {
+                        number.as_f64().map_or(0, |value| value.round() as i64)
+                    }
+                    _ => 0,
+                })
+        })
+    }
+}

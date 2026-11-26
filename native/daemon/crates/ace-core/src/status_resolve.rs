@@ -11,9 +11,9 @@ use crate::emit::get;
 use crate::items::Item;
 use crate::state::{AgentRecord, ThreadState};
 use crate::status::{AgentStatus, is_settled};
-use crate::status_inputs::{
-    StatusInputs, status_inputs, suppresses_active_silence, task_holds_thread,
-};
+use crate::status_inputs::{StatusInputs, status_inputs, task_holds_thread};
+
+mod active;
 
 /// Depth bound for resolver recursion over agent links.
 const RESOLVE_DEPTH_LIMIT: usize = 4096;
@@ -109,9 +109,7 @@ impl<'a> StatusResolver<'a> {
             && (self.now - self.inputs.last_transport_signal_at) as f64
                 > self.state.config.silence_ms
         {
-            status = AgentStatus::Unresponsive {
-                last_signal_at: self.inputs.last_transport_signal_at,
-            };
+            status = AgentStatus::unresponsive(self.inputs.last_transport_signal_at);
         }
         self.visiting.remove(key);
         self.resolved.insert(key.to_owned(), status.clone());
@@ -127,14 +125,15 @@ impl<'a> StatusResolver<'a> {
         }
         let exit = self.state.process_exit.clone();
         if let Some(limited) = &record.limited {
+            // packages/core/src/status.ts:188 spreads the stored limited record.
             return AgentStatus::Blocked {
                 on: "rate_limit".to_owned(),
                 refs: Vec::new(),
                 until: limited.until,
                 attempt: None,
                 message: limited.message.clone(),
-
                 retry_order: false,
+                extra: limited.extra.clone(),
             };
         }
         if let Some(exit) = &exit {
@@ -142,29 +141,7 @@ impl<'a> StatusResolver<'a> {
                 return if exit.deliberate {
                     AgentStatus::Interrupted
                 } else {
-                    AgentStatus::Failed {
-                        error: crate::status::AgentError {
-                            kind: "process_exit".to_owned(),
-                            message: exit
-                                .message
-                                .clone()
-                                .unwrap_or_else(|| "Provider process exited".to_owned()),
-                            code: None,
-                            title: None,
-                            detail: None,
-                            details: None,
-                        },
-                    }
-                };
-            }
-            if is_settled(&agent.status) {
-                return agent.status.clone();
-            }
-            return if exit.deliberate {
-                AgentStatus::Interrupted
-            } else {
-                AgentStatus::Failed {
-                    error: crate::status::AgentError {
+                    AgentStatus::failed(crate::status::AgentError {
                         kind: "process_exit".to_owned(),
                         message: exit
                             .message
@@ -174,8 +151,27 @@ impl<'a> StatusResolver<'a> {
                         title: None,
                         detail: None,
                         details: None,
-                    },
-                }
+                    })
+                };
+            }
+            if is_settled(&agent.status) {
+                // packages/core/src/status.ts:197 reuses the stored settled status.
+                return agent.status.clone();
+            }
+            return if exit.deliberate {
+                AgentStatus::Interrupted
+            } else {
+                AgentStatus::failed(crate::status::AgentError {
+                    kind: "process_exit".to_owned(),
+                    message: exit
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| "Provider process exited".to_owned()),
+                    code: None,
+                    title: None,
+                    detail: None,
+                    details: None,
+                })
             };
         }
         let empty_interactions: Vec<&crate::entity_model::Interaction> = Vec::new();
@@ -191,30 +187,21 @@ impl<'a> StatusResolver<'a> {
             .map(|interaction| interaction.id.clone())
             .collect();
         if !blocking.is_empty() {
-            return AgentStatus::Blocked {
-                on: "human".to_owned(),
-                refs: blocking,
-                until: None,
-                attempt: None,
-                message: None,
-
-                retry_order: false,
-            };
+            return AgentStatus::blocked("human", blocking, None);
         }
         if let Some(disconnected_at) = record.disconnected_at {
-            return AgentStatus::Unresponsive {
-                last_signal_at: disconnected_at,
-            };
+            return AgentStatus::unresponsive(disconnected_at);
         }
         if let Some(retry) = &record.retry {
+            // packages/core/src/status.ts:214 spreads the stored retry record.
             return AgentStatus::Blocked {
                 on: retry.on.clone(),
                 refs: Vec::new(),
                 until: retry.until,
                 attempt: retry.attempt,
                 message: retry.message.clone(),
-
                 retry_order: true,
+                extra: retry.extra.clone(),
             };
         }
         let empty_children: Vec<String> = Vec::new();
@@ -223,13 +210,10 @@ impl<'a> StatusResolver<'a> {
             return self.derive_active(record, key, depth);
         }
         if record.wake_until.is_some_and(|until| self.now < until) {
-            return AgentStatus::Working {
-                activity: "starting_turn".to_owned(),
-                item_id: None,
-                detail: None,
-            };
+            return AgentStatus::working("starting_turn", None, None);
         }
         if let Some(settled) = &record.process_settled_status {
+            // packages/core/src/status.ts:289 reuses the stored process status.
             return settled.clone();
         }
         if record.last_run.is_none() {
@@ -241,41 +225,28 @@ impl<'a> StatusResolver<'a> {
             }
             let signal = self.inputs.last_subtree_signal.read(key);
             if (self.now - signal) as f64 > self.state.config.silence_ms {
-                return AgentStatus::Unresponsive {
-                    last_signal_at: signal,
-                };
+                return AgentStatus::unresponsive(signal);
             }
             return AgentStatus::Starting;
         }
         let background_refs = self.background_refs(agent, depth);
         if !background_refs.is_empty() {
-            return AgentStatus::Blocked {
-                on: "background_task".to_owned(),
-                refs: background_refs,
-                until: None,
-                attempt: None,
-                message: None,
-
-                retry_order: false,
-            };
+            return AgentStatus::blocked("background_task", background_refs, None);
         }
         let last_run = record.last_run.as_deref().unwrap_or("");
         let run_state = self.state.runs.get(last_run).map(|run| run.state.clone());
         match run_state.as_deref() {
             Some("interrupted") => AgentStatus::Interrupted,
-            Some("failed") => AgentStatus::Failed {
-                error: record
-                    .last_error
-                    .clone()
-                    .unwrap_or(crate::status::AgentError {
-                        kind: "unknown".to_owned(),
-                        message: "Agent turn failed".to_owned(),
-                        code: None,
-                        title: None,
-                        detail: None,
-                        details: None,
-                    }),
-            },
+            Some("failed") => AgentStatus::failed(record.last_error.clone().unwrap_or(
+                crate::status::AgentError {
+                    kind: "unknown".to_owned(),
+                    message: "Agent turn failed".to_owned(),
+                    code: None,
+                    title: None,
+                    detail: None,
+                    details: None,
+                },
+            )),
             _ => AgentStatus::Idle,
         }
     }
@@ -296,164 +267,6 @@ impl<'a> StatusResolver<'a> {
             .into_iter()
             .filter(|child| self.holds_completion(child, depth))
             .collect()
-    }
-
-    fn derive_active(&mut self, record: &AgentRecord, key: &str, depth: usize) -> AgentStatus {
-        let agent_id = record.agent.id.clone();
-        let live_children = self.live_children(&agent_id, depth);
-        let waits: Vec<crate::status_inputs::WaitEntry> = self
-            .inputs
-            .waits_by_agent
-            .get(&agent_id)
-            .cloned()
-            .unwrap_or_default();
-        if !waits.is_empty() {
-            let mut refs = Vec::new();
-            for child in &live_children {
-                let awaited = waits.iter().any(|wait| {
-                    wait.targets.is_empty() || wait.targets.iter().any(|target| target == child)
-                });
-                if awaited && let Some(child_record) = get(&self.state.agents, child) {
-                    refs.push(child_record.agent.id.clone());
-                }
-            }
-            return AgentStatus::Blocked {
-                on: "subagents".to_owned(),
-                refs,
-                until: None,
-                attempt: None,
-                message: None,
-
-                retry_order: false,
-            };
-        }
-        let tools: Vec<&Item> = self
-            .inputs
-            .tools_by_agent
-            .get(&agent_id)
-            .cloned()
-            .unwrap_or_default();
-        let mut foreground: Vec<String> = Vec::new();
-        for item in tools.iter() {
-            if let Item::ToolCall { call, .. } = item {
-                if !matches!(
-                    &call.detail,
-                    crate::item_model::ToolDetail::AgentSpawn { .. }
-                ) {
-                    continue;
-                }
-                let child_id = match &call.detail {
-                    crate::item_model::ToolDetail::AgentSpawn { child_agent_id, .. } => {
-                        child_agent_id.clone()
-                    }
-                    _ => None,
-                };
-                let Some(child_id) = child_id else {
-                    continue;
-                };
-                let child_key = match get(self.inputs.by_id, &child_id) {
-                    Some(key) => key.clone(),
-                    None => continue,
-                };
-                let child_record = match get(&self.state.agents, &child_key) {
-                    Some(record) => record,
-                    None => continue,
-                };
-                if child_record.agent.background || !self.holds_completion(&child_key, depth) {
-                    continue;
-                }
-                foreground.push(child_record.agent.id.clone());
-            }
-        }
-        let mut newest: Option<&Item> = None;
-        let mut newest_key: (i64, i64) = (i64::MIN, i64::MIN);
-        for item in tools.iter() {
-            let Item::ToolCall { call, .. } = item else {
-                continue;
-            };
-            let is_foreground = match &call.detail {
-                crate::item_model::ToolDetail::AgentSpawn { child_agent_id, .. } => child_agent_id
-                    .as_ref()
-                    .is_some_and(|id| foreground.iter().any(|known| known == id)),
-                _ => false,
-            };
-            if is_foreground {
-                continue;
-            }
-            let item_key = (call.started_at, created_of(item));
-            if newest.is_none() || item_key >= newest_key {
-                newest = Some(*item);
-                newest_key = item_key;
-            }
-        }
-        if let Some(Item::ToolCall { call, .. }) = newest {
-            return AgentStatus::Working {
-                activity: "tool".to_owned(),
-                item_id: Some(call.id.clone()),
-                detail: None,
-            };
-        }
-        if !foreground.is_empty() {
-            let mut refs = foreground;
-            refs.sort();
-            refs.dedup();
-            return AgentStatus::Blocked {
-                on: "subagents".to_owned(),
-                refs,
-                until: None,
-                attempt: None,
-                message: None,
-
-                retry_order: false,
-            };
-        }
-        let signal = self.inputs.last_subtree_signal.read(key);
-        if self.state.config.liveness.as_deref() != Some("transport")
-            && !suppresses_active_silence(
-                &self.inputs.waiting_owners,
-                &agent_id,
-                live_children.len(),
-            )
-            && (self.now - signal) as f64 > self.state.config.silence_ms
-        {
-            return AgentStatus::Unresponsive {
-                last_signal_at: signal,
-            };
-        }
-        AgentStatus::Working {
-            activity: record.activity.clone(),
-            detail: record.detail.clone(),
-            item_id: None,
-        }
-    }
-
-    fn background_refs(&mut self, agent: &crate::state::Agent, depth: usize) -> Vec<String> {
-        let tasks: Vec<(String, Option<String>)> = self
-            .inputs
-            .tasks_by_agent
-            .get(&agent.id)
-            .map(|items| {
-                items
-                    .iter()
-                    .map(|task| (task.id.clone(), task.child_agent_id.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut refs: Vec<String> = tasks.iter().map(|(id, _)| id.clone()).collect();
-        let live_children = self.live_children(&agent.id, depth);
-        for child in &live_children {
-            let covered = tasks.iter().any(|(_, child_id)| {
-                child_id.as_ref().is_some_and(|child_id| {
-                    get(&self.state.agents, child)
-                        .map(|record| &record.agent.id == child_id)
-                        .unwrap_or(false)
-                })
-            });
-            if !covered && let Some(record) = get(&self.state.agents, child) {
-                refs.push(record.agent.id.clone());
-            }
-        }
-        refs
     }
 
     /// Whether an agent still owns live work, memoized bottom-up.
@@ -513,22 +326,6 @@ impl<'a> StatusResolver<'a> {
         children
             .iter()
             .any(|child| self.holds_completion(child, depth))
-    }
-}
-
-fn created_of(item: &Item) -> i64 {
-    match item {
-        Item::Html { base, .. } => base.created_at,
-        Item::Image { base, .. } => base.created_at,
-        Item::Message { base, .. } => base.created_at,
-        Item::DelegationStarted { base, .. } => base.created_at,
-        Item::DelegationSettled { base, .. } => base.created_at,
-        Item::Reasoning { base, .. } => base.created_at,
-        Item::ToolCall { base, .. } => base.created_at,
-        Item::Notice { base, .. } => base.created_at,
-        Item::Compaction { base, .. } => base.created_at,
-        Item::Unknown { base, .. } => base.created_at,
-        Item::Artifact { base, .. } => base.created_at,
     }
 }
 

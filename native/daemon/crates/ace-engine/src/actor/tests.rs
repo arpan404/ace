@@ -370,6 +370,7 @@ fn close_retires_both_actor_sets_and_admits_no_late_frame() {
 #[test]
 fn a_pledged_actor_stays_resolvable_and_a_rollback_keeps_its_frame() {
     let harness = Harness::with_limits("pledge", 1.0);
+    harness.shell.defer_commits();
     let core = harness.engine.core();
     let original = install_actor(core, "a", 1, 0);
     original.borrow_mut().pressure = true;
@@ -496,6 +497,7 @@ fn a_discarded_batch_releases_only_the_handles_it_still_owns() {
 #[test]
 fn a_promotion_that_fires_in_the_closing_window_resurrects_no_actor() {
     let harness = Harness::with_limits("late-commit", 1.0);
+    harness.shell.defer_commits();
     let core = harness.engine.core();
     let original = install_actor(core, "a", 1, 0);
     // A victim's mailbox task is live: its sealed tail belongs to the actor that stops it.
@@ -577,6 +579,7 @@ fn a_promotion_that_fires_in_the_closing_window_resurrects_no_actor() {
 #[test]
 fn a_commit_in_the_closing_window_seals_the_victims_tail_for_live_folding() {
     let harness = Harness::with_limits("tail-race", 1.0);
+    harness.shell.defer_commits();
     let core = harness.engine.core();
     let victim = install_actor(core, "a", 1, 0);
     victim.borrow_mut().mailbox_task = Some(7);

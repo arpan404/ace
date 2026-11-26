@@ -73,6 +73,9 @@ impl Serialize for ToolCall {
             }
         });
         field!(trailing, "raw", map.serialize_entry("raw", &self.raw));
+        for (key, value) in &self.extra {
+            map.serialize_entry(key, value)?;
+        }
         for key in trailing {
             match *key {
                 "backgroundTaskId" => {
@@ -190,6 +193,9 @@ impl Serialize for BackgroundTask {
                 Ok(())
             }
         });
+        for (key, value) in &self.extra {
+            map.serialize_entry(key, value)?;
+        }
         for key in trailing {
             match *key {
                 "toolCallId" => {

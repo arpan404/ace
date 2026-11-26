@@ -26,3 +26,6 @@ indexmap = { version = "2" }
 thiserror = { version = "2" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }
+# ace-redaction: credential shapes and secret-key names have one owner, so a shape fixed
+# for another caller cannot leak out of this adapter (ADR 0224 §8a).
+ace-redaction = { path = "../ace-redaction" }

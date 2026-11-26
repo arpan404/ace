@@ -96,6 +96,10 @@ for (const args of [
 ])
   cargo(args);
 
+// The MCP catalog (M1): every word, descriptor and header the TypeScript writes, compared with
+// the committed files the Rust server embeds.
+execFileSync("bun", ["scripts/export-catalog.ts", "--check"], { cwd: root, stdio: "inherit" });
+
 // The device words are one catalog both backends read (ADR 0225 safeguard 3): render every
 // key through the built Rust addon and compare it with the file.
 execFileSync("bun", ["scripts/check-devices-catalog.ts"], { cwd: root, stdio: "inherit" });
