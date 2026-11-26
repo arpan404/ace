@@ -29,6 +29,8 @@ pub struct OpenRequest {
     pub cwd: String,
     pub model: Option<String>,
     pub instance_id: Option<String>,
+    /// The provider backend the thread stores (`"acp"`, `"cursor-sdk"`), when it has one.
+    pub backend: Option<String>,
     pub env: Vec<(String, String)>,
     pub executable: Option<String>,
     pub instance_home_dir: Option<String>,

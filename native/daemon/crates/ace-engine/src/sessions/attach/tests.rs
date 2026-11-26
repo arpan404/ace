@@ -23,6 +23,7 @@ fn the_open_request_carries_everything_the_provider_is_told() {
         cwd: "/repo".to_owned(),
         model: Some("model".to_owned()),
         instance_id: Some("account".to_owned()),
+        backend: Some("acp".to_owned()),
         env: vec![("ACE_THREAD_ID".to_owned(), "t".to_owned())],
         executable: Some("/bin/pi".to_owned()),
         instance_home_dir: Some("/home/a".to_owned()),
@@ -34,6 +35,7 @@ fn the_open_request_carries_everything_the_provider_is_told() {
     assert_eq!(context.cwd, "/repo");
     assert_eq!(context.model.as_deref(), Some("model"));
     assert_eq!(context.instance_id.as_deref(), Some("account"));
+    assert_eq!(request.backend.as_deref(), Some("acp"));
     assert_eq!(context.env, [("ACE_THREAD_ID".to_owned(), "t".to_owned())]);
     assert_eq!(context.executable.as_deref(), Some("/bin/pi"));
     assert_eq!(context.instance_home_dir.as_deref(), Some("/home/a"));
