@@ -22,6 +22,7 @@ pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
     true
 }
 
+pub mod execute;
 pub mod facts;
 pub mod fork_replay;
 pub mod handoff;

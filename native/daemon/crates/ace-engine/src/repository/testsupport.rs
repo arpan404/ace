@@ -387,7 +387,15 @@ impl Ports for Shell {
         if let Some(client) = value.get("client").cloned()
             && let Some(object) = client.as_object()
         {
-            for key in ["details", "deletedAt", "live"] {
+            for key in [
+                "details",
+                "deletedAt",
+                "live",
+                "lineage",
+                "switch",
+                "continuation",
+                "movedTo",
+            ] {
                 if let Some(entry) = object.get(key) {
                     value.insert(key, entry.clone());
                 }
