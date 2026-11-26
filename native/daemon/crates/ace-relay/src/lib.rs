@@ -8,6 +8,8 @@
 
 pub mod error;
 pub mod nk;
+pub mod noise;
+pub mod wire;
 
 pub use error::RelayError;
 pub use nk::admission::{
@@ -24,6 +26,13 @@ pub use nk::hello::{
 };
 pub use nk::host::{
     AccountAdmission, NkAccepted, NkAccount, NkHost, account_device_actor, main_actor,
+};
+pub use noise::{
+    Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, NoiseNk, NoiseXx,
+    SessionKeys, XX_PROTOCOL, fingerprint, host_id,
+};
+pub use wire::{
+    CONTROL_PROLOGUE, NK_REFUSAL_MS, NK_STREAM_PROLOGUE, PAIRED_MARKER, STREAM_PROLOGUE,
 };
 
 /// The 64 lowercase hex characters a one-use ticket is.

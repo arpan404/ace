@@ -21,6 +21,9 @@ ace-json = { path = "../ace-json" }
 ace-auth = { path = "../ace-auth" }
 # sha2: the suppression key is a hex digest of the first message's ephemeral key.
 sha2 = { version = "0.11" }
+# x25519-dalek: the host id is the base32 of the static key's public half, which the daemon
+# derives from a private key it loads; snow never hands that half back before a handshake.
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 # data-encoding: base32 for the relay host id, the form pairing links and the relay protocol use.
 data-encoding = { version = "2.6" }
 # snow: the Noise protocol framework, replacing `@ace/secure-channel` (XX and NK, ADR 0155). The
