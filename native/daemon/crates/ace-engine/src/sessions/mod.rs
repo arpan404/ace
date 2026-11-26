@@ -26,6 +26,9 @@ pub mod failure_copy;
 pub mod metadata;
 pub mod observer;
 pub mod open;
+pub mod provider_sessions;
+
+pub use provider_sessions::{LeftSession, ProviderSessions};
 
 /// `silence.prepareGlobal()`: the resolver's global setting, when the engine has one. The async
 /// ready step that awaits it lands with the session open flow.
