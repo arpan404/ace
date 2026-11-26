@@ -577,7 +577,11 @@ impl<'a> Service<'a> {
             ));
         }
         validate_event(key, &variables)?;
-        let (claimed, input) = self.admit(&definition, key, &variables, kind, note)?;
+        // Admission, its webhook receipt and pruning commit together, so a retried delivery
+        // either finds both or neither.
+        let (claimed, input) = self
+            .store
+            .transaction(|| self.admit(&definition, key, &variables, kind, note))?;
         if claimed.created {
             self.publish(&claimed.run);
         }

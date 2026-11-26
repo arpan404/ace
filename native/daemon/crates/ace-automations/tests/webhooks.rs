@@ -1080,3 +1080,88 @@ fn rotate_refuses_randomness_outside_the_contract_instead_of_zero_padding() {
         "{error}"
     );
 }
+
+#[test]
+fn a_delivery_whose_receipt_write_fails_commits_no_run_and_the_retry_runs_once() {
+    let h = Harness::new();
+    let signaling = CountingRandom(Cell::new(0));
+    let random = |size: usize| signaling.bytes(size);
+    let deps = WebhookDeps {
+        clock: &h.clock,
+        random: &random,
+        allow: None,
+    };
+    let box_ = key();
+    let webhooks = Webhooks::new(&h.store, deps, Some(&box_));
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let rotated = webhooks.rotate("deploy").expect("rotate");
+    let payload = body();
+    let signature = sign_webhook(&rotated.secret, "evt_1", START / 1000, &payload);
+    let request = request(
+        "POST",
+        Some("application/json"),
+        Some("evt_1"),
+        Some("1704099600"),
+        Some(&signature),
+        &payload,
+    );
+
+    // The receipt table is momentarily unavailable: admission and the receipt commit together.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("DROP TABLE automation_webhook_deliveries")
+        .expect("drop");
+    raw.close().expect("close");
+    assert_eq!(
+        webhooks
+            .receive(&mut service, &rotated.hook_id, &request)
+            .status,
+        503
+    );
+    assert!(
+        service
+            .inbox(50, None, None, None)
+            .expect("inbox")
+            .0
+            .is_empty(),
+        "the failed delivery left no run"
+    );
+    assert!(service.take_actions().is_empty());
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec(
+        "CREATE TABLE automation_webhook_deliveries(automation_id TEXT NOT NULL, delivery_id TEXT NOT NULL, run_id TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(automation_id, delivery_id))",
+    )
+    .expect("recreate");
+    raw.close().expect("close");
+
+    let answer = webhooks.receive(&mut service, &rotated.hook_id, &request);
+    assert_eq!(answer.status, 202);
+    let run_id = answer.run_id.expect("run");
+    assert_eq!(
+        h.store
+            .webhook_delivered("deploy", "webhook:evt_1")
+            .expect("receipt"),
+        Some(run_id)
+    );
+    assert_eq!(service.take_actions().len(), 1, "one execution");
+    assert_eq!(
+        service.inbox(50, None, None, None).expect("inbox").0.len(),
+        1,
+        "one run"
+    );
+}
