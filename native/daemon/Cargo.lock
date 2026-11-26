@@ -165,6 +165,7 @@ dependencies = [
  "ace-supervisor",
  "base64",
  "flate2",
+ "indexmap",
  "notify",
  "regex",
  "rustls",
