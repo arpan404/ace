@@ -11,6 +11,14 @@ use crate::executor::TaskId;
 use crate::repository::collaborators::{SessionFacts, SessionInfo};
 use crate::{EngineError, EngineStore, State};
 
+/// The engine's session interface, in the shape E5.6 will consume (declared by E3-pi.3).
+///
+/// A session hands its frames, identity, failure and terminal exit to one `SessionObserver`,
+/// in the order it produced them. E5.6 owns the implementation that folds frames into the
+/// engine's ordered queue and settles the thread on `exit`; until then the Pi session in
+/// `ace-adapter-pi` is the only caller, and a test observer stands in for the engine.
+pub use ace_adapter_api::{SessionExit, SessionFrame, SessionObserver};
+
 /// The open sessions (E5.6).
 #[derive(Debug, Default)]
 pub struct Sessions;

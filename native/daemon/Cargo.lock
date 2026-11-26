@@ -92,10 +92,17 @@ dependencies = [
  "ace-adapter-api",
  "ace-core",
  "ace-json",
+ "ace-protocol",
  "ace-supervisor",
+ "base64",
+ "futures",
  "indexmap",
+ "libc",
  "serde",
+ "serde_json",
+ "sha2 0.11.1",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
