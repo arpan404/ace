@@ -31,6 +31,8 @@ use crate::supervisor::child::NativeOutputTarget;
 type Events = ThreadsafeFunction<String, ()>;
 /// The pool's stop callback: one JSON `{host, key, reason}` per child stop.
 type Stop = ThreadsafeFunction<String, ()>;
+/// The pool's timer callback: one JSON `{host, key, ms}`, `ms: null` cancels.
+type HostTimer = ThreadsafeFunction<String, ()>;
 
 #[derive(serde::Deserialize)]
 struct ShellConfigJson {
@@ -67,12 +69,13 @@ struct PoolState {
 pub struct CodexPoolNative {
     state: Arc<Mutex<PoolState>>,
     stop: Arc<Stop>,
+    timer: Arc<HostTimer>,
 }
 
 #[napi]
 impl CodexPoolNative {
     #[napi(constructor, catch_unwind)]
-    pub fn new(idle_ms: Option<f64>, stop: Stop) -> napi::Result<Self> {
+    pub fn new(idle_ms: Option<f64>, stop: Stop, timer: HostTimer) -> napi::Result<Self> {
         let idle_ms = idle_ms.unwrap_or(600_000.0);
         if !idle_ms.is_finite() || idle_ms.fract() != 0.0 || idle_ms < 0.0 {
             return Err(napi::Error::from_reason("Invalid Codex host idle time"));
@@ -85,6 +88,7 @@ impl CodexPoolNative {
                 hosts: IndexMap::new(),
             })),
             stop: Arc::new(stop),
+            timer: Arc::new(timer),
         })
     }
 
@@ -116,6 +120,14 @@ impl CodexPoolNative {
                 let id = state.next_host;
                 state.next_host += 1;
                 let shared = Arc::new(SharedHost::new(id, key.clone(), host));
+                let timers = Arc::clone(&self.timer);
+                shared.set_host_timer(Arc::new(move |json: String| {
+                    let _ = timers.call_with_return_value(
+                        Ok(json),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                        |_result, _env| Ok(()),
+                    );
+                }));
                 let entry = Arc::new(HostEntry {
                     shared,
                     consumer: None,
@@ -185,6 +197,18 @@ impl CodexPoolNative {
             && let Some(channel) = entry.shared.first_channel()
         {
             channel.stop_failed(&message);
+        }
+    }
+
+    /// An armed host timer fired in the facade's clock.
+    #[napi(catch_unwind)]
+    pub fn host_timer(&self, host_id: u32, key: String) {
+        let hosts: Vec<Arc<HostEntry>> = lock(&self.state).hosts.values().cloned().collect();
+        if let Some(entry) = hosts
+            .into_iter()
+            .find(|entry| entry.shared.id == u64::from(host_id))
+        {
+            entry.shared.host.timer(&key);
         }
     }
 

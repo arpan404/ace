@@ -24,6 +24,9 @@ use super::channel::SessionChannel;
 pub(super) const HOST_ID_BASE: u64 = 1 << 20;
 
 /// One host's shell state: its ports, tenants, timers and catalogs.
+/// A host timer's scheduler: one JSON `{host, key, ms}`.
+pub type HostTimerFn = Arc<dyn Fn(String) + Send + Sync>;
+
 pub struct SharedHost {
     pub id: u64,
     pub key: String,
@@ -35,6 +38,8 @@ pub struct SharedHost {
     pub(super) catalogs: Mutex<crate::session::tools::CodexCatalogCache>,
     pub(super) stop_failure: Mutex<Option<String>>,
     pub(super) retire_channel: Mutex<Option<Arc<SessionChannel>>>,
+    /// Host timers with no tenant to carry them: the pool schedules them.
+    pub(super) host_timer: Mutex<Option<HostTimerFn>>,
     pub(super) next_id: AtomicU64,
     pub(super) next_wake: AtomicU64,
 }
@@ -80,6 +85,7 @@ impl SharedHost {
             catalogs: Mutex::new(crate::session::tools::CodexCatalogCache::new()),
             stop_failure: Mutex::new(None),
             retire_channel: Mutex::new(None),
+            host_timer: Mutex::new(None),
             next_id: AtomicU64::new(HOST_ID_BASE),
             next_wake: AtomicU64::new(1),
         }
@@ -159,12 +165,26 @@ impl SharedHost {
         }
     }
 
+    /// The pool's scheduler for a timer no tenant can carry (the idle
+    /// app-server after its last session left).
+    pub fn set_host_timer(&self, timer: HostTimerFn) {
+        if let Ok(mut slot) = self.host_timer.lock() {
+            *slot = Some(timer);
+        }
+    }
+
     fn timer(&self, key: &str, ms: f64) {
         if let Some(channel) = self.first_channel() {
             channel.publish(vec![SessionEvent::ArmTimer {
                 key: key.to_owned(),
                 ms,
             }]);
+            return;
+        }
+        if let Ok(slot) = self.host_timer.lock()
+            && let Some(timer) = slot.as_ref()
+        {
+            timer(ace_json::json!({"host": self.id, "key": key, "ms": ms}).to_json());
         }
     }
 
@@ -173,6 +193,12 @@ impl SharedHost {
             channel.publish(vec![SessionEvent::CancelTimer {
                 key: key.to_owned(),
             }]);
+            return;
+        }
+        if let Ok(slot) = self.host_timer.lock()
+            && let Some(timer) = slot.as_ref()
+        {
+            timer(ace_json::json!({"host": self.id, "key": key, "ms": null}).to_json());
         }
     }
 }
@@ -540,5 +566,35 @@ impl OutputConsumer for HostConsumer {
 
     fn close(&self, exit: RawExit) {
         self.host.closed(exit);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::session::host::{Host, HostConfig};
+    use crate::session::pool::initialize;
+
+    /// The idle app-server has no tenant to carry its bridge once the last
+    /// session left; the pool's own scheduler must hear the timer and the host
+    /// must retire on it.
+    #[test]
+    fn an_idle_timer_reaches_a_host_with_no_tenant() {
+        let host = Host::new(HostConfig::shared(initialize(), 600_000.0));
+        let shared = SharedHost::new(1, "bench".to_owned(), host);
+        let fired = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&fired);
+        let target = Arc::clone(&shared.host);
+        shared.set_host_timer(Arc::new(move |json: String| {
+            recorded.lock().expect("fired").push(json);
+            target.timer("host:idle");
+        }));
+        shared.timer("host:idle", 600_000.0);
+        let lines = fired.lock().expect("fired");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("\"host\":1"), "{}", lines[0]);
+        assert!(!shared.host.available(), "the host did not retire");
     }
 }

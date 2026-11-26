@@ -100,6 +100,7 @@ interface NativePoolHandle {
   open(key: string, dedicated: boolean, configJson: string, events: unknown): NativeCodexChannel;
   stopFailed(key: string, message: string): void;
   stopConfirmed(key: string): void;
+  hostTimer(hostId: number, key: string): void;
   close(): void;
 }
 
@@ -107,6 +108,7 @@ export interface NativeCodexAddon {
   CodexPoolNative: new (
     idleMs: number | null,
     stop: (error: unknown, json: string) => void,
+    timer: (error: unknown, json: string) => void,
   ) => NativePoolHandle;
 }
 
@@ -129,13 +131,48 @@ const nativePools = new WeakMap<CodexHostPool, NativePool>();
 class NativePool {
   readonly native: NativePoolHandle;
   readonly #procs = new Map<string, SupervisedProcess>();
+  readonly #timers = new Map<string, () => void>();
   readonly #graceMs: number;
+  readonly #schedule: (callback: () => void, ms: number) => () => void;
 
-  constructor(native: NativeCodexAddon, idleMs: number | null, graceMs: number) {
+  constructor(
+    native: NativeCodexAddon,
+    idleMs: number | null,
+    graceMs: number,
+    schedule: (callback: () => void, ms: number) => () => void,
+  ) {
     this.#graceMs = graceMs;
-    this.native = new native.CodexPoolNative(idleMs, (_error, json) => {
-      void this.#stop(json);
-    });
+    this.#schedule = schedule;
+    this.native = new native.CodexPoolNative(
+      idleMs,
+      (_error, json) => {
+        void this.#stop(json);
+      },
+      (_error, json) => this.#timer(json),
+    );
+  }
+
+  /** A host timer no tenant carries: the idle app-server's retirement, mostly. */
+  #timer(json: string): void {
+    const { host, key, ms } = JSON.parse(json) as {
+      host: number;
+      key: string;
+      ms: number | null;
+    };
+    const id = `${host}:${key}`;
+    const previous = this.#timers.get(id);
+    if (previous !== undefined) {
+      this.#timers.delete(id);
+      previous();
+    }
+    if (ms === null) return;
+    this.#timers.set(
+      id,
+      this.#schedule(() => {
+        this.#timers.delete(id);
+        this.native.hostTimer(host, key);
+      }, ms),
+    );
   }
 
   open(key: string, dedicated: boolean, config: unknown, events: unknown): NativeCodexChannel {
@@ -164,8 +201,12 @@ class NativePool {
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
+    const exited = [...this.#procs.values()].map((proc) => proc.exited);
+    for (const cancel of this.#timers.values()) cancel();
+    this.#timers.clear();
     this.native.close();
+    await Promise.allSettled(exited);
   }
 }
 
@@ -225,7 +266,7 @@ export async function openNativeCodexSession(
   const started = io.now();
   const pool = options.hosts
     ? nativePoolFor(native, options.hosts, io)
-    : new NativePool(native, 0, io.stopGraceMs);
+    : new NativePool(native, 0, io.stopGraceMs, (callback, ms) => io.schedule(callback, ms));
   const key = spawnKey(ctx, ctx.env ?? options.discovery?.env);
   let root = "";
   let bridge: SessionBridge;
@@ -628,7 +669,9 @@ function nativePoolFor(
 ): NativePool {
   const existing = nativePools.get(pool);
   if (existing) return existing;
-  const created = new NativePool(native, pool.idleMs, io.stopGraceMs);
+  const created = new NativePool(native, pool.idleMs, io.stopGraceMs, (callback, ms) =>
+    io.schedule(callback, ms),
+  );
   nativePools.set(pool, created);
   pool.native = { close: async () => created.close() };
   return created;

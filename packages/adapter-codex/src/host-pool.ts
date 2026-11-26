@@ -44,7 +44,11 @@ export class CodexHostPool {
   }
   /** Stop every app-server, whatever sessions remain on it. */
   async close(): Promise<void> {
-    await this.native?.close();
+    if (this.native) {
+      // The native twin owns every app-server in this mode; wait for their exits.
+      await this.native.close();
+      return;
+    }
     await Promise.all([...this.#hosts.values()].map((host) => host.retire()));
   }
   async host(key: string, start: (retired: () => void) => Promise<CodexHost>): Promise<CodexHost> {
