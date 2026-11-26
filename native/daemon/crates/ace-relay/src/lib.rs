@@ -19,9 +19,9 @@ pub mod socket;
 pub mod wire;
 
 pub use channel::{
-    ATTACHMENT_BACKPRESSURE, Attachment, CHUNK_BUDGET, CONTROL_BACKPRESSURE, CONTROL_BUDGET,
-    ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input, chunk_room,
-    control_room, files_routes_to_scoped, support_local_only,
+    ATTACHMENT_BACKPRESSURE, AccountChannels, Attachment, CHUNK_BUDGET, CONTROL_BACKPRESSURE,
+    CONTROL_BUDGET, ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input,
+    chunk_room, control_room, files_routes_to_scoped, support_local_only,
 };
 pub use cipher::{CipherState, Snapshot};
 pub use error::RelayError;
