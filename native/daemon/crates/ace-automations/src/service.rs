@@ -729,6 +729,12 @@ impl<'a> Service<'a> {
         ))
     }
 
+    /// Build every run index in one write. For a file over the idle threshold, the host calls
+    /// this from its maintenance window; idle heals smaller files itself.
+    pub fn maintenance(&mut self) -> Result<()> {
+        self.store.create_run_indexes()
+    }
+
     /// One bounded idle step for the store's migration: fill up to `limit` runs' finish times
     /// from their bodies and return how many changed, so the host loops until it returns less
     /// than `limit`. Never history-sized work at open (ADR 0170).

@@ -358,3 +358,29 @@ fn a_due_github_automation_advances_before_io_and_reaches_the_one_timer() {
     );
     assert_eq!(service.arm_delay().expect("delay"), Some(60_000));
 }
+
+#[test]
+fn the_services_maintenance_call_heals_run_indexes() {
+    let h = Harness::new();
+    let mut service = h.started();
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("DROP INDEX IF EXISTS automation_finished")
+        .expect("drop");
+    raw.close().expect("close");
+    assert_eq!(
+        h.store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Missing
+    );
+    service.maintenance().expect("maintenance");
+    assert_eq!(
+        h.store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Current
+    );
+}

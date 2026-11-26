@@ -77,12 +77,17 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 
 ## Files per item
 
-| Item | Rust (yours)                                                                          | Binding (yours)                                 | TypeScript shell (yours)                                        | Switch                            |
-| ---- | ------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------- | --------------------------------- |
-| A1   | `ace-automations/src/{store,store_schema,definition,service,scheduler,decisions,github,webhooks,webhook_body,webhook_signature,webhook_secret_box,webhook_key,calendar,grammar,recurrence}.rs` | `ace-daemon-node/src/automations/mod.rs`        | `packages/automations/src/native-service.ts`, `native-store.ts` | `ACE_AUTOMATIONS=native`          |
-| A2   | `ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs`                 | `ace-daemon-node/src/engine/automation_runs.rs` | `apps/daemon/src/native-engine/automation-runs.ts`              | `ACE_AUTOMATION_EXECUTOR=native`  |
-| A3   | `ace-automations/src/workspace.rs`                                                    | `ace-daemon-node/src/automations/workspace.rs`  | the switch line in `apps/daemon/src/automation-workspace.ts:55` | `ACE_AUTOMATION_WORKSPACE=native` |
-| A4   | `ace-automations/src/tools.rs`                                                        | `ace-daemon-node/src/tools/automations.rs`      | the family line in agent-control's automation tools             | `ACE_NATIVE_TOOLS=automations`    |
+The owner's 2026-11-26 decision (ADR 0226's amendment) removed the per-item bindings, switches
+and TypeScript facades: no new bridges. Proof for every item is its Rust tests and
+`check:daemon-native`, and composition happens in `ace-daemon-bin` once the Rust daemon's main
+wires the crates. The TypeScript shells named here before are not part of an item.
+
+| Item | Rust (yours)                                                                          |
+| ---- | ------------------------------------------------------------------------------------- |
+| A1   | `ace-automations/src/{store,store_schema,definition,service,scheduler,decisions,github,webhooks,webhook_body,webhook_signature,webhook_secret_box,webhook_key,calendar,grammar,recurrence,wildmatch}.rs` |
+| A2   | `ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs`                  |
+| A3   | `ace-automations/src/workspace.rs`                                                    |
+| A4   | `ace-automations/src/tools.rs`                                                        |
 
 ## Where A1, A2 and A3 end (for the Rust daemon's wiring)
 
@@ -95,7 +100,8 @@ envelopes; prompt rendering and every UTF-16 text bound; GitHub polling **decisi
 ETags, page snapshots, revision checks, event delivery) over an injected `gh` client, with the
 fake processes for tests. A1 leaves three things to its host: arm the one timer from the delay
 A1 returns, run `gh` through `ace-supervisor`, and call `backfill_finished_at` from idle in
-bounded batches.
+bounded batches. Idle heals a small file's run indexes (`Service::idle_step`); a file over the
+10,000-run threshold names `Service::maintenance` for the host's maintenance window.
 
 Owned by **A2** (`ace-engine/src/automation_runs/`, needs the Rust engine): launching a run's
 thread and sending its message, recovery without a second send, the 5 s monitor and its tree
@@ -180,8 +186,9 @@ input decided by the Zod port until the family's typed decoding is pinned (ADR 0
 
 ## When you are done
 
-- Every (a) file of your item passes alone with the switch on and off; your (b) cases pass in
-  `cargo test` for your crate; `check:daemon-native` passes; the cross-mode list passes both ways.
+- Your item's Rust tests pass (`cargo test -p ace-automations` or the engine's crate);
+  `check:daemon-native` passes. There is no switch to run on and off and no cross-mode run until
+  `ace-daemon-bin` composes the Rust service; the ported TypeScript cases are the proof.
 - Report: the files run and their results, the bench figures off and on, anything in
   behaviour.md that turned out wrong (with the code that shows it), anything you kept TypeScript
   because it couldn't be reproduced exactly, and the one test you added, if any.

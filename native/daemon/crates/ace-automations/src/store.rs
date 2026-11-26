@@ -64,6 +64,8 @@ pub struct AutomationStore {
     /// Where the bounded `finished_at` backfill resumes, and how many rows it last examined.
     idle_cursor: Cell<i64>,
     idle_examined: Cell<usize>,
+    /// The index state read from `sqlite_master`, cached until this store repairs or builds it.
+    finished_index: Cell<Option<FinishedIndex>>,
 }
 
 /// Which `automation_finished` the file holds.
@@ -94,6 +96,7 @@ impl AutomationStore {
             depth: Cell::new(0),
             idle_cursor: Cell::new(0),
             idle_examined: Cell::new(0),
+            finished_index: Cell::new(None),
         };
         store.ensure_schema()?;
         Ok(store)
@@ -145,8 +148,17 @@ impl AutomationStore {
             .is_empty())
     }
 
-    /// The `automation_finished` expression this file holds, read from its SQL.
+    /// The `automation_finished` expression this file holds, read from its SQL once.
     pub fn finished_index(&self) -> Result<FinishedIndex> {
+        if let Some(state) = self.finished_index.get() {
+            return Ok(state);
+        }
+        let state = self.read_finished_index()?;
+        self.finished_index.set(Some(state));
+        Ok(state)
+    }
+
+    fn read_finished_index(&self) -> Result<FinishedIndex> {
         let rows = self.query(
             "SELECT sql FROM sqlite_master WHERE type='index' AND name='automation_finished'",
             &[],
@@ -210,33 +222,40 @@ impl AutomationStore {
         self.idle_examined.get()
     }
 
-    /// Repair a wrong `automation_finished` expression without history-sized work: a small file
-    /// is rebuilt correctly here; a large one only drops the unusable index (constant time) and
-    /// leaves the rebuild to [`AutomationStore::create_run_indexes`], with the inbox's indexed
-    /// path falling back until then.
+    /// Heal the run indexes without history-sized work: a small file (the TypeScript's old
+    /// homes included) gets every run index here; a large one only drops an unusable
+    /// `automation_finished` and leaves the rebuild to
+    /// [`AutomationStore::create_run_indexes`], with the inbox's indexed path falling back.
     fn repair_finished_index(&self) -> Result<()> {
-        if self.finished_index()? != FinishedIndex::Outdated {
-            return Ok(());
-        }
+        let state = self.finished_index()?;
         let runs = self
             .query("SELECT COUNT(*) FROM automation_runs", &[])?
             .first()
             .and_then(|row| row_int(row, 0))
             .unwrap_or(0);
-        self.execute("DROP INDEX automation_finished", &[])?;
         if runs <= REBUILD_INDEX_ROWS {
-            self.execute(
-                "CREATE INDEX automation_finished ON automation_runs(coalesce(finished_at, 9007199254740991))",
-                &[],
-            )?;
+            if state == FinishedIndex::Outdated {
+                self.execute("DROP INDEX automation_finished", &[])?;
+            }
+            if state != FinishedIndex::Current {
+                crate::store_schema::ensure_run_indexes(self)?;
+                self.finished_index.set(Some(FinishedIndex::Current));
+            }
+            return Ok(());
+        }
+        if state == FinishedIndex::Outdated {
+            self.execute("DROP INDEX automation_finished", &[])?;
+            self.finished_index.set(Some(FinishedIndex::Missing));
         }
         Ok(())
     }
 
-    /// Build every run index in one write. History-sized by nature: an explicit maintenance call,
-    /// never open or idle.
+    /// Build every run index in one write. History-sized by nature: the host's explicit
+    /// maintenance call for a file over the idle threshold, never open or idle.
     pub fn create_run_indexes(&self) -> Result<()> {
-        crate::store_schema::ensure_run_indexes(self)
+        crate::store_schema::ensure_run_indexes(self)?;
+        self.finished_index.set(Some(self.read_finished_index()?));
+        Ok(())
     }
 
     /// One commit for `operation`; a transaction opened inside it joins the outer one.

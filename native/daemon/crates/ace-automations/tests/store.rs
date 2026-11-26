@@ -114,7 +114,7 @@ fn the_finished_index_and_inbox_query_use_the_typescripts_max_safe_integer() {
 }
 
 #[test]
-fn an_older_home_without_the_finished_index_still_reads_and_maintenance_creates_it() {
+fn an_older_home_without_the_finished_index_heals_in_idle() {
     let dir = tempfile::tempdir().expect("temp");
     let path = dir.path().join("auto.sqlite");
     let store = open(&path);
@@ -140,13 +140,8 @@ fn an_older_home_without_the_finished_index_still_reads_and_maintenance_creates_
             .0
             .is_empty()
     );
-    // Idle never builds a history-sized index; the host's maintenance call does.
+    // A small file heals in idle; the same threshold leaves large files to maintenance.
     store.backfill_finished_at(1).expect("idle");
-    assert_eq!(
-        store.finished_index().expect("index"),
-        ace_automations::store::FinishedIndex::Missing
-    );
-    store.create_run_indexes().expect("maintenance");
     assert_eq!(
         store.finished_index().expect("index"),
         ace_automations::store::FinishedIndex::Current
@@ -313,5 +308,43 @@ fn a_huge_legacy_index_is_dropped_in_idle_not_rebuilt_over_history() {
         ace_automations::store::FinishedIndex::Missing
     );
     assert!(store.idle_examined() <= 1);
+    store.close().expect("close");
+}
+
+#[test]
+fn idle_heals_a_typescript_home_that_lacks_the_finished_indexes() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw
+    .exec(
+      "DROP INDEX IF EXISTS automation_finished; DROP INDEX IF EXISTS automation_unfinished; DROP INDEX IF EXISTS automation_history; DROP INDEX IF EXISTS automation_active; DROP INDEX IF EXISTS automation_status",
+    )
+    .expect("old home");
+    raw.close().expect("close");
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Missing
+    );
+    // A small file heals in idle, bounded by the same threshold as the rebuild.
+    store.backfill_finished_at(1).expect("idle");
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Current
+    );
+    let plan = store.inbox_query_plan(0).expect("plan");
+    assert!(
+        plan.iter()
+            .any(|step| step.contains("SEARCH") && step.contains("automation_finished")),
+        "plan: {plan:?}"
+    );
     store.close().expect("close");
 }
