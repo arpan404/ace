@@ -1279,3 +1279,100 @@ fn an_invalidated_account_keeps_its_place_but_not_its_choices() {
     assert!(listed.models.is_empty(), "revoked choices are gone");
     let _ = statuses_by_id(&catalog);
 }
+
+#[test]
+fn a_replacement_refresh_waits_for_a_pending_invalidations_delete() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let discover = FakeDiscover::new(move |request, _signal| {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(models(&request.instance, &["gpt-6-sol"]))
+        })
+    });
+    let fixture = fixture(
+        vec![codex],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+    );
+    let catalog = fixture.catalog.clone();
+    let mut old = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(poll_once(old.as_mut()).is_pending());
+    let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
+    assert!(
+        poll_once(invalidating.as_mut()).is_pending(),
+        "delete is pending"
+    );
+    let mut replacement = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(poll_once(replacement.as_mut()).is_pending());
+    assert_eq!(
+        fixture.discover.calls(),
+        1,
+        "the replacement waited for the delete"
+    );
+    gate.open();
+    let (_, _, _) =
+        futures::executor::block_on(async move { futures::join!(old, invalidating, replacement) });
+    assert_eq!(fixture.discover.calls(), 2);
+    assert!(!listed(&catalog).models.is_empty());
+}
+
+#[test]
+fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
+    struct Probe {
+        gate: crate::signals::Gate,
+    }
+    impl super::ConnectionProbe for Probe {
+        fn probe(
+            &self,
+            _request: super::DiscoveryRequest,
+            _signal: crate::signals::Signal,
+        ) -> futures::future::LocalBoxFuture<
+            'static,
+            Result<String, crate::failures::DiscoveryFailure>,
+        > {
+            let gate = self.gate.clone();
+            Box::pin(async move {
+                gate.wait().await;
+                Ok("fingerprint".to_owned())
+            })
+        }
+    }
+    let codex = instance(ProviderKind::Opencode, "account");
+    let gate = crate::signals::Gate::new();
+    let mut options = CatalogOptions::new(
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+        TestClock::new(1_000.0),
+        TestDeadlines::new(),
+        TestSpawn::new(),
+    );
+    options.instances = vec![codex.clone()];
+    options.revision_probe = Some(std::sync::Arc::new(Probe { gate: gate.clone() }));
+    let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+    let mut probing = Box::pin(catalog.reconcile_connections());
+    assert!(poll_once(probing.as_mut()).is_pending());
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    gate.open();
+    futures::executor::block_on(probing).unwrap_or_else(|error| panic!("{error}"));
+    let fingerprint = catalog.with_inner(|inner| {
+        inner
+            .states
+            .get("account")
+            .and_then(|state| state.connection_fingerprint.clone())
+    });
+    assert_eq!(
+        fingerprint, None,
+        "the old login's probe result is fenced off"
+    );
+}

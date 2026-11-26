@@ -47,6 +47,11 @@ impl Signal {
         lock(&self.0).aborted
     }
 
+    /// Whether both names are the same signal.
+    pub fn same(&self, other: &Signal) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Resolves once [`Signal::abort`] is called.
     pub fn wait(&self) -> SignalWait {
         SignalWait(self.clone())

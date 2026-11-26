@@ -997,23 +997,65 @@ impl Catalog {
             let Some(config) = self.registered(&id) else {
                 continue;
             };
+            let generation =
+                self.with_inner(|inner| inner.states.get(&id).map(|state| state.generation));
             let revision = self.revision(&config);
             let Some(signal) = self.with_inner(|inner| {
                 let state = inner.states.get(&id)?;
                 if state.flight.is_some() || self.now() < state.probe_retry_at.max(state.retry_at) {
                     return None;
                 }
-                Some(state.abort.clone().unwrap_or_else(Signal::new))
+                Some(Signal::new())
             }) else {
                 continue;
             };
+            // The probe owns a deadline, a shutdown abort and a registry entry: a probe
+            // outliving its row or the daemon acts on nothing.
+            let gate = crate::signals::Gate::new();
+            self.with_inner(|inner| {
+                inner.probe_signals.push(signal.clone());
+                inner.owned.push(gate.clone());
+            });
+            let cancel = self.options.deadline.arm(
+                self.options.timeout_ms,
+                Box::new({
+                    let signal = signal.clone();
+                    move || signal.abort()
+                }),
+            );
             let request = DiscoveryRequest {
                 instance: with_binary_path(
                     &config,
                     self.configuration(&config).binary_path.as_deref(),
                 ),
             };
-            match probe.probe(request, signal.clone()).await {
+            let outcome = futures::future::select(
+                Box::pin(probe.probe(request, signal.clone())),
+                Box::pin(signal.wait()),
+            )
+            .await;
+            cancel();
+            self.with_inner(|inner| {
+                inner.owned.retain(|known| !known.same(&gate));
+                inner.probe_signals.retain(|known| !known.same(&signal));
+            });
+            gate.open();
+            if signal.is_aborted() {
+                continue;
+            }
+            let futures::future::Either::Left((result, _)) = outcome else {
+                continue;
+            };
+            let current = self.with_inner(|inner| {
+                owns(inner, &id, generation.unwrap_or(u64::MAX))
+                    && !inner.closed
+                    && self.registered(&id).map(|config| self.revision(&config))
+                        == Some(revision.clone())
+            });
+            if !current {
+                continue;
+            }
+            match result {
                 Ok(fingerprint) => {
                     let changed = self.with_inner(|inner| {
                         let Some(state) = inner.states.get_mut(&id) else {
@@ -1051,7 +1093,6 @@ impl Catalog {
                     }
                 }
             }
-            let _ = revision;
         }
         Ok(())
     }
