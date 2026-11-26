@@ -25,6 +25,8 @@ pub struct ProviderConfig {
     pub instance: Option<String>,
     pub enabled: Option<bool>,
     pub default_model: Option<String>,
+    /// An absolute executable path the person chose, replacing the CLI on PATH.
+    pub binary_path: Option<String>,
     pub custom_models: Vec<CustomModel>,
     pub hidden_models: Vec<String>,
     pub shown_models: Vec<String>,
@@ -43,6 +45,7 @@ impl ProviderConfig {
             instance: None,
             enabled: None,
             default_model: None,
+            binary_path: None,
             custom_models: Vec::new(),
             hidden_models: Vec::new(),
             shown_models: Vec::new(),
@@ -77,6 +80,9 @@ pub fn provider_configuration(
         }
         if account.default_model.is_some() {
             merged.default_model = account.default_model.clone();
+        }
+        if account.binary_path.is_some() {
+            merged.binary_path = account.binary_path.clone();
         }
         if !account.custom_models.is_empty() {
             merged.custom_models = account.custom_models.clone();

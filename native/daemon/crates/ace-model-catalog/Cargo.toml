@@ -23,3 +23,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 # regex: snapshot, lifecycle and endpoint-name rules from the TypeScript.
 regex = { version = "1" }
+# futures: discovery flights are shared between concurrent readers, and writes queue.
+futures = "0.3"
+# sha2: cache and identity revisions are SHA-256 hex, the digests TypeScript records.
+sha2 = { version = "0.11" }
