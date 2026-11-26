@@ -26,7 +26,7 @@ impl RelayError {
     pub fn ended_by(&self) -> (u16, String) {
         match self {
             Self::Closed { code, reason } => (*code, reason.clone()),
-            other => (1006, other.to_string().chars().take(123).collect()),
+            other => (1006, other.to_string()),
         }
     }
 }

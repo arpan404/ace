@@ -7,11 +7,15 @@
 //! relay and its host half. Tests never contact the hosted relay; a local server stands in.
 
 pub mod error;
+pub mod http;
 pub mod nk;
 pub mod noise;
+pub mod route;
+pub mod socket;
 pub mod wire;
 
 pub use error::RelayError;
+pub use http::{HOOKS_PATH, RelayHttpTarget, relay_http_enabled, relay_http_target};
 pub use nk::admission::{
     Held, NK_LIMITS, NkAdmission, NkClock, NkLimits, NkSession, Rate, Remaining, Suppression,
     Suppressive,
@@ -30,6 +34,11 @@ pub use nk::host::{
 pub use noise::{
     Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, NoiseNk, NoiseXx,
     SessionKeys, XX_PROTOCOL, fingerprint, host_id,
+};
+pub use route::{RelayPairingRoute, RelayRoute, relay_pairing, relay_route};
+pub use socket::{
+    Frame, HostChannel, MAX_CLOSE_REASON, ReadyState, RelaySocket, SocketEvent, ended_by,
+    slice_utf16,
 };
 pub use wire::{
     CONTROL_PROLOGUE, NK_REFUSAL_MS, NK_STREAM_PROLOGUE, PAIRED_MARKER, STREAM_PROLOGUE,
