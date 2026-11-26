@@ -164,6 +164,34 @@ fn update(
     Ok(())
 }
 
+/// `TransitionReadiness`'s construction (`:54`): the boot rebuild drops every blocker and seeds
+/// one for each stored agent record that is not ready. E5.3 runs it as an idle fill; it reads
+/// only the agent records, never the transcript.
+pub fn rebuild(conn: &std::sync::Arc<ace_store::Connection>, now: i64) -> Result<(), EngineError> {
+    stmt_cache::run(conn, "DELETE FROM engine_transition_blockers", Vec::new())?;
+    let rows = stmt_cache::all_rows(
+        conn,
+        "SELECT thread_id,key,value FROM engine_state_records WHERE section='agents'",
+        Vec::new(),
+    )?;
+    for row in rows {
+        let cell = |column: &str| row.get(column).and_then(cell_text).map(str::to_owned);
+        let (Some(thread), Some(key), Some(value)) =
+            (cell("thread_id"), cell("key"), cell("value"))
+        else {
+            continue;
+        };
+        let parsed =
+            ace_json::parse(&value).map_err(|error| EngineError::Records(error.to_string()))?;
+        let record: AgentRecord = ace_json::from_value(&parsed)
+            .map_err(|error| EngineError::Records(error.to_string()))?;
+        if !agent_ready(&record, now) {
+            stmt_cache::run(conn, PUT, vec![Cell::Text(thread), Cell::Text(key)])?;
+        }
+    }
+    Ok(())
+}
+
 /// `TransitionReadiness.capture` (`:63`): the agents a batch's events touched get their blocker
 /// row from the state the batch produced. Events that name no known agent change nothing, and
 /// the order is the batch's own, as the TypeScript's `Set` keeps it.
@@ -368,6 +396,34 @@ mod tests {
             !error.to_string().is_empty(),
             "the decode error is reported, not swallowed as an absent root"
         );
+    }
+
+    // From `transition-readiness.ts:54`: the boot rebuild forgets every blocker and seeds one
+    // per stored agent that is not ready.
+    #[test]
+    fn a_boot_rebuild_seeds_only_the_unready_stored_agents() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'stale')")
+            .expect("stale blocker");
+        let stored =
+            |value: serde_json::Value| format!("'{}'", value.to_string().replace('\'', "''"));
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'working', {})",
+            stored(agent_json("a-working", "working", Some("run-1")))
+        ))
+        .expect("working");
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'idle', {})",
+            stored(agent_json("a-idle", "idle", None))
+        ))
+        .expect("idle");
+        rebuild(&conn, 10).expect("rebuild");
+        let keys = stmt_cache::all_rows(&conn, KEYS, vec![Cell::Text("t".into())])
+            .expect("rows")
+            .iter()
+            .filter_map(|row| row.get("agent_key").and_then(cell_text).map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["working"]);
     }
 
     #[test]
