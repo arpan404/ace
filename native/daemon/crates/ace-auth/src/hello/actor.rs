@@ -161,6 +161,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         let actor = hello_actor(&hello, &mut auth, true)
             .unwrap()
@@ -194,6 +201,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         assert!(hello_actor(&wrong, &mut auth, false).unwrap().is_none());
         // Spent first: the same ticket no longer opens the right device.
@@ -216,6 +230,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         let authenticated = hello_actor(&hello, &mut auth, false)
             .unwrap()
@@ -246,6 +267,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         let actor = hello_actor(&hello, &mut auth, true)
             .unwrap()

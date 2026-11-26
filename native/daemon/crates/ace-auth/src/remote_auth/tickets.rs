@@ -308,6 +308,13 @@ mod tests {
             install_id: None,
             channel: Some("devices".to_owned()),
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         assert!(
             crate::hello::hello_actor(&hello, &mut auth, false)

@@ -7,7 +7,7 @@ use url::Url;
 use super::ClientError;
 
 /// A pairing link, read (`packages/client/src/pairing-link.ts:2`–`:31`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PairingLink {
     /// The daemon's HTTPS origin with a trailing slash; empty for a relay link.
     pub daemon: String,
@@ -19,6 +19,33 @@ pub struct PairingLink {
     /// The daemon's public-key pin; empty when the link has none.
     pub fingerprint: String,
     pub scopes: Vec<String>,
+}
+
+impl std::fmt::Debug for PairingLink {
+    /// The code is a live credential: Debug names its presence, never its value.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PairingLink")
+            .field("daemon", &self.daemon)
+            .field("relay", &self.relay)
+            .field("also_relay", &self.also_relay)
+            .field("code", &"<redacted>")
+            .field("fingerprint", &self.fingerprint)
+            .field("scopes", &self.scopes)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RedeemRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RedeemRequest")
+            .field("origin", &self.origin)
+            .field("fingerprint", &self.fingerprint)
+            .field("code", &"<redacted>")
+            .field("name", &self.name)
+            .field("install_id", &self.install_id)
+            .field("standing_key", &self.standing_key.is_some())
+            .finish()
+    }
 }
 
 /// A relay route named in a fragment.
@@ -155,7 +182,7 @@ fn relay_of(address: Option<String>, host_id: Option<String>) -> Option<RelayLin
 }
 
 /// What `redeemPairing` posts (`client-access.ts:227`–`:249`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RedeemRequest {
     /// The daemon's origin, where `/v1/pair` is posted.
     pub origin: String,

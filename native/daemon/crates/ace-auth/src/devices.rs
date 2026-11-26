@@ -147,11 +147,21 @@ impl SessionActor {
 }
 
 /// The pairing-link proof a hello carries with an account grant (ADR 0115).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PairingLinkProof {
     pub device_id: String,
     /// Base64url HMAC-SHA256 of `ace-link/v1\n<deviceId>\n<hello deviceId>`.
     pub proof: String,
+}
+
+impl std::fmt::Debug for PairingLinkProof {
+    /// The proof is a credential: Debug names its presence, never its value.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PairingLinkProof")
+            .field("device_id", &self.device_id)
+            .field("proof", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Whether a device may act with `scope` (`devices.ts:19`–`:28`). A member's socket that only
