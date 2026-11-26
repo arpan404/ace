@@ -18,10 +18,13 @@ pub(crate) const HEADER: &str = r#"{"engineSnapshot":9,"threadId":"t","config":{
 
 /// A fresh home with the opener's schema, and one thread whose state is `header`.
 pub(crate) fn home(thread: &str, header: &str) -> Arc<Connection> {
+    // A counter as well as the clock: parallel cases in one process can read the same instant.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "ace-engine-home-{}-{}-{}.sqlite",
+        "ace-engine-home-{}-{}-{}-{}.sqlite",
         std::process::id(),
         thread,
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_nanos())
@@ -91,6 +94,17 @@ pub(crate) struct Shell {
     /// Each buffered live write: thread, events, time and callback token.
     pub buffered: RefCell<Vec<(String, String, f64, u64)>>,
     rolled_back: RefCell<Vec<String>>,
+    /// Armed timers, by key: the sender a test fires, or drops to cancel.
+    timers: RefCell<Vec<(u64, Option<futures::channel::oneshot::Sender<()>>)>>,
+    next_timer: Cell<u64>,
+    /// Keys a test (or the engine) cancelled.
+    cancelled: RefCell<Vec<u64>>,
+    /// What `onError` was told.
+    reports: RefCell<Vec<String>>,
+    /// `admits`'s answer, the calls it saw, and the call number it starts throwing at.
+    admits_answer: Cell<Option<bool>>,
+    admits_calls: Cell<u32>,
+    admits_throw_from: Cell<Option<u32>>,
 }
 
 impl Shell {
@@ -118,6 +132,48 @@ impl Shell {
         self.generation.set(self.generation.get() + 1.0);
     }
 
+    /// Fires one armed timer, as the clock would.
+    pub fn fire(&self, key: u64) {
+        let mut timers = self.timers.borrow_mut();
+        if let Some(slot) = timers.iter_mut().find(|(armed, _)| *armed == key)
+            && let Some(sender) = slot.1.take()
+        {
+            let _ = sender.send(());
+        }
+    }
+
+    /// The keys still armed (fired and cancelled ones are gone).
+    pub fn armed(&self) -> Vec<u64> {
+        self.timers
+            .borrow()
+            .iter()
+            .filter(|(_, sender)| sender.is_some())
+            .map(|(key, _)| *key)
+            .collect()
+    }
+
+    pub fn cancelled(&self) -> Vec<u64> {
+        self.cancelled.borrow().clone()
+    }
+
+    pub fn reports(&self) -> Vec<String> {
+        self.reports.borrow().clone()
+    }
+
+    /// What `admits` answers; `None` is yes, as the port's default is.
+    pub fn answer_admits(&self, answer: Option<bool>) {
+        self.admits_answer.set(answer);
+    }
+
+    /// `admits` starts throwing from its `nth` call (1-based).
+    pub fn throw_admits_from(&self, nth: u32) {
+        self.admits_throw_from.set(Some(nth));
+    }
+
+    pub fn admits_calls(&self) -> u32 {
+        self.admits_calls.get()
+    }
+
     fn make(conn: &Arc<Connection>, fail_open: bool) -> (EngineStore, std::rc::Rc<Shell>) {
         let shell = std::rc::Rc::new(Shell {
             conn: Arc::clone(conn),
@@ -129,6 +185,13 @@ impl Shell {
             pinned: Cell::new(false),
             buffered: RefCell::new(Vec::new()),
             rolled_back: RefCell::new(Vec::new()),
+            timers: RefCell::new(Vec::new()),
+            next_timer: Cell::new(0),
+            cancelled: RefCell::new(Vec::new()),
+            reports: RefCell::new(Vec::new()),
+            admits_answer: Cell::new(None),
+            admits_calls: Cell::new(0),
+            admits_throw_from: Cell::new(None),
         });
         let store = EngineStore {
             ports: shell.clone(),
@@ -145,11 +208,25 @@ impl Ports for Shell {
         0.0
     }
     fn set_timer(&self, _ms: f64) -> Timer {
-        let (_sender, fired) = futures::channel::oneshot::channel();
-        Timer { key: 0, fired }
+        let next = self.next_timer.get() + 1;
+        self.next_timer.set(next);
+        let (sender, fired) = futures::channel::oneshot::channel();
+        self.timers.borrow_mut().push((next, Some(sender)));
+        Timer { key: next, fired }
     }
-    fn cancel_timer(&self, _key: u64) {}
-    fn cancel_all_timers(&self) {}
+    fn cancel_timer(&self, key: u64) {
+        self.cancelled.borrow_mut().push(key);
+        let mut timers = self.timers.borrow_mut();
+        if let Some(slot) = timers.iter_mut().find(|(armed, _)| *armed == key) {
+            slot.1 = None;
+        }
+    }
+    fn cancel_all_timers(&self) {
+        let keys: Vec<u64> = self.armed();
+        for key in keys {
+            self.cancel_timer(key);
+        }
+    }
     fn set_batch_timer(&self, ms: f64) -> Timer {
         self.set_timer(ms)
     }
@@ -165,7 +242,19 @@ impl Ports for Shell {
         self.ids.set(next);
         format!("{kind}-{next}")
     }
-    fn report(&self, _error: String) {}
+    fn report(&self, error: String) {
+        self.reports.borrow_mut().push(error);
+    }
+
+    /// The maintenance gate: a test answers it, and can make a later call throw.
+    fn admits(&self) -> Result<bool, PortError> {
+        let calls = self.admits_calls.get() + 1;
+        self.admits_calls.set(calls);
+        if self.admits_throw_from.get().is_some_and(|from| calls >= from) {
+            return Err(PortError::Threw("maintenance gate threw".to_owned()));
+        }
+        Ok(self.admits_answer.get().unwrap_or(true))
+    }
     fn providers_activated(
         &self,
     ) -> futures::future::LocalBoxFuture<'static, Result<(), PortError>> {
