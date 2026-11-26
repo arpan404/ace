@@ -142,6 +142,7 @@ fn event_kind(event: &SessionEvent) -> &'static str {
         SessionEvent::Port { .. } => "port",
         SessionEvent::ArmTimer { .. } => "armTimer",
         SessionEvent::CancelTimer { .. } => "cancelTimer",
+        SessionEvent::Port { .. } => "port",
         SessionEvent::Fatal { .. } => "fatal",
         SessionEvent::Drained => "drained",
     }
