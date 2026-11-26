@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The `sim_*` tools' results (`packages/devices/src/sim-tools.ts`): the summary an
+//! agent gets back from a start or stop, the refusal a device with no live video
+//! still answers, the screenshot's note, and the public error a failure becomes.
+//!
+//! The tool registration, the MCP image and the abort wiring are the shell's; these
+//! are the decisions the shell renders.
+
+use ace_json::{Array, JsString, Map, Number, Value};
+
+use crate::error::{DeviceErrorCode, DeviceFailure};
+
+/// The hint an Android device with no live video gives its agent.
+pub const STILL_WORKS: [&str; 3] = ["sim_act input", "sim_screenshot", "sim_ui"];
+
+/// The public codes a device failure may carry: every `DeviceFailure["code"]` is a
+/// member of `PublicToolCode` (`packages/mcp-server/src/public-error.ts`), so a
+/// device refusal keeps its own code at the tool boundary.
+const PUBLIC_CODES: [&str; 15] = [
+    "sdk_missing",
+    "tool_missing",
+    "not_supported",
+    "foreground_required",
+    "not_found",
+    "not_booted",
+    "permission_denied",
+    "busy",
+    "timeout",
+    "command_failed",
+    "invalid_data",
+    "lease_required",
+    "stale_ref",
+    "limit",
+    "person_busy",
+];
+
+/// `summary`: what an agent needs after taking or releasing a simulator, not the
+/// full device state. A value that does not parse is returned as it is.
+pub fn summary(raw: &Value) -> Value {
+    let Some(object) = raw.as_object() else {
+        return raw.clone();
+    };
+    let Some(device) = object.get("device").and_then(Value::as_object) else {
+        return raw.clone();
+    };
+    let (Some(id), Some(name), Some(state)) = (
+        device.get("id").and_then(Value::as_str),
+        device.get("name").and_then(Value::as_str),
+        device.get("state").and_then(Value::as_str),
+    ) else {
+        return raw.clone();
+    };
+    let (Some(lifecycle), Some(controller)) = (
+        object.get("lifecycle").and_then(Value::as_str),
+        object.get("controller").and_then(Value::as_str),
+    ) else {
+        return raw.clone();
+    };
+    let mut out = Map::new();
+    out.insert("simId", Value::String(JsString::from(id)));
+    out.insert("name", Value::String(JsString::from(name)));
+    out.insert("state", Value::String(JsString::from(state)));
+    out.insert("lifecycle", Value::String(JsString::from(lifecycle)));
+    out.insert("controller", Value::String(JsString::from(controller)));
+    if let Some(posture) = object.get("posture") {
+        out.insert("posture", posture.clone());
+    }
+    Value::Object(out)
+}
+
+/// `androidWithoutVideo`: the live-view refusal an Android device keeps control
+/// through, so its agent drives it through adb, input and screencast stills.
+pub fn android_without_video(code: DeviceErrorCode, sim_id: &str) -> bool {
+    code == DeviceErrorCode::NotSupported && sim_id.starts_with("android:")
+}
+
+/// The answer an Android device with no live video gives instead of a start.
+pub fn without_video(sim_id: &str, message: &JsString, hint: &JsString) -> Value {
+    let mut out = Map::new();
+    out.insert("simId", Value::String(JsString::from(sim_id)));
+    out.insert("liveView", Value::String(JsString::from("unavailable")));
+    out.insert("reason", Value::String(message.clone()));
+    out.insert("hint", Value::String(hint.clone()));
+    out.insert(
+        "stillWorks",
+        Value::Array(Array::from(
+            STILL_WORKS
+                .iter()
+                .map(|entry| Value::String(JsString::from(*entry)))
+                .collect::<Vec<_>>(),
+        )),
+    );
+    Value::Object(out)
+}
+
+/// The how-to rides on an agent's first start of a device only (`sim-tools.ts:99`).
+pub fn with_guidance(started: Value, first_start: bool, guidance: &str) -> Value {
+    let Value::Object(mut object) = started else {
+        return started;
+    };
+    if first_start {
+        object.insert("guide", Value::String(JsString::from(guidance)));
+    }
+    Value::Object(object)
+}
+
+/// `sim_screenshot`'s note: the frame, its size, and how to turn image pixels into
+/// `sim_act` points.
+pub fn screenshot_note(sim_id: &str, sequence: f64, width: f64, height: f64, scale: f64) -> String {
+    let number = |value: f64| ace_json::to_string(&Value::Number(Number::from(value)));
+    format!(
+        "{sim_id} frame {}, {}x{}. Divide image pixels by scale {} for sim_act points; prefer sim_ui refs.",
+        number(sequence),
+        number(width),
+        number(height),
+        number(scale)
+    )
+}
+
+/// The public failure an agent sees for a device failure, the same on MCP and the
+/// CLI: a code from the public set, and ace's own message when ace wrote it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicFailure {
+    pub code: &'static str,
+    pub permission: Option<crate::error::DevicePermission>,
+    pub message: Option<JsString>,
+}
+
+/// `simPublicError`: the failure's code when the public catalog has it, else
+/// `command_failed`; ace's message is kept only for its own refusals.
+pub fn public_failure(failure: &DeviceFailure, own: bool) -> PublicFailure {
+    let code = failure.code.as_str();
+    PublicFailure {
+        code: PUBLIC_CODES
+            .iter()
+            .find(|candidate| **candidate == code)
+            .copied()
+            .unwrap_or("command_failed"),
+        permission: failure.permission,
+        message: own.then(|| failure.message.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests;
