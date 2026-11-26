@@ -207,6 +207,7 @@ impl CursorHostCore {
                 frames.push((frame, text));
             }
         } else {
+            // One copy, the event's own: the queue outlives the line the span borrows.
             let text = match span {
                 Some(span) => span.to_owned(),
                 None => bounded::bounded_json(&value, self.limits.max_frame_bytes)?,
