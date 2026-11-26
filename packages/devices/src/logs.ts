@@ -1,4 +1,5 @@
 import { deviceLogLine } from "./log-line.ts";
+import { nativeLogsTailLimit, nativeVideo } from "./native-video.ts";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 /** O(1) bounded ring and one replaceable batch per blocked consumer. */
 export class DeviceLogs {
@@ -80,7 +81,9 @@ export class DeviceLogs {
     }
   }
   tail(limit: number): { lines: string[]; sequence: number } {
-    limit = Math.max(1, Math.min(256, Math.trunc(limit)));
+    limit = nativeVideo
+      ? nativeLogsTailLimit(limit)
+      : Math.max(1, Math.min(256, Math.trunc(limit)));
     const lines: string[] = [];
     for (let i = Math.min(limit, this.count); i > 0; i--) {
       const line = this.ring[(this.cursor - i + 256) % 256];

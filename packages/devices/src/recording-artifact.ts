@@ -1,6 +1,11 @@
 import { readdir, rename, rmdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { DeviceRecordingArtifact, PublishedRecording } from "./recording.ts";
+import {
+  nativeRecordingParts,
+  nativeRecordingPublishFailure,
+  nativeVideo,
+} from "./native-video.ts";
 
 /** One MP4 part of a recording, moved where the artifact registry keeps it. */
 export type PublishedPart = {
@@ -26,24 +31,30 @@ export async function publishDeviceRecording(
   root: string,
   publish: (part: PublishedPart) => Promise<void>,
 ): Promise<PublishedRecording> {
+  const ordered = artifact.parts.toSorted((a, b) => a.index - b.index);
+  const plan = nativeVideo
+    ? nativeRecordingParts(
+        artifact.id,
+        ordered.map((part) => part.index),
+      )
+    : ordered.map((_, n) => ({
+        id: n === 0 ? artifact.id : `${artifact.id}-${n + 1}`,
+        file: `${n === 0 ? artifact.id : `${artifact.id}-${n + 1}`}.mp4`,
+        name: n === 0 ? "Device recording.mp4" : `Device recording (part ${n + 1}).mp4`,
+      }));
   let bytes = 0;
-  for (const [n, part] of artifact.parts.toSorted((a, b) => a.index - b.index).entries()) {
-    const id = n === 0 ? artifact.id : `${artifact.id}-${n + 1}`;
-    const file = `${id}.mp4`;
+  for (const [n, part] of ordered.entries()) {
+    const { id, file, name } = plan[n]!;
     const path = join(root, file);
     try {
       // ace-media names its parts itself; only the base name is trusted to be inside the directory.
       await rename(join(artifact.directory, basename(part.path)), path);
-      await publish({
-        id,
-        file,
-        name: n === 0 ? "Device recording.mp4" : `Device recording (part ${n + 1}).mp4`,
-        path,
-        bytes: part.bytes,
-      });
+      await publish({ id, file, name, path, bytes: part.bytes });
     } catch (error) {
       throw new Error(
-        `The recording couldn't be published: its video is kept in ${artifact.directory} and ${root}`,
+        nativeVideo
+          ? nativeRecordingPublishFailure(artifact.directory, root)
+          : `The recording couldn't be published: its video is kept in ${artifact.directory} and ${root}`,
         { cause: error },
       );
     }

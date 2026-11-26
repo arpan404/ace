@@ -209,6 +209,39 @@ impl From<Frame> for Effect {
     }
 }
 
+/// The admission verdict for a frame, without the session's state lock: the
+/// host asks it while it holds its own lock, and the session asks it while it
+/// holds its core (`Session::admit`). Same rules, one implementation.
+pub fn admission(bearer: Option<&str>, dir: FrameDir, data: &Value) -> Option<String> {
+    let redact = |encoded: &str| match bearer {
+        Some(bearer) => encoded.replace(bearer, MCP_CREDENTIAL),
+        None => encoded.to_owned(),
+    };
+    match dir {
+        FrameDir::Recv => {
+            let message = data.as_object()?;
+            let is_request = message
+                .get("method")
+                .is_some_and(|method| method.is_string())
+                && message.contains_key("id");
+            if !is_request {
+                return None;
+            }
+            let encoded = redact(&ace_json::to_string(data));
+            admit_payload(&encoded)
+                .err()
+                .map(|admission| admission.message(&encoded))
+        }
+        FrameDir::Send => {
+            let encoded = redact(&ace_json::to_string(data));
+            admit_payload(&encoded)
+                .err()
+                .map(|admission| admission.message(&encoded))
+        }
+        FrameDir::Stderr | FrameDir::Note => None,
+    }
+}
+
 /// What `emit` decided for one frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Emitted {
@@ -255,6 +288,10 @@ impl Frames {
 
     pub fn shared(&self) -> bool {
         self.shared
+    }
+
+    pub fn bearer(&self) -> Option<&str> {
+        self.bearer.as_deref()
     }
 
     /// `redactMcpCredential(encoded, ctx.aceMcp)`: the bearer becomes

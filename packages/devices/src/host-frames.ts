@@ -6,6 +6,12 @@ import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
 import { startFrameEncoder } from "./frame-encoder.ts";
 import type { Switched } from "./media-paths.ts";
+import {
+  nativeHostFramesBytes,
+  nativeHostFramesEdge,
+  nativeHostFramesName,
+  nativeVideo,
+} from "./native-video.ts";
 
 /**
  * An Android emulator's screen encoded on the host (the Mac's hardware H.264 encoder) instead of
@@ -53,10 +59,16 @@ export async function startHostFrames(options: {
   /** The encoder's ingest connection failed: its units stop until a new address. */
   ingestClosed?(): void;
 }): Promise<HostFrames> {
-  const file = join(options.directory, `emulator-frames-${options.runtime.id()}.rgba`);
+  const file = nativeVideo
+    ? join(options.directory, nativeHostFramesName(options.runtime.id()))
+    : join(options.directory, `emulator-frames-${options.runtime.id()}.rgba`);
   const handle = await open(file, "w", 0o600);
   try {
-    await handle.truncate(options.display.width * options.display.height * 4);
+    await handle.truncate(
+      nativeVideo
+        ? nativeHostFramesBytes(options.display.width, options.display.height)
+        : options.display.width * options.display.height * 4,
+    );
   } finally {
     await handle.close();
   }
@@ -83,7 +95,7 @@ export async function startHostFrames(options: {
   let stream: ScreenStream | undefined;
   const watch = (box: number) => {
     stream?.close();
-    const edge = Math.max(64, Math.round(box));
+    const edge = nativeVideo ? nativeHostFramesEdge(box) : Math.max(64, Math.round(box));
     stream = streamScreen({
       ...options.grpc,
       width: edge,

@@ -1,5 +1,11 @@
 import http2 from "node:http2";
 import { pathToFileURL } from "node:url";
+import {
+  nativeEmulatorRequest,
+  nativeEmulatorStatusRefusal,
+  nativeEmulatorStreamEnded,
+  nativeVideo,
+} from "./native-video.ts";
 
 /*
  * The one Android emulator gRPC call ace makes: `EmulatorController.streamScreenshot`, with the
@@ -36,8 +42,11 @@ const lengthDelimited = (field: number, bytes: readonly number[]) => [
  * aspect ratio and never upscales), written into the shared file `file`.
  */
 export function screenshotRequest(input: { width: number; height: number; file: string }): Buffer {
-  // A file URL the emulator maps: `file:///Users/…` on a Mac, `file:///C:/…` on Windows.
-  const handle = Buffer.from(pathToFileURL(input.file).href);
+  // A file URL the emulator maps: `file:///Users/…` on a Mac, `file:///C:/…` on Windows. The
+  // URL is the TypeScript's on both legs; the addon encodes the message around it.
+  const href = pathToFileURL(input.file).href;
+  if (nativeVideo) return nativeEmulatorRequest(input.width, input.height, href);
+  const handle = Buffer.from(href);
   const transport = [0x08, mmap, ...lengthDelimited(2, [...handle])];
   return Buffer.from([
     0x08,
@@ -138,6 +147,20 @@ export interface ScreenStream {
   close(): void;
 }
 
+/** Why a non-zero gRPC status refuses the stream. */
+function streamRefused(status: string): Error {
+  if (nativeVideo) {
+    const refusal = nativeEmulatorStatusRefusal(status);
+    if (refusal !== undefined) return new Error(refusal);
+  }
+  return new Error(`Emulator screen stream refused (gRPC ${status})`);
+}
+
+/** The failure a stream that ended on its own reports. */
+function streamEnded(): Error {
+  return new Error(nativeVideo ? nativeEmulatorStreamEnded() : "Emulator screen stream ended");
+}
+
 /**
  * Streams the emulator's screen into `file` (sized for the largest picture) and calls `notice`
  * for each picture written. `failed` reports a stream that ended on its own.
@@ -179,16 +202,14 @@ export function streamScreen(options: {
   });
   request.on("trailers", (trailers) => {
     const status = trailers["grpc-status"];
-    if (status && status !== "0")
-      fail(new Error(`Emulator screen stream refused (gRPC ${String(status)})`));
+    if (status && status !== "0") fail(streamRefused(String(status)));
   });
   request.on("response", (headers) => {
     const status = headers["grpc-status"];
-    if (status && status !== "0")
-      fail(new Error(`Emulator screen stream refused (gRPC ${String(status)})`));
+    if (status && status !== "0") fail(streamRefused(String(status)));
   });
   request.on("error", fail);
-  request.on("close", () => fail(new Error("Emulator screen stream ended")));
+  request.on("close", () => fail(streamEnded()));
   request.end(grpcFrame(screenshotRequest(options)));
   return {
     close() {

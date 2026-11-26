@@ -29,22 +29,25 @@ fn notes(effects: &[Effect]) -> Vec<Value> {
     effects.iter().filter_map(note).collect()
 }
 
+/// Native only (behaviour.md section 20): TypeScript cleans the session up
+/// before the retire is confirmed, so a failed retire leaves it empty. Rust
+/// cleans up only after confirmation, so a failed retirement leaves the
+/// tenant's pending calls and frames intact and the close rejects.
 #[test]
-fn closing_a_busy_session_whose_shells_outlived_the_hosts_stop_fails_instead_of_reporting_it_closed()
- {
+fn a_retirement_that_fails_leaves_the_tenants_pending_calls_intact() {
     let mut lifetime = busy_alone();
     let started = lifetime.close(Retirement::User, true);
-    assert_eq!(started[0], Effect::Cleanup);
     assert_eq!(
-        started[1],
-        Effect::Retire {
+        started,
+        vec![Effect::Retire {
             reason: Retirement::User
-        }
+        }]
     );
     let settled = lifetime.retired(
         &Frames::new(None),
         Err("Windows process tree survived its stop".to_owned()),
     );
+    assert!(!settled.contains(&Effect::Cleanup));
     assert_eq!(
         settled,
         vec![Effect::Closed(Err(
@@ -58,10 +61,10 @@ fn a_cancelled_session_whose_stop_fails_records_it_and_a_later_close_still_sees_
     let mut lifetime = busy_alone();
     let started = lifetime.abort(&Frames::new(None), "cancelled".to_owned(), true);
     assert_eq!(
-        started[1],
-        Effect::Retire {
+        started,
+        vec![Effect::Retire {
             reason: Retirement::Aborted
-        }
+        }]
     );
     let settled = lifetime.retired(
         &Frames::new(None),
@@ -94,10 +97,10 @@ fn a_transport_failure_whose_stop_fails_records_it_on_the_session() {
     let mut lifetime = busy_alone();
     let started = lifetime.fail_transport(&Frames::new(None), true);
     assert_eq!(
-        started[1],
-        Effect::Retire {
+        started,
+        vec![Effect::Retire {
             reason: Retirement::RpcFailed
-        }
+        }]
     );
     let settled = lifetime.retired(
         &Frames::new(None),
@@ -115,21 +118,22 @@ fn a_shared_host_with_other_tenants_stops_this_trees_work_before_it_detaches() {
     lifetime.attached(true, false);
     let started = lifetime.close(Retirement::User, true);
     assert_eq!(
-        started[1],
-        Effect::StopWork {
+        started,
+        vec![Effect::StopWork {
             reason: Retirement::User
-        }
+        }]
     );
     let detached = lifetime.work_stopped(Ok(()));
     assert_eq!(
-        detached[0],
-        Effect::Detach {
+        detached,
+        vec![Effect::Detach {
             reason: Retirement::User,
             message: "Codex session closed (user)".to_owned()
-        }
+        }]
     );
+    // The cleanup follows the detach's confirmation, never precedes it.
     let settled = lifetime.detached(&Frames::new(None), Ok(()));
-    assert_eq!(settled, vec![Effect::Closed(Ok(()))]);
+    assert_eq!(settled, vec![Effect::Cleanup, Effect::Closed(Ok(()))]);
 }
 
 #[test]
@@ -145,26 +149,23 @@ fn work_that_cannot_be_confirmed_retires_the_host_instead() {
         }
     );
     let settled = lifetime.retired(&Frames::new(None), Ok(()));
-    assert_eq!(settled, vec![Effect::Closed(Ok(()))]);
+    assert_eq!(settled, vec![Effect::Cleanup, Effect::Closed(Ok(()))]);
 }
 
 #[test]
-fn a_private_sessions_close_detaches_after_its_cleanup() {
+fn a_private_sessions_close_detaches_before_its_cleanup() {
     let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
     lifetime.attached(false, false);
     assert_eq!(
         lifetime.close(Retirement::Shutdown, false),
-        vec![
-            Effect::Cleanup,
-            Effect::Detach {
-                reason: Retirement::Shutdown,
-                message: "Codex session closed (shutdown)".to_owned()
-            }
-        ]
+        vec![Effect::Detach {
+            reason: Retirement::Shutdown,
+            message: "Codex session closed (shutdown)".to_owned()
+        }]
     );
     assert_eq!(
         lifetime.detached(&Frames::new(None), Ok(())),
-        vec![Effect::Closed(Ok(()))]
+        vec![Effect::Cleanup, Effect::Closed(Ok(()))]
     );
 }
 

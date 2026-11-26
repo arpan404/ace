@@ -17,12 +17,20 @@ static COMMAND: LazyLock<Result<Schema, serde_json::Error>> =
 
 /// Parse and normalize a stored command with the protocol schema.
 pub fn parse(text: &str) -> Result<Value, EngineError> {
+    ace_json::parse(text)
+        .ok()
+        .and_then(|value| normalize(&value).ok())
+        .ok_or_else(|| EngineError::Records("Invalid queue entry".into()))
+}
+
+/// `Command.parse(command)` on a value already in memory: defaults filled, unknown keys
+/// stripped and the keys in schema order (`docs/engine/e5-4-brief.md`, "Commands as stored").
+pub fn normalize(command: &Value) -> Result<Value, EngineError> {
     let schema = COMMAND
         .as_ref()
         .map_err(|error| EngineError::Records(format!("Invalid stored command schema: {error}")))?;
-    ace_json::parse(text)
-        .ok()
-        .and_then(|value| schema.parse(&value))
+    schema
+        .parse(command)
         .ok_or_else(|| EngineError::Records("Invalid queue entry".into()))
 }
 
@@ -50,6 +58,22 @@ mod tests {
         assert_eq!(
             context.get("attachments"),
             Some(&Value::Array(Vec::new().into()))
+        );
+    }
+
+    #[test]
+    fn a_normalized_send_strips_unknown_keys_and_puts_context_before_delivery() {
+        // Zod's parse keeps schema order; `delivery` arrives before `context` here.
+        let parsed = parse(&send(r#","delivery":"queue","context":{},"unknown":1"#)).unwrap();
+        assert_eq!(
+            ace_json::to_string(&parsed),
+            r#"{"id":"c","deviceId":"d","payload":{"type":"thread.send","threadId":"t","input":[{"type":"text","text":"hi"}],"context":{"mentions":[],"attachments":[]},"delivery":"queue"}}"#
+        );
+        // A value already in memory normalizes the same way.
+        let in_memory = ace_json::parse(&send(r#","unknown":1"#)).unwrap();
+        assert_eq!(
+            ace_json::to_string(&normalize(&in_memory).unwrap()),
+            r#"{"id":"c","deviceId":"d","payload":{"type":"thread.send","threadId":"t","input":[{"type":"text","text":"hi"}]}}"#
         );
     }
 

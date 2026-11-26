@@ -270,6 +270,9 @@ impl Serialize for crate::state::AgentRecord {
                 record_field(&mut map, self, key)?;
             }
         }
+        for (key, value) in &self.extra {
+            map.serialize_entry(key, value)?;
+        }
         map.end()
     }
 }
