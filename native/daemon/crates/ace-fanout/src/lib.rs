@@ -14,6 +14,7 @@ pub mod event;
 mod js;
 pub mod older_status;
 pub mod raw_trim;
+pub mod sidebar;
 pub mod subscription;
 pub mod wire_trim;
 
@@ -23,6 +24,10 @@ pub use older_status::{older_status, older_statuses};
 pub use raw_trim::{
     ProviderNotice, diagnostic_notice_text, history_message_identity, is_diagnostic_notice,
     is_provider_retry_notice, is_raw_history_item, omit_raw, provider_notice, raw_shown_only,
+};
+pub use sidebar::{
+    DeviceReads, PageReuse, PlacedStanding, Placement, SidebarError, SidebarPage, SidebarStore,
+    SidebarSubscription, SidebarWindow, ThreadListCursor, ThreadListResume,
 };
 pub use subscription::{
     DEFAULT_PROGRESS_INTERVAL_MS, DEFAULT_REPLAY_LIMIT, REPLAY_COMPARE_BYTES, REPLAY_FRAME_BYTES,
