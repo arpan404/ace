@@ -24,8 +24,10 @@ pub(crate) enum After {
     Wire(&'static str, String),
 }
 
-struct Record {
+pub(crate) struct Record {
     after: After,
+    /// A control request's facade tag and id, so a refused write settles it (`PiWire`'s rule).
+    control: Option<(u64, String)>,
 }
 
 /// Outbound lines handed to the port and not yet acknowledged, in order.
@@ -42,11 +44,16 @@ impl Writes {
     }
 
     /// Hand one line to the port: the write effect, and the frame its acknowledgement emits.
-    pub(crate) fn push(&mut self, wire: Vec<u8>, after: After) -> Effect {
+    pub(crate) fn push(
+        &mut self,
+        wire: Vec<u8>,
+        after: After,
+        control: Option<(u64, String)>,
+    ) -> Effect {
         if matches!(after, After::Input(_)) {
             self.inputs += 1;
         }
-        self.records.push_back(Record { after });
+        self.records.push_back(Record { after, control });
         Effect::Write { wire }
     }
 
@@ -80,28 +87,27 @@ impl Writes {
         }
     }
 
-    /// The port refused the write just returned: it may not have reached the CLI.
-    pub(crate) fn refused(&mut self) -> Vec<Effect> {
-        let Some(record) = self.records.pop_back() else {
-            return Vec::new();
-        };
+    /// The write the port refused: the front of the queue, the one handed over first.
+    pub(crate) fn take_refused(&mut self) -> Option<Record> {
+        let record = self.records.pop_front()?;
         if matches!(record.after, After::Input(_)) {
             self.inputs = self.inputs.saturating_sub(1);
         }
-        self.failed = Some(STDIN_CLOSED.to_owned());
-        vec![Effect::Fatal {
-            message: STDIN_CLOSED.to_owned(),
-        }]
+        Some(record)
     }
 
-    /// The port failed: no later write reaches the CLI.
-    pub(crate) fn error(&mut self, message: &str) -> Vec<Effect> {
-        self.records.clear();
+    /// Every queued write, for a port that failed.
+    pub(crate) fn take_all(&mut self) -> Vec<Record> {
         self.inputs = 0;
+        self.records.drain(..).collect()
+    }
+
+    /// Latch the failure and report it.
+    pub(crate) fn fail(&mut self, message: &str) -> Effect {
         self.failed = Some(message.to_owned());
-        vec![Effect::Fatal {
+        Effect::Fatal {
             message: message.to_owned(),
-        }]
+        }
     }
 }
 
@@ -113,7 +119,7 @@ impl ClaudeWire {
         messages_json: &str,
         command_id: Option<&str>,
     ) -> Result<Vec<Effect>, ClaudeError> {
-        if self.finished {
+        if self.finished || self.failed {
             return Err(ClaudeError::Refused(CLOSED.to_owned()));
         }
         if let Some(message) = self.writes.failed() {
@@ -153,7 +159,7 @@ impl ClaudeWire {
                     json: input_message(command_id, &uuid),
                 });
             }
-            effects.push(self.writes.push(wire, After::Input(captured)));
+            effects.push(self.writes.push(wire, After::Input(captured), None));
         }
         Ok(effects)
     }
@@ -165,12 +171,35 @@ impl ClaudeWire {
 
     /// The port failed; its message is the session's failure text.
     pub fn stdin_error(&mut self, message: &str) -> Vec<Effect> {
-        self.writes.error(message)
+        let mut effects = Vec::new();
+        for record in self.writes.take_all() {
+            if let Some((id, request_id)) = record.control {
+                self.controls.settle(&request_id);
+                effects.push(Effect::Settle {
+                    id,
+                    result: Err(ClaudeError::Uncertain(message.to_owned())),
+                });
+            }
+        }
+        effects.push(self.writes.fail(message));
+        effects
     }
 
-    /// The port refused the write just returned (`pushed > 0` makes this uncertain).
+    /// The port refused a write: its control settles `Uncertain` (`pushed > 0`), then the latch.
     pub fn write_refused(&mut self) -> Vec<Effect> {
-        self.writes.refused()
+        let Some(record) = self.writes.take_refused() else {
+            return Vec::new();
+        };
+        let mut effects = Vec::new();
+        if let Some((id, request_id)) = record.control {
+            self.controls.settle(&request_id);
+            effects.push(Effect::Settle {
+                id,
+                result: Err(ClaudeError::Uncertain(STDIN_CLOSED.to_owned())),
+            });
+        }
+        effects.push(self.writes.fail(STDIN_CLOSED));
+        effects
     }
 }
 

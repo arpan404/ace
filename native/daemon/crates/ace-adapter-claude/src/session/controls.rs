@@ -16,11 +16,18 @@ impl ClaudeWire {
     /// One control request. The envelope is admitted (16 MiB) and captured before its write, so a
     /// refusal writes nothing.
     pub fn control(&mut self, request_json: &str, id: u64) -> Result<Vec<Effect>, ClaudeError> {
+        if self.finished || self.failed {
+            return Err(ClaudeError::Refused(CLOSED.to_owned()));
+        }
         let request = parse_request(request_json)?;
+        // The wire learns the hooks it declared from the initialize it writes (P2c).
+        if let Request::Initialize(init) = &request {
+            self.declared_hooks = init.hooks.clone();
+        }
         let (request_id, envelope) = self
             .controls
             .request(request, id)
-            .map_err(|_| ClaudeError::Uncertain(CLOSED.to_owned()))?;
+            .map_err(|_| ClaudeError::Refused(CLOSED.to_owned()))?;
         let mut wire = ace_json::to_string(&envelope).into_bytes();
         wire.push(b'\n');
         if wire.len() > LINE_BYTES {
@@ -31,10 +38,14 @@ impl ClaudeWire {
             Ok(captured) => captured,
             Err(message) => {
                 self.controls.settle(&request_id);
-                return Err(ClaudeError::Uncertain(message));
+                return Err(ClaudeError::Refused(message));
             }
         };
-        Ok(vec![self.writes.push(wire, After::Wire(WIRE, captured))])
+        Ok(vec![self.writes.push(
+            wire,
+            After::Wire(WIRE, captured),
+            Some((id, request_id)),
+        )])
     }
 
     /// The CLI answered a request: its `recv`/`wire` frame came first, then the tag's settlement.
@@ -67,7 +78,7 @@ impl ClaudeWire {
         let mut wire = ace_json::to_string(&envelope).into_bytes();
         wire.push(b'\n');
         match self.capture(&envelope) {
-            Ok(captured) => vec![self.writes.push(wire, After::Wire(WIRE, captured))],
+            Ok(captured) => vec![self.writes.push(wire, After::Wire(WIRE, captured), None)],
             Err(message) => vec![self.fatal(format!("RangeError: {message}"))],
         }
     }

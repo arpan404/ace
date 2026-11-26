@@ -11,20 +11,14 @@ use crate::session::wire::{ClaudeWire, Effect, FrameDir};
 const OBSERVATIONAL: &str = "observational_hook";
 
 impl ClaudeWire {
-    /// One `hook_callback`. Its event is the input's `hook_event_name`, or the id the session
-    /// registered in `WireConfig.hooks`.
+    /// One `hook_callback`, routed by the id the last `initialize` this wire wrote declared.
     pub(crate) fn hook_callback(
         &mut self,
         request_id: &str,
         callback_id: &str,
         request: &Map,
     ) -> Vec<Effect> {
-        let event = request
-            .get("input")
-            .and_then(|input| input.get("hook_event_name"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| self.hook_event(callback_id));
+        let event = self.hook_event(callback_id);
         match event.as_deref() {
             Some("SubagentStart") | Some("SubagentStop") => self.observational(request_id, request),
             Some("UserPromptSubmit") => {
@@ -42,6 +36,9 @@ impl ClaudeWire {
 
     /// The facade's hook output (already JSON): the control response, framed after its write.
     pub fn answer_hook(&mut self, request_id: &str, output_json: &str) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
         let Some(at) = self.pending_hooks.iter().position(|id| id == request_id) else {
             return Vec::new();
         };
@@ -61,8 +58,7 @@ impl ClaudeWire {
     }
 
     fn hook_event(&self, callback_id: &str) -> Option<String> {
-        self.config
-            .hooks
+        self.declared_hooks
             .iter()
             .find(|(_, ids)| ids.iter().any(|id| id == callback_id))
             .map(|(event, _)| event.clone())

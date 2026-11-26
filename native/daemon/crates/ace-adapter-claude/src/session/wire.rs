@@ -61,7 +61,11 @@ pub struct ClaudeWire {
     confirmed: bool,
     pub(crate) finished: bool,
     /// A failed line was reported; every later input is ignored.
-    failed: bool,
+    pub(crate) failed: bool,
+    /// stdin is still open: only then does an expiry write its default answers.
+    pub(crate) input_open: bool,
+    /// What the last `initialize` this wire wrote declared, in order (event, callback ids).
+    pub(crate) declared_hooks: Vec<(String, Vec<String>)>,
 }
 
 impl ClaudeWire {
@@ -81,6 +85,8 @@ impl ClaudeWire {
             confirmed,
             finished: false,
             failed: false,
+            input_open: true,
+            declared_hooks: Vec::new(),
         }
     }
 
@@ -174,8 +180,13 @@ impl ClaudeWire {
         self.tasks.cascade(spawn)
     }
 
-    /// The terminal barrier: finalize the framers, flush the drop notes, settle every pending
-    /// control (none exists before E3-claude.3), then `Drained`.
+    /// `q.close()`'s input close: no later expiry writes a default answer.
+    pub(crate) fn end_input(&mut self) {
+        self.input_open = false;
+    }
+
+    /// The terminal barrier: finalize the framers, flush the drop notes, expire every pending
+    /// interaction, settle every pending control, then `Drained`.
     pub fn finish(&mut self) -> Vec<Effect> {
         if self.finished {
             return Vec::new();
@@ -197,6 +208,11 @@ impl ClaudeWire {
         if let Some(note) = self.notes.flush() {
             effects.extend(self.stderr_note(&note));
         }
+
+        // The terminal expiry: every interaction ends once, and its default answer only while
+        // stdin is open (`session.ts:104`, `:117`).
+        self.end_input();
+        effects.extend(self.expire_pending());
 
         for tag in self.controls.drain() {
             effects.push(Effect::Settle {
