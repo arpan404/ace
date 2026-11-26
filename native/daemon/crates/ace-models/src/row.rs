@@ -34,7 +34,7 @@ pub(crate) fn text<T: From<String>>(value: &str) -> T {
 }
 
 /// A list of labels as the protocol stores it.
-pub(crate) fn texts<W, T>(values: impl IntoIterator<Item = String>) -> W
+pub fn texts<W, T>(values: impl IntoIterator<Item = String>) -> W
 where
     T: From<String>,
     W: From<Vec<T>>,
