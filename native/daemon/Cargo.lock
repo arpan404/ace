@@ -302,6 +302,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-screen"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "ace-store"
 version = "0.1.0"
 dependencies = [

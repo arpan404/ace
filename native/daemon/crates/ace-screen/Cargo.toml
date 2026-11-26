@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-screen"
+description = "The daemon's side of the screen helpers: the session frame wire and its pictures (ADR 0225, S2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: frame headers read as lenient raw JSON with JavaScript semantics (ADR 0225 §1).
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# tokio: the frame hub's task per delivery, and the tests' gates.
+tokio = { version = "1.54", features = ["macros", "rt", "sync", "time"] }
