@@ -5,8 +5,8 @@ use ace_adapter_api::session::Delivery;
 use ace_json::{JsString, Value, json};
 
 use super::{
-    ack_writes, core_with_prompt, live_fence, prompt_reply, send, sent_id, sent_json_messages,
-    session_core, settlements, steer_reply,
+    ack_writes, core_with_prompt, live_fence, prompt_reply, runless_fence, send, sent_id,
+    sent_json_messages, session_core, settlements, steer_reply,
 };
 use crate::session::core::{AcpCore, AcpCoreConfig, AcpEffect};
 use crate::session::input::InputSend;
@@ -68,9 +68,9 @@ fn a_queued_fenced_prompt_is_refused_unread_once_the_session_is_idle() {
     assert!(sent_json_messages(&ended).is_empty());
 }
 
-/// A fenced steer the turn could not take is refused once that turn's prompt settles, even
-/// while a fence double still says current: the prompt it joined is the turn, and TS's live
-/// fence answers for that turn (`session.ts:718`).
+/// A fence that names a turn, held by a steer the turn could not take, is refused once that
+/// turn's prompt settles even while the double still says current: the prompt it joined is the
+/// turn, and TS's live fence answers for that turn (`session.ts:718`).
 #[test]
 fn a_queued_fenced_steer_is_refused_once_its_turn_settled() {
     let (mut core, prompt) = core_with_prompt("t-settled-fence");
@@ -94,6 +94,34 @@ fn a_queued_fenced_steer_is_refused_once_its_turn_settled() {
     assert!(
         sent_json_messages(&ended).is_empty(),
         "never written into another turn"
+    );
+}
+
+/// `steerViaCancel` hands the steer over with a fence that names no turn, so nothing tells the
+/// core which turn to compare against: the cancelled prompt settles, the queue reaches the steer
+/// while the runless fence still reads current, and it goes out as the next prompt
+/// (`session.ts:717`-`:723`, order 8 in `input.rs::send`).
+#[test]
+fn a_queued_steer_whose_fence_is_still_current_is_sent() {
+    let (mut core, prompt) = core_with_prompt("t-live-fence");
+    core.steer_via_cancel = true;
+    let effects = send(&mut core, 60, Delivery::Steer, Some(runless_fence(true)));
+    assert!(
+        sent_json_messages(&effects).is_empty(),
+        "queued behind the turn"
+    );
+    assert_eq!(core.queue_len(), 1);
+
+    let ended = core.stdout_bytes(&prompt_reply(&prompt, "end_turn"));
+    let settled = settlements(&ended, 60);
+    assert!(
+        settled.is_empty(),
+        "a current runless fence is not refused: {settled:?}"
+    );
+    let sent = sent_json_messages(&ended);
+    assert_eq!(
+        sent[0].get("method").and_then(Value::as_str),
+        Some("session/prompt")
     );
 }
 

@@ -345,9 +345,12 @@ export async function openNativeAcpSession(
         closePromise = undefined;
         handle.undrain();
         throw error;
+      } finally {
+        // Whatever the stop did, the session is over: TS ends the lease and drops its abort
+        // listener as it closes (`session.ts:913`-`:915`), so a failed open leaves neither.
+        release();
       }
       await bridge.drainedPromise;
-      release();
     })();
     return closePromise;
   }
