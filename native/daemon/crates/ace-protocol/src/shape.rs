@@ -375,7 +375,11 @@ fn fits_str(bounds: &StrBounds, value: &Value) -> bool {
     let Value::String(text) = value else {
         return false;
     };
-    let text = text.as_str();
+    let text = if bounds.trim {
+        js_trim(text.as_str())
+    } else {
+        text.as_str()
+    };
     let count = text.chars().count() as u32;
     if bounds.min.is_some_and(|min| count < min) || bounds.max.is_some_and(|max| count > max) {
         return false;
@@ -405,6 +409,9 @@ fn fits_num(bounds: &NumBounds, value: &Value) -> bool {
         return false;
     };
     let number = number.value();
+    if !number.is_finite() {
+        return false;
+    }
     if bounds.integral && (number.fract() != 0.0 || number.abs() > 9_007_199_254_740_991.0) {
         return false;
     }
@@ -429,11 +436,18 @@ fn fits_num(bounds: &NumBounds, value: &Value) -> bool {
     true
 }
 
-/// A JavaScript regular expression, compiled as Rust's syntax allows. A pattern Rust cannot
-/// compile (`(?=`, back references) never matches here; the generator's property check names
-/// it rather than letting it pass.
+/// A JavaScript regular expression: ECMAScript semantics for `\w`, `\d` and `\s`. Lookaheads
+/// still use `fancy-regex`; ordinary patterns use `regress`.
 fn matches_pattern(pattern: &str, text: &str) -> bool {
-    fancy_regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(text).unwrap_or(false))
+    if pattern.contains("(?=")
+        || pattern.contains("(?!")
+        || pattern.contains("(?<=")
+        || pattern.contains("(?<!")
+    {
+        return fancy_regex::Regex::new(pattern)
+            .is_ok_and(|regex| regex.is_match(text).unwrap_or(false));
+    }
+    regress::Regex::new(pattern).is_ok_and(|regex| regex.find(text).is_some())
 }
 
 /// Zod's `email` format: one `@`, a non-empty local part and a dotted domain, no whitespace.
@@ -592,4 +606,66 @@ fn datetime(text: &str) -> bool {
         return false;
     };
     hours <= 23 && minutes <= 59
+}
+
+#[cfg(test)]
+mod tests {
+    use ace_json::{JsString, Value};
+
+    use super::{StrBounds, fits, fits_num, fits_str, matches_pattern, Shape};
+
+    #[test]
+    fn trimmed_string_bounds_apply_after_trimming() {
+        let bounds = StrBounds {
+            min: Some(1),
+            max: Some(60),
+            pattern: None,
+            format: None,
+            trim: true,
+        };
+        assert!(!fits_str(
+            &bounds,
+            &Value::String(JsString::from("   "))
+        ));
+        assert!(fits_str(
+            &bounds,
+            &Value::String(JsString::from("  x  "))
+        ));
+    }
+
+    #[test]
+    fn non_finite_numbers_are_refused() {
+        let bounds = super::NumBounds {
+            min: None,
+            min_inclusive: true,
+            max: None,
+            max_inclusive: true,
+            integral: false,
+        };
+        assert!(!fits_num(
+            &bounds,
+            &Value::Number(ace_json::Number::from(f64::INFINITY))
+        ));
+    }
+
+    #[test]
+    fn ecma_word_class_does_not_match_unicode_letters() {
+        assert!(!matches_pattern(r"^[\w.-]+$", "é"));
+        assert!(matches_pattern(r"^[\w.-]+$", "a.b"));
+    }
+
+    #[test]
+    fn integral_safeint_bounds_refuse_infinity() {
+        let shape = Shape::Num(&super::NumBounds {
+            min: None,
+            min_inclusive: true,
+            max: None,
+            max_inclusive: true,
+            integral: true,
+        });
+        assert!(!fits(
+            &shape,
+            &Value::Number(ace_json::Number::from(f64::INFINITY))
+        ));
+    }
 }
