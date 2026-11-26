@@ -108,6 +108,7 @@ interface GitAddon {
   gitCoreProbe(op: string): string;
   gitValidateTimeout(ms?: number | null): number;
   gitVerifyVersion(stdout: Uint8Array, binary: string): void;
+  gitDecodeVersion(text: string): string;
   NativeGitCore: new (configJson: string, onPort: NativePortHandler) => NativeGitCoreHandle;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;

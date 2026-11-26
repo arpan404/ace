@@ -582,6 +582,15 @@ export class NativeCoreCli {
     });
   }
 
+  /** `git version M.m` through the core's schemas (G2c). */
+  decodeVersion(text: string): [number, number] | undefined {
+    const parsed = JSON.parse(gitAddon().gitDecodeVersion(text)) as {
+      major: number;
+      minor: number;
+    } | null;
+    return parsed === null ? undefined : [parsed.major, parsed.minor];
+  }
+
   jobAlive(pid: number): boolean {
     return this.handle.jobAlive(pid);
   }

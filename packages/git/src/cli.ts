@@ -670,14 +670,18 @@ export class GitCli {
       env: await this.nonExecutingPolicyEnv(),
       signal,
     });
-    const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
-    const [major, minor] = version
-      ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
-          count,
-        )
-      : [0, 0];
+    const text = textOutput(result);
+    const native = this.nativeCore?.decodeVersion(text);
+    const version = native ? undefined : /^git version (\d+)\.(\d+)\.(\d+)/.exec(text);
+    const [major, minor] =
+      native ??
+      (version
+        ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
+            count,
+          )
+        : [0, 0]);
     if (
-      !version ||
+      (!version && native === undefined) ||
       major === undefined ||
       minor === undefined ||
       major < 2 ||

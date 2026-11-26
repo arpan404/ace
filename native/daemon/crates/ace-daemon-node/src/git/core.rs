@@ -38,6 +38,16 @@ pub fn git_core_probe(op: String) -> napi::Result<String> {
     })
 }
 
+/// Decodes `git version M.m` text with the core's schemas (`decode.ts`).
+#[napi(catch_unwind)]
+pub fn git_decode_version(text: String) -> napi::Result<String> {
+    caught("git decode version", || {
+        ace_git::core::decode::decode_version(&text)
+            .map(ace_git::core::decode::version_to_json)
+            .map_err(ace_git::error::Error::from)
+    })
+}
+
 /// Validates a `timeoutMs` option using the core's exact bounds.
 #[napi(catch_unwind)]
 pub fn git_validate_timeout(ms: Option<f64>) -> napi::Result<f64> {
