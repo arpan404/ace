@@ -636,6 +636,24 @@ mod tests {
     }
 
     #[test]
+    fn a_scalar_write_replaces_the_whole_value_even_when_it_is_an_array() {
+        let text = "{\"version\":2,\"settings\":{\"clients.theme\":[1]}}";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            !document.ranges.contains_key("clients.theme"),
+            "an array element is not the setting's value"
+        );
+        let next = document
+            .assign("clients.theme", &Value::Bool(false))
+            .unwrap_or_else(|error| panic!("{error}"));
+        let text = next.to_text().unwrap_or_default();
+        assert!(!text.contains("[false]"), "{text}");
+        assert_eq!(next.get("clients.theme"), Some(&Value::Bool(false)));
+        let fresh = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(fresh.get("clients.theme"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
     fn retired_access_keys_are_refused_not_reinterpreted() {
         for stored in [
             json!({ "permissions.providerModes": { "claude": "bypassPermissions" } }),

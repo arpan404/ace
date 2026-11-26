@@ -334,6 +334,7 @@ impl<'a> Scanner<'a> {
         self.at += 1;
         self.objects.push(None);
         let mut items = Vec::new();
+        let mut index = 0usize;
         loop {
             self.skip_trivia()?;
             match self.peek() {
@@ -341,7 +342,13 @@ impl<'a> Scanner<'a> {
                 None => return Err(self.fail(self.at)),
                 _ => {}
             }
-            items.push(self.parse_value(path, depth + 1)?);
+            // An element's path carries its index, as the TypeScript visitor's `path()` does:
+            // a literal inside an array is never the setting itself.
+            path.push(index.to_string());
+            let item = self.parse_value(path, depth + 1)?;
+            path.pop();
+            index += 1;
+            items.push(item);
             self.skip_trivia()?;
             match self.peek() {
                 Some(b',') => {
