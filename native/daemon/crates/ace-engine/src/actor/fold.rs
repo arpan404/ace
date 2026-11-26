@@ -5,7 +5,7 @@
 
 use crate::actor::deps::{ActorDeps, ActorTranslator, TranslatedFrame};
 use crate::actor::mailbox::BatchOp;
-use crate::actor::state::FrameRef;
+use crate::actor::state::{ActorRef, FrameRef, current, instance_deps};
 use crate::actor::{flow, leases, timer};
 use crate::{Core, EngineError, ThreadId};
 use ace_json::Value;
@@ -62,17 +62,17 @@ fn tool_boundary(fact: &Value) -> bool {
 }
 
 /// `fold_batch` (`actor.ts:367`–`:426`).
-pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Result<(), EngineError> {
-    let deps = core.actor_deps.borrow().clone();
-    let generation = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .map(|actor| actor.generation)
-        })?
-        .unwrap_or(0);
+pub fn fold_batch(core: &Rc<Core>, actor: &ActorRef, op: &mut BatchOp) -> Result<(), EngineError> {
+    let (id, generation) = {
+        let state = actor.borrow();
+        (state.id.clone(), state.generation)
+    };
+    let thread = &id;
+    let deps = instance_deps(core, actor);
+    let stale = op.handles.borrow_mut().take_stale(&op.frames, generation);
+    if !stale.is_empty() {
+        deps.acks.release(&stale);
+    }
     let live: Vec<&FrameRef> = op
         .frames
         .iter()
@@ -91,8 +91,11 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
         // Translation runs once per batch: translators keep state, a JS frame handle is consumed
         // once, and enrichment (which can fail with a retryable store error) runs again instead.
         if memory.translated.is_none() {
+            // The live handles leave the batch's ownership here: the shell's translator deletes
+            // them as it reads them, and a non-JS translator has its objects released below.
+            let handed = op.handles.borrow_mut().take_live(&op.frames, generation);
             memory.translated = Some(translate_batch(
-                core, &deps, thread, &live, cursor_sdk, generation,
+                core, actor, &deps, thread, &live, &handed, cursor_sdk,
             )?);
         }
         if let Some(translated) = memory.translated.as_ref()
@@ -122,9 +125,9 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
         };
         let settle = |core: &Rc<Core>, streamed: bool| -> Result<(), EngineError> {
             if streamed {
-                timer::schedule(core, thread);
+                timer::schedule_instance(core, actor);
             } else {
-                apply(core, thread, &facts)?;
+                apply_instance(core, actor, &facts)?;
             }
             if sdk
                 && facts.iter().any(|fact| {
@@ -132,7 +135,7 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
                         && !matches!(field(fact, "deliberate"), Some(Value::Bool(true)))
                 })
             {
-                deps.links.abort_session(core, thread, false);
+                deps.links.abort_session(core, actor, false);
             }
             let status_after = deps.repo.status(core, thread)?;
             let command_after = if boundary {
@@ -144,7 +147,7 @@ pub fn fold_batch(core: &Rc<Core>, thread: &ThreadId, op: &mut BatchOp) -> Resul
                 || (boundary && command_running != command_after)
                 || facts.iter().any(moves_queue)
             {
-                sync_queue(core, thread)?;
+                sync_queue(core, actor)?;
                 deps.links.wake(core, thread);
             }
             Ok(())
@@ -179,14 +182,18 @@ pub struct Translation {
 /// enrichment: both run after this, so a ruffled retry reuses what the translator already said.
 fn translate_batch(
     core: &Rc<Core>,
-    deps: &Rc<ActorDeps>,
+    actor: &ActorRef,
+    deps: &ActorDeps,
     thread: &ThreadId,
     frames: &[&FrameRef],
+    handles: &[u32],
     cursor_sdk: bool,
-    generation: u64,
 ) -> Result<Translation, EngineError> {
     let now = core.ports.now();
-    let mut taken = deps.take_translator(thread);
+    let mut taken = actor.borrow_mut().translator.take();
+    if !matches!(taken, Some((_, ActorTranslator::Js(_)))) && !handles.is_empty() {
+        deps.acks.release(handles);
+    }
     let translated = match &mut taken {
         Some((_, ActorTranslator::Js(js))) => js.translate_batch(frames, now),
         Some((_, ActorTranslator::Native(native))) => {
@@ -216,7 +223,7 @@ fn translate_batch(
         }
         None => Ok(frames.iter().map(|_| TranslatedFrame::default()).collect()),
     };
-    deps.return_translator(thread, generation, taken);
+    actor.borrow_mut().return_translator(taken);
     let translated = translated?;
     let mut journal = Vec::new();
     let mut out = Vec::with_capacity(frames.len());
@@ -300,40 +307,46 @@ fn translate_frame(
 }
 
 /// `syncQueue` (`actor.ts:517`).
-pub fn sync_queue(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
-    let deps = core.actor_deps.borrow().clone();
-    let Some(fact) = deps.repo.engine_queue_fact(core, thread)? else {
+fn sync_queue(core: &Rc<Core>, actor: &ActorRef) -> Result<(), EngineError> {
+    let thread = actor.borrow().id.clone();
+    let deps = instance_deps(core, actor);
+    let Some(fact) = deps.repo.engine_queue_fact(core, &thread)? else {
         return Ok(());
     };
-    apply(core, thread, &[fact])
+    apply_instance(core, actor, &[fact])
 }
 
 /// `apply` (`actor.ts:521`).
 pub fn apply(core: &Rc<Core>, thread: &ThreadId, facts: &[Value]) -> Result<(), EngineError> {
-    let deps = core.actor_deps.borrow().clone();
-    let now = core.ports.now();
-    let generation = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .map(|actor| actor.generation)
-        })?
-        .unwrap_or(0);
-    deps.repo.apply(core, thread, facts, now, generation)?;
-    if facts.iter().any(is_process_exit) {
-        deps.repo.clear_incomplete_blobs(core, thread);
-        leases::release_inputs(core, thread);
-    }
-    timer::schedule(core, thread);
-    // The actor's own bookkeeping is re-read after each call that can re-enter.
-    core.with_state(|state| {
-        let limits = state.limits;
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            flow::update_pressure(actor, &limits);
+    if let Some(actor) = current(core, thread) {
+        apply_instance(core, &actor, facts)
+    } else {
+        let deps = core.actor_deps.borrow().clone();
+        deps.repo.apply(core, thread, facts, core.ports.now(), 0)?;
+        if facts.iter().any(is_process_exit) {
+            deps.repo.clear_incomplete_blobs(core, thread);
         }
-    })
-    .ok();
+        Ok(())
+    }
+}
+
+pub(crate) fn apply_instance(
+    core: &Rc<Core>,
+    actor: &ActorRef,
+    facts: &[Value],
+) -> Result<(), EngineError> {
+    let deps = instance_deps(core, actor);
+    let now = core.ports.now();
+    let (thread, generation) = {
+        let state = actor.borrow();
+        (state.id.clone(), state.generation)
+    };
+    deps.repo.apply(core, &thread, facts, now, generation)?;
+    if facts.iter().any(is_process_exit) {
+        deps.repo.clear_incomplete_blobs(core, &thread);
+        leases::release_instance_inputs(core, actor);
+    }
+    timer::schedule_instance(core, actor);
+    flow::update_pressure(&mut actor.borrow_mut(), &super::mailbox::limits(core));
     Ok(())
 }

@@ -25,7 +25,7 @@ Example:
   "payload": {
     "remote": "example",
     "threadId": "example",
-    "type": "git.fetch"
+    "type": "git.push"
   }
 }
 ```
@@ -2381,6 +2381,22 @@ Example:
 }
 ```
 
+### thread.compact
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.compact"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "thread.compact"
+}
+```
+
 ### interaction.resolve
 
 | Field | Required | Type | Constraints |
@@ -2395,9 +2411,11 @@ Example:
 ```json
 {
   "interactionId": "example",
+  "readWhole": "example",
   "resolution": {
-    "kind": "browser_help",
-    "outcome": "done"
+    "kind": "approval",
+    "message": "example",
+    "optionId": "example"
   },
   "type": "interaction.resolve"
 }

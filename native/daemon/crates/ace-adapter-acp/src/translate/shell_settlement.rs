@@ -56,17 +56,15 @@ impl ShellSettlement {
         ace_json::ser::to_string(&(owner, id)).unwrap_or_default()
     }
 
+    /// One `tool_call` / `tool_call_update` notification. The update is read where it
+    /// arrived and merged into the tool it names: nothing is copied whole, so a long
+    /// tool's history is walked once, not once per copy (`shell-settlement.ts:40`-`:44`).
     pub fn receive(&mut self, params: &Value) {
         let params_map = params.as_object();
         let Some(params_map) = params_map else {
             return;
         };
-        let update = params_map
-            .get("update")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        let update_value = Value::Object(update.clone());
+        let update = params_map.get("update").unwrap_or(&Value::Null);
         let session_update = update
             .get("sessionUpdate")
             .and_then(Value::as_str)
@@ -95,10 +93,10 @@ impl ShellSettlement {
             shell: false,
         });
         tool.owner = owner.clone();
-        merge_tool_data(&mut tool.data, &update_value);
-        tool.status = tool_status(&update_value, &tool.status);
-        let detail = tool_detail(&update_value, self.quirks);
-        tool.shell = detail
+        merge_tool_data(&mut tool.data, update);
+        tool.status = tool_status(update, &tool.status);
+        // The merged tool, as TypeScript reads it (`shell-settlement.ts:42`).
+        tool.shell = tool_detail(&tool.data, self.quirks)
             .get("kind")
             .and_then(Value::as_str)
             .is_some_and(|kind| kind == "shell");

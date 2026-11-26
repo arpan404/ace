@@ -21,7 +21,7 @@ pub fn sync_prompt_hold(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_owned(),
-            tool_detail(&Value::Object(tool.data.clone()), state.quirks)
+            tool_detail(&tool.data, state.quirks)
                 .get("kind")
                 .and_then(Value::as_str)
                 .is_some_and(|kind| kind == "shell"),

@@ -51,7 +51,7 @@ pub fn end_prompt(
         if tool.owner_key != *agent_key && !cancelled {
             continue;
         }
-        let detail = tool_detail(&Value::Object(tool.data.clone()), state.quirks);
+        let detail = tool_detail(&tool.data, state.quirks);
         let detail_kind = detail
             .get("kind")
             .and_then(Value::as_str)

@@ -1,6 +1,7 @@
 import { get } from "./emit.ts";
 import { pendingInteractionKeys } from "./indexes.ts";
 import type { ThreadState } from "./state.ts";
+import type { AgentStatus } from "@ace/protocol";
 
 /**
  * Whether the provider can take a person's message as its next turn now. The person talks to
@@ -19,6 +20,22 @@ export function acceptsPersonInput(state: ThreadState, now: number): boolean {
     return false;
   if (root.wakeUntil !== undefined && root.wakeUntil > now) return false;
   return pendingInteractionKeys(state, root.agent.id).length === 0;
+}
+
+/**
+ * Whether the provider's own work keeps a compaction out now: its turn, a retry or a lost
+ * connection, a rate limit, or a request it waits on. Work that keeps going without the model
+ * (background commands, subagents, a child waiting its turn) never holds it. This is
+ * `acceptsPersonInput`'s rule seen from the agent status that clients and the fake hold; the
+ * daemon checks its own engine state, and the two must agree.
+ */
+export function compactionBlocked(status: AgentStatus | undefined): boolean {
+  if (status === undefined) return false;
+  if (status.state === "blocked")
+    return status.on !== "background_task" && status.on !== "subagents" && status.on !== "queue";
+  return (
+    status.state === "working" || status.state === "starting" || status.state === "unresponsive"
+  );
 }
 
 /**

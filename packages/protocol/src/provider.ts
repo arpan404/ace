@@ -77,6 +77,12 @@ export const Capabilities = z.object({
   /** A native goal the agent keeps pursuing across turns can be set, paused and cleared. */
   goals: z.boolean().optional(),
   /**
+   * The provider has its own context compaction, which ace asks for with `thread.compact`
+   * (Claude's `/compact`, Codex's `thread/compact/start`, OpenCode's session compaction, Pi's
+   * `compact` RPC). Omitted or false: no compact control, and ace never summarises in its place.
+   */
+  compaction: z.boolean().optional(),
+  /**
    * How much the provider tells us about work that outlives a turn.
    * `full`: start and end events; `partial`: start only, or end only;
    * `none`: invisible (ace must use a side channel or show a warning).

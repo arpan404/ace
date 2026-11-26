@@ -3,7 +3,7 @@
 //! its slot at the commit, and the pledged victims are stopped and evicted there, exactly where
 //! the TypeScript evicted them at the call. A rollback restores them untouched.
 
-use crate::actor::{deps, spawn_mailbox, state};
+use crate::actor::{spawn_mailbox, state, stop_instance};
 use crate::{Core, ThreadId};
 use std::rc::Rc;
 
@@ -19,6 +19,14 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
         }
         state.done = true;
     }
+    if core.closing.get() {
+        // A commit that fires into a closing engine must not spawn a mailbox or take a seat. The
+        // pledged victims are stopped exactly as a normal commit stops them: their pending frames
+        // are sealed into their own tail, so a task that is still live folds them
+        // (`actor.ts:599`-`:600`), and close's terminal cleanup retires whatever is left.
+        stop_kept_aside(core, promotion);
+        return;
+    }
     let thread = promotion.created.clone();
     let held = core
         .with_state(|state| state.actors.reserved.contains_key(&thread))
@@ -28,55 +36,65 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
         lost_reservation(core, &thread, counts);
         return;
     }
-    let deps = core.actor_deps.borrow().clone();
-    // The victims stop the way the TypeScript's eviction stopped them: their leases release,
-    // their drains resolve, and every acknowledgement they still hold settles as failed.
-    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    for (_, actor) in aside {
-        stop_aside(core, &deps, actor);
-    }
     core.with_state(|state| {
         state.actors.reserved.shift_remove(&thread);
+        if let Some(seat) = state.actors.seats.get_mut(&thread) {
+            seat.provisional = false;
+        }
         for victim in &promotion.pledges {
             state.actors.pledges.shift_remove(victim);
-        }
-        if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
-            actor.provisional = false;
         }
     })
     .ok();
     spawn_mailbox(core, &thread);
+    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
+    for (_, _, actor) in aside {
+        let instance = actor.borrow().instance;
+        core.with_state(|state| state.actors.aside.shift_remove(&instance))
+            .ok();
+        stop_evicted(core, actor);
+    }
 }
 
-/// A non-transactional eviction: the actor leaves the map at once and everything it held is
-/// settled, exactly as a transaction's pledged victims are (the TypeScript's `stop()`).
+/// Stop the actors a promotion kept for a rollback it can no longer make: the same seal-and-stop a
+/// committed eviction gives them, so their accepted tail still folds.
+fn stop_kept_aside(core: &Rc<Core>, promotion: &state::Promotion) {
+    let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
+    for (_, _, actor) in aside {
+        let instance = actor.borrow().instance;
+        core.with_state(|state| state.actors.aside.shift_remove(&instance))
+            .ok();
+        stop_evicted(core, actor);
+    }
+}
+
+/// Remove the seat immediately. The mailbox task keeps the accepted tail.
 pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
-    let deps = core.actor_deps.borrow().clone();
-    let actor = core
-        .with_state(|state| state.actors.by_thread.shift_remove(thread))
+    let removed = core
+        .with_state(|state| state.actors.remove(thread))
         .ok()
         .flatten();
-    if let Some(actor) = actor {
-        stop_aside(core, &deps, actor);
+    if let Some((actor, _)) = removed {
+        stop_evicted(core, actor);
     }
 }
 
-/// Stops an actor that a promotion moved aside: what `stop()` does, for one that is no longer
-/// in the map.
-fn stop_aside(core: &Rc<Core>, deps: &Rc<deps::ActorDeps>, mut actor: state::Actor) {
-    let tokens: Vec<u64> = actor.leases.keys().copied().collect();
-    if !tokens.is_empty() {
-        deps.links.release_leases(core, &tokens);
+fn stop_evicted(core: &Rc<Core>, actor: state::ActorRef) {
+    let (instance, thread, has_mailbox) = {
+        let state = actor.borrow();
+        (
+            state.instance,
+            state.id.clone(),
+            state.mailbox_task.is_some(),
+        )
+    };
+    let deps = state::instance_deps(core, &actor);
+    if has_mailbox {
+        core.with_state(|state| state.actors.stopping.insert(instance, Rc::clone(&actor)))
+            .ok();
     }
-    for drain in actor.drains.drain(..) {
-        let _ = drain.send(());
-    }
-    if let Some((timer, _)) = actor.timer.as_ref() {
-        core.ports.cancel_timer(timer.key);
-    }
-    let id = actor.id.clone();
-    state::discard_acks(core, actor);
-    deps.repo.evict(core, &id);
+    stop_instance(core, &actor);
+    deps.repo.evict(core, &thread);
 }
 
 /// A promotion that will not commit: release its reservation, restore the pledged victims at
@@ -91,19 +109,34 @@ pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usiz
             state.actors.reserved.shift_remove(&created);
             // Only the provisional actor this promotion created is discarded: by now another
             // promotion's rollback may have restored this thread's committed actor in its place.
-            match state.actors.by_thread.get(&created) {
-                Some(actor) if actor.provisional => state.actors.by_thread.shift_remove(&created),
-                _ => None,
-            }
+            state
+                .actors
+                .seats
+                .get(&created)
+                .is_some_and(|seat| seat.provisional)
+                .then(|| state.actors.remove(&created))
+                .flatten()
         })
         .ok()
         .flatten();
     let mut aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
-    aside.sort_unstable_by_key(|(index, _)| *index);
-    for (index, actor) in aside {
-        let id = actor.id.clone();
+    aside.sort_unstable_by_key(|(index, _, _)| *index);
+    let closing = core.closing.get();
+    for (index, seat, actor) in aside {
+        let id = actor.borrow().id.clone();
+        let instance = actor.borrow().instance;
+        if closing {
+            // Close already retired every registry a promotion could restore into: the kept-aside
+            // actor is retired with the rest rather than resurrected into a closed engine.
+            core.with_state(|state| state.actors.aside.shift_remove(&instance))
+                .ok();
+            crate::actor::retire_instance(core, &actor);
+            continue;
+        }
         core.with_state(|state| {
+            state.actors.aside.shift_remove(&instance);
             let at = index.min(state.actors.by_thread.len());
+            state.actors.seats.insert(id.clone(), seat);
             state.actors.by_thread.shift_insert(at, id, actor);
         })
         .ok();
@@ -111,16 +144,19 @@ pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usiz
     // Restored actors go back to their old seats, so a transaction that pledged two victims
     // restores the same order it found, whatever order its promotions drop in.
     core.with_state(|state| {
-        state
-            .actors
+        let actors = &mut state.actors;
+        actors
             .by_thread
-            .sort_by(|_, left, _, right| left.seat.cmp(&right.seat))
+            .sort_by(|left, _, right, _| actors.seats[left].order.cmp(&actors.seats[right].order));
     })
     .ok();
     let mut counts = (0, 0);
-    if let Some(actor) = discarded {
-        counts = (actor.staged.len(), actor.mailbox.len());
-        state::discard_acks(core, actor);
+    if let Some((actor, _)) = discarded {
+        counts = {
+            let state = actor.borrow();
+            (state.staged.len(), state.mailbox.len())
+        };
+        state::discard_acks(core, &actor);
     }
     counts
 }

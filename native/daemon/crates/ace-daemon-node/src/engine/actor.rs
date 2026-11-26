@@ -4,7 +4,7 @@
 //! `ace_engine::actor` and `ace_engine::frames`; this file only translates values and errors.
 
 use ace_engine::actor::intake::{self, FrameInput, Measure};
-use ace_engine::actor::state::FrameRef;
+use ace_engine::actor::state::{FrameRef, session_instance};
 use ace_engine::executor::Lane;
 use ace_engine::frames::live::LiveStore;
 use ace_engine::ports::Ports;
@@ -34,20 +34,7 @@ impl NativeEngine {
         let core = self.engine.core();
         let deps = core.actor_deps.borrow().clone();
         let (sessions, frames, bytes) = core
-            .with_state(|state| {
-                let mut sessions = 0;
-                let mut frames = 0;
-                let mut bytes = 0;
-                for actor in state.actors.by_thread.values() {
-                    if actor.session_attached {
-                        sessions += 1;
-                    }
-                    let (actor_frames, actor_bytes) = actor.backlog();
-                    frames += actor_frames;
-                    bytes += actor_bytes;
-                }
-                (sessions, frames, bytes)
-            })
+            .with_state(|state| ace_engine::actor::workload_counts(state))
             .map_err(engine_error)?;
         let mut sends = 0;
         for thread in self.live_thread_ids() {
@@ -81,13 +68,7 @@ impl NativeEngine {
         ace_engine::actor::get_or_create(core, &thread_id).map_err(engine_error)?;
         let now = core.ports.now();
         let generation = core
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(&thread_id)
-                    .map(|actor| actor.generation)
-            })
+            .with_state(|state| state.actors.get(&thread_id).map(|actor| actor.generation))
             .map_err(engine_error)?
             .unwrap_or(0);
         deps.repo
@@ -111,6 +92,7 @@ impl NativeEngine {
         &self,
         env: Env,
         thread_id: String,
+        instance: String,
         generation: f64,
         handle: f64,
         frame: Object,
@@ -122,6 +104,13 @@ impl NativeEngine {
     ) -> napi::Result<String> {
         let _guard = self.ports.enter(env);
         let core = self.engine.core();
+        let Some(actor) = instance
+            .parse()
+            .ok()
+            .and_then(|id| session_instance(core, &thread_id, id))
+        else {
+            return Ok("done".to_string());
+        };
         let envelope = super::frames::read_envelope(&frame, is_object, branded)?;
         let channel_sdk = super::frames::string_property(&frame, "channel")
             .is_some_and(|channel| channel == "sdk");
@@ -138,7 +127,7 @@ impl NativeEngine {
         };
         let ack = intake::frame(
             core,
-            &thread_id,
+            &actor,
             generation as u64,
             FrameInput {
                 frame: FrameRef::Js {
@@ -179,20 +168,29 @@ impl NativeEngine {
 
     /// `outputFlow.paused` (`actor.ts:85`).
     #[napi]
-    pub fn actor_paused(&self, env: Env, thread_id: String) -> bool {
+    pub fn actor_paused(&self, env: Env, thread_id: String, instance: String) -> bool {
         let _guard = self.ports.enter(env);
-        ace_engine::actor::flow::paused(self.engine.core(), &thread_id)
+        let core = self.engine.core();
+        let actor = instance
+            .parse()
+            .ok()
+            .and_then(|id| session_instance(core, &thread_id, id));
+        ace_engine::actor::flow::paused(core, actor.as_ref())
     }
 
     /// `outputFlow.wait` (`actor.ts:87`).
     #[napi]
-    pub fn actor_wait(&self, env: Env, thread_id: String, call: f64) {
+    pub fn actor_wait(&self, env: Env, thread_id: String, instance: String, call: f64) {
         let _guard = self.ports.enter(env);
         let ports = Rc::clone(&self.ports);
         let inner = Rc::clone(self.engine.core());
         let executor = Rc::clone(&inner);
+        let actor = instance
+            .parse()
+            .ok()
+            .and_then(|id| session_instance(&inner, &thread_id, id));
         let task = inner.executor.spawn(Lane::Work, async move {
-            ace_engine::actor::flow::wait(executor, thread_id).await;
+            ace_engine::actor::flow::wait(executor, actor).await;
             ports.settle_call(call as u64, None);
         });
         task.detach();
