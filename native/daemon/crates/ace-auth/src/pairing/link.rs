@@ -58,15 +58,13 @@ pub fn pairing_link_url(
     }
 }
 
-/// A URL's origin (`new URL(value).origin`): scheme, host and port, without a path.
+/// A URL's origin (`new URL(value).origin`): the serialization the URL parser gives, so a
+/// default port is dropped and the host is lowercased and punycoded as the TypeScript's is.
 fn origin(value: &str) -> String {
-    let (scheme, rest) = value.split_once("://").unwrap_or(("https", value));
-    let authority = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches('/');
-    format!("{scheme}://{authority}")
+    match url::Url::parse(value) {
+        Ok(url) => url.origin().ascii_serialization(),
+        Err(_) => value.trim_end_matches('/').to_owned(),
+    }
 }
 
 /// `URLSearchParams.toString()`: application/x-www-form-urlencoded, spaces as `+`.
@@ -127,6 +125,26 @@ mod tests {
         assert_eq!(
             url,
             format!("{DAEMON}/pair#fingerprint={PIN}&code=c0de&scopes=read")
+        );
+    }
+
+    #[test]
+    fn a_daemon_origin_is_the_one_the_url_parser_names() {
+        // `new URL("https://Studio.Tail1234.ts.net:443/").origin` drops the default port and
+        // lowercases the host.
+        let url = pairing_link_url(
+            &PairingConnection::Direct {
+                origin: "https://Studio.Tail1234.ts.net:443/".to_owned(),
+                fingerprint: PIN.to_owned(),
+                also_relay: None,
+            },
+            "c0de",
+            &[Scope::Read],
+            None,
+        );
+        assert_eq!(
+            url,
+            format!("https://studio.tail1234.ts.net/pair#fingerprint={PIN}&code=c0de&scopes=read")
         );
     }
 

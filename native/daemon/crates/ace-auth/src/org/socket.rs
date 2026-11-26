@@ -161,6 +161,8 @@ pub struct Refusal {
     pub code: &'static str,
     pub message: &'static str,
     pub reason: &'static str,
+    /// A refused command fails for good (`socket-wiring.ts:77`-`:83`).
+    pub retryable: bool,
     pub command_id: Option<String>,
     pub request_id: Option<String>,
     pub subscription_id: Option<String>,
@@ -238,13 +240,13 @@ impl SocketPolicy {
             value
                 .and_then(|value| value.get(key))
                 .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
                 .map(str::to_owned)
         };
         Some(Refusal {
             code: "forbidden",
             message: refusal_message(reason),
             reason,
+            retryable: false,
             command_id: field(command, "id"),
             request_id: field(Some(message), "requestId"),
             subscription_id: field(Some(message), "subscriptionId"),
@@ -261,15 +263,15 @@ impl SocketPolicy {
         self.gate.personal() || self.gate.binary().allowed()
     }
 
-    /// Notifications reach a socket only for trees it may read.
+    /// Notifications reach a socket only for trees it may read (`socket-wiring.ts:96`-`:102`):
+    /// on an org host anything that doesn't name a placeable thread is dropped.
     pub fn fan_out_thread(&self, thread: Option<&str>) -> bool {
         if self.gate.personal() {
             return true;
         }
         match thread {
             Some(thread) => self.reads(thread),
-            // A message naming no thread still passes, as the TypeScript's fan-out does.
-            None => true,
+            None => false,
         }
     }
 

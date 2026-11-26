@@ -103,6 +103,7 @@ name = "ace-auth"
 version = "0.1.0"
 dependencies = [
  "ace-json",
+ "ace-keys",
  "ace-store",
  "base64",
  "hex",
@@ -246,6 +247,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-keys"
+version = "0.1.0"
+dependencies = [
+ "data-encoding",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "ace-projection"
 version = "0.1.0"
 dependencies = [
@@ -307,6 +316,7 @@ dependencies = [
 name = "ace-transport"
 version = "0.1.0"
 dependencies = [
+ "ace-keys",
  "bytes",
  "flate2",
  "futures-util",

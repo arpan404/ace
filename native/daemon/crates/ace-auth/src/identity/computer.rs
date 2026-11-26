@@ -61,7 +61,7 @@ pub fn computer_name(host: &dyn NameHost) -> String {
         "linux" => host.machine_info().as_deref().and_then(pretty_hostname),
         _ => None,
     };
-    if let Some(named) = named.filter(|name| name.chars().count() <= 256) {
+    if let Some(named) = named.filter(|name| name.encode_utf16().count() <= 256) {
         return named;
     }
     let hostname = host.hostname();
@@ -170,6 +170,22 @@ mod tests {
             }
         }
         assert_eq!(computer_name(&Mac), "Arpan’s MacBook Pro");
+    }
+
+    #[test]
+    fn an_os_name_is_bounded_the_way_type_script_counts_it() {
+        // 200 emoji are 400 UTF-16 units: over the 256 bound, so the hostname stands in; 128
+        // emoji (256 units) fit.
+        let long = format!("PRETTY_HOSTNAME=\"{}\"\n", "😀".repeat(200));
+        assert_eq!(
+            computer_name(&linux(Some(&long), "ubuntu-desktop")),
+            "ubuntu desktop"
+        );
+        let fits = format!("PRETTY_HOSTNAME=\"{}\"\n", "😀".repeat(128));
+        assert_eq!(
+            computer_name(&linux(Some(&fits), "ubuntu-desktop")),
+            "😀".repeat(128)
+        );
     }
 
     #[test]

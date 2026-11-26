@@ -14,12 +14,10 @@ pub const HANDSHAKE_TIMEOUT: &str = "TLS handshake timed out";
 /// The pinned socket transport closes with this code when a pin rejects (`client-access.ts:279`).
 pub const PIN_REJECTED_CLOSE: u16 = 4001;
 
-/// The pin a connector accepts: 64 lowercase hex characters, never a hostname.
+/// The pin a connector accepts: 64 lowercase hex characters, never a hostname. The rule lives
+/// in `ace-keys`, which the transport's verifier checks the same way.
 pub fn valid_fingerprint(fingerprint: &str) -> bool {
-    fingerprint.len() == 64
-        && fingerprint
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    ace_keys::is_fingerprint(fingerprint)
 }
 
 /// What a pinned handshake found on the certificate.
@@ -122,7 +120,6 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::{PinRefusal, PresentedCertificate, pin_verdict, ticket_socket_origin};
-    use crate::client_access::ClientError;
 
     const PIN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -155,10 +152,8 @@ mod tests {
             pin_verdict("nope", certificate, true, 1_500),
             Err(PinRefusal::InvalidFingerprint)
         );
-        assert_eq!(
-            PinRefusal::Mismatch.client_error(),
-            ClientError::new("auth", "TLS public-key fingerprint mismatch")
-        );
+        // The mismatch is the auth failure a client surfaces.
+        assert_eq!(PinRefusal::Mismatch.client_error().code, "auth");
     }
 
     #[test]

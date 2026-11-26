@@ -84,7 +84,9 @@ impl Hello {
     /// id, exactly one of token/ticket/grant, `machineCode` and `link` only with a grant, and a
     /// known channel.
     pub fn parse(value: &Value) -> Result<Self, HelloRefusal> {
-        let object = value.as_object().ok_or(HelloRefusal::NotHello)?;
+        // A frame that parses as JSON but isn't an object fails the schema, as it does through
+        // `parseSocketMessage`: only a socket message of another type is "Valid hello required".
+        let object = value.as_object().ok_or(HelloRefusal::Malformed)?;
         match object.get("type").and_then(Value::as_str) {
             Some("hello") => {}
             _ => return Err(HelloRefusal::NotHello),
@@ -109,6 +111,12 @@ impl Hello {
         let token = credential("token")?;
         let ticket = credential("ticket")?;
         let grant = credential("grant")?;
+        // A grant is `z.string().min(1).max(2048)` in code points (wire-core.ts:301).
+        if let Some(grant) = &grant
+            && !(1..=2_048).contains(&grant.chars().count())
+        {
+            return Err(malformed);
+        }
         let count = [token.is_some(), ticket.is_some(), grant.is_some()]
             .into_iter()
             .filter(|present| *present)
@@ -181,7 +189,7 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
-    use super::{Hello, hello_actor};
+    use super::{Hello, HelloRefusal, hello_actor};
     use crate::devices::{Devices, PairedDevice, Scope};
     use crate::pairing::PairingTerms;
     use crate::remote_auth::RemoteAuth;
@@ -242,6 +250,26 @@ mod tests {
         let redeemed = auth.redeem(&ticket.code, "Phone", None, None).unwrap();
         let paired = auth.device_bearer(&redeemed.token).unwrap();
         (auth, paired, directory)
+    }
+
+    #[test]
+    fn a_grant_is_between_one_and_2048_code_points_or_the_hello_is_malformed() {
+        let hello = |grant: &str| {
+            ace_json::parse(&format!(
+                "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\
+                 \"grant\":\"{grant}\"}}"
+            ))
+            .unwrap()
+        };
+        let parse = |value: &ace_json::Value| Hello::parse(value);
+        assert!(parse(&hello("g".repeat(2_048).as_str())).is_ok());
+        assert_eq!(parse(&hello("")), Err(HelloRefusal::Malformed));
+        assert_eq!(
+            parse(&hello("g".repeat(2_049).as_str())),
+            Err(HelloRefusal::Malformed)
+        );
+        // The bound counts code points, so 2048 emoji pass (rule 17).
+        assert!(parse(&hello("😀".repeat(2_048).as_str())).is_ok());
     }
 
     #[test]

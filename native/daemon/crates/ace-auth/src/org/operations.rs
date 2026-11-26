@@ -204,26 +204,20 @@ pub fn socket_resource(message: &Value, operation: Operation) -> Resource {
     {
         return filtered();
     }
-    let nested = |key: &str| {
-        message
-            .get(key)
+    // A thread id is `z.string().min(1)`: an empty one is absent, so the next place is tried.
+    fn thread_of(value: Option<&Value>) -> Option<&str> {
+        value
             .and_then(|value| value.get("threadId"))
             .and_then(Value::as_str)
-    };
+            .filter(|thread| !thread.is_empty())
+    }
     let payload = message
         .get("command")
         .and_then(|command| command.get("payload"));
-    let thread = message
-        .get("threadId")
-        .and_then(Value::as_str)
-        .filter(|thread| !thread.is_empty())
-        .or_else(|| nested("scope"))
-        .or_else(|| nested("operation"))
-        .or_else(|| {
-            payload
-                .and_then(|payload| payload.get("threadId"))
-                .and_then(Value::as_str)
-        });
+    let thread = thread_of(Some(message))
+        .or_else(|| thread_of(message.get("scope")))
+        .or_else(|| thread_of(message.get("operation")))
+        .or_else(|| thread_of(payload));
     if let Some(thread) = thread.filter(|thread| !thread.is_empty()) {
         return tree(TreeRef::Thread(thread.to_owned()));
     }

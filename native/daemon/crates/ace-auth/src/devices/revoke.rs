@@ -47,7 +47,9 @@ impl Devices {
             .collect::<Vec<_>>();
         for each in &revoked {
             for listener in &listeners {
-                listener(each);
+                // One subscriber cannot preserve another's authority (`devices.ts:411`-`:417`):
+                // a panicking listener is contained so the rest still hear.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(each)));
             }
         }
         Ok(revoked)
@@ -60,31 +62,28 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
-    use crate::CredentialRuntime;
-    use crate::devices::{Devices, Scope};
+    use crate::devices::Scope;
+    use crate::devices::tests_support::devices;
 
-    fn devices() -> (Devices, tempfile::TempDir) {
-        let directory = tempfile::tempdir().unwrap();
-        let counter = Arc::new(Mutex::new(0_u64));
-        let entropy = Arc::new(Mutex::new(0_u64));
-        let runtime = CredentialRuntime::new(
-            move || {
-                let mut id = counter.lock().unwrap();
-                *id += 1;
-                format!("device-{id}")
-            },
-            move |size| {
-                let mut seed = entropy.lock().unwrap();
-                *seed += 1;
-                let mut bytes = vec![7_u8; size];
-                let width = size.min(8);
-                bytes[..width].copy_from_slice(&seed.to_be_bytes()[8 - width..]);
-                bytes
-            },
-        );
-        let path = directory.path().join("events.sqlite");
-        let devices = Devices::open(path.to_str().unwrap(), runtime).unwrap();
-        (devices, directory)
+    #[test]
+    fn a_panicking_listener_does_not_stop_the_next_one() {
+        let (devices, _home) = devices();
+        let survivor = devices
+            .create("Phone", &[Scope::Read], 1_000, None, None, false, None)
+            .unwrap();
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&heard);
+        devices
+            .on_revoke(Arc::new(|_: &str| panic!("a subscriber failed")))
+            .unwrap();
+        devices
+            .on_revoke(Arc::new(move |id: &str| {
+                recorder.lock().unwrap().push(id.to_owned())
+            }))
+            .unwrap();
+        let revoked = devices.revoke_install(&survivor.0.id, 2_000).unwrap();
+        assert_eq!(revoked, vec![survivor.0.id.clone()]);
+        assert_eq!(*heard.lock().unwrap(), vec![survivor.0.id]);
     }
 
     #[test]

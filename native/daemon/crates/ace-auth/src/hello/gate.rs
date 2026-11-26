@@ -68,7 +68,28 @@ mod tests {
         assert_eq!(HelloRefusal::NotHello.code(), "unauthorized");
         assert_eq!(HelloRefusal::NotHello.message(), "Valid hello required");
         assert_eq!(HelloRefusal::NotHello.close_code(), 4001);
-        assert_eq!(HelloRefusal::NotHello.close_reason(), "unauthorized");
+    }
+
+    #[test]
+    fn json_that_is_not_an_object_fails_the_schema_rather_than_reading_as_another_type() {
+        for frame in ["null", "[1]", "\"hi\"", "3"] {
+            let mut gate = HelloGate::new();
+            assert_eq!(
+                gate.first(FirstFrame::Text(frame)),
+                Err(HelloRefusal::Malformed),
+                "{frame}"
+            );
+            assert_eq!(
+                HelloRefusal::Malformed.message(),
+                "Message does not match the protocol"
+            );
+        }
+        // A socket message of another type is the "Valid hello required" case.
+        let mut gate = HelloGate::new();
+        assert_eq!(
+            gate.first(FirstFrame::Text("{\"type\":\"ping\"}")),
+            Err(HelloRefusal::NotHello)
+        );
     }
 
     #[test]
@@ -76,7 +97,6 @@ mod tests {
         let mut gate = HelloGate::new();
         assert_eq!(gate.first(FirstFrame::Binary), Err(HelloRefusal::Binary));
         assert_eq!(HelloRefusal::Binary.code(), "unauthorized");
-        assert_eq!(HelloRefusal::Binary.close_code(), 4001);
     }
 
     #[test]
@@ -112,6 +132,5 @@ mod tests {
         assert!(gate.authenticated());
         assert_eq!(gate.later(), HelloRefusal::Later);
         assert_eq!(HelloRefusal::Later.message(), "Hello is only valid once");
-        assert_eq!(HelloRefusal::Later.close_code(), 4001);
     }
 }

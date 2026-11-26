@@ -109,7 +109,7 @@ impl RemoteAuth {
         Ok(RedeemedDevice { device, token })
     }
 
-    /// An ace account device was admitted: its account device id is its install id (ADR 0115).
+    /// An address's redemption attempts in the current minute (`remote-auth.ts:313`).
     fn limit(&mut self, address: &str) -> Result<()> {
         let now = self.now();
         self.attempts.retain(|_, entry| entry.resets_at > now);
