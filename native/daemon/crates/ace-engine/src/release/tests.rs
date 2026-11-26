@@ -7,22 +7,30 @@ use super::{
     reclaim_idle_slot, release_request, released_thread,
 };
 use crate::State;
-use crate::actor::state::{Actor, Actors};
+use crate::actor::state::{ActorInstance, ActorRef, Actors};
 use crate::repository::testsupport::{Shell, header, home};
 use crate::repository::{ReclaimView, Repo};
 use crate::sessions::Sessions;
+use std::cell::RefCell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 #[test]
 fn a_done_thread_keeps_its_provider_warm_for_the_idle_window_then_releases_it() {
     // provider-release.process.test.ts: "a done thread keeps its provider warm for the idle
     // window, then releases it".
     let mut state = State::default();
-    let mut actor = Actor::new("t".to_owned(), 0, 0);
-    actor.instance = 1;
-    actor.session_attached = true;
-    actor.idle_since = Some(1_000.0);
-    state.actors.by_thread.insert("t".to_owned(), actor);
+    let actor: ActorRef = Rc::new(RefCell::new(ActorInstance::new("t".to_owned(), 0)));
+    {
+        let mut actor = actor.borrow_mut();
+        actor.instance = 1;
+        actor.session_attached = true;
+        actor.idle_since = Some(1_000.0);
+    }
+    state
+        .actors
+        .by_thread
+        .insert("t".to_owned(), Rc::clone(&actor));
     let listed = list_provider_processes(
         &state,
         super::DEFAULT_PROVIDER_IDLE_MS,
@@ -37,12 +45,7 @@ fn a_done_thread_keeps_its_provider_warm_for_the_idle_window_then_releases_it() 
     );
 
     // Settling asks for the release now: the same process releases at its idle instant.
-    state
-        .actors
-        .by_thread
-        .get_mut("t")
-        .expect("actor")
-        .release_requested = true;
+    state.actors.get_mut("t").expect("actor").release_requested = true;
     let listed = list_provider_processes(
         &state,
         super::DEFAULT_PROVIDER_IDLE_MS,
@@ -125,11 +128,16 @@ fn a_new_thread_reclaims_an_idle_threads_slot_instead_of_being_refused() {
     conn.exec("INSERT INTO engine_slots VALUES ('reclaim')")
         .expect("slot");
     let mut actors = Actors::default();
-    let mut actor = Actor::new("reclaim".to_owned(), 0, 0);
-    actor.instance = 1;
-    actor.session_attached = true;
-    actor.idle_since = Some(1_000.0);
-    actors.by_thread.insert("reclaim".to_owned(), actor);
+    let actor: ActorRef = Rc::new(RefCell::new(ActorInstance::new("reclaim".to_owned(), 0)));
+    {
+        let mut actor = actor.borrow_mut();
+        actor.instance = 1;
+        actor.session_attached = true;
+        actor.idle_since = Some(1_000.0);
+    }
+    actors
+        .by_thread
+        .insert("reclaim".to_owned(), Rc::clone(&actor));
     let mut sessions = Sessions::default();
     let repo = Repo::default();
     let retiring = HashSet::new();
@@ -146,12 +154,12 @@ fn a_new_thread_reclaims_an_idle_threads_slot_instead_of_being_refused() {
     .expect("reclaim");
     assert_eq!(picked.as_deref(), Some("reclaim"));
     assert!(
-        actors.by_thread.get("reclaim").expect("actor").idle_due,
+        actors.get("reclaim").expect("actor").idle_due,
         "the slot no longer counts as taken"
     );
 
     // A closing session is never asked to close again, and neither is a retiring thread.
-    if let Some(actor) = actors.by_thread.get_mut("reclaim") {
+    if let Some(mut actor) = actors.get_mut("reclaim") {
         actor.idle_due = false;
     }
     sessions.closing.insert("reclaim".to_owned());
@@ -185,18 +193,24 @@ fn a_reserve_reclaims_through_the_installed_hooks_own_view() {
         repo,
         ..State::default()
     };
-    let mut actor = Actor::new("old".to_owned(), 0, 0);
-    actor.instance = 1;
-    actor.session_attached = true;
-    actor.idle_since = Some(1_000.0);
-    state.actors.by_thread.insert("old".to_owned(), actor);
+    let actor: ActorRef = Rc::new(RefCell::new(ActorInstance::new("old".to_owned(), 0)));
+    {
+        let mut actor = actor.borrow_mut();
+        actor.instance = 1;
+        actor.session_attached = true;
+        actor.idle_since = Some(1_000.0);
+    }
+    state
+        .actors
+        .by_thread
+        .insert("old".to_owned(), Rc::clone(&actor));
 
     assert!(
         state.reserve_slot(&store, "new").expect("reserve"),
         "the full table reclaimed the warm slot instead of refusing"
     );
     assert!(
-        state.actors.by_thread.get("old").expect("actor").idle_due,
+        state.actors.get("old").expect("actor").idle_due,
         "the reclaimed thread is asked to close"
     );
 
@@ -213,10 +227,16 @@ fn a_reserve_reclaims_through_the_installed_hooks_own_view() {
         repo,
         ..State::default()
     };
-    let mut actor = Actor::new("old".to_owned(), 0, 0);
-    actor.session_attached = true;
-    actor.idle_since = Some(1_000.0);
-    state.actors.by_thread.insert("old".to_owned(), actor);
+    let actor: ActorRef = Rc::new(RefCell::new(ActorInstance::new("old".to_owned(), 0)));
+    {
+        let mut actor = actor.borrow_mut();
+        actor.session_attached = true;
+        actor.idle_since = Some(1_000.0);
+    }
+    state
+        .actors
+        .by_thread
+        .insert("old".to_owned(), Rc::clone(&actor));
     state.sessions.closing.insert("old".to_owned());
     assert!(!state.reserve_slot(&store, "new").expect("reserve"));
 }

@@ -95,6 +95,7 @@ pub fn list_provider_processes(
 ) -> Vec<ProviderProcess> {
     let mut processes = Vec::new();
     for actor in state.actors.live() {
+        let actor = &*actor;
         let Some(process) = provider_process_state(
             actor.session_attached,
             closing(&actor.id),
@@ -138,12 +139,13 @@ pub fn reclaim_idle_slot(
     let conn = store.conn();
     let candidates: Vec<ThreadId> = actors.live().map(|actor| actor.id.clone()).collect();
     for id in candidates {
-        let Some(actor) = actors.by_thread.get(&id) else {
+        let Some(actor) = actors.get(&id) else {
             continue;
         };
         if !actor.session_attached || actor.idle_due || actor.idle_since.is_none() {
             continue;
         }
+        drop(actor);
         if retiring.contains(&id) || sessions.is_closing(&id) {
             continue;
         }
@@ -162,7 +164,7 @@ pub fn reclaim_idle_slot(
         if running || message || recovery || transition || controls {
             continue;
         }
-        if let Some(actor) = actors.by_thread.get_mut(&id) {
+        if let Some(mut actor) = actors.get_mut(&id) {
             actor.idle_due = true;
         }
         return Ok(Some(id));

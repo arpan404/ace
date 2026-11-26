@@ -137,8 +137,8 @@ pub async fn open(
     let generation = core
         .with_state(|state| {
             state.begin_session_open(&request.thread_id);
-            match state.actors.by_thread.get_mut(&request.thread_id) {
-                Some(actor) => {
+            match state.actors.get_mut(&request.thread_id) {
+                Some(mut actor) => {
                     actor.generation += 1;
                     Ok(actor.generation)
                 }
@@ -163,7 +163,6 @@ pub async fn open(
         .with_state(|state| {
             state
                 .actors
-                .by_thread
                 .get(&request.thread_id)
                 .is_some_and(|actor| actor.generation != generation)
         })
@@ -228,17 +227,18 @@ pub fn attach(
     get_or_create(core, &thread)?;
     let generation = core
         .with_state(|state| {
-            let Some(actor) = state.actors.by_thread.get_mut(&thread) else {
+            let Some(mut actor) = state.actors.get_mut(&thread) else {
                 return 0;
             };
             actor.session_attached = true;
             actor.generation
         })
         .unwrap_or(0);
-    core.actor_deps.borrow().translators.borrow_mut().insert(
-        thread.clone(),
-        (generation, ActorTranslator::Native(opened.translator)),
-    );
+    core.with_state(|state| {
+        if let Some(mut actor) = state.actors.get_mut(&thread) {
+            actor.translator = Some((generation, ActorTranslator::Native(opened.translator)));
+        }
+    })?;
     core.with_state(|state| {
         state.sessions.attached.insert(
             thread.clone(),
@@ -298,19 +298,19 @@ async fn drain(core: Rc<Core>, thread: ThreadId, inbox: Arc<Inbox>) {
 
 /// One frame through the same intake a JavaScript session's frames take.
 fn intake_native(core: &Rc<Core>, thread: &ThreadId, frame: ace_adapter_api::SessionFrame) {
-    let generation = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .filter(|actor| actor.session_attached)
-                .map(|actor| actor.generation)
-        })
+    let Some(actor) = core
+        .with_state(|state| state.actors.by_thread.get(thread).cloned())
         .ok()
-        .flatten();
-    let Some(generation) = generation else {
+        .flatten()
+    else {
         return;
+    };
+    let generation = {
+        let state = actor.borrow();
+        if !state.session_attached {
+            return;
+        }
+        state.generation
     };
     let frame = frame_of(frame);
     let envelope = Envelope::from(&frame);
@@ -318,7 +318,7 @@ fn intake_native(core: &Rc<Core>, thread: &ThreadId, frame: ace_adapter_api::Ses
     let channel_sdk = channel_is_sdk(&frame.channel);
     let _ = intake::frame(
         core,
-        thread,
+        &actor,
         generation,
         FrameInput {
             frame: FrameRef::Native(Box::new(frame)),
@@ -366,16 +366,17 @@ fn settle(core: &Rc<Core>, thread: &ThreadId, exit: &ace_adapter_api::SessionExi
 pub fn detach(core: &Rc<Core>, thread: &ThreadId) {
     core.with_state(|state| {
         state.sessions.attached.shift_remove(thread);
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
             actor.session_attached = false;
         }
     })
     .ok();
-    core.actor_deps
-        .borrow()
-        .translators
-        .borrow_mut()
-        .remove(thread);
+    core.with_state(|state| {
+        if let Some(mut actor) = state.actors.get_mut(thread) {
+            actor.translator = None;
+        }
+    })
+    .ok();
     core.record_wake(thread);
 }
 

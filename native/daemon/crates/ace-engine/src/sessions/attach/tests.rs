@@ -96,7 +96,7 @@ fn directions_keep_their_names() {
 mod engine {
     use super::super::{OpenFailure, OpenRequest, OpenSteps, Opened, SessionOpener};
     use crate::actor::deps::ActorDeps;
-    use crate::actor::state::Actor;
+    use crate::actor::state::ActorInstance;
     use crate::executor::{Budget, Notified, Notifier};
     use crate::repository::testsupport::{Shell, header, home};
     use crate::sessions::open_session::OpenView;
@@ -110,6 +110,7 @@ mod engine {
     use ace_json::Raw;
     use ace_protocol::generated::{ExecutionSelection, GoalChange, InteractionResolution};
     use futures::future::LocalBoxFuture;
+    use std::cell::RefCell as StdRefCell;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::Arc;
@@ -306,12 +307,13 @@ mod engine {
     }
 
     fn install_actor(core: &Rc<crate::Core>) {
+        let actor = Rc::new(StdRefCell::new(ActorInstance::new("t".to_owned(), 0)));
+        actor.borrow_mut().instance = 1;
         core.with_state(|state| {
-            let seat = state.actors.next_seat;
-            state.actors.next_seat += 1;
-            let mut actor = Actor::new("t".to_owned(), 0, seat);
-            actor.instance = 1;
-            state.actors.by_thread.insert("t".to_owned(), actor);
+            state
+                .actors
+                .by_thread
+                .insert("t".to_owned(), Rc::clone(&actor));
         })
         .expect("the state is free");
         // A real actor's mailbox task exists from creation; the fold runs on it.
