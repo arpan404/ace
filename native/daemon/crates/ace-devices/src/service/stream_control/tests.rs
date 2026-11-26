@@ -80,8 +80,22 @@ fn a_live_view_that_asks_for_jpeg_is_refused() {
 
 #[test]
 fn an_idle_capture_streams_a_recording_while_one_runs() {
-    assert_eq!(idle_stream(false), DEVICE_IMAGE_STREAM);
-    assert_eq!(idle_stream(true), DEVICE_RECORDING_STREAM);
+    assert_eq!(idle_stream(false, DEVICE_IMAGE_STREAM), DEVICE_IMAGE_STREAM);
+    assert_eq!(
+        idle_stream(true, DEVICE_IMAGE_STREAM),
+        DEVICE_RECORDING_STREAM
+    );
+    assert_eq!(idle_stream(false, DEVICE_STILL_STREAM), DEVICE_STILL_STREAM);
+}
+
+#[test]
+fn a_still_capable_capture_returns_to_two_fps_after_recording_ends() {
+    assert_eq!(idle_stream(false, DEVICE_STILL_STREAM), DEVICE_STILL_STREAM);
+    assert_eq!(
+        idle_stream(true, DEVICE_STILL_STREAM),
+        DEVICE_RECORDING_STREAM
+    );
+    assert_eq!(idle_stream(false, DEVICE_STILL_STREAM), DEVICE_STILL_STREAM);
 }
 
 #[test]
@@ -133,4 +147,25 @@ fn the_slowest_viewer_sets_the_shared_capture() {
     assert!(same_stream(h264(), h264()));
     assert!(!same_stream(h264(), jpeg()));
     assert!(!same_stream(h264(), StreamSettings { fps: 59, ..h264() }));
+    assert!(!same_stream(
+        h264(),
+        StreamSettings {
+            max_width: 800,
+            ..h264()
+        }
+    ));
+    assert!(!same_stream(
+        h264(),
+        StreamSettings {
+            max_height: 600,
+            ..h264()
+        }
+    ));
+    assert!(!same_stream(
+        h264(),
+        StreamSettings {
+            bitrate: 1,
+            ..h264()
+        }
+    ));
 }

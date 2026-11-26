@@ -120,12 +120,12 @@ pub fn same_stream(a: StreamSettings, b: StreamSettings) -> bool {
 }
 
 /// The stream an idle capture takes: a recording's video while one runs, else the
-/// caller's own idle choice.
-pub fn idle_stream(recording: bool) -> StreamSettings {
+/// caller's own idle choice (still-capable captures pass [`DEVICE_STILL_STREAM`]).
+pub fn idle_stream(recording: bool, idle: StreamSettings) -> StreamSettings {
     if recording {
         DEVICE_RECORDING_STREAM
     } else {
-        DEVICE_IMAGE_STREAM
+        idle
     }
 }
 
