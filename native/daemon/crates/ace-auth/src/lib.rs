@@ -11,6 +11,7 @@
 //! ticket while a persisted pairing link still redeems (`pairing-codes.ts:80`).
 
 pub mod devices;
+pub mod devices_channel;
 pub mod error;
 pub mod grant;
 pub mod hello;
@@ -23,6 +24,10 @@ pub mod tickets;
 pub mod token;
 
 pub use devices::{Device, PairedDevice, Scope, SessionActor, active_device, allows};
+pub use devices_channel::{
+    ChannelFrame, ChannelOpening, DEVICE_ACCESS_REFUSED, DEVICES_UNAVAILABLE, DeviceFailure,
+    DevicesChannel, Request,
+};
 pub use error::{AccessError, AuthError, Result};
 pub use grant::{
     ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON, AccountGrantSocket, GRANT_EXPIRED_CLOSE,
