@@ -231,6 +231,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-mcp"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "thiserror",
+]
+
+[[package]]
 name = "ace-projection"
 version = "0.1.0"
 dependencies = [

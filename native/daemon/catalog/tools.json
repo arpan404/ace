@@ -1,0 +1,3478 @@
+{
+  "tools": [
+    {
+      "name": "agent_cancel",
+      "title": "Cancel a child agent",
+      "toolset": "ace-agents",
+      "riskClass": "thread-write",
+      "description": "Stop a child and its descendants, on any machine. Acceptance is not proof it stopped: confirm with agents_status or wait.",
+      "capability": "agents",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "description": "From delegate or agents_status."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          }
+        },
+        "required": [
+          "threadId",
+          "requestId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "agent_message",
+      "title": "Message a child or another thread",
+      "toolset": "ace-agents",
+      "riskClass": "agent-execution",
+      "description": "Message a thread. Your children (any machine) and threads you started take any delivery: steer joins the running turn at the next tool boundary, queue waits for it to end, restart interrupts its tree and replaces queued input. Any other thread you can read gets a steer only, labelled as yours so it can answer you; another agent's finished child passes it to its top-level thread. A steer never stops running work. The receiver keeps its permissions. arrival says when it lands; threadId which thread got it.",
+      "capability": "agents",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "description": "Any thread you can read: from threads_find or a message."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "text": {
+            "type": "string",
+            "description": "Standing on its own."
+          },
+          "delivery": {
+            "description": "Default: steer. queue and restart: your own threads only.",
+            "type": "string",
+            "enum": [
+              "queue",
+              "steer",
+              "restart"
+            ]
+          }
+        },
+        "required": [
+          "threadId",
+          "requestId",
+          "text"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "arrival": {
+                "type": "string",
+                "enum": [
+                  "starting",
+                  "steering",
+                  "restarting",
+                  "queued",
+                  "held",
+                  "delivered"
+                ]
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "arrival"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "agents_status",
+      "title": "Check child agents",
+      "toolset": "ace-agents",
+      "riskClass": "read-only",
+      "description": "Your delegated children, here or on other machines. Without threadId: a snapshot of every child and descendant (state, step, elapsed, what waits on the person, queue, last output). With threadId: that child, with its result once settled. To block until they settle, use wait.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "description": "One child to read in full.",
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "failure": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "accountId": {
+                              "type": "string"
+                            },
+                            "accountLabel": {
+                              "type": "string"
+                            },
+                            "resetsAt": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message"
+                          ]
+                        },
+                        "result": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "parent": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "working",
+                            "queued",
+                            "needs_you",
+                            "done",
+                            "failed",
+                            "cancelled",
+                            "unknown",
+                            "cancelling"
+                          ]
+                        },
+                        "step": {
+                          "type": "string"
+                        },
+                        "slotLimit": {
+                          "type": "integer",
+                          "maximum": 64
+                        },
+                        "slotsInUse": {
+                          "type": "integer"
+                        },
+                        "queuePosition": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "waitingFor": {
+                          "type": "string",
+                          "enum": [
+                            "storage"
+                          ]
+                        },
+                        "elapsedSeconds": {
+                          "type": "integer"
+                        },
+                        "needs": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "ask": {
+                          "type": "string"
+                        },
+                        "last": {
+                          "type": "string"
+                        },
+                        "queued": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "notice": {
+                          "type": "string"
+                        },
+                        "machine": {
+                          "type": "string"
+                        },
+                        "contact": {
+                          "type": "string",
+                          "enum": [
+                            "lost",
+                            "unconfirmed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "role",
+                        "state",
+                        "elapsedSeconds"
+                      ]
+                    }
+                  },
+                  "omitted": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "counts": {
+                    "type": "object",
+                    "properties": {
+                      "working": {
+                        "type": "integer"
+                      },
+                      "queued": {
+                        "type": "integer"
+                      },
+                      "needs_you": {
+                        "type": "integer"
+                      },
+                      "unknown": {
+                        "type": "integer"
+                      },
+                      "done": {
+                        "type": "integer"
+                      },
+                      "failed": {
+                        "type": "integer"
+                      },
+                      "cancelled": {
+                        "type": "integer"
+                      },
+                      "cancelling": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "working",
+                      "queued",
+                      "needs_you",
+                      "unknown",
+                      "done",
+                      "failed",
+                      "cancelled",
+                      "cancelling"
+                    ]
+                  }
+                },
+                "required": [
+                  "children",
+                  "counts"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "threadId": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "type": "object",
+                    "properties": {
+                      "failure": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "accountId": {
+                            "type": "string"
+                          },
+                          "accountLabel": {
+                            "type": "string"
+                          },
+                          "resetsAt": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ]
+                      },
+                      "threadId": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "completed",
+                          "failed",
+                          "cancelled"
+                        ]
+                      },
+                      "result": {
+                        "type": "string"
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      },
+                      "before": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "threadId",
+                      "outcome",
+                      "result",
+                      "truncated",
+                      "before"
+                    ]
+                  }
+                },
+                "required": [
+                  "threadId",
+                  "state"
+                ],
+                "additionalProperties": {}
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "ask",
+      "title": "Ask the person",
+      "toolset": "ace-agents",
+      "riskClass": "thread-write",
+      "description": "Ask the person a question in ace and wait up to timeoutSeconds for the answer. If they have not answered by then it returns pending: end your turn, and their answer arrives as their next message. Never use it to ask for permission.",
+      "capability": null,
+      "timeoutMs": 250000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "One clear question."
+          },
+          "options": {
+            "description": "Answers to choose from, when you can offer them.",
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowOther": {
+            "default": true,
+            "description": "Let the person type their own answer.",
+            "type": "boolean"
+          },
+          "timeoutSeconds": {
+            "default": 240,
+            "description": "How long to wait, 5 to 240 seconds.",
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 240
+          }
+        },
+        "required": [
+          "question"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "declined",
+              "pending"
+            ]
+          },
+          "askId": {
+            "type": "string"
+          },
+          "answer": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "askId"
+        ]
+      }
+    },
+    {
+      "name": "automation_put",
+      "title": "Save an automation",
+      "toolset": "ace-threads",
+      "riskClass": "agent-execution",
+      "description": "Create or replace (same id) an automation: a message ace sends into this thread on a schedule or with automation_run. You answer it here with this thread's model and access, queued behind any running turn.",
+      "capability": "automations",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id you gave it in automation_put."
+          },
+          "title": {
+            "type": "string",
+            "description": "What it does, for the person."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The message each run sends: the whole task, readable without this conversation."
+          },
+          "schedule": {
+            "description": "rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rrule",
+                  "cron"
+                ]
+              },
+              "expression": {
+                "type": "string"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "startAt": {
+                "type": "integer",
+                "multipleOf": 60000
+              }
+            },
+            "required": [
+              "kind",
+              "expression"
+            ]
+          },
+          "webhook": {
+            "description": "true: runs when its signed webhook is called, with {{body.field}} from the JSON body. The person makes its secret and URL in Automations. Not with schedule.",
+            "type": "boolean"
+          },
+          "enabled": {
+            "default": true,
+            "description": "false saves it paused.",
+            "type": "boolean"
+          },
+          "missedRun": {
+            "default": "skip",
+            "description": "A run missed while ace was off: skip it, or run once.",
+            "type": "string",
+            "enum": [
+              "skip",
+              "run_once"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "prompt"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "automation_remove",
+      "title": "Remove an automation",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Delete a saved automation and its schedule; past runs stay listed.",
+      "capability": "automations",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id you gave it in automation_put."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "automation_run",
+      "title": "Run, pause or resume an automation",
+      "toolset": "ace-threads",
+      "riskClass": "agent-execution",
+      "description": "Run a saved automation now (action run): its message arrives here after any running turn, and the run shows in automations_list {runs: true}. pause skips a waiting run and stops a running one; resume restarts its schedule from now.",
+      "capability": "automations",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id you gave it in automation_put."
+          },
+          "action": {
+            "default": "run",
+            "type": "string",
+            "enum": [
+              "run",
+              "pause",
+              "resume"
+            ]
+          },
+          "requestId": {
+            "description": "run: any stable id; a repeat runs once.",
+            "type": "string"
+          },
+          "variables": {
+            "default": {},
+            "description": "run: values for {{name}} in its prompt.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 64
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "automations_list",
+      "title": "List automations",
+      "toolset": "ace-threads",
+      "riskClass": "read-only",
+      "description": "Automations you or your threads created in this project, with each next run. runs: true reads recent runs instead, newest first, paged with before.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "default": false,
+            "type": "boolean"
+          },
+          "automationId": {
+            "description": "runs: only this one's.",
+            "type": "string"
+          },
+          "before": {
+            "description": "runs: the previous page's before.",
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "context",
+      "title": "Read project and session context",
+      "riskClass": "read-only",
+      "description": "Project and session context; call it first in an existing project. status: thread, access, ace groups off. recent: latest threads, outcomes. changes: branch, uncommitted paths. prs: linked PRs, CI. notes: project notes. diagnostics: your failed ace calls, what keeps this thread unsettled.",
+      "capability": null,
+      "timeoutMs": 30000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "default": [
+              "status",
+              "recent",
+              "changes",
+              "prs",
+              "notes"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "status",
+                "recent",
+                "changes",
+                "prs",
+                "notes",
+                "diagnostics"
+              ]
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "recent": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "threadId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "branch": {
+                  "type": "string"
+                },
+                "prs": {
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "number": {
+                        "type": "number"
+                      },
+                      "state": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "number",
+                      "state",
+                      "url"
+                    ]
+                  }
+                },
+                "outcome": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "threadId",
+                "title",
+                "status"
+              ]
+            }
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "branch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "upstream": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ahead": {
+                    "type": "number"
+                  },
+                  "behind": {
+                    "type": "number"
+                  },
+                  "staged": {
+                    "type": "number"
+                  },
+                  "unstaged": {
+                    "type": "number"
+                  },
+                  "untracked": {
+                    "type": "number"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "branch",
+                  "upstream",
+                  "ahead",
+                  "behind",
+                  "staged",
+                  "unstaged",
+                  "untracked",
+                  "files"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prs": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "threadId": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "ci": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "pending",
+                    "success",
+                    "failure",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "threadId",
+                "number",
+                "url",
+                "state",
+                "ci"
+              ]
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "threadId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ]
+            }
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "failures": {
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "tool": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "tool",
+                    "code",
+                    "count"
+                  ]
+                }
+              },
+              "blocking": {
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "failures",
+              "blocking"
+            ]
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "access": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "groups": {
+                "maxItems": 9,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "enum": [
+                        "thread",
+                        "browser",
+                        "notify",
+                        "agents",
+                        "thread_control",
+                        "automations",
+                        "projects",
+                        "screen",
+                        "devices"
+                      ]
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "enabled"
+                  ]
+                }
+              },
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ]
+              }
+            },
+            "required": [
+              "threadId",
+              "agentId",
+              "access",
+              "groups"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "data_receive",
+      "title": "Read or save data other agents sent",
+      "toolset": "ace-agents",
+      "riskClass": "thread-write",
+      "description": "Parcels this thread sent or received, newest first, with each one's state, size and SHA-256; a received one has a read-only path. With parcelId and saveAs, copy that received parcel into your project at saveAs (relative; never replaces a file).",
+      "capability": "agents",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "parcelId": {
+            "description": "From the arrival message or this list.",
+            "type": "string"
+          },
+          "saveAs": {
+            "description": "A new file path in your project, relative to its folder.",
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "data_send",
+      "title": "Send data to another agent",
+      "toolset": "ace-agents",
+      "riskClass": "external-effect",
+      "description": "Send a file from your project, or text, to another agent in your tree: a child (from delegate, any machine), your parent (\"parent\"), or another thread in the same tree here, end to end encrypted. Returns parcelId at once; whether it arrived comes as a new turn, so end yours. Never poll.",
+      "capability": "agents",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "const": "parent"
+              }
+            ],
+            "description": "A thread id from delegate or agents_status, or \"parent\"."
+          },
+          "path": {
+            "description": "A file in your project, relative to its folder. Or pass text.",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text to send instead of a file.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name it arrives under. Default: the file's name.",
+            "type": "string",
+            "examples": [
+              "dataset.csv"
+            ]
+          },
+          "note": {
+            "description": "What it is, for the receiver.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "parcelId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "parcelId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "delegate",
+      "title": "Delegate to child agents",
+      "toolset": "ace-agents",
+      "riskClass": "agent-execution",
+      "description": "Start child agents as threads on any provider or paired machine, for independent or parallel work. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll. More: guide ace-agents.",
+      "capability": "agents",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "description": "Any stable id; a repeat with it runs once."
+                },
+                "task": {
+                  "type": "string",
+                  "description": "Goal, files, constraints, how to verify: the child sees none of your conversation."
+                },
+                "role": {
+                  "type": "string",
+                  "description": "Unique name saying what and where: 'Fix-869-toast', never 'Implementer'."
+                },
+                "runRole": {
+                  "description": "A role from your Roles line.",
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "judgment",
+                    "review",
+                    "verify"
+                  ]
+                },
+                "provider": {
+                  "description": "Default: yours, or the one serving model.",
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "opencode",
+                    "cursor",
+                    "antigravity",
+                    "acp",
+                    "pi"
+                  ]
+                },
+                "model": {
+                  "description": "Id or name, e.g. \"opus 5.5\".",
+                  "type": "string"
+                },
+                "accountId": {
+                  "description": "Account id or label; with machine, one from its machines entry.",
+                  "type": "string"
+                },
+                "effort": {
+                  "description": "e.g. low, high, xhigh. Default: yours on the same model.",
+                  "type": "string"
+                },
+                "access": {
+                  "description": "Default inherit; never above yours.",
+                  "type": "string",
+                  "enum": [
+                    "inherit",
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ]
+                },
+                "workspace": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "project",
+                        "new_worktree",
+                        "existing_worktree"
+                      ]
+                    },
+                    "base": {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string"
+                        },
+                        "remote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "ref"
+                      ]
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "machine": {
+                  "description": "From machines; needs project.",
+                  "type": "string"
+                },
+                "project": {
+                  "description": "Its project in machines.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "requestId",
+                "task",
+                "role"
+              ]
+            },
+            "description": "One per child."
+          },
+          "waitSeconds": {
+            "description": "Wait for results, as wait does. Omit to return at once.",
+            "type": "integer",
+            "maximum": 600
+          },
+          "waitFor": {
+            "default": "all",
+            "description": "any returns on the first.",
+            "type": "string",
+            "enum": [
+              "any",
+              "all"
+            ]
+          }
+        },
+        "required": [
+          "tasks"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "threadIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "wait": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ready",
+                      "needs_you",
+                      "limited",
+                      "timeout",
+                      "interrupted"
+                    ]
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "any",
+                      "all"
+                    ]
+                  },
+                  "threads": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "failure": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "accountId": {
+                              "type": "string"
+                            },
+                            "accountLabel": {
+                              "type": "string"
+                            },
+                            "resetsAt": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message"
+                          ]
+                        },
+                        "threadId": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "working",
+                            "queued",
+                            "needs_you",
+                            "done",
+                            "failed",
+                            "cancelled"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "elapsedSeconds": {
+                          "type": "integer"
+                        },
+                        "step": {
+                          "type": "string"
+                        },
+                        "slotLimit": {
+                          "type": "integer",
+                          "maximum": 64
+                        },
+                        "slotsInUse": {
+                          "type": "integer"
+                        },
+                        "queuePosition": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "waitingFor": {
+                          "type": "string",
+                          "enum": [
+                            "storage"
+                          ]
+                        },
+                        "result": {
+                          "type": "string"
+                        },
+                        "truncated": {
+                          "type": "boolean"
+                        },
+                        "last": {
+                          "type": "string"
+                        },
+                        "needs": {
+                          "maxItems": 8,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "interactionId": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              },
+                              "prompt": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "interactionId",
+                              "kind",
+                              "prompt"
+                            ]
+                          }
+                        },
+                        "machine": {
+                          "type": "string"
+                        },
+                        "contact": {
+                          "type": "string",
+                          "enum": [
+                            "lost",
+                            "unconfirmed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "threadId",
+                        "state",
+                        "title",
+                        "elapsedSeconds"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "status",
+                  "mode",
+                  "threads"
+                ]
+              }
+            },
+            "required": [
+              "threadIds"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "handoff_read",
+      "title": "Read handoff history",
+      "toolset": "ace-threads",
+      "riskClass": "read-only",
+      "description": "Read the history a handoff from another provider cites, newest first; page back with before = itemsBefore. With streamId: a cited text or shell stream as base64, continued at nextOffset until eof.",
+      "capability": null,
+      "timeoutMs": 10000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "sourceThreadId": {
+            "type": "string",
+            "description": "From the handoff manifest."
+          },
+          "before": {
+            "description": "The previous page's itemsBefore.",
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "type": "integer",
+            "maximum": 50
+          },
+          "streamId": {
+            "description": "Read a cited stream instead of items.",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "description": "With streamId: from nextOffset.",
+            "type": "integer"
+          },
+          "maxBytes": {
+            "default": 32768,
+            "description": "With streamId: bytes to read.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sourceThreadId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "itemsBefore": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "omitted": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string"
+                },
+                "dropped": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "itemId",
+                "dropped"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "bytes": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf-16le",
+              "utf-8"
+            ]
+          },
+          "nextOffset": {
+            "type": "integer"
+          },
+          "eof": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "html_preview",
+      "title": "Preview an HTML visual",
+      "toolset": "visualize",
+      "riskClass": "read-only",
+      "description": "See a page as html_render would show it, at 360 px and 760 px (or the widths you pick), with what html_render would refuse listed. Publishes nothing.",
+      "capability": null,
+      "timeoutMs": 45000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "description": "A self-contained HTML document: inline CSS, JS, SVG and data: images; no network."
+          },
+          "mode": {
+            "description": "interactive runs scripts in a sandbox; static strips them. Default: inferred.",
+            "type": "string",
+            "enum": [
+              "interactive",
+              "static"
+            ]
+          },
+          "scheme": {
+            "description": "The app theme to draw it in. Default: dark.",
+            "type": "string",
+            "enum": [
+              "dark",
+              "light"
+            ]
+          },
+          "widths": {
+            "description": "Phone 360, chat column 760, full-screen side panel 1200. Default: 360 and 760.",
+            "type": "array",
+            "items": {
+              "type": "number",
+              "enum": [
+                360,
+                760,
+                1200
+              ]
+            }
+          }
+        },
+        "required": [
+          "html"
+        ]
+      }
+    },
+    {
+      "name": "html_render",
+      "title": "Show an HTML visual inline",
+      "toolset": "visualize",
+      "riskClass": "thread-write",
+      "description": "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.",
+      "capability": null,
+      "timeoutMs": 30000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Caption above the page."
+          },
+          "html": {
+            "type": "string",
+            "description": "A self-contained HTML document: inline CSS, JS, SVG and data: images; no network."
+          },
+          "height": {
+            "description": "CSS pixels held while loading; the frame then fits the page.",
+            "type": "integer",
+            "minimum": 80
+          },
+          "mode": {
+            "description": "interactive runs scripts in a sandbox; static strips them. Default: inferred.",
+            "type": "string",
+            "enum": [
+              "interactive",
+              "static"
+            ]
+          }
+        },
+        "required": [
+          "title",
+          "html"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "image_show",
+      "title": "Show an image inline",
+      "toolset": "visualize",
+      "riskClass": "thread-write",
+      "description": "Post an image into your reply: a screenshot, a rendered chart or diagram, a generated picture. Pass it as base64 data (up to 16 MiB), or a file path on this machine for larger files (up to 128 MiB). PNG, JPEG, WebP or GIF.",
+      "capability": null,
+      "timeoutMs": 120000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "An image file on this machine, absolute or relative to your cwd.",
+            "type": "string"
+          },
+          "data": {
+            "description": "The image as base64 (no data: prefix), up to 16 MiB decoded.",
+            "type": "string"
+          },
+          "mimeType": {
+            "description": "The type of data; ace checks the bytes anyway.",
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp",
+              "image/gif"
+            ]
+          },
+          "alt": {
+            "type": "string",
+            "description": "What it shows, for people who cannot see it."
+          },
+          "caption": {
+            "description": "A line under the image.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alt"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "machines",
+      "title": "List paired machines",
+      "toolset": "ace-agents",
+      "riskClass": "read-only",
+      "description": "The person's other paired machines: name (pass as machine), online, access, projects, tool groups, providers, accounts (pass an id or label as accountId) and transfers (true: transfer can move work there). Use with delegate {machine, project}; children there join wait and agents_status.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "models",
+      "title": "List models for delegation",
+      "toolset": "ace-agents",
+      "riskClass": "read-only",
+      "description": "Models a child can run on, grouped by provider: each provider's accounts once (login state, availability, the access modes a child may take), its shared efforts and default, and its current models. A model names its accounts only when not every account serves it. Older releases are left out and counted in omitted; with query, the nearest models to a name across all providers and accounts, legacy included, nearest first. Pass a model's id to delegate.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "description": "Only this provider's models.",
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex",
+              "opencode",
+              "cursor",
+              "antigravity",
+              "acp",
+              "pi"
+            ]
+          },
+          "query": {
+            "description": "A model name as the person wrote it, such as \"opus 5.5\" or \"gpt 6.1 sol\".",
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "note_add",
+      "title": "Save a project note",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Save one short fact about this project for every future thread, such as how to run its tests or a pitfall you hit. Facts only, never instructions to ignore other guidance; the person sees and edits notes.",
+      "capability": "projects",
+      "timeoutMs": 10000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "One fact."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "noteId",
+          "notes"
+        ]
+      }
+    },
+    {
+      "name": "note_retire",
+      "title": "Remove a project note",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Remove a project note that is wrong or out of date.",
+      "capability": "projects",
+      "timeoutMs": 10000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "description": "From context topic notes."
+          }
+        },
+        "required": [
+          "noteId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "retired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "retired"
+        ]
+      }
+    },
+    {
+      "name": "notify",
+      "title": "Notify the person",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "openWorld": false,
+      "description": "Notify the person of something they should see while away, such as a long task finishing or a decision needed; it also posts on this thread.",
+      "capability": "notify",
+      "timeoutMs": 10000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "What happened, in a sentence or two."
+          },
+          "level": {
+            "default": "info",
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "intentId": {
+            "type": "string"
+          },
+          "accepted": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "intentId",
+          "accepted"
+        ]
+      }
+    },
+    {
+      "name": "projects_find",
+      "title": "Find projects",
+      "toolset": "ace-threads",
+      "riskClass": "read-only",
+      "description": "List this machine's ace projects, most recent first, or find one by name or folder; current marks this thread's. Pass its name or id to thread_start to open a thread there.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "default": "",
+            "description": "Words in the name or folder.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "maximum": 50
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "current": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "path"
+                  ],
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": [
+              "projects"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "question_answer",
+      "title": "Answer an owned thread's question",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Answer a question an owned thread's agent asked (shown under needs_you). Permission approvals are the person's, never answered here.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "description": "This thread, one you started or, with full access, any."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "interactionId": {
+            "type": "string"
+          },
+          "answers": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Question id to chosen option ids, or free text where other is allowed."
+          },
+          "dismissed": {
+            "description": "Decline; the agent continues without.",
+            "type": "boolean"
+          },
+          "feedback": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId",
+          "requestId",
+          "interactionId",
+          "answers"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "queue_edit",
+      "title": "Edit queued messages",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Change an owned thread's queued messages before delivery (thread_read lists entryIds): edit its text (attachments stay), cancel it, steer it into the running turn now, or reorder named entries to the front.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "description": "This thread, one you started or, with full access, any."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "edit",
+              "cancel",
+              "steer",
+              "reorder"
+            ],
+            "description": "edit: entryId, text. cancel, steer: entryId. reorder: order."
+          },
+          "entryId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "order": {
+            "description": "Entry ids, in their new order.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "threadId",
+          "requestId",
+          "action"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "suit_apply",
+      "title": "Preview, keep or revert a Suit",
+      "toolset": "make-a-suit",
+      "riskClass": "thread-write",
+      "description": "Put a Suit (ace look from ~/.ace/suits) on the person's devices. Checks run first: failures come back as problems and nothing applies. A preview or keep then returns what the devices saw as rendered (live problems) and screenshots. Read guide make-a-suit first.",
+      "capability": null,
+      "timeoutMs": 45000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "keep",
+              "revert"
+            ],
+            "description": "preview shows it until you keep it or your turn ends; keep stores it; revert ends your preview or undoes your last keep."
+          },
+          "id": {
+            "description": "The Suit's folder name in ~/.ace/suits. Needed for preview; keep defaults to your preview.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      }
+    },
+    {
+      "name": "thread_control",
+      "title": "Change an owned thread",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a worktree, interrupt, settle or unsettle, snooze, close a preview, or rename this project. Settle only when the person explicitly asks; finished work is not a request.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "rename",
+              "configure",
+              "handoff",
+              "interrupt",
+              "settle",
+              "unsettle",
+              "snooze",
+              "close_preview",
+              "rename_project"
+            ],
+            "description": "rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name."
+          },
+          "threadId": {
+            "description": "Default: this thread.",
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "title": {
+            "type": "string"
+          },
+          "onlyIfProvisional": {
+            "description": "Only replace a title ace generated, never the person's.",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "Id from models, or a name (\"opus 5.5\") on its account.",
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "serviceTier": {
+            "type": "string",
+            "enum": [
+              "default",
+              "priority",
+              "flex"
+            ]
+          },
+          "branch": {
+            "type": "string"
+          },
+          "until": {
+            "description": "Epoch ms, or null to unmute.",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previewId": {
+            "description": "From thread_read.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "thread_fork",
+      "title": "Fork a thread",
+      "toolset": "ace-threads",
+      "riskClass": "agent-execution",
+      "description": "Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message it or merge it back with thread_merge. The person sees a card: relay it in a sentence, without ids.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "description": "Default: this thread.",
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "text": {
+            "type": "string",
+            "description": "The other approach, standing on its own."
+          },
+          "title": {
+            "description": "Sidebar title.",
+            "type": "string"
+          },
+          "runId": {
+            "description": "Fork after this finished run instead.",
+            "type": "string"
+          },
+          "model": {
+            "description": "Same provider and account: id from models, or a name (\"opus 5.5\").",
+            "type": "string"
+          },
+          "effort": {
+            "description": "With model.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "text"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "thread_link_pr",
+      "title": "Link a pull request",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Link this thread's pull request, by URL or number, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "number": {
+            "description": "Or its number.",
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "repo": {
+            "description": "owner/name or host/owner/name. Default: origin.",
+            "type": "string"
+          },
+          "unlink": {
+            "default": false,
+            "type": "boolean"
+          },
+          "all": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "thread_merge",
+      "title": "Merge a fork back",
+      "toolset": "ace-threads",
+      "riskClass": "thread-write",
+      "description": "Bring a finished fork's result back to its source thread: summary says what it found or did, citing its latest answer or itemIds. The source's agent sees it next turn; file changes are already in the shared checkout. Wait for the fork to finish first.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "description": "From thread_fork."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "summary": {
+            "type": "string",
+            "description": "What the fork found or did, standing on its own."
+          },
+          "itemIds": {
+            "description": "Fork items it rests on, from thread_read.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "threadId",
+          "requestId",
+          "summary"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "thread_read",
+      "title": "Read a thread",
+      "toolset": "ace-threads",
+      "riskClass": "read-only",
+      "description": "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (entryIds for queue_edit) and a page of its latest items, oldest first. Page back with before = itemsBefore until null; items too large are listed in omitted. A truncated part with source.streamId continues as text: pass streamId from offset 0, then each nextOffset, until eof.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "description": "Default: this thread.",
+            "type": "string"
+          },
+          "before": {
+            "description": "The previous page's itemsBefore.",
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "limit": {
+            "default": 10,
+            "description": "Items per page.",
+            "type": "integer",
+            "maximum": 50
+          },
+          "streamId": {
+            "description": "Read a truncated part's output instead.",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "description": "With streamId: 0, then each nextOffset unchanged.",
+            "type": "integer"
+          },
+          "maxBytes": {
+            "default": 8192,
+            "description": "With streamId: page size.",
+            "type": "integer"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "thread": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "title"
+                ],
+                "additionalProperties": {}
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "itemsBefore": {
+                "description": "Pass as before for the previous page; null when nothing is earlier.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "omitted": {
+                "description": "Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "itemId": {
+                      "type": "string"
+                    },
+                    "dropped": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "itemId",
+                    "dropped"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "linkedPrs": {
+                "type": "array",
+                "items": {}
+              },
+              "previews": {
+                "type": "array",
+                "items": {}
+              },
+              "text": {
+                "description": "With streamId: this page of the part's text, decoded.",
+                "type": "string"
+              },
+              "nextOffset": {
+                "description": "With streamId: pass back unchanged as offset for the next page.",
+                "type": "number"
+              },
+              "eof": {
+                "description": "With streamId: true when the text ends with this page.",
+                "type": "boolean"
+              },
+              "queue": {
+                "description": "Messages waiting for the thread, oldest first."
+              }
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "thread_start",
+      "title": "Start a top-level thread",
+      "toolset": "ace-threads",
+      "riskClass": "agent-execution",
+      "description": "Open a top-level thread in the person's sidebar, in this or another local project, when the person asks for a separate thread; text is its first message and its agent answers at once. For child work whose result you need, use delegate. The person sees a card: relay it in a sentence, without ids.",
+      "capability": "thread_control",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "description": "Any stable id; a repeat with it runs once."
+          },
+          "title": {
+            "type": "string",
+            "description": "Sidebar title."
+          },
+          "text": {
+            "type": "string",
+            "description": "First message, standing on its own."
+          },
+          "project": {
+            "description": "Another local project's name, path or id, from projects_find.",
+            "type": "string"
+          },
+          "workspace": {
+            "default": {
+              "kind": "project"
+            },
+            "description": "Default: the project's checkout.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project",
+                  "new_worktree",
+                  "existing_worktree"
+                ]
+              },
+              "base": {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": "string"
+                  },
+                  "remote": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "provider": {
+            "description": "Default: yours.",
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex",
+              "opencode",
+              "cursor",
+              "antigravity",
+              "acp",
+              "pi"
+            ]
+          },
+          "model": {
+            "description": "Id from models, or a name (\"opus 5.5\").",
+            "type": "string"
+          },
+          "effort": {
+            "description": "e.g. high.",
+            "type": "string"
+          },
+          "access": {
+            "description": "Default inherit; never above yours.",
+            "type": "string",
+            "enum": [
+              "inherit",
+              "read-only",
+              "ask",
+              "auto-review",
+              "full-access"
+            ]
+          }
+        },
+        "required": [
+          "requestId",
+          "title",
+          "text"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "threads_find",
+      "title": "Find threads",
+      "toolset": "ace-threads",
+      "riskClass": "read-only",
+      "description": "Find threads in this project (or, with full access, another), or search inside one. Without threadId: threads matching query, or recent ones when it is empty. With threadId: matching items in its transcript. Page with cursor.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "default": "",
+            "description": "Words to match.",
+            "type": "string"
+          },
+          "threadId": {
+            "description": "Search this thread's transcript.",
+            "type": "string"
+          },
+          "project": {
+            "description": "Another project's name, path or id, from projects_find.",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "The previous page's cursor.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "description": "Results per page.",
+            "type": "integer",
+            "maximum": 20
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "hits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "threadId": {
+                      "type": "string"
+                    },
+                    "threadTitle": {
+                      "type": "string"
+                    },
+                    "itemId": {
+                      "type": "string"
+                    },
+                    "snippet": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "threadId"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "hits"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "tools_call",
+      "title": "Call an ace tool",
+      "riskClass": "external-effect",
+      "description": "Run any ace tool by name, with the arguments its schema takes (from tools_find or guide). Returns that tool's result.",
+      "capability": null,
+      "timeoutMs": 660000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The tool's name, as tools_find returns it."
+          },
+          "arguments": {
+            "default": {},
+            "description": "The tool's own arguments, matching its input schema.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {}
+          },
+          "isError": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": {}
+      }
+    },
+    {
+      "name": "tools_find",
+      "title": "Find ace tools",
+      "riskClass": "read-only",
+      "openWorld": false,
+      "description": "Find ace tools this session can call for a task: each match's name, purpose, effect and input schema.",
+      "capability": null,
+      "timeoutMs": 10000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "In plain words, e.g. \"click a button in Safari\"."
+          },
+          "limit": {
+            "default": 5,
+            "type": "integer",
+            "maximum": 10
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "ace-agents",
+              "ace-browser",
+              "visualize",
+              "ace-threads",
+              "ace-computer-use",
+              "make-a-suit"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "family": {
+                  "type": "string"
+                },
+                "effect": {
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "changes",
+                    "destructive"
+                  ]
+                },
+                "inputSchema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "name",
+                "purpose",
+                "effect"
+              ]
+            }
+          },
+          "how": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "matches"
+        ]
+      }
+    },
+    {
+      "name": "transfer",
+      "title": "Move work to another machine",
+      "toolset": "ace-agents",
+      "riskClass": "external-effect",
+      "description": "Carry a project (default: this thread's) or this thread to another paired machine, same branch and uncommitted changes included. Returns transferId at once; the result arrives as a new turn, so end yours. Never poll.",
+      "capability": "agents",
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "type": "string",
+            "description": "From machines, with transfers true."
+          },
+          "project": {
+            "description": "A project here, by id or name.",
+            "type": "string"
+          },
+          "thread": {
+            "description": "Continue this thread there as a new thread with its history.",
+            "type": "string",
+            "const": "self"
+          },
+          "includeChanges": {
+            "description": "Send uncommitted changes. Default true.",
+            "type": "boolean"
+          },
+          "includeIgnored": {
+            "description": "Send ignored files like .env. Default: the setting.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "transferId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "transferId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "wait",
+      "title": "Wait for threads",
+      "toolset": "ace-agents",
+      "riskClass": "read-only",
+      "description": "Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. limited: one is held at a usage limit; cancel and redelegate it, or tell the person. timeout or interrupted: they keep working; wait again, never poll.",
+      "capability": null,
+      "timeoutMs": 630000,
+      "input": {
+        "type": "object",
+        "properties": {
+          "threadIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "From delegate, or any thread you can read."
+          },
+          "mode": {
+            "default": "all",
+            "description": "any returns on the first.",
+            "type": "string",
+            "enum": [
+              "any",
+              "all"
+            ]
+          },
+          "timeoutSeconds": {
+            "default": 120,
+            "type": "integer",
+            "maximum": 600
+          }
+        },
+        "required": [
+          "threadIds"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "forbidden",
+              "not_found",
+              "limit",
+              "not_ready",
+              "invalid",
+              "unavailable"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "needs_you",
+                  "limited",
+                  "timeout",
+                  "interrupted"
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "any",
+                  "all"
+                ]
+              },
+              "threads": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "failure": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "accountLabel": {
+                          "type": "string"
+                        },
+                        "resetsAt": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "threadId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "working",
+                        "queued",
+                        "needs_you",
+                        "done",
+                        "failed",
+                        "cancelled"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "elapsedSeconds": {
+                      "type": "integer"
+                    },
+                    "step": {
+                      "type": "string"
+                    },
+                    "slotLimit": {
+                      "type": "integer",
+                      "maximum": 64
+                    },
+                    "slotsInUse": {
+                      "type": "integer"
+                    },
+                    "queuePosition": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "waitingFor": {
+                      "type": "string",
+                      "enum": [
+                        "storage"
+                      ]
+                    },
+                    "result": {
+                      "type": "string"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "last": {
+                      "type": "string"
+                    },
+                    "needs": {
+                      "maxItems": 8,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "interactionId": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "prompt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "interactionId",
+                          "kind",
+                          "prompt"
+                        ]
+                      }
+                    },
+                    "machine": {
+                      "type": "string"
+                    },
+                    "contact": {
+                      "type": "string",
+                      "enum": [
+                        "lost",
+                        "unconfirmed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "threadId",
+                    "state",
+                    "title",
+                    "elapsedSeconds"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "status",
+              "mode",
+              "threads"
+            ]
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    }
+  ]
+}
