@@ -19,3 +19,5 @@ pub fn prepare_silence(_state: &mut State) -> Result<(), EngineError> {
 pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
     true
 }
+
+pub mod metadata;

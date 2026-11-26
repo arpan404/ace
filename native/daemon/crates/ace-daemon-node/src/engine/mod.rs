@@ -28,6 +28,8 @@ pub mod probe;
 #[cfg(feature = "engine-probe")]
 pub mod probe_actor;
 #[cfg(feature = "engine-probe")]
+pub mod probe_input_facts;
+#[cfg(feature = "engine-probe")]
 pub mod probe_repository;
 pub mod queue;
 pub mod records;
@@ -265,6 +267,9 @@ impl NativeDatabase {
             bindings
                 .get_named_property("getThread")
                 .map_err(|_| napi::Error::from_reason("getThread is missing"))?,
+            bindings
+                .get_named_property("onNamingPrompt")
+                .map_err(|_| napi::Error::from_reason("onNamingPrompt is missing"))?,
             bindings
                 .get_named_property("capRaw")
                 .map_err(|_| napi::Error::from_reason("capRaw is missing"))?,

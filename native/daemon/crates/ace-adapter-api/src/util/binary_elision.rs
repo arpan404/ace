@@ -75,7 +75,7 @@ fn below_threshold(value: &str) -> bool {
     if value.len() < BINARY_ELISION_CHARS {
         return true;
     }
-    value.encode_utf16().count() < BINARY_ELISION_CHARS
+    ace_json::utf16_len(value) < BINARY_ELISION_CHARS
 }
 
 fn is_elision_alphabet(byte: u8) -> bool {
@@ -173,12 +173,70 @@ fn elide_value(value: &mut Value) {
 /// attachment bytes is visited string by string.
 pub fn elided_json(value: &Value) -> String {
     let plain = ace_json::to_string(value);
-    if plain.len() < BINARY_ELISION_CHARS {
+    if below_threshold(&plain) {
         return plain;
     }
     let mut owned = value.clone();
     elide_value(&mut owned);
     ace_json::to_string(&owned)
+}
+
+/// `JSON.stringify(value)` with attachment strings replaced by their digest markers, in one
+/// pass over the tree and one write: nothing is cloned, so a 16 KiB line costs its own bytes
+/// and no more. This is the session capture's serializer (E3-claude.2).
+pub fn elided_text(value: &Value) -> String {
+    let mut out = String::with_capacity(64);
+    let mut stack = vec![Job::Value(value)];
+    while let Some(job) = stack.pop() {
+        match job {
+            Job::Raw(text) => out.push_str(text),
+            Job::Key(key) => {
+                ace_json::write_js_string(&mut out, key);
+                out.push(':');
+            }
+            Job::Value(value) => match value {
+                Value::Null => out.push_str("null"),
+                Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+                Value::Number(number) => ace_json::write_number(&mut out, number.value()),
+                Value::String(text) => match text.as_well_formed() {
+                    Some(plain) => match elide(plain) {
+                        Cow::Owned(marker) => ace_json::write_str(&mut out, &marker),
+                        Cow::Borrowed(_) => ace_json::write_js_string(&mut out, text),
+                    },
+                    None => ace_json::write_js_string(&mut out, text),
+                },
+                Value::Array(items) => {
+                    out.push('[');
+                    stack.push(Job::Raw("]"));
+                    for (index, item) in items.iter().enumerate().rev() {
+                        stack.push(Job::Value(item));
+                        if index > 0 {
+                            stack.push(Job::Raw(","));
+                        }
+                    }
+                }
+                Value::Object(map) => {
+                    out.push('{');
+                    stack.push(Job::Raw("}"));
+                    for (index, (key, item)) in map.iter().enumerate().rev() {
+                        stack.push(Job::Value(item));
+                        stack.push(Job::Key(key));
+                        if index > 0 {
+                            stack.push(Job::Raw(","));
+                        }
+                    }
+                }
+            },
+        }
+    }
+    out
+}
+
+/// One piece of the iterative write above.
+enum Job<'a> {
+    Value(&'a Value),
+    Key(&'a JsString),
+    Raw(&'static str),
 }
 
 /// The SHA-256 of the bytes an elision marker stands for, or None for any
@@ -214,7 +272,7 @@ pub fn elided_digest(value: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BINARY_ELISION_CHARS, elided_digest, elided_json};
+    use super::{BINARY_ELISION_CHARS, elided_digest, elided_json, elided_text};
     use ace_json::{Value, json};
     use base64::Engine as _;
     use sha2::Digest as _;
@@ -243,6 +301,39 @@ mod tests {
             }
             _ => {}
         }
+    }
+
+    #[test]
+    fn astral_text_at_the_elision_threshold_is_recorded_whole() {
+        // 8,187 emoji are 16,374 UTF-16 units, and the JSON wrapper adds 11:
+        // 16,385 units, 8,187 code points and 32,759 bytes. Only the unit
+        // `JSON.stringify(value).length` counts reaches the threshold, so
+        // `elided_json` scans only the longer value and both are recorded
+        // whole, as prose always is.
+        for (emoji, at_limit) in [(8_186, false), (8_187, true)] {
+            let value = json!({ "text": "😀".repeat(emoji) });
+            let plain = ace_json::to_string(&value);
+            assert_eq!(
+                ace_json::utf16_len(&plain) >= BINARY_ELISION_CHARS,
+                at_limit,
+                "{emoji} emoji"
+            );
+            assert!(plain.len() > BINARY_ELISION_CHARS, "{emoji} emoji in bytes");
+            assert_eq!(elided_json(&value), plain);
+            assert_eq!(elided_text(&value), plain);
+        }
+    }
+
+    #[test]
+    fn a_marker_label_is_bounded_in_utf16_units_like_its_length() {
+        let digest = "a".repeat(64);
+        let marker = |label: String| format!("[ace: 3 bytes of {label} elided; sha256 {digest}]");
+        // 150 emoji are 300 units (the label's limit) and 600 bytes.
+        assert_eq!(
+            elided_digest(&marker("😀".repeat(150))),
+            Some(digest.as_str())
+        );
+        assert_eq!(elided_digest(&marker("😀".repeat(151))), None);
     }
 
     #[test]
@@ -300,6 +391,18 @@ mod tests {
         });
         let parsed: Value = ace_json::parse(&elided_json(&message)).expect("stays JSON");
         assert_eq!(parsed, message);
+    }
+
+    #[test]
+    fn elided_text_serializes_like_elided_json_without_a_tree_copy() {
+        let attachment = "A".repeat(20_000);
+        let value = json!({
+            "a": [1, 2.5, null, true, -0.0],
+            "b": "plain \u{2028} text",
+            "c": attachment,
+            "d": { "nested": "A".repeat(30_000) },
+        });
+        assert_eq!(elided_text(&value), elided_json(&value));
     }
 
     #[test]

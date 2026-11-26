@@ -18,7 +18,7 @@ pub struct Selection {
 
 /// The summaries Codex names.
 const SUMMARIES: [&str; 4] = ["auto", "concise", "detailed", "none"];
-/// `z.string().max(64)`, in UTF-16 units, as zod counts.
+/// `z.string().max(64)`, in code points, as zod counts.
 const TEXT_MAX: usize = 64;
 
 /// `CodexSelectionOptions.parse(value)`: a strict object of the three settings.
@@ -53,7 +53,7 @@ pub fn parse_selection(value: &Value) -> Result<Selection, String> {
     })
 }
 
-/// One setting: absent, `null`, or a string of at most 64 UTF-16 units.
+/// One setting: absent, `null`, or a string of at most 64 code points.
 fn option(value: Option<&Value>) -> Result<Option<Option<String>>, String> {
     let Some(value) = value else {
         return Ok(None);
@@ -61,7 +61,7 @@ fn option(value: Option<&Value>) -> Result<Option<Option<String>>, String> {
     match value {
         Value::Null => Ok(Some(None)),
         Value::String(text) => {
-            if text.len_utf16() > TEXT_MAX {
+            if text.len_code_points() > TEXT_MAX {
                 return Err(format!(
                     "Codex selection value must be at most {TEXT_MAX} characters"
                 ));
@@ -138,5 +138,16 @@ mod tests {
                     .to_owned()
             )
         );
+    }
+
+    #[test]
+    fn effort_and_service_tier_accept_sixty_four_emoji() {
+        for field in ["effort", "serviceTier"] {
+            for length in [64, 65] {
+                let text = "😀".repeat(length);
+                let value = json(&format!(r#"{{"{field}":"{text}"}}"#));
+                assert_eq!(parse_selection(&value).is_ok(), length == 64);
+            }
+        }
     }
 }

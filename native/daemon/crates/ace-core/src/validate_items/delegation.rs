@@ -35,21 +35,21 @@ pub(super) fn valid_delegation_outcome(value: &Json) -> bool {
         }) {
             return false;
         }
-        if !matches!(failure.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 64)
+        if !matches!(failure.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len_code_points() <= 64)
         {
             return false;
         }
-        if !matches!(failure.get("message"), Some(Json::String(message)) if !message.is_empty() && message.len() <= 512)
+        if !matches!(failure.get("message"), Some(Json::String(message)) if !message.is_empty() && message.len_code_points() <= 512)
         {
             return false;
         }
         if let Some(account) = failure.get("accountId")
-            && !matches!(account, Json::String(account) if account.len() <= 256)
+            && !matches!(account, Json::String(account) if account.len_code_points() <= 256)
         {
             return false;
         }
         if let Some(label) = failure.get("accountLabel")
-            && !matches!(label, Json::String(label) if label.len() <= 256)
+            && !matches!(label, Json::String(label) if label.len_code_points() <= 256)
         {
             return false;
         }
@@ -68,7 +68,8 @@ pub(super) fn valid_delegation_outcome(value: &Json) -> bool {
     ) {
         return false;
     }
-    if !matches!(map.get("result"), Some(Json::String(result)) if result.len() <= 4096) {
+    if !matches!(map.get("result"), Some(Json::String(result)) if result.len_code_points() <= 4096)
+    {
         return false;
     }
     if !matches!(map.get("truncated"), Some(Json::Bool(_))) {
@@ -133,20 +134,22 @@ pub(super) fn valid_delegation_started(candidate: &Map) -> bool {
     }
     if let Some(model) = candidate.get("model")
         && (matches!(model, Json::Null)
-            || !matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256))
+            || !matches!(model, Json::String(model) if !model.is_empty() && model.len_code_points() <= 256))
     {
         return false;
     }
     if let Some(account) = candidate.get("accountId")
         && (matches!(account, Json::Null)
-            || !matches!(account, Json::String(account) if !account.is_empty() && account.len() <= 256))
+            || !matches!(account, Json::String(account) if !account.is_empty() && account.len_code_points() <= 256))
     {
         return false;
     }
-    if !matches!(candidate.get("title"), Some(Json::String(title)) if title.len() <= 256) {
+    if !matches!(candidate.get("title"), Some(Json::String(title)) if title.len_code_points() <= 256)
+    {
         return false;
     }
-    if !matches!(candidate.get("role"), Some(Json::String(role)) if role.len() <= 1024) {
+    if !matches!(candidate.get("role"), Some(Json::String(role)) if role.len_code_points() <= 1024)
+    {
         return false;
     }
     if !matches!(

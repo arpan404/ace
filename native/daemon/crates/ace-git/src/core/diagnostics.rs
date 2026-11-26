@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use ace_json::Value;
+use ace_json::{JsString, Value};
 use regex::Regex;
 
 use crate::core::error::GitErrorCode;
@@ -214,7 +214,7 @@ impl Utf8StreamDecoder {
 #[derive(Default)]
 pub struct GitDiagnostics {
     decoder: Utf8StreamDecoder,
-    tail: String,
+    tail: JsString,
     discarded_trace: bool,
     hooks: HashSet<String>,
     hook_failed: bool,
@@ -283,19 +283,19 @@ impl GitDiagnostics {
     }
 
     fn text(&mut self, incoming: &str) {
-        let mut combined = String::with_capacity(self.tail.len() + incoming.len());
-        combined.push_str(&self.tail);
+        let mut combined = std::mem::take(&mut self.tail);
         combined.push_str(incoming);
-        let mut parts = combined.split('\n').peekable();
-        while let Some(part) = parts.next() {
-            if parts.peek().is_some() {
-                self.line(part);
+        self.tail = if let Some((lines, tail)) = combined.rsplit_once('\n') {
+            for line in lines.split('\n') {
+                self.line(line);
                 self.discarded_trace = false;
-            } else {
-                self.tail = part.to_owned();
             }
-        }
-        if utf16_len(&self.tail) > TAIL_LIMIT {
+            JsString::from(tail)
+        } else {
+            combined
+        };
+        let units = self.tail.len_utf16();
+        if units > TAIL_LIMIT {
             if self.tail.contains("{\"event\"") {
                 self.discarded_trace = true;
             }
@@ -303,7 +303,7 @@ impl GitDiagnostics {
                 let snapshot = self.tail.clone();
                 self.plain(&snapshot);
             }
-            self.tail = tail_utf16_suffix(&self.tail, TAIL_LIMIT);
+            self.tail = self.tail.slice_units(units - TAIL_LIMIT, units);
         }
     }
 
@@ -330,13 +330,7 @@ impl GitDiagnostics {
         let event = event.as_str();
         let sid = match obj.get("sid") {
             None => "",
-            Some(Value::String(s)) => {
-                let text = s.as_str();
-                if utf16_len(text) > SID_MAX_LEN {
-                    return;
-                }
-                text
-            }
+            Some(Value::String(s)) if s.len_code_points() <= SID_MAX_LEN => s.as_str(),
             Some(_) => return,
         };
         let Some(child_id) = obj.get("child_id").and_then(json_int) else {
@@ -408,24 +402,6 @@ fn json_int(value: &Value) -> Option<i64> {
     num.as_i64()
 }
 
-fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
-}
-
-fn tail_utf16_suffix(s: &str, max_units: usize) -> String {
-    let mut units = 0usize;
-    let mut start = s.len();
-    for (idx, ch) in s.char_indices().rev() {
-        let w = ch.len_utf16();
-        if units + w > max_units {
-            break;
-        }
-        units += w;
-        start = idx;
-    }
-    s[start..].to_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,5 +459,40 @@ mod tests {
             diagnostics.lock_file.as_deref(),
             Some("/tmp/repo/.git/index.lock")
         );
+    }
+
+    #[test]
+    fn trace_hook_ids_count_code_points() {
+        for length in [1024, 1025] {
+            let sid = "😀".repeat(length);
+            let trace = format!(
+                "{}\n{}\n",
+                ace_json::to_string(
+                    &ace_json::json!({"event":"child_start","sid":sid,"child_id":0,"child_class":"hook"})
+                ),
+                ace_json::to_string(
+                    &ace_json::json!({"event":"child_exit","sid":sid,"child_id":0,"code":1})
+                ),
+            );
+            let expected = if length == 1024 {
+                GitErrorCode::HookFailed
+            } else {
+                GitErrorCode::GitFailed
+            };
+            assert_eq!(classify(&trace), expected);
+        }
+    }
+
+    #[test]
+    fn stderr_tail_can_start_with_the_low_half_of_an_emoji() {
+        for suffix in [8190, 8191] {
+            let mut diagnostics = GitDiagnostics::new();
+            diagnostics.accept(format!("😀{}", "x".repeat(suffix)).as_bytes());
+            assert_eq!(diagnostics.tail.len_utf16(), 8192);
+            assert_eq!(
+                diagnostics.tail.units().next(),
+                Some(if suffix == 8190 { 0xd83d } else { 0xde00 })
+            );
+        }
     }
 }

@@ -68,11 +68,11 @@ fn valid_message_origin(value: &Json) -> bool {
         {
             return false;
         }
-        if !matches!(client.get("grantId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
+        if !matches!(client.get("grantId"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 128)
         {
             return false;
         }
-        if !matches!(client.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+        if !matches!(client.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         {
             return false;
         }
@@ -131,7 +131,7 @@ fn valid_message_origin(value: &Json) -> bool {
                         source.keys().all(|key| ["provider", "model"].contains(&key.as_str()))
                             && valid_provider_kind(source.get("provider"))
                             && source.get("model").is_none_or(|model| {
-                                matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256)
+                                matches!(model, Json::String(model) if !model.is_empty() && model.len_code_points() <= 256)
                             })
                     })
             }
@@ -163,7 +163,7 @@ fn valid_message_origin(value: &Json) -> bool {
             return false;
         }
         if let Some(title) = via.get("title")
-            && !matches!(title, Json::String(title) if title.len() <= 256)
+            && !matches!(title, Json::String(title) if title.len_code_points() <= 256)
         {
             return false;
         }
@@ -188,7 +188,7 @@ fn valid_merged_fork(value: &Json) -> bool {
     map.keys().all(|key| {
         ["sourceThreadId", "summary", "citations", "patchApplied"].contains(&key.as_str())
     }) && is_string(map.get("sourceThreadId"))
-        && matches!(map.get("summary"), Some(Json::String(summary)) if !summary.is_empty() && summary.len() <= 256 * 1024)
+        && matches!(map.get("summary"), Some(Json::String(summary)) if !summary.is_empty() && summary.len_code_points() <= 256 * 1024)
         && map
             .get("citations")
             .and_then(|citations| citations.as_array())

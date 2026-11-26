@@ -26,7 +26,7 @@ pub fn is_codex_session_exit(data: &Value) -> bool {
         Some(Value::String(s)) => s,
         _ => return false,
     };
-    let units = generation.encode_utf16().count();
+    let units = generation.len_code_points();
     if !(1..=1024).contains(&units) {
         return false;
     }
@@ -57,7 +57,7 @@ pub fn is_codex_session_exit(data: &Value) -> bool {
     }
     match map.get("signal") {
         Some(Value::Null) => {}
-        Some(Value::String(s)) if s.encode_utf16().count() <= 32 => {}
+        Some(Value::String(s)) if s.len_code_points() <= 32 => {}
         _ => return false,
     }
     if let Some(pid) = map.get("pid") {
@@ -71,7 +71,7 @@ pub fn is_codex_session_exit(data: &Value) -> bool {
         }
     }
     match map.get("stderrSummary") {
-        Some(Value::String(s)) if s.encode_utf16().count() <= 1024 => {}
+        Some(Value::String(s)) if s.len_code_points() <= 1024 => {}
         _ => return false,
     }
     if let Some(output_drained) = map.get("outputDrained")
@@ -85,4 +85,26 @@ pub fn is_codex_session_exit(data: &Value) -> bool {
     }
     let _ = is_nonnegative_int;
     true
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn exit_fields_at_the_zod_limit_keep_astral_text() {
+        for (field, limit) in [
+            ("generation", 1024),
+            ("signal", 32),
+            ("stderrSummary", 1024),
+        ] {
+            for length in [limit, limit + 1] {
+                let mut note = ace_json::parse(r#"{"event":"codex-session-exit","generation":"g","deliberate":false,"retirement":null,"reason":"exit","code":1,"signal":null,"stderrSummary":"","stderr":""}"#).expect("note");
+                note.as_object_mut()
+                    .expect("object")
+                    .insert(field, Value::from("😀".repeat(length)));
+                assert_eq!(is_codex_session_exit(&note), length == limit, "{field}");
+            }
+        }
+    }
 }

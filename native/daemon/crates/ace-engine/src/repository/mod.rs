@@ -14,6 +14,7 @@ pub mod corrections;
 pub mod fold;
 pub mod frames;
 pub mod generations;
+pub mod item_page;
 pub mod open;
 pub mod provenance;
 pub mod reads;
