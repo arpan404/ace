@@ -6,9 +6,12 @@
 //! I/O of its own, so the TypeScript shell runs the SDK command and this crate says which
 //! command, with which arguments, or which `DeviceError` refuses it. Words come from
 //! `native/daemon/catalog/devices.json` ([`words`]); every result serializes through `ace-json`.
+pub mod android_skin;
+pub mod android_skin_files;
 pub mod android_ui;
 pub mod boot;
 pub mod budget;
+pub mod chrome;
 pub mod clipboard;
 pub mod commands;
 pub mod device_input;
