@@ -1304,5 +1304,11 @@ pub fn localhost_origin(origin: Option<&str>) -> bool {
 }
 
 #[cfg(test)]
+#[path = "http/lease_tests.rs"]
+mod lease_tests;
+#[cfg(test)]
+#[path = "http/listen_tests.rs"]
+mod listen_tests;
+#[cfg(test)]
 #[path = "http/tests.rs"]
 mod tests;
