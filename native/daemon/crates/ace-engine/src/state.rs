@@ -54,7 +54,7 @@ impl Default for State {
             actors: actor::Actors::default(),
             live_flush: std::rc::Rc::new(std::cell::Cell::new(false)),
             repo: repository::Repo::default(),
-            commands: commands::Commands,
+            commands: commands::Commands::default(),
             sessions: sessions::Sessions,
             recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions,

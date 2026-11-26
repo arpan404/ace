@@ -230,5 +230,5 @@ pub fn handle(
     if !HANDLED.contains(&kind) {
         return Ok(Some(error(&id, "not_implemented")));
     }
-    Err(EngineError::not_ported("thread commands", "E5.4e"))
+    super::receipt::handle(core, state, command).map(Some)
 }

@@ -8,8 +8,10 @@ use crate::State;
 use crate::executor::TaskId;
 
 pub mod admissions;
+pub mod create;
 pub mod guest;
 pub mod prelude;
+pub mod receipt;
 pub mod validation;
 pub mod worktree;
 
@@ -65,9 +67,12 @@ pub(crate) fn refusal(command_id: &str, code: &str, title: &str, detail: &str) -
     Value::Object(value)
 }
 
-/// Commands, intents and the queue (E5.4).
+/// Commands, intents and the queue (E5.4): the creation reservations span asynchronous
+/// preparation and the synchronous receipt, so they live here.
 #[derive(Debug, Default)]
-pub struct Commands;
+pub struct Commands {
+    pub admissions: admissions::CreationAdmissions,
+}
 
 /// Whether commands hold no work E5.1 must wait for (E5.4 fills this).
 pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
