@@ -349,3 +349,44 @@ fn a_published_frame_holding_a_lease_secret_is_redacted() {
         })
     );
 }
+
+/// A lease secret the agent spelled with JSON escapes never reaches the published frame:
+/// `\/` and `\uXXXX` both decode to the secret, so the line is walked.
+#[test]
+fn a_published_frame_holding_an_escaped_lease_secret_is_redacted() {
+    for (secret, spelled) in [
+        ("lease/0123456789abcdef", r#"lease\/0123456789abcdef"#),
+        ("lease-0123456789abcdef", r#"le\u0061se-0123456789abcdef"#),
+    ] {
+        let mut config =
+            AcpCoreConfig::new("t-escaped-secret", "/work", AcpSessionQuirks::generic());
+        config.mcp = Some(McpConfig {
+            http_servers: Vec::new(),
+            stdio_servers: Vec::new(),
+            configured_servers: Vec::new(),
+            secrets: vec![secret.to_owned()],
+            instructions: None,
+            developer_instructions: None,
+        });
+        let (mut core, _) = AcpCore::new(config);
+        let line = format!(
+            r#"{{"jsonrpc":"2.0","method":"custom/echo","params":{{"value":"{spelled}"}}}}"#
+        );
+        let effects = core.stdout_bytes(format!("{line}\n").as_bytes());
+        let published = effects
+            .iter()
+            .find_map(|effect| match effect {
+                AcpEffect::Frame { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let parsed = ace_json::parse(&published).unwrap_or(ace_json::Value::Null);
+        assert_eq!(
+            parsed
+                .pointer("/params/value")
+                .and_then(ace_json::Value::as_str),
+            Some(LEASE_REDACTION),
+            "{secret} spelled {spelled} must not reach the frame: {published}"
+        );
+    }
+}

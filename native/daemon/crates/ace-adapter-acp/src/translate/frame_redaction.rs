@@ -189,8 +189,13 @@ fn replace_all(haystack: &[u16], needle: &[u16], replacement: &[u16]) -> Vec<u16
 
 /// Whether a frame's JSON text holds a lease secret, so the tree behind it must be walked
 /// (`frame-redaction.ts:127`-`:132`): a secret JSON would escape is always walked for,
-/// because the text may spell it either way; any other secret is one search.
+/// because the text may spell it either way; so is a line that spells a character as an
+/// escape `JSON.stringify` never writes (`\/` for `/`, any `\uXXXX`), since the raw text
+/// then holds the secret without spelling it. Every other frame is one search.
 pub fn text_holds_secret(text: &str, secrets: &[String]) -> bool {
+    // A slash or a character the agent wrote escaped decodes to a plain character, so the
+    // secret may be in the line while the line does not contain it.
+    let spells_escapes = text.contains("\\/") || text.contains("\\u");
     secrets.iter().any(|secret| {
         if secret.is_empty() {
             return false;
@@ -204,7 +209,7 @@ pub fn text_holds_secret(text: &str, secrets: &[String]) -> bool {
                 }
             })
             .unwrap_or_default();
-        escaped != *secret || text.contains(secret)
+        spells_escapes || escaped != *secret || text.contains(secret)
     })
 }
 
@@ -261,6 +266,28 @@ mod tests {
         assert!(!text_holds_secret(text, &[secret]));
         assert!(!text_holds_secret(text, &[]));
         assert!(!text_holds_secret(text, &[String::new()]));
+    }
+
+    #[test]
+    fn a_secret_the_line_spells_with_json_escapes_is_walked() {
+        // The agent may write a slash as `\/` and any character as `\uXXXX`, neither of
+        // which `JSON.stringify` writes: the raw line never spells the secret, and only a
+        // walk can see it.
+        let slash = "lease/0123456789abcdef".to_owned();
+        let escaped_slash = r#"{"params":{"value":"lease\/0123456789abcdef"}}"#;
+        assert!(text_holds_secret(
+            escaped_slash,
+            std::slice::from_ref(&slash)
+        ));
+        let letters = "lease-0123456789abcdef".to_owned();
+        let escaped_letters = r#"{"params":{"value":"le\u0061se-0123456789abcdef"}}"#;
+        assert!(text_holds_secret(
+            escaped_letters,
+            std::slice::from_ref(&letters)
+        ));
+        // A line with no escape that could hide a character is still one search.
+        let plain = r#"{"params":{"value":"a line with a \n in it"}}"#;
+        assert!(!text_holds_secret(plain, std::slice::from_ref(&letters)));
     }
 
     #[test]
