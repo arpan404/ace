@@ -612,7 +612,7 @@ fn datetime(text: &str) -> bool {
 mod tests {
     use ace_json::{JsString, Value};
 
-    use super::{StrBounds, fits, fits_num, fits_str, matches_pattern, Shape};
+    use super::{Shape, StrBounds, fits, fits_num, fits_str, matches_pattern};
 
     #[test]
     fn trimmed_string_bounds_apply_after_trimming() {
@@ -623,14 +623,8 @@ mod tests {
             format: None,
             trim: true,
         };
-        assert!(!fits_str(
-            &bounds,
-            &Value::String(JsString::from("   "))
-        ));
-        assert!(fits_str(
-            &bounds,
-            &Value::String(JsString::from("  x  "))
-        ));
+        assert!(!fits_str(&bounds, &Value::String(JsString::from("   "))));
+        assert!(fits_str(&bounds, &Value::String(JsString::from("  x  "))));
     }
 
     #[test]

@@ -68,7 +68,7 @@ fn is_known_state(state: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use ace_json::{Value, parse};
+    use ace_json::parse;
 
     use crate::custom::THREAD_STATUS;
     use crate::shape::{Shape, fits, strip};

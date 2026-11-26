@@ -456,6 +456,7 @@ impl Visitor<'_> for JsStringVisitor {
     }
 
     /// The units the doorway handed over: little-endian UTF-16, a lone surrogate included.
+    #[allow(clippy::chunks_exact_to_as_chunks)]
     fn visit_bytes<E: de::Error>(self, bytes: &[u8]) -> std::result::Result<JsString, E> {
         let units: Vec<u16> = bytes
             .chunks_exact(2)

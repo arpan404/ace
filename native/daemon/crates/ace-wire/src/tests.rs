@@ -140,29 +140,31 @@ fn canonical_client_text(text: &str) -> String {
 
 #[test]
 fn defaults_are_filled_before_the_typed_decode() {
-    assert_eq!(
-        canonical_client_text(
-            r#"{"type":"thread.search","requestId":"r","threadId":"t","text":"x"}"#
+    for (input, expected) in [
+        (
+            r#"{"type":"thread.search","requestId":"r","threadId":"t","text":"x"}"#,
+            r#"{"type":"thread.search","requestId":"r","threadId":"t","text":"x","scope":"thread","limit":30}"#,
         ),
-        r#"{"type":"thread.search","requestId":"r","threadId":"t","text":"x","scope":"thread","limit":30}"#
-    );
-    assert_eq!(
-        canonical_client_text(
-            r#"{"type":"items.window","requestId":"r","threadId":"t","aroundSeq":10}"#
+        (
+            r#"{"type":"items.window","requestId":"r","threadId":"t","aroundSeq":10}"#,
+            r#"{"type":"items.window","requestId":"r","threadId":"t","aroundSeq":10,"before":50,"after":50}"#,
         ),
-        r#"{"type":"items.window","requestId":"r","threadId":"t","aroundSeq":10,"before":50,"after":50}"#
-    );
-    assert_eq!(
-        canonical_client_text(r#"{"type":"turns.page","requestId":"r","threadId":"t"}"#),
-        r#"{"type":"turns.page","requestId":"r","threadId":"t","limit":50}"#
-    );
+        (
+            r#"{"type":"turns.page","requestId":"r","threadId":"t"}"#,
+            r#"{"type":"turns.page","requestId":"r","threadId":"t","limit":50}"#,
+        ),
+    ] {
+        let decoded = decode_client(input).expect("a client message");
+        assert_eq!(encode_client(&decoded.value).expect("bytes"), expected);
+    }
 }
 
 #[test]
 fn a_loose_object_keeps_its_unnamed_keys() {
     let text = r#"{"type":"browser.annotation","threadId":"t","event":{"kind":"ready","url":"https://x","extra":1}}"#;
     let decoded = decode_server(text).expect("a server message");
-    assert_eq!(encode_server(&decoded.value).expect("bytes"), text);
+    let expected = r#"{"type":"browser.annotation","threadId":"t","event":{"kind":"ready","url":"https://x","extra":1}}"#;
+    assert_eq!(encode_server(&decoded.value).expect("bytes"), expected);
 }
 
 #[test]

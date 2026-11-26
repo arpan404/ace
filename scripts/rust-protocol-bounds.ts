@@ -70,8 +70,9 @@ export function strBounds(def: Record<string, unknown>, path: string): StrBounds
         bounds.trim = true;
         break;
       case "custom":
-        // `.refine()`: a hand-written check in `ace-wire/src/refine.rs`.
-        break;
+        throw new Error(
+          `${path}: a custom string check needs a Rust refinement (rust-protocol-refinements.ts)`,
+        );
       default:
         throw new Error(`${path}: a string check the table can't express (${String(check.check)})`);
     }
