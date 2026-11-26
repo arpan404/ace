@@ -388,9 +388,10 @@ impl McpServer {
             self.active.fetch_sub(1, Ordering::SeqCst);
             return HttpResponse::empty(503);
         }
-        let response = self.route(request, emit).await;
-        self.active.fetch_sub(1, Ordering::SeqCst);
-        response
+        // Admission is given back when the request future ends, including when the transport
+        // drops it mid-call (`http.ts:198`: the response's close or finish releases it).
+        let _active = ActiveRequest(&self.active);
+        self.route(request, emit).await
     }
 
     async fn route(&self, request: HttpRequest, emit: Emitter) -> HttpResponse {
@@ -820,6 +821,7 @@ impl McpServer {
         let client = ace_client(header(headers, CODEX_CLIENT_HEADER.0));
         let budget = call_budget_seconds(header(headers, CALL_BUDGET_HEADER));
         let key = call_key(principal, id);
+        let abort = Abort::new();
         {
             let mut calls = self
                 .shared
@@ -829,26 +831,20 @@ impl McpServer {
             if calls.contains_key(&key) {
                 return Ok(duplicate_id_result());
             }
-            calls.insert(key.clone(), Abort::new());
+            calls.insert(key.clone(), abort.clone());
         }
-        let abort = self
-            .shared
-            .calls
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(Abort::new);
+        // A dropped request future removes the pending id and aborts the call, so a transport
+        // abort reaches the tool as `http.ts:577`'s `AbortSignal.any` does.
+        let mut pending = Pending {
+            calls: &self.shared.calls,
+            key: key.clone(),
+            abort: abort.clone(),
+            finished: false,
+        };
         let progress_token = meta
             .and_then(|meta| meta.get("progressToken"))
-            .and_then(|token| {
-                token.as_str().map(str::to_owned).or_else(|| {
-                    token
-                        .as_f64()
-                        .map(|value| ace_json::to_string(&Value::from(value)))
-                })
-            });
-        let stop = progress(
+            .and_then(ProgressToken::read);
+        let mut progress = progress(
             progress_token,
             Arc::clone(&emit),
             Arc::clone(&self.scheduler),
@@ -862,12 +858,8 @@ impl McpServer {
         ) {
             Ok(target) => target,
             Err(failure) => {
-                stop();
-                self.shared
-                    .calls
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .remove(&key);
+                progress.stop();
+                pending.finish();
                 return Ok(failure.to_json());
             }
         };
@@ -886,17 +878,55 @@ impl McpServer {
                 },
             )
             .await;
-        stop();
-        self.shared
-            .calls
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&key);
+        progress.stop();
+        pending.finish();
         if !result.is_error {
             self.offer(principal, name, &arguments, &result);
         }
         // The reply names the call the client made, with the result the tool produced.
         Ok(result.to_json())
+    }
+}
+
+/// One admitted request; the count drops when the future ends or is dropped (`http.ts:198`).
+struct ActiveRequest<'a>(&'a AtomicUsize);
+
+impl Drop for ActiveRequest<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// One pending tool call: its request id and the signal a cancellation aborts. Clearing the id
+/// is the reply's job (`finish`); a dropped future clears it and aborts the call, so the request
+/// the transport abandoned never keeps an id or a tool running (`http.ts:577`).
+struct Pending<'a> {
+    calls: &'a Mutex<HashMap<CallKey, Abort>>,
+    key: CallKey,
+    abort: Abort,
+    finished: bool,
+}
+
+impl Pending<'_> {
+    fn finish(&mut self) {
+        self.finished = true;
+        self.calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&self.key);
+    }
+}
+
+impl Drop for Pending<'_> {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&self.key);
+        self.abort.abort();
     }
 }
 
@@ -1132,14 +1162,58 @@ fn invalid_arguments(field: Option<&str>) -> CallToolResult {
     tool_failure(ToolFailure::Public(Box::new(error.with_issues(issues))))
 }
 
-/// `progressHeartbeat` (`progress-heartbeat.ts`): a beat every 30 s while the call runs.
+/// The progress token as the client wrote it: `progress-heartbeat.ts:17` keeps its type, so a
+/// numeric token comes back numeric.
+#[derive(Debug, Clone, PartialEq)]
+enum ProgressToken {
+    Text(String),
+    Number(f64),
+}
+
+impl ProgressToken {
+    fn read(token: &Value) -> Option<ProgressToken> {
+        match token {
+            Value::String(text) => Some(ProgressToken::Text(text.as_str().to_owned())),
+            Value::Number(number) => number.as_f64().map(ProgressToken::Number),
+            _ => None,
+        }
+    }
+
+    fn value(&self) -> Value {
+        match self {
+            ProgressToken::Text(text) => Value::String(JsString::from(text.as_str())),
+            ProgressToken::Number(number) => Value::from(*number),
+        }
+    }
+}
+
+/// `progressHeartbeat` (`progress-heartbeat.ts`): a beat every 30 s while the call runs, stopped
+/// when the guard drops, so a request the transport abandoned leaves no timer behind.
+struct Progress {
+    beat: Option<Arc<Beat>>,
+}
+
+impl Progress {
+    fn stop(&mut self) {
+        if let Some(beat) = self.beat.take() {
+            beat.stop();
+        }
+    }
+}
+
+impl Drop for Progress {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 fn progress(
-    token: Option<String>,
+    token: Option<ProgressToken>,
     emit: Emitter,
     scheduler: Arc<dyn Scheduler>,
-) -> Box<dyn Fn() + Send + Sync> {
+) -> Progress {
     let Some(token) = token else {
-        return Box::new(|| {});
+        return Progress { beat: None };
     };
     let beat = Arc::new(Beat {
         stopped: AtomicBool::new(false),
@@ -1150,13 +1224,13 @@ fn progress(
         guard: Mutex::new(None),
     });
     beat.arm();
-    Box::new(move || beat.stopped.store(true, Ordering::SeqCst))
+    Progress { beat: Some(beat) }
 }
 
 struct Beat {
     stopped: AtomicBool,
     progress: AtomicUsize,
-    token: String,
+    token: ProgressToken,
     emit: Emitter,
     scheduler: Arc<dyn Scheduler>,
     guard: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -1171,16 +1245,25 @@ impl Beat {
         *self.guard.lock().unwrap_or_else(|error| error.into_inner()) = Some(guard);
     }
 
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        if let Some(cancel) = self
+            .guard
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            cancel();
+        }
+    }
+
     fn fire(self: &Arc<Self>) {
         if self.stopped.load(Ordering::SeqCst) {
             return;
         }
         let progress = self.progress.fetch_add(1, Ordering::SeqCst) + 1;
         let mut params = Map::with_capacity(3);
-        params.insert(
-            "progressToken",
-            Value::String(JsString::from(self.token.as_str())),
-        );
+        params.insert("progressToken", self.token.value());
         params.insert("progress", Value::from(progress as f64));
         params.insert("message", Value::from("Still running"));
         (self.emit)(Message::notification(

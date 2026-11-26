@@ -546,13 +546,18 @@ impl ToolRegistry {
             }
         }
         let slot = Arc::new(Slot::new(Arc::clone(&self.calls), caller.thread_id.clone()));
+        // The caller's side of the slot: its drop settles the observation, and, when the tool was
+        // never handed to a task, the execution too. A dropped `call` future therefore releases
+        // what nothing else will (`http.ts:577`).
+        let mut call_slot = CallSlot {
+            slot: Arc::clone(&slot),
+            spawned: false,
+        };
         if signal.aborted() {
-            slot.settle_execution();
             let result = self
                 .finish(fixed_failure("cancelled"), observe, &expired)
                 .await;
             deadline();
-            slot.settle_observation();
             return result;
         }
         let mut act = None;
@@ -569,21 +574,17 @@ impl ToolRegistry {
             };
             match outcome {
                 None => {
-                    slot.settle_execution();
                     let result = self
                         .finish(self.reason_failure(&reason), observe, &expired)
                         .await;
                     deadline();
-                    slot.settle_observation();
                     return result;
                 }
                 Some(Err(failure)) => {
-                    slot.settle_execution();
                     let result = self
                         .finish(self.reported(&entry, &caller, failure), observe, &expired)
                         .await;
                     deadline();
-                    slot.settle_observation();
                     return result;
                 }
                 Some(Ok(answer)) => act = answer,
@@ -603,12 +604,10 @@ impl ToolRegistry {
             {
                 settled();
             }
-            slot.settle_execution();
             let result = self
                 .finish(self.reason_failure(&reason), observe, &expired)
                 .await;
             deadline();
-            slot.settle_observation();
             return result;
         }
         let run_as = match &act {
@@ -624,7 +623,6 @@ impl ToolRegistry {
             {
                 settled();
             }
-            slot.settle_execution();
             let result = self
                 .finish(
                     tool_failure(ToolFailure::Public(Box::new(input_too_large(
@@ -635,7 +633,6 @@ impl ToolRegistry {
                 )
                 .await;
             deadline();
-            slot.settle_observation();
             return result;
         }
         let bare = bare_tool_name(&entry.descriptor.name);
@@ -643,7 +640,10 @@ impl ToolRegistry {
         let output_check = entry.output_check.clone();
         let failed = entry.failed.clone();
         let mut executed = tokio::spawn(async move {
-            match handler.call(input, run_as).await {
+            // The execution slot belongs to the tool's own task: an uncooperative backend keeps
+            // it until it settles, even after the reply has gone.
+            let settled = SettleExecution(Arc::clone(&slot));
+            let outcome = match handler.call(input, run_as).await {
                 Ok(value) => {
                     if !within_json_budget(&value, MAX_STRUCTURED_RESULT_BYTES) {
                         return Err(ToolFailure::Public(Box::new(public("result_too_large"))));
@@ -663,8 +663,11 @@ impl ToolRegistry {
                     Ok((value, is_error))
                 }
                 Err(failure) => Err(failure),
-            }
+            };
+            drop(settled);
+            outcome
         });
+        call_slot.spawned = true;
         tokio::select! {
             joined = &mut executed => {
                 let result = match joined {
@@ -672,7 +675,6 @@ impl ToolRegistry {
                     Ok(Err(failure)) => self.reported(&entry, &caller, failure),
                     Err(_) => fixed_failure("execution_failed"),
                 };
-                slot.settle_execution();
                 if let Some(act) = act.take()
                     && let Some(settled) = act.settled
                 {
@@ -680,7 +682,6 @@ impl ToolRegistry {
                 }
                 let result = self.finish(result, observe, &expired).await;
                 deadline();
-                slot.settle_observation();
                 result
             }
             () = signal.wait() => {
@@ -691,12 +692,6 @@ impl ToolRegistry {
                 }
                 let result = self.finish(self.reason_failure(&reason), observe, &expired).await;
                 deadline();
-                slot.settle_observation();
-                // An uncooperative backend keeps its slot until it settles.
-                tokio::spawn(async move {
-                    let _ = executed.await;
-                    slot.settle_execution();
-                });
                 result
             }
         }
@@ -842,6 +837,31 @@ fn attribution(principal: &crate::credentials::Principal) -> Attribution {
 
 const REASON_CANCELLED: u8 = 0;
 const REASON_TIMEOUT: u8 = 1;
+
+/// The caller's side of a taken slot: dropping the `call` future settles the observation, and
+/// the execution when the tool was never handed to its own task, so nothing waits forever.
+struct CallSlot {
+    slot: Arc<Slot>,
+    spawned: bool,
+}
+
+impl Drop for CallSlot {
+    fn drop(&mut self) {
+        self.slot.settle_observation();
+        if !self.spawned {
+            self.slot.settle_execution();
+        }
+    }
+}
+
+/// Settles the execution when the tool's task ends, panic included.
+struct SettleExecution(Arc<Slot>);
+
+impl Drop for SettleExecution {
+    fn drop(&mut self) {
+        self.0.settle_execution();
+    }
+}
 
 /// One taken slot, released when both the tool and the observation of its result have settled.
 struct Slot {

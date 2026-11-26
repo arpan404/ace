@@ -25,6 +25,15 @@ struct Fixture {
 
 impl Fixture {
     fn new(capabilities: &[&str], max_requests: usize, max_body: usize) -> Fixture {
+        Fixture::with_call_limits(capabilities, max_requests, max_body, None)
+    }
+
+    fn with_call_limits(
+        capabilities: &[&str],
+        max_requests: usize,
+        max_body: usize,
+        call_limits: Option<(usize, usize)>,
+    ) -> Fixture {
         let secrets = Arc::new(AtomicUsize::new(1));
         let counter = Arc::clone(&secrets);
         let credentials = Arc::new(CredentialRegistry::new(move || {
@@ -39,9 +48,11 @@ impl Fixture {
             )
             .expect("lease");
         let scheduler = Arc::new(ManualScheduler::default());
-        let registry = Arc::new(ToolRegistry::new(
-            Arc::clone(&scheduler) as Arc<dyn Scheduler>
-        ));
+        let mut registry = ToolRegistry::new(Arc::clone(&scheduler) as Arc<dyn Scheduler>);
+        if let Some((max_calls, per_thread)) = call_limits {
+            registry = registry.with_call_limits(max_calls, per_thread);
+        }
+        let registry = Arc::new(registry);
         Fixture {
             server: McpServer::new(McpServerOptions {
                 registry,
@@ -1630,5 +1641,113 @@ async fn a_legacy_get_stream_needs_the_opt_in_and_owns_its_session() {
             .await
             .status,
         404
+    );
+}
+
+#[tokio::test]
+async fn dropping_a_request_future_frees_its_admission_its_call_slot_and_its_pending_id() {
+    // One request and one call at a time: a leak shows as 503 or `calls_limit`.
+    let fixture = Fixture::with_call_limits(&[], 1, 4096, Some((1, 1)));
+    fixture.register_echo();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(tokio::sync::Notify::new());
+    let aborted = Arc::new(AtomicBool::new(false));
+    let wait = {
+        let gate = Arc::clone(&gate);
+        let started = Arc::clone(&started);
+        let aborted = Arc::clone(&aborted);
+        Arc::new(FnTool(move |input: Value, context: ToolContext| {
+            let gate = Arc::clone(&gate);
+            let started = Arc::clone(&started);
+            let aborted = Arc::clone(&aborted);
+            async move {
+                started.notify_one();
+                gate.notified().await;
+                context.signal.wait().await;
+                aborted.store(true, Ordering::SeqCst);
+                Ok(input)
+            }
+        })) as Arc<dyn crate::registry::ToolHandler>
+    };
+    fixture
+        .registry()
+        .register(ToolEntry::new(
+            descriptor(
+                "ace_wait",
+                None,
+                "Wait",
+                "read-only",
+                None,
+                30_000,
+                parse("{\"type\":\"object\"}").expect("schema"),
+                None,
+            ),
+            wait,
+        ))
+        .expect("registration");
+    let beats = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let collected = Arc::clone(&beats);
+    let emit: Emitter = Arc::new(move |value| {
+        collected
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(value);
+    });
+    let server = Arc::clone(&fixture.server);
+    let request = fixture.request(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ace_wait","arguments":{},"_meta":{"progressToken":"p"}}}"#,
+    );
+    let dropped = tokio::spawn(async move { server.handle(request, emit).await });
+    started.notified().await;
+    fixture.scheduler.fire_all();
+    assert_eq!(
+        beats
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len(),
+        1,
+        "the heartbeat never started"
+    );
+    // Dropping the handler's future is the transport aborting the request.
+    dropped.abort();
+    let _ = dropped.await;
+    gate.notify_waiters();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while !aborted.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the dropped request never aborted its tool");
+    // No beat survives the dropped future.
+    fixture.scheduler.fire_all();
+    assert_eq!(
+        beats
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len(),
+        1,
+        "a beat outlived the request that asked for it"
+    );
+    // Admission is free again; this was 503 while the slot leaked.
+    let ping = fixture
+        .handle(r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#)
+        .await;
+    assert_eq!(
+        ping.status, 200,
+        "the dropped request kept an admission slot"
+    );
+    // The call slot and the pending request id are free: the same id may call another tool,
+    // and the registry admits it rather than answering `calls_limit`.
+    let repeated = fixture
+        .handle(r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ace_echo","arguments":{"value":"again"}}}"#)
+        .await;
+    assert_eq!(
+        result_of(&repeated)
+            .get("structuredContent")
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str),
+        Some("again"),
+        "the dropped request kept its call slot or its request id"
     );
 }
