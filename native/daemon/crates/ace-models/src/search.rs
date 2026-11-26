@@ -473,6 +473,14 @@ mod tests {
         );
         assert_eq!(locale_compare("_", "-"), std::cmp::Ordering::Less);
         assert_eq!(locale_compare(" ", "+"), std::cmp::Ordering::Less);
+        // The structural case the recheck named: once its letters match, the shorter
+        // string sorts first, whatever its case.
+        assert_eq!(locale_compare("A", "a-"), std::cmp::Ordering::Less);
+        assert_eq!(locale_compare("a", "a-"), std::cmp::Ordering::Less);
+        assert_eq!(locale_compare("a_b", "a-b"), std::cmp::Ordering::Less);
+        assert_eq!(locale_compare("a.", "a:"), std::cmp::Ordering::Greater);
+        assert_eq!(locale_compare("a+b", "a b"), std::cmp::Ordering::Greater);
+        assert_eq!(locale_compare("café", "caff"), std::cmp::Ordering::Less);
     }
 
     #[test]
