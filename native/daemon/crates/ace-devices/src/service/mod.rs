@@ -11,6 +11,7 @@ pub mod held_pushes;
 pub mod input_queue;
 pub mod lease;
 pub mod queue;
+pub mod subscriptions;
 pub mod wire;
 pub mod words;
 
@@ -22,3 +23,4 @@ pub use lease::{
     WatchStep, agent_owner,
 };
 pub use queue::{DeviceQueue, Finished, Kind, Run, SUPERSEDED, Started};
+pub use subscriptions::{DeviceSubscriptions, Reservation};
