@@ -12,11 +12,11 @@
  * trimming fails there.
  */
 
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DeliveryEvent, type ServerMessage } from "@ace/protocol";
 import { EventEncodings } from "../../../../../apps/daemon/src/event-encodings.ts";
 import { WireEncoder, type EventShape } from "../../../../../apps/daemon/src/wire-encoder.ts";
+import { writeVectors } from "./vectors-io.ts";
 
 type Events = Extract<ServerMessage, { type: "events" }>;
 
@@ -247,11 +247,10 @@ const messages = [
     ],
     { subscriptionId: 'sub "é"' },
   ),
-  eventsMessage(
-    "early",
-    [parse(eventTexts.delta ?? ""), parse(eventTexts["delta.first"] ?? "")],
-    { early: true, afterSeq: 4 },
-  ),
+  eventsMessage("early", [parse(eventTexts.delta ?? ""), parse(eventTexts["delta.first"] ?? "")], {
+    early: true,
+    afterSeq: 4,
+  }),
   eventsMessage("deltas.twoThreads", [
     parse(eventTexts.delta ?? ""),
     parse(eventTexts["delta.other"] ?? ""),
@@ -268,6 +267,4 @@ const messages = [
 ];
 
 const out = { encodings: encoded, messages };
-const path = join(import.meta.dir, "wire-encoder.json");
-writeFileSync(path, `${JSON.stringify(out, null, 2)}\n`);
-console.log(`wrote ${path}`);
+writeVectors(join(import.meta.dir, "wire-encoder.json"), out);

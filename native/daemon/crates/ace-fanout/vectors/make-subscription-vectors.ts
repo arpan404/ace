@@ -12,17 +12,18 @@
  * and compares the bytes. A changed read order, cursor, frame split or bound fails there.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Thread as ThreadSchema } from "@ace/protocol";
 import type { Event, ServerMessage, ThreadId } from "@ace/protocol";
 import { createThreadListView } from "../../../../../packages/projection/src/index.ts";
-import { createDevThread } from "../../../../../apps/daemon/src/commands.ts";
 import { message } from "../../../../../apps/daemon/src/payload-test-support.ts";
 import { Store } from "../../../../../apps/daemon/src/store.ts";
 import { subscribe } from "../../../../../apps/daemon/src/subscription.ts";
 import type { SnapshotTail } from "../../../../../apps/daemon/src/thread-reads.ts";
 import { WireEncoder } from "../../../../../apps/daemon/src/wire-encoder.ts";
+import { stable, writeVectors } from "./vectors-io.ts";
 
 const encoder = new WireEncoder();
 
@@ -49,8 +50,23 @@ function setup() {
   const home = mkdtempSync(join(tmpdir(), "ace-fanout-vectors-"));
   const store = new Store(join(home, "events.sqlite"));
   const workspace = store.createWorkspace("/repo", "Repo", 1);
-  const a = createDevThread(store, workspace);
-  const b = createDevThread(store, workspace);
+  // Explicit threads and timestamps: the fixture must be reproducible, so nothing here reads
+  // the clock or a random id.
+  const thread = (id: string, at: number) =>
+    ThreadSchema.parse({
+      id,
+      workspaceId: workspace,
+      title: id,
+      provider: "codex",
+      status: { state: "working", agents: 1 },
+      createdAt: at,
+      updatedAt: at,
+      hasSentMessage: true,
+    });
+  const a = thread("thread-a", 2);
+  const b = thread("thread-b", 1);
+  store.appendEvents(a.id, [{ type: "thread.created", thread: a }], 2);
+  store.appendEvents(b.id, [{ type: "thread.created", thread: b }], 1);
   return { home, store, a, b };
 }
 
@@ -61,6 +77,8 @@ function harness(name: string) {
   const reads: Read[] = [];
   const liveBatches: { events: Event[]; head: number }[] = [];
   const timers: (() => void)[] = [];
+  // Every append gets its own timestamp: a fixture must not depend on the clock's granularity.
+  let clock = 10_000;
   const sent: string[] = [];
   const record = (call: string, args: (string | number | null)[], result: unknown) => {
     reads.push({ call, args, result });
@@ -103,12 +121,7 @@ function harness(name: string) {
       const events = store.readEvents(options);
       record(
         "readEvents",
-        [
-          options.afterSeq,
-          options.limit,
-          options.byteLimit ?? null,
-          options.threadId ?? null,
-        ],
+        [options.afterSeq, options.limit, options.byteLimit ?? null, options.threadId ?? null],
         events.map((event) => json(event)),
       );
       return events;
@@ -121,6 +134,10 @@ function harness(name: string) {
       });
     },
   };
+  const append = (threadId: ThreadId, payloads: Event["payload"][]) => {
+    clock += 1;
+    store.appendEvents(threadId, payloads as never, clock);
+  };
   const send = (sent_message: ServerMessage) => sent.push(encoder.encode(sent_message));
   const schedule = (later: () => void) => {
     timers.push(later);
@@ -132,7 +149,7 @@ function harness(name: string) {
   /** Append to the store, which publishes; the frames the subscription sent are the delta. */
   const step = (threadId: ThreadId, payloads: Event["payload"][]): Live => {
     const before = sent.length;
-    store.appendEvents(threadId, payloads as never);
+    append(threadId, payloads);
     const batch = liveBatches.at(-1);
     if (!batch) throw new Error(`${name}: an append published no batch`);
     return {
@@ -145,7 +162,7 @@ function harness(name: string) {
   const stepSilent = (threadId: ThreadId, payloads: Event["payload"][]): Live => {
     const before = sent.length;
     const head = store.headSeq();
-    store.appendEvents(threadId, payloads as never);
+    append(threadId, payloads);
     const events = store.readEvents({ afterSeq: head, limit: 100 });
     return {
       events: events.map((event) => json(event)),
@@ -170,6 +187,7 @@ function harness(name: string) {
     schedule,
     step,
     stepSilent,
+    append,
     fire,
     close: () => {
       store.close();
@@ -260,7 +278,7 @@ cases.push(
 cases.push(
   run("a list resumes inside the limit with a replay", (bench) => {
     const afterSeq = bench.store.headSeq();
-    bench.store.appendEvents(bench.a.id, [
+    bench.append(bench.a.id, [
       { type: "thread.updated", title: "one" },
       { type: "thread.updated", title: "two" },
     ]);
@@ -271,9 +289,9 @@ cases.push(
 cases.push(
   run("a thread resumes with only its own events", (bench) => {
     const afterSeq = bench.store.headSeq();
-    bench.store.appendEvents(bench.a.id, [{ type: "item.created", item: message("a1") }]);
-    bench.store.appendEvents(bench.b.id, [{ type: "item.created", item: message("b1") }]);
-    bench.store.appendEvents(bench.a.id, [{ type: "item.updated", item: message("a1") }]);
+    bench.append(bench.a.id, [{ type: "item.created", item: message("a1") }]);
+    bench.append(bench.b.id, [{ type: "item.created", item: message("b1") }]);
+    bench.append(bench.a.id, [{ type: "item.updated", item: message("a1") }]);
     return { scope: { kind: "thread", threadId: bench.a.id }, afterSeq, replayLimit: 100 };
   }),
 );
@@ -282,9 +300,9 @@ cases.push(
   run("a thread whose missed events pass the limit gets a snapshot", (bench) => {
     const afterSeq = bench.store.headSeq();
     for (let index = 0; index < 4; index++)
-      bench.store.appendEvents(bench.a.id, [{ type: "item.created", item: message(`a${index}`) }]);
+      bench.append(bench.a.id, [{ type: "item.created", item: message(`a${index}`) }]);
     for (let index = 0; index < 6; index++)
-      bench.store.appendEvents(bench.b.id, [{ type: "item.created", item: message(`b${index}`) }]);
+      bench.append(bench.b.id, [{ type: "item.created", item: message(`b${index}`) }]);
     return { scope: { kind: "thread", threadId: bench.a.id }, afterSeq, replayLimit: 2 };
   }),
 );
@@ -293,17 +311,17 @@ cases.push(
   run("a list cursor further behind than the limit gets a snapshot", (bench) => {
     const afterSeq = bench.store.headSeq();
     for (let index = 0; index < 4; index++)
-      bench.store.appendEvents(bench.a.id, [{ type: "thread.updated", title: `t${index}` }]);
+      bench.append(bench.a.id, [{ type: "thread.updated", title: `t${index}` }]);
     return { scope: { kind: "threads" }, afterSeq, replayLimit: 2 };
   }),
 );
 
 cases.push(
   run("a resume after a long streamed turn costs no more than a snapshot", (bench) => {
-    bench.store.appendEvents(bench.a.id, [{ type: "item.created", item: message("reply") }]);
+    bench.append(bench.a.id, [{ type: "item.created", item: message("reply") }]);
     const afterSeq = bench.store.headSeq();
     for (let index = 0; index < 700; index++)
-      bench.store.appendEvents(bench.a.id, [
+      bench.append(bench.a.id, [
         {
           type: "item.delta",
           itemId: "reply" as never,
@@ -319,9 +337,15 @@ cases.push(
 cases.push(
   run("a short resume still replays its events", (bench) => {
     const afterSeq = bench.store.headSeq();
-    bench.store.appendEvents(bench.a.id, [
+    bench.append(bench.a.id, [
       { type: "item.created", item: message("one") },
-      { type: "item.delta", itemId: "one" as never, agentId: "a" as never, field: "text", append: "x" },
+      {
+        type: "item.delta",
+        itemId: "one" as never,
+        agentId: "a" as never,
+        field: "text",
+        append: "x",
+      },
     ]);
     return { scope: { kind: "thread", threadId: bench.a.id }, afterSeq };
   }),
@@ -379,6 +403,4 @@ cases.push(
   })),
 );
 
-const path = join(import.meta.dir, "subscription.json");
-writeFileSync(path, `${JSON.stringify({ cases }, null, 2)}\n`);
-console.log(`wrote ${path}`);
+writeVectors(join(import.meta.dir, "subscription.json"), stable({ cases }));

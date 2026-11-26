@@ -10,11 +10,11 @@
  * key that orders commands, never sent. Both are recorded from the TypeScript.
  */
 
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command, DeviceId } from "@ace/protocol";
 import { commandLane } from "../../../../../apps/daemon/src/command-lanes.ts";
 import { commandState } from "../../../../../apps/daemon/src/command-status.ts";
+import { writeVectors } from "./vectors-io.ts";
 
 const device = "phone" as DeviceId;
 
@@ -97,6 +97,4 @@ statuses.push({
   result: null,
 });
 
-const path = join(import.meta.dir, "commands.json");
-writeFileSync(path, `${JSON.stringify({ lanes, statuses }, null, 2)}\n`);
-console.log(`wrote ${path}`);
+writeVectors(join(import.meta.dir, "commands.json"), { lanes, statuses });

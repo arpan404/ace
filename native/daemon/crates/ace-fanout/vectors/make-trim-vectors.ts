@@ -12,15 +12,8 @@
  * `raw-on-demand.test.ts`, plus the `storage-hold` and `moved-status` messages those tests name.
  */
 
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  Capabilities,
-  Item,
-  Thread,
-  ThreadId,
-  type ServerMessage,
-} from "@ace/protocol";
+import { Capabilities, Item, Thread, ThreadId, type ServerMessage } from "@ace/protocol";
 import {
   createThreadListView,
   createThreadView,
@@ -32,6 +25,7 @@ import {
   wireTrims,
 } from "../../../../../packages/projection/src/wire-trim.ts";
 import { WireEncoder } from "../../../../../apps/daemon/src/wire-encoder.ts";
+import { writeVectors } from "./vectors-io.ts";
 
 type Message = ServerMessage;
 
@@ -192,15 +186,19 @@ const trimmer: Case[] = [
     } satisfies Message,
   ]),
   runTrimmer("sidebar shares a repeated workspace icon once", every, [sidebarSnapshot()]),
-  runTrimmer("sidebar keeps icons whole without the trim", [wireTrims.itemDefaults], [
-    sidebarSnapshot(),
-  ]),
+  runTrimmer(
+    "sidebar keeps icons whole without the trim",
+    [wireTrims.itemDefaults],
+    [sidebarSnapshot()],
+  ),
   runTrimmer("a client that asked for nothing gets no trims, only statuses it predates", null, [
     threadSnapshot(capabilities(true)),
   ]),
-  runTrimmer("an unknown trim changes nothing", ["unknown-trim"], [
-    threadSnapshot(capabilities(true)),
-  ]),
+  runTrimmer(
+    "an unknown trim changes nothing",
+    ["unknown-trim"],
+    [threadSnapshot(capabilities(true))],
+  ),
   runTrimmer("the hidden Spade code reads unavailable", null, [
     {
       type: "spade.http.result",
@@ -209,14 +207,18 @@ const trimmer: Case[] = [
     } satisfies Message,
     { type: "spade.live.ended", requestId: "l", reason: "hidden" } satisfies Message,
   ]),
-  runTrimmer("a client with the spade trim reads hidden", [wireTrims.spadeHidden], [
-    {
-      type: "spade.http.result",
-      requestId: "h",
-      result: { kind: "error", code: "hidden", message: "Spade is hidden." },
-    } satisfies Message,
-    { type: "spade.live.ended", requestId: "l", reason: "hidden" } satisfies Message,
-  ]),
+  runTrimmer(
+    "a client with the spade trim reads hidden",
+    [wireTrims.spadeHidden],
+    [
+      {
+        type: "spade.http.result",
+        requestId: "h",
+        result: { kind: "error", code: "hidden", message: "Spade is hidden." },
+      } satisfies Message,
+      { type: "spade.live.ended", requestId: "l", reason: "hidden" } satisfies Message,
+    ],
+  ),
   runTrimmer("the storage hold reads as the person's own pause", null, [
     {
       type: "admission.changed",
@@ -230,12 +232,16 @@ const trimmer: Case[] = [
     } satisfies Message,
     { type: "admission.result", requestId: "r2", accepted: true } satisfies Message,
   ]),
-  runTrimmer("a client with the storage trim reads storage", [wireTrims.storageHold], [
-    {
-      type: "admission.changed",
-      admission: { holds: ["storage", "user", "storage"] },
-    } satisfies Message,
-  ]),
+  runTrimmer(
+    "a client with the storage trim reads storage",
+    [wireTrims.storageHold],
+    [
+      {
+        type: "admission.changed",
+        admission: { holds: ["storage", "user", "storage"] },
+      } satisfies Message,
+    ],
+  ),
   runTrimmer("a moved status reads waiting for a reader that predates it", null, [
     movedEvents(),
     movedPatch(),
@@ -292,11 +298,11 @@ const trimmer: Case[] = [
       hits: [{ threadId: "t", title: "t", status: "moved" }],
     } as unknown as Message,
   ]),
-  runTrimmer("a client with the moved trim reads moved", [wireTrims.movedStatus], [
-    movedEvents(),
-    movedPatch(),
-    threadSnapshot(undefined, MOVED),
-  ]),
+  runTrimmer(
+    "a client with the moved trim reads moved",
+    [wireTrims.movedStatus],
+    [movedEvents(), movedPatch(), threadSnapshot(undefined, MOVED)],
+  ),
 ];
 
 function movedEvents(): Message {
@@ -368,15 +374,25 @@ function runRestorer(name: string, frames: string[], learned = true): void {
 }
 
 const capabilityCase = trimmer[0];
-if (capabilityCase) runRestorer("capabilities restored from the key", capabilityCase.steps.flatMap((step) => step.frames));
+if (capabilityCase)
+  runRestorer(
+    "capabilities restored from the key",
+    capabilityCase.steps.flatMap((step) => step.frames),
+  );
 const sidebarCase = trimmer[2];
-if (sidebarCase) runRestorer("every shared icon restored", sidebarCase.steps.flatMap((step) => step.frames));
+if (sidebarCase)
+  runRestorer(
+    "every shared icon restored",
+    sidebarCase.steps.flatMap((step) => step.frames),
+  );
 const itemCase = trimmer[1];
-if (itemCase) runRestorer("trimmed items restored by the schema", itemCase.steps.flatMap((step) => step.frames));
+if (itemCase)
+  runRestorer(
+    "trimmed items restored by the schema",
+    itemCase.steps.flatMap((step) => step.frames),
+  );
 const untaught = capabilityCase?.steps[0]?.frames ?? [];
 runRestorer("a key that was never taught leaves the thread without capabilities", untaught, false);
 
 const out = { trimmer, restorer: restorerCases };
-const path = join(import.meta.dir, "wire-trim.json");
-writeFileSync(path, `${JSON.stringify(out, null, 2)}\n`);
-console.log(`wrote ${path}`);
+writeVectors(join(import.meta.dir, "wire-trim.json"), out);

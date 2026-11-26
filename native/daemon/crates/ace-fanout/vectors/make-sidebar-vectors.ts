@@ -12,7 +12,7 @@
  * `SidebarStore` and `DeviceReads`, places rows from the recorded places, and compares bytes.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event, ServerMessage, Thread, ThreadId, WorkspaceId } from "@ace/protocol";
@@ -23,6 +23,7 @@ import { SidebarPlacement } from "../../../../../apps/daemon/src/sidebar-placeme
 import { Store } from "../../../../../apps/daemon/src/store.ts";
 import { pageSubscription, subscribe } from "../../../../../apps/daemon/src/subscription.ts";
 import { WireEncoder } from "../../../../../apps/daemon/src/wire-encoder.ts";
+import { stable, writeVectors } from "./vectors-io.ts";
 
 const encoder = new WireEncoder();
 const json = (value: unknown): string => JSON.stringify(value);
@@ -270,9 +271,7 @@ cases.push(
 cases.push(
   await runSidebar("a live change sends only the threads it touched", (ctx) => ({
     window: { limit: 20 },
-    live: () => [
-      ctx.step("active" as ThreadId, [{ type: "thread.updated", title: "renamed" }]),
-    ],
+    live: () => [ctx.step("active" as ThreadId, [{ type: "thread.updated", title: "renamed" }])],
   })),
 );
 
@@ -280,9 +279,7 @@ cases.push(
   await runSidebar("a thread that leaves the window is removed without its history", (ctx) => ({
     window: { limit: 20 },
     live: () => [
-      ctx.step("history-000" as ThreadId, [
-        { type: "thread.updated", archivedAt: 5001 },
-      ] as never),
+      ctx.step("history-000" as ThreadId, [{ type: "thread.updated", archivedAt: 5001 }] as never),
     ],
   })),
 );
@@ -342,13 +339,11 @@ cases.push(
 );
 
 cases.push(
-  await runSidebar("a row is sent again when this device marks it read", (ctx) => ({
+  await runSidebar("a row is sent again when this device marks it read", () => ({
     window: { limit: 20 },
     device: true,
     change: { threadId: "history-005" as ThreadId },
   })),
 );
 
-const path = join(import.meta.dir, "sidebar.json");
-writeFileSync(path, `${JSON.stringify({ cases }, null, 2)}\n`);
-console.log(`wrote ${path}`);
+writeVectors(join(import.meta.dir, "sidebar.json"), stable({ cases }));
