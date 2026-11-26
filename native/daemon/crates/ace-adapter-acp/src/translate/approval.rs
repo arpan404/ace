@@ -9,7 +9,7 @@ use crate::translate::tools::tool_detail;
 use ace_json::{JsString, Map, Value};
 
 pub(crate) fn approval_request(call: &Value, options: &[Map], quirks: QuirksKind) -> Value {
-    let detail = tool_detail(call, quirks);
+    let detail = tool_detail(object(call), quirks);
     let input = object(object(call).get("rawInput").unwrap_or(&Value::Null)).clone();
     let paths: Vec<Value> = list(object(call).get("locations").unwrap_or(&Value::Null))
         .iter()

@@ -3,24 +3,19 @@
 //!
 //! Every rule lives in the translator's pure settlement (`translate::shell_settlement`),
 //! which `translate/` owns. This adds only what a session has and the translator does
-//! not: the root id it hands that settlement as soon as it is known, the merged tool data
-//! a follow-up update omits -- `tool_detail` reads the merged tool there
-//! (`shell-settlement.ts:41`) -- and `JsString` owners.
+//! not: the root id it hands that settlement as soon as it is known, and `JsString`
+//! owners. The pure settlement keeps the merged tool data itself, so a notification is
+//! read where it arrived (`shell-settlement.ts:40`).
 
-use ace_json::{JsString, Map, Value};
-use indexmap::IndexMap;
+use ace_json::{JsString, Value};
 
-use crate::translate::data::{js_string, object, string};
 use crate::translate::quirks::QuirksKind;
 use crate::translate::shell_settlement::ShellSettlement as PureSettlement;
 pub use crate::translate::shell_settlement::holds_next_prompt;
-use crate::translate::tool_text::merge_tool_data;
 
 /// Settlement over live tools, rooted at this session (`shell-settlement.ts:16`).
 pub struct ShellSettlement {
     settlement: PureSettlement,
-    /// Merged tool data per key, so an update that omits `kind` keeps its class.
-    data: IndexMap<String, Map>,
     root: JsString,
 }
 
@@ -28,7 +23,6 @@ impl ShellSettlement {
     pub fn new(quirks: QuirksKind) -> Self {
         Self {
             settlement: PureSettlement::new(quirks),
-            data: IndexMap::new(),
             root: JsString::default(),
         }
     }
@@ -45,41 +39,7 @@ impl ShellSettlement {
     }
 
     pub fn receive(&mut self, params: &Value) {
-        let params_map = object(params);
-        let update_val = params_map.get("update").unwrap_or(&Value::Null);
-        let update = object(update_val);
-        let session_update = string(update.get("sessionUpdate").unwrap_or(&Value::Null));
-        if !matches!(session_update, "tool_call" | "tool_call_update") {
-            return;
-        }
-        let owner = js_string(params_map.get("sessionId").unwrap_or(&Value::Null))
-            .cloned()
-            .unwrap_or_default();
-        let id = js_string(update.get("toolCallId").unwrap_or(&Value::Null))
-            .cloned()
-            .unwrap_or_default();
-        if id.is_empty() {
-            return;
-        }
-        let key = tool_key(&owner, &id);
-        let mut merged = self.data.get(&key).cloned().unwrap_or_default();
-        merge_tool_data(&mut merged, update_val);
-        // The update as the translator reads it: this update's own fields, over the tool
-        // data merged so far, so a follow-up that omits `kind` keeps its class.
-        let mut forwarded_update = update.clone();
-        for (field, value) in merged.iter() {
-            forwarded_update.insert(field.clone(), value.clone());
-        }
-        let mut forwarded = Map::with_capacity(2);
-        forwarded.insert("sessionId", Value::String(owner.clone()));
-        forwarded.insert("update", Value::Object(forwarded_update));
-        self.settlement.receive(&Value::Object(forwarded));
-        if self.settlement.knows(owner.as_str(), id.as_str()) {
-            self.data.insert(key, merged);
-        } else {
-            // A terminal status settled the tool: its data has no reader now.
-            self.data.shift_remove(&key);
-        }
+        self.settlement.receive(params);
     }
 
     pub fn knows(&self, owner: &JsString, id: &JsString) -> bool {
@@ -115,10 +75,6 @@ impl ShellSettlement {
     pub fn busy(&self) -> bool {
         self.settlement.busy()
     }
-}
-
-fn tool_key(owner: &JsString, id: &JsString) -> String {
-    Value::Array(vec![Value::String(owner.clone()), Value::String(id.clone())].into()).to_json()
 }
 
 #[cfg(test)]

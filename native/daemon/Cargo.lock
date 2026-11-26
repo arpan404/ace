@@ -43,6 +43,7 @@ dependencies = [
  "indexmap",
  "serde",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -71,6 +72,7 @@ dependencies = [
  "serde",
  "sha2 0.11.1",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -81,6 +83,7 @@ dependencies = [
  "ace-json",
  "ace-redaction",
  "ace-supervisor",
+ "base64",
  "indexmap",
  "serde",
  "thiserror",
@@ -144,6 +147,7 @@ dependencies = [
  "ace-store",
  "ace-supervisor",
  "ace-transport",
+ "agent-stream-json",
  "bytes",
  "getrandom 0.4.3",
  "indexmap",

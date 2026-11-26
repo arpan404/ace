@@ -1,6 +1,7 @@
 /**
- * E3.0d: the session bench. It drives the Pi adapter against the synthetic JSONL peer in
- * `session-stream/pi.ts` and reports the CPU cost of the frame path:
+ * E3.0d: the session bench. It drives one provider's adapter against that provider's synthetic
+ * peer (`session-stream/<provider>.ts`, also the fake) and reports the CPU cost of the frame
+ * path:
  *
  *   cpuMsPer1000Frames = (user + system microseconds over the ten turns) / 1000
  *                        / (frames delivered / 1000)
@@ -9,16 +10,17 @@
  * count too. Modes:
  *
  *   A  off
- *   B  ACE_TRANSLATORS=pi
+ *   B  ACE_TRANSLATORS=<provider>
  *   C  B + ACE_STORE=native ACE_SUPERVISOR=native
- *   D  C + ACE_SESSIONS=pi (needs E3-pi.2's native session and its evidence line)
+ *   D  C + ACE_SESSIONS=<provider> (needs that provider's native session and its evidence
+ *      line; refused without them, so the TypeScript session is never mistaken for it)
  *
  * Every mode runs in its own process. A full run measures three rounds of A B C D, discards a
  * round whose one-minute load average differs by more than 2x between its A and D runs, and
- * reports the median D/A ratio. Pi may be default-on only when that median is <= 1.00 and D's
- * median frames per second is at least A's (the owner's rule, porting-guide E3.0d step 6).
+ * reports the median D/A ratio. A provider may be default-on only when that median is <= 1.00
+ * and D's median frames per second is at least A's (the owner's rule, E3.0d step 6).
  *
- *   bun apps/daemon/bench/session-stream.ts [--rounds 3] [--output file]
+ *   bun apps/daemon/bench/session-stream.ts [--provider pi|acp] [--rounds 3] [--output file]
  *   bun --expose-gc apps/daemon/bench/session-stream.ts --mode A [--output file]
  *
  * It never starts a real CLI and spends no quota. It is not a test and runs in no test tier.
@@ -31,12 +33,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { Frame, SessionContext } from "@ace/engine-api";
+import { acp } from "./session-stream/acp.ts";
+import { pi } from "./session-stream/pi.ts";
+import type { BenchMode, BenchProvider } from "./session-stream/provider.ts";
 
-type Mode = "A" | "B" | "C" | "D";
+type Mode = BenchMode;
 const MODES: readonly Mode[] = ["A", "B", "C", "D"];
 const TURNS = 10;
-/** 2,000 assistant deltas, one message end, one turn end, the response, and the prompt's send. */
-const FRAMES_PER_TURN = 2_000 + 2 + 1 + 1;
 /** The owner's rule: a switch defaults on only when this bench shows it no slower than off. */
 const DEFAULT_ON_MAX_RATIO = 1.0;
 /** A round whose A and D one-minute load averages differ by more than this is rerun. */
@@ -45,19 +48,9 @@ const MAX_LOAD_SPREAD = 2;
 const LOAD_LIMIT = 60;
 
 const script = fileURLToPath(import.meta.url);
-const fake = fileURLToPath(new URL("./session-stream/pi.ts", import.meta.url));
 
-const MODE_SWITCHES: Readonly<Record<Mode, Readonly<Record<string, string>>>> = {
-  A: {},
-  B: { ACE_TRANSLATORS: "pi" },
-  C: { ACE_TRANSLATORS: "pi", ACE_STORE: "native", ACE_SUPERVISOR: "native" },
-  D: {
-    ACE_TRANSLATORS: "pi",
-    ACE_STORE: "native",
-    ACE_SUPERVISOR: "native",
-    ACE_SESSIONS: "pi",
-  },
-};
+/** Every provider the bench can drive; a `codex.ts` joins this map with E3-codex.5. */
+const PROVIDERS: Readonly<Record<string, BenchProvider>> = { pi, acp };
 const SWITCH_KEYS = [
   "ACE_TRANSLATORS",
   "ACE_STORE",
@@ -84,7 +77,7 @@ const ModeResultSchema = z.object({
 type ModeResult = z.infer<typeof ModeResultSchema>;
 
 const EvidenceLine = z.object({
-  provider: z.literal("pi"),
+  provider: z.enum(["pi", "acp"]),
   backend: z.literal("native"),
   pid: z.number().int(),
 });
@@ -111,14 +104,23 @@ function parseMode(value: string | undefined): Mode | undefined {
   return value === "A" || value === "B" || value === "C" || value === "D" ? value : undefined;
 }
 
+/** The provider this run drives; Pi unless `--provider` names another. */
+function chosenProvider(): BenchProvider {
+  const name = option("provider") ?? "pi";
+  const provider = PROVIDERS[name];
+  if (provider === undefined)
+    throw new Error(`--provider takes ${Object.keys(PROVIDERS).join(" or ")}, not ${name}`);
+  return provider;
+}
+
 function outputPath(): string {
   return option("output") ?? join(tmpdir(), "ace-session-stream-bench.json");
 }
 
 /** Each mode is a fresh process, so the switches are fixed before any module reads them. */
-function applyMode(mode: Mode, evidence: string): void {
+function applyMode(mode: Mode, evidence: string, provider: BenchProvider): void {
   for (const key of SWITCH_KEYS) delete process.env[key];
-  for (const [key, value] of Object.entries(MODE_SWITCHES[mode])) process.env[key] = value;
+  for (const [key, value] of Object.entries(provider.switches(mode))) process.env[key] = value;
   process.env.ACE_SESSIONS_EVIDENCE = evidence;
 }
 
@@ -150,20 +152,20 @@ function exitCode(child: ChildProcess): Promise<number | null> {
 }
 
 /**
- * The native Pi facade is absent until E3-pi.2. Its binding exports `PiSessionNative`; checking
- * that in a dedicated process keeps the addon out of any process that later opens a session.
- * Without it, mode D would silently measure the TypeScript session, so it refuses instead.
+ * The provider's native facade may be absent. Its binding exports `nativeExport`; checking that
+ * in a dedicated process keeps the addon out of any process that later opens a session. Without
+ * it, mode D would silently measure the TypeScript session, so it refuses instead.
  */
-async function checkNativePiSession(): Promise<void> {
-  applyMode("D", join(tmpdir(), "ace-session-bench-evidence-check.jsonl"));
-  if (process.env.ACE_SESSIONS !== "pi")
-    throw new Error("the native Pi session check needs ACE_SESSIONS=pi");
+async function checkNativeSession(provider: BenchProvider): Promise<void> {
+  applyMode("D", join(tmpdir(), "ace-session-bench-evidence-check.jsonl"), provider);
+  if (process.env.ACE_SESSIONS !== provider.id)
+    throw new Error(`the native ${provider.id} session check needs ACE_SESSIONS=${provider.id}`);
   const { sessionsAddonPath } = await import("@ace/provider-kit/native-switches");
   const addon = sessionsAddonPath();
   if (!existsSync(addon)) {
     process.stderr.write(
-      `mode D is refused: ACE_SESSIONS=pi needs the sessions addon at ${addon} exporting ` +
-        "PiSessionNative (E3-pi.2), and no such file exists; build native/daemon with " +
+      `mode D is refused: ACE_SESSIONS=${provider.id} needs the sessions addon at ${addon} ` +
+        `exporting ${provider.nativeExport}, and no such file exists; build native/daemon with ` +
         "cargo build --release. Nothing is measured, so the TypeScript session is never " +
         "mistaken for the native path.\n",
     );
@@ -173,61 +175,54 @@ async function checkNativePiSession(): Promise<void> {
   try {
     const module = { exports: {} as Record<string, unknown> };
     process.dlopen(module, addon);
-    if (typeof module.exports.PiSessionNative !== "function") {
+    if (typeof module.exports[provider.nativeExport] !== "function") {
       process.stderr.write(
-        `mode D is refused: ACE_SESSIONS=pi needs PiSessionNative in the sessions addon at ` +
-          `${addon} (E3-pi.2), and this build does not export it. Nothing is measured, so the ` +
-          "TypeScript session is never mistaken for the native path.\n",
+        `mode D is refused: ACE_SESSIONS=${provider.id} needs ${provider.nativeExport} in the ` +
+          `sessions addon at ${addon}, and this build does not export it. Nothing is measured, ` +
+          "so the TypeScript session is never mistaken for the native path.\n",
       );
       process.exitCode = 2;
     }
   } catch (error) {
     process.stderr.write(
       `mode D is refused: the sessions addon at ${addon} could not be loaded ` +
-        `(${error instanceof Error ? error.message : String(error)}); ACE_SESSIONS=pi needs a ` +
-        "working native Pi session (E3-pi.2).\n",
+        `(${error instanceof Error ? error.message : String(error)}); ` +
+        `ACE_SESSIONS=${provider.id} needs a working native ${provider.id} session.\n`,
     );
     process.exitCode = 2;
   }
 }
 
-/** Why mode D is unavailable, or undefined when the native Pi session is present. */
-async function nativePiSessionRefusal(): Promise<string | undefined> {
-  const child = spawn(process.execPath, [script, "--mode", "D", "--check"], {
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+/** Why mode D is unavailable, or undefined when the native session is present. */
+async function nativeSessionRefusal(provider: BenchProvider): Promise<string | undefined> {
+  const child = spawn(
+    process.execPath,
+    [script, "--provider", provider.id, "--mode", "D", "--check"],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
   let message = "";
   child.stderr?.on("data", (chunk: Buffer) => {
     message += chunk.toString();
   });
   const code = await exitCode(child);
   if (code === 0) return undefined;
-  return message.trim() || `the native Pi session check failed (exit ${code})`;
+  return message.trim() || `the native ${provider.id} session check failed (exit ${code})`;
 }
 
-async function runMode(mode: Mode, output: string): Promise<void> {
+async function runMode(mode: Mode, output: string, provider: BenchProvider): Promise<void> {
   await waitForLoad();
-  const home = await mkdtemp(join(tmpdir(), `ace-session-bench-${mode}-`));
+  const home = await mkdtemp(join(tmpdir(), `ace-session-bench-${provider.id}-${mode}-`));
   const evidencePath = join(home, "evidence.jsonl");
   try {
     await writeFile(evidencePath, "");
-    applyMode(mode, evidencePath);
-    const { sessionFixture } =
-      await import("../../../packages/adapter-pi/src/testing/native-history.ts");
-    const sourcePath = join(home, "source.jsonl");
-    // Pi's open reads the saved history's header, so the fake's get_state points at this file.
-    await writeFile(sourcePath, sessionFixture(home, "bench", 3));
-    const [{ createPiAdapter, createPiTranslator }, { spawnTextSupervised }, { ThreadId }] =
-      await Promise.all([
-        import("@ace/adapter-pi"),
-        import("@ace/provider-kit/process"),
-        import("@ace/protocol"),
-      ]);
+    applyMode(mode, evidencePath, provider);
+    await provider.prepare(home);
     if (typeof globalThis.gc !== "function")
       throw new Error("the heap record needs two forced GCs; run with --expose-gc");
 
-    const threadId = ThreadId.parse("pi-bench");
-    const translator = createPiTranslator({ threadId, rootKey: "root" });
+    const { ThreadId } = await import("@ace/protocol");
+    const threadId = ThreadId.parse(`${provider.id}-bench`);
+    const translator = await provider.translator(threadId);
     let frames = 0;
     const onFrame = (frame: Frame) => {
       frames += 1;
@@ -239,47 +234,33 @@ async function runMode(mode: Mode, output: string): Promise<void> {
     const ctx: SessionContext = {
       threadId,
       cwd: home,
-      env: { FAKE_PI_HOME: home },
+      env: provider.env(home),
       signal: controller.signal,
       onFrame,
       onExit: () => {},
     };
-    const adapter = createPiAdapter({
-      sessionReferenceDir: join(home, "references"),
-      cli: {
-        installed: true,
-        path: "synthetic-pi",
-        version: "0.85.1",
-        auth: "unknown",
-        loginHint: "none",
-      },
-      runtime: {
-        spawn: (options) =>
-          spawnTextSupervised({
-            ...options,
-            command: process.execPath,
-            args: [fake, ...(options.args ?? [])],
-          }),
-      },
-    });
-    const session = await adapter.openSession(ctx);
+    const session = await provider.session(home)(ctx);
     try {
-      // The window is the ten turns: the open handshake is not part of the frame path's cost.
+      // One unmeasured turn: the translator's first-frame paths and the child's first writes
+      // warm up here, not in the window. Both legs run it, so the comparison stays even.
+      await session.send(provider.prompt(0), "queue");
+      // The window is the ten turns: neither the open handshake nor the warm-up is counted.
       frames = 0;
       const load1 = loadavg()[0] ?? 0;
       const cpuStart = process.cpuUsage();
       const started = performance.now();
-      for (let turn = 1; turn <= TURNS; turn++)
-        await session.send([{ type: "text", text: `bench turn ${turn}` }], "queue");
+      for (let turn = 1; turn <= TURNS; turn++) await session.send(provider.prompt(turn), "queue");
       const elapsedMs = performance.now() - started;
       const cpu = process.cpuUsage(cpuStart);
       globalThis.gc();
       globalThis.gc();
       const heapUsed = process.memoryUsage().heapUsed;
 
-      const expected = TURNS * FRAMES_PER_TURN;
+      const expected = TURNS * provider.framesPerTurn;
       if (frames !== expected)
-        throw new Error(`mode ${mode} delivered ${frames} frames; the fake prints ${expected}`);
+        throw new Error(
+          `mode ${mode} delivered ${frames} frames; the ${provider.id} fake prints ${expected}`,
+        );
       const cpuMs = (cpu.user + cpu.system) / 1_000;
       const result: ModeResult = {
         mode,
@@ -311,6 +292,10 @@ async function runMode(mode: Mode, output: string): Promise<void> {
         const line = EvidenceLine.parse(JSON.parse(evidence[0] ?? ""));
         if (line.pid !== process.pid)
           throw new Error(`mode D is void: the evidence names pid ${line.pid}, not ${process.pid}`);
+        if (line.provider !== provider.id)
+          throw new Error(
+            `mode D is void: the evidence names ${line.provider}, not ${provider.id}`,
+          );
       }
       result.evidence = { lines: evidence.length, ok: true };
 
@@ -325,12 +310,12 @@ async function runMode(mode: Mode, output: string): Promise<void> {
   }
 }
 
-async function runChild(mode: Mode): Promise<ModeResult> {
+async function runChild(mode: Mode, provider: BenchProvider): Promise<ModeResult> {
   const output = join(tmpdir(), `ace-session-bench-${mode}-${process.pid}-${Date.now()}.json`);
   try {
     const child = spawn(
       process.execPath,
-      ["--expose-gc", script, "--mode", mode, "--output", output],
+      ["--expose-gc", script, "--provider", provider.id, "--mode", mode, "--output", output],
       { stdio: ["ignore", "inherit", "inherit"] },
     );
     const code = await exitCode(child);
@@ -358,8 +343,8 @@ function heapMedian(rounds: readonly Round[], mode: keyof Round): number {
   return median(rounds.map((value) => value[mode].heapUsed));
 }
 
-async function runAll(rounds: number, output: string): Promise<void> {
-  const refusal = await nativePiSessionRefusal();
+async function runAll(rounds: number, output: string, provider: BenchProvider): Promise<void> {
+  const refusal = await nativeSessionRefusal(provider);
   if (refusal !== undefined) {
     process.stderr.write(refusal + "\n");
     process.exitCode = 2;
@@ -372,10 +357,10 @@ async function runAll(rounds: number, output: string): Promise<void> {
     if (attempts > rounds * 4)
       throw new Error(`the machine stayed too noisy: ${attempts - 1} rounds discarded`);
     await waitForLoad();
-    const a = await runChild("A");
-    const b = await runChild("B");
-    const c = await runChild("C");
-    const d = await runChild("D");
+    const a = await runChild("A", provider);
+    const b = await runChild("B", provider);
+    const c = await runChild("C", provider);
+    const d = await runChild("D", provider);
     const spread = loadSpread(a.load1, d.load1);
     if (spread > MAX_LOAD_SPREAD) {
       process.stderr.write(
@@ -396,11 +381,11 @@ async function runAll(rounds: number, output: string): Promise<void> {
   const defaultOn = medianRatio <= DEFAULT_ON_MAX_RATIO && dFps >= aFps;
   const report = {
     bench: "session-stream",
-    provider: "pi",
+    provider: provider.id,
     generatedAt: new Date().toISOString(),
     machine: { cpus: cpus().length, load1: loadavg()[0] ?? 0 },
     turns: TURNS,
-    framesPerTurn: FRAMES_PER_TURN,
+    framesPerTurn: provider.framesPerTurn,
     rounds: measured,
     aggregation: {
       rule:
@@ -408,6 +393,7 @@ async function runAll(rounds: number, output: string): Promise<void> {
         "median(D frames/s) >= median(A frames/s)",
       discardedRounds: attempts - measured.length,
       roundRatios: ratios,
+      ratioSpread: { min: Math.min(...ratios), max: Math.max(...ratios) },
       medianRatio,
       bMedianRatio: median(bRatios),
       cMedianRatio: median(cRatios),
@@ -428,7 +414,7 @@ async function runAll(rounds: number, output: string): Promise<void> {
   };
   await writeFile(output, JSON.stringify(report, null, 2) + "\n");
   const summary = [
-    `session-stream: pi, ${measured.length} rounds x ${TURNS} turns x ${FRAMES_PER_TURN} frames`,
+    `session-stream: ${provider.id}, ${measured.length} rounds x ${TURNS} turns x ${provider.framesPerTurn} frames`,
     ...MODES.map((mode) => {
       const key: keyof Round = mode === "A" ? "a" : mode === "B" ? "b" : mode === "C" ? "c" : "d";
       const medianCpu = median(measured.map((value) => value[key].cpuMsPer1000Frames));
@@ -442,31 +428,32 @@ async function runAll(rounds: number, output: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const provider = chosenProvider();
   const mode = parseMode(option("mode"));
   if (process.argv.includes("--check")) {
     if (mode !== "D") throw new Error("--check needs --mode D");
-    await checkNativePiSession();
+    await checkNativeSession(provider);
     return;
   }
   const output = outputPath();
   if (mode === "D") {
-    const refusal = await nativePiSessionRefusal();
+    const refusal = await nativeSessionRefusal(provider);
     if (refusal !== undefined) {
       process.stderr.write(refusal + "\n");
       process.exitCode = 2;
       return;
     }
-    await runMode(mode, output);
+    await runMode(mode, output, provider);
     return;
   }
   if (mode !== undefined) {
-    await runMode(mode, output);
+    await runMode(mode, output, provider);
     return;
   }
   const rounds = Number(option("rounds") ?? 3);
   if (!Number.isInteger(rounds) || rounds < 1)
     throw new Error(`--rounds takes a whole number of rounds, not ${option("rounds")}`);
-  await runAll(rounds, output);
+  await runAll(rounds, output, provider);
 }
 
 try {

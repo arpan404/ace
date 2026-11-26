@@ -186,13 +186,16 @@ impl ClaudeWire {
     }
 
     /// The terminal barrier: finalize the framers, flush the drop notes, expire every pending
-    /// interaction, settle every pending control, then `Drained`.
+    /// interaction, end input, settle every pending control, then `Drained`.
+    ///
+    /// The expiry comes first, while input is still open, as today's close does it
+    /// (`session.ts:104`, `:117`): a pending ask's default answer is a write the CLI can still
+    /// receive, so it is written here and input ends after it. The latch goes last, so the
+    /// expiry's answer is not refused by the barrier that produced it.
     pub fn finish(&mut self) -> Vec<Effect> {
         if self.finished {
             return Vec::new();
         }
-        self.finished = true;
-        self.end_input();
         let mut effects = Vec::new();
 
         let tail = self.stdout.finish();
@@ -211,8 +214,9 @@ impl ClaudeWire {
         }
 
         // The terminal expiry: every interaction ends once, and its default answer only while
-        // stdin is open (`session.ts:104`, `:117`).
+        // stdin is open, which it still is here.
         effects.extend(self.expire_pending());
+        self.end_input();
 
         for tag in self.controls.drain() {
             effects.push(Effect::Settle {
@@ -221,6 +225,8 @@ impl ClaudeWire {
             });
         }
         effects.push(Effect::Drained);
+        // Latched last: the expiry above is the session's last write.
+        self.finished = true;
         effects
     }
 
@@ -236,9 +242,12 @@ impl ClaudeWire {
             Line::Message { kind, value } => {
                 if self.confirms(kind, &value) {
                     self.confirmed = true;
+                    // The bridge calls `ctx[name](...args)`: the payload is an argument list.
                     effects.push(Effect::Callback {
                         name: "onSessionConfirmed",
-                        json: ace_json::to_string(&Value::from(self.config.session_id.as_str())),
+                        json: ace_json::to_string(&Value::from(vec![Value::from(
+                            self.config.session_id.as_str(),
+                        )])),
                     });
                 }
                 match self.frame(FrameDir::Recv, SDK, &value) {
@@ -261,7 +270,7 @@ impl ClaudeWire {
                 {
                     effects.push(Effect::Callback {
                         name: "onRateLimit",
-                        json: ace_json::to_string(info),
+                        json: ace_json::to_string(&Value::from(vec![info.clone()])),
                     });
                 }
             }
