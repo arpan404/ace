@@ -81,6 +81,7 @@ const roots: Record<string, z.ZodType> = {
   AccessMode,
   ProviderKind,
   CatalogModel,
+  CatalogRaw: CatalogModel.shape.raw,
   ModelEffort,
   ModelTier,
   ModelSource,

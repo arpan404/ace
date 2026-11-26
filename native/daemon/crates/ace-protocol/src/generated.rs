@@ -1042,7 +1042,7 @@ pub struct CatalogModel {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub provider_enabled: ::std::option::Option<Schema341>,
-    pub raw: Schema347,
+    pub raw: CatalogRaw,
     #[serde(
         rename = "resolvedModelId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -1076,6 +1076,12 @@ pub struct CatalogModel {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub visibility_reason: ::std::option::Option<Schema342>,
+}
+#[doc = "`CatalogRaw`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct CatalogRaw {
+    pub json: ::std::string::String,
+    pub truncated: bool,
 }
 #[doc = "`Command`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -20505,12 +20511,6 @@ impl ::std::convert::TryFrom<String> for Schema346 {
     fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
         value.parse()
     }
-}
-#[doc = "`Schema347`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema347 {
-    pub json: ::std::string::String,
-    pub truncated: bool,
 }
 #[doc = "`Schema35`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]

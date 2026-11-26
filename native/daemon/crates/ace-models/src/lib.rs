@@ -9,5 +9,7 @@
 pub mod display_name;
 pub mod effort;
 pub mod free;
+pub mod instance;
 pub mod metadata;
 pub mod raw;
+pub mod row;
