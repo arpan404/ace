@@ -469,7 +469,7 @@ impl SessionChannel {
     }
 
     pub(super) fn host_exited(&self, exit: &HostExit) {
-        let effects = {
+        let (effects, closing) = {
             let mut core = self.core();
             core.session.lifetime.set_gone();
             let mut effects = if core.session.lifetime.is_exited() {
@@ -479,9 +479,16 @@ impl SessionChannel {
             };
             let frames = core.session.frames.clone();
             effects.extend(core.session.lifetime.detached(&frames, Ok(())));
-            effects
+            (effects, core.close_operation.is_some())
         };
-        self.apply_drained(effects);
+        if closing {
+            // A close still in flight has to settle before `Drained`, or its
+            // settlement lands after the barrier and is dropped. The close's
+            // own `Closed` publishes the barrier once it has settled.
+            self.apply(effects);
+        } else {
+            self.apply_drained(effects);
+        }
         self.shared.remove(self.tenant);
     }
 

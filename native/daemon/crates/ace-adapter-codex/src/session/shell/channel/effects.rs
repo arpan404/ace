@@ -71,11 +71,20 @@ impl SessionChannel {
                                 self.settle_operation_into(operation, Ok(Value::Null), events);
                                 self.finish_drained_into(events);
                             }
-                            Err(message) => self.settle_operation_into(
-                                operation,
-                                Err(crate::session::frames::Failure::failed(message)),
-                                events,
-                            ),
+                            Err(message) => {
+                                self.settle_operation_into(
+                                    operation,
+                                    Err(crate::session::frames::Failure::failed(message)),
+                                    events,
+                                );
+                                // A close that failed after its host exited is
+                                // still the end of the session: the failure
+                                // settles before the barrier.
+                                let exited = self.core().session.lifetime.is_exited();
+                                if exited {
+                                    self.finish_drained_into(events);
+                                }
+                            }
                         }
                     }
                 }
