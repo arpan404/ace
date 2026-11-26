@@ -384,10 +384,7 @@ mod tests {
             "[]",
             Box::new(ManualPump),
             conn,
-            std::rc::Rc::new(ActorDeps::production(
-                std::rc::Rc::new(UnportedLive),
-                0.0,
-            )),
+            std::rc::Rc::new(ActorDeps::production(std::rc::Rc::new(UnportedLive), 0.0)),
         )
         .unwrap();
         (engine, shell)
@@ -444,7 +441,10 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(row.get("reason"), Some(&ace_store::Value::Text("limit".into())));
+        assert_eq!(
+            row.get("reason"),
+            Some(&ace_store::Value::Text("limit".into()))
+        );
         assert_eq!(row.get("limited"), Some(&ace_store::Value::Integer(1)));
         assert_eq!(row.get("reset_at"), Some(&ace_store::Value::Integer(9000)));
         assert_eq!(row.get("hold_token"), Some(&ace_store::Value::Integer(4)));

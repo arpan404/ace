@@ -250,7 +250,11 @@ impl Ports for Shell {
     fn admits(&self) -> Result<bool, PortError> {
         let calls = self.admits_calls.get() + 1;
         self.admits_calls.set(calls);
-        if self.admits_throw_from.get().is_some_and(|from| calls >= from) {
+        if self
+            .admits_throw_from
+            .get()
+            .is_some_and(|from| calls >= from)
+        {
             return Err(PortError::Threw("maintenance gate threw".to_owned()));
         }
         Ok(self.admits_answer.get().unwrap_or(true))

@@ -206,10 +206,7 @@ impl JsPorts {
 
     /// The writes the receipt held back, in call order, and the end of the deferral.
     pub fn take_deferred_events(&self) -> Vec<(String, String, f64)> {
-        self.deferred_events
-            .borrow_mut()
-            .take()
-            .unwrap_or_default()
+        self.deferred_events.borrow_mut().take().unwrap_or_default()
     }
 
     /// Any function-reference port call, for the modules that hold their own function refs.
