@@ -23,7 +23,7 @@ impl NativeEngine {
         thread_id: String,
         stream: Option<String>,
         generation: Option<f64>,
-    ) -> napi::Result<()> {
+    ) -> napi::Result<String> {
         let _guard = self.ports.enter(env);
         let core = self.engine.core();
         let log = Rc::new(ProbeLog {
@@ -38,6 +38,7 @@ impl NativeEngine {
         }) as Rc<dyn ActorRepo>;
         let links = Rc::new(ProbeLinks {
             log: Rc::clone(&log),
+            sessions: Rc::clone(&self.probe_threads),
         }) as Rc<dyn ActorLinks>;
         let deps = Rc::new(ActorDeps::new(
             repo,
@@ -46,19 +47,13 @@ impl NativeEngine {
             Rc::clone(&self.actor.acks) as Rc<dyn ace_engine::actor::deps::FrameAcks>,
             self.actor.deps.idle_ms,
         ));
-        if let Some(helper) = self.actor.helper.borrow().clone() {
-            deps.translators.borrow_mut().insert(
-                thread_id.clone(),
-                (
-                    generation.map(|value| value as u64).unwrap_or(0),
-                    ActorTranslator::Js(Box::new(JsTranslator {
-                        thread: thread_id.clone(),
-                        helper,
-                        ports: Rc::clone(&self.ports),
-                    })),
-                ),
-            );
-        }
+        let translator = self.actor.helper.borrow().clone().map(|helper| {
+            ActorTranslator::Js(Box::new(JsTranslator {
+                thread: thread_id.clone(),
+                helper,
+                ports: Rc::clone(&self.ports),
+            }))
+        });
         self.actor.install_deps(core, Rc::clone(&deps));
         *self.actor.probe.borrow_mut() = Some(Rc::clone(&log));
         self.probe_threads
@@ -66,16 +61,33 @@ impl NativeEngine {
             .logs
             .insert(thread_id.clone(), Rc::clone(&log));
         ace_engine::actor::get_or_create(core, &thread_id).map_err(engine_error)?;
-        core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(&thread_id) {
-                actor.session_attached = true;
-                if let Some(generation) = generation {
-                    actor.generation = generation as u64;
-                }
+        let actor = ace_engine::actor::state::current(core, &thread_id)
+            .ok_or_else(|| napi::Error::from_reason("probe session actor is missing"))?;
+        let instance = {
+            let mut actor = actor.borrow_mut();
+            actor.session_attached = true;
+            actor.deps = Some(deps);
+            if let Some(generation) = generation {
+                actor.generation = generation as u64;
             }
-        })
-        .map_err(engine_error)?;
-        Ok(())
+            actor.translator = translator.map(|translator| (actor.generation, translator));
+            actor.instance
+        };
+        self.probe_threads
+            .borrow_mut()
+            .sessions
+            .insert(instance, log);
+        Ok(instance.to_string())
+    }
+
+    #[napi]
+    pub fn probe_session_aborted(&self, instance: String) -> u32 {
+        let sessions = self.probe_threads.borrow();
+        instance
+            .parse::<u64>()
+            .ok()
+            .and_then(|id| sessions.sessions.get(&id))
+            .map_or(0, |log| *log.aborted.borrow() as u32)
     }
 
     /// The probe's transcript: aborts, wakes, applies, snapshots and diagnostics, as JSON.
@@ -94,17 +106,12 @@ impl NativeEngine {
     pub fn probe_retire(&self, thread_id: String) {
         let core = self.engine.core();
         let retired = core
-            .with_state(|state| {
-                state.actors.by_thread.get_mut(&thread_id).map(|actor| {
-                    let generation = actor.retire_generation();
-                    actor.generation = generation + 1;
-                    generation
-                })
-            })
+            .with_state(|state| state.actors.by_thread.get(&thread_id).cloned())
             .ok()
             .flatten();
-        if let Some(generation) = retired {
-            let deps = core.actor_deps.borrow().clone();
+        if let Some(actor) = retired {
+            let generation = actor.borrow_mut().retire_generation();
+            let deps = ace_engine::actor::state::instance_deps(core, &actor);
             deps.links.expire(core, &thread_id, generation);
         }
     }
