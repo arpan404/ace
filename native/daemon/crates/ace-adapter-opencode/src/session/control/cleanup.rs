@@ -27,6 +27,10 @@ pub enum CleanupError {
 /// the root's descendants and the root itself, each interrupted in its own
 /// directory.
 pub fn plan(ownership: &SessionOwnership) -> Result<Vec<Request>, CleanupError> {
+    // Nothing is owned until a root establishes: nothing is cleaned.
+    if ownership.root().is_empty() {
+        return Ok(Vec::new());
+    }
     let mut requests = Vec::new();
     for (id, owner) in ownership.shells() {
         let Some(session) = ownership.sessions().get(owner) else {
