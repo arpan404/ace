@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-auth"
+description = "Hello, authentication and device identity (T2) for the Rust daemon: the hello's credentials, tickets, pairing links, devices and their generations, account grant leases and org standing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-store: pairings, devices and their credential generations go through the daemon's one
+# SQLite connection, on the same tables and rows the TypeScript writes.
+ace-store = { path = "../ace-store" }
+# ace-json: the hello is client JSON (`JSON.parse` semantics) and a stored `scopes` cell is
+# JSON read back the way JavaScript reads it.
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error enum per concern, as the porting guide asks.
+thiserror = { version = "2" }
+# sha2: device generations, ticket keys and link proofs are SHA-256, hex as the TypeScript writes.
+sha2 = { version = "0.11" }
+# hmac: the pairing-link proof is HMAC-SHA256 keyed by the paired token's hash (ADR 0115).
+hmac = { version = "0.13" }
+# base64: the link proof is base64url and the standing key is a raw base64url P-256 point.
+base64 = { version = "0.22" }
+# hex: token hashes and generated secrets are lowercase hex.
+hex = { version = "0.4" }
+# subtle: the daemon token is compared in constant time (`local-files.ts:177`).
+subtle = { version = "2.6" }
+
+[dev-dependencies]
+# tempfile: a home's SQLite file lives in a temp directory and is removed with it.
+tempfile = { version = "3" }
