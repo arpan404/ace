@@ -226,3 +226,23 @@ fn a_paused_session_stops_its_hosts_pumps_and_the_resume_restarts_them() {
     );
     run.stop();
 }
+
+/// A host's exit also publishes the terminal barrier last, after the exit
+/// evidence every earlier frame preceded.
+#[test]
+fn a_host_exit_publishes_the_terminal_barrier_last() {
+    let channel = channel();
+    channel.host_exited(&crate::session::host::HostExit {
+        reason: crate::session::host::ExitReason::Exit,
+        code: Some(0),
+        signal: None,
+        pid: None,
+        output_drained: true,
+    });
+    let batch = channel.queue.take_batch(256, 1024 * 1024);
+    assert!(
+        matches!(batch.last(), Some(SessionEvent::Drained)),
+        "Drained was not last"
+    );
+    assert!(batch.len() > 1, "the exit evidence was dropped");
+}
