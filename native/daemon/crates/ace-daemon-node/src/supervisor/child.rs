@@ -86,17 +86,6 @@ impl NativeOutputTarget {
             limit: None,
         }
     }
-
-    /// A target whose session applies `limit` to its stdout line framing.
-    pub(crate) fn with_limit(
-        target: DivertTarget,
-        limit: Arc<std::sync::atomic::AtomicUsize>,
-    ) -> Self {
-        Self {
-            target,
-            limit: Some(limit),
-        }
-    }
 }
 
 #[napi]

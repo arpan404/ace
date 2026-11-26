@@ -19,7 +19,10 @@ fn recorded_frames() -> Vec<String> {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../../fixtures/codex/0.159.1/plan-review.jsonl"
     );
-    let text = std::fs::read_to_string(path).expect("the Codex recording is in the repository");
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => panic!("the Codex recording is in the repository: {error}"),
+    };
     let mut frames = Vec::new();
     for line in text.lines() {
         let Ok(value) = ace_json::parse(line) else {
