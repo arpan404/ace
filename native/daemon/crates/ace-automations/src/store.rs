@@ -62,7 +62,10 @@ pub struct AutomationStore {
     pub(crate) conn: Arc<Connection>,
     pub(crate) depth: Cell<u32>,
     /// Where the bounded `finished_at` backfill resumes, and how many rows it last examined.
+    /// The cursor is persisted in `automation_migration`, so a restart resumes rather than
+    /// re-reading history from the start.
     idle_cursor: Cell<i64>,
+    idle_complete: Cell<bool>,
     idle_examined: Cell<usize>,
     /// The index state read from `sqlite_master`, cached until this store repairs or builds it.
     finished_index: Cell<Option<FinishedIndex>>,
@@ -82,6 +85,24 @@ pub enum FinishedIndex {
 /// bad index instead (a constant-time repair) and the inbox scans until then.
 const REBUILD_INDEX_ROWS: i64 = 10_000;
 
+/// The running rows start-up recovers, and the waiting automations it drains. Both are written so
+/// a home without `automation_status` can answer them through the partial indexes.
+const ACTIVE_RUNS_SQL: &str =
+    "SELECT body,input FROM automation_runs WHERE status='running' ORDER BY seq LIMIT 256";
+const ACTIVE_RUNS_INDEX_SQL: &str = "SELECT body,input FROM automation_runs INDEXED BY automation_active WHERE status='running' ORDER BY seq LIMIT 256";
+const WAITING_RUNS_SQL: &str = "SELECT automation_id AS aid FROM automation_runs WHERE finished_at IS NULL AND status='queued' GROUP BY automation_id ORDER BY MIN(seq) LIMIT 1000";
+const WAITING_RUNS_INDEX_SQL: &str = "SELECT automation_id AS aid FROM automation_runs INDEXED BY automation_unfinished WHERE finished_at IS NULL AND status='queued' GROUP BY automation_id ORDER BY MIN(seq) LIMIT 1000";
+
+/// Every index over run history. A home written before one of them existed gets it in idle on a
+/// small file, each checked on its own.
+const RUN_INDEX_NAMES: [&str; 5] = [
+    "automation_history",
+    "automation_active",
+    "automation_status",
+    "automation_unfinished",
+    "automation_finished",
+];
+
 impl AutomationStore {
     pub fn open(path: &str) -> Result<AutomationStore> {
         let conn = Connection::open(
@@ -95,10 +116,14 @@ impl AutomationStore {
             conn,
             depth: Cell::new(0),
             idle_cursor: Cell::new(0),
+            idle_complete: Cell::new(false),
             idle_examined: Cell::new(0),
             finished_index: Cell::new(None),
         };
         store.ensure_schema()?;
+        let (cursor, complete) = store.load_migration()?;
+        store.idle_cursor.set(cursor);
+        store.idle_complete.set(complete);
         Ok(store)
     }
 
@@ -136,6 +161,34 @@ impl AutomationStore {
         let _ = statement.step()?;
         let (changes, _) = statement.changes()?;
         Ok(changes.max(0) as usize)
+    }
+
+    /// Start-up's query, named to the partial index that bounds it when the home has one.
+    fn startup_sql(&self, waiting: bool) -> Result<&'static str> {
+        if waiting {
+            Ok(if self.has_index("automation_unfinished")? {
+                WAITING_RUNS_INDEX_SQL
+            } else {
+                WAITING_RUNS_SQL
+            })
+        } else {
+            Ok(if self.has_index("automation_active")? {
+                ACTIVE_RUNS_INDEX_SQL
+            } else {
+                ACTIVE_RUNS_SQL
+            })
+        }
+    }
+
+    /// The query plan start-up uses for running rows, or for waiting automations when `waiting`.
+    /// A legacy home without `automation_status` must still answer both from a partial index.
+    pub fn startup_query_plan(&self, waiting: bool) -> Result<Vec<String>> {
+        let sql = self.startup_sql(waiting)?;
+        Ok(self
+            .query(&format!("EXPLAIN QUERY PLAN {sql}"), &[])?
+            .iter()
+            .filter_map(|row| row_text(row, 3).map(str::to_owned))
+            .collect())
     }
 
     /// Whether the named index exists in this file.
@@ -178,10 +231,10 @@ impl AutomationStore {
     /// Rows written by the TypeScript or an older build otherwise read as unfinished forever.
     pub fn backfill_finished_at(&self, limit: usize) -> Result<usize> {
         self.idle_examined.set(0);
-        if limit == 0 {
+        if limit == 0 || self.idle_complete.get() {
             return Ok(0);
         }
-        self.repair_finished_index()?;
+        self.repair_run_indexes()?;
         let limit = limit.min(i64::MAX as usize) as i64;
         let rows = self.query(
             "SELECT seq,json_extract(body,'$.finishedAt') FROM automation_runs WHERE seq > ? ORDER BY seq LIMIT ?",
@@ -192,6 +245,8 @@ impl AutomationStore {
         )?;
         self.idle_examined.set(rows.len());
         if rows.is_empty() {
+            self.idle_complete.set(true);
+            self.save_migration()?;
             return Ok(0);
         }
         let mut changed = 0;
@@ -213,7 +268,34 @@ impl AutomationStore {
         if let Some(last) = rows.last().and_then(|row| row_int(row, 0)) {
             self.idle_cursor.set(last);
         }
+        self.save_migration()?;
         Ok(changed)
+    }
+
+    fn load_migration(&self) -> Result<(i64, bool)> {
+        Ok(self
+            .query(
+                "SELECT cursor,complete FROM automation_migration WHERE id=1",
+                &[],
+            )?
+            .first()
+            .map(|row| {
+                (
+                    row_int(row, 0).unwrap_or(0),
+                    row_int(row, 1).unwrap_or(0) != 0,
+                )
+            })
+            .unwrap_or((0, false)))
+    }
+
+    fn save_migration(&self) -> Result<()> {
+        self.execute(
+            "INSERT INTO automation_migration VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET cursor=excluded.cursor, complete=excluded.complete",
+            &[
+                Some(SqlValue::Integer(self.idle_cursor.get())),
+                Some(SqlValue::Integer(i64::from(self.idle_complete.get()))),
+            ],
+        )
     }
 
     /// Rows the last [`AutomationStore::backfill_finished_at`] examined, for the bounded-work
@@ -226,28 +308,45 @@ impl AutomationStore {
     /// homes included) gets every run index here; a large one only drops an unusable
     /// `automation_finished` and leaves the rebuild to
     /// [`AutomationStore::create_run_indexes`], with the inbox's indexed path falling back.
-    fn repair_finished_index(&self) -> Result<()> {
+    fn repair_run_indexes(&self) -> Result<()> {
         let state = self.finished_index()?;
-        let runs = self
-            .query("SELECT COUNT(*) FROM automation_runs", &[])?
-            .first()
-            .and_then(|row| row_int(row, 0))
-            .unwrap_or(0);
-        if runs <= REBUILD_INDEX_ROWS {
+        let mut missing = false;
+        for name in RUN_INDEX_NAMES {
+            if !self.has_index(name)? {
+                missing = true;
+                break;
+            }
+        }
+        if state == FinishedIndex::Current && !missing {
+            return Ok(());
+        }
+        if self.runs_over_threshold()? {
             if state == FinishedIndex::Outdated {
                 self.execute("DROP INDEX automation_finished", &[])?;
-            }
-            if state != FinishedIndex::Current {
-                crate::store_schema::ensure_run_indexes(self)?;
-                self.finished_index.set(Some(FinishedIndex::Current));
+                self.finished_index.set(Some(FinishedIndex::Missing));
             }
             return Ok(());
         }
         if state == FinishedIndex::Outdated {
             self.execute("DROP INDEX automation_finished", &[])?;
-            self.finished_index.set(Some(FinishedIndex::Missing));
         }
+        crate::store_schema::ensure_run_indexes(self)?;
+        self.finished_index.set(Some(self.read_finished_index()?));
         Ok(())
+    }
+
+    /// Whether the file holds more runs than idle may index, read in a bounded probe: at most
+    /// 10,001 rows, never a `COUNT(*)` over the whole history.
+    fn runs_over_threshold(&self) -> Result<bool> {
+        let rows = self
+            .query(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM automation_runs LIMIT 10001)",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row_int(row, 0))
+            .unwrap_or(0);
+        Ok(rows > REBUILD_INDEX_ROWS)
     }
 
     /// Build every run index in one write. History-sized by nature: the host's explicit
@@ -882,16 +981,13 @@ impl AutomationStore {
     }
 
     pub fn waiting_automations(&self) -> Result<Vec<String>> {
-        Ok(
-      self
-        .query(
-          "SELECT automation_id AS aid FROM automation_runs WHERE status='queued' GROUP BY automation_id ORDER BY MIN(seq) LIMIT 1000",
-          &[],
-        )?
-        .iter()
-        .filter_map(|row| row_text(row, 0).map(str::to_owned))
-        .collect(),
-    )
+        // `finished_at IS NULL` lets a home without `automation_status` answer this through the
+        // unfinished partial index instead of scanning run history at start-up.
+        Ok(self
+            .query(self.startup_sql(true)?, &[])?
+            .iter()
+            .filter_map(|row| row_text(row, 0).map(str::to_owned))
+            .collect())
     }
 
     /// Stop an automation's work in the transaction that pauses or deletes it (`store.ts:538`):
@@ -967,12 +1063,10 @@ impl AutomationStore {
             .collect())
     }
 
-    /// Running runs this build can read, oldest first.
+    /// Running runs this build can read, oldest first. The running partial index answers this
+    /// even on a legacy home without `automation_status`.
     pub fn active(&self) -> Result<Vec<(Value, Value)>> {
-        let rows = self.query(
-            "SELECT body,input FROM automation_runs WHERE status='running' ORDER BY seq LIMIT 256",
-            &[],
-        )?;
+        let rows = self.query(self.startup_sql(false)?, &[])?;
         Ok(rows
             .iter()
             .filter_map(|row| {

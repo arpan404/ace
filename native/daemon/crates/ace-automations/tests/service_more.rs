@@ -385,3 +385,106 @@ fn the_services_maintenance_call_heals_run_indexes() {
         ace_automations::store::FinishedIndex::Current
     );
 }
+
+#[test]
+fn a_populated_legacy_home_starts_its_running_and_queued_rows_and_idles_in_batches() {
+    let h = Harness::new();
+    let mut running = definition();
+    running.id = "running-auto".to_owned();
+    let mut queued = definition();
+    queued.id = "queued-auto".to_owned();
+    {
+        let mut service = h.started();
+        service.put(&running, None).expect("running");
+        service.put(&queued, None).expect("queued");
+    }
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    let insert = |id: &str, automation: &str, status: &str, finished: Option<i64>| {
+        let body = finished.map_or_else(
+            || format!(r#"{{"id":"{id}","automationId":"{automation}","status":"{status}"}}"#),
+            |finished| {
+                format!(
+                    r#"{{"id":"{id}","automationId":"{automation}","status":"{status}","finishedAt":{finished}}}"#
+                )
+            },
+        );
+        let statement = raw
+      .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,'{}',NULL)")
+      .expect("prepare");
+        statement
+            .bind(&[
+                Some(ace_store::Value::Text(id.to_owned())),
+                Some(ace_store::Value::Text(automation.to_owned())),
+                Some(ace_store::Value::Text(id.to_owned())),
+                Some(ace_store::Value::Text(status.to_owned())),
+                Some(ace_store::Value::Text(body)),
+            ])
+            .expect("bind");
+        statement.step().expect("insert");
+    };
+    // Settled rows first: their finish times live only in their bodies, as the TypeScript left
+    // them. The running and queued rows follow, with no finish time at all.
+    for index in 0..4 {
+        insert(
+            &format!("settled-{index}"),
+            "running-auto",
+            "succeeded",
+            Some(START + index * 1000),
+        );
+    }
+    insert("legacy-running", "running-auto", "running", None);
+    insert("legacy-queued", "queued-auto", "queued", None);
+    raw.exec("COMMIT").expect("commit");
+    raw.exec("DROP INDEX automation_status")
+        .expect("drop status");
+    raw.close().expect("close");
+
+    let store = h.reopen();
+    let mut service = h.service_on(&store);
+    service.start().expect("start");
+    let actions = service.take_actions();
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            Action::Recover { run_id, .. } if run_id == "legacy-running"
+        )),
+        "{actions:?}"
+    );
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            Action::Execute { run_id, .. } if run_id == "legacy-queued"
+        )),
+        "{actions:?}"
+    );
+
+    // Idle heals the missing index and drains the legacy finish times in bounded batches.
+    for _ in 0..4 {
+        service.idle_step(2).expect("idle");
+    }
+    assert_eq!(service.idle_step(2).expect("drained"), 0);
+    assert!(
+        store.has_index("automation_status").expect("index"),
+        "the missing status index heals once the file is small enough"
+    );
+    for _ in 0..3 {
+        assert_eq!(service.idle_step(2).expect("idle"), 0);
+        assert_eq!(store.idle_examined(), 0);
+    }
+    let (recent, _) = service
+        .inbox(50, None, Some("running-auto"), Some(START + 500))
+        .expect("inbox");
+    assert_eq!(
+        recent.len(),
+        4,
+        "three settled runs after the cutoff and the one still going stay"
+    );
+}

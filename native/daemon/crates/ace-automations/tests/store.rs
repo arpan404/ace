@@ -348,3 +348,108 @@ fn idle_heals_a_typescript_home_that_lacks_the_finished_indexes() {
     );
     store.close().expect("close");
 }
+
+fn legacy_runs(raw: &std::sync::Arc<Connection>, status: &str, count: i64, finished: bool) {
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    for index in 0..count {
+        let id = format!("{status}-{index}");
+        let body = format!(
+            r#"{{"id":"{id}","finishedAt":{}}}"#,
+            1_704_099_600_000i64 + index
+        );
+        let statement = raw
+      .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,'{}',?)")
+      .expect("prepare");
+        statement
+            .bind(&[
+                Some(Value::Text(id.clone())),
+                Some(Value::Text(format!("auto-{status}"))),
+                Some(Value::Text(id)),
+                Some(Value::Text(status.to_owned())),
+                Some(Value::Text(body)),
+                finished.then_some(Value::Integer(1_704_099_600_000i64 + index)),
+            ])
+            .expect("bind");
+        statement.step().expect("insert");
+    }
+    raw.exec("COMMIT").expect("commit");
+}
+
+#[test]
+fn the_idle_backfill_resumes_from_its_persisted_cursor_after_a_restart() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    legacy_runs(&raw, "succeeded", 20, false);
+    raw.close().expect("close");
+    assert_eq!(store.backfill_finished_at(10).expect("first batch"), 10);
+    store.close().expect("close");
+
+    // A restart resumes after the rows the last run went through instead of re-reading them.
+    let store = open(&path);
+    assert_eq!(store.backfill_finished_at(10).expect("second batch"), 10);
+    assert_eq!(store.backfill_finished_at(10).expect("caught up"), 0);
+    assert_eq!(store.idle_examined(), 0);
+    for _ in 0..5 {
+        assert_eq!(store.backfill_finished_at(10).expect("idle"), 0);
+        assert_eq!(store.idle_examined(), 0);
+    }
+    store.close().expect("close");
+}
+
+#[test]
+fn a_legacy_home_without_the_status_index_answers_startup_from_partial_indexes() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    legacy_runs(&raw, "succeeded", 500, true);
+    legacy_runs(&raw, "running", 1, false);
+    legacy_runs(&raw, "queued", 1, false);
+    raw.exec("DROP INDEX automation_status")
+        .expect("drop status");
+    raw.close().expect("close");
+
+    let store = open(&path);
+    assert_eq!(store.active().expect("active").len(), 1);
+    assert_eq!(
+        store.waiting_automations().expect("waiting"),
+        vec!["auto-queued".to_owned()]
+    );
+    let active = store.startup_query_plan(false).expect("active plan");
+    assert!(
+        active.iter().any(|step| step.contains("automation_active")),
+        "{active:?}"
+    );
+    assert!(
+        !active.iter().any(|step| step == "SCAN automation_runs"),
+        "{active:?}"
+    );
+    let waiting = store.startup_query_plan(true).expect("waiting plan");
+    assert!(
+        waiting
+            .iter()
+            .any(|step| step.contains("automation_unfinished")),
+        "{waiting:?}"
+    );
+    assert!(
+        !waiting.iter().any(|step| step == "SCAN automation_runs"),
+        "{waiting:?}"
+    );
+    store.close().expect("close");
+}

@@ -19,7 +19,8 @@ const SCHEMA: &str = "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA 
       CREATE TABLE IF NOT EXISTS automation_revisions(id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS automation_cancellations(run_id TEXT PRIMARY KEY, automation_id TEXT NOT NULL, reason TEXT NOT NULL, requested_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS automation_webhooks(automation_id TEXT PRIMARY KEY, hook_id TEXT NOT NULL UNIQUE, secret TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS automation_webhook_deliveries(automation_id TEXT NOT NULL, delivery_id TEXT NOT NULL, run_id TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(automation_id, delivery_id));";
+      CREATE TABLE IF NOT EXISTS automation_webhook_deliveries(automation_id TEXT NOT NULL, delivery_id TEXT NOT NULL, run_id TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(automation_id, delivery_id));
+      CREATE TABLE IF NOT EXISTS automation_migration(id INTEGER PRIMARY KEY CHECK(id=1), cursor INTEGER NOT NULL, complete INTEGER NOT NULL);";
 
 /// The indexes the TypeScript creates. They are added only with a table this build creates, so
 /// opening a large existing home never indexes or rewrites history (ADR 0170).
