@@ -6,4 +6,5 @@
 //! ([`cache`]) live here as functions over rows. Discovery and persistence are ports
 //! the daemon injects; nothing here spawns a process, reads a file or reads the clock.
 
+pub mod cache;
 pub mod classification;
