@@ -193,7 +193,7 @@ impl State {
             thread_facts(store, id)
                 .ok()
                 .flatten()
-                .and_then(|facts| facts.capabilities)
+                .and_then(|facts| facts.effective_capabilities.or(facts.capabilities))
         });
         let offers = offers_of(&provider, capabilities.as_ref());
         let mut wanted = None;
@@ -205,10 +205,10 @@ impl State {
             None
         } else {
             let override_value = storage::read(store, id)?.override_mode;
-            let requested = override_value
-                .as_deref()
+            let requested = storage::migrate_selection(&provider, override_value.as_deref())
                 .filter(|value| crate::access::modes::is_access_mode(value))
-                .unwrap_or(defaults.access.as_str());
+                .unwrap_or_else(|| defaults.access.clone());
+            let requested = requested.as_str();
             wanted = Some(requested.to_owned());
             let offer = nearest_offer(requested, &offers).ok_or_else(|| {
                 AccessError::new(
@@ -301,8 +301,9 @@ impl State {
         if revision != self.permission_revision(id) {
             return Ok(None);
         }
+        let provider = self.permission_provider(store, id)?;
         let requested = storage::read(store, id)?.override_mode;
-        let Some(requested) = requested
+        let Some(requested) = storage::migrate_selection(&provider, requested.as_deref())
             .filter(|value| crate::access::modes::is_access_mode(value))
             .filter(|value| Some(value.as_str()) != running)
             .filter(|_| custom_native(running).is_none())
@@ -596,6 +597,28 @@ mod tests {
         let shown = storage::permission_state(&record);
         assert_eq!(shown.effective, None);
         assert_eq!(shown.custom.as_deref(), Some("dontAsk"));
+    }
+
+    #[test]
+    fn an_unmapped_stored_selection_resolves_as_its_ace_mode_before_the_idle_fill() {
+        let (conn, store, mut state) = store_with_provider("legacy", "claude");
+        state.permission_ensure(&store, "legacy").expect("row");
+        conn.exec("UPDATE engine_permissions SET override='plan',effective='plan' WHERE thread_id='legacy'")
+            .unwrap();
+        let resolved = state
+            .permission_resolve(
+                &store,
+                "legacy",
+                &AccessDefaults {
+                    access: "full-access".to_owned(),
+                    custom: None,
+                },
+                None,
+            )
+            .expect("resolve");
+        assert_eq!(resolved.selection.as_deref(), Some("read-only"));
+        assert_eq!(resolved.wanted.as_deref(), Some("read-only"));
+        assert_eq!(resolved.native.as_deref(), Some("plan"));
     }
 
     #[test]

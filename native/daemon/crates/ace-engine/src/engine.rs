@@ -163,11 +163,12 @@ fn start_ready(core: Rc<Core>) {
     core.tasks.borrow_mut().push(task);
 }
 
-/// The opener's deferred work (ADR 0170): the permission mapping and the title-input index run
-/// after ready, one bounded batch per pump turn, never inside `open`.
+/// The opener's deferred work (ADR 0170): the permission mapping runs after ready, one bounded
+/// batch per pump turn, never inside `open`. The task is owned with the engine's long-lived
+/// tasks so closing drains it; dropping the handle would cancel it.
 fn start_open_fills(core: Rc<Core>) {
     let weak = Rc::downgrade(&core);
-    let _task = core.executor.spawn(Lane::Control, async move {
+    let task = core.executor.spawn(Lane::Control, async move {
         let mut fills = crate::open::fills::OpenFills::new();
         loop {
             let Some(core) = weak.upgrade() else { return };
@@ -197,6 +198,7 @@ fn start_open_fills(core: Rc<Core>) {
             }
         }
     });
+    core.tasks.borrow_mut().push(task);
 }
 
 fn start_sweep(core: &Rc<Core>) {

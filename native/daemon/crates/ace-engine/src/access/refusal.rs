@@ -65,7 +65,9 @@ impl State {
         offers: &[crate::access::Offer],
         requested: Option<&str>,
     ) -> Option<CeilingRefusal> {
-        let _ = identity;
+        if !identity.valid() {
+            return None;
+        }
         let ceiling = self.permission_ceiling(store, parent, 0).ok()?;
         let allowed = allowed_child_modes(&ceiling, offers);
         let offered: Vec<String> = offers.iter().map(|offer| offer.mode.clone()).collect();
@@ -96,6 +98,13 @@ impl State {
         requested: Option<&str>,
         offers: &[crate::access::Offer],
     ) -> Result<Option<AccessSelection>, EngineError> {
+        if !identity.valid() {
+            return Err(AccessError::new(
+                "permission_ceiling_unverifiable",
+                "invalid permission policy identity",
+            )
+            .into());
+        }
         let ceiling = self.permission_ceiling(store, parent, 0)?;
         let requested = match requested {
             None | Some("inherit") => {

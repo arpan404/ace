@@ -61,7 +61,8 @@ pub fn open(store: &EngineStore) -> Result<(), EngineError> {
     // `indexEngineRecords(store)`.
     atomic(store, |tx| tx.conn().exec(ddl::RECORD_INDEXES))?;
     // `migrateEmptyCursorThreads`: E5.3's idle fill (`cursor-empty`).
-    // `AttachmentCorrelations`; `indexTitleInputs` is deferred to the idle fill.
+    // `AttachmentCorrelations`. The title-input index is not built: the title walk is bounded
+    // per call, and the TypeScript opener may build its index when it opens the home.
     atomic(store, |tx| tx.conn().exec(ddl::ATTACHMENT_INPUTS))?;
     // The interaction and task entity index (`repository.ts:126`).
     atomic(store, |tx| tx.conn().exec(ddl::ENTITY_INDEX))?;

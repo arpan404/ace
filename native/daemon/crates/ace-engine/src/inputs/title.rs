@@ -43,6 +43,9 @@ fn person_input(item: &Value) -> bool {
 const PAGE_BYTES: i64 = 256 * 1024;
 /// The person-input sequences one page of the index walk holds (`intents.ts`'s page size).
 const PAGE: usize = 64;
+/// The most items one title lookup reads before it gives up (ADR 0170: bounded per call). A
+/// thread still without a real input after this many rows keeps `Untitled`.
+pub const TITLE_SEARCH_BUDGET: usize = 4096;
 
 impl State {
     /// `oldestTitleInput` (`title-input.ts:17`): seek the first real prose input, skipping empty
@@ -53,14 +56,33 @@ impl State {
         store: &EngineStore,
         thread: &str,
     ) -> Result<Option<Value>, EngineError> {
+        Ok(self
+            .oldest_title_input_with_budget(store, thread, TITLE_SEARCH_BUDGET)?
+            .0)
+    }
+
+    /// `oldestTitleInput` with an explicit row budget. The returned count is the items read, so
+    /// a test can prove a no-match history stops at the bound.
+    pub fn oldest_title_input_with_budget(
+        &mut self,
+        store: &EngineStore,
+        thread: &str,
+        budget: usize,
+    ) -> Result<(Option<Value>, usize), EngineError> {
         let mut after = 0;
+        let mut seen = 0usize;
         loop {
+            if seen >= budget {
+                return Ok((None, seen));
+            }
             let rows =
                 stmt_cache::all_rows(store.conn(), SEQS, vec![text(thread), Cell::Integer(after)])?;
             if rows.is_empty() {
-                return Ok(None);
+                return Ok((None, seen));
             }
-            for row in &rows {
+            let take = rows.len().min(budget - seen);
+            seen += take;
+            for row in &rows[..take] {
                 let Some(seq) = row.get("created_seq").and_then(cell_int) else {
                     continue;
                 };
@@ -81,7 +103,7 @@ impl State {
                     continue;
                 };
                 if provisional_title(&list, UNTITLED_THREAD).as_str() != UNTITLED_THREAD {
-                    return Ok(Some(Value::Array(list.into())));
+                    return Ok((Some(Value::Array(list.into())), seen));
                 }
             }
             let last = rows
@@ -89,7 +111,7 @@ impl State {
                 .and_then(|row| row.get("created_seq").and_then(cell_int))
                 .unwrap_or(after);
             if rows.len() < PAGE || last <= after {
-                return Ok(None);
+                return Ok((None, seen));
             }
             after = last;
         }
@@ -175,6 +197,21 @@ mod tests {
             .and_then(|part| part.get("text"))
             .and_then(Value::as_str);
         assert_eq!(text, Some("the real one"));
+    }
+
+    #[test]
+    fn a_thread_with_no_person_input_stops_at_the_call_budget() {
+        let conn = home("t", &crate::repository::testsupport::header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        for seq in 1..=200 {
+            insert(&conn, &format!("input:{seq}"), seq, "[file: a.png]", 100);
+        }
+        let (found, seen) = state
+            .oldest_title_input_with_budget(&store, "t", 100)
+            .expect("read");
+        assert!(found.is_none());
+        assert_eq!(seen, 100, "the walk stopped at its row budget");
     }
 
     #[test]

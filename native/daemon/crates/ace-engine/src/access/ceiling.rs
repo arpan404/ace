@@ -22,7 +22,9 @@ const CHILDREN: &str = "SELECT thread_id FROM engine_permissions WHERE parent=?"
 #[derive(Debug, Clone)]
 pub(crate) struct ThreadFacts {
     pub provider: String,
-    /// `effectiveCapabilities`, else `capabilities`, from `provider_metadata` or the column.
+    /// `acp.effectiveCapabilities`: what the live session reported.
+    pub effective_capabilities: Option<Value>,
+    /// `provider_metadata.capabilities`, else `thread_cold.capabilities`, else the legacy column.
     pub capabilities: Option<Value>,
     /// The ACP install identity column, when the thread runs an ACP agent.
     pub acp: Option<Value>,
@@ -32,7 +34,7 @@ pub(crate) fn thread_facts(
     store: &EngineStore,
     id: &str,
 ) -> Result<Option<ThreadFacts>, EngineError> {
-    const THREAD: &str = "SELECT * FROM threads WHERE id=?";
+    const THREAD: &str = "SELECT t.*, cold.capabilities AS cold_capabilities FROM threads t LEFT JOIN thread_cold cold ON cold.thread_id=t.id WHERE t.id=?";
     let Some(row) = stmt_cache::get_row(store.conn(), THREAD, vec![Cell::Text(id.to_owned())])?
     else {
         return Ok(None);
@@ -43,27 +45,26 @@ pub(crate) fn thread_facts(
     let metadata =
         storage::row_text(&row, "provider_metadata").and_then(|text| ace_json::parse(&text).ok());
     let acp = storage::row_text(&row, "acp").and_then(|text| ace_json::parse(&text).ok());
-    // `thread-columns.ts:67`: effective capabilities live in the `acp` column; the older
-    // `provider_metadata` layout and the cold `capabilities` column stay readable.
-    let capabilities = acp
+    // `thread-columns.ts:63`-`:67`: effective capabilities live in `acp`; the base
+    // capabilities come from `provider_metadata` (older rows), else `thread_cold`.
+    let effective_capabilities = acp
         .as_ref()
         .and_then(|acp| acp.get("effectiveCapabilities"))
+        .cloned();
+    let capabilities = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("capabilities"))
         .cloned()
         .or_else(|| {
-            metadata
-                .as_ref()
-                .and_then(|metadata| {
-                    metadata
-                        .get("effectiveCapabilities")
-                        .or_else(|| metadata.get("capabilities"))
-                })
-                .cloned()
+            storage::row_text(&row, "cold_capabilities")
+                .and_then(|text| ace_json::parse(&text).ok())
         })
         .or_else(|| {
             storage::row_text(&row, "capabilities").and_then(|text| ace_json::parse(&text).ok())
         });
     Ok(Some(ThreadFacts {
         provider,
+        effective_capabilities,
         capabilities,
         acp,
     }))
@@ -91,28 +92,23 @@ fn policy_json(identity: &Identity, mode: Option<&str>) -> Value {
 }
 
 fn policy_from_json(value: &Value) -> Result<Policy, EngineError> {
-    let provider = value
-        .get("provider")
-        .and_then(Value::as_str)
-        .ok_or_else(|| EngineError::Records("Invalid permission policy identity".to_owned()))?;
+    fn text(value: &Value, key: &str) -> Result<Option<String>, EngineError> {
+        match value.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text.to_string())),
+            Some(_) => Err(EngineError::Records(
+                "permission_ceiling_unverifiable".to_owned(),
+            )),
+        }
+    }
+    let provider = text(value, "provider")?
+        .ok_or_else(|| EngineError::Records("permission_ceiling_unverifiable".to_owned()))?;
     let identity = Identity {
-        provider: provider.to_owned(),
-        backend: value
-            .get("backend")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        acp_agent_id: value
-            .get("acpAgentId")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        installation_id: value
-            .get("installationId")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        instance_id: value
-            .get("instanceId")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        provider,
+        backend: text(value, "backend")?,
+        acp_agent_id: text(value, "acpAgentId")?,
+        installation_id: text(value, "installationId")?,
+        instance_id: text(value, "instanceId")?,
     };
     if !identity.valid() {
         return Err(EngineError::Records(
@@ -145,7 +141,10 @@ impl State {
         id: &str,
         provider: &str,
     ) -> Result<Vec<crate::access::Offer>, EngineError> {
-        let capabilities = thread_facts(store, id)?.and_then(|facts| facts.capabilities);
+        let capabilities = thread_facts(store, id)
+            .ok()
+            .flatten()
+            .and_then(|facts| facts.effective_capabilities.or(facts.capabilities));
         Ok(offers_of(provider, capabilities.as_ref()))
     }
 
@@ -161,20 +160,24 @@ impl State {
         let session = crate::sessions::metadata::session(store, id)?;
         let backend = self.backend(store, id)?;
         if provider == "acp" {
-            let text = |key: &str| {
-                facts
-                    .acp
-                    .as_ref()
-                    .and_then(|acp| acp.get(key))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
+            let text = |key: &str| -> Result<Option<String>, EngineError> {
+                match facts.acp.as_ref().and_then(|acp| acp.get(key)) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(Value::String(value)) => Ok(Some(value.to_string())),
+                    Some(_) => Err(EngineError::Records(
+                        "permission_ceiling_unverifiable".to_owned(),
+                    )),
+                }
             };
-            let instance = session.instance_id.or_else(|| text("instanceId"));
+            let instance = match session.instance_id {
+                Some(instance) => Some(instance),
+                None => text("instanceId")?,
+            };
             Ok(Identity {
                 provider: "acp".to_owned(),
                 backend,
-                acp_agent_id: text("acpAgentId"),
-                installation_id: text("installationId"),
+                acp_agent_id: text("acpAgentId")?,
+                installation_id: text("installationId")?,
                 instance_id: instance,
             })
         } else {
@@ -208,11 +211,14 @@ impl State {
         &mut self,
         store: &EngineStore,
         id: &str,
+        provider: &str,
     ) -> Result<Option<String>, EngineError> {
         let record = storage::read(store, id)?;
+        // A stored native id maps to its ace mode before ranking, as the TypeScript's open-time
+        // migration leaves it; an unmapped row must never read looser.
         Ok(ceiling_mode(
-            record.effective.as_deref(),
-            record.override_mode.as_deref(),
+            storage::migrate_selection(provider, record.effective.as_deref()).as_deref(),
+            storage::migrate_selection(provider, record.override_mode.as_deref()).as_deref(),
         ))
     }
 
@@ -255,8 +261,11 @@ impl State {
                 let parsed = ace_json::parse(text)
                     .map_err(|error| EngineError::Records(error.to_string()))?;
                 let policy = policy_from_json(&parsed)?;
+                let ceiling_mode = record.ceiling_provider.as_deref().and_then(|provider| {
+                    storage::migrate_selection(provider, record.ceiling_mode.as_deref())
+                });
                 permission_within_ceiling(
-                    &Policy::new(policy.identity, record.ceiling_mode.as_deref()),
+                    &Policy::new(policy.identity, ceiling_mode.as_deref()),
                     &Policy::new(identity, mode.as_deref()),
                 )
             }
@@ -281,7 +290,7 @@ impl State {
             .map(|facts| facts.provider)
             .ok_or_else(|| EngineError::Records("permission_parent_not_found".to_owned()))?;
         let identity = self.permission_identity(store, parent, &provider)?;
-        let selected = self.permission_ceiling_selection(store, parent)?;
+        let selected = self.permission_ceiling_selection(store, parent, &provider)?;
         let offers = self.permission_offers(store, parent, &provider)?;
         let mode = self.permission_contained(store, parent, &provider, selected, &offers, depth)?;
         Ok(Policy::new(identity, mode.as_deref()))
@@ -359,7 +368,7 @@ impl State {
             .map(|facts| facts.provider)
             .ok_or_else(|| EngineError::Records("permission_parent_not_found".to_owned()))?;
         let identity = self.permission_identity(store, parent, &provider)?;
-        let mode = self.permission_ceiling_selection(store, parent)?;
+        let mode = self.permission_ceiling_selection(store, parent, &provider)?;
         let encoded = ace_json::to_string(&policy_json(&identity, None));
         store.atomic(|_| {
             let existing = storage::read(store, child)?;
@@ -567,6 +576,99 @@ mod tests {
                 .map(|offer| offer.mode.as_str())
                 .collect::<Vec<_>>(),
             vec!["read-only"]
+        );
+    }
+
+    #[test]
+    fn restrictive_capabilities_stored_only_in_thread_cold_are_read() {
+        let (conn, store, mut state) = store_with("cold");
+        conn.exec(
+            "INSERT INTO thread_cold (thread_id,capabilities) VALUES ('cold','{\"accessModes\":[{\"mode\":\"read-only\",\"native\":\"plan\"}]}')",
+        )
+        .expect("cold capabilities");
+        let offers = state
+            .permission_offers(&store, "cold", "claude")
+            .expect("offers");
+        assert_eq!(
+            offers
+                .iter()
+                .map(|offer| offer.mode.as_str())
+                .collect::<Vec<_>>(),
+            vec!["read-only"]
+        );
+        let resolved = state
+            .permission_resolve(
+                &store,
+                "cold",
+                &crate::access::AccessDefaults {
+                    access: "full-access".to_owned(),
+                    custom: None,
+                },
+                None,
+            )
+            .expect("resolve");
+        assert_eq!(resolved.selection.as_deref(), Some("read-only"));
+    }
+
+    #[test]
+    fn a_valid_acp_parent_contains_only_while_its_live_and_saved_identities_validate() {
+        let (conn, store, mut state) = store_with_provider("acp-parent", "acp");
+        let acp = r#"{"acpAgentId":"local:one","installationId":"approved-one","instanceId":"one:default"}"#;
+        conn.exec(&format!(
+            "INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-parent','/tmp','one:default');
+             UPDATE threads SET provider='acp', acp='{acp}' WHERE id='acp-parent';
+             INSERT INTO threads (id,workspace_id,title,provider,status,created_at,updated_at)
+               VALUES ('acp-child','workspace','C','acp','{{\"state\":\"new\"}}',0,0);
+             INSERT INTO thread_state VALUES ('acp-child', {}, 0);
+             INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-child','/tmp','one:default');
+             UPDATE threads SET acp='{acp}' WHERE id='acp-child';",
+            crate::repository::testsupport::sql_text(&header("acp-child").replace("\"provider\":\"codex\"", "\"provider\":\"acp\""))
+        ))
+        .expect("acp threads");
+        state.permission_ensure(&store, "acp-parent").expect("row");
+        state
+            .permission_parent(&store, "acp-child", "acp-parent", 1.0)
+            .expect("parent");
+        assert!(
+            state
+                .permission_within(&store, "acp-child", None)
+                .expect("within")
+        );
+
+        // The live parent identity loses its install fields: no containment.
+        conn.exec("UPDATE threads SET acp='{}' WHERE id='acp-parent'")
+            .unwrap();
+        assert!(
+            !state
+                .permission_within(&store, "acp-child", None)
+                .expect("within")
+        );
+        conn.exec(&format!(
+            "UPDATE threads SET acp='{acp}' WHERE id='acp-parent'"
+        ))
+        .unwrap();
+
+        // The saved child ceiling names an ACP identity without them: no containment.
+        conn.exec("UPDATE engine_permissions SET ceiling_identity='{\"provider\":\"acp\"}', ceiling_mode=NULL WHERE thread_id='acp-child'")
+            .unwrap();
+        assert!(
+            !state
+                .permission_within(&store, "acp-child", None)
+                .expect("within")
+        );
+    }
+
+    #[test]
+    fn a_stored_ceiling_with_a_wrongly_typed_id_is_unverifiable() {
+        let (conn, store, mut state) = store_with("typed");
+        conn.exec(
+            "INSERT INTO engine_permissions VALUES ('typed',NULL,NULL,'root','claude',NULL,'{\"provider\":\"claude\",\"instanceId\":5}');",
+        )
+        .unwrap();
+        assert!(
+            !state
+                .permission_within(&store, "typed", None)
+                .expect("within")
         );
     }
 }

@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The opener's deferred work (ADR 0170, decision 8's 2026-11-26 note): the permission-mode
-//! mapping and the title-input index are history-sized, so they run after the engine is ready,
-//! one bounded batch at a time, and never inside `open`.
-
-use ace_store::stmt_cache;
+//! The opener's deferred work (ADR 0170): the permission-mode mapping is history-sized, so it
+//! runs after the engine is ready, one bounded batch at a time, and never inside `open`. The
+//! title-input and liveness indexes are not built here at all; their readers are bounded.
 
 use crate::access::storage;
 use crate::{EngineError, EngineStore};
-
-const TITLE_INDEX: &str =
-    "SELECT 1 FROM sqlite_master WHERE type='index' AND name='engine_first_person_input'";
 
 /// The deferred open work's progress. One process's run; a restart starts it again, and the
 /// permission fill's done marker stops a completed mapping from walking the table.
@@ -17,7 +12,6 @@ const TITLE_INDEX: &str =
 pub struct OpenFills {
     permission_cursor: Option<String>,
     permission_done: bool,
-    title_done: bool,
     started: bool,
 }
 
@@ -32,7 +26,6 @@ impl OpenFills {
         if !self.started {
             self.started = true;
             self.permission_done = storage::permission_fill_done(store)?;
-            self.title_done = title_index_exists(store)?;
         }
         if !self.permission_done {
             let (next, done) = storage::migrate_permissions_step(
@@ -42,38 +35,37 @@ impl OpenFills {
             )?;
             self.permission_cursor = next;
             self.permission_done = done;
-            return Ok(!self.permission_done || !self.title_done);
-        }
-        if !self.title_done {
-            ensure_title_index(store)?;
-            self.title_done = true;
+            return Ok(!self.permission_done);
         }
         Ok(false)
     }
 }
 
-/// Whether the title-input index exists: a version-9 home without it waits for the idle step.
-pub fn title_index_exists(store: &EngineStore) -> Result<bool, EngineError> {
-    Ok(stmt_cache::get_row(store.conn(), TITLE_INDEX, vec![])?.is_some())
-}
-
-/// `indexTitleInputs` (`title-input.ts:12`) on a populated `items` table, deferred out of open.
-/// SQLite's index build is one statement; it runs idle, after ready, never inside the opener.
-pub fn ensure_title_index(store: &EngineStore) -> Result<(), EngineError> {
-    store.atomic(|tx| {
-        tx.conn().exec(crate::open::ddl::TITLE_INDEX)?;
-        Ok(())
-    })?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actor::ActorDeps;
+    use crate::executor::{Budget, Notified, Notifier};
+    use crate::frames::live::UnportedLive;
     use crate::open::open;
     use crate::repository::testsupport::Shell;
-    use ace_store::{Connection, OpenOptions, Value as Cell};
+    use ace_store::{Connection, OpenOptions, Value as Cell, stmt_cache};
+    use std::rc::Rc;
     use std::sync::Arc;
+
+    struct ManualPump;
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+    struct Turn;
+    impl Budget for Turn {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 64
+        }
+    }
 
     fn base_home(name: &str) -> (Arc<Connection>, EngineStore) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -157,6 +149,19 @@ mod tests {
         let mut fills = OpenFills::new();
         assert!(fills.step(&store).expect("first step"));
         assert_eq!(mapped(), 256, "one bounded batch");
+        // The cursor committed with that batch: a fresh fill (a restart) resumes after it.
+        let cursor = stmt_cache::get_row(
+            &conn,
+            "SELECT id FROM upgrade_cleanup WHERE id LIKE 'engine-permission-cursor:%'",
+            vec![],
+        )
+        .expect("cursor")
+        .and_then(|row| match row.get("id") {
+            Some(Cell::Text(value)) => Some(value.clone()),
+            _ => None,
+        });
+        assert!(cursor.is_some(), "the cursor committed with the rows");
+        let mut fills = OpenFills::new();
         let mut steps = 1;
         while fills.step(&store).expect("step") {
             steps += 1;
@@ -167,21 +172,47 @@ mod tests {
     }
 
     #[test]
-    fn a_version_nine_home_without_the_title_index_opens_without_building_it() {
-        let (conn, _store) = base_home("noindex");
-        let store = Shell::store(&conn);
+    fn the_engine_runs_the_fill_after_readiness_and_keeps_it_until_it_commits() {
+        let (conn, store) = base_home("startup");
         open(&store).expect("open");
         conn.exec(
-            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<500)
-             INSERT INTO items (id,thread_id,created_seq,item)
-               SELECT 'item'||i,'noindex',i,
-                 json_object('id','item'||i,'agentId','root','type','message','role','user',
-                   'parts',json_array(json_object('type','text','text','hello')),'createdAt',1) FROM n;",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<600)
+             INSERT INTO threads (id,workspace_id,title,provider,status,created_at,updated_at)
+               SELECT 's'||i,'workspace','T','claude','{\"state\":\"new\"}',0,0 FROM n;
+             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<600)
+             INSERT INTO engine_permissions (thread_id,override,effective)
+               SELECT 's'||i,'plan','plan' FROM n;",
         )
-        .expect("populated items without the index");
-        assert!(!title_index_exists(&store).expect("index check"));
-        let mut fills = OpenFills::new();
-        while fills.step(&store).expect("step") {}
-        assert!(title_index_exists(&store).expect("index built"));
+        .expect("legacy rows");
+        let mapped = || -> i64 {
+            stmt_cache::get_row(
+                &conn,
+                "SELECT COUNT(*) AS n FROM engine_permissions WHERE override='read-only'",
+                vec![],
+            )
+            .expect("count")
+            .and_then(|row| match row.get("n") {
+                Some(Cell::Integer(value)) => Some(*value),
+                _ => None,
+            })
+            .unwrap_or(0)
+        };
+        let (_, shell) = Shell::store_with_controls(&conn);
+        let engine = crate::Engine::new(
+            shell.clone(),
+            shell,
+            crate::Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            &conn,
+            Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+        )
+        .expect("engine");
+        // Nothing ran at construction; the fill is idle work after readiness.
+        assert_eq!(mapped(), 0);
+        for _ in 0..400 {
+            engine.pump(&mut Turn);
+        }
+        assert_eq!(mapped(), 600, "the owned fill task ran to completion");
     }
 }

@@ -112,6 +112,11 @@ pub trait PermissionCatalog {
         None
     }
 
+    /// The instance's own ace offers when its catalog knows them (ACP's reported modes).
+    fn access_modes(&self, _provider: &str, _instance: Option<&str>) -> Option<Value> {
+        None
+    }
+
     /// `permissionCapabilities`: the catalog's modes over the base, else the base unchanged.
     fn permission_capabilities(
         &self,
@@ -119,27 +124,68 @@ pub trait PermissionCatalog {
         instance: Option<&str>,
         base: &Value,
     ) -> Option<Value> {
-        merge_permission_capabilities(self.permission_modes(provider, instance)?, base)
+        // `models.ts:53`: a missing instance is the provider's default one.
+        let default = format!("{provider}-cli-default");
+        let instance = instance.unwrap_or(&default);
+        let modes = self.permission_modes(provider, Some(instance))?;
+        let access_modes = self.access_modes(provider, Some(instance));
+        merge_permission_capabilities(modes, access_modes, base)
     }
 }
 
 /// The adapter E5.6's `ModelCatalog` plugs in through: its `permission_modes` as a closure, so an
 /// engine that holds the catalog behind a trait object needs no wrapper type of its own.
-pub struct ModelCatalogAdapter<F>(pub F);
+type AccessModes = Box<dyn Fn(&str, Option<&str>) -> Option<Value>>;
+
+pub struct ModelCatalogAdapter<F> {
+    modes: F,
+    access_modes: Option<AccessModes>,
+}
+
+impl<F> ModelCatalogAdapter<F>
+where
+    F: Fn(&str, Option<&str>) -> Option<Vec<Value>>,
+{
+    pub fn new(modes: F) -> ModelCatalogAdapter<F> {
+        ModelCatalogAdapter {
+            modes,
+            access_modes: None,
+        }
+    }
+
+    /// The instance's own ace offers, when the catalog reports them (`models.ts:62`).
+    pub fn with_access_modes(
+        mut self,
+        access_modes: impl Fn(&str, Option<&str>) -> Option<Value> + 'static,
+    ) -> ModelCatalogAdapter<F> {
+        self.access_modes = Some(Box::new(access_modes));
+        self
+    }
+}
 
 impl<F> PermissionCatalog for ModelCatalogAdapter<F>
 where
     F: Fn(&str, Option<&str>) -> Option<Vec<Value>>,
 {
     fn permission_modes(&self, provider: &str, instance: Option<&str>) -> Option<Vec<Value>> {
-        (self.0)(provider, instance)
+        (self.modes)(provider, instance)
+    }
+
+    fn access_modes(&self, provider: &str, instance: Option<&str>) -> Option<Value> {
+        self.access_modes
+            .as_ref()
+            .and_then(|access_modes| access_modes(provider, instance))
     }
 }
 
 /// `knownPermissionCapabilities` (`models.ts:43`-`:58`): the rows become the capabilities'
 /// `permissionModes` and `permissions.modes`, on a base that already carries `permissions`. No
 /// modes, or no base permissions, leaves the base.
-fn merge_permission_capabilities(modes: Vec<Value>, base: &Value) -> Option<Value> {
+fn merge_permission_capabilities(
+    modes: Vec<Value>,
+    access_modes: Option<Value>,
+    base: &Value,
+) -> Option<Value> {
     if modes.is_empty() {
         return None;
     }
@@ -153,6 +199,9 @@ fn merge_permission_capabilities(modes: Vec<Value>, base: &Value) -> Option<Valu
     permissions.insert("permissionModes", Value::Array(modes.clone().into()));
     permissions.insert("modes", Value::Array(ids.into()));
     map.insert("permissionModes", Value::Array(modes.into()));
+    if let Some(access_modes) = access_modes {
+        map.insert("accessModes", access_modes);
+    }
     Some(next)
 }
 
@@ -330,7 +379,7 @@ mod tests {
             r#"{"permissions":{"modes":[],"nativeAutoReview":true,"toolGate":true},"accessModes":[{"mode":"ask","native":"default"}]}"#,
         )
         .unwrap();
-        let adapter = ModelCatalogAdapter(|provider: &str, instance: Option<&str>| {
+        let adapter = ModelCatalogAdapter::new(|provider: &str, instance: Option<&str>| {
             (provider == "claude" && instance == Some("work")).then(|| {
                 ace_json::parse(r#"[{"id":"plan"},{"id":"default"}]"#)
                     .unwrap()
@@ -338,6 +387,10 @@ mod tests {
                     .map(|rows| rows.to_vec())
                     .unwrap_or_default()
             })
+        })
+        .with_access_modes(|provider: &str, instance: Option<&str>| {
+            (provider == "claude" && instance == Some("work"))
+                .then(|| ace_json::parse(r#"[{"mode":"read-only","native":"plan"}]"#).unwrap())
         });
         let merged = adapter
             .permission_capabilities("claude", Some("work"), &base)
@@ -357,8 +410,20 @@ mod tests {
                 .map(|modes| modes.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
             Some(vec!["plan", "default"])
         );
-        // The base's own offers are kept: only the modes are replaced.
-        assert!(merged.get("accessModes").is_some());
+        // The catalog's own offers replace the base's.
+        assert_eq!(
+            merged
+                .get("accessModes")
+                .and_then(Value::as_array)
+                .map(|offers| offers.len()),
+            Some(1)
+        );
+        // A missing instance resolves to the provider's default one.
+        assert!(
+            adapter
+                .permission_capabilities("claude", None, &base)
+                .is_none()
+        );
         // No modes for another account, or no base permissions, leaves the base.
         assert_eq!(adapter.permission_capabilities("claude", None, &base), None);
         let bare = ace_json::parse("{}").unwrap();

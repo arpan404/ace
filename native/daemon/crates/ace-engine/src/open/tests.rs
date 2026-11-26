@@ -71,11 +71,13 @@ fn seed_base(conn: &Arc<Connection>, base: &[SchemaRow]) {
     }
 }
 
-fn engine_objects(rows: &[SchemaRow], base: &[SchemaRow]) -> Vec<SchemaRow> {
-    let base_names: std::collections::HashSet<&str> =
-        base.iter().map(|row| row.name.as_str()).collect();
+/// Every schema object except the FTS virtual tables and their shadow rows (SQLite creates
+/// those itself, and seeding skipped them) and the two history-sized engine indexes the Rust
+/// opener deliberately never builds.
+fn comparable_objects(rows: &[SchemaRow]) -> Vec<SchemaRow> {
+    let omitted = ["engine_first_person_input", "thread_liveness_candidates"];
     rows.iter()
-        .filter(|row| !base_names.contains(row.name.as_str()))
+        .filter(|row| !row.name.starts_with("search_") && !omitted.contains(&row.name.as_str()))
         .cloned()
         .collect()
 }
@@ -119,15 +121,10 @@ fn the_rust_opener_leaves_the_same_sqlite_master_as_the_typescript_opener() {
     seed_base(&conn, &base);
     let store = Shell::store(&conn);
     open(&store).expect("the opener");
-    assert!(
-        !crate::open::fills::title_index_exists(&store).expect("the index check"),
-        "the title index is deferred out of open"
-    );
-    crate::open::fills::ensure_title_index(&store).expect("the idle index");
-    let mut actual = engine_objects(&schema(&conn), &base);
-    let mut opened = engine_objects(&opened, &base);
-    // The title index is deferred out of open, so its creation position differs; the objects
-    // and their SQL text are still identical.
+    // These two partial indexes are history-sized builds; the Rust opener never runs them. The
+    // TypeScript opener may build them when it opens the home; Rust's readers do not need them.
+    let mut actual = comparable_objects(&schema(&conn));
+    let mut opened = comparable_objects(&opened);
     actual.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
     opened.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
     let names = |rows: &[SchemaRow]| {
@@ -138,7 +135,7 @@ fn the_rust_opener_leaves_the_same_sqlite_master_as_the_typescript_opener() {
     assert_eq!(
         names(&actual),
         names(&opened),
-        "schema objects, in creation order"
+        "every schema object, the opener's own and the base's"
     );
     // Every object's text is the TypeScript's byte for byte, not only its name.
     for (produced, expected) in actual.iter().zip(opened.iter()) {
