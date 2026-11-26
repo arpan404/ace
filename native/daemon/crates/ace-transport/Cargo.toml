@@ -71,6 +71,17 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = [
 # and a TLS identity's key PEM is held only in a `Zeroizing` buffer while it is
 # parsed.
 zeroize = { version = "1" }
+# ace-keys: the one 64-hex fingerprint rule, shared with the daemon's client rules.
+ace-keys = { path = "../ace-keys" }
+# sha2: a pinned certificate's fingerprint is the SHA-256 of its SubjectPublicKeyInfo, the
+# value `tls-identity.ts:6`-`:9` hands a pairing link.
+sha2 = { version = "0.11" }
+# x509-parser: a pinned certificate's own validity dates, which Node checks after the pin
+# (`client-access.ts:130`-`:132`); rustls exposes no accessor for them.
+x509-parser = { version = "0.18", default-features = false }
+# rustls-native-certs: the system trust store a trusted ts.net name's public certificate is
+# verified against (ADR 0097), as the Node client's `rejectUnauthorized` default does.
+rustls-native-certs = { version = "0.8" }
 
 [dev-dependencies]
 # tokio/test-util: the socket's close deadline is driven by tokio's clock, which a
