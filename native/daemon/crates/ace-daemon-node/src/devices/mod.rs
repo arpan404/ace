@@ -9,6 +9,9 @@
 // target every export reads as unused.
 #![cfg_attr(test, allow(dead_code))]
 
+pub mod chrome;
+pub mod chrome_simulator;
+pub mod chrome_skin;
 pub mod input;
 pub mod platform;
 
