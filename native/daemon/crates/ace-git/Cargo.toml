@@ -31,6 +31,8 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.54", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
 # libc: O_NONBLOCK when probing a root ref, so a FIFO in the Git directory can never block a worker.
 libc = { version = "0.2" }
+# rustix: directory-relative O_NOFOLLOW opens for guarded conflict writes (G4).
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 # unicode-normalization: NFKD before slugging a machine name, exactly as the TypeScript's
 # `normalize("NFKD")` (MIT OR Apache-2.0).
 unicode-normalization = { version = "0.1", default-features = false }

@@ -15,7 +15,8 @@ use crate::core::error::{GitError, GitErrorCode};
 use crate::core::paths;
 use crate::reads::{Command, CommandPort, checked, text_output};
 use crate::writes::bind::{
-    guarded_regular_write, long_writing, serial_turn, stage_bytes, stage_literal,
+    StageLine, long_writing, serial_turn, stage_lines, stage_removal, stage_resolved_bytes,
+    stage_side_entry, verify_worktree_revision, write_worktree_verified,
 };
 
 /// `maxConflictFileBytes`: the largest resolution ace writes.
