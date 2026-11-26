@@ -74,10 +74,6 @@ impl Receipt {
             .core()
             .with_state(|state| state.repo.probe_passthrough = true)
             .unwrap();
-        // The opener's restart table (`restart-resume.ts:78`); the fixture predates it.
-        receipt.exec(
-            "CREATE TABLE IF NOT EXISTS engine_restart_resumes (thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE, streak INTEGER NOT NULL)",
-        );
         receipt.thread_row("{}");
         receipt.queue("INSERT INTO engine_queue (thread_id) VALUES ('t')");
         receipt.session(
