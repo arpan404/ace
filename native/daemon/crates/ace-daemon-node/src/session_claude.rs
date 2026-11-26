@@ -25,8 +25,8 @@ use crate::supervisor::child::NativeOutputTarget;
 /// The facade's callback: one encoded batch of `[[kind, ...fields], ...]`.
 type Events = ThreadsafeFunction<String, ()>;
 
-/// What the facade read at open: the session id, the interaction root, the MCP bearer, the hook
-/// list it also put in `initialize`, and whether this is a resume.
+/// What the facade read at open: the session id, the interaction root, the MCP bearer and
+/// whether this is a resume. The hook ids arrive with the initialize the wire writes.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConfigJson {
@@ -35,8 +35,6 @@ struct ConfigJson {
     root_key: String,
     #[serde(default)]
     bearer: Option<String>,
-    #[serde(default)]
-    hooks: Vec<(String, Vec<String>)>,
     #[serde(default)]
     resume: bool,
 }
@@ -57,7 +55,6 @@ impl ClaudeSessionNative {
             session_id: config.session_id,
             root_key: config.root_key,
             bearer: config.bearer,
-            hooks: config.hooks,
             resume: config.resume,
         }));
         let port = SessionPort::new(events, core.queue().clone(), core.gate().clone())?;

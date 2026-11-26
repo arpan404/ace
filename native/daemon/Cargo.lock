@@ -143,6 +143,7 @@ dependencies = [
  "ace-store",
  "ace-supervisor",
  "ace-transport",
+ "agent-stream-json",
  "bytes",
  "getrandom 0.4.3",
  "napi",

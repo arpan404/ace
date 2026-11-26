@@ -117,8 +117,9 @@ impl ClaudeSessionCore {
         self.input(ClaudeWire::expire);
     }
 
-    /// `q.close()`'s `input.close()`: EOF after every queued write.
+    /// `q.close()`'s `input.close()`: EOF after every queued write, and no expiry writes.
     pub fn end_input(&self) {
+        self.lock().end_input();
         if let Some(ports) = self.ports.get() {
             ports.stdin.end();
         }
@@ -277,7 +278,6 @@ mod tests {
             session_id: "session-1".to_owned(),
             root_key: "root".to_owned(),
             bearer: None,
-            hooks: Vec::new(),
             resume: false,
         })
     }
