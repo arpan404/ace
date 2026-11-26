@@ -16,7 +16,12 @@ import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
 import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
 import { nativeId } from "./commands.ts";
 import type { DeviceMedia } from "./media-paths.ts";
-import { nativeSimulatorRoute, nativeVideo, nativeWindows } from "./native-video.ts";
+import {
+  nativeAndroidLiveViewError,
+  nativeSimulatorRoute,
+  nativeVideo,
+  nativeWindows,
+} from "./native-video.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -285,6 +290,7 @@ export async function startCapture(options: {
 }
 /** Why an Android capture without scrcpy refuses a live view, which is video only. */
 function androidLiveViewError(why: string): DeviceError {
+  if (nativeVideo) return nativeAndroidLiveViewError(why);
   return new DeviceError(
     "not_supported",
     `The Android live view needs scrcpy-server: ${why}`,

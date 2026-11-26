@@ -40,6 +40,11 @@ export function nativeSimulatorRoute(input: {
   );
 }
 
+/** Why an Android capture without scrcpy refuses a live view, with today's code and text. */
+export function nativeAndroidLiveViewError(why: string): never {
+  return deviceAnswer<never>(() => nativeDevices().deviceCaptureAndroidLiveViewError(why));
+}
+
 export function nativeNeedsToolsDownload(supported: boolean, serveSimEnv: boolean): boolean {
   return nativeDevices().deviceCaptureNeedsToolsDownload(supported, serveSimEnv);
 }

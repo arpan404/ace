@@ -531,7 +531,9 @@ an 8 KiB unit (about 1,390x slower, JSON across both directions), and the once-p
 transcode decision 429 ns against 117 ns. The per-frame paths therefore stay in TypeScript and
 the Rust stays the library the all-Rust daemon calls directly (ADR 0226): the H.264 feed, the
 published frame, `SimulatorFrames`/`SimulatorJpeg` per picture and the encoder note are not
-crossed.
+crossed. The frame-encoder's per-picture `frame` command stays TypeScript for the same reason
+(a JSON command per picture); its ingest events and the 4 KiB line splitter, which run once per
+switch, are Rust.
 
 `host_frames.rs` keeps the host encoder's decisions: the shared file `emulator-frames-<id>.rgba`
 sized to one RGBA picture of the display, the screenshot square as the box rounded and never
