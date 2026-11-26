@@ -13,6 +13,13 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# globset: file-trigger patterns match like Node's path.matchesGlob (a * does not cross /).
+globset = "0.4"
+# files-watch: A3 uses the files backend's own watcher instead of a second one.
+files-watch = { path = "../../../files/crates/files-watch" }
+files-safe = { path = "../../../files/crates/files-safe" }
+files-list = { path = "../../../files/crates/files-list" }
+files-io = { path = "../../../files/crates/files-io" }
 # ace-store: both automation files open through the store's connection factory, so one SQLite
 # library holds every file in the process and a home either backend wrote opens in the other.
 ace-store = { path = "../ace-store" }

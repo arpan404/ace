@@ -49,7 +49,7 @@ impl Random for FixedRandom {
     }
 }
 
-pub trait IdSource {
+pub trait IdSource: Send {
     fn next_id(&mut self) -> String;
 }
 

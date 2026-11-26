@@ -107,9 +107,13 @@ host refusal, and Cursor automation sessions. A1 only hands A2 `Execute`, `Recov
 
 Owned by **A3** (`ace-automations/src/workspace.rs`, needs the files tool's Rust backend): the
 filesystem watcher itself, path memory per trigger, holding events while a baseline is read, the
-reconciliation bound, and durable event keys. A1 owns what happens after delivery: a file
-trigger's health, replacement failures keeping the old watcher, readiness by revision, and
-admission of the delivered event.
+reconciliation bound, and durable event keys. The Rust module wraps the files backend's own
+`files-watch` crate (never a second watcher) for batches, `files-list` for versions and gitignore
+flags, and `files-io` for content digests; patterns match like Node's `path.matchesGlob`. A1 owns
+what happens after delivery: a file trigger's health, replacement failures keeping the old
+watcher, readiness by revision, and admission of the delivered event. The daemon wires one
+`workspace::subscribe` per trigger and calls `Service::receive_file_event`/`watch_ready` with the
+subscription's revision; the batching, seeding and replay stay inside A3.
 
 ## A1: the scheduler (needs E2, `ACE_STORE=native`)
 

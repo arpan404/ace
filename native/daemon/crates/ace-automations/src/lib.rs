@@ -21,6 +21,7 @@ pub mod webhook_key;
 pub mod webhook_secret_box;
 pub mod webhook_signature;
 pub mod webhooks;
+pub mod workspace;
 
 pub use decisions::{
     PAUSED_REFUSAL, PAUSED_RESULT, RUNNING_LIMIT, admission, can_promote, jitter_deadline,
@@ -46,4 +47,10 @@ pub use webhook_signature::{
 };
 pub use webhooks::{
     RotatedSecret, WebhookAnswer, WebhookDeps, WebhookRequest, Webhooks, valid_hook_id,
+};
+pub use workspace::{
+    Checkout, CheckoutEntry, DEFAULT_BUFFER_LIMIT, DEFAULT_SNAPSHOT_LIMIT, FileEvent,
+    FilesCheckout, FilesWatch, Reconciler, Watch, WatchChange, WatchKind, WorkspaceHooks,
+    WorkspaceLimits, WorkspaceOpen, WorkspacePayload, WorkspaceSubscription,
+    subscribe as subscribe_workspace,
 };
