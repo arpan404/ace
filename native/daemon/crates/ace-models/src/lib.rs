@@ -8,6 +8,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod display_name;
 pub mod effort;
 pub mod free;
