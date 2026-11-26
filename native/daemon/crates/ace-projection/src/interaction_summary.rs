@@ -501,21 +501,20 @@ pub fn wire_thread_view(mut view: Value) -> Value {
     let Some(interactions) = field(&view, "interactions").and_then(object) else {
         return view;
     };
+    // Weigh first: an unchanged view is returned without copying its interactions.
+    let mut summarized: Vec<Option<Value>> = Vec::with_capacity(interactions.len());
     let mut changed = false;
-    let mut rebuilt = Map::with_capacity(interactions.len());
-    for (id, interaction) in interactions.iter() {
-        match summary(interaction) {
-            Some(sent) => {
-                changed = true;
-                rebuilt.insert(id.clone(), sent);
-            }
-            None => {
-                rebuilt.insert(id.clone(), interaction.clone());
-            }
-        }
+    for interaction in interactions.values() {
+        let sent = summary(interaction);
+        changed |= sent.is_some();
+        summarized.push(sent);
     }
     if !changed {
         return view;
+    }
+    let mut rebuilt = Map::with_capacity(interactions.len());
+    for ((id, interaction), sent) in interactions.iter().zip(summarized) {
+        rebuilt.insert(id.clone(), sent.unwrap_or_else(|| interaction.clone()));
     }
     if let Some(view) = object_mut(&mut view) {
         view.insert("interactions", Value::Object(rebuilt));
