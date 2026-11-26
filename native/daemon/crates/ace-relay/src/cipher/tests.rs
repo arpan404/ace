@@ -193,7 +193,7 @@ fn a_snapshot_resumes_the_same_ordered_session() {
     assert_eq!(resumed.decrypt(&replay, &[]).unwrap(), b"third");
     assert!(resumed.decrypt(&replay, &[]).is_err());
     // A keyless state has nothing to hand over.
-    assert!(CipherState::new(None, 0).snapshot().is_err());
+    assert!(CipherState::new(None::<[u8; 32]>, 0).snapshot().is_err());
 }
 
 #[test]

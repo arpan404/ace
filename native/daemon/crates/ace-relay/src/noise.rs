@@ -14,7 +14,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::RelayError;
 
@@ -31,11 +31,12 @@ pub use crate::cipher::MAX_MESSAGE;
 /// The size of an NK first message with an empty payload: `e` plus the tag.
 pub const NK_FIRST_MESSAGE_MINIMUM: usize = 48;
 
-/// A static or ephemeral X25519 key pair. The private half is wiped on drop, and there is no
-/// `Clone`: a key is moved to its one owner.
+/// A static or ephemeral X25519 key pair. The private half lives in a `StaticSecret`, which wipes
+/// itself on drop (and when cloned for one more handshake), and there is no way to reach it as a
+/// bare array: a copy cannot exist by accident.
 pub struct KeyPair {
     pub public: [u8; 32],
-    private: Zeroizing<[u8; 32]>,
+    secret: x25519_dalek::StaticSecret,
 }
 
 impl std::fmt::Debug for KeyPair {
@@ -54,50 +55,49 @@ impl KeyPair {
     pub fn from_private(private: [u8; 32]) -> Self {
         let secret = x25519_dalek::StaticSecret::from(private);
         let public = x25519_dalek::PublicKey::from(&secret).to_bytes();
-        Self {
-            public,
-            private: Zeroizing::new(private),
-        }
+        Self { public, secret }
     }
 
-    /// A fresh pair from bytes the shell's CSPRNG produced (`entropy` must give 32).
+    /// A fresh pair from bytes the shell's CSPRNG produced (`entropy` must give 32). The buffer the
+    /// source returned is wiped before it is dropped, as the TypeScript wipes its own key bytes.
     pub fn generate(entropy: &dyn Fn(usize) -> Vec<u8>) -> Result<Self, RelayError> {
-        let bytes = entropy(32);
+        let mut bytes = Zeroizing::new(entropy(32));
         let private: [u8; 32] = bytes
             .as_slice()
             .try_into()
             .map_err(|_| RelayError::Noise("the entropy source did not give 32 bytes"))?;
+        bytes.zeroize();
         Ok(Self::from_private(private))
     }
 
+    /// The private half, for the one caller that must persist it (the home's key file). Every
+    /// handshake takes the pair itself, so no array copy is made on the DH path.
     pub fn private(&self) -> &[u8; 32] {
-        &self.private
+        self.secret.as_bytes()
     }
 
-    /// Another handle on the same static key, for one more handshake. The private half is copied
-    /// into a fresh `Zeroizing` buffer, so both handles wipe themselves.
+    /// Another handle on the same static key, for one more handshake. `StaticSecret` wipes itself
+    /// on drop, so both handles are erased.
     pub fn reopen(&self) -> Self {
-        Self::from_private(*self.private)
+        Self {
+            public: self.public,
+            secret: self.secret.clone(),
+        }
     }
 
     /// The host id a static key names: base32 of its SHA-256 (`hostId`/`fingerprint`).
     pub fn host_id(&self) -> String {
         host_id(&self.public)
     }
-}
 
-/// The handshake's ephemeral, from the I/O boundary (a vector for a test). The crate never draws
-/// randomness itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ephemeral {
-    Provided([u8; 32]),
-}
-
-impl Ephemeral {
-    fn key(self) -> KeyPair {
-        KeyPair::from_private(match self {
-            Self::Provided(private) => private,
-        })
+    /// A DH whose result is wiped when dropped. An all-zero result means the peer's public key is
+    /// low order, and `mix_key` refuses it before it can reach HKDF: the shared secret would not
+    /// depend on either private key (`@noble/curves` rejects it the same way).
+    fn diffie_hellman(&self, remote: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+        let shared = self
+            .secret
+            .diffie_hellman(&x25519_dalek::PublicKey::from(*remote));
+        Zeroizing::new(shared.to_bytes())
     }
 }
 
@@ -171,32 +171,32 @@ fn sha256(parts: &[&[u8]]) -> [u8; 32] {
     digest.finalize().into()
 }
 
-/// `HKDF(ck, ikm, "", 64)`: extract with `ck` as the salt, expand to two 32-byte keys.
-fn derive(ck: &[u8; 32], ikm: &[u8]) -> Result<([u8; 32], Zeroizing<[u8; 32]>), RelayError> {
+/// A 32-byte key buffer that wipes itself when dropped.
+type KeyMaterial = Zeroizing<[u8; 32]>;
+
+/// `HKDF(ck, ikm, "", 64)`: extract with `ck` as the salt, expand to two 32-byte keys. The PRK
+/// and both outputs are wiped when dropped, so no intermediate key survives the call.
+fn derive(ck: &[u8; 32], ikm: &[u8]) -> Result<(KeyMaterial, KeyMaterial), RelayError> {
     let prk = {
         let mut mac = <Hmac<Sha256> as hmac::digest::KeyInit>::new_from_slice(ck)
             .map_err(|_| RelayError::Noise("HKDF refused the chaining key"))?;
         mac.update(ikm);
-        mac.finalize().into_bytes()
+        Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()))
     };
     let read = {
-        let mut mac = <Hmac<Sha256> as hmac::digest::KeyInit>::new_from_slice(&prk)
+        let mut mac = <Hmac<Sha256> as hmac::digest::KeyInit>::new_from_slice(&*prk)
             .map_err(|_| RelayError::Noise("HKDF refused the chaining key"))?;
         mac.update(&[1]);
-        mac.finalize().into_bytes()
+        Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()))
     };
     let write = {
-        let mut mac = <Hmac<Sha256> as hmac::digest::KeyInit>::new_from_slice(&prk)
+        let mut mac = <Hmac<Sha256> as hmac::digest::KeyInit>::new_from_slice(&*prk)
             .map_err(|_| RelayError::Noise("HKDF refused the chaining key"))?;
-        mac.update(&read);
+        mac.update(&*read);
         mac.update(&[2]);
-        mac.finalize().into_bytes()
+        Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()))
     };
-    let mut first = [0u8; 32];
-    first.copy_from_slice(&read);
-    let mut second = [0u8; 32];
-    second.copy_from_slice(&write);
-    Ok((first, Zeroizing::new(second)))
+    Ok((read, write))
 }
 
 fn seal(key: &[u8; 32], nonce: u64, ad: &[u8], plain: &[u8]) -> Result<Vec<u8>, RelayError> {
@@ -252,16 +252,16 @@ impl Symmetric {
         self.h = sha256(&[&self.h, data]);
     }
 
-    /// `DH(private, remote)` then `(ck, k) = HKDF(ck, dh)`; the cipher starts at nonce 0.
-    fn mix_key(&mut self, private: &[u8; 32], remote: &[u8; 32]) -> Result<(), RelayError> {
-        let secret = x25519_dalek::StaticSecret::from(*private);
-        let shared = Zeroizing::new(
-            secret
-                .diffie_hellman(&x25519_dalek::PublicKey::from(*remote))
-                .to_bytes(),
-        );
+    /// `DH(private, remote)` then `(ck, k) = HKDF(ck, dh)`; the cipher starts at nonce 0. An
+    /// all-zero result is refused before HKDF: a low-order peer key would make the keys
+    /// independent of both private keys (`@noble/curves` rejects that DH the same way).
+    fn mix_key(&mut self, private: &KeyPair, remote: &[u8; 32]) -> Result<(), RelayError> {
+        let shared = private.diffie_hellman(remote);
+        if shared.iter().all(|byte| *byte == 0) {
+            return Err(RelayError::Noise("Non-contributory Diffie-Hellman"));
+        }
         let (ck, key) = derive(&self.ck, &*shared)?;
-        self.ck = Zeroizing::new(ck);
+        self.ck = ck;
         self.key = Some(key);
         self.nonce = 0;
         Ok(())
@@ -299,10 +299,7 @@ impl Symmetric {
         initiator: bool,
     ) -> Result<(crate::cipher::CipherState, crate::cipher::CipherState), RelayError> {
         let (k1, k2) = derive(&self.ck, &[])?;
-        let mut first = [0u8; 32];
-        first.copy_from_slice(&k1);
-        let send = if initiator { first } else { *k2 };
-        let receive = if initiator { *k2 } else { first };
+        let (send, receive) = if initiator { (k1, k2) } else { (k2, k1) };
         Ok((
             crate::cipher::CipherState::keyed(send),
             crate::cipher::CipherState::keyed(receive),

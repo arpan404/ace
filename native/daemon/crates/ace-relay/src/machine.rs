@@ -5,6 +5,8 @@
 //! (`transfers/route-policy.ts`). The target that decides and runs a call is the machines ADR's;
 //! this is the stream around it.
 
+use base64::Engine;
+
 use ace_json::{Map, Value};
 
 /// Calls answered at once on one stream; more wait for a free one.
@@ -15,6 +17,10 @@ pub const URGENT: usize = 4;
 pub const WAITING: usize = 32;
 /// The most bytes of a bulk payload ace's hosted relay carries (ADR 0192).
 pub const HOSTED_RELAY_TRANSFER_BYTES: usize = 8 * 1024 * 1024;
+/// The most bytes one relayed transfer piece carries (`transferRelayPieceBytes`).
+pub const TRANSFER_PIECE_BYTES: usize = 1024 * 1024;
+/// That piece's base64 length: `ceil(bytes / 3) * 4`.
+pub const TRANSFER_PIECE_BASE64: usize = TRANSFER_PIECE_BYTES.div_ceil(3) * 4;
 
 /// The welcome a machine stream opens with (`relay-machine-host.ts:52`).
 pub fn welcome(host_id: &str, head_seq: u64, machine_transfers: bool) -> Value {
@@ -37,6 +43,22 @@ pub fn answer(id: u64, status: u16, body: &str) -> Value {
     message.insert("status", Value::from(status));
     message.insert("body", ace_json::parse(body).unwrap_or(Value::Null));
     Value::Object(message)
+}
+
+/// The words for a bulk upload ace's relay won't carry (`route-policy.ts:63`).
+pub const HOSTED_RELAY_REFUSAL: &str = "Only ace's relay reaches that machine right now, and it \
+carries a project's files only up to 8 MiB. Send it again while the machines reach each other \
+directly (LAN or Tailscale), or link them through your own relay.";
+
+/// The terminal refusal for a transfer ace's relay won't carry (`relay-machine-host.ts:130`,
+/// `TargetRefusal("not_supported", …)`): 501 with words the calling agent can read, marked final
+/// so every copy of the request gets the same answer.
+pub fn hosted_relay_answer(id: u64) -> Value {
+    let mut body = Map::new();
+    body.insert("error", Value::String("not_supported".into()));
+    body.insert("message", Value::String(HOSTED_RELAY_REFUSAL.into()));
+    body.insert("final", Value::Bool(true));
+    answer(id, 501, &ace_json::to_string(&Value::Object(body)))
 }
 
 /// The refusal a stream answers when it has no room, no device or no target.
@@ -105,11 +127,13 @@ pub enum Admission {
 }
 
 /// The stream's four work slots, four urgent ones and its waiting line
-/// (`relay-machine-host.ts:64`-`:106`).
+/// (`relay-machine-host.ts:64`-`:106`). Every lane holds its calls' ids, so a cancel names the
+/// exact call it stops: a cancel for an id that is not running is not cancellable just because
+/// some other call is.
 #[derive(Debug, Default)]
 pub struct Slots {
-    running: usize,
-    urgent: usize,
+    running: Vec<u64>,
+    urgent: Vec<u64>,
     waiting: Vec<u64>,
 }
 
@@ -122,14 +146,14 @@ impl Slots {
     /// waits; past 32 waiting the stream refuses it.
     pub fn arrive(&mut self, id: u64, urgent: bool) -> Admission {
         if urgent {
-            if self.urgent >= URGENT {
+            if self.urgent.len() >= URGENT {
                 return Admission::Refused;
             }
-            self.urgent += 1;
+            self.urgent.push(id);
             return Admission::Run { urgent: true };
         }
-        if self.running < PARALLEL {
-            self.running += 1;
+        if self.running.len() < PARALLEL {
+            self.running.push(id);
             return Admission::Run { urgent: false };
         }
         if self.waiting.len() >= WAITING {
@@ -150,36 +174,37 @@ impl Slots {
         }
     }
 
-    /// A call finished: a work slot goes straight to the next waiting call, or is given back.
+    /// Call `id` finished: a work slot goes straight to the next waiting call, or is given back.
     /// `Some(id)` is the call a work slot was handed to.
-    pub fn finish(&mut self, urgent: bool) -> Option<u64> {
+    pub fn finish(&mut self, id: u64, urgent: bool) -> Option<u64> {
         if urgent {
-            self.urgent = self.urgent.saturating_sub(1);
+            self.urgent.retain(|each| *each != id);
             return None;
         }
-        if !self.waiting.is_empty() {
-            return Some(self.waiting.remove(0));
+        self.running.retain(|each| *each != id);
+        let next = if self.waiting.is_empty() {
+            None
+        } else {
+            Some(self.waiting.remove(0))
+        };
+        if let Some(next) = next {
+            self.running.push(next);
         }
-        self.running = self.running.saturating_sub(1);
-        None
+        next
     }
 
-    /// The caller stopped a call (`machine.cancel`): a running one aborts and a waiting one
-    /// leaves. True when the call was known (running or waiting).
+    /// The caller stopped call `id` (`machine.cancel`): a running one in either lane aborts, and
+    /// a waiting one leaves. True when that exact call was known (`relay-machine-host.ts:151`).
     pub fn cancel(&mut self, id: u64) -> bool {
-        if self.leave_wait(id) {
-            return true;
-        }
-        // A running call is the run's to abort; the line never holds it.
-        self.running > 0
+        self.leave_wait(id) || self.running.contains(&id) || self.urgent.contains(&id)
     }
 
     pub fn running(&self) -> usize {
-        self.running
+        self.running.len()
     }
 
     pub fn urgent(&self) -> usize {
-        self.urgent
+        self.urgent.len()
     }
 
     pub fn waiting(&self) -> usize {
@@ -194,9 +219,22 @@ pub fn hosted_relay_carries(offset: usize, part: &str, bytes: usize) -> bool {
     part == "final" || offset.saturating_add(bytes) <= HOSTED_RELAY_TRANSFER_BYTES
 }
 
-/// A relay transfer frame's chunk data, base64 on the wire, decoded for the target.
+/// A relay transfer frame's chunk data, base64 on the wire, decoded for the target. The schema's
+/// data is `^[A-Za-z0-9+/]*={0,2}$` with no requirement that padding be present
+/// (`machine-relay.ts:62`), which `Buffer.from(data, "base64")` reads either way; one piece is at
+/// most `TRANSFER_PIECE_BYTES` and its text at most `TRANSFER_PIECE_BASE64`.
 pub fn transfer_chunk(data: &str) -> Option<Vec<u8>> {
-    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data.as_bytes()).ok()
+    if data.is_empty() || data.len() > TRANSFER_PIECE_BASE64 {
+        return None;
+    }
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new()
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+    );
+    // The text bound is the piece bound: `ceil(1 MiB / 3) * 4` characters decode to at most
+    // 1 MiB plus the two bytes unpadded input can add, so nothing larger is ever allocated.
+    engine.decode(data.as_bytes()).ok()
 }
 
 #[cfg(test)]

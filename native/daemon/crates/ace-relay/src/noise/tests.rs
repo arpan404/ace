@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use ace_json::Value;
 
-use super::{Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NoiseNk, NoiseXx, host_id};
+use super::{KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NoiseNk, NoiseXx, host_id};
 use crate::wire::{CONTROL_PROLOGUE, NK_STREAM_PROLOGUE, STREAM_PROLOGUE};
 
 /// A distinct deterministic static key per call; tests never draw randomness.
@@ -17,9 +17,9 @@ fn key() -> KeyPair {
 }
 
 /// A distinct deterministic ephemeral per call.
-fn fresh() -> Ephemeral {
+fn fresh() -> KeyPair {
     static NEXT: AtomicU8 = AtomicU8::new(101);
-    Ephemeral::Provided([NEXT.fetch_add(1, Ordering::SeqCst); 32])
+    KeyPair::from_private([NEXT.fetch_add(1, Ordering::SeqCst); 32])
 }
 
 const CACOPHONY: &str = include_str!("../../tests/fixtures/cacophony.json");
@@ -70,13 +70,13 @@ fn official_noise_xx_vectors_match_every_handshake_and_transport_byte() {
         for vector in vectors(fixture) {
             let mut initiator = NoiseXx::initiator(
                 KeyPair::from_private(hex(field(&vector, "init_static")).try_into().unwrap()),
-                Ephemeral::Provided(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
+                KeyPair::from_private(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
                 &hex(field(&vector, "init_prologue")),
                 None,
             );
             let mut responder = NoiseXx::responder(
                 KeyPair::from_private(hex(field(&vector, "resp_static")).try_into().unwrap()),
-                Ephemeral::Provided(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
+                KeyPair::from_private(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
                 &hex(field(&vector, "resp_prologue")),
             );
             let messages = messages(&vector);
@@ -230,12 +230,12 @@ fn noise_nk_vectors_match_every_byte_and_its_finished_transport_interoperates() 
         let public = responder_static.public;
         let mut initiator = NoiseNk::initiator(
             &public,
-            Ephemeral::Provided(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
+            KeyPair::from_private(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
             &hex(field(&vector, "init_prologue")),
         );
         let mut responder = NoiseNk::responder(
             responder_static,
-            Ephemeral::Provided(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
+            KeyPair::from_private(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
             &hex(field(&vector, "resp_prologue")),
         );
         let messages = messages(&vector);
@@ -374,4 +374,60 @@ fn a_static_key_s_host_id_is_base32_of_its_digest_and_never_32_bytes_of_it() {
             .all(|byte| byte.is_ascii_uppercase() || (b'2'..=b'7').contains(&byte))
     );
     assert_eq!(host_id(&pair.public), id);
+}
+
+#[test]
+fn a_low_order_ephemeral_is_refused_before_it_can_key_a_handshake() {
+    // `@noble/curves` refuses a DH result that is all zeros, and the Rust side must too: with a
+    // low-order peer key the resulting keys would not depend on either private key, so
+    // `hello.confirm` would stop proving possession of the ephemeral (ADR 0155). An all-zero `e`
+    // is the simplest low-order point.
+    //
+    // XX: the client's first message is `e` alone, so the responder takes it and the refusal lands
+    // on the responder's next message, before HKDF.
+    let mut responder = NoiseXx::responder(key(), fresh(), STREAM_PROLOGUE);
+    responder
+        .read_message(&[0u8; 32])
+        .expect("a bare `e` is a valid first message");
+    let error = responder.write_message(&[]).unwrap_err();
+    assert_eq!(
+        error,
+        crate::error::RelayError::Noise("Non-contributory Diffie-Hellman")
+    );
+    assert!(!responder.is_finished());
+    assert!(
+        responder.write_message(&[]).is_err(),
+        "the handshake stays poisoned"
+    );
+
+    // NK: the responder's first DH is DH(own static, e), the same check, on the first message.
+    let mut responder = NoiseNk::responder(key(), fresh(), NK_STREAM_PROLOGUE);
+    let error = responder.read_message(&[0u8; 48]).unwrap_err();
+    assert_eq!(
+        error,
+        crate::error::RelayError::Noise("Non-contributory Diffie-Hellman")
+    );
+    assert!(!responder.is_finished());
+}
+
+#[test]
+fn debug_never_prints_private_key_bytes() {
+    let pair = KeyPair::from_private([7u8; 32]);
+    let printed = format!("{pair:?}");
+    assert!(!printed.contains(&as_hex(&[7u8; 32])), "{printed}");
+    assert!(!printed.contains("7, 7, 7"), "{printed}");
+    assert!(printed.contains(&pair.host_id()), "{printed}");
+
+    // A finished session names nothing at all.
+    let mut client = NoiseXx::initiator(key(), fresh(), STREAM_PROLOGUE, None);
+    let mut server = NoiseXx::responder(key(), fresh(), STREAM_PROLOGUE);
+    let first = client.write_message(&[]).unwrap();
+    server.read_message(&first).unwrap();
+    let second = server.write_message(&[]).unwrap();
+    client.read_message(&second).unwrap();
+    let third = client.write_message(&[]).unwrap();
+    server.read_message(&third).unwrap();
+    let keys = client.into_transport().unwrap();
+    let printed = format!("{keys:?}");
+    assert_eq!(printed, "SessionKeys { .. }");
 }

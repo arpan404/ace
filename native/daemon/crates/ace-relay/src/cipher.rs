@@ -7,6 +7,7 @@
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::RelayError;
 
@@ -21,20 +22,21 @@ fn nonce_bytes(nonce: u64) -> [u8; 12] {
     bytes
 }
 
-fn cipher(key: &[u8; 32]) -> ChaCha20Poly1305 {
-    ChaCha20Poly1305::new(&Key::from(*key))
+fn cipher(key: &Zeroizing<[u8; 32]>) -> ChaCha20Poly1305 {
+    ChaCha20Poly1305::new(&Key::from(**key))
 }
 
-/// One direction's key and next nonce, and nothing else.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One direction's key and next nonce, and nothing else. It is deliberately not `Clone` and not
+/// printable: a snapshot is a session's live key, and a copy of it could outlive the state that
+/// owns it.
 pub struct Snapshot {
-    pub key: [u8; 32],
+    pub key: Zeroizing<[u8; 32]>,
     pub nonce: u64,
 }
 
 /// An ordered Noise cipher state. Applications must coordinate directional rekeys.
 pub struct CipherState {
-    key: Option<[u8; 32]>,
+    key: Option<Zeroizing<[u8; 32]>>,
     nonce: u64,
     closed: bool,
 }
@@ -48,7 +50,8 @@ impl Drop for CipherState {
 impl CipherState {
     /// A state with `key` (none: length-preserving passthrough, as Noise's pre-key state) and the
     /// next nonce, which a hand-over resumes from.
-    pub fn new(key: Option<[u8; 32]>, initial_nonce: u64) -> Self {
+    pub fn new(key: Option<impl Into<Zeroizing<[u8; 32]>>>, initial_nonce: u64) -> Self {
+        let key = key.map(Into::into);
         Self {
             key,
             nonce: initial_nonce,
@@ -57,8 +60,8 @@ impl CipherState {
     }
 
     /// A state with a key and no messages sent.
-    pub fn keyed(key: [u8; 32]) -> Self {
-        Self::new(Some(key), 0)
+    pub fn keyed(key: impl Into<Zeroizing<[u8; 32]>>) -> Self {
+        Self::new(Some(key.into()), 0)
     }
 
     pub fn has_key(&self) -> bool {
@@ -83,10 +86,10 @@ impl CipherState {
     pub fn encrypt(&mut self, plaintext: &[u8], ad: &[u8]) -> Result<Vec<u8>, RelayError> {
         let length = plaintext.len() + usize::from(self.key.is_some()) * 16;
         self.check(length)?;
-        let Some(key) = self.key else {
+        let Some(key) = self.key.as_ref() else {
             return Ok(plaintext.to_vec());
         };
-        let sealed = cipher(&key)
+        let sealed = cipher(key)
             .encrypt(
                 &Nonce::from(nonce_bytes(self.nonce)),
                 Payload {
@@ -101,10 +104,10 @@ impl CipherState {
 
     pub fn decrypt(&mut self, ciphertext: &[u8], ad: &[u8]) -> Result<Vec<u8>, RelayError> {
         self.check(ciphertext.len())?;
-        let Some(key) = self.key else {
+        let Some(key) = self.key.as_ref() else {
             return Ok(ciphertext.to_vec());
         };
-        let opened = cipher(&key)
+        let opened = cipher(key)
             .decrypt(
                 &Nonce::from(nonce_bytes(self.nonce)),
                 Payload {
@@ -121,14 +124,14 @@ impl CipherState {
     /// A copy of the key and next nonce, for a holder that must survive losing its memory (a
     /// hibernated relay). `CipherState::new` resumes it.
     pub fn snapshot(&self) -> Result<Snapshot, RelayError> {
-        let Some(key) = self.key else {
+        let Some(key) = self.key.as_ref() else {
             return Err(RelayError::Noise("No cipher key"));
         };
         if self.closed {
             return Err(RelayError::Noise("No cipher key"));
         }
         Ok(Snapshot {
-            key,
+            key: Zeroizing::new(**key),
             nonce: self.nonce,
         })
     }
@@ -142,7 +145,7 @@ impl CipherState {
         key_offset: usize,
         nonce_offset: usize,
     ) -> Result<(), RelayError> {
-        let Some(key) = self.key else {
+        let Some(key) = self.key.as_ref() else {
             return Err(RelayError::Noise("No cipher key"));
         };
         if self.closed {
@@ -156,37 +159,42 @@ impl CipherState {
         if key_offset < nonce_offset + 8 && nonce_offset < key_offset + 32 {
             return Err(RelayError::Noise("Key and nonce ranges overlap"));
         }
-        block[key_offset..key_offset + 32].copy_from_slice(&key);
+        block[key_offset..key_offset + 32].copy_from_slice(&**key);
         block[nonce_offset..nonce_offset + 8].copy_from_slice(&self.nonce.to_be_bytes());
         self.destroy();
         Ok(())
     }
 
-    /// `rekey = ENCRYPT(key, 2^64-1, empty, zeros[32])[0..32]`, then the old key is wiped.
+    /// `rekey = ENCRYPT(key, 2^64-1, empty, zeros[32])[0..32]`, then the old key is wiped. The
+    /// sealed output holds the new key, so it is wiped too once the key is taken.
     pub fn rekey(&mut self) -> Result<(), RelayError> {
         self.check(0)?;
-        let Some(key) = self.key else {
+        let Some(key) = self.key.as_ref() else {
             return Err(RelayError::Noise("No cipher key"));
         };
-        let zeros = [0u8; 32];
-        let sealed = cipher(&key)
-            .encrypt(
-                &Nonce::from(nonce_bytes(MAX_NONCE)),
-                Payload {
-                    msg: &zeros,
-                    aad: &[],
-                },
-            )
-            .map_err(|_| RelayError::Noise("Cipher rekey failed"))?;
-        let mut next = [0u8; 32];
+        let sealed = Zeroizing::new(
+            cipher(key)
+                .encrypt(
+                    &Nonce::from(nonce_bytes(MAX_NONCE)),
+                    Payload {
+                        msg: &[0u8; 32],
+                        aad: &[],
+                    },
+                )
+                .map_err(|_| RelayError::Noise("Cipher rekey failed"))?,
+        );
+        let mut next = Zeroizing::new([0u8; 32]);
         next.copy_from_slice(&sealed[..32]);
+        if let Some(old) = self.key.as_mut() {
+            old.zeroize();
+        }
         self.key = Some(next);
         Ok(())
     }
 
     pub fn destroy(&mut self) {
-        if let Some(key) = &mut self.key {
-            key.fill(0);
+        if let Some(key) = self.key.as_mut() {
+            key.zeroize();
         }
         self.key = None;
         self.closed = true;

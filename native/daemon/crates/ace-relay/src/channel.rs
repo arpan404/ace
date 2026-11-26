@@ -5,6 +5,9 @@
 //! control, 1 MiB for file chunks), and the refusals in their words. The services behind it are
 //! their owners'; this is the boundary the relay channel applies before any of them runs.
 
+use std::collections::HashMap;
+use std::hash::Hash;
+
 use ace_auth::Scope;
 use ace_auth::devices::allows_scopes;
 use ace_auth::devices_channel::{DeviceFailure, DevicesChannel};
@@ -85,6 +88,62 @@ pub fn attach(
             }
         }
         ChannelKind::Files => Ok(Attachment::Files),
+    }
+}
+
+/// The account devices on this host's relayed channels, and the admission check each stays
+/// admitted by (`files-relay.ts:97`, `:358`-`:372`). An account device's authority is exactly
+/// that check: every authorization asks it again, and an account change closes the channels it no
+/// longer holds. A paired device has no entry and authorizes by its stored scopes.
+pub struct AccountChannels<K> {
+    checks: HashMap<K, Box<dyn Fn() -> bool + Send + Sync>>,
+}
+
+impl<K> Default for AccountChannels<K> {
+    fn default() -> Self {
+        Self {
+            checks: HashMap::new(),
+        }
+    }
+}
+
+impl<K: Eq + Hash + Clone> AccountChannels<K> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The channel's device was admitted by this account check (`stillAdmitted`).
+    pub fn watch(&mut self, channel: K, check: Box<dyn Fn() -> bool + Send + Sync>) {
+        self.checks.insert(channel, check);
+    }
+
+    /// `authorize(scope)` for an account channel: the check's answer is the whole authority.
+    /// `None` when the channel's device is paired, so the caller falls back to its scopes.
+    pub fn authorizes(&self, channel: &K) -> Option<bool> {
+        self.checks.get(channel).map(|check| check())
+    }
+
+    /// `account.onChange`: the channels whose device no longer holds access, for the shell to
+    /// close at once. A channel whose check still says yes stays open.
+    pub fn lapsed(&self) -> Vec<K> {
+        self.checks
+            .iter()
+            .filter(|(_, check)| !check())
+            .map(|(channel, _)| channel.clone())
+            .collect()
+    }
+
+    /// The channel ended: forget its check.
+    pub fn forget(&mut self, channel: &K) {
+        self.checks.remove(channel);
+    }
+
+    pub fn len(&self) -> usize {
+        self.checks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.checks.is_empty()
     }
 }
 
