@@ -105,6 +105,7 @@ impl State {
         let mut continuation_started = false;
         let mut takes_input: HashMap<String, bool> = HashMap::new();
         let mut emitted: Vec<Value> = Vec::new();
+        let process_started = facts.iter().any(|fact| kind(fact) == "process.started");
         for input in facts {
             if self.interactions_obsolete(id, &input)? {
                 continue;
@@ -250,6 +251,19 @@ impl State {
                 }
             }
             self.interactions_observe(id, &events)?;
+            if observes_meters(process_started, &events) {
+                let instance = crate::sessions::metadata::session(store, id)
+                    .ok()
+                    .and_then(|metadata| metadata.instance_id);
+                self.observe_context(
+                    store,
+                    id,
+                    process_started,
+                    &events,
+                    now,
+                    instance.as_deref(),
+                )?;
+            }
             if let Some(takes) = start_takes_input {
                 for event in &events {
                     if kind(event) == "run.started"
@@ -367,6 +381,27 @@ pub(super) fn set(value: &mut Value, key: &str, next: Value) {
     if let Some(object) = value.as_object_mut() {
         object.insert(key, next);
     }
+}
+
+/// Whether a batch can move a context meter (`index.ts:381`-`:396`).
+fn observes_meters(process_started: bool, events: &[Value]) -> bool {
+    process_started
+        || events.iter().any(|event| {
+            matches!(
+                kind(event),
+                "usage.updated" | "context.sampled" | "agent.updated"
+            ) || matches!(kind(event), "item.created" | "item.updated")
+                && event
+                    .get("item")
+                    .and_then(|item| item.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("compaction")
+                || kind(event) == "agent.status"
+                    && event.get("status").is_some_and(|status| {
+                        status.get("state").and_then(Value::as_str) == Some("working")
+                            && status.get("activity").and_then(Value::as_str) == Some("compacting")
+                    })
+        })
 }
 
 fn needs_shaping(fact: &Value) -> bool {

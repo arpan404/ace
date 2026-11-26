@@ -29,6 +29,8 @@ pub struct State {
     pub actors: actor::Actors, // E5.2
     /// A live-buffer flush task is queued on the pump (E5.2 step 16): the coalescing flag.
     pub live_flush: std::rc::Rc<std::cell::Cell<bool>>,
+    /// The context occupancy meters (E5.6).
+    pub meters: crate::meters::Meters,
     pub repo: repository::Repo,                // E5.3
     pub commands: commands::Commands,          // E5.4
     pub sessions: sessions::Sessions,          // E5.6
@@ -53,6 +55,7 @@ impl Default for State {
             flush_depth: 0,
             actors: actor::Actors::default(),
             live_flush: std::rc::Rc::new(std::cell::Cell::new(false)),
+            meters: crate::meters::Meters::default(),
             repo: repository::Repo::default(),
             commands: commands::Commands,
             sessions: sessions::Sessions,

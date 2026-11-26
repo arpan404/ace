@@ -16,16 +16,24 @@ use crate::{EngineStack, EngineStore};
 
 pub(crate) const HEADER: &str = r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"codex","silenceMs":1000},"initialRoot":{"agent":"root","fidelity":"full","native":{"provider":"codex","nativeId":"native-root"},"cwd":"/tmp"},"agents":{},"runs":{},"items":{},"interactions":{},"tasks":{},"interactionHistory":{},"taskHistory":{},"indexes":{"liveTools":{},"pendingInteractions":{},"runningTasks":{},"agentKeysById":{},"childrenByParent":{},"pendingSpawnLinks":{},"pendingItemLinks":{}},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#;
 
+/// A unique suffix per home: the clock alone collides between parallel cases.
+fn next_home() -> u128 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_nanos())
+        .unwrap_or(0);
+    now * 64 + u128::from(counter)
+}
+
 /// A fresh home with the opener's schema, and one thread whose state is `header`.
 pub(crate) fn home(thread: &str, header: &str) -> Arc<Connection> {
     let path = std::env::temp_dir().join(format!(
         "ace-engine-home-{}-{}-{}.sqlite",
         std::process::id(),
         thread,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or(0)
+        next_home(),
     ));
     let conn = Connection::open(
         path.to_str().unwrap_or_default(),
