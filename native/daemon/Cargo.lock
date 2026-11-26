@@ -80,6 +80,7 @@ dependencies = [
  "ace-adapter-api",
  "ace-json",
  "ace-supervisor",
+ "base64",
  "indexmap",
  "serde",
  "thiserror",

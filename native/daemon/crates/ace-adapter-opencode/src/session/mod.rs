@@ -14,6 +14,7 @@ pub mod http;
 pub mod lookup;
 pub mod model;
 pub mod notes;
+pub mod owned;
 pub mod ownership;
 pub mod recovery;
 pub mod routes;

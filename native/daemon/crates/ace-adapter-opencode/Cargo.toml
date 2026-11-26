@@ -20,6 +20,8 @@ serde = { version = "1", features = ["derive"] }
 # ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
 # JSON.stringify semantics, no recursion, raw splices).
 ace-json = { path = "../ace-json" }
+# base64: the server's Basic authorization header (owned-server.ts).
+base64 = { version = "0.22", default-features = false, features = ["std"] }
 # indexmap: translator maps keep TypeScript insertion order so fact order matches.
 indexmap = { version = "2" }
 # thiserror: the translator's typed internal errors, mapped to diagnostics, never thrown.
