@@ -11,6 +11,13 @@ use regex::Regex;
 use serde::Deserialize;
 use url::Url;
 
+mod stream;
+
+pub use stream::{
+    Delivery, FollowOutcome, FollowPlan, H264Feed, Mode, Published, follow_plan, still_scale,
+    to_h264,
+};
+
 use crate::platform::{Code, Error, Failure};
 
 /// serve-sim's endpoint must arrive within this long.

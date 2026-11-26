@@ -521,13 +521,19 @@ length-size-3 refusal is unreachable and is not reproduced. The splitter keeps t
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
 
-`simulator_capture.rs` keeps a Simulator capture's endpoint and control decisions: the JSON
+`simulator_capture/mod.rs` keeps a Simulator capture's endpoint and control decisions: the JSON
 endpoint must name a UUID, a port in range and two URLs of at most 4,096 code points, the
 helper's routes must be loopback at the announced port with no credentials or fragment, the
 device identity is case-insensitive, the MJPEG stream's siblings are built beside it, a screen
 config is a 1..16,384 size and an orientation of at most 64 code points, input refuses over a
 64 KiB socket backlog, and the spawn arguments are `--no-preview --quiet <udid>` after ace's
-own. The helper process, sockets, streams and timers are the shell's.
+own. `simulator_capture/stream.rs` keeps the stream's state: a live view is video through
+ace-media or the refusal (JPEG is never handed to a live view), a viewer below the source rate
+or smaller than native gets an encode spec and a comfortable one passes serve-sim's stream
+through again, a re-encoded unit keeps the viewer's scale while serve-sim's own sets the native
+size and starts the rate window, a new rate second asks the viewer's plan again, and an agent
+still's scale is its width over native. The helper process, sockets, streams and timers are the
+shell's.
 
 `simulator_transcode.rs` keeps when a viewer's link needs ace-media to re-encode serve-sim's
 picture (a smaller panel, or a rate below 5/6 of the measured busy rate, with the 6 Mbit/s floor
