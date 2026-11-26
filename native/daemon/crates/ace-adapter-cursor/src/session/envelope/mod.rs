@@ -16,6 +16,7 @@ mod tests;
 
 pub use limits::{CursorLimits, limits};
 
+use super::code_points;
 use raw::normalize_raw;
 
 use ace_json::{JsString, Map, Value};
@@ -70,21 +71,6 @@ impl Envelope<'_> {
     pub fn is_batch(&self) -> bool {
         self.kind.as_str() == "batch"
     }
-}
-
-/// JavaScript's character count: one per UTF-16 unit, except a surrogate pair.
-fn code_points(text: &JsString) -> usize {
-    let mut count = 0;
-    let mut high = false;
-    for unit in text.units() {
-        if high && (0xdc00..0xe000).contains(&unit) {
-            high = false;
-            continue;
-        }
-        high = (0xd800..0xdc00).contains(&unit);
-        count += 1;
-    }
-    count
 }
 
 /// `identity`: a non-empty string of at most 512 code points.

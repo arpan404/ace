@@ -214,3 +214,51 @@ fn a_close_after_the_first_settled_does_not_stop_the_child_a_second_time() {
     assert!(requests(&late).is_empty());
     assert_eq!(settled(&late), vec![Ok(String::from("null"))]);
 }
+
+#[test]
+fn the_session_drains_only_after_the_hosts_output_has_drained() {
+    let mut core = session_core();
+    opened(&mut core);
+    // The caller's wait on the child resolves at the leader's exit; the pipes may still hold
+    // the host's last frames and settlements.
+    let early = core.exit(Some(0), None, "exit", None, None);
+    assert!(
+        !early
+            .iter()
+            .any(|effect| matches!(effect, CoreEffect::Event(SessionEvent::Drained))),
+        "the session drained before the host's output did"
+    );
+    // The last frame arrives after the exit, then the pipes close.
+    let line = frame_line(&envelope(
+        "delta",
+        "open",
+        0.0,
+        r#"{"type":"text-delta","text":"last"}"#,
+    ));
+    let framed = feed(&mut core, &line);
+    assert_eq!(frames(&framed).len(), 1);
+    let closed = core.pipes_closed();
+    let mut kinds: Vec<String> = Vec::new();
+    for effect in &closed {
+        match effect {
+            CoreEffect::Event(SessionEvent::Frame { text, .. }) => {
+                let value = ace_json::parse(text).expect("frame");
+                kinds.push(
+                    value
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned(),
+                );
+            }
+            CoreEffect::Event(SessionEvent::Callback { name, .. }) => {
+                kinds.push((*name).to_owned())
+            }
+            CoreEffect::Event(SessionEvent::Drained) => kinds.push(String::from("drained")),
+            _ => {}
+        }
+    }
+    assert_eq!(kinds, ["host-exit", "onExit", "drained"]);
+    // A second exit publishes nothing: the session already ended.
+    assert!(core.exit(None, None, "exit", None, None).is_empty());
+}

@@ -20,6 +20,22 @@ pub use bounded::{BoundedError, DEFAULT_MAX_BYTES, bounded_check, bounded_json};
 pub use envelope::{CursorLimits, Envelope, limits, normalize, parse, unbatch};
 pub use error::{ACE_CURSOR_RPC, HostErrorWire, SessionError};
 pub use failure::{ExitState, MappedFailure, RequestFailure, request_failure};
+/// JavaScript's character count (`[...text].length`), as the envelope's and the replies' zod
+/// string bounds use it.
+pub(crate) fn code_points(text: &ace_json::JsString) -> usize {
+    let mut count = 0;
+    let mut high = false;
+    for unit in text.units() {
+        if high && (0xdc00..0xe000).contains(&unit) {
+            high = false;
+            continue;
+        }
+        high = (0xd800..0xdc00).contains(&unit);
+        count += 1;
+    }
+    count
+}
+
 pub use host::{
     CursorHostConfig, CursorHostCore, HostEffect, MALFORMED, PEER_CLOSED, PORT_CONNECTION,
     PORT_ERROR_FRAME, PORT_STDERR, PORT_STOP, PORT_STRAY, PROCESS_EXITED,

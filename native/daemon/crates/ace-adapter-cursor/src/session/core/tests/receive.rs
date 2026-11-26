@@ -42,13 +42,14 @@ fn an_open_whose_recovery_snapshot_is_over_the_frame_bound_fails_the_open() {
     let mut body = ace_json::Map::with_capacity(1);
     body.insert("blob", Value::from("a".repeat(1_100_000)));
     let snapshot = Value::Object(body);
-    let effects = core
-        .start_open(
-            1,
-            &ace_json::json!({"cwd": "/w", "threadId": "t"}),
-            Some(snapshot),
-        )
-        .expect("an open request");
+    let mut effects = Vec::new();
+    core.start_open(
+        1,
+        &ace_json::json!({"cwd": "/w", "threadId": "t"}),
+        Some(snapshot),
+        &mut effects,
+    )
+    .expect("an open request");
     let effects = ack(&mut core, effects);
     let (id, _, _) = requests(&effects)
         .first()
@@ -76,5 +77,55 @@ fn an_open_whose_recovery_snapshot_is_over_the_frame_bound_fails_the_open() {
             CoreEffect::Event(SessionEvent::Settle { result: Ok(_), .. })
         )),
         "the open must not report success with the evidence missing"
+    );
+}
+
+#[test]
+fn an_open_that_cannot_be_written_stops_the_host_and_leaves_no_opening() {
+    let mut core = session_core();
+    // The host stops itself on a line ace cannot route, leaving `closing` and `exit` untouched.
+    let stopped = feed(&mut core, r#"{"hello":1}"#);
+    assert_eq!(ports(&stopped), vec![String::from("stop")]);
+    let mut effects = Vec::new();
+    let error = core
+        .start_open(
+            1,
+            &ace_json::json!({"cwd": "/w", "threadId": "t"}),
+            None,
+            &mut effects,
+        )
+        .expect_err("the open cannot be written");
+    assert_eq!(error.code, "ACE_CURSOR_RPC");
+    // `session.ts:318`-`:322`: the failed open stops the host, and no opening is left behind.
+    assert!(ports(&effects).contains(&String::from("stop")));
+    assert!(core.opening.is_none());
+}
+
+#[test]
+fn a_snapshot_that_fails_the_open_also_stops_the_host() {
+    let mut core = session_core();
+    let mut body = ace_json::Map::with_capacity(1);
+    body.insert("blob", Value::from("a".repeat(1_100_000)));
+    let mut effects = Vec::new();
+    core.start_open(
+        1,
+        &ace_json::json!({"cwd": "/w", "threadId": "t"}),
+        Some(Value::Object(body)),
+        &mut effects,
+    )
+    .expect("an open request");
+    let effects = ack(&mut core, effects);
+    let (id, _, _) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the open request");
+    let effects = reply(&mut core, id, r#"{"agentId":"a"}"#);
+    assert!(ports(&effects).contains(&String::from("stop")));
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            CoreEffect::Event(SessionEvent::Settle { result: Err(_), .. })
+        )),
+        "the open must fail loudly"
     );
 }

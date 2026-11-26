@@ -9,6 +9,7 @@
 use ace_json::{JsString, Map, Value};
 
 use super::bounded::{DEFAULT_MAX_BYTES, bounded_json};
+use super::code_points;
 use super::error::SessionError;
 
 /// The channel every Cursor frame crosses on (`session.ts:79`).
@@ -169,21 +170,6 @@ pub fn result_status(body: &Value) -> Option<&str> {
         Some(Value::String(status)) => Some(status.as_str()),
         _ => None,
     }
-}
-
-/// JavaScript's character count, as the envelope's zod bounds use it.
-fn code_points(text: &JsString) -> usize {
-    let mut count = 0;
-    let mut high = false;
-    for unit in text.units() {
-        if high && (0xdc00..0xe000).contains(&unit) {
-            high = false;
-            continue;
-        }
-        high = (0xd800..0xdc00).contains(&unit);
-        count += 1;
-    }
-    count
 }
 
 #[cfg(test)]

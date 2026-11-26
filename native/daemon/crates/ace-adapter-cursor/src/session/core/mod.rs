@@ -94,11 +94,26 @@ pub struct CursorSessionCore {
     pub(super) close_outcome: Option<Option<HostErrorWire>>,
     /// The interrupt in flight (`session.ts:285`-`:303`).
     pub(super) interrupting: Option<super::commands::Interrupting>,
+    /// The caller's exit, kept until the host's output has drained (`pipes_closed`).
+    pub(super) exit_info: Option<ExitInfo>,
+    /// The pipes' close ran: everything the host wrote has crossed.
+    pub(super) host_drained: bool,
     /// Each published frame's session number and the host number it acknowledges.
     pub(super) acknowledgements: HashMap<u64, u64>,
     /// Callbacks a received frame decided, published before it (`session.ts:105`-`:139`).
     pending_callbacks: Vec<(&'static str, String)>,
     pub(super) next_internal: u64,
+}
+
+/// `process.exited`'s answer, held until the pipes' close has drained the host
+/// (`session.ts:156` waits on a promise that resolves on `close`).
+#[derive(Debug, Clone)]
+pub(super) struct ExitInfo {
+    pub(super) code: Option<i64>,
+    pub(super) signal: Option<String>,
+    pub(super) reason: String,
+    pub(super) detail: Option<String>,
+    pub(super) stop_cause: Option<String>,
 }
 
 pub(super) struct Opening {
@@ -136,6 +151,8 @@ impl CursorSessionCore {
             closing: None,
             close_outcome: None,
             interrupting: None,
+            exit_info: None,
+            host_drained: false,
             acknowledgements: HashMap::new(),
             pending_callbacks: Vec::new(),
             next_internal: 1,
@@ -202,18 +219,27 @@ impl CursorSessionCore {
         facade_id: u64,
         params: &Value,
         snapshot: Option<Value>,
-    ) -> Result<Vec<CoreEffect>, HostErrorWire> {
+        out: &mut Vec<CoreEffect>,
+    ) -> Result<(), HostErrorWire> {
         let internal = self.alloc_internal();
         self.opening = Some(Opening {
             facade_id,
             internal,
             snapshot,
         });
-        let effects = self
-            .host
-            .request("open", Some(params), internal, None)
-            .map_err(|error| super::commands::rpc_error(error.message()))?;
-        Ok(self.map_host(effects))
+        match self.host.request("open", Some(params), internal, None) {
+            Ok(effects) => {
+                out.extend(self.map_host(effects));
+                Ok(())
+            }
+            Err(error) => {
+                // `session.ts:318`-`:322`: an open that throws stops the host before it rethrows,
+                // so the caller never owns a live child it cannot name.
+                self.opening = None;
+                out.extend(super::commands::request_stop(self));
+                Err(super::commands::rpc_error(error.message()))
+            }
+        }
     }
 
     /// `configure` (`session.ts:222`-`:229`): one request, settled by the host's reply.

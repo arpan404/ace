@@ -124,9 +124,14 @@ pub(super) fn reply(core: &mut CursorSessionCore, id: u64, result: &str) -> Vec<
 
 /// Opens the session: the open request, the host's reply, and the facade's settlement.
 pub(super) fn opened(core: &mut CursorSessionCore) {
-    let effects = core
-        .start_open(1, &ace_json::json!({"cwd": "/w", "threadId": "t"}), None)
-        .expect("an open request");
+    let mut effects = Vec::new();
+    core.start_open(
+        1,
+        &ace_json::json!({"cwd": "/w", "threadId": "t"}),
+        None,
+        &mut effects,
+    )
+    .expect("an open request");
     let effects = ack(core, effects);
     let (id, method, _) = requests(&effects)
         .first()

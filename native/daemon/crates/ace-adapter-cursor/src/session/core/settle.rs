@@ -83,11 +83,14 @@ impl CursorSessionCore {
                         opening.facade_id,
                         crate::session::commands::rpc_error(message),
                     ));
+                    out.extend(crate::session::commands::request_stop(self));
                     return;
                 }
             },
             Err(error) => {
                 out.push(settle_error(opening.facade_id, error));
+                // `session.ts:318`-`:322`: every failed open stops the host before it rethrows.
+                out.extend(crate::session::commands::request_stop(self));
                 return;
             }
         };
@@ -98,6 +101,7 @@ impl CursorSessionCore {
                 self.frame(FrameDirection::Note, frames::KIND_SNAPSHOT, &snapshot, out)
             {
                 out.push(settle_error(opening.facade_id, error));
+                out.extend(crate::session::commands::request_stop(self));
                 return;
             }
         }

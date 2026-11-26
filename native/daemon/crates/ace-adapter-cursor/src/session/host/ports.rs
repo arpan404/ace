@@ -5,6 +5,8 @@
 
 use ace_json::{JsString, Map, Value};
 
+use crate::session::frames::is_js_space;
+
 use super::super::error::SessionError;
 use super::MAX_LOGIN_URL;
 
@@ -37,19 +39,6 @@ pub(super) fn login_url(params: Option<&Value>) -> Result<String, SessionError> 
 /// `/"jsonrpc"\s*:/`: text that may hold a JSON-RPC message, which an unterminated native write
 /// can join (`host.ts:19`).
 pub(super) fn may_hold_rpc_message(line: &str) -> bool {
-    fn is_js_space(text: char) -> bool {
-        matches!(
-            text,
-            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-                ..='\u{200a}'
-                    | '\u{2028}'
-                    | '\u{2029}'
-                    | '\u{202f}'
-                    | '\u{205f}'
-                    | '\u{3000}'
-                    | '\u{feff}'
-        )
-    }
     const NEEDLE: &str = "\"jsonrpc\"";
     let mut rest = line;
     while let Some(at) = rest.find(NEEDLE) {

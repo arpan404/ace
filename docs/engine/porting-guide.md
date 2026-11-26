@@ -1807,9 +1807,11 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
 - **The exit**: the Rust daemon owns the child, so its own wait on the child is the exit input:
   when it resolves, the caller calls `handle.exit(code, signal, reason, detail?)` directly. There
   is no `Port { name: "exited" }`: that port existed because a TypeScript facade owned the
-  `proc.exited` promise, and the Rust shell does not need to be asked. The core then publishes
-  the `host-exit` frame (`:156`–`:171`), a `Callback` for `onExit` with
-  `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units), and `Drained`.
+  `proc.exited` promise, and the Rust shell does not need to be asked. `exit` may arrive at the
+  leader's end, before the pipes finish; its `host-exit` frame (`:156`–`:171`), the `onExit`
+  `Callback` with `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units)
+  and `Drained` are published only after the pipes' close (`pipes_closed`) has drained every
+  frame and settle the host wrote, because the queue drops anything after `Drained`.
 - **The stop**: the host's stop stays TypeScript (`host.ts:254`–`:267`, Windows'
   `stopTreeAfterEof`), asked for by `Port { name: "stop" }`.
 - **(b)**: `tool-guidance` stays: it is open-time text, built in the facade.

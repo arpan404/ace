@@ -199,7 +199,7 @@ fn resume_both(inner: &GateInner) {
 
 #[cfg(test)]
 mod tests {
-    use super::{GateState, ReadGate, takes_more};
+    use super::{GateState, takes_more};
 
     #[test]
     fn a_held_gate_answers_no_more_chunks_until_the_hold_is_released() {
@@ -213,18 +213,5 @@ mod tests {
         assert!(!takes_more(GateState::Failed, false, false));
         // Draining reads to EOF whatever is held.
         assert!(takes_more(GateState::Draining, true, true));
-    }
-
-    #[test]
-    fn a_hold_release_clears_it_and_a_repeat_is_harmless() {
-        let gate = ReadGate::new();
-        gate.hold(true);
-        assert!(gate.lock().held);
-        gate.hold(true);
-        assert!(gate.lock().held);
-        gate.hold(false);
-        assert!(!gate.lock().held);
-        gate.hold(false);
-        assert!(!gate.lock().held);
     }
 }

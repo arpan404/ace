@@ -63,15 +63,18 @@ impl CursorSessionShell {
             let core = self.lock();
             super::commands::open_params(&core.generation, &core.limits, open)
         };
-        self.input(|core| match core.start_open(operation, &params, snapshot) {
-            Ok(effects) => effects,
-            Err(error) => vec![CoreEffect::Event(SessionEvent::Settle {
-                id: operation,
-                result: Err(ace_adapter_api::bridge::queue::SessionErrorWire {
-                    code: error.code,
-                    message: error.message,
-                }),
-            })],
+        self.input(|core| {
+            let mut effects = Vec::new();
+            if let Err(error) = core.start_open(operation, &params, snapshot, &mut effects) {
+                effects.push(CoreEffect::Event(SessionEvent::Settle {
+                    id: operation,
+                    result: Err(ace_adapter_api::bridge::queue::SessionErrorWire {
+                        code: error.code,
+                        message: error.message,
+                    }),
+                }));
+            }
+            effects
         });
     }
 
