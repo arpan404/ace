@@ -52,6 +52,8 @@ pub struct GhApi<'a> {
     /// Cache keys in insertion order, so eviction takes the oldest first.
     order: Mutex<Vec<String>>,
     cache_bytes: Mutex<usize>,
+    /// The child's credential values, masked in every page and header as the guide requires.
+    environment: Option<ace_redaction::EnvironmentMatcher>,
     next_page_id: std::sync::atomic::AtomicU64,
 }
 
@@ -72,12 +74,19 @@ impl<'a> GhApi<'a> {
             order: Mutex::new(Vec::new()),
             cache_bytes: Mutex::new(0),
             next_page_id: std::sync::atomic::AtomicU64::new(1),
+            environment: None,
         }
     }
 
     /// Another CLI command (a test's fake `gh`).
     pub fn command(mut self, command: impl Into<String>) -> GhApi<'a> {
         self.command = command.into();
+        self
+    }
+
+    /// The request's exact credential values, from the child's environment.
+    pub fn environment(mut self, environment: ace_redaction::EnvironmentMatcher) -> GhApi<'a> {
+        self.environment = Some(environment);
         self
     }
 
@@ -282,8 +291,8 @@ impl<'a> GhApi<'a> {
                     id: self
                         .next_page_id
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-                    body: redact_data(&body),
-                    headers: safe_headers(&headers),
+                    body: self.mask_value(redact_data(&body)),
+                    headers: self.mask_headers(&headers),
                     bytes: text.len(),
                     version: sha256_hex(text),
                     identity_changed: output.identity_changed,
@@ -318,7 +327,7 @@ impl<'a> GhApi<'a> {
         if let Some(mut cached) = cached
             && cached.version == version
         {
-            cached.headers = safe_headers(&headers);
+            cached.headers = self.mask_headers(&headers);
             self.retain(cache_key, cached.clone());
             return Ok(cached);
         }
@@ -327,14 +336,14 @@ impl<'a> GhApi<'a> {
         } else {
             let parsed: Value =
                 ace_json::parse(text).map_err(|_| ForgeError::new(Kind::InvalidData))?;
-            redact_data(&parsed)
+            self.mask_value(redact_data(&parsed))
         };
         let page = Page {
             id: self
                 .next_page_id
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-            body,
-            headers: safe_headers(&headers),
+            body: self.mask_value(body),
+            headers: self.mask_headers(&headers),
             bytes: text.len(),
             version,
             identity_changed: output.identity_changed,
@@ -343,6 +352,32 @@ impl<'a> GhApi<'a> {
             self.retain(cache_key, page.clone());
         }
         Ok(page)
+    }
+
+    /// The request's exact values masked in every string of `value`.
+    fn mask_value(&self, value: Value) -> Value {
+        let Some(environment) = &self.environment else {
+            return value;
+        };
+        mask_environment_value(&value, environment)
+    }
+
+    /// Headers with the request's values masked; a validator that held one is dropped, so it
+    /// can never return as `If-None-Match`/`If-Modified-Since`.
+    fn mask_headers(&self, headers: &[(String, String)]) -> Vec<(String, String)> {
+        let mut kept = safe_headers(headers);
+        let Some(environment) = &self.environment else {
+            return kept;
+        };
+        kept.retain_mut(|(name, value)| {
+            let masked = super::redact::redact(value, Some(environment));
+            if masked != *value && matches!(name.as_str(), "etag" | "last-modified") {
+                return false;
+            }
+            *value = masked;
+            true
+        });
+        kept
     }
 
     fn retain(&self, key: String, page: Page) {
@@ -598,6 +633,30 @@ fn parse_link_url(url: &str) -> Option<(String, String, String)> {
     Some((authority.to_owned(), pathname.to_owned(), search.to_owned()))
 }
 
+/// `value` with every configured value masked in its strings, depth-first.
+fn mask_environment_value(value: &Value, environment: &ace_redaction::EnvironmentMatcher) -> Value {
+    match value {
+        Value::String(text) => Value::from(super::redact::redact(text.as_str(), Some(environment))),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| mask_environment_value(item, environment))
+                .collect(),
+        ),
+        Value::Object(fields) => {
+            let mut result = Map::new();
+            for (key, entry) in fields.iter() {
+                result.insert(
+                    super::redact::redact(key.as_str(), Some(environment)),
+                    mask_environment_value(entry, environment),
+                );
+            }
+            Value::Object(result)
+        }
+        other => other.clone(),
+    }
+}
+
 /// The index of the blank line separating headers from the body (`\r?\n\r?\n`).
 fn blank_line(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
@@ -748,10 +807,14 @@ fn assert_graphql_result(
                 return Err(ForgeError::new(Kind::InvalidData));
             }
             match fields.get("extensions") {
-                None | Some(Value::Null) if fields.get("extensions").is_some() => {
+                None => {}
+                Some(Value::Object(extensions))
+                    if extensions
+                        .get("code")
+                        .is_some_and(|code| code.as_str().is_none()) =>
+                {
                     return Err(ForgeError::new(Kind::InvalidData));
                 }
-                None => {}
                 Some(Value::Object(_)) => {}
                 Some(_) => return Err(ForgeError::new(Kind::InvalidData)),
             }
@@ -880,9 +943,11 @@ fn unprocessable_kind(text: &str) -> Kind {
             .and_then(|errors| errors.as_array())
     {
         for error in errors.iter().filter_map(|error| error.as_object()) {
-            match error.get("field").and_then(|value| value.as_str()) {
-                Some("head") => head = true,
-                Some("base") => base = true,
+            let field = error.get("field").and_then(|value| value.as_str());
+            let invalid = error.get("code").and_then(|value| value.as_str()) == Some("invalid");
+            match field {
+                Some("head") if invalid => head = true,
+                Some("base") if invalid => base = true,
                 _ => {}
             }
             if error.get("code").and_then(|value| value.as_str()) == Some("already_exists") {
@@ -1311,6 +1376,73 @@ mod tests {
     }
 
     #[test]
+    fn a_non_string_extension_code_is_unreadable_and_leaves_a_write_uncertain() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = stub(&[&api(
+                    r#"{"data":null,"errors":[{"type":"NOT_FOUND","extensions":{"code":42}}]}"#,
+                    "",
+                )]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let dispatch =
+                    std::sync::Arc::new(crate::transport::mutation::MutationDispatch::new(None));
+                let error = api_client
+                    .request(
+                        "graphql",
+                        Some(json!({ "query": "mutation { x }" })),
+                        None,
+                        None,
+                        dispatch.clone(),
+                    )
+                    .await
+                    .expect_err("unreadable");
+                assert_eq!(error.kind, Kind::OutcomeUncertain);
+                assert!(!dispatch.definitely_failed());
+            });
+    }
+
+    #[test]
+    fn the_requests_credential_values_never_escape_a_page() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let token = "opaque-gh-token-value";
+                let body = api(
+                    &format!(r#"{{"note":"echoed {token}","visible":"ok"}}"#),
+                    &format!("ETag: \"{token}\"\r\n"),
+                );
+                let stub = stub(&[body.as_str(), body.as_str()]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0))
+                    .environment(ace_redaction::EnvironmentMatcher::new(&[token]));
+                let page = api_client
+                    .request("user", None, None, None, Default::default())
+                    .await
+                    .expect("a page");
+                let text = ace_json::ser::to_string(&page.body).expect("serializes");
+                assert!(!text.contains(token), "{text}");
+                assert!(text.contains("[REDACTED]"), "{text}");
+                assert_eq!(page.header("etag"), None, "a validator is dropped");
+                api_client
+                    .request("user", None, None, None, Default::default())
+                    .await
+                    .expect("a page");
+                let seen = stub.seen.lock().expect("seen");
+                let request = &seen[1];
+                assert!(
+                    !request.args.iter().any(|arg| arg.contains("If-None-Match")),
+                    "{:?}",
+                    request.args
+                );
+                assert!(!request.args.iter().any(|arg| arg.contains(token)));
+            });
+    }
+
+    #[test]
     fn a_graphql_refusal_is_classified_before_a_nonzero_exit() {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1477,6 +1609,10 @@ mod tests {
             (
                 r#"{"message":"Validation Failed","errors":[{"code":"already_exists","message":"name already exists"}]}"#,
                 Kind::Conflict,
+            ),
+            (
+                r#"{"message":"Validation Failed","errors":[{"field":"head","code":"missing"}]}"#,
+                Kind::Unprocessable,
             ),
         ] {
             tokio::runtime::Builder::new_current_thread()

@@ -416,6 +416,10 @@ impl SupervisedRunner {
             }
         };
         let mut state = capture.state.lock().expect("capture state lock");
+        // Exit or close may win the race with the overflow signal: the bound holds here too.
+        if state.tail.is_none() && state.stdout.len() > self.options.max_bytes {
+            return Err(ForgeError::new(Kind::Limit));
+        }
         let (stdout, truncated) = match state.tail.take() {
             Some(tail) => tail.finish(),
             None => (String::from_utf8_lossy(&state.stdout).into_owned(), false),

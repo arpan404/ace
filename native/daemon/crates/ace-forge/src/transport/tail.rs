@@ -79,6 +79,12 @@ impl LogTail {
     /// The kept text (newest bytes) and whether older output was dropped.
     pub fn finish(mut self) -> (String, bool) {
         if !self.pending.is_empty() {
+            // An incomplete final character is not emitted as U+FFFD (`tail.ts:77-80`).
+            if let Err(error) = std::str::from_utf8(&self.pending) {
+                // A trailing byte that cannot start a character (a lone continuation byte)
+                // and an incomplete character are both dropped, as `StringDecoder` does.
+                self.pending.truncate(error.valid_up_to());
+            }
             let rest = String::from_utf8_lossy(&self.pending).into_owned();
             self.pending.clear();
             self.consume(&rest);
@@ -268,6 +274,14 @@ mod tests {
         let (text, _) = tail.finish();
         assert_eq!(text, "caf\u{e9} line\n");
         assert!(!text.contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn a_lone_continuation_byte_is_dropped_rather_than_shown() {
+        let mut tail = LogTail::new(4_096).expect("valid cap");
+        tail.write(&[0xa9]);
+        let (text, _) = tail.finish();
+        assert_eq!(text, "");
     }
 
     #[test]

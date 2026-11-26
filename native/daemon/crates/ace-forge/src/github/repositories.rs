@@ -252,7 +252,7 @@ impl<'a> Repositories<'a> {
         name: &str,
         cancellation: Option<std::sync::Arc<Cancellation>>,
     ) -> Result<Option<HostedRepository>, ForgeError> {
-        if !valid_name(owner) || !valid_name(name) {
+        if !valid_owner(owner) || !valid_name(name) {
             return Err(ForgeError::new(Kind::InvalidData));
         }
         match self
@@ -281,7 +281,7 @@ impl<'a> Repositories<'a> {
         cancellation: Option<std::sync::Arc<Cancellation>>,
         dispatch: std::sync::Arc<MutationDispatch>,
     ) -> Result<HostedRepository, ForgeError> {
-        if !valid_name(&input.owner)
+        if !valid_owner(&input.owner)
             || !valid_name(&input.name)
             || !matches!(input.visibility.as_str(), "public" | "private")
             || input.description.chars().count() > 350
@@ -332,13 +332,26 @@ impl<'a> Repositories<'a> {
     }
 }
 
-/// A repository owner or name: no separators, no traversal, bounded as the schema is.
+/// `GitHubAccount`: a login starts alphanumeric and holds letters, digits or hyphens.
+fn valid_owner(owner: &str) -> bool {
+    let mut characters = owner.chars();
+    !owner.is_empty()
+        && owner.chars().count() <= 100
+        && characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric())
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '-')
+}
+
+/// `ForgeRepository.name`: word characters, dots and hyphens, bounded as the schema is.
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
-        && name.chars().count() <= 100
+        && name.chars().count() <= 256
         && name != "."
         && name != ".."
-        && !name.contains(['/', '\\', '?', '#', ' '])
+        && name
+            .chars()
+            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '.' | '-'))
 }
 
 #[cfg(test)]
@@ -514,6 +527,46 @@ mod tests {
                     Kind::InvalidData
                 );
                 assert!(stub.seen.lock().expect("seen").is_empty(), "no process");
+            });
+    }
+
+    #[test]
+    fn an_owner_or_name_the_protocol_refuses_is_invalid_data() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = Stub::default();
+                let repositories = client(&stub);
+                for (owner, name) in [("bad_owner", "ace"), ("octo", "bad:name")] {
+                    assert_eq!(
+                        repositories
+                            .find(owner, name, None)
+                            .await
+                            .expect_err("invalid")
+                            .kind,
+                        Kind::InvalidData,
+                        "{owner}/{name}"
+                    );
+                    let publish = PublishInput {
+                        host: String::from("github.com"),
+                        account: String::from("octo"),
+                        owner: owner.to_owned(),
+                        name: name.to_owned(),
+                        description: String::new(),
+                        visibility: String::from("public"),
+                    };
+                    assert_eq!(
+                        repositories
+                            .create(&publish, None, Default::default())
+                            .await
+                            .expect_err("invalid")
+                            .kind,
+                        Kind::InvalidData
+                    );
+                }
+                assert!(stub.seen.lock().expect("seen").is_empty());
             });
     }
 
