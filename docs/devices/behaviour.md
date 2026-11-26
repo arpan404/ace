@@ -684,3 +684,51 @@ per-frame rule above; its ingest events and line splitter, once per switch, are 
 ## 14. D3.4: chrome and skins (2026-11-26)
 
 - **PDF streams inflate to at most 64 MiB** (D3.4, `pdf_objects.rs` `MAX_INFLATED`). Node's `inflateSync` has no smaller bound and throws only near its buffer limit, so a small Flate bomb in a device art PDF could exhaust memory. The Rust reader refuses the stream past 64 MiB, and that drawing renders without it. Apple's chrome PDFs are far smaller.
+
+## 15. D4: the service (2026-11-26)
+
+The service's decisions are `ace-devices`' `service/` module, sans-IO: the clock, the timers and
+every promise chain are the shell's, and each module returns what to do next.
+
+| TypeScript                | Rust                              | Decides                                                                                     |
+| ------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `lease`, `lease-expiry`   | `service/lease.rs`                | the 30 s claim, the takeover's epoch, expiry, retained tickets, the watch that re-arms       |
+| `device-queue`            | `service/queue.rs`                | one operation per device, the latest subscribe wins, an unsubscribe always runs              |
+| `input-queue`, `input-budget` | `service/input_queue.rs`, `input_budget.rs` | 32 per kind, the person's separate lane, the ticket a takeover invalidates, an input's time |
+| `held-pushes`             | `service/held_pushes.rs`          | pushes held before welcome, the latest of each kind, in last-change order                    |
+| `control-delivery`        | `service/control_delivery.rs`     | coalescing while frames drain, a log batch dropped, a reply always written                   |
+| `subscriptions`           | `service/subscriptions.rs`        | one subscription per device, at most four, staged so a failed resubscribe leaves it          |
+| `session`, `binding`      | `service/session.rs`, `binding.rs` | a session's values, moving a device between threads, disabling every device                 |
+| `actions`                 | `service/actions.rs`              | a queued mutation's refusals, and whether the capture or the platform does it                |
+| `screen-controller`       | `service/screen_controller.rs`    | one lease for screen and device tools, including the release that lets go                    |
+| `screen-failure`, `failure` | `service/screen_failure.rs`, `failure.rs` | the screen helper's typed refusals, and any error as a `DeviceFailure`              |
+| `device-cowork`           | `service/cowork.rs`               | the person's presence, the agent's wait, the pointer viewers draw                            |
+| `sim-refs`, `sim-state`   | `service/sim_refs.rs`, `sim_state.rs` | refs that survive reads, the two caps, the first-start how-to                            |
+| `sim-activity`, `sim-guidance` | `service/sim_activity.rs`, `sim_guidance.rs` | what a viewer is told about an action, and the how-to                        |
+| `sim-act`                 | `service/sim_act.rs`              | a ref's refusals, the label a message names, a tap's fallback point                          |
+| `bridge`                  | `service/bridge.rs`               | who may speak, whose thread a device may be seen from, the 32-request budget                 |
+| `devices-setting` (daemon) | `service/devices_setting.rs`      | the next step, a busy retry, and what counts as a new choice                                 |
+
+The shell keeps the composition: the promise chains, the timers, the capture, the media binding,
+the stills and the settings loop. `sim-schemas.ts` stays TypeScript until D5 pins the typed
+decoding; the ref pattern it reads moved with `sim-refs`.
+
+Intended differences, each proven in Rust:
+
+- **A subscribe the queue drops never starts.** `device-queue.ts` throws `Device subscription
+  superseded` from a queued subscribe whose turn a newer operation passed. The Rust queue reports
+  it in `Finished::dropped`, and a running subscribe is told through `superseded()` so it rolls
+  itself back, as the TypeScript's ticket flag does.
+- **The lease expires through `release()`**, as `lease.ts` does, so an expiry moves the epoch and
+  clears the deadline exactly as a hand-back does. An empty thread or agent id names no holder
+  (the TypeScript tests the ids by truthiness), and a retained ticket is consumed by its release,
+  so an unreleased retain cannot grow the lease's maps (the TypeScript's per-closure flag).
+- **The service's words come from the catalog.** `leaseRequired`, `inputQueueFull`,
+  `commandQueueFull`, `bindingBusy`, `bindingDisabled`, `inputOneFinger`, `unsupportedAction`,
+  `screenDisabled`, `screenLimit`, `frontmostTyping`, `permissionScreenRecording`,
+  `permissionAccessibility`, `uiNeedsRef`, and the `tools` hints `personBusyHint`,
+  `foregroundRequiredHint`, `simRefUnknownHint`, `simStaleRefHint`, `simActionUnsupportedHint` and
+  `simActionNoRefHint` are in `native/daemon/catalog/devices.json`, and the TypeScript reads them
+  too. `check:devices-catalog` fails on a source that spells one.
+- **A tap's middle is rounded and never negative** (`sim-act.ts:72`), and a second finger is read
+  by truthiness: `pointerId: 0` is the first finger, not a second one.

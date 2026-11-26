@@ -14,6 +14,7 @@ pub mod cowork;
 pub mod devices_setting;
 pub mod failure;
 pub mod held_pushes;
+pub mod input_budget;
 pub mod input_queue;
 pub mod lease;
 pub mod queue;
@@ -35,6 +36,7 @@ pub use control_delivery::{ControlDelivery, Flush, Sent};
 pub use cowork::Cowork;
 pub use devices_setting::{Goal, SettingGoal};
 pub use held_pushes::{Held, HeldPushes};
+pub use input_budget::device_input_timeout;
 pub use input_queue::{Admission, MAX_PENDING_PER_KIND, PendingInput, SharedInput};
 pub use lease::{
     Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, LeaseWatch, Retained,

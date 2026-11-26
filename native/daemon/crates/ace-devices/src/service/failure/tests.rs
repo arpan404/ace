@@ -31,8 +31,8 @@ fn a_screen_failure_is_mapped_to_its_typed_failure() {
     let failure = device_failure(Failed::Error(message("Session limit")));
     assert_eq!(failure.code, DeviceErrorCode::Busy);
     assert_eq!(
-        failure.message.as_str(),
-        "Another live view is using the screen helper"
+        failure.message,
+        words::refusal("screenLimit").to_failure(None).message
     );
     assert_eq!(failure.permission, None);
 
