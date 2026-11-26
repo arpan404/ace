@@ -38,19 +38,32 @@ pub fn valid_resolution(request: &Value, resolution: &Value) -> bool {
     if dismissed {
         return answers.is_empty();
     }
+    // `new Map(questions.map(q => [q.id, q]))`: a duplicate id keeps the last question, and the
+    // answer count is compared with the map's size, not the array's length.
     let questions = request
         .get("questions")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if answers.len() != questions.len() {
+    let mut by_id: Vec<(String, Value)> = Vec::new();
+    for question in questions {
+        let Some(id) = question
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        match by_id.iter_mut().find(|(known, _)| *known == id) {
+            Some(slot) => slot.1 = question,
+            None => by_id.push((id, question)),
+        }
+    }
+    if answers.len() != by_id.len() {
         return false;
     }
     answers.iter().all(|(id, given)| {
-        let Some(question) = questions
-            .iter()
-            .find(|question| question.get("id").and_then(Value::as_str) == Some(id.as_str()))
-        else {
+        let Some((_, question)) = by_id.iter().find(|(known, _)| known == id) else {
             return false;
         };
         let Some(given) = given.as_array().filter(|given| !given.is_empty()) else {

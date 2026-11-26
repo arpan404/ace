@@ -121,6 +121,107 @@ pub fn ready_for_input(
     crate::transitions::readiness::accepts_person_input(state, &thread, now)
 }
 
+/// `readMessageFacts` (`message-facts.ts:89`): what the engine knows about an accepted message
+/// that decides when it reaches the model, read from the same checks the queue uses.
+pub fn message_facts(
+    core: &Core,
+    state: &mut State,
+    id: &str,
+    command_id: &str,
+) -> Result<Value, EngineError> {
+    let capabilities = thread_capabilities(core, state, id)?;
+    let conn = core.store.conn();
+    let intent = crate::intents::store::delivery(conn, id, command_id)?;
+    let queue = crate::queue::store::get(&core.store, id)?;
+    let header = crate::intents::header::headers(conn, Some(id), None)?
+        .into_iter()
+        .find(|entry| entry.command_id == command_id);
+    let waiting: Vec<String> = crate::queue::page::snapshot(&core.store, id)?
+        .get("messages")
+        .and_then(Value::as_array)
+        .map(|messages| {
+            messages
+                .iter()
+                .filter_map(|message| message.get("id").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let at = waiting.iter().position(|message| message == command_id);
+    let restarts = capabilities
+        .as_ref()
+        .is_some_and(crate::steering::route::steer_restarts_turn);
+    let person = match &header {
+        None => true,
+        Some(header) => crate::steering::route::is_person_steer(
+            header,
+            crate::steering::notes::person_chose(conn, header.id)?,
+        ),
+    };
+    let fate = crate::inputs::fate::read(&core.store, id, command_id)?;
+    let fate_state = fate
+        .get("state")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_owned();
+    let fate_error = fate.get("error").and_then(Value::as_str).map(str::to_owned);
+    let snapshot = state.repo.state(&core.store, id)?;
+    let has_state = snapshot.is_some();
+    let turn_running = snapshot.as_ref().is_some_and(|snapshot| {
+        crate::steering::route::root_run(&snapshot.borrow().state).is_some()
+    });
+    let accepts_input = match &header {
+        None => true,
+        Some(_) if !has_state => true,
+        Some(header) => ready_for_input(core, state, header)?,
+    };
+    let steers = capabilities
+        .as_ref()
+        .and_then(|capabilities| capabilities.get("steer"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && (person || !restarts);
+    let mut out = ace_json::Map::new();
+    out.insert("fate", Value::from(fate_state.as_str()));
+    if fate_state == "failed" {
+        out.insert(
+            "error",
+            Value::from(fate_error.unwrap_or_default().as_str()),
+        );
+    }
+    out.insert(
+        "delivery",
+        Value::from(
+            intent
+                .as_ref()
+                .map_or("queue", |intent| intent.delivery.as_str()),
+        ),
+    );
+    out.insert(
+        "fromParent",
+        Value::Bool(
+            intent.as_ref().and_then(|intent| intent.trigger.as_deref()) == Some("parent_agent"),
+        ),
+    );
+    out.insert(
+        "ahead",
+        Value::from(at.map_or(waiting.len(), |at| at) as f64),
+    );
+    out.insert(
+        "held",
+        Value::Bool(
+            queue.paused
+                || queue.limited
+                || crate::intents::store::recovering(conn, id)?
+                || crate::intents::store::recovery_acknowledgement(conn, id)?,
+        ),
+    );
+    out.insert("turnRunning", Value::Bool(turn_running));
+    out.insert("acceptsInput", Value::Bool(accepts_input));
+    out.insert("steers", Value::Bool(steers));
+    out.insert("restartsTurn", Value::Bool(restarts && person));
+    Ok(Value::Object(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +251,83 @@ mod tests {
             )),
         )
         .expect("engine")
+    }
+
+    fn facts(conn: &std::sync::Arc<ace_store::Connection>, command: &str) -> Value {
+        let engine = engine_on(conn);
+        let core = engine.core();
+        core.with_state(|state| message_facts(core, state, "t", command))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn send(command: &str, extra: &str) -> String {
+        let payload = format!(
+            r#"{{"id":"{command}","deviceId":"device","payload":{{"type":"thread.send","threadId":"t","input":[{{"type":"text","text":"hello"}}]}}}}"#
+        );
+        format!(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position{}) \
+             VALUES ('{command}','t','thread.send','{payload}','pending','queue',1{})",
+            if extra.is_empty() {
+                ""
+            } else {
+                ",trigger,error"
+            },
+            if extra.is_empty() {
+                String::new()
+            } else {
+                format!(",{extra}")
+            }
+        )
+    }
+
+    #[test]
+    fn a_waiting_send_reads_waiting_and_the_queue_would_send_it() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_queue (thread_id) VALUES ('t')")
+            .unwrap();
+        conn.exec(&send("c", "")).unwrap();
+        let facts = facts(&conn, "c");
+        assert_eq!(facts.get("fate").and_then(Value::as_str), Some("waiting"));
+        assert_eq!(facts.get("delivery").and_then(Value::as_str), Some("queue"));
+        assert_eq!(facts.get("ahead").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(facts.get("held"), Some(&Value::Bool(false)));
+        assert_eq!(facts.get("turnRunning"), Some(&Value::Bool(false)));
+        assert_eq!(facts.get("acceptsInput"), Some(&Value::Bool(true)));
+        assert_eq!(facts.get("fromParent"), Some(&Value::Bool(false)));
+        assert_eq!(facts.get("steers"), Some(&Value::Bool(false)));
+        assert_eq!(facts.get("restartsTurn"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn a_parents_send_reads_from_parent_and_a_held_queue_reads_held() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_queue (thread_id, paused, reason) VALUES ('t', 1, 'manual')")
+            .unwrap();
+        conn.exec(&send("c", "'parent_agent',NULL")).unwrap();
+        let facts = facts(&conn, "c");
+        assert_eq!(facts.get("fromParent"), Some(&Value::Bool(true)));
+        assert_eq!(facts.get("held"), Some(&Value::Bool(true)));
+        // A paused queue still accepts the input between turns; the hold is what stops it.
+        assert_eq!(facts.get("acceptsInput"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn a_failed_input_carries_its_reason() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_queue (thread_id) VALUES ('t')")
+            .unwrap();
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position,error) \
+             VALUES ('c','t','thread.send','{\"id\":\"c\",\"deviceId\":\"device\",\"payload\":{\"type\":\"thread.send\",\"threadId\":\"t\",\"input\":[{\"type\":\"text\",\"text\":\"hello\"}]}}','failed','queue',1,'Message not sent')",
+        )
+        .unwrap();
+        let facts = facts(&conn, "c");
+        assert_eq!(facts.get("fate").and_then(Value::as_str), Some("failed"));
+        assert_eq!(
+            facts.get("error").and_then(Value::as_str),
+            Some("Message not sent")
+        );
     }
 
     #[test]
