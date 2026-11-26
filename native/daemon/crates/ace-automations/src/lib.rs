@@ -18,6 +18,7 @@ mod store_schema;
 pub mod webhook_body;
 pub mod webhook_secret_box;
 pub mod webhook_signature;
+pub mod webhooks;
 
 pub use decisions::{
     PAUSED_REFUSAL, PAUSED_RESULT, RUNNING_LIMIT, admission, can_promote, jitter_deadline,
@@ -38,4 +39,7 @@ pub use webhook_secret_box::{SecretBox, decode_base64_lenient, new_webhook_secre
 pub use webhook_signature::{
     HeaderError, WEBHOOK_TOLERANCE_MS, WebhookCheck, WebhookHeaders, read_webhook_headers,
     sign_webhook, verify_webhook,
+};
+pub use webhooks::{
+    RotatedSecret, WebhookAnswer, WebhookDeps, WebhookRequest, Webhooks, valid_hook_id,
 };

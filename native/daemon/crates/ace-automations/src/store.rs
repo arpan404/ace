@@ -773,6 +773,15 @@ impl AutomationStore {
         },
       ],
     )?;
+        if claim.trigger == "webhook" {
+            self.webhook_deliver(
+                &automation.id,
+                claim.event_key,
+                claim.id,
+                claim.now + 2 * crate::webhook_signature::WEBHOOK_TOLERANCE_MS,
+                claim.now,
+            )?;
+        }
         self.prune(&automation.id)?;
         Ok(ClaimedRun {
             run,
