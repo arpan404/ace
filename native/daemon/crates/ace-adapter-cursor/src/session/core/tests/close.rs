@@ -97,3 +97,34 @@ fn a_close_after_the_host_exited_asks_for_the_stop_without_a_request() {
     assert_eq!(ports(&effects), vec![String::from("stop")]);
     assert!(requests(&effects).is_empty());
 }
+
+#[test]
+fn the_stop_port_carries_no_reason_and_only_its_answer_settles_the_close() {
+    let mut core = session_core();
+    opened(&mut core);
+    let closed = core.close(2, CloseReason::User);
+    let effects = ack(&mut core, closed);
+    let (close, _, _) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the close request");
+    let effects = reply(&mut core, close, r#"{}"#);
+    // The facade is asked to stop the child with an empty payload, and nothing settles yet.
+    let stopped: Vec<&str> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            CoreEffect::Event(SessionEvent::Port { name, json }) if *name == "stop" => {
+                assert_eq!(json, "{}");
+                Some(*name)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stopped, vec!["stop"]);
+    assert!(settled(&effects).is_empty());
+    // Only the facade's answer settles it.
+    assert_eq!(
+        settled(&core.note("stop", None)),
+        vec![Ok(String::from("null"))]
+    );
+}

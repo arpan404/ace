@@ -242,6 +242,43 @@ mod tests {
     }
 
     #[test]
+    fn the_open_request_carries_every_optional_key_when_the_session_has_one() {
+        let recover = json!({"runs": [{"runId": "r", "through": 3}]});
+        let params = open_params(
+            "g",
+            &CursorLimits::default(),
+            CursorOpen {
+                cwd: "/w",
+                thread_id: "t",
+                checkpoint_generation: Some(2),
+                model: None,
+                model_params: Some(&json!({"reasoning": "high"})),
+                native_session_id: Some("native"),
+                recover: Some(&recover),
+                permission_mode: None,
+                auto_review: true,
+                mcp: None,
+                instructions: Some("be brief"),
+            },
+        );
+        assert_eq!(
+            params.to_json(),
+            format!(
+                r#"{{"cwd":"/w","threadId":"t","generation":"g","checkpointGeneration":2,"modelParams":{{"reasoning":"high"}},"nativeSessionId":"native","recover":{{"runs":[{{"runId":"r","through":3}}]}},"autoReviewAvailable":true,"limits":{},"instructions":"be brief"}}"#,
+                CursorLimits::default().to_value().to_json()
+            )
+        );
+    }
+
+    #[test]
+    fn the_limits_object_keeps_the_schemas_order() {
+        assert_eq!(
+            CursorLimits::default().to_value().to_json(),
+            r#"{"maxWorkers":8,"maxFrameBytes":1048576,"maxPendingBytes":2097152,"maxCallbacks":32,"maxIdentities":2048,"maxInputBytes":262144,"maxCheckpointBytes":8589934592,"historyPageSize":100,"heapMb":2048,"timeoutMs":30000,"sendTimeoutMs":300000,"ackTimeoutMs":300000,"graceMs":5000}"#
+        );
+    }
+
+    #[test]
     fn the_remaining_requests_keep_their_keys() {
         assert_eq!(
             configure_params("m", Some(&json!({"effort": "high"}))).to_json(),

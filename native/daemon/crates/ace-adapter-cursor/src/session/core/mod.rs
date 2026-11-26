@@ -32,7 +32,10 @@ use super::host::{CursorHostConfig, CursorHostCore, HostEffect};
 pub(super) const INTERNAL_CALL_BIT: u64 = 1 << 63;
 /// The port a stopped host answers (`session.ts:188`, `host.ts:254`).
 pub const PORT_EXITED: &str = "exited";
-/// The port the facade answers once the child is stopped (`host.ts:254`-`:267`).
+/// The facade-owned stop (`host.ts:254`-`:267`): the child is stopped outside the session. Its
+/// payload is `{}`, and the answer is `note("stop")`, which settles the close's waiters. A stop
+/// the host's own failure caused carries `{"reason": ...}` from the host core, which the facade
+/// passes to `fail` (`host.ts:236`), so a reason always means a cause, never a plain stop.
 pub const PORT_STOP_CHILD: &str = "stop";
 /// The port a stray line's answer comes back on (E3.0c's hold, `host.ts:143`).
 pub const PORT_HOST_OUTPUT: &str = "host-output";
