@@ -380,9 +380,8 @@ export async function openNativeCodexSession(
         release();
       },
       (error: unknown) => {
-        // The terminal barrier can beat a close that started while the pipes
-        // were already closing: the session is gone, which is what close means.
-        if (drained && error instanceof Error && error.message === "Codex session is closed") {
+        // A close that lost the race with the terminal barrier is gone either way.
+        if (error instanceof Error && error.message === "Codex session is closed") {
           release();
           return;
         }
