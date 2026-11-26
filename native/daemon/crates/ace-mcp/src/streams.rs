@@ -20,6 +20,8 @@ use crate::jsonrpc::Message;
 pub struct Streams {
     leases: HashMap<LeaseId, VecDeque<u64>>,
     streams: HashMap<u64, UnboundedSender<Value>>,
+    /// Legacy streams belong to one transport session, which ends them when it goes.
+    sessions: HashMap<u64, String>,
     next: u64,
 }
 
@@ -35,6 +37,7 @@ impl Streams {
         if owned.len() >= per_lease.max(1) {
             if let Some(oldest) = owned.pop_front() {
                 self.streams.remove(&oldest);
+                self.sessions.remove(&oldest);
             }
         } else if self.streams.len() >= total {
             return None;
@@ -47,8 +50,35 @@ impl Streams {
         Some((id, receiver))
     }
 
+    /// Opens one stream that ends with `session` (a legacy GET).
+    pub fn open_session(
+        &mut self,
+        lease: LeaseId,
+        per_lease: usize,
+        total: usize,
+        session: &str,
+    ) -> Option<(u64, UnboundedReceiver<Value>)> {
+        let opened = self.open(lease, per_lease, total)?;
+        self.sessions.insert(opened.0, session.to_owned());
+        Some(opened)
+    }
+
+    /// Ends every stream of `session`, as closing its transport does.
+    pub fn close_session(&mut self, session: &str) {
+        let ids: Vec<u64> = self
+            .sessions
+            .iter()
+            .filter(|(_, owned)| owned.as_str() == session)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.close(id);
+        }
+    }
+
     /// Ends one stream; false when it was already gone.
     pub fn close(&mut self, id: u64) -> bool {
+        self.sessions.remove(&id);
         if self.streams.remove(&id).is_none() {
             return false;
         }
@@ -95,6 +125,7 @@ impl Streams {
         if let Some(owned) = self.leases.remove(&lease) {
             for id in owned {
                 self.streams.remove(&id);
+                self.sessions.remove(&id);
             }
         }
     }

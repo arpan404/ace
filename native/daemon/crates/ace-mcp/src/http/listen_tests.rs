@@ -323,3 +323,74 @@ async fn dropping_a_request_future_frees_its_admission_its_call_slot_and_its_pen
         "the dropped request kept its call slot or its request id"
     );
 }
+
+#[tokio::test]
+async fn a_superseded_or_deleted_legacy_session_ends_its_stream() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    register_family(&fixture);
+    let opt_in = |mut request: HttpRequest| {
+        request
+            .headers
+            .push(("x-ace-notifications".to_owned(), "stream".to_owned()));
+        request
+    };
+    let initialize = |id: u8| {
+        opt_in(fixture.request(&format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"method":"initialize","params":{{"protocolVersion":"2025-06-18"}}}}"#
+        )))
+    };
+    let first = fixture.server.handle(initialize(1), Arc::new(|_| {})).await;
+    let first_id = session_header(&first).expect("no session").to_owned();
+    let mut get = opt_in(fixture.request("{}"));
+    get.method = "GET".to_owned();
+    get.headers
+        .push(("mcp-session-id".to_owned(), first_id.clone()));
+    let mut superseded_stream = fixture
+        .server
+        .handle(get, Arc::new(|_| {}))
+        .await
+        .stream
+        .expect("GET opened no stream");
+    // Four sessions a lease: the fifth supersedes the first, which must lose its stream.
+    for id in 2..=5 {
+        let opened = fixture
+            .server
+            .handle(initialize(id), Arc::new(|_| {}))
+            .await;
+        assert!(session_header(&opened).is_some(), "session {id}");
+    }
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), superseded_stream.recv())
+            .await
+            .expect("a superseded session kept its stream open")
+            .is_none()
+    );
+    // DELETE ends the newest session's stream too.
+    let newest = fixture.server.handle(initialize(6), Arc::new(|_| {})).await;
+    let newest_id = session_header(&newest).expect("no session").to_owned();
+    let mut get = opt_in(fixture.request("{}"));
+    get.method = "GET".to_owned();
+    get.headers
+        .push(("mcp-session-id".to_owned(), newest_id.clone()));
+    let mut stream = fixture
+        .server
+        .handle(get, Arc::new(|_| {}))
+        .await
+        .stream
+        .expect("GET opened no stream");
+    let mut delete = opt_in(fixture.request("{}"));
+    delete.method = "DELETE".to_owned();
+    delete
+        .headers
+        .push(("mcp-session-id".to_owned(), newest_id));
+    assert_eq!(
+        fixture.server.handle(delete, Arc::new(|_| {})).await.status,
+        200
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), stream.recv())
+            .await
+            .expect("a deleted session kept its stream open")
+            .is_none()
+    );
+}

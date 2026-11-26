@@ -32,6 +32,8 @@ pub struct LegacySessions {
     per_lease: usize,
     total: usize,
     generate: SessionIds,
+    /// Sessions an `open` superseded, so the caller ends their GET streams too.
+    dropped: Vec<String>,
 }
 
 impl std::fmt::Debug for LegacySessions {
@@ -56,6 +58,7 @@ impl LegacySessions {
             per_lease: per_lease.max(1),
             total: total.max(1),
             generate,
+            dropped: Vec::new(),
         }
     }
 
@@ -79,6 +82,7 @@ impl LegacySessions {
         if owned.len() >= self.per_lease
             && let Some(oldest) = owned.first()
         {
+            self.dropped.push(oldest.clone());
             self.entries.shift_remove(oldest);
         }
         if self.entries.len() >= self.total {
@@ -114,6 +118,11 @@ impl LegacySessions {
         self.entries
             .get(id)
             .filter(|session| same_lease(&session.principal, principal))
+    }
+
+    /// The sessions the last `open` superseded; the caller closes their streams.
+    pub fn take_dropped(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.dropped)
     }
 
     /// Ends `id`; false when it was not this lease's.

@@ -220,6 +220,17 @@ impl Shared {
     /// Ends one stream the listener dropped. A legacy GET's stream also ends its transport
     /// session, as a disconnected stream owns no usable transport state
     /// (`legacy-sessions.ts:47`).
+    /// Ends the streams of these transport sessions (a superseded or deleted one).
+    fn close_legacy_sessions(&self, sessions: &[String]) {
+        let mut streams = self
+            .legacy_streams
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for session in sessions {
+            streams.close_session(session);
+        }
+    }
+
     fn end_stream(&self, kind: StreamKind, id: u64, session: Option<&str>) {
         self.stream(kind)
             .lock()
@@ -360,12 +371,19 @@ impl McpServer {
         per_lease: usize,
         session: Option<&str>,
     ) -> Option<NotificationStream> {
-        let (id, frames) = self
-            .shared
-            .stream(kind)
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .open(lease, per_lease, NOTIFICATION_STREAMS_TOTAL)?;
+        let (id, frames) = {
+            let mut streams = self
+                .shared
+                .stream(kind)
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            match session {
+                Some(session) => {
+                    streams.open_session(lease, per_lease, NOTIFICATION_STREAMS_TOTAL, session)
+                }
+                None => streams.open(lease, per_lease, NOTIFICATION_STREAMS_TOTAL),
+            }
+        }?;
         let shared = Arc::clone(&self.shared);
         let session = session.map(str::to_owned);
         Some(NotificationStream::new(id, frames, move || {
@@ -454,11 +472,11 @@ impl McpServer {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .close(&id, &principal);
-                return if removed {
-                    HttpResponse::empty(200)
-                } else {
-                    HttpResponse::empty(404)
-                };
+                if removed {
+                    self.shared.close_legacy_sessions(std::slice::from_ref(&id));
+                    return HttpResponse::empty(200);
+                }
+                return HttpResponse::empty(404);
             }
             let known = self
                 .shared
@@ -499,12 +517,18 @@ impl McpServer {
                 let creates = legacy_client && is_legacy_initialize(&request);
                 let mut response = self.post(request, principal.clone(), emit).await;
                 if creates && response.status == 200 {
-                    let opened = self
-                        .shared
-                        .legacy
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .open(&principal);
+                    let (opened, dropped) = {
+                        let mut legacy = self
+                            .shared
+                            .legacy
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        let opened = legacy.open(&principal);
+                        let dropped = legacy.take_dropped();
+                        (opened, dropped)
+                    };
+                    // A superseded session's GET stream ends with it.
+                    self.shared.close_legacy_sessions(&dropped);
                     if let Some(id) = opened {
                         response.headers.push(("mcp-session-id".to_owned(), id));
                     }
