@@ -75,8 +75,8 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     let signals = Signals::install();
     let data_dir = config.data_dir.clone();
     // The home's format is settled before anything opens or writes in it.
-    match home::prepare(&data_dir, home::HOME_FORMAT_VERSION, home::now_ms()) {
-        Ok(_) => {}
+    let prepared = match home::prepare(&data_dir, home::HOME_FORMAT_VERSION, home::now_ms()) {
+        Ok(state) => state,
         Err(error) => {
             if let home::HomeError::Live { home, pid, message } = &error {
                 // Nothing moved: the old home's daemon still holds it.
@@ -117,7 +117,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
                 message: error.to_string(),
             });
         }
-    }
+    };
     let lock = Lock::acquire(&data_dir).map_err(|error| match error {
         LockError::Held(held) => FailedStart {
             code: ExitCode::LockHeld,
@@ -137,6 +137,29 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         });
     }
     let log = Arc::new(Log::open(&data_dir, config.log_level));
+    if let home::State::Fresh {
+        backup,
+        previous_format,
+        release,
+    } = &prepared
+    {
+        // The person's only record of where their history went (`home-backup-log.ts`).
+        let _ = std::fs::write(
+            backup.join("README.txt"),
+            format!(
+                "This is the ace data home that was set aside when ace started fresh (formerly {previous_format}).\nIt is safe to keep for reference or delete.\n"
+            ),
+        );
+        log.log(
+            "info",
+            "Started with a fresh data home; the old data was backed up",
+            serde_json::json!({
+                "backup": backup.display().to_string(),
+                "previousFormat": previous_format,
+                "release": release,
+            }),
+        );
+    }
     log.log(
         "info",
         "Daemon modules loaded",
@@ -226,6 +249,9 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
             FailedStart::failed(format!("Cannot open the daemon's devices: {error}"))
         })?,
     );
+    // Startup's gate: a hello before it opens is told services are starting, and
+    // `/v1/status` reports it.
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Where a pairing link points: filled once the remote listener binds.
     let pairing_origin: Arc<std::sync::Mutex<Option<crate::http::PairingOrigin>>> =
         Arc::new(std::sync::Mutex::new(None));
@@ -238,6 +264,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         version: config.version.clone(),
         allowed_origins: config.web_origins.clone(),
         auth: Arc::clone(&auth),
+        ready: Arc::clone(&ready),
         pairing: Arc::clone(&pairing_origin),
         on_stop: Arc::new(move |admission: Admission| {
             // The receipt is written before the answer leaves, so `ace stop`
@@ -273,12 +300,9 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         }
     };
     let authenticator: Arc<dyn session::Authenticator> = auth.clone();
-    // Startup's gate: a hello before it opens is told services are starting.
-    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Test-only shorter timers, so a program test need not wait a minute.
     let test_ms = |name: &str, default_ms: u64| {
-        std::env::var(name)
-            .ok()
+        crate::testing::var(name)
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(default_ms)
     };
@@ -333,9 +357,8 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     print_started(&transport, &tokens.path, output);
     // A test-only hold lets `cold-start` see the progress frame a client gets
     // while a real daemon's services are still starting.
-    if let Some(hold) = std::env::var("ACE_TEST_STARTUP_HOLD_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
+    if let Some(hold) =
+        crate::testing::var("ACE_TEST_STARTUP_HOLD_MS").and_then(|value| value.parse::<u64>().ok())
     {
         tokio::time::sleep(Duration::from_millis(hold)).await;
     }

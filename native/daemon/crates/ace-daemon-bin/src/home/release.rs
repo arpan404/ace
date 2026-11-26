@@ -43,9 +43,11 @@ fn carried_version(backup: &Path, home: &Path) -> Option<String> {
         return None;
     }
     // The launcher names the home it was installed for, so it is correct again
-    // once moved back; a launcher for another home is left alone.
-    let launcher = std::fs::read_to_string(backup.join("bin/ace")).ok()?;
-    if !launcher.contains(&home.display().to_string()) {
+    // once moved back; a launcher for another home is left alone. The comparison
+    // is exact: `~/.ace2` contains `~/.ace` and must not be carried into `.ace`.
+    let name = if cfg!(windows) { "ace.cmd" } else { "ace" };
+    let launcher = std::fs::read_to_string(backup.join("bin").join(name)).ok()?;
+    if !launcher_names_home(&launcher, home) {
         return None;
     }
     Some(version)
@@ -73,4 +75,17 @@ fn release_target(backup: &Path) -> Option<String> {
 /// `present`: anything at the path, a dangling pointer included.
 fn present(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok()
+}
+
+/// Whether the launcher sets `ACE_HOME` to exactly `home` (`renderLauncher`).
+fn launcher_names_home(launcher: &str, home: &Path) -> bool {
+    let Some(line) = launcher.lines().find(|line| line.starts_with("ACE_HOME=")) else {
+        return false;
+    };
+    let mut value = line["ACE_HOME=".len()..].trim();
+    // `shell()` single-quotes the path and escapes a quote as `'\''`.
+    if value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2 {
+        value = &value[1..value.len() - 1];
+    }
+    value.replace("'\\''", "'") == home.display().to_string()
 }

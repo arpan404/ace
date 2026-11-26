@@ -43,7 +43,7 @@ fn a_certificate_for_another_name_is_refused() {
         .ok()
         .and_then(|runtime| runtime.block_on(crate::identity::load(home.path())).ok());
     let Some(identity) = identity else {
-        return;
+        panic!("the identity is generated in memory");
     };
     let chain = String::from_utf8_lossy(&identity.cert_pem).into_owned();
     let key = String::from_utf8_lossy(&identity.key_pem).into_owned();

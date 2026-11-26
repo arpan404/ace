@@ -208,7 +208,9 @@ fn handle_message(
                     authenticated();
                     // The promise the welcome makes is that the services are up:
                     // a hello that arrives before that is told they are starting.
-                    if !ready.load(Ordering::Acquire) {
+                    // Only the main channel gets the progress frame before its
+                    // welcome (`server.ts:936`).
+                    if !ready.load(Ordering::Acquire) && channel.is_none() {
                         send(handle, next, br#"{"type":"starting"}"#);
                     }
                     send(handle, next, &frame);

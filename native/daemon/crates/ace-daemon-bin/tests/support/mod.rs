@@ -222,6 +222,37 @@ impl Drop for Daemon {
 
 /// One HTTP exchange over the daemon's own listener, as the CLI makes it.
 pub fn request(endpoint: &str, method: &str, path: &str, token: &str, body: &str) -> (u16, String) {
+    request_headers(endpoint, method, path, token, body, &[])
+}
+
+/// The same, with extra request headers (an Origin, a JSON content type).
+pub fn request_headers(
+    endpoint: &str,
+    method: &str,
+    path: &str,
+    token: &str,
+    body: &str,
+    extra: &[(&str, &str)],
+) -> (u16, String) {
+    let text = exchange_headers(endpoint, method, path, token, body, extra);
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let body = text.split_once("\r\n\r\n").map(|(_, body)| body.to_owned());
+    (status, body.unwrap_or_default())
+}
+
+/// The whole response, headers included, for a CORS or header assertion.
+pub fn exchange_headers(
+    endpoint: &str,
+    method: &str,
+    path: &str,
+    token: &str,
+    body: &str,
+    extra: &[(&str, &str)],
+) -> String {
     let port = endpoint
         .trim_start_matches("http://127.0.0.1:")
         .trim_end_matches('/')
@@ -232,23 +263,20 @@ pub fn request(endpoint: &str, method: &str, path: &str, token: &str, body: &str
         panic!("the daemon's listener accepts a connection");
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let extra: String = extra
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n{body}",
         body.len()
     );
     if stream.write_all(request.as_bytes()).is_err() {
-        return (0, String::new());
+        return String::new();
     }
     let mut response = Vec::new();
     let _ = stream.read_to_end(&mut response);
-    let text = String::from_utf8_lossy(&response).into_owned();
-    let status = text
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse().ok())
-        .unwrap_or(0);
-    let body = text.split_once("\r\n\r\n").map(|(_, body)| body.to_owned());
-    (status, body.unwrap_or_default())
+    String::from_utf8_lossy(&response).into_owned()
 }
 
 pub fn token_is_64_hex(token: &str) -> bool {

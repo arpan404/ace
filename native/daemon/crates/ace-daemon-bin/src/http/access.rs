@@ -54,7 +54,19 @@ pub(super) fn revoke(state: &HttpState, token: &str, id: &str) -> Reply {
 }
 
 /// `POST /v1/pair`: redeem a pairing link. No credential; the code is the proof.
-pub(super) fn pair(state: &HttpState, body: &[u8]) -> Reply {
+/// Every attempt counts before the body is read, as `remote-auth.ts:313` does.
+pub(super) fn pair(state: &HttpState, body: &[u8], source: &str) -> Reply {
+    let address =
+        if crate::testing::var("ACE_TEST_PAIRING_ADDRESSES").as_deref() == Some("distinct") {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            format!("test-{}", NEXT.fetch_add(1, Ordering::Relaxed))
+        } else {
+            source.to_owned()
+        };
+    if let Err(refusal) = state.config.auth.pairing_attempt(&address) {
+        return auth_error(&refusal);
+    }
     let body = match parse_body(body) {
         Ok(body) => body,
         Err(reply) => return reply,
@@ -65,14 +77,43 @@ pub(super) fn pair(state: &HttpState, body: &[u8]) -> Reply {
     let Some(name) = body.get("name").and_then(Value::as_str) else {
         return error(StatusCode::BAD_REQUEST, "Invalid pairing redemption");
     };
-    let install_id = body.get("installId").and_then(Value::as_str);
-    let standing_key = body.get("standingKey").and_then(Value::as_str);
-    if code.is_empty() || code.len() > 256 || name.is_empty() || name.len() > 256 {
+    if code.is_empty()
+        || code.chars().count() > 256
+        || name.is_empty()
+        || name.chars().count() > 256
+    {
         return error(StatusCode::BAD_REQUEST, "Invalid pairing redemption");
     }
-    if let Err(refusal) = state.config.auth.pairing_attempt("local") {
-        return auth_error(&refusal);
-    }
+    let install_id = match body.get("installId") {
+        None => None,
+        Some(Value::String(text)) => {
+            let id = text.as_str();
+            if !(8..=64).contains(&id.len())
+                || !id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            {
+                return error(StatusCode::BAD_REQUEST, "Invalid pairing redemption");
+            }
+            Some(id)
+        }
+        Some(_) => return error(StatusCode::BAD_REQUEST, "Invalid pairing redemption"),
+    };
+    let standing_key = match body.get("standingKey") {
+        None => None,
+        Some(Value::String(text)) => {
+            let key = text.as_str();
+            if key.len() != 87
+                || !key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            {
+                return error(StatusCode::BAD_REQUEST, "Invalid pairing redemption");
+            }
+            Some(key)
+        }
+        Some(_) => return error(StatusCode::BAD_REQUEST, "Invalid pairing redemption"),
+    };
     match state
         .config
         .auth
@@ -107,65 +148,33 @@ pub(super) fn pairings(state: &HttpState, token: &str, body: &[u8]) -> Reply {
         Ok(body) => body,
         Err(reply) => return reply,
     };
-    let requested = match body.get("scopes") {
-        None => vec!["read".to_owned(), "operate".to_owned()],
-        Some(Value::Array(items)) => {
-            let names: Vec<String> = items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect();
-            if names.len() != items.len() {
-                return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-            }
-            names
-        }
-        Some(_) => return error(StatusCode::BAD_REQUEST, "Invalid scopes"),
+    let Ok(json) = ace_json::parse(&body.to_string()) else {
+        return error(StatusCode::BAD_REQUEST, "Invalid scopes");
     };
-    if requested.is_empty() || requested.len() > 5 {
+    let Some(request) = ace_auth::pairing::PairingRequest::parse(&json) else {
         return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-    }
-    let mut scopes = Vec::new();
-    for name in &requested {
-        let Some(scope) = ace_auth::devices::Scope::parse(name) else {
-            return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-        };
-        // Desktop and Use my Chrome credentials are local only.
-        if !scope.pairable() {
-            return error(StatusCode::FORBIDDEN, "Desktop credentials are local only");
-        }
-        if !scopes.contains(&scope) {
-            scopes.push(scope);
-        }
-    }
-    let label = body
-        .get("label")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .filter(|label| !label.is_empty() && label.len() <= 64);
-    if body.get("label").is_some() && label.is_none() {
-        return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-    }
-    let ttl_ms = body.get("ttlMs").and_then(Value::as_i64);
-    if ttl_ms.is_some_and(|ttl| !matches_any(ttl, &[300_000, 3_600_000, 86_400_000, 604_800_000])) {
-        return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-    }
-    let device_ttl_ms = match body.get("deviceTtlMs") {
-        None | Some(Value::Null) => None,
-        Some(value) => {
-            let Some(ttl) = value.as_i64() else {
-                return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-            };
-            if !matches_any(ttl, &[86_400_000, 604_800_000, 2_592_000_000]) {
-                return error(StatusCode::BAD_REQUEST, "Invalid scopes");
-            }
-            Some(ttl)
-        }
     };
+    // The creator may grant only what it holds (ADR 0070): admin does not imply
+    // projects or accounts (`pairing-issue.ts:59`).
+    let creator = state.config.auth.creator_scopes(token);
+    if let Some(held) = &creator {
+        for scope in &request.scopes {
+            if !held.contains(scope) {
+                return error(
+                    StatusCode::FORBIDDEN,
+                    &format!(
+                        "You can't grant {}: this device doesn't have it.",
+                        ace_auth::pairing::scope_label(*scope)
+                    ),
+                );
+            }
+        }
+    }
+    let scopes = request.scopes.clone();
     let terms = ace_auth::PairingTerms {
-        label,
-        ttl_ms,
-        device_ttl_ms,
+        label: request.label.clone(),
+        ttl_ms: request.ttl_ms,
+        device_ttl_ms: request.device_ttl_ms,
         person: false,
     };
     match state.config.auth.issue_pairing(&scopes, &terms) {
@@ -192,10 +201,6 @@ fn device_value(device: &ace_auth::devices::Device) -> Value {
         "revokedAt": device.revoked_at,
         "expiresAt": device.expires_at,
     })
-}
-
-fn matches_any(value: i64, allowed: &[i64]) -> bool {
-    allowed.contains(&value)
 }
 
 fn error(status: StatusCode, message: &str) -> Reply {

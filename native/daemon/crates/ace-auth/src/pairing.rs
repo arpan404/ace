@@ -290,15 +290,18 @@ impl PairingRequest {
             }
             Some(_) => return None,
         };
-        let ttl_ms = match integer_field(object.get("ttlMs")) {
+        // A field that is present but not a number is invalid, not absent.
+        let ttl_ms = match object.get("ttlMs") {
             None => None,
-            Some(value) if LINK_TTLS.contains(&value) => Some(value),
-            Some(_) => return None,
+            Some(value) => match integer_field(Some(value)) {
+                Some(ttl) if LINK_TTLS.contains(&ttl) => Some(ttl),
+                _ => return None,
+            },
         };
         let device_ttl_ms = match object.get("deviceTtlMs") {
             None | Some(Value::Null) => None,
-            other => match integer_field(other) {
-                Some(value) if DEVICE_TTLS.contains(&value) => Some(value),
+            Some(value) => match integer_field(Some(value)) {
+                Some(ttl) if DEVICE_TTLS.contains(&ttl) => Some(ttl),
                 _ => return None,
             },
         };

@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use http::{Method, Request, StatusCode};
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
@@ -53,6 +53,8 @@ pub struct HttpConfig {
     pub allowed_origins: Vec<String>,
     /// The daemon's hello and device state, shared with the socket.
     pub auth: Arc<crate::auth::DaemonAuth>,
+    /// Startup's gate: `/v1/status` reports whether the services are up.
+    pub ready: Arc<std::sync::atomic::AtomicBool>,
     /// Set once the remote listener binds.
     pub pairing: Arc<std::sync::Mutex<Option<PairingOrigin>>>,
     /// Called once a stop request is accepted, after its answer is on the wire.
@@ -107,6 +109,19 @@ impl HttpServer {
 
 type Response = http::Response<Full<Bytes>>;
 
+/// Equal bytes in constant time, so the loopback hop's secret cannot be learned
+/// a byte at a time (`proxy-guard.ts:59`).
+fn same_secret(actual: &[u8], expected: &[u8]) -> bool {
+    if actual.len() != expected.len() {
+        return false;
+    }
+    let mut difference = 0_u8;
+    for (left, right) in actual.iter().zip(expected) {
+        difference |= left ^ right;
+    }
+    difference == 0
+}
+
 fn json_body(status: StatusCode, body: &serde_json::Value) -> Response {
     let mut response = Response::new(Full::new(Bytes::from(body.to_string())));
     *response.status_mut() = status;
@@ -135,7 +150,8 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
         .get("x-ace-hop-secret")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if hop != state.hop_secret {
+    // The one secret the internal hop carries; compare in constant time.
+    if !same_secret(hop.as_bytes(), state.hop_secret.as_bytes()) {
         return json_body(StatusCode::FORBIDDEN, &json!({"error": "Forbidden"}));
     }
     let origin = request
@@ -204,16 +220,25 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
             let id = &path["/v1/devices/".len()..];
             reply(access::revoke(&state, token, id))
         }
-        ("/v1/pair", &Method::POST) => match read_body(request, BODY_LIMIT).await {
-            Ok(body) => reply(access::pair(&state, &body)),
-            Err(failure) => failure,
-        },
+        ("/v1/pair", &Method::POST) => {
+            let source = request
+                .headers()
+                .get("x-ace-hop-peer-address")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("unknown")
+                .to_owned();
+            match read_body(request, BODY_LIMIT).await {
+                Ok(body) => reply(access::pair(&state, &body, &source)),
+                Err(failure) => failure,
+            }
+        }
         ("/v1/pairings", &Method::POST) => match read_body(request, BODY_LIMIT).await {
             Ok(body) => reply(access::pairings(&state, token, &body)),
             Err(failure) => failure,
         },
         ("/v1/status", &Method::GET) => {
-            if !host {
+            // Any admin, as `access-http.ts:215` runs `requireAdmin` first.
+            if !state.config.auth.is_admin(token) {
                 json_body(
                     StatusCode::FORBIDDEN,
                     &json!({"error": "Admin scope required"}),
@@ -229,9 +254,13 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
                         json!({"origin": pairing.origin, "fingerprint": pairing.fingerprint})
                     });
                 // `remote`: the LAN/Tailscale address a device pairs at, or null.
+                let ready = state
+                    .config
+                    .ready
+                    .load(std::sync::atomic::Ordering::Acquire);
                 let body = json!({
                     "running": true,
-                    "ready": true,
+                    "ready": ready,
                     "version": state.config.version,
                     "remote": remote,
                 });
@@ -263,45 +292,43 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
     response
 }
 
-/// A request's body, refused over `limit` as `413 Request too large`.
+/// A request's body, refused the moment it passes `limit` (`optionalBody`): the
+/// bytes are never collected past the cap, so an unauthenticated peer cannot make
+/// the daemon hold a body larger than its route allows.
 async fn read_body(request: Request<Incoming>, limit: usize) -> Result<Vec<u8>, Response> {
-    let collected = request
-        .into_body()
-        .collect()
-        .await
-        .map(|body| body.to_bytes())
-        .map_err(|error| {
+    use http_body_util::BodyExt as _;
+    let mut body = request.into_body();
+    let mut data = Vec::new();
+    loop {
+        let frame = body.frame().await;
+        let Some(frame) = frame else {
+            return Ok(data);
+        };
+        let frame = frame.map_err(|error| {
             json_body(
                 StatusCode::BAD_REQUEST,
                 &json!({"error": format!("Request failed: {error}")}),
             )
         })?;
-    if collected.len() > limit {
-        return Err(json_body(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            &json!({"error": "Request too large"}),
-        ));
+        let Some(chunk) = frame.data_ref() else {
+            continue;
+        };
+        if data.len() + chunk.len() > limit {
+            return Err(json_body(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &json!({"error": "Request too large"}),
+            ));
+        }
+        data.extend_from_slice(chunk);
     }
-    Ok(collected.to_vec())
 }
 
 /// `POST /v1/stop`: parse the optional body, write the receipt, answer, then stop.
 async fn stop_request(state: &HttpState, request: Request<Incoming>) -> Response {
-    let collected = match request.into_body().collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(error) => {
-            return json_body(
-                StatusCode::BAD_REQUEST,
-                &json!({"error": format!("Request failed: {error}")}),
-            );
-        }
+    let collected = match read_body(request, BODY_LIMIT).await {
+        Ok(body) => body,
+        Err(failure) => return failure,
     };
-    if collected.len() > BODY_LIMIT {
-        return json_body(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            &json!({"error": "Request too large"}),
-        );
-    }
     let text = String::from_utf8_lossy(&collected);
     let text = text.trim();
     let body = if text.is_empty() {

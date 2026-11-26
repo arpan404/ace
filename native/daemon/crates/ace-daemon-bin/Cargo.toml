@@ -26,6 +26,9 @@ tokio-tungstenite = { version = "0.30" }
 # ace-supervisor: this process's kernel start time, so the run marker names the
 # daemon by evidence another daemon's sweep can match.
 ace-supervisor = { path = "../ace-supervisor" }
+# ace-json: the protocol's one JSON reader, for `PairingRequest::parse` and the
+# bodies the wire schemas define.
+ace-json = { path = "../ace-json" }
 # ace-auth: the daemon token's reader and comparison (T2), so the Rust program and
 # the CLI read a Bun-written home's token the same way.
 ace-auth = { path = "../ace-auth" }

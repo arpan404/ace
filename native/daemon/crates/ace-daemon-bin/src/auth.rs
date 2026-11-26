@@ -63,13 +63,7 @@ impl DaemonAuth {
             || crate::ids::random_hex_32().unwrap_or_else(|_| "0".repeat(64)),
             || crate::ids::uuid_v4().unwrap_or_else(|_| "pairing".to_owned()),
         );
-        let auth = RemoteAuth::new(
-            devices,
-            token,
-            runtime,
-            default_ticket_limits(),
-            Box::new(codes),
-        );
+        let auth = RemoteAuth::new(devices, token, runtime, ticket_limits(), Box::new(codes));
         Ok(Self {
             auth: Mutex::new(auth),
             host_id: host_id.to_owned(),
@@ -85,6 +79,16 @@ impl DaemonAuth {
     /// The paired device `token` belongs to, if it is one.
     pub fn bearer(&self, token: &str) -> Option<PairedDevice> {
         self.lock().device_bearer(token)
+    }
+
+    /// The scopes `token` holds, or `None` for the host token (which holds every
+    /// scope). A paired credential holds only what it was granted (ADR 0070).
+    pub fn creator_scopes(&self, token: &str) -> Option<Vec<Scope>> {
+        let auth = self.lock();
+        if auth.local(token) {
+            return None;
+        }
+        auth.device_bearer(token).map(|paired| paired.device.scopes)
     }
 
     /// Whether `token` may administer this machine: the host token, or a paired
@@ -180,6 +184,24 @@ impl DaemonAuth {
     }
 }
 
+/// The ticket limits: the TypeScript defaults, or the test-only
+/// `ACE_TEST_TICKET_LIMITS` `{global, perDevice, perMinute}`.
+fn ticket_limits() -> ace_auth::TicketLimits {
+    let Some(text) = crate::testing::var("ACE_TEST_TICKET_LIMITS") else {
+        return default_ticket_limits();
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        return default_ticket_limits();
+    };
+    let number =
+        |name: &str, fallback: u64| value.get(name).and_then(Value::as_u64).unwrap_or(fallback);
+    ace_auth::TicketLimits {
+        global: number("global", 10_000) as usize,
+        per_device: number("perDevice", 32) as usize,
+        per_minute: number("perMinute", 120) as u32,
+    }
+}
+
 impl crate::session::Authenticator for DaemonAuth {
     fn hello(&self, text: &str, local: bool) -> Answer {
         let mut gate = HelloGate::new();
@@ -220,12 +242,9 @@ impl crate::session::Authenticator for DaemonAuth {
                 message: "Valid hello required",
             };
         }
+        // Any authenticated credential may open the devices channel; a request
+        // without `admin` is refused on the channel, as `DevicesChannel` does.
         let admin = allows(&actor, Scope::Admin);
-        if channel.as_deref() == Some("devices") && !admin {
-            return Answer::Refused {
-                message: "Valid hello required",
-            };
-        }
         Answer::Authenticated {
             welcome: Welcome::Frame(self.welcome(next)),
             channel,

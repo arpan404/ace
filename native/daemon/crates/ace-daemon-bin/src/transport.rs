@@ -186,7 +186,8 @@ impl Transport {
         let http = HttpServer::bind(config, secret_hex)
             .await
             .map_err(TransportError::Http)?;
-        let target = ProxyTarget::new(http.addr, secret).map_err(TransportError::Loopback)?;
+        let target =
+            ProxyTarget::new(http.addr, Arc::clone(&secret)).map_err(TransportError::Loopback)?;
         let live = Arc::new(Live::new());
         let admission: Arc<dyn UpgradeAdmission> = Arc::new(Admission {
             live: Arc::clone(&live),
@@ -212,7 +213,17 @@ impl Transport {
         let mut remote_listener = None;
         let mut tailscale_task = None;
         if let Some(plan) = plan {
-            match bind_remote(&live, http.addr, &plan, authenticator, ready, limits).await {
+            match bind_remote(
+                &live,
+                http.addr,
+                Arc::clone(&secret),
+                &plan,
+                authenticator,
+                ready,
+                limits,
+            )
+            .await
+            {
                 Ok((listener, tailnet)) => {
                     if let Some((resolver, name)) = tailnet {
                         tailscale_task = Some(crate::tailscale::spawn_refresh(
@@ -294,6 +305,7 @@ impl Transport {
 async fn bind_remote(
     live: &Arc<Live>,
     internal: SocketAddr,
+    secret: Arc<HopSecret>,
     plan: &RemotePlan,
     authenticator: Arc<dyn session::Authenticator>,
     ready: Arc<std::sync::atomic::AtomicBool>,
@@ -308,7 +320,7 @@ async fn bind_remote(
     let provider = process_provider().map_err(TransportError::Loopback)?;
     let tls = TlsIdentity::from_pem(&plan.identity.cert_pem, &plan.identity.key_pem)
         .map_err(|error| TransportError::Identity(error.to_string()))?;
-    let secret = Arc::new(HopSecret::generate().map_err(TransportError::Loopback)?);
+    // One hop secret for every listener: the internal server knows only this one.
     let target = ProxyTarget::new(internal, secret).map_err(TransportError::Loopback)?;
     let admission: Arc<dyn UpgradeAdmission> = Arc::new(Admission {
         live: Arc::clone(live),

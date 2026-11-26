@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The daemon's pinned TLS identity: `<home>/tls/cert.pem` and `tls/key.pem`, made
-//! on first use by OpenSSL exactly as `apps/daemon/src/tls-identity.ts` makes it
-//! (`req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 -subj /CN=ace`), and
-//! its fingerprint: the SHA-256 of the certificate's SubjectPublicKeyInfo.
+//! on first use in memory, with the same shape `apps/daemon/src/tls-identity.ts`
+//! and `self-signed-certificate.ts` write (RSA-2048, SHA-256, `CN=ace`, ten years),
+//! and its fingerprint: the SHA-256 of the certificate's SubjectPublicKeyInfo.
 //!
 //! Paired devices pin that fingerprint, so an existing identity is never
 //! regenerated while its files are readable (`pin continuity`,
@@ -87,8 +87,8 @@ pub async fn load(home: &Path) -> Result<Identity, IdentityError> {
 /// Make the identity in memory and publish it whole: a temporary directory
 /// renamed into place, so a failure leaves nothing half made.
 fn generate(home: &Path, directory: &Path) -> Result<(), IdentityError> {
-    let pair =
-        certificate::self_signed(crate::home::now_ms(), 3650).ok_or(IdentityError::Generate)?;
+    let pair = certificate::self_signed(crate::clock::system_now(), 3650)
+        .ok_or(IdentityError::Generate)?;
     let id = crate::ids::uuid_v4().unwrap_or_else(|_| "identity".to_owned());
     let temporary = home.join(format!("tls-{id}"));
     create_private_dir(&temporary)
@@ -149,10 +149,8 @@ mod tests {
     #[tokio::test]
     async fn the_identity_is_made_once_and_kept_across_loads() {
         let home = TempDir::new("ace-identity");
-        let first = load(home.path()).await;
-        let Ok(first) = first else {
-            // No OpenSSL on this machine: the generation case needs it.
-            return;
+        let Ok(first) = load(home.path()).await else {
+            panic!("the identity is generated in memory");
         };
         assert_eq!(first.fingerprint.len(), 64);
         assert!(
@@ -189,9 +187,8 @@ mod tests {
     #[tokio::test]
     async fn the_fingerprint_is_the_certificates_public_key() {
         let home = TempDir::new("ace-identity-spki");
-        let identity = load(home.path()).await;
-        let Ok(identity) = identity else {
-            return;
+        let Ok(identity) = load(home.path()).await else {
+            panic!("the identity is generated in memory");
         };
         let cert = home.path().join("tls/cert.pem");
         let pubkey = tokio::process::Command::new("openssl")
@@ -240,8 +237,9 @@ mod loadable {
     #[tokio::test]
     async fn the_identity_is_a_usable_tls_identity() {
         let home = TempDir::new("ace-identity-load");
-        let identity = load(home.path()).await;
-        let Ok(identity) = identity else { return };
+        let Ok(identity) = load(home.path()).await else {
+            panic!("the identity is generated in memory");
+        };
         let loaded = ace_transport::TlsIdentity::from_pem(&identity.cert_pem, &identity.key_pem);
         assert!(loaded.is_ok(), "{:?}", loaded.err().map(|e| e.to_string()));
         let provider = ace_transport::process_provider();

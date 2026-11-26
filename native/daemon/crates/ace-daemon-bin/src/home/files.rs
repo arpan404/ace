@@ -4,7 +4,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A Unix mode on a new file: `0o600` on Unix, nothing on Windows.
 #[cfg(unix)]
@@ -36,8 +35,5 @@ pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
 
 /// This process's clock, in milliseconds since the epoch.
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
+    crate::clock::now_ms()
 }

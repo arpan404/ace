@@ -7,6 +7,7 @@
 //! modules beside it; no behaviour lives here.
 
 mod auth;
+mod clock;
 mod config;
 mod daemon;
 mod endpoint;
@@ -25,6 +26,7 @@ mod store;
 mod tailscale;
 #[cfg(test)]
 mod test_support;
+mod testing;
 mod token;
 mod transport;
 

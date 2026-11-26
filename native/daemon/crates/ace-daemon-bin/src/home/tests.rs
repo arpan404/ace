@@ -259,7 +259,10 @@ fn a_fresh_start_carries_an_installed_release() {
     );
     let _ = std::fs::write(
         root.join("bin/ace"),
-        format!("#!/bin/sh\n# ace home: {}\n", root.display()),
+        format!(
+            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\n",
+            root.display()
+        ),
     );
     let _ = std::os::unix::fs::symlink(release, root.join("current"));
     let state = prepare(&root, 1, 1);
@@ -292,5 +295,68 @@ fn a_file_at_the_home_path_is_refused_as_not_a_directory() {
             assert!(message.contains("it is not a directory"), "{message}");
         }
         Ok(_) => panic!("a file is not a home"),
+    }
+}
+
+/// `home-release.process.test.ts`: a launcher written for another home is not
+/// carried, even when its path contains this home's as a prefix (`~/.ace2`).
+#[test]
+fn a_launcher_for_another_home_is_not_carried() {
+    let parent = TempDir::new("ace-home-release-other");
+    let root = parent.path().join(".ace");
+    let other = parent.path().join(".ace2");
+    let release = "releases/1.2.3-darwin-arm64";
+    let _ = std::fs::create_dir_all(root.join(release));
+    let _ = std::fs::create_dir_all(root.join("bin"));
+    let _ = std::fs::write(root.join("old.txt"), "old data");
+    let _ = std::fs::write(
+        root.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"target\":\"darwin-arm64\"}",
+    );
+    let _ = std::fs::write(
+        root.join("bin/ace"),
+        format!(
+            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\n",
+            other.display()
+        ),
+    );
+    let _ = std::os::unix::fs::symlink(release, root.join("current"));
+    let state = prepare(&root, 1, 1);
+    match state {
+        Ok(State::Fresh {
+            release: carried, ..
+        }) => assert_eq!(carried, None),
+        other => panic!("expected a fresh start without a carried release: {other:?}"),
+    }
+    assert!(!root.join("bin/ace").exists());
+}
+
+/// A half-applied update is not carried (`update.json`).
+#[test]
+fn a_half_applied_update_is_not_carried() {
+    let parent = TempDir::new("ace-home-release-update");
+    let root = parent.path().join(".ace");
+    let release = "releases/1.2.3-darwin-arm64";
+    let _ = std::fs::create_dir_all(root.join(release));
+    let _ = std::fs::create_dir_all(root.join("bin"));
+    let _ = std::fs::write(root.join("old.txt"), "old data");
+    let _ = std::fs::write(root.join("update.json"), "{}");
+    let _ = std::fs::write(
+        root.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"target\":\"darwin-arm64\"}",
+    );
+    let _ = std::fs::write(
+        root.join("bin/ace"),
+        format!(
+            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\n",
+            root.display()
+        ),
+    );
+    let _ = std::os::unix::fs::symlink(release, root.join("current"));
+    match prepare(&root, 1, 1) {
+        Ok(State::Fresh {
+            release: carried, ..
+        }) => assert_eq!(carried, None),
+        other => panic!("expected no carried release: {other:?}"),
     }
 }

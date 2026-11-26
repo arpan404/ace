@@ -142,6 +142,8 @@ pub fn spawn_refresh(
     log: std::sync::Arc<crate::log::Log>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        // When the served certificate stops being valid; zero until one is served.
+        let mut serves_until = 0_u64;
         loop {
             let wait = match certificate(&name).await {
                 Ok(output) => match parse(&output, &name, crate::home::now_ms()) {
@@ -151,15 +153,24 @@ pub fn spawn_refresh(
                             pem.key_pem.as_bytes(),
                         ) {
                             Ok(identity) => {
-                                resolver.set_trusted(&name, identity);
+                                let generation = resolver.set_trusted(&name, identity);
+                                serves_until = pem.expires_ms;
                                 let now = crate::home::now_ms();
-                                let remaining = pem.expires_ms.saturating_sub(now);
+                                let remaining = serves_until.saturating_sub(now);
+                                // Expiry is enforced at the resolver, not only by
+                                // the next fetch (`tailscale-certificate.ts:148`).
+                                let expiring = std::sync::Arc::clone(&resolver);
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_millis(remaining))
+                                        .await;
+                                    expiring.clear_trusted_if(generation);
+                                });
                                 log.log(
                                     "info",
                                     "Serving Tailscale's certificate",
                                     serde_json::json!({"name": name, "expiresInMs": remaining}),
                                 );
-                                Duration::from_millis(remaining.min(12 * 60 * 60 * 1000))
+                                std::time::Duration::from_millis(remaining.min(12 * 60 * 60 * 1000))
                             }
                             Err(error) => {
                                 log.log(
@@ -167,7 +178,7 @@ pub fn spawn_refresh(
                                     "Tailscale's certificate could not be used",
                                     serde_json::json!({"error": error.to_string()}),
                                 );
-                                Duration::from_secs(10 * 60)
+                                std::time::Duration::from_secs(10 * 60)
                             }
                         }
                     }
@@ -177,20 +188,24 @@ pub fn spawn_refresh(
                             "Tailscale returned no usable certificate",
                             serde_json::json!({"name": name}),
                         );
-                        Duration::from_secs(10 * 60)
+                        std::time::Duration::from_secs(10 * 60)
                     }
                 },
                 Err(error) => {
-                    // A certificate past its expiry is no use: serve the pinned one.
-                    resolver.clear_trusted();
                     log.log(
                         "warn",
                         "Tailscale's certificate could not be fetched",
                         serde_json::json!({"name": name, "error": error}),
                     );
-                    Duration::from_secs(10 * 60)
+                    std::time::Duration::from_secs(10 * 60)
                 }
             };
+            // A certificate past its expiry is no use; one still valid stays served
+            // through a transient `tailscaled` failure, as TS keeps it.
+            if serves_until != 0 && crate::home::now_ms() >= serves_until {
+                resolver.clear_trusted();
+                serves_until = 0;
+            }
             tokio::time::sleep(wait).await;
         }
     })

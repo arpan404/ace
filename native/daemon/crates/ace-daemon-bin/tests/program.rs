@@ -263,3 +263,236 @@ fn issuing_a_pairing_link_is_refused_when_remote_access_is_off() {
     let status = daemon.terminate();
     assert_eq!(status.code(), Some(0));
 }
+
+/// `fleet-access.server.process.test.ts` "The same ceiling holds on the HTTP
+/// route": a paired credential may grant only the scopes it holds. Admin does not
+/// imply projects or accounts (ADR 0070).
+#[test]
+fn a_pairing_link_cannot_grant_scopes_the_creator_does_not_hold() {
+    let home = Home::new("scope-ceiling");
+    let mut daemon = home.start_with(true, &[("ACE_LISTEN", "lan"), ("ACE_REMOTE_PORT", "0")]);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pairings",
+        &token,
+        "{\"scopes\":[\"admin\"]}",
+    );
+    assert_eq!(status, 200, "{body}");
+    let issued: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let code = issued
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|url| url.split("code=").nth(1))
+        .and_then(|rest| rest.split('&').next())
+        .unwrap_or_default()
+        .to_owned();
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"Manager\"}}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let paired: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let admin_token = paired
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+
+    // An admin-only device cannot mint the person's projects or accounts.
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pairings",
+        &admin_token,
+        "{\"scopes\":[\"projects\"]}",
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|value| value
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)),
+        Some("You can't grant Projects: this device doesn't have it.".to_owned())
+    );
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pairings",
+        &admin_token,
+        "{\"scopes\":[\"admin\"]}",
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // `/v1/status` is open to any admin, not only the host token.
+    let (status, body) = request(&endpoint, "GET", "/v1/status", &admin_token, "");
+    assert_eq!(status, 200, "{body}");
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `access-http.ts:35`–`:50`: a body over 16 KiB is refused while it streams, not
+/// collected first; the daemon stays up.
+#[test]
+fn an_oversized_body_is_refused_at_its_limit() {
+    let home = Home::new("body-limit");
+    let mut daemon = home.start(false);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let huge = "x".repeat(512 * 1024);
+    let pair_body = format!("{{\"code\":\"abc\",\"name\":\"Phone\",\"padding\":\"{huge}\"}}");
+    let (status, body) = request(&endpoint, "POST", "/v1/pair", "", &pair_body);
+    assert_eq!(status, 413, "{body}");
+    assert!(body.contains("Request too large"));
+    let stop_body = format!("{{\"padding\":\"{huge}\"}}");
+    let (status, body) = request(&endpoint, "POST", "/v1/stop", &token, &stop_body);
+    assert_eq!(status, 413, "{body}");
+    // The daemon is still serving.
+    let (status, _) = request(&endpoint, "GET", "/v1/status", &token, "");
+    assert_eq!(status, 200);
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `remote.ts`: a device name's bound is code points, not bytes, and a bad
+/// `ttlMs`, `installId` or `standingKey` is a 400.
+#[test]
+fn pairing_bodies_follow_the_protocol_bounds() {
+    let home = Home::new("pair-bounds");
+    let mut daemon = home.start_with(true, &[("ACE_LISTEN", "lan"), ("ACE_REMOTE_PORT", "0")]);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let code_of = |body: &str| -> String {
+        let issued: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+        issued
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|url| url.split("code=").nth(1))
+            .and_then(|rest| rest.split('&').next())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let (status, body) = request(&endpoint, "POST", "/v1/pairings", &token, "{}");
+    assert_eq!(status, 200);
+    let code = code_of(&body);
+    let name = "漢".repeat(100);
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"{name}\"}}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let paired: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    assert_eq!(
+        paired
+            .get("device")
+            .and_then(|device| device.get("name"))
+            .and_then(serde_json::Value::as_str)
+            .map(|name| name.chars().count()),
+        Some(100)
+    );
+
+    let (status, _) = request(
+        &endpoint,
+        "POST",
+        "/v1/pairings",
+        &token,
+        "{\"ttlMs\":\"1h\"}",
+    );
+    assert_eq!(status, 400);
+    let (status, body) = request(&endpoint, "POST", "/v1/pairings", &token, "{}");
+    assert_eq!(status, 200);
+    let code = code_of(&body);
+    let (status, _) = request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"Phone\",\"installId\":\"bad\"}}"),
+    );
+    assert_eq!(status, 400);
+    let (status, body) = request(&endpoint, "POST", "/v1/pairings", &token, "{}");
+    assert_eq!(status, 200);
+    let code = code_of(&body);
+    let (status, _) = request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"Phone\",\"standingKey\":\"short\"}}"),
+    );
+    assert_eq!(status, 400);
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `access-cors.server.process.test.ts`: an allowlisted Origin gets the CORS
+/// headers and a 204 preflight; a foreign one is `403 Origin not allowed`.
+#[test]
+fn cors_admits_the_desktop_origin_and_refuses_a_foreign_one() {
+    let home = Home::new("cors");
+    let mut daemon = home.start(false);
+    let endpoint = daemon.ready(&home);
+    for (origin, status) in [("app://ace", 204), ("https://attacker.example", 403)] {
+        let text = support::exchange_headers(
+            &endpoint,
+            "OPTIONS",
+            "/v1/status",
+            "",
+            "",
+            &[("Origin", origin), ("Access-Control-Request-Method", "GET")],
+        );
+        let code = text
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse::<u16>().ok())
+            .unwrap_or(0);
+        assert_eq!(code, status, "{origin}: {text}");
+        if status == 204 {
+            assert!(
+                text.to_ascii_lowercase()
+                    .contains(&format!("access-control-allow-origin: {origin}")),
+                "{text}"
+            );
+        }
+    }
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `home-backup-log.ts`: a fresh start says where the old data went, and leaves a
+/// README in the backup.
+#[test]
+fn a_fresh_start_is_logged_and_backed_up() {
+    let home = Home::new("fresh-log");
+    let _ = std::fs::create_dir_all(&home.ace_home);
+    let _ = std::fs::write(home.ace_home.join("old.txt"), "old data");
+    let mut daemon = home.start(false);
+    let _endpoint = daemon.ready(&home);
+    let backup = std::path::PathBuf::from(format!("{}-v0", home.ace_home.display()));
+    assert!(
+        backup.join("old.txt").exists(),
+        "the old data was moved aside"
+    );
+    assert!(
+        backup.join("README.txt").exists(),
+        "the backup explains itself"
+    );
+    let log = std::fs::read_to_string(home.ace_home.join("logs/ace.jsonl")).unwrap_or_default();
+    assert!(
+        log.contains("Started with a fresh data home; the old data was backed up"),
+        "{log}"
+    );
+    assert!(log.contains("\"backup\""), "{log}");
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}

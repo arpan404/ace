@@ -70,7 +70,7 @@ impl std::fmt::Display for StoreError {
 impl std::error::Error for StoreError {}
 
 /// `sqliteBusy`: the primary result code is busy or locked, not the message.
-fn sqlite_busy(error: &ace_store::Error) -> bool {
+pub(crate) fn sqlite_busy(error: &ace_store::Error) -> bool {
     matches!(error.code & 0xff, 5 | 6)
 }
 

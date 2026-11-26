@@ -144,6 +144,7 @@ name = "ace-daemon-bin"
 version = "0.1.0"
 dependencies = [
  "ace-auth",
+ "ace-json",
  "ace-store",
  "ace-supervisor",
  "ace-transport",

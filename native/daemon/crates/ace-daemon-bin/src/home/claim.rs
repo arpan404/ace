@@ -60,7 +60,7 @@ pub fn claim(root: &Path) -> Result<Claim, HomeError> {
                     }
                     Err(error) => {
                         let _ = connection.close();
-                        if matches!(error.code & 0xff, 5 | 6) {
+                        if crate::store::sqlite_busy(&error) {
                             return Err(HomeError::live(root, lock_owner(root)));
                         }
                         // Not a lock database this build knows: the pid decides.

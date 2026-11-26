@@ -57,12 +57,6 @@ impl std::fmt::Display for LockError {
 
 impl std::error::Error for LockError {}
 
-/// `sqliteBusy` (`busy-open.ts:14`): the primary result code is busy or locked.
-fn sqlite_busy(error: &ace_store::Error) -> bool {
-    let primary = error.code & 0xff;
-    primary == 5 || primary == 6
-}
-
 /// The held lock. Dropping it releases the file's owner name and closes the
 /// connection, which releases the kernel's lock.
 pub struct Lock {
@@ -89,7 +83,7 @@ impl Lock {
             "PRAGMA busy_timeout=0; PRAGMA journal_mode=MEMORY; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS owner (pid INTEGER)",
         ) {
             let _ = connection.close();
-            if sqlite_busy(&error) {
+            if crate::store::sqlite_busy(&error) {
                 return Err(LockError::Held(LockHeld {
                     data_dir: data_dir.to_path_buf(),
                 }));
