@@ -79,6 +79,8 @@ pub trait EngineStack {
 pub struct Inputs {
     pub limits: limits::LimitOverrides,
     pub idle_ms: Option<f64>,
+    /// `options.silenceMs` (`silence.ts:56`): the engine's default threshold, 5 minutes.
+    pub silence_ms: Option<f64>,
     pub has_preferences: bool,
     pub has_models: bool,
     pub has_providers_activated: bool,

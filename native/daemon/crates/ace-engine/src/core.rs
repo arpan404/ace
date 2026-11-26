@@ -202,6 +202,12 @@ impl Core {
         self.inputs
     }
 
+    /// `silence.forWorkspace(workspaceId)`'s default (`silence.ts:56`): five minutes unless the
+    /// engine was given `options.silenceMs`. A workspace's cached override is E5.6's resolver.
+    pub fn silence_ms(&self) -> f64 {
+        self.inputs.silence_ms.unwrap_or(300_000.0)
+    }
+
     /// The readiness future both `flush` and `close` await, shared and cloned per caller.
     pub fn ready_future(&self) -> Option<ReadyFuture> {
         self.ready.borrow().clone()
