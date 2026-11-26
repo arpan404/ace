@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The probe's synchronous half (`ancestry.ts:32`-`:171`).
+//!
+//! The probe lives in the host, as the tenant's does: `Host::receive` re-enters
+//! `prove` the way `owns` → `prove` does under the tenant's probe lock, so a
+//! delivery made while that lock is held fails here instead of passing.
 
 use ace_json::{Value, json};
+use std::cell::{RefCell, RefMut};
 use std::sync::Mutex;
 
 use super::{AncestryProbe, ProbeHost};
 
 #[derive(Default)]
 struct Host {
+    /// `tenant.lock_ancestry()`: the probe the host's own callbacks take again.
+    probe: RefCell<AncestryProbe>,
     owns: Vec<String>,
     directory: String,
     recovering: bool,
@@ -21,6 +28,7 @@ struct Host {
 impl Host {
     fn new(owns: &[&str]) -> Self {
         Self {
+            probe: RefCell::new(AncestryProbe::new()),
             owns: owns.iter().map(|id| (*id).to_owned()).collect(),
             directory: String::from("/work"),
             recovering: false,
@@ -28,6 +36,12 @@ impl Host {
             refuse_pending: false,
             log: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The probe under the tenant's lock. A second borrow while one is held
+    /// panics, which is what a delivery made under the lock does.
+    fn probe(&self) -> RefMut<'_, AncestryProbe> {
+        self.probe.borrow_mut()
     }
 
     fn log(&self) -> Vec<String> {
@@ -56,9 +70,11 @@ impl ProbeHost for Host {
         self.record(format!("info:{info}"));
     }
 
+    /// The tenant's `receive` → `owns` → `prove`: a receipt for a session this
+    /// tree still does not own goes back to the probe.
     fn receive(&self, data: &Value, watermark: u64) -> Result<(), super::ProbeError> {
         self.record(format!("receive:{watermark}:{data}"));
-        Ok(())
+        self.probe().prove(data, watermark, self)
     }
 
     fn buffered(&self, data: &Value, watermark: u64) -> Result<(), super::ProbeError> {
@@ -99,11 +115,24 @@ fn event(kind: &str, session: &str, directory: &str) -> Value {
     })
 }
 
+/// The tenant's `reconcile_probes`: the order is read under the probe's lock,
+/// the events are delivered without it, then each probe finishes. `Host::receive`
+/// re-enters `prove`, so a delivery made inside `reconcile_order` panics here.
+fn reconcile(host: &Host) -> Result<(), super::ProbeError> {
+    let order = host.probe.borrow().reconcile_order(host);
+    for entry in order {
+        for (data, watermark) in entry.events {
+            host.receive(&data, watermark)?;
+        }
+        host.probe().finish(&entry.id, host);
+    }
+    Ok(())
+}
+
 #[test]
 fn an_unowned_event_in_the_directory_waits_for_a_lookup() {
     let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 3, &host)
         .expect("held");
     assert_eq!(
@@ -119,34 +148,35 @@ fn an_unowned_event_in_the_directory_waits_for_a_lookup() {
     );
 
     // The same session joins the probe: no second lookup, one more event.
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 4, &host)
         .expect("held");
     assert_eq!(host.log().len(), 4);
-    assert_eq!(probe.guard("child"), Some("ancestry:1"));
+    assert_eq!(host.probe.borrow().guard("child"), Some("ancestry:1"));
 
     // Owned, other-directory and session.created events are not evidence.
-    let mut probe = AncestryProbe::new();
     let owned = Host::new(&["child"]);
-    probe
+    owned
+        .probe()
         .prove(&event("session.text.delta", "child", "/work"), 1, &owned)
         .expect("held");
-    probe
+    owned
+        .probe()
         .prove(&event("session.text.delta", "child", "/other"), 1, &owned)
         .expect("held");
-    probe
+    owned
+        .probe()
         .prove(&event("session.created", "child", "/work"), 1, &owned)
         .expect("held");
     assert!(owned.log().is_empty());
-    assert!(probe.guard("child").is_none());
+    assert!(owned.probe.borrow().guard("child").is_none());
 }
 
 #[test]
 fn the_probe_bounds_refuse_a_ninth_probe_or_a_33rd_event() {
     let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
     for index in 0..8 {
-        probe
+        host.probe()
             .prove(
                 &event("session.text.delta", &format!("c{index}"), "/work"),
                 1,
@@ -154,20 +184,19 @@ fn the_probe_bounds_refuse_a_ninth_probe_or_a_33rd_event() {
             )
             .expect("held");
     }
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "over", "/work"), 1, &host)
         .expect("held");
     assert!(host.log().iter().any(|entry| entry.starts_with("failed:")));
 
     let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
     for _ in 0..32 {
-        probe
+        host.probe()
             .prove(&event("session.text.delta", "child", "/work"), 1, &host)
             .expect("held");
     }
     let before = host.log().len();
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 1, &host)
         .expect("held");
     assert_eq!(host.log().len(), before + 1);
@@ -181,15 +210,14 @@ fn the_probe_bounds_refuse_a_ninth_probe_or_a_33rd_event() {
 #[test]
 fn a_recovery_pass_replays_the_held_events_into_the_evidence() {
     let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 3, &host)
         .expect("held");
-    probe
+    host.probe()
         .prove(&event("session.tool.progress", "child", "/work"), 4, &host)
         .expect("held");
     let mut seen = Vec::new();
-    probe.observe_pending(&mut |data, watermark| {
+    host.probe().observe_pending(&mut |data, watermark| {
         seen.push((
             data["type"].as_str().unwrap_or_default().to_owned(),
             watermark,
@@ -204,51 +232,49 @@ fn a_recovery_pass_replays_the_held_events_into_the_evidence() {
     );
 }
 
-/// The tenant's `reconciled`: the order is read under the probe's lock, the
-/// events are delivered without it, then each probe finishes.
-fn reconcile(probe: &mut AncestryProbe, host: &Host) -> Result<(), super::ProbeError> {
-    for entry in probe.reconcile_order(host) {
-        for (data, watermark) in entry.events {
-            host.receive(&data, watermark)?;
-        }
-        probe.finish(&entry.id, host);
-    }
-    Ok(())
-}
-
 #[test]
 fn reconciled_replays_an_owned_probe_and_finishes_every_looked_up_one() {
-    let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
-    probe
+    let mut host = Host::new(&[]);
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 3, &host)
         .expect("held");
-    probe.observe_pending(&mut |_, _| {});
+    host.probe().observe_pending(&mut |_, _| {});
 
     // Not owned and the lookup has not failed: it stays.
-    reconcile(&mut probe, &host).expect("a pass");
-    assert!(probe.guard("child").is_some());
+    reconcile(&host).expect("a pass");
+    assert!(host.probe.borrow().guard("child").is_some());
 
-    // Owned: the events replay and the receipt settles.
-    let host = Host::new(&["child"]);
-    reconcile(&mut probe, &host).expect("a pass");
-    assert!(probe.guard("child").is_none());
+    // Owned: the events replay and the receipt settles. The delivery re-enters
+    // `prove` with the probe lock free.
+    host.owns.push(String::from("child"));
+    reconcile(&host).expect("a pass");
+    assert!(host.probe.borrow().guard("child").is_none());
     assert!(
         host.log()
             .iter()
             .any(|entry| entry.starts_with("receive:3:"))
     );
+    // The delivery re-entered `prove`, which saw an owned session and returned
+    // before buffering: a delivery made under the probe lock would panic here.
+    assert_eq!(
+        host.log()
+            .iter()
+            .filter(|entry| entry.starts_with("buffered:"))
+            .count(),
+        1,
+        "only the first receipt buffered: {:?}",
+        host.log()
+    );
     assert!(host.log().iter().any(|entry| entry == "settled:ancestry:1"));
 
     // A failed lookup settles without replaying.
     let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 3, &host)
         .expect("held");
-    assert!(probe.mark_failed("child"));
-    reconcile(&mut probe, &host).expect("a pass");
-    assert!(probe.guard("child").is_none());
+    assert!(host.probe().mark_failed("child"));
+    reconcile(&host).expect("a pass");
+    assert!(host.probe.borrow().guard("child").is_none());
     assert!(!host.log().iter().any(|entry| entry.starts_with("receive:")));
 }
 
@@ -258,13 +284,13 @@ fn a_receipt_sink_that_refuses_rolls_the_receipt_back() {
     // was never announced, so nothing settles it (`ancestry.ts:64`-`:82`).
     let mut host = Host::new(&[]);
     host.refuse = true;
-    let mut probe = AncestryProbe::new();
     assert_eq!(
-        probe.prove(&event("session.text.delta", "child", "/work"), 3, &host),
+        host.probe()
+            .prove(&event("session.text.delta", "child", "/work"), 3, &host),
         Err(String::from("the receipt was refused"))
     );
-    assert!(probe.guard("child").is_none());
-    assert!(probe.shells().is_empty());
+    assert!(host.probe.borrow().guard("child").is_none());
+    assert!(host.probe.borrow().shells().is_empty());
     assert!(
         !host.log().iter().any(|entry| entry.starts_with("settled:")),
         "{:?}",
@@ -273,21 +299,21 @@ fn a_receipt_sink_that_refuses_rolls_the_receipt_back() {
 
     // A later receipt starts a new probe: the sequence moved on by one.
     host.refuse = false;
-    probe
+    host.probe()
         .prove(&event("session.text.delta", "child", "/work"), 4, &host)
         .expect("held again");
-    assert_eq!(probe.guard("child"), Some("ancestry:2"));
+    assert_eq!(host.probe.borrow().guard("child"), Some("ancestry:2"));
 
     // The pending note refusing leaves the probe gone but settles its guard,
     // because `pendingStarted` was set before the call.
     let mut host = Host::new(&[]);
     host.refuse_pending = true;
-    let mut probe = AncestryProbe::new();
     assert_eq!(
-        probe.prove(&event("session.text.delta", "child", "/work"), 3, &host),
+        host.probe()
+            .prove(&event("session.text.delta", "child", "/work"), 3, &host),
         Err(String::from("the note was refused"))
     );
-    assert!(probe.guard("child").is_none());
+    assert!(host.probe.borrow().guard("child").is_none());
     assert!(
         host.log().iter().any(|entry| entry == "settled:ancestry:1"),
         "{:?}",
@@ -298,8 +324,7 @@ fn a_receipt_sink_that_refuses_rolls_the_receipt_back() {
 #[test]
 fn a_held_shell_names_its_probe_for_the_shell_snapshots() {
     let host = Host::new(&[]);
-    let mut probe = AncestryProbe::new();
-    probe
+    host.probe()
         .prove(
             &json!({
                 "id": "e",
@@ -311,12 +336,26 @@ fn a_held_shell_names_its_probe_for_the_shell_snapshots() {
             &host,
         )
         .expect("held");
-    let shells = probe.shells();
+    let shells = host.probe.borrow().shells();
     assert_eq!(shells.get("sh1").map(String::as_str), Some("child"));
 
     let owned = Host::new(&["child"]);
-    assert!(probe.needs_shell_snapshots(&|_, _| false, &owned));
-    assert!(!probe.needs_shell_snapshots(&|id, owner| id == "sh1" && owner == "child", &owned));
+    assert!(
+        host.probe
+            .borrow()
+            .needs_shell_snapshots(&|_, _| false, &owned)
+    );
+    assert!(
+        !host
+            .probe
+            .borrow()
+            .needs_shell_snapshots(&|id, owner| id == "sh1" && owner == "child", &owned)
+    );
     let unowned = Host::new(&[]);
-    assert!(!probe.needs_shell_snapshots(&|_, _| false, &unowned));
+    assert!(
+        !host
+            .probe
+            .borrow()
+            .needs_shell_snapshots(&|_, _| false, &unowned)
+    );
 }

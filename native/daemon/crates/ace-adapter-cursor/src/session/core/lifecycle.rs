@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The session's end (`session.ts:156`-`:181`): the pipes' close asks the caller for the exit, the
+//! exit publishes the host-exit note and the engine's callback, and a stdin failure stops the
+//! host as a connection failure. The stray line's note answers the host's hold here too.
+
+use ace_adapter_api::bridge::queue::SessionEvent;
+use ace_adapter_api::frame::FrameDirection;
+use ace_json::Value;
+
+use super::super::frames;
+use super::super::host::{HostEffect, PORT_CONNECTION};
+use super::{
+    CoreEffect, CursorSessionCore, ExitInfo, PORT_HOST_OUTPUT, PORT_STOP_CHILD, listener_event,
+};
+
+impl CursorSessionCore {
+    /// The pipes are closed: the host's tails drain. The caller answers the exit once its own
+    /// wait on the child resolves (`session.ts:156` waits on `process.exited`).
+    pub fn pipes_closed(&mut self) -> Vec<CoreEffect> {
+        let mut effects = Vec::new();
+        for effect in self.host.finish() {
+            // The host's own `Drained` is not the session's: the session's comes after its
+            // host-exit frame, and only once this input has drained every effect before it.
+            if matches!(effect, HostEffect::Drained) {
+                continue;
+            }
+            self.apply_host(effect, &mut effects);
+        }
+        self.host_drained = true;
+        // The caller's exit may have arrived first (`exit` on the leader's end): now every
+        // frame and settle the host wrote is out, so the session can end.
+        if let Some(info) = self.exit_info.clone() {
+            self.publish_exit(&info, &mut effects);
+        }
+        effects
+    }
+
+    /// `process.exited` resolved: the host-exit note, the engine's exit and the drain
+    /// (`session.ts:156`-`:181`). `detail` is the caller's `failureMessage`, `stop_cause` its
+    /// `stopCause`.
+    pub fn exit(
+        &mut self,
+        code: Option<i64>,
+        signal: Option<&str>,
+        reason: &str,
+        detail: Option<&str>,
+        stop_cause: Option<&str>,
+    ) -> Vec<CoreEffect> {
+        self.state.exited = true;
+        if self.exit_info.is_some() {
+            return Vec::new();
+        }
+        let info = ExitInfo {
+            code,
+            signal: signal.map(str::to_owned),
+            reason: reason.to_owned(),
+            detail: detail.map(str::to_owned),
+            stop_cause: stop_cause.map(str::to_owned),
+        };
+        self.exit_info = Some(info.clone());
+        // `Drained` is published only after `pipes_closed`: the host's last frames and settles
+        // must cross before it, or the queue would drop them.
+        if !self.host_drained {
+            return Vec::new();
+        }
+        let mut effects = Vec::new();
+        self.publish_exit(&info, &mut effects);
+        effects
+    }
+
+    /// The session's end (`session.ts:156`-`:181`), once the host has drained.
+    fn publish_exit(&mut self, info: &ExitInfo, effects: &mut Vec<CoreEffect>) {
+        let body = frames::host_exit_body(
+            self.state.deliberate,
+            info.code,
+            info.signal.as_deref(),
+            &info.reason,
+            info.detail.as_deref(),
+        );
+        // The body is the caller's bounded prose, so a bound failure here is not reachable; the
+        // exit's callback and drain must still cross even if it were.
+        let _ = self.frame(FrameDirection::Note, frames::KIND_HOST_EXIT, &body, effects);
+        effects.push(CoreEffect::Event(SessionEvent::Callback {
+            name: "onExit",
+            json: frames::exit_args(self.state.deliberate, info.stop_cause.as_deref()),
+        }));
+        effects.push(CoreEffect::Event(SessionEvent::Drained));
+    }
+
+    /// The caller answered a port. `"host-output"` releases the host's hold with the redacted
+    /// text; `"stop"` is the child's stop. The exit needs no port: the caller owns the child.
+    pub fn note(&mut self, name: &str, text: Option<&str>) -> Vec<CoreEffect> {
+        match name {
+            PORT_HOST_OUTPUT => {
+                let mut effects = Vec::new();
+                if let Some(text) = text {
+                    let mut body = ace_json::Map::with_capacity(1);
+                    body.insert("text", Value::from(text));
+                    let body = Value::Object(body);
+                    // A diagnostic over the note's bound is dropped, but the hold is released
+                    // either way: a stray line must never stall the host's reads.
+                    let _ = self.frame(
+                        FrameDirection::Note,
+                        frames::KIND_HOST_OUTPUT,
+                        &body,
+                        &mut effects,
+                    );
+                }
+                let released = self.host.note("host-output");
+                for effect in released {
+                    self.apply_host(effect, &mut effects);
+                }
+                effects
+            }
+            PORT_STOP_CHILD => crate::session::commands::close_stopped(self),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A stdin write failed (`proc.stdin.on("error")`): the host is stopped as a connection
+    /// failure, as `host.ts:152`-`:154` fails it.
+    pub fn stdin_failed(&mut self, message: &str) -> Vec<CoreEffect> {
+        let effects = self.host.close(message);
+        let mut effects = self.map_host(effects);
+        effects.insert(
+            0,
+            CoreEffect::Event(listener_event(PORT_CONNECTION, message)),
+        );
+        effects
+    }
+}

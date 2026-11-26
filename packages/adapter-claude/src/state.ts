@@ -69,6 +69,8 @@ export class ClaudeState {
   compactions = new Map<Key, RawPayload>();
   /** Which compaction each summary (by its uuid) folded into, so a redelivery folds again. */
   compactSummaries = new Map<string, Key>();
+  /** The uuids of the `/compact` asks ace sent, so their echoes are dropped whatever marks them. */
+  compactAsks = new Set<string>();
   constructor(root: Key) {
     this.root = root;
   }
