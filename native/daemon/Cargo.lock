@@ -110,7 +110,6 @@ dependencies = [
  "files-list",
  "files-safe",
  "files-watch",
- "globset",
  "hmac",
  "jiff",
  "rustix",
