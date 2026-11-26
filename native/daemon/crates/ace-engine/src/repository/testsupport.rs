@@ -64,6 +64,111 @@ pub(crate) fn header(thread: &str) -> String {
     HEADER.replace("\"threadId\":\"t\"", &format!("\"threadId\":\"{thread}\""))
 }
 
+/// One agent in a stored snapshot: its state key, its record's id, its parent's key and the run
+/// it is in.
+pub(crate) struct StoredAgent<'a> {
+    pub key: &'a str,
+    pub id: &'a str,
+    pub parent: Option<&'a str>,
+    pub run: Option<&'a str>,
+}
+
+/// The same header after a turn began: the root record under `rootKey`, its active run and that
+/// run's history. This is the shape a real thread's snapshot has once a run started.
+pub(crate) fn header_with_root_run(thread: &str, run: &str, run_state: &str) -> String {
+    header_with_agents(
+        thread,
+        &[StoredAgent {
+            key: "root",
+            id: "root",
+            parent: None,
+            run: Some(run),
+        }],
+        &[(run, run_state)],
+    )
+}
+
+/// The same header with the agents and runs a test needs, keyed as the fold stores them.
+pub(crate) fn header_with_agents(
+    thread: &str,
+    agents: &[StoredAgent<'_>],
+    runs: &[(&str, &str)],
+) -> String {
+    let mut records = Vec::new();
+    for agent in agents {
+        let parent = agent
+            .parent
+            .map(|parent| format!(r#","parentKey":"{parent}""#))
+            .unwrap_or_default();
+        let active = agent
+            .run
+            .map(|run| format!(r#","activeRun":"{run}""#))
+            .unwrap_or_default();
+        records.push(format!(
+            r#""{}":{{"agent":{{"id":"{}","threadId":"{thread}","origin":"{origin}","native":{{"provider":"codex"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"working","activity":"thinking"}},"createdAt":1}},"activity":"thinking","lastSignalAt":2{parent}{active}}}"#,
+            agent.key,
+            agent.id,
+            origin = if agent.parent.is_none() { "root" } else { "child" }
+        ));
+    }
+    let agent_records = format!(r#""agents":{{{}}}"#, records.join(","));
+    let runs = runs
+        .iter()
+        .map(|(run, state)| {
+            format!(
+                r#""{run}":{{"id":"{run}","threadId":"{thread}","agentId":"root","trigger":"person","state":"{state}","startedAt":1}}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let runs = format!(r#""runs":{{{runs}}}"#);
+    let keys = agents
+        .iter()
+        .map(|agent| format!(r#""{}":"{}""#, agent.id, agent.key))
+        .collect::<Vec<_>>()
+        .join(",");
+    header(thread)
+        .replace(
+            &format!(r#""threadId":"{thread}","config""#),
+            &format!(r#""threadId":"{thread}","rootKey":"root","config""#),
+        )
+        .replace(r#""agents":{}"#, &agent_records)
+        .replace(r#""runs":{}"#, &runs)
+        .replace(
+            r#""agentKeysById":{}"#,
+            &format!(r#""agentKeysById":{{{keys}}}"#),
+        )
+}
+
+/// A `ModelResolution` as the models port answers it (`packages/protocol/src/models.ts:200`):
+/// `model` is the whole `CatalogModel` row, never its id.
+pub(crate) fn model_resolution(native_model_id: &str, native_provider_id: Option<&str>) -> String {
+    let mut row = ace_json::Map::new();
+    row.insert(
+        "id",
+        ace_json::Value::from(format!("row-{native_model_id}")),
+    );
+    row.insert("displayName", ace_json::Value::from(native_model_id));
+    row.insert("provider", ace_json::Value::from("codex"));
+    row.insert("instance", ace_json::Value::from("codex-cli-default"));
+    if let Some(provider) = native_provider_id {
+        row.insert("nativeProviderId", ace_json::Value::from(provider));
+    }
+    row.insert("nativeModelId", ace_json::Value::from(native_model_id));
+    row.insert("efforts", ace_json::Value::Array(Vec::new().into()));
+    row.insert("serviceTiers", ace_json::Value::Array(Vec::new().into()));
+    row.insert("inputModalities", ace_json::Value::Array(Vec::new().into()));
+    row.insert("isDefault", ace_json::Value::Bool(true));
+    row.insert("hidden", ace_json::Value::Bool(false));
+    row.insert("deprecated", ace_json::Value::Bool(false));
+    let mut resolution = ace_json::Map::new();
+    resolution.insert("ok", ace_json::Value::Bool(true));
+    resolution.insert("model", ace_json::Value::Object(row));
+    resolution.insert("stale", ace_json::Value::Bool(false));
+    resolution.insert("reason", ace_json::Value::from("role"));
+    ace_json::to_string(&ace_json::Value::Object(resolution))
+}
+
 /// A message item with one text part, in the stored shape.
 pub(crate) fn message(id: &str, thread: &str, text: &str) -> ace_core::items::Item {
     ace_json::from_value(
@@ -118,6 +223,8 @@ pub(crate) struct Shell {
     holds_after_commit: Cell<bool>,
     /// The model catalog's answers: `(resolve, list)`, when one is configured.
     models: RefCell<Option<(String, String)>>,
+    /// `options.machine`, as JSON, when the test's daemon has one.
+    machine: RefCell<Option<String>>,
     /// `onModelUnavailable` calls, as `(provider, model)`.
     unavailable: RefCell<Vec<(String, String)>>,
     /// The tokens each frame joined, by the depth that joined them, and the ones a rollback dropped.
@@ -217,6 +324,11 @@ impl Shell {
         *self.models.borrow_mut() = Some((resolve.to_owned(), list.to_owned()));
     }
 
+    /// `options.machine`, as the binding passes it (JSON).
+    pub fn answer_machine(&self, machine: &str) {
+        *self.machine.borrow_mut() = Some(machine.to_owned());
+    }
+
     /// The models the catalog refused, as `(provider, model)`.
     pub fn unavailable(&self) -> Vec<(String, String)> {
         self.unavailable.borrow().clone()
@@ -286,6 +398,7 @@ impl Shell {
             tokens: RefCell::new(Vec::new()),
             dropped: RefCell::new(Vec::new()),
             models: RefCell::new(None),
+            machine: RefCell::new(None),
             unavailable: RefCell::new(Vec::new()),
         });
         let store = EngineStore {
@@ -326,7 +439,10 @@ impl Ports for Shell {
         self.set_timer(ms)
     }
     fn thread_id(&self) -> String {
-        "t".to_owned()
+        // `options.threadId`, else the shell's UUIDv7: distinct per allocation, as it is live.
+        let next = self.ids.get() + 1;
+        self.ids.set(next);
+        format!("thread-{next}")
     }
     fn command_id(&self) -> String {
         "command".to_owned()
@@ -513,6 +629,12 @@ impl Ports for Shell {
         self.naming
             .borrow_mut()
             .push((thread.to_owned(), json.to_owned()));
+    }
+    fn machine(&self) -> Result<String, PortError> {
+        self.machine
+            .borrow()
+            .clone()
+            .ok_or(PortError::Unbound("machine"))
     }
     fn head_seq(&self) -> Result<f64, PortError> {
         Ok(self.seq.get())

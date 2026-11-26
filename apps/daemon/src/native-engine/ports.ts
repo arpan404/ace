@@ -84,10 +84,6 @@ export interface EngineBindings {
   admits(): boolean;
   /** The account's reset reading, with undefined, null and a time kept apart. */
   resetAt?(threadId: string): { tag: "undefined" | "null" | "at"; at?: number };
-  /** `options.models.resolve`, JSON in and JSON out (E5.4e). */
-  modelsResolve?(json: string): string;
-  modelsList?(json: string): string;
-  modelsUpdatePermissionModes?(instance: string, json: string): void;
 }
 
 /** The `options` JSON the binding reads: limits, idleMs and which ready ports were given. */
@@ -202,18 +198,6 @@ export function engineBindings(input: {
             if (value === null) return { tag: "null" as const };
             return { tag: "at" as const, at: value };
           },
-        }
-      : {}),
-    // The model catalog is always constructed when the option is given (`index.ts:193`), and
-    // its synchronous calls are JSON in, JSON out (E5.4e).
-    ...(options.models
-      ? {
-          modelsResolve: (json: string) =>
-            JSON.stringify(options.models!.resolve(JSON.parse(json) as never)),
-          modelsList: (json: string) =>
-            JSON.stringify(options.models!.list(JSON.parse(json) as never)),
-          modelsUpdatePermissionModes: (instance: string, json: string) =>
-            options.models!.updatePermissionModes?.(instance, JSON.parse(json) as never),
         }
       : {}),
   };

@@ -12,12 +12,19 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::access::storage;
-use crate::commands::worktree::base_branch_label;
+use crate::commands::validation::CreationFacts;
 use crate::commands::{command_id, error, ok, payload, payload_type};
-use crate::inputs::provisional_title::{UNTITLED_THREAD, provisional_title};
 use crate::snapshot::Snapshot;
 use crate::snapshot::touched::Touched;
 use crate::{Core, EngineError, State};
+
+mod facts;
+mod row;
+
+use row::{
+    details, live, machine, selection_json, selection_provider, silence_ms, thread_json, title,
+    title_source,
+};
 
 /// What the receipt's context carries that the create reads.
 #[derive(Debug, Default)]
@@ -48,7 +55,7 @@ pub struct NewThread<'a> {
     pub unprepared: bool,
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(super) fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
@@ -158,137 +165,6 @@ pub fn create_engine_thread(
     Ok(())
 }
 
-fn selection_provider(selection: &Value) -> String {
-    text(selection, "provider").unwrap_or_default().to_owned()
-}
-
-/// `repo.store.getWorkspace(id)?.name`.
-fn thread_name(store: &crate::EngineStore, workspace: &str) -> Option<String> {
-    let row = ace_store::stmt_cache::get_row(
-        store.conn(),
-        "SELECT name FROM workspaces WHERE id = ?",
-        vec![ace_store::Value::Text(workspace.to_owned())],
-    )
-    .ok()
-    .flatten()?;
-    row.get("name")
-        .and_then(crate::repository::residency::cell_text)
-        .map(str::to_owned)
-}
-
-/// The stored thread row, in `Thread`'s schema order (`thread.ts:92`).
-fn thread_json(new: &NewThread<'_>, permission: &Value) -> Value {
-    let mut thread = Map::new();
-    thread.insert("hasSentMessage", Value::Bool(false));
-    thread.insert("details", new.details.clone());
-    thread.insert("live", new.live.clone());
-    thread.insert("id", Value::from(new.id));
-    thread.insert("workspaceId", Value::from(new.workspace_id));
-    thread.insert("title", Value::from(new.title.as_str()));
-    thread.insert("titleSource", Value::from(new.title_source));
-    thread.insert(
-        "provider",
-        Value::from(selection_provider(&new.selection).as_str()),
-    );
-    if let Some(backend) = new.backend {
-        thread.insert("backend", Value::from(backend));
-    }
-    if let Some(capabilities) = &new.capabilities {
-        thread.insert("capabilities", capabilities.clone());
-    }
-    thread.insert("permission", permission.clone());
-    if let Some(handoff) = &new.handoff {
-        thread.insert("handoff", handoff.clone());
-    }
-    if let Some(identity) = new.acp_identity {
-        for key in ["acpAgentId", "installationId", "instanceId"] {
-            if let Some(value) = identity.get(key) {
-                thread.insert(key, value.clone());
-            }
-        }
-    }
-    let mut status = Map::new();
-    status.insert("state", Value::from("new"));
-    thread.insert("status", Value::Object(status));
-    thread.insert("createdAt", Value::from(new.at));
-    thread.insert("updatedAt", Value::from(new.at));
-    // `Thread`'s last fields: the selection the thread runs on.
-    thread.insert("execution", new.selection.clone());
-    Value::Object(thread)
-}
-
-/// The create's `details`: the workspace, the mode and the checkout, in `ThreadDetails` order.
-pub fn details(core: &Core, state: &mut State, p: &Value, cwd: &str) -> Result<Value, EngineError> {
-    let workspace_id = text(p, "workspaceId").unwrap_or_default();
-    let name = thread_name(&core.store, workspace_id).unwrap_or_else(|| workspace_id.to_owned());
-    let mut workspace = Map::new();
-    workspace.insert("id", Value::from(workspace_id));
-    workspace.insert("name", Value::from(name.as_str()));
-    workspace.insert("path", Value::from(cwd));
-    let mode = text(p, "mode").unwrap_or("local");
-    let mut out = Map::new();
-    out.insert("workspace", Value::Object(workspace));
-    out.insert("mode", Value::from(mode));
-    // A worktree thread has no checkout until its workspace is prepared.
-    if mode != "worktree" {
-        out.insert("worktree", Value::from(cwd));
-    }
-    if let Some(base) = base_branch_label(p) {
-        out.insert("baseBranch", Value::from(base.as_str()));
-    }
-    let _ = state;
-    Ok(Value::Object(out))
-}
-
-/// The create's `live` block, in `ThreadRunMetadata` order.
-pub fn live(p: &Value, model: Option<&str>, instance: Option<&str>) -> Value {
-    let mut out = Map::new();
-    out.insert(
-        "provider",
-        Value::from(text(p, "provider").unwrap_or_default()),
-    );
-    if let Some(model) = model {
-        out.insert("model", Value::from(model));
-    }
-    if let Some(instance) = instance {
-        out.insert("account", Value::from(instance));
-    }
-    out.insert("options", options(p));
-    out.insert("subagentCount", Value::from(0.0));
-    out.insert("backgroundTaskCount", Value::from(0.0));
-    Value::Object(out)
-}
-
-/// `p.title`, else `provisionalTitle(p.input)` for a create, else `New thread`.
-pub fn title(p: &Value) -> String {
-    if let Some(title) = text(p, "title") {
-        return title.to_owned();
-    }
-    if text(p, "type") == Some("thread.create") {
-        let input = p
-            .get("input")
-            .and_then(Value::as_array)
-            .map(|parts| parts.as_slice())
-            .unwrap_or(&[]);
-        return provisional_title(input, UNTITLED_THREAD).to_string();
-    }
-    "New thread".to_owned()
-}
-
-/// The title's source: an agent's for a prepare that says so, the person's for an explicit
-/// title, and provisional otherwise.
-pub fn title_source(p: &Value) -> &'static str {
-    if text(p, "type") == Some("thread.prepare") && text(p, "titleSource") == Some("agent") {
-        return "agent";
-    }
-    if p.get("title").is_some() {
-        return "person";
-    }
-    "provisional"
-}
-
-/// The receipt's create (`handler.ts:205`-`:375`). The context's prepared workspace, a pull
-/// request and a handoff need the three synchronous ports E5.4e does not bind yet.
 pub fn create(
     core: &Core,
     state: &mut State,
@@ -301,6 +177,21 @@ pub fn create(
     if !state.commands.admissions.authorized(command, None) {
         return Ok(error(&id, "thread_creation_in_progress"));
     }
+    // `validateCreation` runs first (`handler.ts:217`): every refusal it owns commits, and the
+    // workspace path it canonicalises is the one the thread records.
+    let workspace_id = text(p, "workspaceId").unwrap_or_default().to_owned();
+    let workspace_path = state.workspace(&core.store, &workspace_id)?;
+    let provider = text(p, "provider").unwrap_or_default().to_owned();
+    let (valid, backend) = {
+        let facts = facts::Facts::read(core, state, p, workspace_path)?;
+        let valid = match crate::commands::validation::validate_creation(command, &facts) {
+            Ok(valid) => valid,
+            Err(code) => return Ok(error(&id, &code)),
+        };
+        facts.failure()?;
+        (valid, facts.backend(&provider))
+    };
+    let cwd = valid.cwd.clone();
     if context.prepared.is_some() {
         return Err(EngineError::not_ported("a prepared workspace", "E5.4e"));
     }
@@ -310,12 +201,30 @@ pub fn create(
     if p.get("handoffFrom").is_some() {
         return Err(EngineError::not_ported("a handoff's context", "E5.4e"));
     }
-    let workspace_id = text(p, "workspaceId").unwrap_or_default().to_owned();
-    let Some(cwd) = state.workspace(&core.store, &workspace_id)? else {
-        return Ok(error(&id, "workspace_not_found"));
-    };
     let at = core.ports.now();
-    let thread_id = text(p, "threadId").unwrap_or_default().to_owned();
+    let catalog = crate::models::select::PortCatalog(&*core.ports);
+    let catalog = core
+        .ports
+        .has_models()
+        .then_some(&catalog as &dyn crate::models::select::Catalog);
+    // The model is chosen before the slot is taken (`handler.ts:232`, `:269`): a refused model
+    // must not leave an `engine_slots` row behind.
+    let model = match crate::models::select::select(
+        catalog,
+        &provider,
+        text(p, "model"),
+        valid.instance_id.as_deref(),
+        valid.acp_identity.as_ref(),
+    ) {
+        Ok(model) => model,
+        // The catalog refused an explicit model; `onModelUnavailable` has already been told.
+        Err(EngineError::ModelUnavailable) => return Ok(error(&id, "model_unavailable")),
+        Err(error) => return Err(error),
+    };
+    // `p.threadId ?? nextId()` (`handler.ts:244`): a client may let the daemon name the thread.
+    let thread_id = text(p, "threadId")
+        .map(str::to_owned)
+        .unwrap_or_else(|| core.ports.thread_id());
     // A prepared thread runs nothing until it is sent work, which reserves a slot then.
     if kind != "thread.prepare" && !state.repo.reserve(&core.store, &thread_id)? {
         let freed =
@@ -330,23 +239,9 @@ pub fn create(
             None => return Ok(error(&id, "engine_capacity_exceeded")),
         }
     }
-    let provider = text(p, "provider").unwrap_or_default();
-    let instance = text(p, "instanceId");
-    let catalog = crate::models::select::PortCatalog(&*core.ports);
-    let catalog = core
-        .ports
-        .has_models()
-        .then_some(&catalog as &dyn crate::models::select::Catalog);
-    let model =
-        match crate::models::select::select(catalog, provider, text(p, "model"), instance, None) {
-            Ok(model) => model,
-            // The catalog refused an explicit model; `onModelUnavailable` has already been told.
-            Err(EngineError::ModelUnavailable) => return Ok(error(&id, "model_unavailable")),
-            Err(error) => return Err(error),
-        };
-    let selection = selection_json(p, model.as_deref());
+    let selection = selection_json(p, model.as_deref(), valid.instance_id.as_deref());
     let instance = text(&selection, "instanceId").map(str::to_owned);
-    let details = details(core, state, p, &cwd)?;
+    let details = details(&core.store, p, &cwd, machine(core))?;
     let live = live(p, model.as_deref(), instance.as_deref());
     let new = NewThread {
         id: &thread_id,
@@ -358,10 +253,10 @@ pub fn create(
         cwd: &cwd,
         workspace_ready: false,
         at,
-        silence_ms: silence_ms(state, p),
-        backend: None,
-        capabilities: None,
-        acp_identity: None,
+        silence_ms: silence_ms(core, p),
+        backend: backend.as_deref(),
+        capabilities: Some(valid.capabilities.clone()),
+        acp_identity: valid.acp_identity.as_ref(),
         handoff: None,
         details,
         live,
@@ -373,29 +268,6 @@ pub fn create(
         return Ok(ok(&id, Some(&thread_id)));
     }
     Ok(ok(&id, Some(&thread_id)))
-}
-
-/// The thread's selection: provider, the payload's options, its account and the resolved model.
-fn selection_json(p: &Value, model: Option<&str>) -> Value {
-    let mut selection = Map::new();
-    selection.insert(
-        "provider",
-        Value::from(text(p, "provider").unwrap_or_default()),
-    );
-    if let Some(model) = model {
-        selection.insert("model", Value::from(model));
-    }
-    if let Some(instance) = text(p, "instanceId") {
-        selection.insert("instanceId", Value::from(instance));
-    }
-    selection.insert("options", options(p));
-    Value::Object(selection)
-}
-
-/// The thread's silence threshold. The engine's own default until the silence port (E5.6)
-/// lands; a workspace's override is E5.6's read.
-fn silence_ms(_state: &State, _p: &Value) -> f64 {
-    30_000.0
 }
 
 #[cfg(test)]

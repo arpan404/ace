@@ -10,8 +10,12 @@ use ace_json::Value;
 
 use crate::commands::create::Context;
 use crate::commands::{command_id, error, ok, payload, payload_type};
-use crate::steering::selection::{admit_steer, fence_steer, queue_steer_selection};
+use crate::steering::selection::{
+    admit_steer, aim_steer_at_run, fence_steer, queue_steer_selection, record_steer_aim,
+};
 use crate::{Core, EngineError, State};
+
+mod interrupt;
 
 /// `changesWork` (`thread-fence.ts:70`): events that never start or add work.
 const INERT: [&str; 9] = [
@@ -27,7 +31,7 @@ const INERT: [&str; 9] = [
 ];
 
 /// `thread.updated` fields that describe the thread without changing what runs in it.
-const INERT_THREAD_FIELDS: [&str; 11] = [
+const INERT_THREAD_FIELDS: [&str; 10] = [
     "type",
     "title",
     "titleSource",
@@ -38,11 +42,10 @@ const INERT_THREAD_FIELDS: [&str; 11] = [
     "effectiveCapabilities",
     "acpSupport",
     "goal",
-    "details",
 ];
 
 /// `thread.client.updated` fields: organization, read state and the list's projections.
-const INERT_CLIENT_FIELDS: [&str; 24] = [
+const INERT_CLIENT_FIELDS: [&str; 25] = [
     "pinned",
     "pinOrder",
     "listOrder",
@@ -66,6 +69,7 @@ const INERT_CLIENT_FIELDS: [&str; 24] = [
     "details",
     "live",
     "movedFrom",
+    "host",
     "hostKey",
 ];
 
@@ -320,65 +324,10 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
             return Ok(fail("unsupported_goal"));
         }
     }
-    if kind == "thread.interrupt" {
-        let agent = p.get("agentId").and_then(Value::as_str).map(str::to_owned);
-        let snapshot = state.repo.require_state(&core.store, &thread)?;
-        let (known, root, target, run, run_state, child_controls) = {
-            let borrowed = snapshot.borrow();
-            let root = borrowed.root_agent_id();
-            let known = agent.as_deref().is_none_or(|agent| {
-                borrowed
-                    .state
-                    .agents
-                    .values()
-                    .any(|record| record.agent.id == agent)
-            });
-            let target = match agent.as_deref() {
-                None => root.clone(),
-                Some(agent) => borrowed.state.indexes.agent_keys_by_id.get(agent).cloned(),
-            };
-            let active = target
-                .as_ref()
-                .and_then(|key| borrowed.state.agents.get(key))
-                .and_then(|record| record.active_run.clone());
-            let run_state = borrowed
-                .state
-                .runs
-                .get(p.get("runId").and_then(Value::as_str).unwrap_or_default())
-                .map(|run| run.state.clone());
-            (known, root, target, active, run_state, false)
-        };
-        let _ = (root, child_controls);
-        if !known {
-            return Ok(fail("agent_not_found"));
-        }
-        if let Some(before) = p.get("beforeSeq").and_then(Value::as_i64) {
-            let target = agent.as_deref().or(target.as_deref()).unwrap_or_default();
-            let sql = "SELECT 1 FROM events WHERE thread_id=? AND seq>? AND (
-              (type='run.started' AND json_extract(payload,'$.run.agentId')=?) OR
-              (type='item.created' AND json_extract(payload,'$.item.agentId')=? AND json_extract(payload,'$.item.role')='user' AND COALESCE(json_extract(payload,'$.item.synthetic'),0)=0)
-            ) LIMIT 1";
-            let row = ace_store::stmt_cache::get_row(
-                core.store.conn(),
-                sql,
-                vec![
-                    ace_store::Value::Text(thread.clone()),
-                    ace_store::Value::Integer(before),
-                    ace_store::Value::Text(target.to_owned()),
-                    ace_store::Value::Text(target.to_owned()),
-                ],
-            )?;
-            if row.is_none() {
-                return Ok(fail("stale_interrupt"));
-            }
-        }
-        if let Some(run_id) = p.get("runId").and_then(Value::as_str)
-            && (target.is_none()
-                || run.as_deref() != Some(run_id)
-                || run_state.as_deref() != Some("active"))
-        {
-            return Ok(fail("stale_interrupt"));
-        }
+    if kind == "thread.interrupt"
+        && let Some(refused) = interrupt::check(core, state, p, &thread, &id)?
+    {
+        return Ok(refused);
     }
     tail(core, state, command, &thread, &id, kind)
 }
@@ -413,7 +362,11 @@ fn tail(
     let Some(admitted_send) = crate::queue::admission::admit(core, state, command, thread)? else {
         return Ok(fail("queue_capacity_exceeded"));
     };
-    let resolved = fence_steer(core, state, &admitted_send, thread)?;
+    // `aimSteerAtRun` (`handler.ts:498`): a fresh steer is aimed at the turn it means. The
+    // session fact `steersByCancel` arrives with E5.6's session; until then nothing is aimed and
+    // the functions' own tests pin the rule.
+    let aimed = aim_steer_at_run(&core.store, state, &admitted_send, thread, false)?;
+    let resolved = fence_steer(core, state, &aimed, thread)?;
     let steer = admit_steer(core, state, &resolved, thread)?;
     let admitted = steer.send.clone();
     if kind == "thread.send" {
@@ -463,7 +416,8 @@ fn tail(
             )?;
         }
     }
-    crate::intents::lifecycle::add(&core.store, &admitted, thread, None, None)?;
+    let intent = crate::intents::lifecycle::add(&core.store, &admitted, thread, None, None)?;
+    record_steer_aim(&core.store, state, intent, thread, &admitted)?;
     state.accept_input(&core.store, &admitted, thread, now)?;
     queue_steer_selection(core, state, thread, steer, now)?;
     if matches!(kind, "thread.create" | "thread.send") {
