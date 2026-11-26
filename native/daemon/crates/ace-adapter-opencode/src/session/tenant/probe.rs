@@ -40,21 +40,25 @@ impl ProbeHost for OpenCodeTenant {
         Ok(())
     }
 
-    fn buffered(&self, data: &Value, watermark: u64) {
+    fn buffered(&self, data: &Value, watermark: u64) -> Result<(), ProbeError> {
         // `session.ts:137`: the receipt is recorded even while no pass runs;
-        // only its evidence is skipped then.
-        let _ = self.emit(FrameDirection::Note, "ancestry.buffered", data);
+        // only its evidence is skipped then. Either can refuse the receipt.
+        self.emit(FrameDirection::Note, "ancestry.buffered", data)
+            .map_err(|error| error.0)?;
         if self.recovering() {
-            let _ = self.observe_buffered(data, watermark);
+            self.observe_buffered(data, watermark)
+                .map_err(|error| error.0)?;
         }
+        Ok(())
     }
 
-    fn pending(&self, guard: &str) {
-        let _ = self.emit(
+    fn pending(&self, guard: &str) -> Result<(), ProbeError> {
+        self.emit(
             FrameDirection::Note,
             "lifecycle",
             &json!({ "type": "ancestry.pending", "id": guard }),
-        );
+        )
+        .map_err(|error| error.0)
     }
 
     fn settled(&self, guard: &str) {

@@ -18,7 +18,7 @@ fn select(
     all: &IndexMap<TenantId, Arc<dyn Tenant>>,
 ) -> Result<Vec<Arc<dyn Tenant>>, TenantError> {
     let event = parse_native_event(value).expect("a valid envelope");
-    routes.select(&event, value, watermark, all)
+    routes.select(&event, value, watermark, all, &mut Vec::new())
 }
 
 fn tenants(entries: &[(TenantId, Arc<Fake>)]) -> IndexMap<TenantId, Arc<dyn Tenant>> {

@@ -7,6 +7,7 @@ use ace_adapter_api::bridge::{EventQueue, ReadGate, SessionEvent};
 use ace_json::{Value, json};
 
 use super::{OpenCodeTenant, TenantConfig, TenantError};
+use crate::session::server::Tenant;
 use crate::translate::boundaries::parse_native_event;
 
 /// `owns`, with the envelope check the server does first.
@@ -248,6 +249,50 @@ fn a_session_moved_refetch_is_asked_once_until_it_is_answered() {
 }
 
 #[test]
+fn a_moved_reply_whose_snapshot_cannot_be_framed_asks_for_a_pass() {
+    let (tenant, queue) = ready();
+    tenant
+        .receive_value(&event("session.moved", json!({ "sessionID": "root" })), 1)
+        .expect("moved");
+    drain(&queue);
+
+    // The snapshot verifies, but its frame is past the payload bound, so the
+    // location it named was never recorded.
+    let mut body = snapshot("root", "", "/work", "p1");
+    if let Value::Object(map) = &mut body {
+        map.insert("title".to_owned(), json!("a".repeat(1024 * 1024)));
+    }
+    tenant.moved_reply("root", true, &body);
+    let events = drain(&queue);
+    assert_eq!(
+        ports(&events)
+            .into_iter()
+            .filter(|(name, _)| *name == "reconcile")
+            .count(),
+        1,
+        "the refusal is the TypeScript's catch"
+    );
+    assert!(
+        !frames(&events)
+            .iter()
+            .any(|frame| frame.1 == "snapshot.info"),
+        "nothing was framed"
+    );
+
+    // The move id was released: a later move asks again.
+    tenant
+        .receive_value(&event("session.moved", json!({ "sessionID": "root" })), 2)
+        .expect("moved again");
+    assert_eq!(
+        ports(&drain(&queue))
+            .into_iter()
+            .filter(|(name, _)| *name == "session.moved")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn catalog_changed_is_a_port_for_its_six_types_only() {
     let (tenant, queue) = ready();
     tenant
@@ -342,3 +387,100 @@ fn a_shell_exit_drops_the_shell_it_names() {
 }
 
 mod scenarios;
+
+/// An envelope with its own id, so the translator's dedupe keeps every event.
+fn numbered(id: &str, kind: &str, data: Value) -> Value {
+    json!({ "id": id, "type": kind, "data": data })
+}
+
+#[test]
+fn a_recovery_pass_never_settles_a_session_whose_child_interaction_or_shell_still_works() {
+    let (tenant, queue) = ready();
+    let root = json!({
+        "sessionID": "root",
+        "projectID": "p1",
+        "location": { "directory": "/work" },
+    });
+    let child = json!({
+        "sessionID": "child",
+        "parentID": "root",
+        "projectID": "p1",
+        "location": { "directory": "/work" },
+    });
+    for (id, kind, data) in [
+        ("e1", "session.created", root),
+        ("e2", "session.created", child),
+        (
+            "e3",
+            "session.execution.started",
+            json!({ "sessionID": "child" }),
+        ),
+        (
+            "e4",
+            "permission.asked",
+            json!({ "sessionID": "root", "id": "p1" }),
+        ),
+        (
+            "e5",
+            "shell.created",
+            json!({
+                "sessionID": "root",
+                "info": { "id": "sh1", "status": "running", "metadata": { "sessionID": "root" } },
+            }),
+        ),
+    ] {
+        tenant
+            .receive_value(&numbered(id, kind, data), 1)
+            .unwrap_or_else(|error| panic!("{kind}: {error}"));
+    }
+    drain(&queue);
+    assert!(!tenant.is_settled(), "a child turn is live");
+
+    // A pass begins and finishes; none of that work was the pass's to settle.
+    tenant.disconnected(0);
+    tenant.finalize_snapshots().expect("the pass finalizes");
+    assert!(!tenant.is_settled(), "a recovering session is not settled");
+    assert!(tenant.pending("permission:root:p1").is_some());
+    assert!(tenant.live_shell("sh1"));
+    tenant.recovered();
+    assert!(!tenant.is_settled(), "the pass keeps the guards");
+
+    // Each guard settles on its own event, and only then is the session done.
+    tenant
+        .receive_value(
+            &numbered(
+                "e6",
+                "session.execution.succeeded",
+                json!({ "sessionID": "child" }),
+            ),
+            2,
+        )
+        .expect("the turn ends");
+    assert!(
+        !tenant.is_settled(),
+        "the interaction and shell still hold it"
+    );
+    tenant
+        .receive_value(
+            &numbered(
+                "e7",
+                "permission.replied",
+                json!({ "sessionID": "root", "requestID": "p1" }),
+            ),
+            3,
+        )
+        .expect("the interaction answers");
+    assert!(!tenant.is_settled(), "the shell still holds it");
+    tenant
+        .receive_value(
+            &numbered(
+                "e8",
+                "shell.exited",
+                json!({ "sessionID": "root", "id": "sh1" }),
+            ),
+            4,
+        )
+        .expect("the shell exits");
+    assert!(tenant.is_settled(), "nothing is left to wait on");
+    let _ = drain(&queue);
+}

@@ -84,6 +84,59 @@ fn an_unknown_childs_receipt_is_noted_before_its_lookup() {
 }
 
 #[test]
+fn an_unknown_childs_receipt_past_the_node_bound_fails_routing_and_leaves_no_probe() {
+    let (tenant, queue) = ready();
+    // Under the 1 MiB byte bound, past the 32,768-node structural bound: the
+    // receipt's own note cannot be framed, so routing fails and the receipt is
+    // rolled back (`session.ts:327`-`:329`, `ancestry.ts:64`-`:82`).
+    let row = json!({
+        "a": null, "b": null, "c": null, "d": null, "e": null,
+        "f": null, "g": null, "h": null, "i": null, "j": null,
+        "k": null, "l": null, "m": null, "n": null, "o": null,
+        "p": null, "q": null, "r": null, "s": null, "t": null,
+    });
+    let heavy: Vec<Value> = (0..2048).map(|_| row.clone()).collect();
+    let receipt = located(
+        event(
+            "future.receipt",
+            json!({ "sessionID": "child", "delta": heavy }),
+        ),
+        "/work",
+    );
+    assert_eq!(
+        tenant.receive_value(&receipt, 5),
+        Err(TenantError(String::from(
+            "Provider payload exceeds structural limit"
+        )))
+    );
+    assert!(
+        tenant.lock_ancestry().guard("child").is_none(),
+        "the refused receipt left no probe"
+    );
+    assert!(
+        tenant.lock_ancestry().shells().is_empty(),
+        "nothing of the receipt is held"
+    );
+    drain(&queue);
+
+    // A later receipt for the same child starts a fresh probe; the refused one
+    // had already taken its sequence number, as the TypeScript's does.
+    tenant
+        .receive_value(
+            &located(
+                event(
+                    "future.receipt",
+                    json!({ "sessionID": "child", "delta": "x" }),
+                ),
+                "/work",
+            ),
+            6,
+        )
+        .expect("held");
+    assert_eq!(tenant.lock_ancestry().guard("child"), Some("ancestry:2"));
+}
+
+#[test]
 fn a_covered_receipt_is_not_replayed_while_recovering() {
     let (tenant, queue) = ready();
     tenant.disconnected(0);
@@ -91,7 +144,7 @@ fn a_covered_receipt_is_not_replayed_while_recovering() {
         "permission.asked",
         json!({ "sessionID": "root", "id": "p1" }),
     );
-    <OpenCodeTenant as ProbeHost>::buffered(&tenant, &asked, 3);
+    <OpenCodeTenant as ProbeHost>::buffered(&tenant, &asked, 3).expect("buffered");
     tenant
         .lock_evidence()
         .stage("snapshot.interactions", &json!({ "keys": [] }), "root", 3)

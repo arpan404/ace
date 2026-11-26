@@ -29,8 +29,10 @@ pub trait ProbeHost {
     /// `session.ts:134`: covered evidence is not replayed, and while not
     /// recovering delivery skips the evidence check entirely.
     fn receive(&self, data: &Value, watermark: u64) -> Result<(), ProbeError>;
-    fn buffered(&self, data: &Value, watermark: u64);
-    fn pending(&self, guard: &str);
+    /// `session.ts:137`: the receipt's note and, while recovering, its evidence.
+    /// A refusal is the TypeScript's throw (`ancestry.ts:64`-`:82`).
+    fn buffered(&self, data: &Value, watermark: u64) -> Result<(), ProbeError>;
+    fn pending(&self, guard: &str) -> Result<(), ProbeError>;
     fn settled(&self, guard: &str);
     fn failed(&self, data: &Value);
     /// One GET chain for a new probe (E3-opencode.3): its replies come back
@@ -41,6 +43,12 @@ pub trait ProbeHost {
 /// A receipt's failure, as the TypeScript's thrown `Error` text. The pass that
 /// replayed the receipt rejects with it, exactly as `recoverOnce` does.
 pub type ProbeError = String;
+
+/// One probe `reconciled` acts on: its id and the events to replay, oldest first.
+pub struct Reconcile {
+    pub id: String,
+    pub events: Vec<(Value, u64)>,
+}
 
 /// One held event, with the watermark it arrived at.
 struct Entry {
@@ -72,10 +80,18 @@ impl AncestryProbe {
 
     /// `prove`: an event for a session this tree does not own, in this
     /// session's directory, waits as evidence.
-    pub fn prove(&mut self, data: &Value, watermark: u64, host: &dyn ProbeHost) {
+    ///
+    /// A receipt sink that refuses rolls the receipt back before the error
+    /// reaches routing, which fails the stream (`ancestry.ts:64`-`:82`).
+    pub fn prove(
+        &mut self,
+        data: &Value,
+        watermark: u64,
+        host: &dyn ProbeHost,
+    ) -> Result<(), ProbeError> {
         let envelope = fields(data);
         let Some(Value::Object(location)) = envelope.get("location") else {
-            return;
+            return Ok(());
         };
         let id = event_session(data);
         if id.is_empty()
@@ -83,7 +99,7 @@ impl AncestryProbe {
             || s_in(location, "directory") != host.directory()
             || s_in(envelope, "type") == "session.created"
         {
-            return;
+            return Ok(());
         }
         let bytes = ace_json::to_string(data).len();
         let queued = self.probes.get(id);
@@ -92,7 +108,7 @@ impl AncestryProbe {
             || (queued.is_none() && self.probes.len() >= MAX_PROBES)
         {
             host.failed(data);
-            return;
+            return Ok(());
         }
         let is_new = queued.is_none();
         if is_new {
@@ -108,7 +124,7 @@ impl AncestryProbe {
             );
         }
         let Some(probe) = self.probes.get_mut(id) else {
-            return;
+            return Ok(());
         };
         probe.events.push(Entry {
             data: data.clone(),
@@ -117,11 +133,34 @@ impl AncestryProbe {
         });
         self.unknown_bytes += bytes;
         let guard = probe.guard.clone();
-        host.buffered(data, watermark);
+        // `pendingStarted` is set before the call, as the TypeScript sets it.
+        let mut pending_started = false;
+        let delivered = host.buffered(data, watermark).and_then(|()| {
+            if is_new {
+                pending_started = true;
+                host.pending(&guard)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = delivered {
+            if self
+                .probes
+                .get_mut(id)
+                .and_then(|probe| probe.events.pop())
+                .is_some()
+            {
+                self.unknown_bytes -= bytes;
+            }
+            if is_new && self.probes.shift_remove(id).is_some() && pending_started {
+                host.settled(&guard);
+            }
+            return Err(error);
+        }
         if is_new {
-            host.pending(&guard);
             host.lookup(id, &guard);
         }
+        Ok(())
     }
 
     /// `observePending`: a recovery pass starts, so every held event is part of
@@ -175,19 +214,19 @@ impl AncestryProbe {
     /// `reconciled`: the pass is over; an owned probe replays and every probe
     /// that was looked up leaves.
     ///
-    /// The events are collected before they are delivered: a replay calls back
-    /// into the tenant, which takes the probe lock again (`owns` → `prove`).
-    pub fn reconciled(&mut self, host: &dyn ProbeHost) -> Result<(), ProbeError> {
-        let ids: Vec<String> = self.probes.keys().cloned().collect();
-        for id in ids {
-            let owned = host.owns_session(&id);
-            let Some(probe) = self.probes.get(&id) else {
-                continue;
-            };
+    /// The list is collected under this lock and delivered by the caller with
+    /// the lock released: a replay re-enters `owns` → `prove`, which takes this
+    /// lock again. The caller finishes each probe with [`Self::finish`], so a
+    /// failed delivery leaves that probe for the next pass, as the TypeScript's
+    /// throw does.
+    pub fn reconcile_order(&self, host: &dyn ProbeHost) -> Vec<Reconcile> {
+        let mut order = Vec::new();
+        for (id, probe) in &self.probes {
+            let owned = host.owns_session(id);
             if !owned && !probe.lookup_failed {
                 continue;
             }
-            let replay: Vec<(Value, u64)> = if owned {
+            let events = if owned {
                 probe
                     .events
                     .iter()
@@ -196,16 +235,16 @@ impl AncestryProbe {
             } else {
                 Vec::new()
             };
-            for (data, watermark) in replay {
-                host.receive(&data, watermark)?;
-            }
-            self.finish(&id, host);
+            order.push(Reconcile {
+                id: id.clone(),
+                events,
+            });
         }
-        Ok(())
+        order
     }
 
     /// `finish`: the probe's bytes go back and its receipt settles.
-    fn finish(&mut self, id: &str, host: &dyn ProbeHost) {
+    pub fn finish(&mut self, id: &str, host: &dyn ProbeHost) {
         let Some(probe) = self.probes.shift_remove(id) else {
             return;
         };

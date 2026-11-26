@@ -5,7 +5,7 @@
 use ace_adapter_api::FrameDirection;
 use ace_adapter_api::bridge::{EventQueue, ReadGate, SessionEvent};
 use ace_json::Value;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::server::{Tenant, TenantError};
@@ -38,6 +38,9 @@ pub(crate) struct Fake {
     accepts_calls: AtomicUsize,
     /// Set while `finalize_snapshots` refuses with this message.
     finalize_error: Mutex<Option<String>>,
+    /// The next `take_reconcile` answers true, as an accept that overflowed its
+    /// ancestry buffer does (`session.ts:122`).
+    reconcile: AtomicBool,
 }
 
 impl Fake {
@@ -52,7 +55,13 @@ impl Fake {
             trace: Mutex::new(Vec::new()),
             accepts_calls: AtomicUsize::new(0),
             finalize_error: Mutex::new(None),
+            reconcile: AtomicBool::new(false),
         }
+    }
+
+    /// Asks for a recovery pass on the next `take_reconcile`.
+    pub(crate) fn ask_reconcile(&self) {
+        self.reconcile.store(true, Ordering::SeqCst);
     }
 
     /// A tenant that accepts every event and interleaves notes with calls.
@@ -239,6 +248,6 @@ impl Tenant for Fake {
     }
 
     fn take_reconcile(&self) -> bool {
-        false
+        self.reconcile.swap(false, Ordering::SeqCst)
     }
 }
