@@ -521,6 +521,15 @@ length-size-3 refusal is unreachable and is not reproduced. The splitter keeps t
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
 
+`simulator_transcode.rs` keeps when a viewer's link needs ace-media to re-encode serve-sim's
+picture (a smaller panel, or a rate below 5/6 of the measured busy rate, with the 6 Mbit/s floor
+and 5.5/6 to pass through again) and the encode it asks for (native fitted to the viewer's box,
+never above native, even sides, 60 fps, the viewer's bitrate). `frame_encoder.rs` keeps the
+screen helper's `--encode-frames` protocol: one JSON command per line (frame, bitrate, keyframe,
+ingest), its `ingest` stderr events (on/off with the previous boundary, or closed), and the
+stderr splitter that drops a partial line over 4096 units. The process and promises are the
+shell's.
+
 `capture.rs` keeps `capture.ts`'s route choice: ace's serve-sim when a supported one is found
 (replacing an outdated helper when its version is known), an unpinned one refused when
 `ACE_SERVE_SIM` named it and the screen helper otherwise, the tools download only when no
