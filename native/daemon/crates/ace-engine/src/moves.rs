@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `live-move.ts` (E5.9): the engine's side of a thread moving to another machine (ADR 0191):
+//! `live-move.ts` and `workspace-change.ts` (E5.9): the engine's side of a thread moving to another machine (ADR 0191):
 //! the fence that refuses new turns, the controls that may still run, and the moved/carried
 //! state a move writes. Cases ported from `workspace-change.process.test.ts` (move rows) and
 //! `thread-fork.process.test.ts` (carried sessions).
 
 use ace_json::Value;
+
+pub mod workspace;
 
 use crate::intents::header::IntentHeader;
 use crate::{EngineError, EngineStore, State};

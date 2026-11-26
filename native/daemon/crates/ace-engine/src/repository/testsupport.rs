@@ -329,10 +329,71 @@ impl Ports for Shell {
     fn append_events(&self, _json: &str) -> Result<(), PortError> {
         Ok(())
     }
-    fn get_thread(&self, _thread: &str) -> Result<Option<String>, PortError> {
-        // The shell's thread row is not what a repository case reads; no row is the answer a
-        // store with no such thread gives.
-        Ok(None)
+    fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
+        // The row as `store.getThread` shapes it: the columns the engine reads, and the JSON
+        // columns parsed so `lineage`/`details`/`live` are objects, never strings.
+        let Some(row) = ace_store::stmt_cache::get_row(
+            &self.conn,
+            "SELECT * FROM threads WHERE id=?",
+            vec![ace_store::Value::Text(thread.to_owned())],
+        )
+        .map_err(|error| PortError::Threw(error.to_string()))?
+        else {
+            return Ok(None);
+        };
+        let mut value = ace_json::Map::new();
+        value.insert("id", ace_json::Value::from(thread));
+        if let Some(workspace) = row
+            .get("workspace_id")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("workspaceId", ace_json::Value::from(workspace));
+        }
+        if let Some(title) = row
+            .get("title")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("title", ace_json::Value::from(title));
+        }
+        if let Some(provider) = row
+            .get("provider")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("provider", ace_json::Value::from(provider));
+        }
+        for (column, key) in [
+            ("status", "status"),
+            ("imported", "imported"),
+            ("acp", "acp"),
+            ("transitions", "transitions"),
+            ("provider_metadata", "providerMetadata"),
+            ("client", "client"),
+        ] {
+            if let Some(text) = row
+                .get(column)
+                .and_then(crate::repository::residency::cell_text)
+                && let Ok(parsed) = ace_json::parse(text)
+            {
+                value.insert(key, parsed);
+            }
+        }
+        if let Some(root) = row
+            .get("root_agent_id")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("rootAgentId", ace_json::Value::from(root));
+        }
+        // The TypeScript's `details`, `deletedAt` and `live` live in the client JSON.
+        if let Some(client) = value.get("client").cloned()
+            && let Some(object) = client.as_object()
+        {
+            for key in ["details", "deletedAt", "live"] {
+                if let Some(entry) = object.get(key) {
+                    value.insert(key, entry.clone());
+                }
+            }
+        }
+        Ok(Some(ace_json::to_string(&ace_json::Value::Object(value))))
     }
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
