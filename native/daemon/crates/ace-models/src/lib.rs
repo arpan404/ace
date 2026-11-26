@@ -13,6 +13,7 @@ pub mod cursor;
 pub mod display_name;
 pub mod effort;
 pub mod free;
+pub mod freeze;
 pub mod instance;
 pub mod metadata;
 pub mod native;
