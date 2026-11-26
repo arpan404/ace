@@ -165,10 +165,10 @@ async function next(client: Client, predicate: (message: ServerMessage) => boole
 async function launch(fixture: Awaited<ReturnType<typeof providerHome>>, readLog: string) {
   const aceHome = join(fixture.root, "ace");
   // The daemon runs on Bun. BUN_OPTIONS, set here to the recorder alone (replacing any the test
-  // inherited), preloads it in the daemon and in each Bun process the daemon starts, the
-  // history reader among them: every one of them is a process that must not read history at
-  // startup. Bun doesn't parse quotes in it, so the path is relative to the daemon's working
-  // directory, the recorder's own.
+  // inherited), preloads it in the daemon and in each Bun process it starts: none of them may
+  // read history at startup. The saved-history reader is ace-history, a Rust process the preload
+  // can't reach (ADR 0207), so access times, not the log, see its reads. Bun doesn't parse quotes
+  // in it, so the path is relative to the daemon's working directory, the recorder's own.
   const child = spawn(bunBinary(), [fileURLToPath(new URL("./cli.ts", import.meta.url)), "start"], {
     cwd: fileURLToPath(new URL(".", import.meta.url)),
     env: {
@@ -277,7 +277,8 @@ it.skipIf(process.platform === "win32")(
     );
     if (found.type !== "history.list") throw new Error("Missing past sessions");
     expect(found.sessions.map((session) => session.nativeId)).toContain("claude-session");
-    expect((await reads(log)).length).toBeGreaterThan(0);
+    // The Rust reader counts what it read (ADR 0207 §3); the Bun preload can't see its reads.
+    expect(found.scan?.stats.reads).toBeGreaterThan(0);
     expect(await accessed([...fixture.transcripts, ...fixture.folders])).toEqual(
       expect.arrayContaining([fixture.transcripts[0], fixture.folders[1]]),
     );

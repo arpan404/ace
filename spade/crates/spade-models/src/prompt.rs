@@ -34,11 +34,27 @@ pub enum Thought {
         signature: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reasoning: Option<String>,
+        /// Digest of what preceded the reply this thought came in (see `bound.rs`); `None` from
+        /// older builds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
     },
     /// Reasoning text with no signature.
-    Reasoning { text: String },
+    Reasoning {
+        text: String,
+        /// Digest of what preceded the reply this thought came in (see `bound.rs`); `None` from
+        /// older builds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
+    },
     /// A provider block kept whole, such as Anthropic's redacted thinking.
-    Block { data: Value },
+    Block {
+        data: Value,
+        /// Digest of what preceded the reply this thought came in (see `bound.rs`); `None` from
+        /// older builds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
+    },
 }
 
 /// An image sent to the model: its media type (`image/png`) and its bytes in base64.

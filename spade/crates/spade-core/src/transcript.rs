@@ -387,6 +387,7 @@ impl Transcript {
             | Known::Arrived { .. }
             | Known::CardShown(_)
             | Known::CardAction { .. }
+            | Known::Reaction { .. }
             | Known::PanelUpdated { .. }
             | Known::PanelAction { .. }
             | Known::ContractCalled(_)

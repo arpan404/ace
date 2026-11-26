@@ -34,6 +34,7 @@ fn models_at(base_url: &str, format: Format) -> Result<Models> {
             name: "Searcher".into(),
             context: None,
             capabilities: vec![Capability::WebSearch],
+            efforts: Vec::new(),
             price: None,
         }],
     }]);

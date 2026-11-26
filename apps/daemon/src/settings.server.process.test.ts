@@ -325,7 +325,7 @@ test("settings requests require the existing authenticated hello", async () => {
 });
 
 test("daemon startup exposes the same settings service used by its sockets and closes it on shutdown", async () => {
-  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { mkdtemp, readFile, rm, lstat } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { once } = await import("node:events");
   const { DeviceId } = await import("@ace/protocol");
@@ -369,8 +369,16 @@ test("daemon startup exposes the same settings service used by its sockets and c
     entries: [{ value: true, provenance: "global" }],
   });
   await client.close();
+  // A service shutdown withdraws is still gone: only settings keeps its own closed answer.
+  expect(() => daemon.preparePlugins).not.toThrow();
   await daemon.close();
   await expect(daemon.settings.get("threads.settleOnClose")).rejects.toThrow("closed");
+  const prepare = join(dataDir, "prepare-after-close");
+  await expect((async () => daemon.preparePlugins("claude", prepare))()).rejects.toThrow(
+    "Service preparePlugins is degraded",
+  );
+  // Refused before any catalog or projection work: the launch root is never created.
+  await expect(lstat(prepare)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 test("settings deliveries exceeding the socket byte cap request a reconnect", async () => {

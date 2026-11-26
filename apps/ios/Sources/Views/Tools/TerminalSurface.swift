@@ -14,6 +14,8 @@ struct TerminalSurface: UIViewRepresentable {
     let onFit: (Int, Int) -> Void
     let onTap: () -> Void
     let onScrollKeys: (Bool, Int) -> Void
+    /// Opens a tapped OSC 8 hyperlink; taps on plain text go to `onTap`.
+    var onLink: ((URL) -> Void)? = nil
 
     func makeUIView(context: Context) -> TerminalCanvasView {
         let view = TerminalCanvasView(frame: .zero)
@@ -24,6 +26,7 @@ struct TerminalSurface: UIViewRepresentable {
     func updateUIView(_ view: TerminalCanvasView, context: Context) {
         view.onFit = onFit
         view.onTap = onTap
+        view.onLink = onLink
         view.onScrollKeys = onScrollKeys
         view.fontSize = fontSize
         view.session = session

@@ -342,8 +342,8 @@ export async function bootFake(): Promise<{
     seedFakeLanes(here);
     seedFakeMentions(daemon, here, server);
   }
-  // Every other world starts with Spade off. Turning it on (Settings › Spade › Run Spade on this
-  // machine) starts the Spade world here, as the daemon starts Spade; off stops it again.
+  // Every other world starts with Spade on and its world seeded, as a person who uses Spade sees
+  // it. Turning it off (Settings › Spade › Run Spade on this machine) stops it; on starts it again.
   const seedsSpade =
     ["spade", "spade-lanes", "spade-empty", "mentions", "spade-all"].includes(world ?? "") ||
     orgWorld;
@@ -439,6 +439,8 @@ function startSpadeOnRequest(daemon: FakeDaemon, server: FakeDaemon): void {
   daemon.services.settings.onChange((keys) => {
     if (keys.includes("spade.enabled")) follow();
   });
-  // A setting kept from before a reload starts Spade at once.
+  // The fake app opens with Spade running, as a person who uses Spade sees it; turning it off in
+  // Settings stops it until the page reloads.
   if (daemon.services.settings.get("spade.enabled") === true) follow();
+  else daemon.services.settings.write("spade.enabled", true);
 }

@@ -2,6 +2,7 @@ import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol"
 import { parseThreadRecord, threadRecord } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ThreadStore } from "./thread-store.ts";
+import type { ThreadExport } from "./api.ts";
 import { ClientError, tailShownMs, type Limits, type OpenTail } from "./types.ts";
 
 /** Stores no view holds stay cached while together they weigh at most this (ADR 0056). */
@@ -60,6 +61,8 @@ export class Subscriptions {
   /** Bindings of threads already let go whose last checkpoint may still be waiting, by thread. */
   #closing = new Map<string, Set<SnapshotBinding>>();
   #persistence: Persistence | undefined;
+  /** Hears each confirmed checkpoint of a store's content, for its archive (ADR 0225). */
+  #kept: ((threadId: string, exported: ThreadExport) => void) | undefined;
   #starting = new Set<string>();
   #wires = new Map<string, Cached>();
   /** The database the current connection's daemon named, if it named one. */
@@ -87,8 +90,10 @@ export class Subscriptions {
     delay: Delay,
     persistence?: Persistence,
     tail?: OpenTail,
+    kept?: (threadId: string, exported: ThreadExport) => void,
   ) {
     this.#tail = tail;
+    this.#kept = kept;
     this.#delay = delay;
     this.#persistence = persistence;
     this.#limits = limits;
@@ -320,7 +325,12 @@ export class Subscriptions {
       // A store holding only a tail keeps nothing on disk: any reader, this build's or an older
       // one that would drop the `partial` mark, then restores the thread as holding nothing and
       // opens it fresh. A record from before stays a complete copy at its own, older cursor.
-      () => (store.filling ? undefined : threadRecord(store.export(), entry.database)),
+      () => {
+        if (store.filling) return undefined;
+        const exported = store.export();
+        this.#kept?.(threadId, exported);
+        return threadRecord(exported, entry.database);
+      },
       (value) => {
         const record = parseThreadRecord(value, threadId);
         if (!record || !store.restore(record.view, record.truncated)) return;

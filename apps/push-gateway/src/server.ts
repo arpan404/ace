@@ -4,9 +4,10 @@ import { once } from "node:events";
 import { z } from "zod";
 import { createApnsClient, ApnsToken, type ApnsClient } from "@ace/notify/apns-client";
 import { IpBudget } from "@ace/relay";
+import { ActivityBody, activityPush, maxActivityBody } from "./activity-payload.ts";
 import { daemonIdentity } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
-import { openHandle, sealHandle } from "./handles.ts";
+import { HandleKind, openHandle, sealHandle, type Registration } from "./handles.ts";
 import { GoneTokens, HourlyLimit } from "./limits.ts";
 import { alertPush, maxBody } from "./payload.ts";
 
@@ -14,7 +15,7 @@ export interface GatewayRuntime {
   now(): number;
   random(size: number): Buffer;
   /** One line per request: route and status only. Never tokens, handles, keys, IPs or bodies. */
-  log(entry: { route: string; status: number; reason?: string }): void;
+  log(entry: { route: string; status: number }): void;
   apns?: ApnsClient;
 }
 export interface Gateway {
@@ -24,6 +25,7 @@ export interface Gateway {
 const RegistrationBody = z.object({
   token: ApnsToken,
   environment: z.enum(["sandbox", "production"]),
+  kind: HandleKind.default("alert"),
 });
 const goneReasons = new Set(["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"]);
 const ipKeys = new IpBudget();
@@ -34,7 +36,7 @@ export const systemRuntime = (): GatewayRuntime => ({
   log: (entry) => console.log(JSON.stringify(entry)),
 });
 
-/** The push gateway (ADR 0106): authenticated daemons push encrypted alerts to phones via APNs. */
+/** Authenticated daemons send encrypted alerts and counts-only Live Activity pushes via APNs. */
 export async function startGateway(
   config: GatewayConfig,
   runtime: GatewayRuntime = systemRuntime(),
@@ -55,7 +57,11 @@ export async function startGateway(
   const perIp = new HourlyLimit(limits.perIp, limits.maxEntries);
   const registrations = new HourlyLimit(limits.registrationsPerDaemon, limits.maxEntries);
   const pushes = new HourlyLimit(limits.pushesPerDaemon, limits.maxEntries);
-  const perHandle = new HourlyLimit(limits.pushesPerHandle, limits.maxEntries);
+  const perHandle = {
+    alert: new HourlyLimit(limits.pushesPerHandle, limits.maxEntries),
+    liveactivity: new HourlyLimit(limits.activityPushesPerHandle, limits.maxEntries),
+    start: new HourlyLimit(limits.startsPerHandle, limits.maxEntries),
+  };
   const gone = new GoneTokens(limits.maxEntries);
 
   const clientKey = (request: IncomingMessage) => {
@@ -83,55 +89,73 @@ export async function startGateway(
       response.end("ok");
       return;
     }
-    const pushMatch = /^\/v1\/push\/([A-Za-z0-9_-]{1,1024})$/.exec(url.pathname);
-    const route = url.pathname === "/v1/registrations" ? "register" : pushMatch ? "push" : "";
+    if (request.method === "GET" && url.pathname === "/v1/capabilities")
+      return reply("capabilities", 200, { kinds: HandleKind.options });
+    const pushMatch = /^\/v1\/(push|activity)\/([A-Za-z0-9_-]{1,1024})$/.exec(url.pathname);
+    const route = url.pathname === "/v1/registrations" ? "register" : pushMatch?.[1];
     if (!route || request.method !== "POST") return reply("unknown", 404);
     const now = runtime.now();
     const ipWait = perIp.take(clientKey(request), now);
     if (ipWait) return reply(route, 429, undefined, retryAfter(ipWait));
     const daemon = daemonIdentity(request.headers.authorization, config.publicOrigin, now);
     if (!daemon) return reply(route, 401);
-    const body = await readBody(request, route === "register" ? 1024 : maxBody);
-    if (!body) return reply(route, 413);
     if (route === "register") {
+      const body = await readBody(request, 1024);
+      if (!body) return reply(route, 413);
       const wait = registrations.take(daemon, now);
       if (wait) return reply(route, 429, undefined, retryAfter(wait));
       const parsed = RegistrationBody.safeParse(safeJson(body));
       if (!parsed.success) return reply(route, 400);
-      if (gone.has(tokenHash(parsed.data.token), now)) return reply(route, 410);
+      if (gone.has(tokenKey(parsed.data), now)) return reply(route, 410);
       const expiresAt = now + config.handleLifetimeMs;
       const key = config.sealKeys[0];
       if (!key) return reply(route, 500);
-      const sealed = sealHandle(
-        key,
-        { token: parsed.data.token, environment: parsed.data.environment, daemon, expiresAt },
-        runtime.random(12),
-      );
+      const sealed = sealHandle(key, { ...parsed.data, daemon, expiresAt }, runtime.random(12));
       return reply(route, 201, { handle: sealed, expiresAt });
     }
-    const registration = openHandle(config.sealKeys, pushMatch?.[1] ?? "");
+    const registration = openHandle(config.sealKeys, pushMatch?.[2] ?? "");
     if (!registration || registration.expiresAt <= now) return reply(route, 404);
     if (registration.daemon !== daemon) return reply(route, 403);
-    const hash = tokenHash(registration.token);
-    if (gone.has(hash, now)) return reply(route, 410);
-    const push = alertPush(request.headers, body, now);
-    if (push === "size") return reply(route, 413);
-    if (typeof push === "string") return reply(route, 400);
-    const wait = Math.max(pushes.take(daemon, now), perHandle.take(hash, now));
+    const isActivity = route === "activity";
+    if ((registration.kind === "alert") === isActivity) return reply(route, 403);
+    const body = await readBody(request, isActivity ? maxActivityBody : maxBody);
+    if (!body) return reply(route, 413);
+    let push;
+    if (isActivity) {
+      const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType !== "application/json") return reply(route, 400);
+      const parsed = ActivityBody.safeParse(safeJson(body));
+      if (!parsed.success) return reply(route, 400);
+      const requiredKind = parsed.data.event === "start" ? "start" : "liveactivity";
+      if (registration.kind !== requiredKind) return reply(route, 403);
+      push = activityPush(parsed.data);
+    } else {
+      push = alertPush(request.headers, body, now);
+      if (push === "size") return reply(route, 413);
+      if (typeof push === "string") return reply(route, 400);
+    }
+    const target = tokenKey(registration);
+    if (gone.has(target, now)) return reply(route, 410);
+    // Re-sealing a registration changes its ciphertext but must not reset its budget.
+    const budgetKey = registration.kind === "alert" ? target : `${daemon}:${target}`;
+    const wait = Math.max(
+      pushes.take(daemon, now),
+      perHandle[registration.kind].take(budgetKey, now),
+    );
     if (wait) return reply(route, 429, undefined, retryAfter(wait));
     const result = await apns.send(
       {
         environment: registration.environment,
         token: registration.token,
-        topic: config.apns.topic,
-        pushType: "alert",
+        topic: isActivity ? `${config.apns.topic}.push-type.liveactivity` : config.apns.topic,
+        pushType: isActivity ? "liveactivity" : "alert",
         ...push,
       },
       AbortSignal.timeout(10_000),
     );
     if (result.status === 200) return reply(route, 201);
     if (result.status === 410 || (result.status === 400 && goneReasons.has(result.reason ?? ""))) {
-      gone.add(hash, runtime.now());
+      gone.add(target, runtime.now());
       return reply(route, 410);
     }
     if (result.status === 429) return reply(route, 429, undefined, { "retry-after": "60" });
@@ -162,8 +186,14 @@ export async function startGateway(
     },
   };
 }
-function tokenHash(token: string): string {
-  return createHash("sha256").update(token.toLowerCase()).digest("base64url");
+function tokenKey({
+  token,
+  environment,
+  kind,
+}: Pick<Registration, "token" | "environment" | "kind">): string {
+  const hash = createHash("sha256").update(token.toLowerCase());
+  if (kind !== "alert") hash.update(`:${environment}:${kind}`);
+  return hash.digest("base64url");
 }
 function retryAfter(ms: number) {
   return { "retry-after": String(Math.max(1, Math.ceil(ms / 1000))) };
@@ -176,10 +206,13 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Buffer
   }
   const chunks: Buffer[] = [];
   let bytes = 0;
-  for await (const chunk of request) {
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
     bytes += buffer.length;
-    if (bytes > limit) return undefined;
+    if (bytes > limit) {
+      request.resume();
+      return undefined;
+    }
     chunks.push(buffer);
   }
   return Buffer.concat(chunks);

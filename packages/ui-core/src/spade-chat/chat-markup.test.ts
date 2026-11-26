@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  spadeChatSegments,
+  spadeChatParts,
   spadeLiveChatSegments,
   spadeMessageId,
   spadePlainChat,
@@ -20,8 +20,7 @@ const table = JSON.parse(
 describe("a bot's words split into chat messages as the shared table says", () => {
   for (const row of table.cases)
     it(row.name, () => {
-      const parse = row.live ? spadeLiveChatSegments : spadeChatSegments;
-      expect(parse(row.text)).toEqual(row.segments);
+      expect(spadeChatParts(row.text, row.live === true)).toEqual(row.segments);
     });
 });
 

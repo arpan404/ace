@@ -406,18 +406,11 @@ fn emit(frames: &Frames, dir: FrameDir, data: &Value, channel: &'static str) -> 
     }
 }
 
-/// `stderr.slice(-1024)`: the tail's last 1,024 characters. JavaScript counts
-/// UTF-16 units, so a boundary inside a surrogate pair is the one place a
-/// JavaScript diagnostic can carry a lone surrogate; a Rust string cannot, and
-/// keeps the whole character.
-fn summary(stderr: &str) -> String {
-    let mut chars = stderr
-        .chars()
-        .rev()
-        .take(STDERR_SUMMARY)
-        .collect::<Vec<char>>();
-    chars.reverse();
-    chars.into_iter().collect()
+/// The diagnostic keeps the tail's last 1,024 UTF-16 units.
+fn summary(stderr: &str) -> ace_json::JsString {
+    let text = ace_json::JsString::from(stderr);
+    let length = text.len_utf16();
+    text.slice_units(length.saturating_sub(STDERR_SUMMARY), length)
 }
 
 #[cfg(test)]

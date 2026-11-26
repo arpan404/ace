@@ -138,7 +138,13 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     pushed,
     prepared: () => prepared,
     async add(label: string) {
-      const instance = await createManagedHome(home, `account-${++id}`, "antigravity", label);
+      const instance = await createManagedHome(
+        home,
+        `account-${++id}`,
+        "antigravity",
+        label,
+        process.platform,
+      );
       await registry.register(instance);
       return instance;
     },

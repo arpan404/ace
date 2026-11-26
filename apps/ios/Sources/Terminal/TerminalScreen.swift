@@ -52,6 +52,13 @@ struct TerminalScreen: Sendable {
     private(set) var modes = TerminalModes()
     private(set) var cursorShape = TerminalCursorShape.block
     private(set) var title = ""
+    /// Colours a program changed with OSC 4, 10, 11 or 12, drawn over the theme's palette.
+    private(set) var colours = TerminalColours()
+    /// OSC 8 hyperlink addresses, 1-based: a cell's style names its link by this index. Bounded,
+    /// so a program printing an endless stream of distinct links can't grow the screen.
+    private(set) var links: [String] = []
+    private(set) var currentLink: UInt16 = 0
+    static let maxLinks = 256
     var style = TerminalStyle.plain
     var top = 0
     var bottom: Int
@@ -99,6 +106,14 @@ struct TerminalScreen: Sendable {
         index < historyCount ? scrollback[index] : lines[index - historyCount]
     }
     func cell(row: Int, column: Int) -> TerminalCell { lines[row].cells[column] }
+    /// The hyperlink address of a cell, by row in history followed by the screen.
+    func hyperlink(row: Int, column: Int) -> String? {
+        guard row >= 0, row < historyCount + rows, column >= 0 else { return nil }
+        let line = self.line(row)
+        guard column < line.cells.count else { return nil }
+        let link = Int(line.cells[column].style.link)
+        return link > 0 && link <= links.count ? links[link - 1] : nil
+    }
 
     // MARK: Printing
 
@@ -122,11 +137,13 @@ struct TerminalScreen: Sendable {
         if modes.insert { insertBlanks(width) }
         var cell = TerminalCell(scalar: scalar.value, style: style)
         cell.style.flags.remove(.placement)
+        cell.style.link = currentLink
         if width == 2 { cell.style.flags.insert(.wide) }
         write(cell, at: cursorColumn)
         if width == 2 {
             var trail = TerminalCell(scalar: 0, style: style)
             trail.style.flags.remove(.placement)
+            trail.style.link = currentLink
             trail.style.flags.insert(.wideTrail)
             write(trail, at: cursorColumn + 1)
         }
@@ -337,6 +354,27 @@ struct TerminalScreen: Sendable {
     mutating func setMode(_ change: (inout TerminalModes) -> Void) { change(&modes) }
     mutating func setShape(_ shape: TerminalCursorShape) { cursorShape = shape }
     mutating func setTitle(_ text: String) { title = String(text.prefix(256)) }
+    /// OSC 8: start a hyperlink for what prints next, or end it with nil. An address already
+    /// known keeps its index, so a page's links don't fill the registry; past the bound new
+    /// addresses are let go and their text stays unlinked rather than mislabelled.
+    mutating func setLink(_ address: String?) {
+        guard let address, !address.isEmpty else { currentLink = 0; return }
+        if let known = links.firstIndex(of: address) {
+            currentLink = UInt16(known + 1)
+            return
+        }
+        guard links.count < Self.maxLinks else { currentLink = 0; return }
+        links.append(address)
+        currentLink = UInt16(links.count)
+    }
+    /// OSC 4: change one indexed palette colour.
+    mutating func setColour(_ colour: TerminalColour, at index: Int) { colours.set(colour, at: index) }
+    /// OSC 104: restore the listed indexes, or all of them when the list is empty.
+    mutating func resetColours(indexes: [Int]) { colours.reset(indexes: indexes) }
+    /// OSC 10, 11, 12: change the terminal's ink, page or cursor colour.
+    mutating func setColour(_ colour: TerminalColour, _ slot: TerminalSpecialColour) { colours.set(colour, slot) }
+    /// OSC 110, 111, 112: restore one of them to the theme's.
+    mutating func resetColour(_ slot: TerminalSpecialColour) { colours.reset(slot) }
 
     /// Switch to the alternate buffer (a full-screen program) or back to the main one.
     mutating func useAlternate(_ on: Bool, clear: Bool) {
@@ -396,6 +434,10 @@ struct TerminalScreen: Sendable {
         cursorColumn = 0
         cursorShape = .block
         title = ""
+        colours = TerminalColours()
+        // Scrollback survives a reset and its cells name links by index, so the addresses stay;
+        // the registry is bounded (`maxLinks`) and a known address keeps its index.
+        currentLink = 0
     }
 
     /// Fit both buffers to a new size. Rows leaving the top of the main screen go into history,

@@ -4048,133 +4048,18 @@ Example:
 
 ```json
 {
-  "seq": 6,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "contextMeters": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "itemsBefore": null,
-    "kind": "thread",
-    "partial": {
-      "previews": []
+    "kind": "threads",
+    "seq": 7,
+    "shares": {
+      "effectiveCapabilities": [],
+      "rows": {},
+      "workspaces": []
     },
-    "runs": {},
-    "seq": 6,
-    "thread": {
-      "acpSupport": {
-        "capabilities": {
-          "imageInput": false,
-          "planMode": true,
-          "resume": false
-        },
-        "coverage": "legacy",
-        "mcp": "stdio",
-        "modeSelection": true,
-        "modelSelection": true,
-        "raw": {
-          "json": "example",
-          "truncated": true
-        },
-        "visibility": "limited"
-      },
-      "autoSettle": false,
-      "autoSettleAt": 7,
-      "capabilities": {
-        "approvals": "sandbox-only",
-        "backgroundTaskControl": false,
-        "backgroundVisibility": "full",
-        "fork": true,
-        "forkPoints": [],
-        "imageInput": true,
-        "interruptCascades": true,
-        "planMode": true,
-        "resume": false,
-        "rewindFiles": true,
-        "sessionOptions": false,
-        "steer": true,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": false,
-        "tokenUsage": false
-      },
-      "capabilitiesRef": "example",
-      "createdAt": 6,
-      "details": {
-        "branch": null,
-        "continuedFrom": {
-          "at": 7,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "linkedPrs": [],
-        "upstream": "example",
-        "workspaceChange": {
-          "at": 2,
-          "branch": "example",
-          "commandId": "example",
-          "lossy": false,
-          "state": "applied",
-          "uncertain": false
-        },
-        "worktree": "example",
-        "worktreeSetup": {
-          "at": 7,
-          "details": [],
-          "state": "failed"
-        }
-      },
-      "hasSentMessage": true,
-      "hostKey": "example",
-      "id": "example",
-      "lineage": {
-        "lossy": false,
-        "mode": "portable",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "runId": "example",
-          "type": "turn"
-        }
-      },
-      "prSettled": 7,
-      "provider": "antigravity",
-      "queue": {
-        "paused": true,
-        "reason": null,
-        "resumeAt": 4,
-        "revision": 9
-      },
-      "queuedLaunch": {
-        "slotLimit": 4,
-        "text": "example"
-      },
-      "settleWhenDone": true,
-      "status": {
-        "state": "limited"
-      },
-      "switch": {
-        "at": 7,
-        "lossy": true,
-        "selection": {
-          "model": "example",
-          "options": {},
-          "provider": "claude"
-        },
-        "state": "applied"
-      },
-      "title": "example",
-      "titleSource": "provider",
-      "unread": false,
-      "updatedAt": 3,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "threads": {}
   }
 }
 ```

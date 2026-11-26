@@ -396,5 +396,27 @@ fn a_connected_stream_that_fails_is_marked_established() {
     );
 }
 
+#[test]
+fn a_unicode_event_id_routes_until_the_schema_code_point_limit() {
+    let mut server = core(&[]);
+    let tenant = Arc::new(Fake::session("a"));
+    server.subscribe(tenant.clone()).expect("tenant");
+
+    for length in [300, 512, 513] {
+        let id = "😀".repeat(length);
+        let chunk = event(
+            &id,
+            "session.text.delta",
+            json!({"sessionID":"a","text":"x"}),
+        );
+        let outcome = server.chunk(chunk.as_bytes());
+        assert_eq!(
+            outcome.failed,
+            (length > 512).then_some(StreamError::Envelope("id"))
+        );
+    }
+    assert_eq!(tenant.calls().len(), 2);
+}
+
 mod activity;
 mod recovery;

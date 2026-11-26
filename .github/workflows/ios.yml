@@ -5,6 +5,8 @@ on:
     paths:
       - "apps/ios/**"
       - "packages/markit-web/**"
+      - "packages/editor/**"
+      - "native/editor/**"
       - "packages/ui-core/**"
       - "packages/client/**"
       - "packages/protocol/**"
@@ -21,6 +23,8 @@ on:
     paths:
       - "apps/ios/**"
       - "packages/markit-web/**"
+      - "packages/editor/**"
+      - "native/editor/**"
       - "packages/ui-core/**"
       - "packages/client/**"
       - "packages/protocol/**"
@@ -93,12 +97,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
 
-      # The root postinstall builds native and Wasm parts the iOS app never uses.
+      # The iOS bundle builds the editor Wasm without running the desktop postinstall.
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Install XcodeGen
         run: brew install xcodegen
+
+      # The editor bundle builds Wasm with the toolchain `native/editor/rust-toolchain.toml` pins,
+      # so the target and the CLI must be that toolchain's, not the runner's default.
+      - name: Prepare the editor Wasm toolchain
+        working-directory: native/editor
+        run: |
+          rustup target add wasm32-unknown-unknown
+          version=$(sed -nE 's/^wasm-bindgen = "=([^"]+)"/\1/p' crates/editor-wasm/Cargo.toml)
+          cargo install --locked wasm-bindgen-cli --version "$version"
 
       - name: Generate the project (theme, bridge bundle, released markit package, Xcode project)
         run: bun run --cwd apps/ios generate

@@ -72,6 +72,8 @@ struct InboxView: View {
     /// The thread on screen when the app last ran: a relaunch opens it again, as the web reopens
     /// its URL, whether the system ended the app in the background or it was killed.
     @AppStorage("ace.inbox.openThread") private var lastPlace = ""
+    /// Whether a machine showed Spade when the phone last heard, so the tab is there at launch.
+    @AppStorage("ace.inbox.spadeShown") private var spadeRemembered = false
     @State private var placeRestored = false
 
     private var current: ClientModel? { openMachine.flatMap(inbox.client) }
@@ -217,6 +219,9 @@ struct InboxView: View {
         tabBar
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
+        .onChange(of: spadeAnswers, initial: true) { _, answers in
+            if let answer = HomeTabs.rememberedSpade(answers: answers), answer != spadeRemembered { spadeRemembered = answer }
+        }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
         // Coming back to a tab shows its page, never the drawer left out when it was left.
         .onChange(of: tab) { threadsDrawer.close(); chatsDrawer.close() }
@@ -294,8 +299,10 @@ struct InboxView: View {
             .modifier(HomeTabBar(hidden: sizeClass == .regular))
     }
 
-    /// A paired machine shows Spade (Settings › Beta), so its tab is there.
-    private var showsSpade: Bool { !inbox.spadeSessions.isEmpty }
+    /// A paired machine shows Spade (Settings › Beta), so its tab is there; before the machines
+    /// answer, the tab stays as they last left it (`HomeTabs.showsSpade`).
+    private var showsSpade: Bool { HomeTabs.showsSpade(answers: spadeAnswers, remembered: spadeRemembered) }
+    private var spadeAnswers: [Bool?] { inbox.sessions.map { $0.client.spade.shown } }
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {

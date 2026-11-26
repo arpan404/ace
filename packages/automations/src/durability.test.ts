@@ -180,6 +180,118 @@ it("a GitHub poll failure sets both compat and trigger health, cleared only by s
   expect(list(h, "recovered").schedules?.[0]?.triggerError).toBeUndefined();
 });
 
+it("an occurrence held for discovery is released after its bounded wait and never re-run", async () => {
+  const h = harness();
+  h.service.stop();
+  const auto = scheduled("run_once");
+  if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
+  auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=1";
+  h.service.put(auto);
+  h.deps.modelLoading = () => true;
+  h.deps.modelHoldMs = 5_000;
+  h.now = start;
+  h.service.start();
+  await h.timer.fire();
+  await h.service.settled();
+  // Discovery is still running: the occurrence keeps its place.
+  expect(h.inputs).toEqual([]);
+  expect(list(h, "held").schedules?.[0]?.nextRunAt).toBe(start);
+  h.now = start + 5_000;
+  await h.timer.fire();
+  // The bounded wait passed: the run is admitted (its refusal is the executor's to report).
+  expect(h.inputs).toHaveLength(1);
+  await h.finish(0);
+  expect(h.service.inbox().runs).toHaveLength(1);
+  expect(list(h, "spent").schedules?.[0]?.nextRunAt).toBeNull();
+  // Discovery arriving later never re-runs the spent occurrence.
+  h.deps.modelLoading = () => false;
+  h.service.modelsReady();
+  await h.timer.fire().catch(() => {});
+  await h.service.settled();
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs).toHaveLength(1);
+});
+
+it("an unrelated discovery never extends a held occurrence's wait", async () => {
+  const h = harness();
+  h.service.stop();
+  const auto = scheduled("run_once");
+  if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
+  auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=1";
+  h.service.put(auto);
+  h.deps.modelLoading = () => true;
+  h.deps.modelHoldMs = 30_000;
+  h.deps.modelRetryMs = 1_000;
+  h.now = start;
+  h.service.start();
+  await h.timer.fire();
+  expect(h.inputs).toEqual([]);
+  // Halfway through the wait, a discovery for something else settles and the scheduler re-arms.
+  h.now = start + 15_000;
+  h.service.modelsReady();
+  await h.timer.fire();
+  expect(h.inputs).toEqual([]);
+  // The occurrence still fails at its own 30 s bound, not 30 s after the unrelated discovery.
+  h.now = start + 30_000;
+  await h.timer.fire();
+  expect(h.inputs).toHaveLength(1);
+  await h.finish(0);
+});
+
+it("re-arming the scheduler mid-hold does not reset the occurrence's wait", async () => {
+  const h = harness();
+  h.service.stop();
+  const auto = scheduled("run_once");
+  if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
+  auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=1";
+  h.service.put(auto);
+  h.deps.modelLoading = () => true;
+  h.deps.modelHoldMs = 30_000;
+  h.now = start;
+  h.service.start();
+  await h.timer.fire();
+  expect(h.inputs).toEqual([]);
+  // `modelsReady()` re-arms, so its next-job look sees the expired hold before tick() does.
+  h.now = start + 30_000;
+  h.service.modelsReady();
+  await h.timer.fire();
+  expect(h.inputs).toHaveLength(1);
+  await h.finish(0);
+});
+
+it("a GitHub poll keeps its deadline while a due schedule waits for model lists", async () => {
+  let polls = 0;
+  const h = harness({
+    async get() {
+      polls++;
+      return { status: 304, etag: undefined, next: undefined, data: undefined };
+    },
+  });
+  h.service.stop();
+  // The schedule is due first, so without skipping it this pass would never reach the poll.
+  h.service.put(scheduled("run_once"));
+  h.now = start + 120_000;
+  h.service.put(
+    definition({
+      id: "poll",
+      trigger: {
+        kind: "github",
+        repository: "user/project",
+        event: "pr_changed",
+        pollIntervalMs: 60_000,
+      },
+    }),
+  );
+  h.deps.modelLoading = () => true;
+  h.service.start();
+  await h.timer.fire();
+  await h.service.settled();
+  // The poll ran on its own deadline; the due schedule stayed due for its model.
+  expect(polls).toBe(1);
+  expect(h.inputs).toEqual([]);
+  expect(list(h, "held").schedules?.find((entry) => entry.id === "triage")?.nextRunAt).toBe(start);
+});
+
 it("manual retries reuse the same executor key even after the run row is pruned", async () => {
   const h = harness();
   h.service.put(definition());

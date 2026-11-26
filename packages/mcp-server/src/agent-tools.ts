@@ -75,11 +75,11 @@ const delegate = controlTool({
   capability: "agents",
   maxInputBytes: maxBatchInputBytes,
   description:
-    "Start child agents as threads on any provider or paired machine, for independent or parallel work. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll. More: guide ace-agents.",
+    "Start child agents as threads on any provider or paired machine. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll.",
   input: z.strictObject({
     tasks: z.array(DelegateTask).min(1).max(maxDelegateTasks).describe("One per child."),
     waitSeconds: WaitTimeoutSeconds.optional().describe(
-      "Wait for results, as wait does. Omit to return at once.",
+      "Wait for results. Omit to return at once.",
     ),
     waitFor: WaitMode.default("all").describe("any returns on the first."),
   }),

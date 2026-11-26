@@ -40,6 +40,11 @@ export const ModelInstance = z
     executable: z.string().max(4096).default(""),
     backend: z.enum(["acp", "cursor-sdk"]).optional(),
     homeDir: z.string().min(1).max(4096).optional(),
+    /**
+     * OpenCode: run commands with a private server. A managed account has no service of its own,
+     * so its `models` listing must not attach to the person's running service (issue #2784).
+     */
+    isolatedService: z.boolean().optional(),
     cwd: z.string().min(1).max(4096),
     args: z.array(z.string().max(4096)).max(64).default([]),
     env: z

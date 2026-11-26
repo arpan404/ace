@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, lstat, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, lstat, writeFile, readdir } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,13 +53,20 @@ process.stdin.resume();`,
       name: "standin",
     });
     await connected.promise;
+    // The launch projects into a directory of its own under the session root, so an earlier
+    // launch's late cleanup can only reach its own files (ADR 0052).
+    const names = await readdir(join(root, "session"));
+    expect(names).toHaveLength(1);
+    const launch = names[0];
+    if (!launch) throw new Error("Missing launch directory");
+    const projection = join(root, "session", launch);
     // The same-group child uses its parent's resources even though it holds no output pipes.
-    expect((await lstat(join(root, "session/generated"))).isDirectory()).toBe(true);
+    expect((await lstat(join(projection, "generated"))).isDirectory()).toBe(true);
     await daemon.close();
     expect(launched.signal.aborted).toBe(true);
     await disconnected.promise;
     expect(connection?.destroyed).toBe(true);
-    await expect(lstat(join(root, "session/generated"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(projection)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await launched?.stop({ graceMs: 0 });
     connection?.destroy();
@@ -115,6 +122,8 @@ test("shutdown drains an accepted launch preparation and rejects subsequent laun
     },
   });
   try {
+    // Plugin preparation is live before shutdown, and stays withdrawn after it.
+    expect(() => daemon.preparePlugins).not.toThrow();
     const options = {
       command: process.execPath,
       args: ["-e", "setInterval(() => {}, 1000)"],
@@ -125,10 +134,17 @@ test("shutdown drains an accepted launch preparation and rejects subsequent laun
     const rejected = expect(pending).rejects.toThrow("closing");
     await daemon.close();
     await rejected;
-    await expect(lstat(join(root, "session/generated"))).rejects.toMatchObject({ code: "ENOENT" });
+    // The rejected launch left no projection behind, whichever it had claimed.
+    expect(await readdir(join(root, "session")).catch(() => [])).toEqual([]);
     await expect(daemon.launchPlugins("claude", join(root, "next"), options)).rejects.toThrow(
       "closing",
     );
+    const prepare = join(root, "prepare-after-close");
+    await expect((async () => daemon.preparePlugins("claude", prepare))()).rejects.toThrow(
+      "Service preparePlugins is degraded",
+    );
+    // Refused before any catalog or projection work: the launch root is never created.
+    await expect(lstat(prepare)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await daemon.close();
     await rm(root, { recursive: true, force: true });

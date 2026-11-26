@@ -1,6 +1,6 @@
 # 0145: Live Activity pushes carry one machine's counts, never text
 
-Status: Proposed. Decision 1 decided by the owner on 2026-11-13; decisions 2 to 6 await
+Status: Proposed. Amended by [ADR 0223](0223-one-live-activity-per-machine-driven-by-its-daemon.md) (decisions 2 to 4, and 5 in part). Decision 1 decided by the owner on 2026-11-13; decisions 2 to 6 await
 approval. Date: 2026-11-13. Amends [ADR 0106](0106-ios-remote-push-gateway.md), "Gateway
 contract (v1)": adds a second handle kind. Supersedes the "Live Activity for a working thread"
 section of [drafts/ios-push-notifications.md](drafts/ios-push-notifications.md).

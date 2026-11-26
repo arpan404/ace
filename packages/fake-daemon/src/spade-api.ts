@@ -1,5 +1,14 @@
+import { fakeSpadePending } from "./spade-pending.ts";
 import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import { fakeSpadeQuoted } from "./spade-quoted.ts";
+import { fakeInvocables, fakeInvoked } from "./spade-invoke.ts";
+import {
+  fakeBotReactions,
+  fakePersonReaction,
+  fakeReactionEmoji,
+  fakeReactionsSummary,
+  fakeReactionTarget,
+} from "./spade-reactions.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeAccounts } from "./spade-accounts.ts";
@@ -16,9 +25,11 @@ import { contractsRoute, packageRoute } from "./spade-packages.ts";
 import { FakeSpadeLanes } from "./spade-lanes.ts";
 import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
-import { base64Bytes, sha256Hex } from "./sha256.ts";
+import { mediaOf } from "./spade-upload.ts";
+import { endChecks, endpointRoute, keyRoute, useLocalModel } from "./spade-endpoints.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 import { FakeSpadeA2aAgents } from "./spade-a2a-agents.ts";
+import { FakeSpadeMedia } from "./spade-media-store.ts";
 import { FakeSpadeReach } from "./spade-reach.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
 import { FakeSpadeCases } from "./spade-cases.ts";
@@ -69,6 +80,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   spoken: string[] = [];
   /** Stored images by hash with their media type; any other hash answers 404. */
   images = new Map<string, string>();
+  /** Optional real image/document bodies and file modified timestamps for the fake world. */
+  readonly media = new FakeSpadeMedia();
   /** What `POST /v1/transcriptions` answers. */
   transcript = "";
   /** False: this machine has no keychain, so key writes answer 503. */
@@ -158,9 +171,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
    * unless named. Its checks read as running until the next listing.
    */
   localChecks = new Map<string, "passed" | "failed">();
-  private checking: Json[] = [];
+  checking: Json[] = [];
   /** Models whose running checks a listing already showed. */
-  private readonly checkShown = new WeakSet<Json>();
+  readonly checkShown = new WeakSet<Json>();
   /** Each bot's knowledge pages and past work (ADR 0164). */
   readonly knowledge: FakeSpadeKnowledge;
   /** Each bot's services (ADR 0160). */
@@ -356,6 +369,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.store(agent.conversation, { type: "reply_started", reply: id });
     this.store(agent.conversation, { type: "step_finished", reply: id, text });
     this.store(agent.conversation, { type: "reply_finished", reply: id, text });
+    for (const reaction of fakeBotReactions(text, this.events.get(agent.conversation) ?? []))
+      this.store(agent.conversation, reaction);
     agent.last_message = {
       from: "agent",
       text,
@@ -756,7 +771,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
       return this.connectors.route(request.method, id, sub, body, this.roster());
-    if (root === "models" && request.method === "GET") this.endChecks();
+    if (root === "models" && request.method === "GET") endChecks(this);
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.accounts.listed(
@@ -780,9 +795,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "endpoints" && id === "local" && request.method === "GET")
       return reply({ servers: this.localServers });
     if (root === "endpoints" && id === "local" && sub && request.method === "POST")
-      return this.useLocalModel(sub, String(body.model ?? ""));
-    if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
-    if (root === "keys" && id) return this.keyRoute(request.method, id, sub);
+      return useLocalModel(this, sub, String(body.model ?? ""));
+    if (root === "endpoints") return endpointRoute(this, request.method, id, sub, body, query);
+    if (root === "keys" && id) return keyRoute(this, request.method, id, sub);
     if (root === "usage" && id === "search" && !sub && request.method === "GET")
       return this.searchUsage ? reply(this.searchUsage) : problem(404, "Not found.");
     if (root === "settings" && request.method === "PUT") {
@@ -834,12 +849,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "conversations" && id)
       return this.conversationRoute(request, id, sub, subId, query, parts[4]);
-    if (root === "images") {
-      const type = id ? this.images.get(id) : undefined;
-      return type
-        ? { status: 200, body: `bytes of ${id}`, contentType: type }
-        : { status: 404, body: "" };
-    }
+    if (root === "images") return this.media.imageAnswer(id, id ? this.images.get(id) : undefined);
     if (root === "transcriptions" && request.method === "POST")
       return this.transcriptionModel
         ? reply({ text: this.transcript })
@@ -851,13 +861,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       this.spoken.push(text);
       return { status: 200, body: `audio of ${text}`, contentType: "audio/mpeg" };
     }
-    // A stored document or recording: its bytes, as text here.
-    if ((root === "documents" || root === "audio") && id && request.method === "GET")
-      return {
-        status: 200,
-        body: `bytes of ${id}`,
-        contentType: root === "audio" ? "audio/webm" : "application/octet-stream",
-      };
+    if (root === "documents" && id && request.method === "GET")
+      return this.media.documentAnswer(id, sub);
+    if (root === "audio" && id && request.method === "GET")
+      return { status: 200, body: `bytes of ${id}`, contentType: "audio/webm" };
     return problem(404, "Not found.");
   }
 
@@ -873,7 +880,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   /** The person's message into a conversation, as `POST /conversations/{id}/messages` takes it. */
-  private takeMessage(conversation: string, agent: FakeSpadeAgent | undefined, body: Json) {
+  private takeMessage(
+    conversation: string,
+    agent: FakeSpadeAgent | undefined,
+    body: Json,
+    invoke?: Json,
+  ) {
     const media = mediaOf(body);
     for (const image of (media.images ?? []) as Json[])
       this.images.set(String(image.sha256), String(image.media_type));
@@ -884,6 +896,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       text: body.text ?? "",
       ...media,
       ...(quoted ? { reply_to: quoted } : {}),
+      ...(invoke ? { invoke } : {}),
     });
     if (agent)
       agent.last_message = {
@@ -899,6 +912,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return this.listed().map((agent) => ({ id: agent.id, main: agent.kind === "main" }));
   }
 
+  /** What works under a bot is the bot working: its task count, and working unless it waits. */
+  private rolledUp(agent: FakeSpadeAgent): Json {
+    const tasks = this.lanes.liveCount(agent.conversation);
+    if (!tasks) return {};
+    return agent.state === "idle" ? { tasks, state: "working" } : { tasks };
+  }
+
   private agentRoute(
     method: string,
     id: string | undefined,
@@ -908,7 +928,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!id && method === "GET")
       return reply({
         agents: this.listed().map((agent) =>
-          Object.assign({}, agent, this.work.rosterFields(agent), {
+          Object.assign({}, agent, this.work.rosterFields(agent), this.rolledUp(agent), {
+            pending:
+              agent.state === "waiting"
+                ? fakeSpadePending(
+                    (this.events.get(agent.conversation) ?? []).map((stored) => stored.event),
+                  )
+                : [],
             computer: this.computer.of(agent.id),
             autonomy: this.security.autonomy(agent.id),
           }),
@@ -1015,6 +1041,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         if (folder === path || folder.startsWith(`${path}/`)) folders?.delete(folder);
       return { status: 204 };
     }
+    if (view === "download") {
+      const content = files[path];
+      if (content === undefined) return problem(404, `${path} does not exist`);
+      return this.media.downloadWorkspaceFile(path, content);
+    }
     if (view === "file") {
       const text = files[path];
       if (text === undefined) return problem(404, `${path} does not exist`);
@@ -1032,12 +1063,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!name.startsWith(prefix)) continue;
       const [first = "", ...rest] = name.slice(prefix.length).split("/");
       const folder = rest.length > 0;
+      const entryPath = `${prefix}${first}`;
       entries.set(first, {
         name: first,
-        path: `${prefix}${first}`,
+        path: entryPath,
         kind: folder ? "folder" : "file",
         size: folder ? 0 : text.length,
-        modified_at: null,
+        modified_at: this.media.modifiedAt(agent, entryPath),
       });
     }
     for (const folder of this.folders.get(agent) ?? []) {
@@ -1077,128 +1109,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
 
   /** As Spade: the local server added as a keyless endpoint the first time, the model saved on it. */
   /** Checks a listing already showed running end now, as `localChecks` says. */
-  private endChecks(): void {
-    const shown = this.checking.filter((model) => this.checkShown.has(model));
-    for (const model of this.checking) this.checkShown.add(model);
-    this.checking = this.checking.filter((model) => !shown.includes(model));
-    for (const model of shown) {
-      const tools = this.localChecks.get(String(model.id)) ?? "passed";
-      model.capabilities = tools === "passed" ? ["tools"] : [];
-      model.probes = {
-        state: "checked",
-        plain: "passed",
-        tools,
-        structured: "passed",
-        why:
-          tools === "passed"
-            ? null
-            : "This model didn't call tools in Spade's check, so it can't run a bot.",
-      };
-    }
-  }
-
-  private useLocalModel(server: string, model: string): FakeSpadeAnswer {
-    const local = this.localServers.find((candidate) => candidate.id === server);
-    if (!local || !model.trim()) return problem(404, "No such model server.");
-    let endpoint = this.endpoints.find((candidate) => candidate.base_url === local.base_url);
-    if (!endpoint) {
-      endpoint = {
-        id: server,
-        name: local.name,
-        format: "openai-chat",
-        base_url: local.base_url,
-        header_names: [],
-        session_header: null,
-        needs_key: false,
-        key_set: false,
-        key_source: null,
-        models: [],
-      };
-      this.endpoints.push(endpoint);
-      local.endpoint = server;
-    }
-    const models = endpoint.models as Json[];
-    if (!models.some((saved) => saved.id === model)) {
-      const added: Json = {
-        id: model,
-        source: "typed",
-        capabilities: [],
-        probes: { state: "checking" },
-      };
-      models.push(added);
-      this.checking.push(added);
-    }
-    return reply({ endpoint, value: `${String(endpoint.id)}/${model.trim()}` });
-  }
-
-  private endpointRoute(
-    method: string,
-    id: string | undefined,
-    sub: string | undefined,
-    body: Json,
-    query: string,
-  ): FakeSpadeAnswer {
-    if (id && sub === "probe" && method === "POST") {
-      const endpoint = this.endpoints.find((candidate) => candidate.id === id);
-      const model = (endpoint?.models as Json[] | undefined)?.find((each) => each.id === body.id);
-      if (!endpoint || !model) return problem(404, "no such model");
-      model.probes = { state: "checking" };
-      this.checking.push(model);
-      return reply({ probes: model.probes }, 202);
-    }
-    if (!id && method === "POST") return this.accounts.add(body, this.presets, this.endpoints);
-    const endpoint = this.endpoints.find((candidate) => candidate.id === id);
-    if (!endpoint) return problem(404, "No such endpoint.");
-    if (sub === "sign-out" && method === "POST") return this.accounts.signOut(endpoint);
-    if (sub === "models") {
-      if (method === "GET") {
-        const live = this.liveModels.get(String(id));
-        if (typeof live === "number") return problem(live, "The endpoint didn't answer.");
-        return reply({ models: live ?? [] });
-      }
-      const models = (endpoint.models as Json[]) ?? [];
-      if (method === "POST") {
-        endpoint.models = [
-          ...models.filter((model) => model.id !== body.id),
-          { ...body, source: "typed" },
-        ];
-        return reply({ endpoint });
-      }
-      if (method === "DELETE") {
-        const model = new URLSearchParams(query).get("id");
-        endpoint.models = models.filter((candidate) => candidate.id !== model);
-        return { status: 204 };
-      }
-    }
-    if (method === "PATCH") {
-      Object.assign(endpoint, body);
-      return reply({ endpoint });
-    }
-    if (method === "DELETE") {
-      const users = this.agents.filter((agent) => agent.model.startsWith(`${String(id)}/`));
-      if (users.length)
-        return problem(409, `${users.map((agent) => agent.name).join(", ")} use this endpoint.`);
-      this.endpoints = this.endpoints.filter((candidate) => candidate !== endpoint);
-      return { status: 204 };
-    }
-    return problem(405, "Not allowed.");
-  }
-
-  private keyRoute(method: string, id: string, sub?: string): FakeSpadeAnswer {
-    const endpoint = this.endpoints.find((candidate) => candidate.id === id);
-    if (!endpoint) return problem(404, "No such endpoint.");
-    if (!this.keychain) return problem(503, "This machine has no keychain.");
-    if (this.keyFailure) return problem(this.keyFailure, "The keychain refused the key.");
-    // A gateway token is its own keychain entry: the endpoint's own key stays as it was.
-    if (sub === "gateway") {
-      endpoint.gateway_token_set = method === "PUT";
-      return { status: 204 };
-    }
-    endpoint.key_set = method === "PUT";
-    endpoint.key_source = method === "PUT" ? "keychain" : null;
-    return { status: 204 };
-  }
-
   /**
    * `PUT /v1/conversations/{id}/seen`: the cursor moves forward to `seq` (the last event when
    * absent, never past it), the bot's or group's `unseen` clears, and the live stream says so.
@@ -1248,9 +1158,30 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const limit = params.has("limit") ? Math.max(1, Number(params.get("limit"))) : Infinity;
       return reply(list.filter((stored) => stored.seq > after).slice(0, limit));
     }
+    if (sub === "reactions" && !subId && request.method === "GET") {
+      return reply({ reactions: fakeReactionsSummary(list) });
+    }
+    // A reaction on a message: stored as it is, and it starts no turn.
+    if (sub === "messages" && subId && tail === "reactions") {
+      if (request.method === "GET") {
+        if (!fakeReactionTarget(list, subId)) return problem(404, "No such message.");
+        return reply({ reactions: fakeReactionsSummary(list)[subId] ?? [] });
+      }
+      if (request.method !== "POST" && request.method !== "DELETE")
+        return problem(405, "Method not allowed.");
+      if (!fakeReactionTarget(list, subId)) return problem(404, "No such message.");
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const emoji = request.method === "POST" ? fakeReactionEmoji(body) : "x";
+      if (!emoji) return problem(400, "That isn't an emoji.");
+      this.store(id, fakePersonReaction(subId, emoji, request.method === "DELETE"));
+      return reply({}, 202);
+    }
+    if (sub === "invocables" && request.method === "GET") return fakeInvocables(this.skillStore);
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      this.takeMessage(id, agent, body);
+      const invoked = fakeInvoked(this.skillStore, body);
+      if ("status" in invoked) return invoked;
+      this.takeMessage(id, agent, body, invoked.invoke);
       return reply({ seq: list.length }, 202);
     }
     // The person connected the app a connect card asks for (ADR 0131, amendment 1): the bot that
@@ -1420,51 +1351,4 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     return problem(404, "Not found.");
   }
-}
-
-/** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
-function uploadIdentity(data: unknown) {
-  let bytes: Uint8Array;
-  try {
-    bytes = base64Bytes(String(data));
-  } catch {
-    bytes = new TextEncoder().encode(String(data));
-  }
-  return { sha256: sha256Hex(bytes), bytes: bytes.length };
-}
-
-/** A sent message's images, documents and recording, stored as Spade stores them (ADR 0134). */
-function mediaOf(body: Json): Json {
-  const images = Array.isArray(body.images) ? (body.images as Json[]) : [];
-  const files = Array.isArray(body.files) ? (body.files as Json[]) : [];
-  const voice = body.voice as Json | undefined;
-  return {
-    ...(images.length
-      ? {
-          images: images.map((image) => {
-            const { sha256, bytes } = uploadIdentity(image.data);
-            return { sha256, media_type: "image/png", bytes };
-          }),
-        }
-      : {}),
-    ...(files.length
-      ? {
-          documents: files.map((file) => {
-            const { sha256, bytes } = uploadIdentity(file.data);
-            const name = String(file.name);
-            const pdf = name.endsWith(".pdf");
-            const media_type = pdf ? "application/pdf" : "application/octet-stream";
-            return { sha256, name, media_type, bytes, chars: 0, cut: false, view: "" };
-          }),
-        }
-      : {}),
-    ...(voice
-      ? {
-          voice: {
-            ...uploadIdentity(voice.data),
-            media_type: String(voice.media_type),
-          },
-        }
-      : {}),
-  };
 }

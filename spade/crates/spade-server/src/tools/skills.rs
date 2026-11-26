@@ -83,6 +83,11 @@ pub trait SkillLibrary: Send + Sync {
     fn files(&self, _id: &str) -> LibraryFuture<Vec<SkillFileData>> {
         Box::pin(async { Ok(Vec::new()) })
     }
+    /// Where the skill with `id` comes from, as the `/` menu says it: a plugin's name, `Spade`,
+    /// `ace` or `Store`. `None` when the library does not know.
+    fn origin_of(&self, _id: &str) -> Option<String> {
+        None
+    }
     /// How `agent` used each skill, by name, for ranking.
     fn uses(&self, _agent: &str) -> HashMap<String, Use> {
         HashMap::new()

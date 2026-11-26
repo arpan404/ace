@@ -706,3 +706,76 @@ person's.
   one outside it goes to the person; an undeclared tool asks once and then remembers; the
   `outside` setting sends commands to review; a per-call request runs once after Allow; a machine
   default is inherited and a bot's own wins.
+
+## Amendment 8 (2026-11-23) — Reuse a model allow within one reply
+
+After the current gate and classifier have sent a call to a reviewer, Spade can reuse a
+fresh model allow from the last 256 events visible to this step in the same reply. The
+fingerprint covers the tool identity, its definition and connection generation where
+applicable, the launch, the review role and model, the review concern, the bot's task,
+the person's recent words and the untrusted sources in view. JSON object keys are
+sorted recursively. Strings and array order are preserved. A new message, card answer,
+task configuration or machine arrival ends the lookup. Calls proposed together still get
+individual decisions. A model can use the history of different steps on a fresh
+review, but the memo skips that judgment for an otherwise identical call.
+
+The gate still evaluates every call. Commands, drive targets, repository pushes,
+standing routines, destructive calls and app overwrites require a fresh review when routed to one.
+Their targets or effects can change independently of their arguments, or an existing
+rule requires judgment each time. The optional fingerprint lives on `call_reviewed`
+so restart uses the same evidence. A hit writes a zero-cost allow for the new call
+before it can run. Only a model allow can supply a hit, and a hit cannot extend the
+source's lifetime. Older events without a fingerprint still replay for their original
+call. A refusal or escalation for a matching fingerprint blocks reuse.
+
+ADR 0162's configured fast model is the review default when it meets the existing
+review strength floor. Explicit overrides still take precedence. For a priced bot,
+if the fast model fails the floor, review still falls back to the strongest eligible
+configured model or the bot itself. Unpriced bots retain their existing fallback.
+The fast setting is the speed signal available to routing.
+
+The classifier's calibrated thresholds and eligibility stay as shipped. Its allow
+path already requires a hardened command and full read-only sandbox containment, with
+the stricter read threshold under taint. App calls and other reviewed effects can
+only be raised by the classifier. Extending settlement needs labelled examples and
+held-out calibration in `spade/tools/classify-train`, as well as a deterministic
+boundary that can enforce the new settled class.
+
+## Amendment 9 (2026-11-23) — Answer an unchanged task without an approval
+
+When `task_update` repeats the current task after trimming surrounding whitespace,
+Spade returns the existing no-change result even with untrusted content in view. The
+package ceiling still applies. The engine answers directly and never dispatches a
+write, so a concurrent edit cannot turn this answer into authorization to change
+the task. An actual rewrite still goes to the person under taint in every access
+mode. The request explains that approving would let the proposed instructions
+persist into future replies.
+
+The effect table puts `task_status`, `todo`, `task_plan`, `decision_log` and `asks`
+under local writes. Status and todo have read-level review risk. The plan, decision
+log and asks are answered by the engine. These paths already run without approval
+under taint, within their own limits. An open goal remains the person's to change.
+Under ADR 0215, `asks` can update states under taint, but refuses splitting or
+rewording asks, adding standing instructions, and lifting them. Lifting still
+requires a later message from the person. Those restrictions are enforced by the
+ledger and return a tool error, so they cannot be overridden with an approval card.
+The profile, routines, notes and outward effects keep their existing gates.
+
+## Amendment 10 (2026-11-23) — Full access uses the three person-only stops
+
+For Full access, stop on credentials and ask for payment, sending as the
+person or changing access. Apply package and organization boundaries before
+autonomy. The ordinary path, including unknown and unannotated tools and
+driving, skips approval and model review. An explicit outside request uses
+the existing file and launch binding with the bot's Full access authorization.
+The egress proxy opens public-host access as described in ADR 0167.
+
+Generic app command tools are classified per call. Spade infers reads from clear
+get/list selectors and simple single SELECT statements. It treats ambiguous command
+text as unresolved. A trusted declaration remains a minimum effect and tainted
+inferred reads still go to the reviewer.
+
+Reuse a person's positive answer within the reply or its automatic task continuations when the tool, exact arguments,
+launch, binding and review context match. Keep hard stops fresh and never turn a
+negative answer into an allow. A moved reply keeps its tool results and leaves its
+previous request cards in their original conversation.

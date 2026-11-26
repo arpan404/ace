@@ -40,6 +40,7 @@ import {
 import { searchRows } from "./checkout-tree.ts";
 import { readPage } from "./checkout-pages.ts";
 import { partFileLimit, writePart } from "./checkout-part-write.ts";
+import { compareDraft, mergeDraft } from "./checkout-conflict.ts";
 
 /*
  * The Files screen's requests (`native.files`), answered one at a time like the web's checkout
@@ -151,6 +152,15 @@ export class CheckoutFiles {
         );
       case "write":
         return this.#write(scope, op.path, op.text, op.expected, signal);
+      case "compare":
+      case "merge": {
+        const disk = await this.#read(scope, op.path, signal);
+        if (disk.kind !== "text" || disk.text === undefined || disk.version === undefined)
+          throw new CheckoutError("unreadable", "The current file couldn't be read as text.");
+        if (op.op === "compare") return compareDraft(disk.text, op.text);
+        const chunks = await mergeDraft(op.base, op.text, disk.text);
+        return { disk, chunks };
+      }
       case "part.write":
         return writePart(this.#owner, threadId, op, signal);
       case "create":

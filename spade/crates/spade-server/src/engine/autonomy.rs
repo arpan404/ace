@@ -66,6 +66,7 @@ impl Engine {
 /// What the auto-review came to.
 pub(super) enum Reviewed {
     Run,
+    Refuse(String),
     /// The person decides, with the request's line: the reviewer refused it or couldn't decide.
     Escalate(String),
     Stopped,
@@ -86,6 +87,7 @@ pub(super) fn record_rule(
     launch: spade_core::event::Authorized,
 ) -> Result<bool, spade_store::StoreError> {
     let event = Event::Known(Known::CallReviewed {
+        memo: None,
         reply: reply.to_owned(),
         call_id: call.id.clone(),
         name: name.to_owned(),
@@ -114,6 +116,10 @@ pub(super) struct Under<'a> {
     pub bound: Option<String>,
     /// Why the rules singled the call out, told to the reviewer.
     pub concern: Option<&'a str>,
+    /// The reviewed tool and connection identity, when its verdict can be reused.
+    pub identity: Option<String>,
+    pub reuse_review: bool,
+    pub reuse_person: bool,
     /// For a connected app's tool, its app's name, from the same snapshot as `def`.
     pub app: Option<&'a str>,
     /// For a driving step, where it acts as the gate just found: the verdict is stored with it
@@ -127,8 +133,7 @@ pub(super) struct Under<'a> {
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
 /// call is used again, so a restart never reviews (or pays for) a call twice. A refusal, and
 /// anything but a clear answer (a failure, a timeout, an answer that doesn't parse twice), goes to
-/// the person with the reviewer's reason (ADR 0163, amendment 3): an unreviewed call never runs,
-/// and the bot is never told no for a reviewer's sake.
+/// the bot first. Only a second model refusal of the same call shape reaches the person.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn review(
     engine: &Arc<Engine>,
@@ -141,13 +146,7 @@ pub(super) async fn review(
     work: &mut Work<'_>,
 ) -> Reviewed {
     // Stored before a restart: reused only where it was given (ADR 0171, amendment 3).
-    if let Some((verdict, reason)) =
-        review::stored_at(events, &under.call.id, under.acts_in, under.launch)
-    {
-        return of(verdict, reason);
-    }
     let model = engine.review_model(id);
-
     let agent = engine.store.agent_for_conversation(id).ok().flatten();
     let (bot, task, agent_id) = agent.as_ref().map_or(("the bot", "", ""), |a| {
         (a.name.as_str(), a.task.as_str(), a.id.as_str())
@@ -160,12 +159,12 @@ pub(super) async fn review(
     // A connected app's tool: the app it acts in, for the reviewer (ADR 0202, amendment 5), as
     // the gate's one snapshot of it says.
     let app = under.app;
-    let case = Case {
+    let mut case = Case {
         bot,
         task,
         person: engine.person_words(id, events),
-        steps: review::recent_steps(events, &under.call.id),
-        untrusted: untrusted.clone(),
+        steps: Vec::new(),
+        untrusted,
         folder: &folder,
         tool: under.name,
         app,
@@ -174,14 +173,92 @@ pub(super) async fn review(
         shown: under.shown,
         concern: under.concern,
     };
-    let prompt = autonomy::prompt(&case)
-        .session(id)
-        .effort(engine.role_effort(id, spade_core::routing::Role::Review));
+    let effort = engine.role_effort(id, spade_core::routing::Role::Review);
+    let memo = under.identity.and_then(|identity| {
+        review::memo_key(
+            under.arguments,
+            (
+                "auto/v1",
+                identity,
+                under.name,
+                under.launch,
+                &under.bound,
+                &model,
+                effort,
+                case.bot,
+                case.task,
+                &case.person,
+                &case.untrusted,
+                case.description,
+                app,
+                case.concern,
+            ),
+        )
+    });
+    let prior = memo.as_deref().map_or(review::Prior::Fresh, |key| {
+        review::prior_attempt(events, reply, key)
+    });
+    let unchanged = review::unchanged_events(events, registry);
+    if let Some((verdict, reason)) =
+        review::stored_at(events, &under.call.id, under.acts_in, under.launch)
+        && (verdict == Verdict::Refuse
+            || (verdict == Verdict::Allow
+                && review::stored_at(unchanged, &under.call.id, under.acts_in, under.launch)
+                    .is_some())
+            || review::retry_escalation(events, &under.call.id, memo.as_deref(), prior))
+    {
+        return of(verdict, reason);
+    }
+    if under.reuse_person && prior == review::Prior::DeniedByPerson {
+        return Reviewed::Refuse("The person declined this action.".to_owned());
+    }
+    let person_allowed = under.reuse_person
+        && prior == review::Prior::AllowedByPerson
+        && memo.as_deref().is_some_and(|key| {
+            review::prior_attempt(unchanged, reply, key) == review::Prior::AllowedByPerson
+        });
+    if person_allowed
+        || (under.reuse_review
+            && memo
+                .as_deref()
+                .is_some_and(|key| review::memo_allowed(unchanged, reply, key)))
+    {
+        if work.early() {
+            return Reviewed::Stopped;
+        }
+        return match record_rule(
+            engine,
+            id,
+            reply,
+            under.call,
+            under.name,
+            Verdict::Allow,
+            if person_allowed {
+                "Reused the person's approval from this reply."
+            } else {
+                "Reused a model review from this reply."
+            },
+            under.bound,
+            under.launch,
+        ) {
+            Ok(true) => Reviewed::Run,
+            Ok(false) => Reviewed::Stopped,
+            Err(_) => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
+        };
+    }
+    case.steps = review::recent_steps(events, &under.call.id);
+    let prompt = autonomy::prompt(&case).session(id).effort(effort);
+    let refused = if prior == review::Prior::Refused {
+        Verdict::Escalate
+    } else {
+        Verdict::Refuse
+    };
     let reviewed = Event::Known(Known::CallReviewed {
+        memo,
         reply: reply.to_owned(),
         call_id: under.call.id.clone(),
         name: under.name.to_owned(),
-        verdict: Verdict::Escalate,
+        verdict: refused,
         reason: String::new(),
         model: model.clone(),
         cost_micros: 0,
@@ -195,7 +272,7 @@ pub(super) async fn review(
         if !early {
             engine.set_status(id, Some(REVIEWING.to_owned()));
         }
-        let (outcome, cost) = match super::judge::judge::<Judgment>(
+        let (outcome, cost, judged) = match super::judge::judge::<Judgment>(
             engine,
             id,
             &model,
@@ -205,34 +282,37 @@ pub(super) async fn review(
         )
         .await
         {
-            Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost),
-            Judged::Failed(why, cost) => (undecided(why), cost),
-            Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost),
+            Judged::Answer(judgment, cost) => (autonomy::judged(&judgment), cost, true),
+            Judged::Failed(why, cost) => (undecided(why), cost, false),
+            Judged::TimedOut(cost) => (undecided(TOOK_TOO_LONG), cost, false),
             Judged::Stopped => return None,
         };
         let (verdict, reason) = match &outcome {
             Outcome::Run => (Verdict::Allow, String::new()),
-            Outcome::Escalate(reason) => (Verdict::Escalate, reason.clone()),
+            Outcome::Escalate(reason) => (
+                if judged { refused } else { Verdict::Refuse },
+                reason.clone(),
+            ),
         };
         if !early {
             engine.set_status(id, Some(super::roster::THINKING.to_owned()));
         }
-        Some((verdict, reason, cost))
+        Some((verdict, reason, cost, judged))
     };
     match work.review(engine, id, &prompt, reviewed, judge).await {
         ReviewResult::Decided(verdict, reason) => of(verdict, reason),
         ReviewResult::Stopped => Reviewed::Stopped,
-        ReviewResult::Unstored => {
-            Reviewed::Escalate("Spade couldn't store the review, so you decide.".to_owned())
-        }
+        ReviewResult::Unstored => Reviewed::Refuse("Spade couldn't store the review.".to_owned()),
     }
 }
 
 /// What the person is told when the review didn't come to an answer.
-pub(super) const TOOK_TOO_LONG: &str = "The review took too long, so you decide.";
+pub(super) const TOOK_TOO_LONG: &str = "The review took too long.";
 
 fn undecided(why: &str) -> Outcome {
-    Outcome::Escalate(line(Stop::ReviewerUndecided(why)))
+    Outcome::Escalate(
+        why.trim_end_matches('.').to_owned() + ". Retry when the reviewer is available.",
+    )
 }
 
 /// The request's line for a stopped call; a hard refusal's reason when it is one.
@@ -242,12 +322,11 @@ pub(super) fn line(stop: Stop<'_>) -> String {
     }
 }
 
-/// A verdict stored before: an approval runs; a refusal (the reviewer's, from a build that sent
-/// refusals back to the bot) is put to the person like a fresh one, never run.
+/// A stored verdict still applies to its original call.
 fn of(verdict: Verdict, reason: String) -> Reviewed {
     match verdict {
         Verdict::Allow => Reviewed::Run,
-        Verdict::Refuse => Reviewed::Escalate(line(Stop::Reviewer(&reason))),
+        Verdict::Refuse => Reviewed::Refuse(reason),
         Verdict::Escalate => Reviewed::Escalate(reason),
     }
 }

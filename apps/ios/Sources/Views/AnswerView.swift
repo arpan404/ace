@@ -54,7 +54,7 @@ struct AnswerRow: View {
             VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 if !shown.isEmpty {
                     let menu = !between && !live
-                    AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id),
+                    AceMarkdown(text: shown, streaming: live, selectable: !menu, tone: .answer, resolveImage: images(of: row.id),
                                 flavor: AnswerMarkdown.flavor, renderDiagram: AnswerMarkdown.renderDiagram(dark: scheme == .dark))
                         .fileLinks(fileLinks, itemId: row.id)
                         .messageMenu(menu ? shown : "", title: "Answer", row: row, quotable: true)

@@ -188,8 +188,6 @@ extension ConversationFeed {
             }
         }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
-        // The rows already here are seen: only what lands from now on is counted.
-        countNewRows()
         restoreSessionIfReady()
         applyLayoutRevision()
         // Held from before the rows land, so the first frame that has them already lays out from
@@ -220,7 +218,6 @@ extension ConversationFeed {
     func disappeared() {
         settle.cancel()
         surface.stopAll()
-        surface.thaw()
         saveSession()
         reading.cancel(model: model)
         transcriptMarkdown?.moving = false
@@ -241,12 +238,6 @@ extension ConversationFeed {
         let shows = TranscriptEndButton.shows(.init(fromEnd: Double(intent.metrics.bottom), slack: Double(AceDesign.Space.group),
                                                     following: following, windowApart: reading.thread != nil && !reading.joined))
         if behind != shows { behind = shows }
-    }
-    /// Counts rows that landed past the newest one the reader saw at the end (`TranscriptNewRows`);
-    /// at the end they are all seen. Writes the count only on a change.
-    func countNewRows() {
-        newRows.update(order: thread.screen.blockOrder, atEnd: pinned)
-        if unseen != newRows.count { unseen = newRows.count }
     }
     /// The room at the end changed (the composer or its strip). Following the end,
     /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and
@@ -312,9 +303,6 @@ extension ConversationFeed {
         surface.stop(.page)
         // A window's bottom hold ends with it, whatever ended it (`windowHoldEnded`).
         growth.windowHoldEnded()
-        guard surface.isFrozen else { return }
-        surface.thaw()
-        TranscriptJumpHooks.covered(false)
     }
     func toEnd(_ proxy: TranscriptSurface, animated: Bool = false) {
         // Before the rows land there is no end to reach: a settle started on the placeholder

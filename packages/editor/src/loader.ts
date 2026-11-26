@@ -13,8 +13,6 @@ export interface InitOptions {
   wasm?: unknown;
 }
 
-const defaultModuleUrl = new URL("../pkg/editor_wasm.js", import.meta.url);
-
 let glue: WasmGlue | undefined;
 let loading: Promise<WasmGlue> | undefined;
 
@@ -55,7 +53,7 @@ async function instantiate(options: InitOptions): Promise<WasmGlue> {
 }
 
 async function importGlue(moduleUrl: string | URL | undefined): Promise<WasmGlue> {
-  const target = moduleUrl ?? defaultModuleUrl;
+  const target = moduleUrl ?? new URL("../pkg/editor_wasm.js", import.meta.url);
   const url = typeof target === "string" ? target : target.href;
   return (await import(/* @vite-ignore */ url)) as WasmGlue;
 }

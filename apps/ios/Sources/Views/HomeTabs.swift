@@ -15,6 +15,22 @@ enum HomeTabs {
     /// them: Code review opens from the Projects list's top bar instead.
     static func footPlaces(spade: Bool) -> [InboxTab] { [.threads, .chats] + (spade ? [.spade] : []) + [.search] }
 
+    /// Whether the foot holds Spade, from each machine's answer (`nil` until it has said) and what
+    /// the phone remembered. A machine showing Spade shows it. Until every machine has answered,
+    /// the last answer stands, so the tab doesn't pop in once the phone connects.
+    static func showsSpade(answers: [Bool?], remembered: Bool) -> Bool {
+        if answers.contains(true) { return true }
+        if !answers.isEmpty, !answers.contains(nil) { return false }
+        return remembered
+    }
+    /// What to remember once the machines have answered; `nil` while one that might show Spade
+    /// hasn't, so a slow machine never erases the last answer.
+    static func rememberedSpade(answers: [Bool?]) -> Bool? {
+        if answers.contains(true) { return true }
+        if !answers.isEmpty, !answers.contains(nil) { return false }
+        return nil
+    }
+
     static func title(_ tab: InboxTab) -> String {
         switch tab {
         case .threads: "Projects"

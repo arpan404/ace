@@ -241,6 +241,16 @@ const MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE endpoints ADD COLUMN gateway_token INTEGER NOT NULL DEFAULT 0;",
         backfill: None,
     },
+    Migration {
+        sql: "
+    CREATE TABLE pending_ask_notices (
+        conversation_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, seq),
+        FOREIGN KEY (conversation_id, seq) REFERENCES events ON DELETE CASCADE
+    ) WITHOUT ROWID;",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

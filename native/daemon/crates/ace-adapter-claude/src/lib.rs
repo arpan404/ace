@@ -2,5 +2,6 @@
 //! The claude adapter (ADR 0223 section 2). E0 declares the modules; E1 ports the
 //! translator closure into translate; E3-claude ports the session into session.
 
+pub mod input;
 pub mod session;
 pub mod translate;
