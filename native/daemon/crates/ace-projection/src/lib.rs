@@ -5,6 +5,7 @@
 
 pub mod attention;
 mod columns;
+mod interaction_summary;
 mod item_changes;
 mod strip;
 mod thread;
@@ -12,6 +13,10 @@ mod thread;
 pub use columns::{
     Column, ColumnChanges, ColumnError, ColumnValue, Part, cold_row_values, column_changes,
     column_value, print_number,
+};
+pub use interaction_summary::{
+    WHOLE_REQUEST_CHARS, request_chars, sent_summarized, summarize_interaction, wire_event,
+    wire_thread_view,
 };
 pub use item_changes::changed_item_id;
 pub use strip::{strip, strip_object};

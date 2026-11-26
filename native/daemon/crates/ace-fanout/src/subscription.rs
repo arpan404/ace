@@ -16,7 +16,7 @@
 //! on its reader pool and feeds the results in; nothing here owns a thread, a timer or a global.
 
 use ace_json::{JsString, Map, Number, Value};
-use ace_projection::{changed_item_id, is_sidebar_event};
+use ace_projection::{changed_item_id, is_sidebar_event, wire_event, wire_thread_view};
 
 use crate::encode::{EventsMessage, WHOLE_EVENTS, WireEncoder};
 use crate::event::DeliveryEvent;
@@ -446,6 +446,7 @@ impl Subscription {
                 )
                 .into_iter()
                 .filter(|event| event.seq().is_some_and(|seq| seq as u64 <= head))
+                .map(wire)
                 .collect()
         };
         let bytes: usize = events
@@ -490,7 +491,7 @@ impl Subscription {
                 } else {
                     None
                 };
-                store.snapshot_thread(thread, tail)
+                wire_thread_view(store.snapshot_thread(thread, tail))
             }
             None => store.list_threads(),
         }
@@ -500,7 +501,7 @@ impl Subscription {
     /// the replay's head.
     fn snapshot_at(&self, store: &dyn SubscriptionStore, head: u64) -> SubscriptionFrame {
         let view = match self.scope.thread() {
-            Some(thread) => store.snapshot_thread(thread, None),
+            Some(thread) => wire_thread_view(store.snapshot_thread(thread, None)),
             None => store.list_threads(),
         };
         SubscriptionFrame::Snapshot {
@@ -572,6 +573,7 @@ impl Subscription {
                     .is_some_and(|seq| seq as u64 > cursor && seq as u64 <= head)
                     && self.scope.matches(event)
             })
+            .map(wire)
             .collect();
         self.progress_head = self.progress_head.max(head);
         if !selected.is_empty() {
@@ -607,6 +609,15 @@ impl Subscription {
         } else if self.progress_due.is_none() {
             self.progress_due = Some(now_ms + self.options.progress_interval_ms);
         }
+    }
+}
+
+/// `wireEvent(event)`: an `interaction.opened` event carries its interaction as clients get it;
+/// every other event goes as it is.
+fn wire(event: DeliveryEvent) -> DeliveryEvent {
+    match wire_event(event.value()) {
+        Some(value) => DeliveryEvent::from_value(value),
+        None => event,
     }
 }
 

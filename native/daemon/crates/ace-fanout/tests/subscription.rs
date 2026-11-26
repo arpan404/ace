@@ -25,9 +25,8 @@ use std::cell::{Cell, RefCell};
 
 use ace_fanout::encode::WireEncoder;
 use ace_fanout::{
-    DEFAULT_PROGRESS_INTERVAL_MS, DEFAULT_REPLAY_LIMIT, DeliveryEvent, REPLAY_READ_BYTES, Scope,
-    SnapshotTail, SubscribeError, SubscribeOptions, Subscription, SubscriptionFrame,
-    SubscriptionStore, WHOLE_EVENTS,
+    DEFAULT_PROGRESS_INTERVAL_MS, DeliveryEvent, Scope, SnapshotTail, SubscribeError,
+    SubscribeOptions, Subscription, SubscriptionFrame, SubscriptionStore, WHOLE_EVENTS,
 };
 use ace_json::{JsString, Value};
 
@@ -464,10 +463,103 @@ fn an_unknown_thread_fails_to_subscribe() {
     assert!(subscription.is_stopped());
 }
 
-/// The bounds behaviour.md §9 names.
+/// An interaction too large to send with its thread reaches a snapshot as its summary (ADR
+/// 0157): `truncated` says so and the unbounded schema is left out.
 #[test]
-fn the_replay_bounds_are_the_typescripts() {
-    assert_eq!(DEFAULT_REPLAY_LIMIT, 5_000);
-    assert_eq!(DEFAULT_PROGRESS_INTERVAL_MS, 250);
-    assert_eq!(REPLAY_READ_BYTES, 2 * 1024 * 1024);
+fn a_thread_snapshot_carries_a_bounded_interaction_summary() {
+    let mem = Mem::new(1);
+    let interaction = format!(
+        r#"{{"id":"i","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{}"}}}}}}"#,
+        "x".repeat(200_000)
+    );
+    let view = parse(&format!(
+        r#"{{"kind":"thread","seq":1,"thread":{{"id":"t","workspaceId":"w","title":"t","provider":"codex","status":{{"state":"new"}},"createdAt":1,"updatedAt":1}},"agents":{{}},"agentChildren":{{}},"runs":{{}},"items":{{}},"itemOrder":[],"itemsBefore":null,"interactions":{{"i":{interaction}}},"backgroundTasks":{{}},"usage":{{}},"contextMeters":{{}},"usageSnapshots":{{}}}}"#
+    ));
+    *mem.view.borrow_mut() = view;
+    let mut subscription = Subscription::new(
+        JsString::from("s"),
+        Scope::Thread("t".to_owned()),
+        None,
+        options(),
+    );
+    let frames = subscription.start(&mem, 0).expect("start");
+    let SubscriptionFrame::Snapshot { view, .. } = &frames[0] else {
+        panic!("snapshot");
+    };
+    let Some(Value::Object(interactions)) = view.get("interactions") else {
+        panic!("interactions");
+    };
+    let Some(Value::Object(interaction)) = interactions.get("i") else {
+        panic!("interaction");
+    };
+    assert!(interaction.contains_key("truncated"));
+    let Some(Value::Object(request)) = interaction.get("request") else {
+        panic!("request");
+    };
+    assert!(!request.contains_key("schema"));
+    assert!(ace_json::to_string(view).len() < 100_000);
+}
+
+/// A live `interaction.opened` event reaches its subscriber summarized too.
+#[test]
+fn a_live_interaction_event_is_sent_summarized() {
+    let (mut subscription, mem) = open(Scope::Thread("t".to_owned()), None);
+    subscription.start(&mem, 0).expect("start");
+    let interaction = format!(
+        r#"{{"id":"i","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{}"}}}}}}"#,
+        "x".repeat(200_000)
+    );
+    let heard = subscription.hear(
+        vec![event(
+            11,
+            "t",
+            &format!(r#"{{"type":"interaction.opened","interaction":{interaction}}}"#),
+        )],
+        11,
+        1_000,
+    );
+    let SubscriptionFrame::Events(message) = &heard[0] else {
+        panic!("events");
+    };
+    let view = message.events[0].value();
+    let Some(Value::Object(payload)) = view.get("payload") else {
+        panic!("payload");
+    };
+    let Some(Value::Object(interaction)) = payload.get("interaction") else {
+        panic!("interaction");
+    };
+    assert!(interaction.contains_key("truncated"));
+}
+
+/// A replay is weighed in the bytes clients get: a huge interaction event that goes summarized
+/// replays instead of forcing a snapshot, and never makes a frame over the client's limit.
+#[test]
+fn a_replay_is_weighed_after_interactions_are_summarized() {
+    let mem = Mem::new(1);
+    let interaction = format!(
+        r#"{{"id":"i","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{}"}}}}}}"#,
+        "x".repeat(2 * 1024 * 1024)
+    );
+    *mem.events.borrow_mut() = vec![event(
+        1,
+        "t",
+        &format!(r#"{{"type":"interaction.opened","interaction":{interaction}}}"#),
+    )];
+    let mut subscription = Subscription::new(
+        JsString::from("s"),
+        Scope::Thread("t".to_owned()),
+        Some(0),
+        options(),
+    );
+    let frames = subscription.start(&mem, 0).expect("start");
+    let SubscriptionFrame::Events(message) = &frames[0] else {
+        panic!("a replay, not a snapshot");
+    };
+    let Some(Value::Object(payload)) = message.events[0].value().get("payload") else {
+        panic!("payload");
+    };
+    let Some(Value::Object(interaction)) = payload.get("interaction") else {
+        panic!("interaction");
+    };
+    assert!(interaction.contains_key("truncated"));
 }

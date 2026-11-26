@@ -56,6 +56,17 @@ for (const generator of [
   });
 }
 
+// The interaction summaries (T3): `summarizeInteraction` and the wire functions, recorded from
+// `@ace/projection/interaction-summary` and `apps/daemon/src/wire-interactions.ts`.
+execFileSync(
+  "bun",
+  ["crates/ace-projection/vectors/make-interaction-vectors.ts", "--check"],
+  {
+    cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
+    stdio: "inherit",
+  },
+);
+
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),
