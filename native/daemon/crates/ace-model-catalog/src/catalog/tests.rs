@@ -390,6 +390,32 @@ fn an_acp_rows_load_only_when_its_probe_is_configured() {
 }
 
 #[test]
+fn an_invalidate_of_one_instance_leaves_another_alone() {
+    let first = instance(ProviderKind::Codex, "a");
+    let second = instance(ProviderKind::Codex, "b");
+    let discover = FakeDiscover::new(|request, _signal| {
+        Box::pin(async move { Ok(models(&request.instance, &["gpt-6-sol"])) })
+    });
+    let fixture = fixture(
+        vec![first, second],
+        SharedStorage::new(MemoryStorage::new()),
+        discover,
+    );
+    let catalog = fixture.catalog.clone();
+    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    futures::executor::block_on(catalog.invalidate(ModelFilter::instance("a")))
+        .unwrap_or_else(|error| panic!("{error}"));
+    let a = catalog
+        .list(ModelFilter::instance("a"), 0, 100)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let b = catalog
+        .list(ModelFilter::instance("b"), 0, 100)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert!(a.models.is_empty());
+    assert_eq!(b.models.len(), 1, "b keeps its choices");
+}
+
+#[test]
 fn an_invalidate_waits_out_a_refresh_whose_row_was_replaced() {
     let codex = instance(ProviderKind::Codex, "account");
     let gate = crate::signals::Gate::new();

@@ -1043,6 +1043,30 @@ impl Catalog {
 }
 
 fn selection_locked(inner: &Inner, filter: &ModelFilter) -> Vec<String> {
+    if let Some(instance) = &filter.instance {
+        let matches = inner.states.get(instance).is_some_and(|state| {
+            filter
+                .provider
+                .is_none_or(|provider| state.config.provider == provider)
+                && filter
+                    .acp_agent_id
+                    .as_ref()
+                    .is_none_or(|value| state.config.acp_agent_id.as_ref() == Some(value))
+                && filter
+                    .installation_id
+                    .as_ref()
+                    .is_none_or(|value| state.config.installation_id.as_ref() == Some(value))
+                && filter
+                    .instance_id
+                    .as_ref()
+                    .is_none_or(|value| state.config.instance_id.as_ref() == Some(value))
+        });
+        return if matches {
+            vec![instance.clone()]
+        } else {
+            Vec::new()
+        };
+    }
     let ids: Vec<String> = match filter.provider {
         Some(provider) => inner.providers.get(&provider).cloned().unwrap_or_default(),
         None => inner.order.clone(),

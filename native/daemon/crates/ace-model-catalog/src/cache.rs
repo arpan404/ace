@@ -351,7 +351,20 @@ pub fn validate_entry(entry: &CacheEntry) -> Result<(), CacheError> {
                         .and_then(Value::as_str)
                         .is_some_and(|text| (1..=max).contains(&text.chars().count()))
                 };
-                !label("id", 4096)
+                let known = [
+                    "id",
+                    "label",
+                    "description",
+                    "risk",
+                    "presentation",
+                    "default",
+                ];
+                !mode.keys().all(|key| known.contains(&key.as_str()))
+                    || mode.get("default").is_some_and(|value| !value.is_boolean())
+                    || mode
+                        .get("presentation")
+                        .is_some_and(|value| value.as_str() != Some("full-access"))
+                    || !label("id", 4096)
                     || !label("label", 256)
                     || mode
                         .get("description")
@@ -736,6 +749,24 @@ mod tests {
         entry.models.clear();
         entry.permission_modes = Some(vec![json!({ "id": "plan", "risk": "medium" })]);
         assert_eq!(storage.replace(&entry), Err(CacheError::TooManyModes));
+    }
+
+    #[test]
+    fn every_permission_mode_is_parsed_like_the_protocol_does() {
+        let mut storage = MemoryStorage::new();
+        let mut entry = stored(ProviderKind::Codex, "account");
+        for modes in [
+            json!([null]),
+            json!([{ "id": "plan", "label": "Plan", "description": "", "risk": "low", "default": "yes" }]),
+            json!([{ "id": "plan", "label": "Plan", "description": "", "risk": "low", "stray": 1 }]),
+        ] {
+            entry.permission_modes = Some(modes.as_array().cloned().unwrap_or_default());
+            assert_eq!(storage.replace(&entry), Err(CacheError::TooManyModes));
+        }
+        entry.permission_modes = Some(vec![json!({
+            "id": "plan", "label": "Plan", "description": "", "risk": "low", "default": false
+        })]);
+        assert!(storage.replace(&entry).is_ok());
     }
 
     #[test]

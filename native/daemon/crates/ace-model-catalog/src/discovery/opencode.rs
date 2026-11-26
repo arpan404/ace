@@ -159,15 +159,24 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
             let mut pause_fn = move |millis| pause(millis);
             let mut models =
                 read_opencode_catalog(&*http, &url, &instance, &*clock, &mut pause_fn, &aborted)?;
-            // A server that lists no rows still has a CLI that knows them.
-            if models.is_empty()
-                && let Some(process) = process.clone()
-            {
-                let command = ProcessCommand::for_instance(&instance, vec!["models".to_owned()]);
+            // A server that lists no rows still has a CLI that knows them, and a server
+            // that lists only ids is supplemented from the same listing.
+            if let Some(process) = process.clone() {
+                let args = if instance.isolated_service {
+                    vec!["models".to_owned(), "--standalone".to_owned()]
+                } else {
+                    vec!["models".to_owned()]
+                };
+                let command = ProcessCommand::for_instance(&instance, args);
                 let output = process.run(&command, &aborted)?;
                 let listing = completed(output)?;
-                models = parse_opencode_listing(&listing, &instance)
+                let listed = parse_opencode_listing(&listing, &instance)
                     .map_err(|message| failure(FailureCode::ParseFailure, message))?;
+                for row in listed {
+                    if !models.iter().any(|known| known.id.0 == row.id.0) {
+                        models.push(row);
+                    }
+                }
             }
             if signal.is_aborted() {
                 return Err(failure(FailureCode::Timeout, "Model discovery timed out."));
@@ -223,6 +232,24 @@ pub fn parse_opencode_listing(
             heading = Some(trimmed.to_owned());
             continue;
         }
+        if !json.is_empty()
+            && !trimmed.is_empty()
+            && !trimmed.starts_with(['{', '}', '"', ']', '['])
+            && trimmed.contains('/')
+        {
+            // A heading with no object after it (the id-only listing).
+            let current = heading.take().unwrap_or_default();
+            push_listing_row(&mut rows, instance, &current, &json)?;
+            json.clear();
+            heading = Some(trimmed.to_owned());
+            continue;
+        }
+        if json.is_empty() && trimmed.contains('/') && !trimmed.starts_with('{') {
+            let current = heading.take().unwrap_or_default();
+            push_listing_row(&mut rows, instance, &current, "")?;
+            heading = Some(trimmed.to_owned());
+            continue;
+        }
         json.push_str(line);
         json.push('\n');
         if line != "}"
@@ -230,78 +257,89 @@ pub fn parse_opencode_listing(
         {
             continue;
         }
-        let native: Value = serde_json::from_str(&json).map_err(|_| "Malformed model metadata")?;
-        let provider = native
-            .get("providerID")
-            .and_then(Value::as_str)
-            .ok_or("Malformed model metadata")?;
-        let model_id = native
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or("Malformed model metadata")?;
-        let name = &heading.clone().unwrap_or_default();
-        let expected = format!("{provider}/{model_id}");
-        if name != &expected {
-            return Err("Model heading mismatch");
-        }
-        let mut model = ace_models::row::base(
-            instance,
-            name,
-            native
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or(model_id),
-            &native,
-        );
-        model.native_provider_id = serde_json::from_value(Value::String(provider.to_owned())).ok();
-        if let Some(context) = native
-            .get("limit")
-            .and_then(|limit| limit.get("context"))
-            .and_then(Value::as_u64)
-        {
-            model.context_window = serde_json::from_value(Value::from(context)).ok();
-        }
-        if let Some(input) = native
-            .get("capabilities")
-            .and_then(|c| c.get("input"))
-            .and_then(Value::as_object)
-        {
-            model.input_modalities = serde_json::from_value(Value::Array(
-                input
-                    .iter()
-                    .filter(|(_, enabled)| enabled.as_bool() == Some(true))
-                    .map(|(id, _)| Value::String(id.clone()))
-                    .collect(),
-            ))
-            .unwrap_or_else(|_| Vec::new().into());
-        }
-        let variants: Vec<ace_models::effort::EffortValue<'_>> = native
-            .get("variants")
-            .and_then(Value::as_object)
-            .map(|variants| {
-                variants
-                    .keys()
-                    .map(|id| ace_models::effort::EffortValue::id(id))
-                    .collect()
-            })
-            .unwrap_or_default();
-        model.efforts = ace_models::effort::model_efforts(variants).into();
-        let status = native.get("status").and_then(Value::as_str).unwrap_or("");
-        model.deprecated = (status == "deprecated" || status == "legacy").into();
-        model.legacy = Some(ace_models::metadata::legacy_metadata(&native).into());
-        if ace_models::metadata::chat_metadata(&native) {
-            rows.push(model);
-        }
+        let current = heading.take().unwrap_or_default();
+        push_listing_row(&mut rows, instance, &current, &json)?;
+        json.clear();
         if rows.len() > 512 {
             return Err("Too many models");
         }
-        heading = None;
-        json.clear();
     }
-    if heading.is_some() {
-        return Err("Incomplete model metadata");
+    if let Some(current) = heading.take() {
+        push_listing_row(&mut rows, instance, &current, &json)?;
+    }
+    if rows.len() > 512 {
+        return Err("Too many models");
     }
     Ok(rows)
+}
+
+fn push_listing_row(
+    rows: &mut Vec<ace_protocol::generated::CatalogModel>,
+    instance: &ModelInstance,
+    heading: &str,
+    json: &str,
+) -> Result<(), &'static str> {
+    let (provider, model_id) = heading.split_once('/').ok_or("Malformed model heading")?;
+    if json.trim().is_empty() {
+        let mut model = ace_models::row::base(instance, heading, model_id, &Value::Null);
+        model.native_provider_id = serde_json::from_value(Value::String(provider.to_owned())).ok();
+        rows.push(model);
+        return Ok(());
+    }
+    let native: Value = serde_json::from_str(json).map_err(|_| "Malformed model metadata")?;
+    let native_provider = native
+        .get("providerID")
+        .and_then(Value::as_str)
+        .unwrap_or(provider);
+    let native_id = native.get("id").and_then(Value::as_str).unwrap_or(model_id);
+    if format!("{native_provider}/{native_id}") != heading {
+        return Err("Model heading mismatch");
+    }
+    let name = native
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(model_id);
+    let mut model = ace_models::row::base(instance, heading, name, &native);
+    model.native_provider_id =
+        serde_json::from_value(Value::String(native_provider.to_owned())).ok();
+    if let Some(context) = native
+        .get("limit")
+        .and_then(|limit| limit.get("context"))
+        .and_then(Value::as_u64)
+    {
+        model.context_window = serde_json::from_value(Value::from(context)).ok();
+    }
+    if let Some(input) = native
+        .get("capabilities")
+        .and_then(|c| c.get("input"))
+        .and_then(Value::as_object)
+    {
+        let modalities: Vec<Value> = input
+            .iter()
+            .filter(|(_, enabled)| enabled.as_bool() == Some(true))
+            .map(|(id, _)| Value::String(id.clone()))
+            .collect();
+        model.input_modalities =
+            serde_json::from_value(Value::Array(modalities)).unwrap_or_else(|_| Vec::new().into());
+    }
+    let variants: Vec<ace_models::effort::EffortValue<'_>> = native
+        .get("variants")
+        .and_then(Value::as_object)
+        .map(|variants| {
+            variants
+                .keys()
+                .map(|id| ace_models::effort::EffortValue::id(id))
+                .collect()
+        })
+        .unwrap_or_default();
+    model.efforts = ace_models::effort::model_efforts(variants).into();
+    let status = native.get("status").and_then(Value::as_str).unwrap_or("");
+    model.deprecated = (status == "deprecated" || status == "legacy").into();
+    model.legacy = Some(ace_models::metadata::legacy_metadata(&native).into());
+    if ace_models::metadata::chat_metadata(&native) {
+        rows.push(model);
+    }
+    Ok(())
 }
 
 /// The server an instance talks to: its configured base URL, else OpenCode's default.
@@ -602,7 +640,7 @@ mod tests {
             *self.calls.lock().unwrap_or_else(|error| error.into_inner()) += 1;
             Ok(crate::discovery::process::ProcessOutput {
                     status: Some(0),
-                    stdout: "opencode/deepseek-v4.1-flash\n{\n  \"id\": \"deepseek-v4.1-flash\",\n  \"providerID\": \"opencode\",\n  \"name\": \"DeepSeek V4.1 Flash\",\n  \"status\": \"active\",\n  \"variants\": { \"high\": {}, \"low\": {} },\n  \"capabilities\": { \"input\": { \"text\": true } }\n}\n".to_owned(),
+                    stdout: "opencode/deepseek-v4.1-flash\n{\n  \"id\": \"deepseek-v4.1-flash\",\n  \"providerID\": \"opencode\",\n  \"name\": \"DeepSeek V4.1 Flash\",\n  \"status\": \"active\",\n  \"variants\": { \"high\": {}, \"low\": {} },\n  \"capabilities\": { \"input\": { \"text\": true } }\n}\nollama/qwen3\n".to_owned(),
                     stderr: String::new(),
                 })
         }
@@ -638,9 +676,92 @@ mod tests {
                 .unwrap_or_else(|error| error.into_inner()),
             1
         );
-        assert_eq!(outcome.models.len(), 1);
+        assert_eq!(outcome.models.len(), 2);
         assert_eq!(outcome.models[0].id.0, "opencode/deepseek-v4.1-flash");
         assert_eq!(outcome.models[0].efforts.len(), 2);
+        assert!(outcome.models[1].id.0.starts_with("ollama/"));
+    }
+
+    #[test]
+    fn the_cli_supplements_a_non_empty_catalog_and_reads_an_id_only_listing() {
+        let http = Arc::new(ScriptedHttp::new(vec![
+            HttpReply {
+                status: 200,
+                body: empty(),
+            },
+            HttpReply {
+                status: 200,
+                body: full(),
+            },
+        ]));
+        let clock = Arc::new(TestClock(Mutex::new(0)));
+        let process = Arc::new(FakeProcess {
+            calls: Mutex::new(0),
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, clock, Arc::new(|_| {})).with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        // The HTTP model comes first; the CLI's id-only `ollama/qwen3` line is appended.
+        assert_eq!(outcome.models.len(), 2);
+        assert_eq!(outcome.models[0].id.0, "opencode/deepseek-v4.1-flash");
+        assert!(outcome.models[1].id.0.starts_with("ollama/"));
+    }
+
+    #[test]
+    fn an_isolated_account_runs_the_cli_with_standalone() {
+        let replies: Vec<HttpReply> = (0..40)
+            .map(|_| HttpReply {
+                status: 200,
+                body: empty(),
+            })
+            .collect();
+        let http = Arc::new(ScriptedHttp::new(replies));
+        let clock = Arc::new(TestClock(Mutex::new(0)));
+        struct Recording {
+            args: Mutex<Vec<String>>,
+        }
+        impl crate::discovery::process::ProcessRunner for Recording {
+            fn run(
+                &self,
+                command: &crate::discovery::process::ProcessCommand,
+                _aborted: &dyn Fn() -> bool,
+            ) -> Result<crate::discovery::process::ProcessOutput, DiscoveryFailure> {
+                *self.args.lock().unwrap_or_else(|error| error.into_inner()) = command.args.clone();
+                Ok(crate::discovery::process::ProcessOutput {
+                    status: Some(0),
+                    stdout: "ollama/qwen3\n".to_owned(),
+                    stderr: String::new(),
+                })
+            }
+        }
+        let recording = Arc::new(Recording {
+            args: Mutex::new(Vec::new()),
+        });
+        let mut isolated = instance();
+        isolated.isolated_service = true;
+        let discovery = HttpOpenCodeDiscovery::new(http, clock, Arc::new(|_| {}))
+            .with_process(recording.clone());
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest { instance: isolated },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            *recording
+                .args
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+            ["models", "--standalone"]
+        );
+        assert_eq!(outcome.models.len(), 1);
     }
 
     #[test]
