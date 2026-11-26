@@ -6,16 +6,16 @@
 
 pub mod decide;
 pub mod handles;
+pub mod operations;
 pub mod principal;
+pub mod roles;
 pub mod socket;
+pub mod trees;
 
-pub use decide::{
-    Decision, Operation, OrgPermission, Resource, StructuralTrees, TreeAccess, TreeRef,
-    TreeResolver, Visibility, decide, filtered, host, org_allows, org_role, tree, unplaced,
-};
+pub use decide::{Decision, Operation, Resource, decide, filtered, host, tree, unplaced};
 pub use handles::{BoundHandle, Handles, holder_key, run_if_still_allowed};
+pub use operations::{channel_operation, socket_operation, socket_resource};
 pub use principal::{ChildCapability, Principal, PrincipalFacts, principal};
-pub use socket::{
-    Refusal, SocketFacts, SocketGate, SocketPolicy, channel_operation, refusal_message,
-    socket_operation, socket_resource,
-};
+pub use roles::{OrgPermission, org_allows, org_role};
+pub use socket::{Refusal, SocketFacts, SocketGate, SocketPolicy, refusal_message};
+pub use trees::{StructuralTrees, TreeAccess, TreeRef, TreeResolver, Visibility};

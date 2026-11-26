@@ -21,6 +21,7 @@ pub mod http_body;
 pub mod identity;
 pub mod org;
 pub mod pairing;
+pub mod pairing_issue;
 pub mod remote_auth;
 pub mod tickets;
 pub mod token;
@@ -56,8 +57,10 @@ pub use identity::{
     pretty_hostname,
 };
 pub use pairing::{
-    IssuedPairing, PairingCodeStore, PairingConnection, PairingTerms, PendingCode, pairing_link_url,
+    IssuedPairing, PairingCodeStore, PairingConnection, PairingRequest, PairingTerms, PendingCode,
+    PendingPairing, RelayRoute, pairing_link_url, scope_label,
 };
+pub use pairing_issue::{issue_pairing, unique_scopes};
 pub use remote_auth::RemoteAuth;
 pub use tickets::{TicketLimits, TicketPool, default_ticket_limits};
 pub use token::{is_token, read_local_token, valid_token};
