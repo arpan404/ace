@@ -88,6 +88,30 @@ pub fn action_rule(action: &str) -> Option<Rule> {
     })
 }
 
+/// `perAction`: the fields an action's arguments may and must carry. The Zod
+/// message text stays TypeScript; these are the fields it refuses.
+pub fn check_fields(action: &str, present: &[&str]) -> Result<(), Vec<String>> {
+    let Some(rule) = action_rule(action) else {
+        return Err(vec![format!("Unrecognized action: {action}")]);
+    };
+    let mut issues = Vec::new();
+    for field in present {
+        if !rule.allowed.contains(field) {
+            issues.push(format!("Unrecognized key: \"{field}\""));
+        }
+    }
+    for field in rule.required {
+        if !present.contains(field) {
+            issues.push(format!("Missing required field: {field}"));
+        }
+    }
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(issues)
+    }
+}
+
 /// `simActPoint`: a tap or a long press needs a ref or both coordinates, never
 /// both (`sim-schemas.ts:94`-`:103`).
 pub fn point_issue(action: &str, has_ref: bool, x: bool, y: bool) -> Option<String> {

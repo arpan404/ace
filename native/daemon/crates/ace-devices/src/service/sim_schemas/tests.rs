@@ -4,7 +4,7 @@
 //! The schemas' Zod decoding is D5's; these cases cover the table both the tool
 //! path and the CLI read.
 
-use super::{TOOL_NAMES, action_rule, point_issue};
+use super::{TOOL_NAMES, action_rule, check_fields, point_issue};
 
 #[test]
 fn each_action_names_the_fields_it_requires_and_allows() {
@@ -75,4 +75,26 @@ fn the_seven_tool_names_are_the_family() {
             "sim_logs"
         ]
     );
+}
+
+#[test]
+fn a_registered_sim_act_call_is_validated_by_its_actions_rule() {
+    // The registration's own field set, checked through the table.
+    assert_eq!(check_fields("tap", &["simId", "ref"]), Ok(()));
+    assert_eq!(check_fields("tap", &["simId", "x", "y"]), Ok(()));
+    assert_eq!(check_fields("record_start", &["simId"]), Ok(()));
+    assert_eq!(check_fields("type", &["simId", "text", "ref"]), Ok(()));
+
+    // A field the action does not take.
+    let issues = check_fields("tap", &["simId", "text"]).expect_err("not a tap field");
+    assert_eq!(issues, [String::from("Unrecognized key: \"text\"")]);
+    // A required field that is missing.
+    let issues = check_fields("swipe", &["simId", "x", "y"]).expect_err("no end point");
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue == "Missing required field: toX")
+    );
+    // An action that is not in the table at all.
+    assert!(check_fields("mystery", &["simId"]).is_err());
 }
