@@ -3,8 +3,8 @@
 //! command, the raw/numstat correspondence, the `cat-file --batch` binary classifier, the
 //! binary notices and the patch's byte bound with its UTF-8 cut.
 //!
-//! A working-tree side needs G5's snapshot and a checkpoint side G5's `readCheckpoint`; those
-//! sides stay in TypeScript until then, so [`DiffSide`] names only what this item serves.
+//! Both live sides are G5's: a working-tree side snapshots the checkout once per request, and a
+//! checkpoint side reads the checkpoint commit's tree.
 //!
 //! Proof: `diff-resources.process` (commit-to-commit mixed binary/text), `review-regressions`
 //! (binary payloads never in the patch), `diff.process`'s commit-side cases (patch cap,
@@ -14,6 +14,9 @@
 use ace_json::Value;
 use serde::Serialize;
 
+use crate::checkpoints::create::read_checkpoint;
+use crate::checkpoints::nested::{Capture, Ownership};
+use crate::checkpoints::snapshot::{SnapshotContext, snapshot};
 use crate::core::decode::hash;
 use crate::core::error::{GitError, GitErrorCode};
 use crate::core::temp_index::TemporaryIndex;
@@ -22,13 +25,24 @@ use crate::reads::blob_classifier::BlobClassifier;
 use crate::reads::{Command, CommandPort, checked, text_output};
 use crate::refs::{self, Cancel, Outcome};
 
-/// One side of a diff this item can serve.
+/// One side of a diff (`DiffSide`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffSide {
     /// The person's index written as a tree (`write-tree`).
     Index,
     /// A commit ref (`rev-parse --verify <ref>^{commit}`).
     Commit(String),
+    /// The live checkout, snapshotted once per diff request.
+    WorkingTree,
+    /// A checkpoint commit's tree (`readCheckpoint`).
+    Checkpoint(String),
+}
+
+/// What a working-tree side needs: the snapshot's temporary index, ownership and nested capture.
+pub struct SnapshotJob<'a> {
+    pub context: &'a SnapshotContext,
+    pub ownership: Option<&'a Ownership>,
+    pub capture: &'a dyn Capture,
 }
 
 /// One diff request.
@@ -63,6 +77,7 @@ async fn resolve_side(
     port: &dyn CommandPort,
     root: &str,
     side: &DiffSide,
+    live: Option<&str>,
 ) -> Result<String, GitError> {
     match side {
         DiffSide::Index => {
@@ -70,6 +85,10 @@ async fn resolve_side(
             text_output(&output.stdout)
         }
         DiffSide::Commit(reference) => resolve_commit(port, root, reference).await,
+        DiffSide::WorkingTree => live
+            .map(str::to_owned)
+            .ok_or_else(|| GitError::new(GitErrorCode::GitFailed, "Missing live tree")),
+        DiffSide::Checkpoint(id) => Ok(read_checkpoint(port, root, id).await?.sha),
     }
 }
 
@@ -348,10 +367,19 @@ pub async fn diff(
     temp_directory: &str,
     request: &DiffRequest,
     is_windows: bool,
+    snapshot_job: Option<&SnapshotJob<'_>>,
 ) -> Result<DiffResult, GitError> {
     let temp_directory = temp_directory.to_owned();
-    let mut a = resolve_side(port, root, &request.from).await?;
-    let mut b = resolve_side(port, root, &request.to).await?;
+    let needs_live = request.from == DiffSide::WorkingTree || request.to == DiffSide::WorkingTree;
+    let live = if needs_live {
+        let job = snapshot_job
+            .ok_or_else(|| GitError::new(GitErrorCode::GitFailed, "Missing live tree"))?;
+        Some(snapshot(port, job.context, root, job.ownership, job.capture).await?)
+    } else {
+        None
+    };
+    let mut a = resolve_side(port, root, &request.from, live.as_deref()).await?;
+    let mut b = resolve_side(port, root, &request.to, live.as_deref()).await?;
     let args = diff_args(is_windows);
     let mut metadata_args = args.clone();
     for arg in ["--raw", "--no-abbrev", "--numstat", "-z"] {
@@ -405,8 +433,27 @@ pub async fn diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checkpoints::create::{CreateCheckpoint, Wait, create_checkpoint};
+    use crate::checkpoints::numbers::CheckpointNumbers;
+    use crate::checkpoints::snapshot::{DirectCapture, SnapshotContext};
     use crate::core::credentials::test_support::Fixture;
+    use crate::core::spawn::BoxFuture;
     use crate::reads::test_support::ProcessCommands;
+
+    struct NoWait;
+    impl Wait for NoWait {
+        fn wait<'a>(&'a self, _milliseconds: u64) -> BoxFuture<'a, ()> {
+            Box::pin(async {})
+        }
+    }
+
+    fn context(root: &std::path::Path) -> SnapshotContext {
+        SnapshotContext {
+            temp_directory: root.to_string_lossy().into_owned(),
+            platform: "darwin".to_owned(),
+            now: Box::new(|| "2026-01-01T00:00:00.000Z".to_owned()),
+        }
+    }
 
     fn request(from: DiffSide, to: DiffSide) -> DiffRequest {
         DiffRequest {
@@ -442,6 +489,7 @@ mod tests {
             &fixture.root.to_string_lossy(),
             &request(DiffSide::Commit(before), DiffSide::Commit(after)),
             false,
+            None,
         )
         .await
         .expect("diff");
@@ -492,6 +540,7 @@ mod tests {
             &fixture.root.to_string_lossy(),
             &request(DiffSide::Commit(before), DiffSide::Commit(after)),
             false,
+            None,
         )
         .await
         .expect("diff");
@@ -538,6 +587,7 @@ mod tests {
             &fixture.root.to_string_lossy(),
             &capped,
             false,
+            None,
         )
         .await
         .expect("capped");
@@ -553,6 +603,7 @@ mod tests {
             &fixture.root.to_string_lossy(),
             &zero,
             false,
+            None,
         )
         .await
         .expect("zero");
@@ -574,6 +625,7 @@ mod tests {
                 DiffSide::Commit("HEAD".to_owned()),
             ),
             false,
+            None,
         )
         .await
         .expect_err("unknown commit");
@@ -587,6 +639,7 @@ mod tests {
             &fixture.root.to_string_lossy(),
             &request(DiffSide::Commit("HEAD".to_owned()), DiffSide::Index),
             false,
+            None,
         )
         .await
         .expect("index diff");
@@ -600,9 +653,113 @@ mod tests {
             &fixture.root.to_string_lossy(),
             &request(DiffSide::Commit("HEAD".to_owned()), DiffSide::Index),
             false,
+            None,
         )
         .await
         .expect("index diff again");
         assert_eq!(again.entries, index.entries);
+    }
+
+    // `diff.process`'s live cases: the working tree is snapshotted once and diffed against a
+    // commit; a checkpoint is read by id; a missing snapshot job is refused.
+    #[tokio::test]
+    async fn a_working_tree_diff_snapshots_the_checkout_and_reports_the_pending_edit() {
+        let fixture = Fixture::new("g5-diff-live");
+        let repo = fixture.repository("repo");
+        std::fs::write(repo.join("file.txt"), "before\n").expect("text");
+        fixture.git(&repo, &["add", "."]);
+        fixture.git(&repo, &["commit", "--quiet", "-m", "add"]);
+        let before = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "HEAD"]))
+            .trim_end()
+            .to_owned();
+        std::fs::write(repo.join("file.txt"), "after\n").expect("edit");
+        let port = ProcessCommands { fixture: &fixture };
+        let context = context(&fixture.root);
+        let capture = DirectCapture {
+            port: &port,
+            context: &context,
+        };
+        let job = SnapshotJob {
+            context: &context,
+            ownership: None,
+            capture: &capture,
+        };
+        let result = diff(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &request(DiffSide::Commit(before.clone()), DiffSide::WorkingTree),
+            false,
+            Some(&job),
+        )
+        .await
+        .expect("diff");
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].path, "file.txt");
+        assert!(result.patch.contains("-before\n+after"));
+        // Without the snapshot job the live side is refused, as the TypeScript refuses a
+        // missing live tree.
+        let error = diff(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &request(DiffSide::Commit(before), DiffSide::WorkingTree),
+            false,
+            None,
+        )
+        .await
+        .expect_err("missing live tree");
+        assert_eq!(error.message, "Missing live tree");
+    }
+
+    #[tokio::test]
+    async fn a_checkpoint_side_reads_the_checkpoint_commit_and_diffs_against_it() {
+        let fixture = Fixture::new("g5-diff-checkpoint");
+        let repo = fixture.repository("repo");
+        std::fs::write(repo.join("file.txt"), "before\n").expect("text");
+        fixture.git(&repo, &["add", "."]);
+        fixture.git(&repo, &["commit", "--quiet", "-m", "add"]);
+        let port = ProcessCommands { fixture: &fixture };
+        let context = context(&fixture.root);
+        let capture = DirectCapture {
+            port: &port,
+            context: &context,
+        };
+        let mut numbers = CheckpointNumbers::default();
+        let wait = NoWait;
+        let checkpoint = create_checkpoint(CreateCheckpoint {
+            port: &port,
+            context: &context,
+            numbers: &mut numbers,
+            wait: &wait,
+            root: &repo.to_string_lossy(),
+            thread_id: "thread-1",
+            label: "before edit",
+            ownership: None,
+            capture: &capture,
+        })
+        .await
+        .expect("checkpoint");
+        std::fs::write(repo.join("file.txt"), "after\n").expect("edit");
+        let job = SnapshotJob {
+            context: &context,
+            ownership: None,
+            capture: &capture,
+        };
+        let result = diff(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &request(
+                DiffSide::Checkpoint(checkpoint.id.clone()),
+                DiffSide::WorkingTree,
+            ),
+            false,
+            Some(&job),
+        )
+        .await
+        .expect("diff");
+        assert_eq!(result.entries.len(), 1);
+        assert!(result.patch.contains("-before\n+after"));
     }
 }
