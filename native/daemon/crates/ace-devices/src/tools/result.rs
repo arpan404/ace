@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The `sim_*` tools' results (`packages/devices/src/sim-tools.ts`): the summary an
-//! agent gets back from a start or stop, the refusal a device with no live video
-//! still answers, the screenshot's note, and the public error a failure becomes.
+//! The `sim_*` tools' results (`packages/devices/src/sim-tools.ts`): what a call
+//! answers, the summary a start or stop gives, the refusal a device with no live
+//! video still answers, the screenshot's note, and the public failure body.
 //!
-//! The tool registration, the MCP image and the abort wiring are the shell's; these
-//! are the decisions the shell renders.
+//! The failure's words come from M1's public error catalog (`ace-mcp`), which both
+//! backends serve; only ace's own detail rides along.
 
 use ace_json::{Array, JsString, Map, Number, Value};
 
@@ -12,6 +12,18 @@ use crate::error::{DeviceErrorCode, DeviceFailure};
 
 /// The hint an Android device with no live video gives its agent.
 pub const STILL_WORKS: [&str; 3] = ["sim_act input", "sim_screenshot", "sim_ui"];
+
+/// One `sim_*` tool's outcome, before an MCP or CLI surface renders it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SimResult {
+    Json(Value),
+    /// A still: the frame's sequence, the picture the shell encoded, and its note.
+    Image {
+        sim_id: String,
+        sequence: f64,
+        note: String,
+    },
+}
 
 /// The public codes a device failure may carry: every `DeviceFailure["code"]` is a
 /// member of `PublicToolCode` (`packages/mcp-server/src/public-error.ts`), so a
@@ -139,6 +151,28 @@ pub fn public_failure(failure: &DeviceFailure, own: bool) -> PublicFailure {
         permission: failure.permission,
         message: own.then(|| failure.message.clone()),
     }
+}
+
+/// `simFailure`: the JSON body an agent's tool call reports, exactly as
+/// `toolFailure` writes it — the public code, the catalog's message and hint, and
+/// ace's own detail last when it wrote the failure.
+pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
+    let public = public_failure(failure, own);
+    let words = ace_mcp::catalog::catalog()
+        .ok()
+        .and_then(|catalog| catalog.errors.get(public.code).cloned());
+    let (message, hint) = match words {
+        Some(words) => (JsString::from(words.message), JsString::from(words.hint)),
+        None => (failure.message.clone(), failure.hint.clone()),
+    };
+    let mut out = Map::new();
+    out.insert("code", Value::String(JsString::from(public.code)));
+    out.insert("message", Value::String(message));
+    out.insert("hint", Value::String(hint));
+    if let Some(detail) = public.message {
+        out.insert("detail", Value::String(detail));
+    }
+    Value::Object(out)
 }
 
 #[cfg(test)]

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The `sim_*` tools' results (`sim-tools.ts`): the summary, the no-video answer,
-//! the how-to's placement, the screenshot's note and the public failure.
+//! the how-to's placement, the screenshot's note and the public failure body.
 //!
 //! `sim-tools.process` (a) proves the tools end to end; these cases cover the
 //! decisions the shell renders.
 
 use super::{
-    android_without_video, public_failure, screenshot_note, summary, with_guidance, without_video,
+    android_without_video, failure_body, public_failure, screenshot_note, summary, with_guidance,
+    without_video,
 };
 use crate::error::{DeviceErrorCode, DeviceFailure};
 use ace_json::{JsString, json};
@@ -135,4 +136,33 @@ fn a_public_failure_keeps_the_code_and_ace_keeps_its_message() {
     let public = public_failure(&failure, false);
     assert_eq!(public.code, "stale_ref");
     assert_eq!(public.message, None);
+}
+
+#[test]
+fn a_failure_body_takes_the_catalog_words_and_ace_s_detail() {
+    let failure = crate::error::DeviceFailure {
+        code: crate::error::DeviceErrorCode::StaleRef,
+        message: JsString::from("@e3 is no longer on screen"),
+        hint: JsString::from(crate::service::words::tool_hint("simStaleRefHint")),
+        permission: None,
+        platform: None,
+    };
+    let body = failure_body(&failure, true);
+    // The public catalog's words, not the device failure's own.
+    assert_eq!(
+        body.get("code").and_then(ace_json::Value::as_str),
+        Some("stale_ref")
+    );
+    assert!(
+        body.get("message")
+            .and_then(ace_json::Value::as_str)
+            .is_some()
+    );
+    assert!(body.get("hint").and_then(ace_json::Value::as_str).is_some());
+    // ace's own detail rides along last, and only when ace wrote the failure.
+    assert_eq!(
+        body.get("detail").and_then(ace_json::Value::as_str),
+        Some("@e3 is no longer on screen")
+    );
+    assert!(failure_body(&failure, false).get("detail").is_none());
 }

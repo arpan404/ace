@@ -182,7 +182,8 @@ fn an_action_takes_only_its_own_fields() {
     );
 
     // A field the action requires.
-    let error = act(json!({ "simId": IOS, "action": "ui" })).expect_err("ui needs a ref");
+    let error =
+        act(json!({ "simId": IOS, "action": "ui" })).expect_err("the ui action needs its ref");
     assert_eq!(issue_paths(&error), [("ref", "Required when action is ui")]);
 
     // Every required field of a swipe.

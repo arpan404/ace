@@ -8,5 +8,9 @@
 //! [`describe`] and [`result`].
 
 pub mod args;
+pub mod describe;
+pub mod result;
 
 pub use args::{Args, ArgumentError, Issue, SimTool, decode};
+pub use describe::{Descriptor, descriptor};
+pub use result::{PublicFailure, SimResult, failure_body, public_failure};

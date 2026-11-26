@@ -738,3 +738,29 @@ Intended differences, each proven in Rust:
   too. `check:devices-catalog` fails on a source that spells one.
 - **A tap's middle is rounded and never negative** (`sim-act.ts:72`), and a second finger is read
   by truthiness: `pointerId: 0` is the first finger, not a second one.
+
+## 16. D5: the `sim_*` tools (2026-11-26)
+
+The tools' decisions are `ace-devices`' `tools/` module. `sim-schemas.ts`'s Zod decoding is
+`tools/args.rs`: the same fields, bounds (code points for strings, integers for points and
+durations), defaults and refusals, with the same public `invalid_arguments` issues — a path and
+what the schema expected, never a value the agent sent. The per-action rules and the tap's
+ref-or-coordinates rule run after the object, in zod's order.
+
+`tools/describe.rs` holds the descriptors and reads M1's catalog (`ace-mcp`, `tools.json`) when it
+has the entry. `tools/result.rs` holds what a call answers: the start/stop summary, the answer an
+Android device with no live video gives, the how-to on a first start only, the screenshot's note,
+and the failure body, whose words come from M1's public error catalog (`errors.json`).
+
+**What waits for M2 (the server).** The registration itself stays TypeScript until M2 lands:
+
+- `devicesToolkit`'s `registry.registerContent` line and the family's `machine` routing;
+- the MCP content rendering (a JSON text part, or the JPEG plus its note) and the `modelImage`
+  call that makes a screenshot's picture;
+- `callSimTool`'s signal wiring: a cancelled call disconnects the actor's owner, and every step
+  checks the signal first;
+- the `sim_*` descriptors joining `native/daemon/catalog/tools.json`, so `describe` reads them
+  from the catalog rather than the copies beside it (`scripts/export-catalog.ts` and the MCP
+  catalogue budget move with that);
+- the advertised input JSON schema each tool declares (the schemas' `advertised-schema.ts`
+  output), which is the catalog's, not the decoder's.
