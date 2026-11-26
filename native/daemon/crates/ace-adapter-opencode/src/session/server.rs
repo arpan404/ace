@@ -19,9 +19,17 @@ use ace_json::Value;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-use crate::translate::boundaries::parse_native_event;
+use crate::translate::boundaries::{NativeEvent, parse_native_event};
 use crate::translate::cache::RecentMap;
 use crate::translate::redaction::sanitize;
+
+mod recovery;
+
+mod secrets;
+
+pub use secrets::SubscribeError;
+
+use secrets::check_secrets;
 
 use super::error::{SecretError, StreamError};
 use super::notes::{ACTIVITY, BUFFERED, RESTARTED, publish, text as note};
@@ -37,18 +45,30 @@ const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
 const SEQUENCES: usize = 1024;
 /// `ServerSecrets`: `z.array(z.string().min(1).max(4096)).max(32)`.
 const MAX_SECRETS: usize = 32;
-const MAX_SECRET_CHARS: usize = 4096;
+pub(super) const MAX_SECRET_CHARS: usize = 4096;
 
 /// One session on a server, as the per-event path needs it (E3-opencode.2).
 pub trait Tenant: Send + Sync {
     /// The tenant's ordered queue, where this core publishes its notes.
     fn queue(&self) -> &EventQueue;
     /// `routes.select`'s filter: whether this session owns the event at this
-    /// watermark.
-    fn accepts(&self, data: &Value, watermark: u64) -> bool;
+    /// watermark. The event is the one the core parsed; the tenant reads its
+    /// fields instead of parsing again. `Err` is the TypeScript's thrown body,
+    /// which fails the stream.
+    fn accepts(
+        &self,
+        event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<bool, TenantError>;
     /// One routed event while not recovering. `Err` is the TypeScript's thrown
     /// body, which fails the stream.
-    fn receive(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
+    fn receive(
+        &self,
+        event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<(), TenantError>;
     /// One routed event while recovering, replayed later at `watermark`.
     fn buffered(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
     /// Recovery began at `started`.
@@ -59,6 +79,10 @@ pub trait Tenant: Send + Sync {
     fn finalize_snapshots(&self) -> Result<(), TenantError>;
     /// The pass settled (`recovered`).
     fn recovered(&self);
+    /// Take a recovery request a tenant made during an accept or a receive
+    /// (`session.ts:122`, `:418`: `server.reconcileNow()` ran `beginRecovery`
+    /// inline, so the rest of the chunk is buffered).
+    fn take_reconcile(&self) -> bool;
 }
 
 /// A tenant's handle on its server. Distinct from another's for as long as it
@@ -198,57 +222,6 @@ impl ServerCore {
         self.recovery_stale
     }
 
-    /// `beginRecovery(started = this.sequence)` (`server.ts:385`-`:390`): once
-    /// per pass, every tenant is told it is disconnected from `started`.
-    pub fn begin_recovery(&mut self, started: u64) {
-        if self.recovering {
-            return;
-        }
-        self.recovering = true;
-        self.recovery_started = started;
-        for tenant in self.tenants.values() {
-            tenant.disconnected(started);
-        }
-    }
-
-    /// `restartRecovery` (`server.ts:537`-`:543`): a retry is a new disconnect
-    /// at the current watermark, and the buffer starts empty.
-    pub fn restart_recovery(&mut self) {
-        self.recovery_stale = false;
-        self.buffered.clear();
-        self.buffered_bytes = 0;
-        self.recovery_started = self.sequence;
-        for tenant in self.tenants.values() {
-            tenant.disconnected(self.sequence);
-        }
-    }
-
-    /// `recoverOnce`'s tail, after the shell's awaited `resync` and
-    /// `prepareReplay` (`server.ts:552`-`:560`). False when buffered events were
-    /// dropped and the pass must start again.
-    pub fn replay(&mut self) -> bool {
-        if self.recovery_stale {
-            return false;
-        }
-        for entry in std::mem::take(&mut self.buffered) {
-            for tenant in self.tenants.values() {
-                if tenant.reconcile(&entry.data, entry.watermark).is_err() {
-                    // The TypeScript's per-consumer failure ends that session;
-                    // this seam has no per-tenant exit, so the pass proceeds.
-                }
-            }
-        }
-        for tenant in self.tenants.values() {
-            let _ = tenant.finalize_snapshots();
-        }
-        self.buffered_bytes = 0;
-        self.recovering = false;
-        for tenant in self.tenants.values() {
-            tenant.recovered();
-        }
-        true
-    }
-
     /// One body chunk: its elided pieces in order, each activity note before
     /// that piece's events, as the SDK reads them.
     pub fn chunk(&mut self, bytes: &[u8]) -> ChunkOutcome {
@@ -321,7 +294,17 @@ impl ServerCore {
             }
             return Ok(());
         }
-        let targets = self.routes.select(value, watermark, &self.tenants);
+        let targets = self
+            .routes
+            .select(&event, value, watermark, &self.tenants)
+            .map_err(fail)?;
+        // An accept can ask for recovery (an ancestry receipt past its bound
+        // calls `reconcileNow`): `beginRecovery` ran inline there, so the rest
+        // of this chunk is buffered.
+        if self.take_reconcile() {
+            self.begin_recovery(watermark);
+            outcome.recover = true;
+        }
         if targets.is_empty() {
             return Ok(());
         }
@@ -374,10 +357,25 @@ impl ServerCore {
             }
         } else {
             for tenant in &targets {
-                tenant.receive(value, watermark).map_err(fail)?;
+                tenant.receive(&event, value, watermark).map_err(fail)?;
+                // A receive can ask for recovery too (`reconcileLocation` on a
+                // `location.shutdown`): `beginRecovery` ran inline there.
+                if tenant.take_reconcile() {
+                    self.begin_recovery(watermark);
+                    outcome.recover = true;
+                }
             }
         }
         Ok(())
+    }
+
+    /// Every tenant's pending recovery request, taken once.
+    fn take_reconcile(&self) -> bool {
+        let mut asked = false;
+        for tenant in self.tenants.values() {
+            asked |= tenant.take_reconcile();
+        }
+        asked
     }
 
     /// `c.frame("note", channel, data)` for every tenant, in subscription order.
@@ -391,26 +389,6 @@ impl ServerCore {
 /// A tenant's refusal as a stream failure (the TypeScript reconnects).
 fn fail(error: TenantError) -> StreamError {
     StreamError::Tenant(error.0)
-}
-
-/// Why a tenant could not join: "OpenCode session limit reached".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("OpenCode session limit reached")]
-pub struct SubscribeError;
-
-/// `ServerSecrets.parse` over one list, in the same order and with the same
-/// code-point bounds (rule 17).
-fn check_secrets(secrets: &[String]) -> Result<(), SecretError> {
-    if secrets.len() > MAX_SECRETS {
-        return Err(SecretError::TooMany);
-    }
-    if secrets
-        .iter()
-        .any(|secret| secret.is_empty() || secret.chars().count() > MAX_SECRET_CHARS)
-    {
-        return Err(SecretError::Length);
-    }
-    Ok(())
 }
 
 #[cfg(test)]

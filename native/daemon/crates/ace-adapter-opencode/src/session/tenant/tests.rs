@@ -7,6 +7,13 @@ use ace_adapter_api::bridge::{EventQueue, ReadGate, SessionEvent};
 use ace_json::{Value, json};
 
 use super::{OpenCodeTenant, TenantConfig, TenantError};
+use crate::translate::boundaries::parse_native_event;
+
+/// `owns`, with the envelope check the server does first.
+fn owns(tenant: &OpenCodeTenant, data: &Value, watermark: u64) -> bool {
+    let event = parse_native_event(data).expect("a valid envelope");
+    tenant.owns(&event, data, watermark).expect("in bounds")
+}
 
 fn snapshot(id: &str, parent: &str, directory: &str, project: &str) -> Value {
     json!({
@@ -93,10 +100,10 @@ fn the_opening_buffer_holds_events_and_replays_them_in_order() {
         .establish(&snapshot("root", "", "/work", "p1"))
         .expect("the root establishes");
     tenant
-        .receive_at(&delta("root", "one"), 1)
+        .receive_value(&delta("root", "one"), 1)
         .expect("buffered");
     tenant
-        .receive_at(&delta("root", "two"), 2)
+        .receive_value(&delta("root", "two"), 2)
         .expect("buffered");
     assert!(drain(&queue).is_empty(), "nothing is emitted while opening");
 
@@ -120,11 +127,11 @@ fn the_opening_buffer_holds_events_and_replays_them_in_order() {
     );
     for index in 0..128 {
         tenant
-            .receive_at(&delta("root", &index.to_string()), index as u64)
+            .receive_value(&delta("root", &index.to_string()), index as u64)
             .expect("under the bound");
     }
     assert_eq!(
-        tenant.receive_at(&delta("root", "over"), 200),
+        tenant.receive_value(&delta("root", "over"), 200),
         Err(TenantError(String::from("OpenCode startup event limit")))
     );
 }
@@ -133,7 +140,7 @@ fn the_opening_buffer_holds_events_and_replays_them_in_order() {
 fn interactions_are_recorded_and_cleared_by_their_replies() {
     let (tenant, queue) = ready();
     tenant
-        .receive_at(
+        .receive_value(
             &event(
                 "permission.asked",
                 json!({ "sessionID": "root", "id": "p1" }),
@@ -150,7 +157,7 @@ fn interactions_are_recorded_and_cleared_by_their_replies() {
     );
 
     tenant
-        .receive_at(
+        .receive_value(
             &event(
                 "permission.replied",
                 json!({ "sessionID": "root", "requestID": "p1" }),
@@ -162,7 +169,7 @@ fn interactions_are_recorded_and_cleared_by_their_replies() {
 
     // A form answer without requestID falls back to `id`.
     tenant
-        .receive_at(
+        .receive_value(
             &event(
                 "form.created",
                 json!({ "sessionID": "root", "form": { "id": "f1", "sessionID": "root" } }),
@@ -172,7 +179,7 @@ fn interactions_are_recorded_and_cleared_by_their_replies() {
         .expect("created");
     assert!(tenant.pending("form:root:f1").is_some());
     tenant
-        .receive_at(
+        .receive_value(
             &event("form.cancelled", json!({ "sessionID": "root", "id": "f1" })),
             4,
         )
@@ -184,7 +191,7 @@ fn interactions_are_recorded_and_cleared_by_their_replies() {
 fn a_rebuilt_location_forgets_the_mcp_location_and_asks_for_recovery() {
     let (tenant, queue) = ready();
     tenant
-        .receive_at(
+        .receive_value(
             &event(
                 "permission.asked",
                 json!({ "sessionID": "root", "id": "p1" }),
@@ -197,7 +204,7 @@ fn a_rebuilt_location_forgets_the_mcp_location_and_asks_for_recovery() {
     if let Value::Object(map) = &mut shutdown {
         map.insert("location", json!({ "directory": "/work" }));
     }
-    tenant.receive_at(&shutdown, 2).expect("shutdown");
+    tenant.receive_value(&shutdown, 2).expect("shutdown");
 
     let events = drain(&queue);
     let port_names: Vec<&str> = ports(&events).iter().map(|(name, _)| *name).collect();
@@ -220,8 +227,8 @@ fn a_rebuilt_location_forgets_the_mcp_location_and_asks_for_recovery() {
 fn a_session_moved_refetch_is_asked_once_until_it_is_answered() {
     let (tenant, queue) = ready();
     let moved = event("session.moved", json!({ "sessionID": "root" }));
-    tenant.receive_at(&moved, 1).expect("moved");
-    tenant.receive_at(&moved, 2).expect("moved again");
+    tenant.receive_value(&moved, 1).expect("moved");
+    tenant.receive_value(&moved, 2).expect("moved again");
     let asked: Vec<String> = ports(&drain(&queue))
         .into_iter()
         .filter(|(name, _)| *name == "session.moved")
@@ -230,7 +237,7 @@ fn a_session_moved_refetch_is_asked_once_until_it_is_answered() {
     assert_eq!(asked, vec![r#"{"sessionID":"root"}"#.to_owned()]);
 
     tenant.moved_done("root");
-    tenant.receive_at(&moved, 3).expect("moved once more");
+    tenant.receive_value(&moved, 3).expect("moved once more");
     assert_eq!(
         ports(&drain(&queue))
             .into_iter()
@@ -244,9 +251,11 @@ fn a_session_moved_refetch_is_asked_once_until_it_is_answered() {
 fn catalog_changed_is_a_port_for_its_six_types_only() {
     let (tenant, queue) = ready();
     tenant
-        .receive_at(&event("config.updated", json!({ "sessionID": "root" })), 1)
+        .receive_value(&event("config.updated", json!({ "sessionID": "root" })), 1)
         .expect("config");
-    tenant.receive_at(&delta("root", "x"), 2).expect("a delta");
+    tenant
+        .receive_value(&delta("root", "x"), 2)
+        .expect("a delta");
     let asked: Vec<String> = ports(&drain(&queue))
         .into_iter()
         .filter(|(name, _)| *name == "catalog.changed")
@@ -260,7 +269,7 @@ fn a_frame_past_the_payload_bound_fails_and_publishes_nothing() {
     let (tenant, queue) = ready();
     let huge = delta("root", &"a".repeat(1024 * 1024));
     assert_eq!(
-        tenant.receive_at(&huge, 1),
+        tenant.receive_value(&huge, 1),
         Err(TenantError(String::from(
             "Provider payload exceeds byte limit"
         )))
@@ -272,7 +281,7 @@ fn a_frame_past_the_payload_bound_fails_and_publishes_nothing() {
 fn the_bearer_is_replaced_in_the_frame_text_only() {
     let (tenant, queue) = ready();
     tenant
-        .receive_at(&delta("root", "has bearer-1 and sk-1"), 1)
+        .receive_value(&delta("root", "has bearer-1 and sk-1"), 1)
         .expect("a delta");
     let frames = frames(&drain(&queue));
     assert_eq!(frames.len(), 1);
@@ -285,7 +294,7 @@ fn the_bearer_is_replaced_in_the_frame_text_only() {
 fn a_closed_session_keeps_only_its_ending_notes() {
     let (tenant, queue) = ready();
     tenant.close();
-    assert!(!tenant.owns(&delta("root", "x"), 1));
+    assert!(!owns(&tenant, &delta("root", "x"), 1));
     assert!(
         tenant
             .emit(
@@ -313,7 +322,7 @@ fn a_closed_session_keeps_only_its_ending_notes() {
 fn a_shell_exit_drops_the_shell_it_names() {
     let (tenant, queue) = ready();
     tenant
-        .receive_at(
+        .receive_value(
             &event(
                 "shell.created",
                 json!({ "sessionID": "root", "info": { "id": "sh1", "status": "running" } }),
@@ -323,7 +332,7 @@ fn a_shell_exit_drops_the_shell_it_names() {
         .expect("created");
     assert!(tenant.shells().contains_key("sh1"));
     tenant
-        .receive_at(
+        .receive_value(
             &event("shell.exited", json!({ "sessionID": "root", "id": "sh1" })),
             2,
         )
@@ -331,3 +340,5 @@ fn a_shell_exit_drops_the_shell_it_names() {
     assert!(!tenant.shells().contains_key("sh1"));
     let _ = drain(&queue);
 }
+
+mod scenarios;

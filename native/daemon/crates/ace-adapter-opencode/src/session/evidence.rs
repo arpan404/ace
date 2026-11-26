@@ -18,6 +18,8 @@ use ace_json::Map;
 
 use crate::translate::data::{arr_in, fields, get, n_in, num_str, s_in, s_in_fb, utf16_len};
 
+mod covered;
+
 use super::coverage::covered_prefix;
 
 /// `this.deltas.size >= 4096` and an entry's 4,096 chunks.
@@ -207,77 +209,6 @@ impl RecoveryEvidence {
             }
         }
         Ok(())
-    }
-
-    /// `covered`: whether a replayed snapshot already says this event.
-    /// `session` is the event's `eventSession`, which the caller already read.
-    pub fn covered(
-        &self,
-        typ: &str,
-        payload: &Map,
-        session: &str,
-        created: Option<f64>,
-        watermark: u64,
-    ) -> bool {
-        if typ == "shell.created" {
-            let id = s_in(fields(get(payload, "info")), "id");
-            return self
-                .shells
-                .get(id)
-                .is_some_and(|state| state.owner == session && watermark <= state.started);
-        }
-        if typ == "permission.asked" || typ == "form.created" || typ == "session.execution.started"
-        {
-            return self.snapshots.iter().any(|snapshot| {
-                if snapshot.session != session || watermark > snapshot.started {
-                    return false;
-                }
-                let data = fields(&snapshot.data);
-                if typ == "session.execution.started" {
-                    let idle_at = data.get("idleAt");
-                    let running = data.get("running");
-                    return snapshot.channel == "snapshot.active"
-                        && running == Some(&Value::Bool(false))
-                        && idle_at.and_then(Value::as_f64).is_some()
-                        && (created.is_none()
-                            || idle_at.and_then(Value::as_f64).unwrap_or(0.0)
-                                >= created.unwrap_or(0.0));
-                }
-                if snapshot.channel != "snapshot.interactions" {
-                    return false;
-                }
-                let interaction = if typ == "form.created" {
-                    fields(get(payload, "form"))
-                } else {
-                    payload
-                };
-                let prefix = if typ == "form.created" {
-                    "form"
-                } else {
-                    "permission"
-                };
-                let key = format!("{prefix}:{session}:{}", s_in(interaction, "id"));
-                self.interaction_keys(&snapshot.data)
-                    .is_ok_and(|keys| !keys.contains(&key))
-            });
-        }
-        if typ != "session.text.delta" && typ != "session.reasoning.delta" {
-            return false;
-        }
-        let kind = if typ.contains("reasoning") {
-            "reasoning"
-        } else {
-            "text"
-        };
-        let key = key(
-            kind,
-            s_in(payload, "sessionID"),
-            s_in(payload, "assistantMessageID"),
-            n_in(payload, "ordinal"),
-        );
-        self.deltas
-            .get(&key)
-            .is_some_and(|entry| watermark <= entry.covered)
     }
 
     /// `stage`: one snapshot for the replay, bounded by bytes and count.

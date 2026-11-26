@@ -8,17 +8,17 @@ use ace_adapter_api::bridge::{SessionErrorWire, SessionEvent};
 use ace_json::{Value, json};
 use std::sync::atomic::Ordering;
 
-use crate::translate::boundaries::event_session;
+use crate::translate::boundaries::{NativeEvent, event_session, parse_native_event};
 use crate::translate::data::{fields, get, s_in, s_in_fb};
 
-use super::super::ancestry::ProbeHost;
+use super::super::ownership::parse_info;
 use super::super::server::TenantError;
 use super::OpenCodeTenant;
 use super::PendingInteraction;
 
 use super::{
-    CATALOG_TYPES, INTERACTION_LIMIT, MAX_PENDING, MAX_WAITERS, OPENING_BYTES, OPENING_EVENTS,
-    PORT_ANCESTRY, PORT_CATALOG, PORT_MCP_FORGET, PORT_MOVED, PORT_RECONCILE, RECOVERY_SEND_LIMIT,
+    BARRIER_CLOSED, CATALOG_TYPES, INTERACTION_LIMIT, MAX_PENDING, MAX_WAITERS, OPENING_BYTES,
+    OPENING_EVENTS, PORT_CATALOG, PORT_MCP_FORGET, PORT_MOVED, PORT_RECONCILE, RECOVERY_SEND_LIMIT,
     SESSION_CLOSED, STARTUP_LIMIT, port,
 };
 
@@ -29,15 +29,64 @@ impl OpenCodeTenant {
         self.opening.store(false, Ordering::SeqCst);
         let events = std::mem::take(&mut self.lock_opening().events);
         for event in events {
-            self.receive_at(&event, watermark)?;
+            self.receive_value(&event, watermark)?;
         }
         Ok(())
+    }
+
+    /// `ownership.establish(info)` (`session.ts:277`), before any input. The
+    /// facade reads `info` from `session.create`/`session.get` (E3-opencode.4).
+    pub fn establish_root(&self, info: &Value) -> Result<(), TenantError> {
+        self.lock_ownership()
+            .establish(info)
+            .map_err(|error| TenantError(error.to_string()))
+    }
+
+    /// `s.emit("recv", "snapshot.info", { info, root: true })` (`:277`): after
+    /// the environment is applied, before the opening buffer replays.
+    pub fn root_snapshot(&self, info: &Value) -> Result<(), TenantError> {
+        self.emit(
+            FrameDirection::Recv,
+            "snapshot.info",
+            &json!({ "info": info, "root": true }),
+        )
+    }
+
+    /// `admitEnvironment`'s failure (`:105`): the child's tools stay refused
+    /// and ace stops it, saying why. The message is the whole reason; only the
+    /// settle reply is cut to 1,024 characters, and the facade builds that.
+    pub fn admit_stopped(&self, session_id: &str, message: &str) -> Result<(), TenantError> {
+        self.emit(
+            FrameDirection::Note,
+            "agent.environment",
+            &json!({ "type": "stopped", "sessionID": session_id, "message": message }),
+        )
+    }
+
+    /// The `session.moved` refetch's reply (`:345`-`:362`): a verified snapshot
+    /// is stored and framed; a refusal or a failed check asks for recovery
+    /// instead. Either way the session's id is released (`finally`), so a later
+    /// move asks again.
+    pub fn moved_reply(&self, id: &str, ok: bool, body: &Value) {
+        let verified =
+            ok && parse_info(body).is_some_and(|info| self.lock_ownership().verify(&info).is_ok());
+        if verified {
+            let _ = self.emit(
+                FrameDirection::Recv,
+                "snapshot.info",
+                &json!({ "info": body }),
+            );
+        }
+        self.moved_done(id);
+        if !verified {
+            self.reconcile_now();
+        }
     }
 
     /// `barrier` (`:421`-`:427`): wait for the running pass, bounded at 64.
     pub fn barrier(&self, id: u64) -> Result<(), TenantError> {
         if self.closed() {
-            return Err(TenantError(SESSION_CLOSED.to_owned()));
+            return Err(TenantError(BARRIER_CLOSED.to_owned()));
         }
         if self.recovering() {
             let mut waiters = self.lock_waiters();
@@ -58,30 +107,40 @@ impl OpenCodeTenant {
         }
     }
 
-    /// `owns` (`:336`-`:365`).
-    pub fn owns(&self, data: &Value, watermark: u64) -> bool {
+    /// `owns` (`:336`-`:365`) on the event the server parsed. A shell past its
+    /// bound is the TypeScript's throw, which fails the stream.
+    pub fn owns(
+        &self,
+        event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<bool, TenantError> {
         if self.closed() {
-            return false;
+            return Ok(false);
         }
         if self.opening.load(Ordering::SeqCst) {
-            let location = fields(get(fields(data), "location"));
-            return s_in(location, "directory") == self.cwd;
+            let location = event.location;
+            let directory = location.map_or("", |location| s_in(location, "directory"));
+            return Ok(directory == self.cwd);
         }
-        let accepted = self.lock_ownership().accept(data).unwrap_or(false);
+        let accepted = match self.lock_ownership().accept_event(event, data) {
+            Ok(accepted) => accepted,
+            Err(error) => return Err(TenantError(error.to_string())),
+        };
         if !accepted {
             self.prove(data, watermark);
         }
-        if accepted && s_in(fields(data), "type") == "session.moved" {
-            let id = event_session(data);
+        if accepted && event.typ == "session.moved" {
+            let id = event_session(data).to_owned();
             let mut moves = self.lock_moves();
             if moves.contains(&id) {
-                return accepted;
+                return Ok(accepted);
             }
             moves.insert(id.clone());
             drop(moves);
             port(&self.queue, PORT_MOVED, json!({ "sessionID": id }));
         }
-        accepted
+        Ok(accepted)
     }
 
     /// `reconcileLocation` (`:413`-`:419`).
@@ -95,11 +154,28 @@ impl OpenCodeTenant {
             "lifecycle",
             &json!({ "type": "disconnected", "reason": "location rebuilt" }),
         );
+        self.reconcile_now();
+    }
+
+    /// `server.reconcileNow()` (`:122`, `:150`, `:359`): mark the recovery and
+    /// ask for the pass. The server begins it inside the chunk when this
+    /// happens during an accept or a receive, and the port serves the paths
+    /// that run outside the loop.
+    pub fn reconcile_now(&self) {
+        if self.closed() {
+            return;
+        }
+        self.reconcile.store(true, Ordering::SeqCst);
         port(&self.queue, PORT_RECONCILE, json!({}));
     }
 
     /// `receive` (`:366`-`:412`), after the server routed the event here.
-    pub fn receive_at(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
+    pub fn receive_at(
+        &self,
+        event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<(), TenantError> {
         if self.opening.load(Ordering::SeqCst) {
             let bytes = ace_json::to_string(data).len();
             let mut opening = self.lock_opening();
@@ -110,17 +186,16 @@ impl OpenCodeTenant {
             opening.events.push(data.clone());
             return Ok(());
         }
-        if !self.owns(data, watermark) {
+        if !self.owns(event, data, watermark)? {
             return Ok(());
         }
-        let envelope = fields(data);
-        let typ = s_in(envelope, "type");
-        let payload = fields(get(envelope, "data"));
+        let typ = event.typ;
+        let payload = event.data;
         if CATALOG_TYPES.contains(&typ) {
             port(&self.queue, PORT_CATALOG, json!({ "type": typ }));
         }
         if typ == "location.shutdown"
-            && let Some(Value::Object(location)) = envelope.get("location")
+            && let Some(location) = event.location
         {
             let directory = s_in(location, "directory").to_owned();
             port(
@@ -173,7 +248,7 @@ impl OpenCodeTenant {
             _ => {}
         }
         if typ.starts_with("session.execution.") || typ.starts_with("session.step.") {
-            self.lock_execution().insert(event_session(data));
+            self.lock_execution().insert(event_session(data).to_owned());
         }
         self.emit(FrameDirection::Recv, "sse", data)?;
         if typ == "location.shutdown" {
@@ -195,6 +270,13 @@ impl OpenCodeTenant {
         Ok(())
     }
 
+    /// `receive` on a value nobody parsed yet (the opening replay, a replay
+    /// from evidence, a receipt): the envelope check runs here.
+    pub(crate) fn receive_value(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
+        let event = parse_native_event(data).map_err(|error| TenantError(error.to_string()))?;
+        self.receive_at(&event, data, watermark)
+    }
+
     /// `evidence.observe`: one event buffered while recovering.
     pub(crate) fn observe_buffered(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
         let envelope = fields(data);
@@ -206,13 +288,14 @@ impl OpenCodeTenant {
     }
 
     /// `evidence.covered` for one replay.
-    pub(crate) fn covered(&self, data: &Value, watermark: u64) -> bool {
+    pub(crate) fn covered(&self, data: &Value, watermark: u64) -> Result<bool, TenantError> {
         let envelope = fields(data);
         let typ = s_in(envelope, "type");
         let payload = fields(get(envelope, "data"));
         let created = envelope.get("created").and_then(Value::as_f64);
         self.lock_evidence()
-            .covered(typ, payload, &event_session(data), created, watermark)
+            .covered(typ, payload, event_session(data), created, watermark)
+            .map_err(|error| TenantError(error.to_string()))
     }
 
     /// `ancestry.prove`: an unowned session's facts wait for a lookup.
@@ -227,7 +310,7 @@ impl OpenCodeTenant {
 
     /// The session an event names (`eventSession`, read on the value).
     pub fn session_of(data: &Value) -> String {
-        event_session(data)
+        event_session(data).to_owned()
     }
 
     /// The session's last seeing watermark, for a port's reply.
@@ -250,73 +333,5 @@ impl OpenCodeTenant {
                     message: message.to_owned(),
                 }),
         }]);
-    }
-}
-
-impl ProbeHost for OpenCodeTenant {
-    fn owns_session(&self, id: &str) -> bool {
-        self.has_session(id)
-    }
-
-    fn directory(&self) -> String {
-        OpenCodeTenant::directory(self)
-    }
-
-    fn recovering(&self) -> bool {
-        self.recovering()
-    }
-
-    fn info(&self, info: &Value) {
-        let _ = self.emit(
-            FrameDirection::Recv,
-            "snapshot.info",
-            &json!({ "info": info }),
-        );
-    }
-
-    fn receive(&self, data: &Value, watermark: u64) {
-        let _ = self.receive_at(data, watermark);
-    }
-
-    fn buffered(&self, data: &Value, watermark: u64) {
-        let _ = self.observe_buffered(data, watermark);
-    }
-
-    fn pending(&self, guard: &str) {
-        let _ = self.emit(
-            FrameDirection::Note,
-            "lifecycle",
-            &json!({ "type": "ancestry.pending", "id": guard }),
-        );
-    }
-
-    fn settled(&self, guard: &str) {
-        let _ = self.emit(
-            FrameDirection::Note,
-            "lifecycle",
-            &json!({ "type": "ancestry.settled", "id": guard }),
-        );
-    }
-
-    fn failed(&self, data: &Value) {
-        if self.closed() {
-            return;
-        }
-        self.recovering.store(true, Ordering::SeqCst);
-        let _ = self.emit(FrameDirection::Note, "ancestry.unverified", data);
-        let _ = self.emit(
-            FrameDirection::Note,
-            "lifecycle",
-            &json!({ "type": "disconnected", "reason": "ancestry verification incomplete" }),
-        );
-        port(&self.queue, PORT_RECONCILE, json!({}));
-    }
-
-    fn lookup(&self, id: &str, guard: &str) {
-        port(
-            &self.queue,
-            PORT_ANCESTRY,
-            json!({ "id": id, "guard": guard }),
-        );
     }
 }
