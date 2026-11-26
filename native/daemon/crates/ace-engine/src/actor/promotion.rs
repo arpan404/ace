@@ -57,13 +57,19 @@ pub fn evict_now(core: &Rc<Core>, thread: &ThreadId) {
 }
 
 fn stop_evicted(core: &Rc<Core>, actor: state::ActorRef) {
-    let (instance, thread) = {
+    let (instance, thread, has_mailbox) = {
         let state = actor.borrow();
-        (state.instance, state.id.clone())
+        (
+            state.instance,
+            state.id.clone(),
+            state.mailbox_task.is_some(),
+        )
     };
     let deps = state::instance_deps(core, &actor);
-    core.with_state(|state| state.actors.stopping.insert(instance, Rc::clone(&actor)))
-        .ok();
+    if has_mailbox {
+        core.with_state(|state| state.actors.stopping.insert(instance, Rc::clone(&actor)))
+            .ok();
+    }
     stop_instance(core, &actor);
     deps.repo.evict(core, &thread);
 }

@@ -129,23 +129,25 @@ export function probeFor(
         thread: string,
         stream: string | null,
         generation: number | null,
-      ) => void;
+      ) => string;
       const retire = required("probeRetire") as (thread: string) => void;
       const logOf = required("probeActorLog") as (thread: string) => string;
-      // The context installs the batch helper, so it comes before the actor starts.
+      native.attachTranslatorHelper?.((_thread, request) =>
+        frames.translate(spec.translator, request),
+      );
+      const instance = attach(threadId, spec.stream ?? null, spec.generation ?? null);
       const context = actorContext(
         native,
         frames,
         facade,
         threadId,
+        instance,
         spec.generation ?? 0,
         options.limits?.maxFrameBytes ?? 4 * 1024 * 1024,
-        spec.translator,
       ) as ActorContext;
-      attach(threadId, spec.stream ?? null, spec.generation ?? null);
       return {
         context,
-        aborted: () => (JSON.parse(logOf(threadId)) as ProbeActorLog).aborted,
+        aborted: () => required("probeSessionAborted")(instance) as number,
         retire: () => retire(threadId),
         log: () => JSON.parse(logOf(threadId)) as ProbeActorLog,
       };

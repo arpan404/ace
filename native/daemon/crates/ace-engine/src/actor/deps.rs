@@ -126,7 +126,7 @@ pub trait ActorLinks {
     /// `() => this.wake(id)` (`index.ts:547`, `:1256`).
     fn wake(&self, core: &Core, thread: &ThreadId);
     /// `lifetime.abort()`; with `true` also `session = translator = undefined` (`:206`).
-    fn abort_session(&self, core: &Core, thread: &ThreadId, drop_session: bool);
+    fn abort_session(&self, core: &Core, actor: &super::state::ActorRef, drop_session: bool);
     /// `onRetire` → `delivery.expire` (`index.ts:553`).
     fn expire(&self, core: &Core, thread: &ThreadId, generation: u64);
     /// `onProviderDiagnostic` (`:495`).
@@ -316,7 +316,7 @@ impl ActorLinks for Unported {
         core.ports
             .report(EngineError::not_ported("the actor wake", "E5.4").to_string());
     }
-    fn abort_session(&self, core: &Core, _thread: &ThreadId, drop_session: bool) {
+    fn abort_session(&self, core: &Core, _actor: &super::state::ActorRef, drop_session: bool) {
         let what = if drop_session {
             "the session abort with its session dropped"
         } else {

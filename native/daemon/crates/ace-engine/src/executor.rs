@@ -391,12 +391,6 @@ impl Executor {
         self.shared.claim.load(SeqCst)
     }
 
-    /// The close's drain is still armed (the probe's failure message).
-    #[cfg(test)]
-    pub(crate) fn draining_pending(&self) -> bool {
-        self.draining.take().is_some()
-    }
-
     #[cfg(test)]
     pub(crate) fn control_streak(&self) -> u8 {
         self.control_streak.get()

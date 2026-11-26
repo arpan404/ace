@@ -23,7 +23,7 @@ impl NativeEngine {
         thread_id: String,
         stream: Option<String>,
         generation: Option<f64>,
-    ) -> napi::Result<()> {
+    ) -> napi::Result<String> {
         let _guard = self.ports.enter(env);
         let core = self.engine.core();
         let log = Rc::new(ProbeLog {
@@ -61,18 +61,33 @@ impl NativeEngine {
             .logs
             .insert(thread_id.clone(), Rc::clone(&log));
         ace_engine::actor::get_or_create(core, &thread_id).map_err(engine_error)?;
-        core.with_state(|state| {
-            if let Some(mut actor) = state.actors.get_mut(&thread_id) {
-                actor.session_attached = true;
-                actor.deps = Some(deps);
-                if let Some(generation) = generation {
-                    actor.generation = generation as u64;
-                }
-                actor.translator = translator.map(|translator| (actor.generation, translator));
+        let actor = ace_engine::actor::state::current(core, &thread_id)
+            .ok_or_else(|| napi::Error::from_reason("probe session actor is missing"))?;
+        let instance = {
+            let mut actor = actor.borrow_mut();
+            actor.session_attached = true;
+            actor.deps = Some(deps);
+            if let Some(generation) = generation {
+                actor.generation = generation as u64;
             }
-        })
-        .map_err(engine_error)?;
-        Ok(())
+            actor.translator = translator.map(|translator| (actor.generation, translator));
+            actor.instance
+        };
+        self.probe_threads
+            .borrow_mut()
+            .sessions
+            .insert(instance, log);
+        Ok(instance.to_string())
+    }
+
+    #[napi]
+    pub fn probe_session_aborted(&self, instance: String) -> u32 {
+        let sessions = self.probe_threads.borrow();
+        instance
+            .parse::<u64>()
+            .ok()
+            .and_then(|id| sessions.sessions.get(&id))
+            .map_or(0, |log| *log.aborted.borrow() as u32)
     }
 
     /// The probe's transcript: aborts, wakes, applies, snapshots and diagnostics, as JSON.

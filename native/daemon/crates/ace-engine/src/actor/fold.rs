@@ -140,7 +140,7 @@ pub fn fold_batch(core: &Rc<Core>, actor: &ActorRef, op: &mut BatchOp) -> Result
                         && !matches!(field(fact, "deliberate"), Some(Value::Bool(true)))
                 })
             {
-                deps.links.abort_session(core, thread, false);
+                deps.links.abort_session(core, actor, false);
             }
             let status_after = deps.repo.status(core, thread)?;
             let command_after = if boundary {

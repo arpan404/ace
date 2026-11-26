@@ -2,10 +2,10 @@
 //! Flow control (`actor.ts:84`-`:113`): the two thresholds that pause a session's output and
 //! resume it, and the native session's mirror of them into its read gate.
 
-use crate::actor::state::{ActorInstance, current, instance_deps};
+use crate::Core;
+use crate::actor::state::{ActorInstance, ActorRef, instance_deps};
 use crate::executor::Lane;
 use crate::limits::EngineLimits;
-use crate::{Core, ThreadId};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -30,26 +30,30 @@ pub fn update_pressure(actor: &mut ActorInstance, limits: &EngineLimits) {
 }
 
 /// `outputFlow.paused` (`actor.ts:85`): the actor's own pressure or the store's gates.
-pub fn paused(core: &Core, thread: &ThreadId) -> bool {
-    let pressure = core
-        .with_state(|state| state.actors.get(thread).is_some_and(|actor| actor.pressure))
-        .unwrap_or(false);
-    if pressure {
+pub fn paused(core: &Core, actor: Option<&ActorRef>) -> bool {
+    if actor.is_some_and(|actor| {
+        let state = actor.borrow();
+        !state.stopped && state.pressure
+    }) {
         return true;
     }
-    let live = core.actor_deps.borrow().live.clone();
-    live.history_writing() || live.live_write_blocked()
+    let deps = actor.map_or_else(
+        || core.actor_deps.borrow().clone(),
+        |actor| instance_deps(core, actor),
+    );
+    deps.live.history_writing() || deps.live.live_write_blocked()
 }
 
 /// `outputFlow.wait` (`actor.ts:87`): the store's writable gate, then the actor's drains.
-pub async fn wait(core: Rc<Core>, thread: ThreadId) {
-    let Some(actor) = current(&core, &thread) else {
-        let live = core.actor_deps.borrow().live.clone();
-        live.writable().await;
+pub async fn wait(core: Rc<Core>, actor: Option<ActorRef>) {
+    let deps = actor.as_ref().map_or_else(
+        || core.actor_deps.borrow().clone(),
+        |actor| instance_deps(&core, actor),
+    );
+    deps.live.writable().await;
+    let Some(actor) = actor else {
         return;
     };
-    let live = instance_deps(&core, &actor).live.clone();
-    live.writable().await;
     let receiver = {
         let mut state = actor.borrow_mut();
         if state.stopped || !state.pressure {
@@ -78,16 +82,16 @@ impl Default for NativeFlow {
 
 impl NativeFlow {
     /// Mirror one frame's flow answer into the session's gate.
-    pub fn mirror(&mut self, core: &Rc<Core>, thread: &ThreadId, set_paused: Rc<dyn Fn(bool)>) {
-        if paused(core, thread) {
+    pub fn mirror(&mut self, core: &Rc<Core>, actor: &ActorRef, set_paused: Rc<dyn Fn(bool)>) {
+        if paused(core, Some(actor)) {
             if !self.marked.get() {
                 self.marked.set(true);
                 set_paused(true);
                 let marked = Rc::clone(&self.marked);
                 let inner = Rc::clone(core);
-                let thread = thread.clone();
+                let actor = Rc::clone(actor);
                 let task = core.executor.spawn(Lane::Work, async move {
-                    wait(inner, thread).await;
+                    wait(inner, Some(actor)).await;
                     // Still marked when the wait resolves: the gate resumes once.
                     if marked.replace(false) {
                         set_paused(false);

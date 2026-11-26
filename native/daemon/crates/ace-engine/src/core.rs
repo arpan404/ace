@@ -218,8 +218,8 @@ impl Core {
             .with_state(|state| {
                 state
                     .actors
-                    .live()
-                    .filter(|actor| actor.waker.is_some())
+                    .instances()
+                    .filter(|actor| actor.borrow().waker.is_some())
                     .count()
             })
             .unwrap_or(0);

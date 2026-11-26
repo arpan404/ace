@@ -210,9 +210,12 @@ impl NativeEngine {
         envelope.seq = ace_engine::frames::envelope::Field::Number(seq);
         envelope.t = ace_engine::frames::envelope::Field::Number(seq);
         let sdk = channel == "sdk";
+        let Some(actor) = ace_engine::actor::state::current(core, &thread_id) else {
+            return Ok("done".to_string());
+        };
         let ack = intake::frame(
             core,
-            &thread_id,
+            &actor,
             generation as u64,
             intake::FrameInput {
                 frame: ace_engine::actor::state::FrameRef::Native(Box::new(frame)),
@@ -272,9 +275,12 @@ impl NativeEngine {
                 log.flowed.borrow_mut().push(paused);
             }
         });
+        let Some(actor) = ace_engine::actor::state::current(core, &thread_id) else {
+            return Ok(());
+        };
         let (_, completion) = ace_engine::actor::native::native_frame(
             core,
-            &thread_id,
+            &actor,
             generation as u64,
             frame,
             now,
@@ -320,7 +326,9 @@ impl NativeEngine {
                 log.flowed.borrow_mut().push(paused);
             }
         });
-        flow.mirror(core, &thread_id, set);
+        if let Some(actor) = ace_engine::actor::state::current(core, &thread_id) {
+            flow.mirror(core, &actor, set);
+        }
         self.actor.flows.borrow_mut().insert(thread_id, flow);
     }
 

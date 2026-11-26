@@ -90,9 +90,20 @@ impl ActorLinks for ProbeLinks {
     fn wake(&self, _core: &Core, _thread: &ThreadId) {
         *self.log.wakes.borrow_mut() += 1;
     }
-    fn abort_session(&self, _core: &Core, thread: &ThreadId, _drop_session: bool) {
+    fn abort_session(
+        &self,
+        _core: &Core,
+        actor: &ace_engine::actor::ActorRef,
+        _drop_session: bool,
+    ) {
+        let instance = actor.borrow().instance;
         let sessions = self.sessions.borrow();
-        *sessions.logs.get(thread).unwrap_or(&self.log).aborted.borrow_mut() += 1;
+        *sessions
+            .sessions
+            .get(&instance)
+            .unwrap_or(&self.log)
+            .aborted
+            .borrow_mut() += 1;
     }
     fn expire(&self, _core: &Core, _thread: &ThreadId, generation: u64) {
         self.log.expired.borrow_mut().push(generation);

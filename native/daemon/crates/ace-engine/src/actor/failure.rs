@@ -47,7 +47,7 @@ pub(crate) fn fail_instance(core: &Rc<Core>, actor: &ActorRef, error: EngineErro
     };
     let deps = instance_deps(core, actor);
     deps.repo.evict(core, &thread);
-    deps.links.abort_session(core, &thread, false);
+    deps.links.abort_session(core, actor, false);
     core.ports.report(error.to_string());
     let notice = ace_json::json!([{
         "type": "item.upsert",
@@ -75,7 +75,7 @@ pub(crate) fn fail_instance(core: &Rc<Core>, actor: &ActorRef, error: EngineErro
 pub fn overflow(core: &Rc<Core>, actor: &ActorRef) -> Result<(), EngineError> {
     let deps = instance_deps(core, actor);
     let thread = actor.borrow().id.clone();
-    deps.links.abort_session(core, &thread, true);
+    deps.links.abort_session(core, actor, true);
     let generation = {
         let mut state = actor.borrow_mut();
         state.session_attached = false;

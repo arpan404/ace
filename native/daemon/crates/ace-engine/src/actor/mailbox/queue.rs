@@ -100,12 +100,16 @@ pub fn enqueue(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
     let Some(actor) = current(core, thread) else {
         return;
     };
-    intake::catch_up_instance(core, &actor);
-    intake::seal_instance(core, &actor);
+    enqueue_instance(core, &actor, run);
+}
+
+pub(crate) fn enqueue_instance(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
+    intake::catch_up_instance(core, actor);
+    intake::seal_instance(core, actor);
     if core.store.is_open() {
-        stage(core, &actor, run);
+        stage(core, actor, run);
     } else {
-        admit_instance_run(core, &actor, run);
+        admit_instance_run(core, actor, run);
     }
 }
 

@@ -313,3 +313,24 @@ pub fn current(core: &Core, thread: &str) -> Option<ActorRef> {
 pub fn reentrant(core: &Core, error: EngineError) {
     core.ports.report(error.to_string());
 }
+
+/// Resolves a session's original actor, even after its seat has been reused.
+pub fn session_instance(core: &Core, thread: &str, instance: u64) -> Option<ActorRef> {
+    core.with_state(|state| {
+        state
+            .actors
+            .by_thread
+            .get(thread)
+            .filter(|actor| actor.borrow().instance == instance)
+            .or_else(|| {
+                state
+                    .actors
+                    .stopping
+                    .get(&instance)
+                    .filter(|actor| actor.borrow().id == thread)
+            })
+            .cloned()
+    })
+    .ok()
+    .flatten()
+}

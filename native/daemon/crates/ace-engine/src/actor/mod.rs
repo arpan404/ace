@@ -225,18 +225,20 @@ pub fn close_stop(core: &Rc<Core>) {
     }
 }
 
-/// Terminal close also drops wakers when the deadline cut the mailbox joins short.
-pub(crate) fn release_wakers(core: &Core) {
-    let wakers: Vec<_> = core
+/// Close can cut a parked mailbox short, so it takes over the task's cleanup.
+pub(crate) fn finish_close(core: &Core) {
+    let (wakers, stopping) = core
         .with_state(|state| {
-            state
+            let wakers: Vec<_> = state
                 .actors
                 .instances()
                 .filter_map(|actor| actor.borrow_mut().waker.take())
-                .collect()
+                .collect();
+            (wakers, std::mem::take(&mut state.actors.stopping))
         })
         .unwrap_or_default();
     drop(wakers);
+    drop(stopping);
 }
 
 /// Whether the actors hold no work E5.1 must wait for.

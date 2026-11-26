@@ -72,14 +72,10 @@ pub(crate) fn catch_up_instance(core: &Rc<Core>, actor: &ActorRef) {
 }
 
 /// `frame()`: the checks and the batch join, in `actor.ts:303`'s order.
-pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameInput) -> Ack {
+pub fn frame(core: &Rc<Core>, actor: &ActorRef, generation: u64, input: FrameInput) -> Ack {
     let mut input = input;
     let mut native_ack = input.native_ack.take();
-    let Some(actor) = current(core, thread) else {
-        finish_stale(native_ack);
-        return Ack::Done;
-    };
-    catch_up_instance(core, &actor);
+    catch_up_instance(core, actor);
     let (stopped, current, poisoned, overflowed) = {
         let state = actor.borrow();
         (
@@ -100,33 +96,33 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     if let Some(field) = envelope_error(&input.envelope) {
         let message = format!("Provider frame envelope is malformed: {field}");
         refuse(native_ack.take(), "Provider frame failed to commit");
-        enqueue_failure(core, thread, message);
-        return Ack::AfterFlush(after_flush(core, thread));
+        enqueue_failure(core, actor, message);
+        return Ack::AfterFlush(after_flush(actor));
     }
     let certified = matches!(&input.measure, Measure::Certified { .. });
     if input.channel_sdk && !certified {
         refuse(native_ack.take(), "Provider frame failed to commit");
         enqueue_failure(
             core,
-            thread,
+            actor,
             "SDK frame lacks matching encoded admission certificate".to_string(),
         );
-        return Ack::AfterFlush(after_flush(core, thread));
+        return Ack::AfterFlush(after_flush(actor));
     }
     let limits = core.with_state(|state| state.limits).unwrap_or_default();
     let bytes = match input.measure {
         Measure::Certified { bytes } => bytes + 512,
         Measure::Bounded(Err(message)) => {
             refuse(native_ack.take(), "Provider frame failed to commit");
-            enqueue_failure(core, thread, message);
-            return Ack::AfterFlush(after_flush(core, thread));
+            enqueue_failure(core, actor, message);
+            return Ack::AfterFlush(after_flush(actor));
         }
         Measure::Bounded(Ok(bytes)) => bytes,
     };
     if bytes as u64 > limits.max_frame_bytes {
         refuse(native_ack.take(), "Provider frame failed to commit");
-        enqueue_failure(core, thread, "Provider frame capacity exceeded".to_string());
-        return Ack::AfterFlush(after_flush(core, thread));
+        enqueue_failure(core, actor, "Provider frame capacity exceeded".to_string());
+        return Ack::AfterFlush(after_flush(actor));
     }
     if overflowed {
         refuse(native_ack.take(), "Provider frame failed to commit");
@@ -134,7 +130,7 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     }
     // One promise per batch: the binding allocates it when this frame opens a batch, never per
     // frame, and a joined frame carries none of its own.
-    let deps = instance_deps(core, &actor);
+    let deps = instance_deps(core, actor);
     let opens_batch = actor.borrow().pending_ack.is_none();
     let js_ack = if opens_batch { deps.acks.alloc() } else { None };
     let stale = {
@@ -191,9 +187,9 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
             deps.acks.settle(call, None);
         }
     }
-    arm_batch_timer(core, &actor);
+    arm_batch_timer(core, actor);
     if seal_now {
-        seal_instance(core, &actor);
+        seal_instance(core, actor);
     }
     Ack::Batch(batch_call)
 }
@@ -217,23 +213,18 @@ fn refuse(ack: Option<oneshot::Sender<Result<(), String>>>, message: &str) {
 }
 
 /// A frame the actor must refuse visibly: the failing op, then the flush its promise waits on.
-fn enqueue_failure(core: &Rc<Core>, thread: &ThreadId, message: String) {
-    mailbox::enqueue(
+fn enqueue_failure(core: &Rc<Core>, actor: &ActorRef, message: String) {
+    mailbox::queue::enqueue_instance(
         core,
-        thread,
+        actor,
         Box::new(move |_, _| Err(EngineError::Port(PortError::Threw(message.clone())))),
     );
 }
 
 /// The receiver the shell's promise for an unaccepted frame waits on.
-fn after_flush(core: &Rc<Core>, thread: &ThreadId) -> oneshot::Receiver<()> {
+fn after_flush(actor: &ActorRef) -> oneshot::Receiver<()> {
     let (sender, receiver) = oneshot::channel();
-    core.with_state(|state| {
-        if let Some(mut actor) = state.actors.get_mut(thread) {
-            actor.flush_waiters.push(sender);
-        }
-    })
-    .ok();
+    actor.borrow_mut().flush_waiters.push(sender);
     receiver
 }
 

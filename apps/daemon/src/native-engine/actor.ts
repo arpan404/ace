@@ -26,6 +26,10 @@ export class FrameTable {
     this.now = now;
   }
 
+  clear(): void {
+    this.frames.clear();
+  }
+
   add(frame: Frame): number {
     const handle = this.next++;
     this.frames.set(handle, frame);
@@ -101,13 +105,10 @@ export function actorContext(
   frames: FrameTable,
   threads: FramePromises,
   threadId: string,
+  instance: string,
   generation: number,
   maxFrameBytes: number,
-  translator: Translator,
 ): ActorContext {
-  native.attachTranslatorHelper?.((_thread: string, request: string) =>
-    frames.translate(translator, request),
-  );
   return {
     onFrame(frame: Frame): Promise<void> {
       const input = frame as unknown;
@@ -137,6 +138,7 @@ export function actorContext(
         // frame allocates nothing.
         answer = native.actorFrame?.(
           threadId,
+          instance,
           generation,
           handle,
           data ?? {},
@@ -172,11 +174,11 @@ export function actorContext(
       return Promise.resolve();
     },
     outputFlow: {
-      paused: () => native.actorPaused?.(threadId) ?? false,
+      paused: () => native.actorPaused?.(threadId, instance) ?? false,
       wait: () =>
         new Promise<void>((resolve) => {
           const call = threads.alloc();
-          native.actorWait?.(threadId, call);
+          native.actorWait?.(threadId, instance, call);
           const promise = threads.promiseOf(call);
           if (promise === undefined) resolve();
           else

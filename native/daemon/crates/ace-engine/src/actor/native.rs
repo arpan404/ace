@@ -3,12 +3,12 @@
 //! without building a JavaScript object, and with `ProviderPayload`'s limits enforced where the
 //! bridge's constructor enforces them.
 
+use crate::Core;
 use crate::actor::flow::NativeFlow;
 use crate::actor::intake::{self, Ack, FrameInput, Measure};
-use crate::actor::state::FrameRef;
+use crate::actor::state::{ActorRef, FrameRef};
 use crate::frames::envelope::Envelope;
 use crate::futures::channel::oneshot;
-use crate::{Core, ThreadId};
 use ace_adapter_api::Frame;
 use ace_json::Value;
 use std::rc::Rc;
@@ -52,7 +52,7 @@ fn count_nodes(value: &Value) -> usize {
 #[allow(clippy::too_many_arguments)]
 pub fn native_frame(
     core: &Rc<Core>,
-    thread: &ThreadId,
+    actor: &ActorRef,
     generation: u64,
     frame: Frame,
     now: f64,
@@ -63,7 +63,7 @@ pub fn native_frame(
     let (sender, completion) = oneshot::channel();
     let ack = native_frame_ack(
         core,
-        thread,
+        actor,
         generation,
         frame,
         now,
@@ -79,7 +79,7 @@ pub fn native_frame(
 #[allow(clippy::too_many_arguments)]
 pub fn native_frame_ack(
     core: &Rc<Core>,
-    thread: &ThreadId,
+    actor: &ActorRef,
     generation: u64,
     frame: Frame,
     now: f64,
@@ -116,7 +116,7 @@ pub fn native_frame_ack(
     let sdk = frame.channel == "sdk";
     let ack = intake::frame(
         core,
-        thread,
+        actor,
         generation,
         FrameInput {
             frame: FrameRef::Native(Box::new(frame)),
@@ -127,7 +127,7 @@ pub fn native_frame_ack(
         },
     );
     // The flow mirror runs after each delivered frame (`:165`).
-    flow.mirror(core, thread, set_paused);
+    flow.mirror(core, actor, set_paused);
     ack
 }
 
