@@ -6,9 +6,11 @@
 
 pub mod branches;
 pub mod commit;
+pub mod context;
 pub mod fetch;
 pub mod integration;
 pub mod merge;
+pub mod private;
 pub mod projects;
 pub mod publication;
 pub mod push;

@@ -122,11 +122,13 @@ pub async fn stage_paths(
     port: &dyn CommandPort,
     root: &str,
     paths: Option<&[String]>,
+    is_windows: bool,
 ) -> Result<(), GitError> {
     let paths = match paths {
         Some(paths) => Some(validate_repo_paths(root, paths)?),
         None => None,
     };
+    crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
     let specs = person_pathspecs(&paths.unwrap_or_else(|| vec![".".to_owned()]));
     checked(port, add_command(root, &specs)).await?;
     Ok(())
@@ -268,7 +270,9 @@ mod tests {
         std::fs::write(repo.join(".ace-upload-1/file"), "private\n").expect("upload");
         let port = ProcessCommands { fixture: &fixture };
         let root = repo.to_string_lossy().into_owned();
-        stage_paths(&port, &root, None).await.expect("stage all");
+        stage_paths(&port, &root, None, false)
+            .await
+            .expect("stage all");
         let staged = crate::reads::status::state(&port, &root, &[])
             .await
             .expect("state");

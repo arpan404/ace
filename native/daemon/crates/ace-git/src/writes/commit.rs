@@ -30,6 +30,8 @@ pub struct CommitRequest {
     pub staged_only: bool,
     /// Stage exactly these listed paths, then commit the index (`stageListed`).
     pub stage_listed: Option<Vec<String>>,
+    /// The fingerprint the draft was written for; a mismatch refuses the commit.
+    pub draft_fingerprint: Option<String>,
 }
 
 fn invalid(message: impl Into<String>) -> GitError {
@@ -79,7 +81,9 @@ fn add_all(root: &str, paths: &[String]) -> Command {
 pub async fn commit_changes(
     port: &dyn CommandPort,
     root: &str,
+    temp_directory: &str,
     request: &CommitRequest,
+    is_windows: bool,
 ) -> Result<String, GitError> {
     let message = request.message.trim();
     if message.is_empty() {
@@ -124,6 +128,41 @@ pub async fn commit_changes(
             "ace's own Recently deleted files are staged; unstage them before committing",
         ));
     }
+    if let Some(fingerprint) = &request.draft_fingerprint {
+        // A staged-only commit's draft was written for the staged files.
+        let staged_paths: Vec<String> = state
+            .status
+            .staged
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect();
+        let drafted = crate::writes::context::draft_selection(
+            paths.as_ref(),
+            listed.as_ref(),
+            request.staged_only,
+            &staged_paths,
+        );
+        let matches = match drafted {
+            Some(drafted) if !drafted.is_empty() => {
+                crate::writes::context::writing_context(
+                    port,
+                    root,
+                    temp_directory,
+                    &crate::writes::context::SourceControlSelection::Commit { paths: drafted },
+                )
+                .await?
+                .fingerprint
+                    == *fingerprint
+            }
+            _ => false,
+        };
+        if !matches {
+            return Err(head_moved(
+                "Draft changes moved; regenerate or discard the draft",
+            ));
+        }
+    }
+    crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
     let named: Vec<String> = paths.clone().unwrap_or_default();
     if let Some(listed) = &listed {
         // The view listed these with nothing staged. Anything staged since (an agent's partial
@@ -215,6 +254,7 @@ mod tests {
             paths: None,
             staged_only: false,
             stage_listed: None,
+            draft_fingerprint: None,
         }
     }
 
@@ -235,7 +275,9 @@ mod tests {
         std::fs::write(repo.join("two.txt"), "two\n").expect("two");
         let mut all = request("  both changes \n");
         all.expected_head = Some(head(&fixture, &repo));
-        let commit = commit_changes(&port, &root, &all).await.expect("commit");
+        let commit = commit_changes(&port, &root, &fixture.root.to_string_lossy(), &all, false)
+            .await
+            .expect("commit");
         assert_eq!(commit, head(&fixture, &repo));
         let subject = String::from_utf8_lossy(&fixture.git(&repo, &["log", "-1", "--format=%s"]))
             .trim_end()
@@ -248,7 +290,9 @@ mod tests {
         let mut only = request("one only");
         only.expected_head = Some(head(&fixture, &repo));
         only.paths = Some(vec!["one.txt".to_owned()]);
-        commit_changes(&port, &root, &only).await.expect("only");
+        commit_changes(&port, &root, &fixture.root.to_string_lossy(), &only, false)
+            .await
+            .expect("only");
         let status = crate::reads::status::state(&port, &root, &[])
             .await
             .expect("status");
@@ -256,20 +300,32 @@ mod tests {
         assert_eq!(status.status.unstaged[0].path, "two.txt");
 
         // Staged only: the committed index is what the person staged.
-        crate::writes::stage::stage_paths(&port, &root, Some(&["two.txt".to_owned()]))
+        crate::writes::stage::stage_paths(&port, &root, Some(&["two.txt".to_owned()]), false)
             .await
             .expect("stage");
         let mut staged = request("staged only");
         staged.expected_head = Some(head(&fixture, &repo));
         staged.staged_only = true;
-        commit_changes(&port, &root, &staged)
-            .await
-            .expect("staged only");
+        commit_changes(
+            &port,
+            &root,
+            &fixture.root.to_string_lossy(),
+            &staged,
+            false,
+        )
+        .await
+        .expect("staged only");
         // Nothing staged is nothing to commit (with the new HEAD the caller now sees).
         staged.expected_head = Some(head(&fixture, &repo));
-        let error = commit_changes(&port, &root, &staged)
-            .await
-            .expect_err("nothing staged");
+        let error = commit_changes(
+            &port,
+            &root,
+            &fixture.root.to_string_lossy(),
+            &staged,
+            false,
+        )
+        .await
+        .expect_err("nothing staged");
         assert_eq!(error.code, GitErrorCode::NothingToCommit);
     }
 
@@ -282,17 +338,23 @@ mod tests {
         let mut moved = request("moved");
         moved.expected_head = Some("b".repeat(40));
         assert_eq!(
-            commit_changes(&port, &root, &moved)
+            commit_changes(&port, &root, &fixture.root.to_string_lossy(), &moved, false)
                 .await
                 .expect_err("moved")
                 .code,
             GitErrorCode::HeadMoved
         );
         assert_eq!(
-            commit_changes(&port, &root, &request("   "))
-                .await
-                .expect_err("empty")
-                .code,
+            commit_changes(
+                &port,
+                &root,
+                &fixture.root.to_string_lossy(),
+                &request("   "),
+                false
+            )
+            .await
+            .expect_err("empty")
+            .code,
             GitErrorCode::InvalidArgument
         );
         // A rename's old name is fine; no conflict is present in a one-commit checkout.
@@ -300,22 +362,34 @@ mod tests {
         unlisted.expected_head = Some(head(&fixture, &repo));
         std::fs::write(repo.join("listed.txt"), "listed\n").expect("listed");
         unlisted.stage_listed = Some(vec!["listed.txt".to_owned()]);
-        commit_changes(&port, &root, &unlisted)
-            .await
-            .expect("stage listed");
+        commit_changes(
+            &port,
+            &root,
+            &fixture.root.to_string_lossy(),
+            &unlisted,
+            false,
+        )
+        .await
+        .expect("stage listed");
         // A change staged meanwhile makes stageListed refuse.
         std::fs::write(repo.join("listed.txt"), "again\n").expect("again");
-        crate::writes::stage::stage_paths(&port, &root, Some(&["listed.txt".to_owned()]))
+        crate::writes::stage::stage_paths(&port, &root, Some(&["listed.txt".to_owned()]), false)
             .await
             .expect("stage");
         let mut meanwhile = request("listed again");
         meanwhile.expected_head = Some(head(&fixture, &repo));
         meanwhile.stage_listed = Some(vec!["listed.txt".to_owned()]);
         assert_eq!(
-            commit_changes(&port, &root, &meanwhile)
-                .await
-                .expect_err("meanwhile")
-                .code,
+            commit_changes(
+                &port,
+                &root,
+                &fixture.root.to_string_lossy(),
+                &meanwhile,
+                false
+            )
+            .await
+            .expect_err("meanwhile")
+            .code,
             GitErrorCode::StagedMeanwhile
         );
     }
@@ -342,9 +416,59 @@ mod tests {
         request.expected_head = crate::reads::info::head(&port, &repo.to_string_lossy())
             .await
             .expect("head");
-        commit_changes(&port, &repo.to_string_lossy(), &request)
-            .await
-            .expect("the message is within the code-point bound");
+        commit_changes(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &request,
+            false,
+        )
+        .await
+        .expect("the message is within the code-point bound");
+    }
+
+    #[tokio::test]
+    async fn a_draft_commits_only_while_its_fingerprint_still_describes_the_changes() {
+        let fixture = Fixture::new("g4a-draft");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy().into_owned();
+        std::fs::write(repo.join("file.txt"), "drafted\n").expect("draft");
+        let context = crate::writes::context::writing_context(
+            &port,
+            &root,
+            &fixture.root.to_string_lossy(),
+            &crate::writes::context::SourceControlSelection::Commit {
+                paths: vec!["file.txt".to_owned()],
+            },
+        )
+        .await
+        .expect("context");
+        let mut request = request("drafted");
+        request.expected_head = Some(head(&fixture, &repo));
+        request.paths = Some(vec!["file.txt".to_owned()]);
+        request.draft_fingerprint = Some(context.fingerprint.clone());
+        commit_changes(
+            &port,
+            &root,
+            &fixture.root.to_string_lossy(),
+            &request,
+            false,
+        )
+        .await
+        .expect("the draft matches");
+        // The same draft now describes old changes; the next commit must refuse it.
+        std::fs::write(repo.join("file.txt"), "moved\n").expect("moved");
+        let mut stale = request.clone();
+        stale.expected_head = Some(head(&fixture, &repo));
+        stale.draft_fingerprint = Some(context.fingerprint);
+        assert_eq!(
+            commit_changes(&port, &root, &fixture.root.to_string_lossy(), &stale, false,)
+                .await
+                .expect_err("moved")
+                .code,
+            GitErrorCode::HeadMoved
+        );
     }
 
     #[tokio::test]
@@ -369,10 +493,16 @@ mod tests {
             .await
             .expect("head");
         assert_eq!(
-            commit_changes(&port, &repo.to_string_lossy(), &request)
-                .await
-                .expect_err("conflicts")
-                .code,
+            commit_changes(
+                &port,
+                &repo.to_string_lossy(),
+                &fixture.root.to_string_lossy(),
+                &request,
+                false
+            )
+            .await
+            .expect_err("conflicts")
+            .code,
             GitErrorCode::Conflicts
         );
     }
