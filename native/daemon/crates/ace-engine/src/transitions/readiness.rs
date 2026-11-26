@@ -17,12 +17,12 @@
 //! decision of 2026-11-24 adds no fill, so the boot rebuild the TypeScript opener runs is the
 //! answer for every thread in a home this build opened.
 
-use crate::repository::collaborators::{MoveFacts, QuiescenceView};
+use crate::repository::collaborators::QuiescenceView;
 use crate::repository::residency::cell_text;
 use crate::snapshot::Snapshot;
 use crate::{EngineError, State};
 use ace_core::person_input::PersonInputFacts;
-use ace_core::state::{AgentRecord, ThreadState};
+use ace_core::state::AgentRecord;
 use ace_core::status::AgentStatus;
 use ace_store::{Value as Cell, stmt_cache};
 use std::cell::RefCell;
@@ -42,7 +42,7 @@ fn never_started(record: &AgentRecord) -> bool {
 }
 
 /// `agentReady` (`transition-readiness.ts:17`).
-fn agent_ready(record: &AgentRecord, now: i64) -> bool {
+pub(crate) fn agent_ready(record: &AgentRecord, now: i64) -> bool {
     if record.external_status.is_some() {
         return true;
     }
@@ -143,6 +143,74 @@ pub fn agents_ready(
     Ok(stmt_cache::get_row(conn, FIND, vec![Cell::Text(thread.to_owned())])?.is_none())
 }
 
+/// `TransitionReadiness.update` (`:59`): one agent's blocker row follows its record.
+fn update(
+    conn: &std::sync::Arc<ace_store::Connection>,
+    thread: &str,
+    key: &str,
+    state: &ace_core::state::ThreadState,
+    now: i64,
+) -> Result<(), EngineError> {
+    let ready = state
+        .agents
+        .get(key)
+        .is_none_or(|record| agent_ready(record, now));
+    let params = vec![Cell::Text(thread.to_owned()), Cell::Text(key.to_owned())];
+    if ready {
+        stmt_cache::run(conn, REMOVE, params)?;
+    } else {
+        stmt_cache::run(conn, PUT, params)?;
+    }
+    Ok(())
+}
+
+/// `TransitionReadiness.capture` (`:63`): the agents a batch's events touched get their blocker
+/// row from the state the batch produced. Events that name no known agent change nothing, and
+/// the order is the batch's own, as the TypeScript's `Set` keeps it.
+pub fn capture(
+    state: &ace_core::state::ThreadState,
+    conn: &std::sync::Arc<ace_store::Connection>,
+    events: &[ace_json::Value],
+    now: i64,
+) -> Result<(), EngineError> {
+    let mut changed: Vec<&str> = Vec::new();
+    for event in events {
+        let kind = event.get("type").and_then(ace_json::Value::as_str);
+        let id = match kind {
+            Some("agent.created") => event
+                .get("agent")
+                .and_then(|agent| agent.get("id"))
+                .and_then(ace_json::Value::as_str),
+            Some("agent.status" | "agent.updated") => {
+                event.get("agentId").and_then(ace_json::Value::as_str)
+            }
+            Some("run.started") => event
+                .get("run")
+                .and_then(|run| run.get("agentId"))
+                .and_then(ace_json::Value::as_str),
+            Some("run.ended") => event
+                .get("runId")
+                .and_then(ace_json::Value::as_str)
+                .and_then(|run| state.runs.get(run))
+                .map(|run| run.agent_id.as_str()),
+            _ => None,
+        };
+        let Some(key) = id
+            .and_then(|id| state.indexes.agent_keys_by_id.get(id))
+            .map(String::as_str)
+        else {
+            continue;
+        };
+        if !changed.contains(&key) {
+            changed.push(key);
+        }
+    }
+    for key in changed {
+        update(conn, &state.thread_id, key, state, now)?;
+    }
+    Ok(())
+}
+
 /// `quiescent` (`transition-history.ts:8`): the tree holds no live work and every agent is
 /// ready. The view carries the counts E5.3 loaded.
 pub fn quiescent(view: &QuiescenceView, agents_ready: bool) -> bool {
@@ -159,7 +227,7 @@ pub fn quiescent(view: &QuiescenceView, agents_ready: bool) -> bool {
 
 impl State {
     /// The engine's clock, as `TransitionReadiness`'s `now` (`transition-readiness.ts:40`).
-    fn readiness_now(&self) -> i64 {
+    pub(crate) fn readiness_now(&self) -> i64 {
         self.engine
             .upgrade()
             .map(|core| core.ports.now() as i64)
@@ -168,7 +236,7 @@ impl State {
 
     /// The thread's snapshot: resident, else loaded from the store. A caller never holds a
     /// borrow of it across these hooks (E5.3's collaborator rule).
-    fn readiness_snapshot(
+    pub(crate) fn readiness_snapshot(
         &mut self,
         thread: &str,
     ) -> Result<Option<Rc<RefCell<Snapshot>>>, EngineError> {
@@ -195,45 +263,6 @@ impl State {
             .try_borrow_mut()
             .map_err(|_| EngineError::Reentrant)?;
         refresh_blocked(&mut borrowed, now)
-    }
-}
-
-impl MoveFacts for State {
-    /// `readiness.capture` is E5.9's; it stays the trait's default.
-    /// `readiness.refreshBlocked`: the thread's blockers follow its agents, read through the
-    /// snapshot's records.
-    fn readiness_refresh_blocked(&mut self, state: &ThreadState) -> Result<(), EngineError> {
-        let now = self.readiness_now();
-        let thread = state.thread_id.clone();
-        self.refresh_blocked_now(&thread, now)
-    }
-
-    /// `readiness.agentsReady`.
-    fn readiness_agents_ready(&mut self, thread: &str) -> Result<bool, EngineError> {
-        let Some(core) = self.engine.upgrade() else {
-            return Ok(true);
-        };
-        agents_ready(core.store.conn(), thread)
-    }
-
-    /// `readiness.acceptsPersonInput`: the root is between turns and free for the next message,
-    /// read through the snapshot's records.
-    fn readiness_accepts_person_input(&mut self, state: &ThreadState) -> Result<bool, EngineError> {
-        let now = self.readiness_now();
-        let thread = state.thread_id.clone();
-        if self.readiness_snapshot(&thread)?.is_none() {
-            return Ok(ace_core::person_input::accepts_person_input(state, now));
-        }
-        accepts_person_input(self, &thread, now)
-    }
-
-    /// `quiescent` (`transition-history.ts:8`), over E5.3's view.
-    fn quiescent(
-        &mut self,
-        view: &QuiescenceView,
-        agents_ready: bool,
-    ) -> Result<bool, EngineError> {
-        Ok(quiescent(view, agents_ready))
     }
 }
 
@@ -339,6 +368,146 @@ mod tests {
             !error.to_string().is_empty(),
             "the decode error is reported, not swallowed as an absent root"
         );
+    }
+
+    #[test]
+    fn a_captured_batch_moves_only_the_blockers_whose_agents_it_names() {
+        let conn = home("t", &header("t"));
+        let mut state = state();
+        state.thread_id = "t".into();
+        let mut working = agent_json("a-root", "working", Some("run-1"));
+        working["activeRun"] = serde_json::json!("run-1");
+        state.agents.insert(
+            "root".into(),
+            serde_json::from_value(working).expect("a working root"),
+        );
+        state
+            .indexes
+            .agent_keys_by_id
+            .insert("a-root".into(), "root".into());
+        state.runs.insert(
+            "run-1".into(),
+            serde_json::from_value(serde_json::json!({
+                "id": "run-1", "threadId": "t", "agentId": "a-root", "trigger": "person", "state": "active", "startedAt": 1
+            }))
+            .expect("a run"),
+        );
+        let status = |kind: &str| {
+            vec![
+                ace_json::parse(&format!(r#"{{"type":"{kind}","agentId":"a-root"}}"#))
+                    .expect("event"),
+            ]
+        };
+        // The working root blocks a transition.
+        capture(&state, &conn, &status("agent.status"), 10).expect("capture");
+        assert!(!agents_ready(&conn, "t").expect("ready"));
+        // The same event after the batch made it idle clears the row.
+        state.agents.insert(
+            "root".into(),
+            serde_json::from_value(agent_json("a-root", "idle", None)).expect("idle root"),
+        );
+        capture(&state, &conn, &status("agent.status"), 10).expect("capture");
+        assert!(agents_ready(&conn, "t").expect("ready"));
+        // A blocker another agent holds is not touched by an event that names this one, nor by
+        // an event that names no known agent.
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'child')")
+            .expect("blocker");
+        let unknown = vec![
+            ace_json::parse(r#"{"type":"agent.updated","agentId":"ghost"}"#).expect("event"),
+            ace_json::parse(r#"{"type":"item.created","item":{"id":"i"}}"#).expect("event"),
+        ];
+        capture(&state, &conn, &unknown, 10).expect("capture");
+        assert!(!agents_ready(&conn, "t").expect("the child still blocks"));
+    }
+
+    #[test]
+    fn a_run_end_resolves_its_agent_through_the_states_run_index() {
+        let conn = home("t", &header("t"));
+        let mut state = state();
+        state.thread_id = "t".into();
+        state.agents.insert(
+            "child".into(),
+            serde_json::from_value(agent_json("a-child", "idle", None)).expect("a child"),
+        );
+        state
+            .indexes
+            .agent_keys_by_id
+            .insert("a-child".into(), "child".into());
+        state.runs.insert(
+            "run-2".into(),
+            serde_json::from_value(serde_json::json!({
+                "id": "run-2", "threadId": "t", "agentId": "a-child", "trigger": "agent", "state": "active", "startedAt": 1
+            }))
+            .expect("a run"),
+        );
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'child')")
+            .expect("blocker");
+        // A run.started whose agent id has ended and whose record is idle clears the row.
+        let events = vec![
+            ace_json::parse(r#"{"type":"run.ended","runId":"run-2","state":"done"}"#)
+                .expect("event"),
+        ];
+        capture(&state, &conn, &events, 10).expect("capture");
+        assert!(agents_ready(&conn, "t").expect("ready"));
+        // A run.segment that names no run leaves the row alone.
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'child')")
+            .expect("blocker");
+        let events = vec![
+            ace_json::parse(r#"{"type":"run.ended","runId":"gone","state":"done"}"#)
+                .expect("event"),
+        ];
+        capture(&state, &conn, &events, 10).expect("capture");
+        assert!(!agents_ready(&conn, "t").expect("still blocked"));
+    }
+
+    /// The smallest state the status rules accept, with the thread the home names.
+    fn state() -> ace_core::state::ThreadState {
+        serde_json::from_value(serde_json::json!({
+            "threadId": "t",
+            "config": { "provider": "claude", "silenceMs": 1000 },
+            "status": { "state": "done" },
+            "agents": {},
+            "runs": {},
+            "items": {},
+            "interactions": {},
+            "tasks": {},
+            "interactionHistory": {},
+            "taskHistory": {},
+            "indexes": {
+                "liveTools": {}, "pendingInteractions": {}, "runningTasks": {},
+                "agentKeysById": {}, "childrenByParent": {}, "pendingSpawnLinks": {},
+                "pendingItemLinks": {}
+            },
+            "outcomeOrder": 0,
+            "pendingNotices": [],
+            "itemLinks": {},
+            "queueCount": 0,
+            "queueSources": { "engine": 0, "provider": 0 },
+            "hasRun": false
+        }))
+        .expect("a state")
+    }
+
+    /// One agent record in the stored shape.
+    fn agent_json(id: &str, state: &str, run: Option<&str>) -> serde_json::Value {
+        let status = if state == "working" {
+            serde_json::json!({ "state": state, "activity": "thinking" })
+        } else {
+            serde_json::json!({ "state": state })
+        };
+        let mut record = serde_json::json!({
+            "agent": {
+                "id": id, "threadId": "t", "origin": "root",
+                "native": { "provider": "claude" }, "fidelity": "full", "cwd": "/w",
+                "status": status, "createdAt": 0
+            },
+            "activity": state,
+            "lastSignalAt": 0
+        });
+        if let Some(run) = run {
+            record["activeRun"] = serde_json::json!(run);
+        }
+        record
     }
 
     #[test]
