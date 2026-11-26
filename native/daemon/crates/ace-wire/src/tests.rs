@@ -243,6 +243,16 @@ fn browser_backend_server_messages_decode_on_the_worker_connection() {
 }
 
 #[test]
+fn items_window_rejects_before_plus_defaulted_after_at_two_hundred() {
+    assert!(
+        decode_client(
+            r#"{"type":"items.window","requestId":"r","threadId":"t","aroundSeq":10,"before":150}"#
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn a_plain_union_message_decodes_and_encodes_by_its_type() {
     let text = r#"{"type":"user_browser.register","requestId":"r","version":1,"browser":{"family":"chrome","version":"1","profileId":"p","extensionVersion":"1"}}"#;
     let decoded = decode_client(text).expect("a client message");

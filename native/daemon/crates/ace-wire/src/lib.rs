@@ -116,10 +116,10 @@ pub fn decode_client_value(value: Value) -> Result<ClientEnvelope, WireError> {
             type_: envelope.type_.clone(),
         });
     }
-    refine::client(&envelope.type_, &value)?;
-    // Zod fills defaults and applies transforms before its output exists; the generated type
-    // describes that output, so decode the value the shape table's parse produces.
+    // Zod fills defaults and applies transforms before its output exists; refinements run on
+    // that normalized value, not the raw body.
     let shaped = strip(shape, &value);
+    refine::client(&envelope.type_, &shaped)?;
     let message = decode_client_body(&envelope.type_, &shaped)
         .ok_or_else(|| WireError::UnknownType {
             type_: envelope.type_.clone(),
@@ -144,8 +144,8 @@ pub fn decode_server(text: &str) -> Result<ServerEnvelope, WireError> {
             type_: envelope.type_.clone(),
         });
     }
-    refine::server(&envelope.type_, &value)?;
     let shaped = strip(shape, &value);
+    refine::server(&envelope.type_, &shaped)?;
     let message = ace_protocol::wire::decode_server(&envelope.type_, &shaped)
         .ok_or_else(|| WireError::UnknownType {
             type_: envelope.type_.clone(),
