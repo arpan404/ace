@@ -14,15 +14,7 @@ use crate::transport::http::GhApi;
 use crate::transport::limits::ReadBudget;
 use crate::transport::mutation::MutationDispatch;
 
-/// A repository's identity on its forge.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoRef {
-    pub forge: String,
-    pub host: String,
-    pub owner: String,
-    pub name: String,
-}
+pub use crate::github::status::RepoRef;
 
 /// A repository row (`HostedRepository`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -108,8 +100,10 @@ fn parse_remote(value: &Value) -> Result<Remote, Kind> {
         .and_then(|login| login.as_str())
         .filter(|login| login.chars().count() <= 100)
         .ok_or(Kind::InvalidData)?;
+    // `description: z.string().max(4096).nullable()`: the key is required, null allowed.
     let description = match fields.get("description") {
-        None | Some(Value::Null) => None,
+        None => return Err(Kind::InvalidData),
+        Some(Value::Null) => None,
         Some(value) => Some(
             value
                 .as_str()
@@ -178,6 +172,13 @@ impl<'a> Repositories<'a> {
         input: &ListInput,
         cancellation: Option<std::sync::Arc<Cancellation>>,
     ) -> Result<Vec<HostedRepository>, ForgeError> {
+        if !matches!(input.visibility.as_str(), "all" | "public" | "private")
+            || !matches!(input.archived.as_str(), "all" | "yes" | "no")
+            || !matches!(input.fork.as_str(), "all" | "yes" | "no")
+            || input.query.chars().count() > 1_024
+        {
+            return Err(ForgeError::new(Kind::InvalidData));
+        }
         if input.host != self.host || input.account != self.account {
             return Err(ForgeError::new(Kind::Forbidden));
         }
@@ -277,6 +278,9 @@ impl<'a> Repositories<'a> {
         cancellation: Option<std::sync::Arc<Cancellation>>,
         dispatch: std::sync::Arc<MutationDispatch>,
     ) -> Result<HostedRepository, ForgeError> {
+        if !valid_name(&input.owner) || !valid_name(&input.name) {
+            return Err(ForgeError::new(Kind::InvalidData));
+        }
         if input.host != self.host || input.account != self.account {
             return Err(ForgeError::new(Kind::Forbidden));
         }
@@ -310,10 +314,22 @@ impl<'a> Repositories<'a> {
         let repository = hosted(&self.host, &response.body)
             .map_err(|_| ForgeError::new(Kind::OutcomeUncertain))?;
         if response.identity_changed {
-            return Err(ForgeError::new(Kind::OutcomeUncertain));
+            // The result exists but cannot be published under this identity: keep it.
+            let mut error = ForgeError::new(Kind::OutcomeUncertain);
+            error.receipt = ace_json::ser::to_string(&repository).ok().map(Value::from);
+            return Err(error);
         }
         Ok(repository)
     }
+}
+
+/// A repository owner or name: no separators, no traversal, bounded as the schema is.
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().count() <= 100
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', '?', '#', ' '])
 }
 
 #[cfg(test)]
@@ -449,6 +465,46 @@ mod tests {
                 input.account = String::from("someone-else");
                 let error = repositories.list(&input, None).await.expect_err("refused");
                 assert_eq!(error.kind, Kind::Forbidden);
+                assert!(stub.seen.lock().expect("seen").is_empty());
+            });
+    }
+
+    #[test]
+    fn input_the_schema_refuses_is_invalid_data() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = Stub::default();
+                let repositories = client(&stub);
+                let mut input = list_input();
+                input.visibility = String::from("PUBLIC");
+                assert_eq!(
+                    repositories
+                        .list(&input, None)
+                        .await
+                        .expect_err("invalid")
+                        .kind,
+                    Kind::InvalidData
+                );
+                let mut publish = PublishInput {
+                    host: String::from("github.com"),
+                    account: String::from("octo"),
+                    owner: String::from("a/../../x"),
+                    name: String::from("x"),
+                    description: String::new(),
+                    visibility: String::from("public"),
+                };
+                assert_eq!(
+                    repositories
+                        .create(&publish, None, Default::default())
+                        .await
+                        .expect_err("invalid")
+                        .kind,
+                    Kind::InvalidData
+                );
+                publish.owner = String::from("octo");
                 assert!(stub.seen.lock().expect("seen").is_empty());
             });
     }

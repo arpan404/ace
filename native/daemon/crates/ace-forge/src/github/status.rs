@@ -70,14 +70,21 @@ pub struct CommentRow {
     pub review_state: Option<String>,
 }
 
-/// The pull a status is asked about.
+/// A repository's identity on its forge (`ForgeRepository`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PrRef {
+pub struct RepoRef {
     pub forge: String,
     pub host: String,
     pub owner: String,
     pub name: String,
+}
+
+/// The pull a status is asked about (`ForgePrRef`): the repository, then the number.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrRef {
+    pub repository: RepoRef,
     pub number: i64,
 }
 
@@ -94,6 +101,8 @@ pub struct PrStatus {
     pub ci: String,
     pub checks: Vec<CheckRow>,
     pub comments: Vec<CommentRow>,
+    /// The protocol requires the field; a status without threads carries an empty list.
+    pub review_threads: Vec<Value>,
     pub raw: Value,
 }
 
@@ -279,6 +288,7 @@ pub fn map_pr(reference: &PrRef, input: &Value, checks: &[CheckRow]) -> Result<P
         ci: String::from(ci_status(checks)),
         checks: checks.to_vec(),
         comments: Vec::new(),
+        review_threads: Vec::new(),
         raw: redacted,
     })
 }
@@ -303,10 +313,12 @@ mod tests {
 
     fn reference() -> PrRef {
         PrRef {
-            forge: String::from("github"),
-            host: String::from("github.com"),
-            owner: String::from("octo"),
-            name: String::from("ace"),
+            repository: super::RepoRef {
+                forge: String::from("github"),
+                host: String::from("github.com"),
+                owner: String::from("octo"),
+                name: String::from("ace"),
+            },
             number: 7,
         }
     }
@@ -442,6 +454,10 @@ mod tests {
         assert_eq!(status.ci, "failure");
         assert_eq!(status.checks.len(), 1);
         assert_eq!(status.raw["extra"], json!("[REDACTED]"));
+        // The protocol's shape: `ref.repository` and the required thread list.
+        let text = ace_json::ser::to_string(&status).expect("serializes");
+        assert!(text.contains(r#""ref":{"repository":{"#), "{text}");
+        assert!(text.contains(r#""reviewThreads":[]"#), "{text}");
     }
 
     #[test]

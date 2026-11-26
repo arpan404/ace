@@ -843,7 +843,34 @@ fn unprocessable_kind(text: &str) -> Kind {
         Regex::new(r"(?i)not mergeable|merge conflict|stale").expect("compiles")
     });
     let message = body_message(text);
-    if NO_COMMITS.is_match(&message) {
+    // A validation failure names the field it refused (`http-errors.ts:19-46`).
+    let mut head = false;
+    let mut base = false;
+    let mut already_exists = false;
+    if let Ok(body) = ace_json::parse(text)
+        && let Some(errors) = body
+            .as_object()
+            .and_then(|fields| fields.get("errors"))
+            .and_then(|errors| errors.as_array())
+    {
+        for error in errors.iter().filter_map(|error| error.as_object()) {
+            match error.get("field").and_then(|value| value.as_str()) {
+                Some("head") => head = true,
+                Some("base") => base = true,
+                _ => {}
+            }
+            if error.get("code").and_then(|value| value.as_str()) == Some("already_exists") {
+                already_exists = true;
+            }
+        }
+    }
+    if head {
+        Kind::HeadMissing
+    } else if base {
+        Kind::BaseMissing
+    } else if already_exists {
+        Kind::Conflict
+    } else if NO_COMMITS.is_match(&message) {
         Kind::NoCommits
     } else if PR_EXISTS.is_match(&message) {
         Kind::PrExists
@@ -1333,6 +1360,47 @@ mod tests {
                 assert_eq!(outcome.expect_err("refused").kind, Kind::NoCommits);
                 assert!(dispatch.definitely_failed());
             });
+    }
+
+    #[test]
+    fn a_validation_refusal_names_the_field_it_refused() {
+        for (body, kind) in [
+            (
+                r#"{"message":"Validation Failed","errors":[{"field":"head","code":"invalid"}]}"#,
+                Kind::HeadMissing,
+            ),
+            (
+                r#"{"message":"Validation Failed","errors":[{"field":"base","code":"invalid"}]}"#,
+                Kind::BaseMissing,
+            ),
+            (
+                r#"{"message":"Validation Failed","errors":[{"code":"already_exists","message":"name already exists"}]}"#,
+                Kind::Conflict,
+            ),
+        ] {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime")
+                .block_on(async {
+                    let stub = stub(&[&api(body, "").replace("200 OK", "422 Unprocessable")]);
+                    let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                    let dispatch = std::sync::Arc::new(
+                        crate::transport::mutation::MutationDispatch::new(None),
+                    );
+                    let error = api_client
+                        .request(
+                            "repos/octo/ace/pulls",
+                            Some(json!({ "title": "x" })),
+                            None,
+                            None,
+                            dispatch,
+                        )
+                        .await
+                        .expect_err("refused");
+                    assert_eq!(error.kind, kind, "{body}");
+                });
+        }
     }
 
     #[test]

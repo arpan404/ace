@@ -211,7 +211,13 @@ impl<'a> Pinned<'a> {
             return Ok(result);
         }
         if !self.fresh() {
-            self.verify(&request).await?;
+            // A read has no effect: it runs beside its probe, and its answer is only returned
+            // once the probe proves the account it was read as (`pinned-runner.ts:89-98`).
+            let (checked, read) =
+                tokio::join!(self.verify(&request), self.runner.run(request.clone()));
+            checked?;
+            self.current()?;
+            return read;
         }
         let result = self.runner.run(request).await?;
         self.current()?;
@@ -423,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn a_moved_preference_marks_a_write_identity_changed() {
+    fn a_preference_that_moves_during_a_write_marks_it_identity_changed() {
         runtime().block_on(async {
             let stub = Stub {
                 replies: Mutex::new(vec![user("octo"), String::from("{}"), user("octo")]),

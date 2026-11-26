@@ -19,9 +19,11 @@ pub struct Account {
 }
 
 /// What the settings panel shows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Readiness {
+    /// `SourceControlReadiness.preferences` comes first and is required.
+    pub preferences: ace_json::Value,
     pub cli: &'static str,
     pub version: Option<String>,
     pub accounts: Vec<Account>,
@@ -75,8 +77,9 @@ pub fn parse_accounts(text: &str) -> Option<Vec<Account>> {
     Some(accounts)
 }
 
-fn status(cli: &'static str, version: Option<String>) -> Readiness {
+fn status(cli: &'static str, version: Option<String>, preferences: ace_json::Value) -> Readiness {
     Readiness {
+        preferences,
         cli,
         version,
         accounts: Vec::new(),
@@ -114,10 +117,11 @@ pub async fn github_readiness(
     runner: &dyn Runner,
     host: &str,
     expected: Option<&str>,
+    preferences: ace_json::Value,
     now: std::sync::Arc<dyn Fn() -> f64 + Send + Sync>,
     cancellation: Option<std::sync::Arc<Cancellation>>,
 ) -> Readiness {
-    let mut readiness = status("unavailable", None);
+    let mut readiness = status("unavailable", None, preferences);
     let run = |args: Vec<String>| {
         let mut request = CommandRequest::new("gh", args);
         if let Some(cancellation) = &cancellation {
@@ -297,9 +301,15 @@ mod tests {
             .expect("runtime")
             .block_on(async {
                 let stub = Stub::default();
-                let readiness =
-                    github_readiness(&stub, "github.com", None, std::sync::Arc::new(|| 0.0), None)
-                        .await;
+                let readiness = github_readiness(
+                    &stub,
+                    "github.com",
+                    None,
+                    ace_json::json!({}),
+                    std::sync::Arc::new(|| 0.0),
+                    None,
+                )
+                .await;
                 assert_eq!(readiness.cli, "unavailable");
                 assert_eq!(readiness.api, "unavailable");
                 assert!(readiness.instructions.contains("Install GitHub CLI"));
@@ -327,6 +337,7 @@ mod tests {
                     &stub,
                     "github.com",
                     Some("octo"),
+                    ace_json::json!({}),
                     std::sync::Arc::new(|| 0.0),
                     None,
                 )
@@ -359,6 +370,7 @@ mod tests {
                     &stub,
                     "github.com",
                     Some("octo"),
+                    ace_json::json!({}),
                     std::sync::Arc::new(|| 0.0),
                     None,
                 )
