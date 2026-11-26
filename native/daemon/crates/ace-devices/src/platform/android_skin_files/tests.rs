@@ -151,3 +151,85 @@ fn a_skin_images_data_url_names_its_real_type() {
         "data:image/webp;base64,d2VicA=="
     );
 }
+
+#[test]
+fn a_config_read_asks_for_the_files_it_has_not_seen_and_answers_once_it_has() {
+    let read = files(&[
+        ("/ace/avd/Pixel.ini", "path=/elsewhere/Pixel.avd\n"),
+        (
+            "/elsewhere/Pixel.avd/config.ini",
+            "hw.device.name=pointed\n",
+        ),
+    ]);
+    let ConfigStep::Config(config) = avd_config_step("Pixel", &roots(ROOT), &read) else {
+        panic!("every config file the read needs is present");
+    };
+    assert_eq!(
+        config,
+        vec![("hw.device.name".to_string(), "pointed".to_string())]
+    );
+    // With nothing read yet, the read names the pointer and the folder beside it.
+    let nothing = |_: &str| None;
+    match avd_config_step("Pixel", &roots(ROOT), &nothing) {
+        ConfigStep::Read(paths) => assert_eq!(
+            paths,
+            vec![
+                "/ace/avd/Pixel.ini".to_string(),
+                "/ace/avd/Pixel.avd/config.ini".to_string()
+            ]
+        ),
+        ConfigStep::Config(_) => panic!("nothing was read"),
+    }
+    // Once the pointer is read, the folder it names is asked for too.
+    let pointer_only = files(&[("/ace/avd/Pixel.ini", "path=/elsewhere/Pixel.avd\n")]);
+    match avd_config_step("Pixel", &roots(ROOT), &pointer_only) {
+        ConfigStep::Read(paths) => assert_eq!(
+            paths,
+            vec![
+                "/elsewhere/Pixel.avd/config.ini".to_string(),
+                "/ace/avd/Pixel.avd/config.ini".to_string()
+            ]
+        ),
+        ConfigStep::Config(_) => panic!("no config was read"),
+    }
+}
+
+#[test]
+fn a_layout_read_asks_for_each_skin_folders_layout_until_one_answers() {
+    let directories = vec![
+        "/ace/sdk/skins/missing".to_string(),
+        "/ace/sdk/skins/pixel_7".to_string(),
+    ];
+    let nothing = |_: &str| None;
+    match skin_layout_step(&directories, &nothing) {
+        LayoutStep::Read(paths) => assert_eq!(
+            paths,
+            vec![
+                "/ace/sdk/skins/missing/layout".to_string(),
+                "/ace/sdk/skins/pixel_7/layout".to_string()
+            ]
+        ),
+        LayoutStep::Layout(..) => panic!("nothing was read"),
+    }
+    let read = files(&[("/ace/sdk/skins/pixel_7/layout", "layouts {}\n")]);
+    match skin_layout_step(&directories, &read) {
+        LayoutStep::Layout(directory, layout) => {
+            assert_eq!(directory, "/ace/sdk/skins/pixel_7");
+            assert_eq!(layout, "layouts {}\n");
+        }
+        LayoutStep::Read(_) => panic!("the second folder has a layout"),
+    }
+}
+
+#[test]
+fn a_skin_plan_carries_the_corner_each_image_is_measured_from() {
+    let layout = "parts {\n  device {\n    display {\n      width 1080\n      height 2400\n    }\n  }\n  portrait {\n    background {\n      image back.webp\n    }\n    foreground {\n      mask mask.png\n    }\n  }\n}\nlayouts {\n  portrait {\n    width 1200\n    height 2541\n    p1 {\n      name device\n      x 59\n      y 58\n    }\n    p2 {\n      name portrait\n      x 0\n      y 0\n    }\n  }\n}\n";
+    let tree = crate::platform::android_skin::parse_skin_layout(layout);
+    let opening = crate::platform::android_skin::opening(&tree).expect("an opening");
+    let plan = opening.plan();
+    assert_eq!(plan.back_corner, Some((59, 58)));
+    assert_eq!(plan.reach, opening.reach());
+    assert_eq!(plan.opening(), opening);
+    assert_eq!(plan.background, "back.webp");
+    assert_eq!(plan.mask.as_deref(), Some("mask.png"));
+}

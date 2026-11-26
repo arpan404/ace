@@ -5,6 +5,7 @@
 //! in, the `DeviceChrome` goes out.
 
 use ace_json::write_number;
+use serde::{Deserialize, Serialize};
 
 use super::chrome::{Body, Chrome, Cutout, Rect, svg_url};
 
@@ -171,7 +172,55 @@ pub struct Opening {
     pub short: f64,
 }
 
+/// What the shell needs to read a skin's images and build its look: the opening's geometry and
+/// the diagonal each image's corner is measured along.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkinPlan {
+    pub width: f64,
+    pub height: f64,
+    pub x: f64,
+    pub y: f64,
+    pub background: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<String>,
+    pub short: f64,
+    pub reach: usize,
+    /// Where the backdrop's scan starts, when the display's corner is a whole pixel of it.
+    #[serde(rename = "backCorner", default)]
+    pub back_corner: Option<(u32, u32)>,
+}
+
+impl SkinPlan {
+    /// The opening this plan draws.
+    pub fn opening(&self) -> Opening {
+        Opening {
+            width: self.width,
+            height: self.height,
+            x: self.x,
+            y: self.y,
+            background: self.background.clone(),
+            mask: self.mask.clone(),
+            short: self.short,
+        }
+    }
+}
+
 impl Opening {
+    /// This opening as the shell reads it.
+    pub fn plan(&self) -> SkinPlan {
+        SkinPlan {
+            width: self.width,
+            height: self.height,
+            x: self.x,
+            y: self.y,
+            background: self.background.clone(),
+            mask: self.mask.clone(),
+            short: self.short,
+            reach: self.reach(),
+            back_corner: self.back_corner(),
+        }
+    }
+
     /// How many steps along the diagonal a corner's scan takes.
     pub fn reach(&self) -> usize {
         let span = self.short / 2.0 * (1.0 - std::f64::consts::FRAC_1_SQRT_2);

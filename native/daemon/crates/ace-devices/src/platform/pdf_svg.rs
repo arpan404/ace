@@ -7,7 +7,7 @@ use super::pdf_paint::Painter;
 use super::pdf_style::{initial_state, round};
 
 /// A page drawn as SVG: its size in PDF units and the markup.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SvgArt {
     pub width: f64,
     pub height: f64,
@@ -43,6 +43,12 @@ pub fn pdf_art(bytes: &[u8], prefix: &str) -> Option<SvgArt> {
         height,
         svg: format!("{defs}{body}"),
     })
+}
+
+/// Base64 text as bytes, as a data URL or an answer carries them.
+pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.decode(text).ok()
 }
 
 /// Art as a standalone SVG document, drawn at its own size.

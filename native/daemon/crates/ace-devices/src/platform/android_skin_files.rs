@@ -158,3 +158,81 @@ pub fn skin_layout(
 
 #[cfg(test)]
 mod tests;
+
+/// A config read as far as the files read so far allow.
+pub enum ConfigStep {
+    /// Config files whose text the read still needs, in the order it needs them.
+    Read(Vec<String>),
+    /// The AVD's config, as `avd_config` reads it once every file is present.
+    Config(Vec<(String, String)>),
+}
+
+/// `avd_config` as a step: the config when the files read so far hold it, else what to read.
+pub fn avd_config_step(
+    avd: &str,
+    avd_roots: &[String],
+    read: &dyn Fn(&str) -> Option<String>,
+) -> ConfigStep {
+    let mut missing: Vec<String> = Vec::new();
+    for root in avd_roots {
+        let pointer_path = join(&[root, &format!("{avd}.ini")]);
+        let pointer = match read(&pointer_path) {
+            Some(text) => Some(ini_values(&text)),
+            None => {
+                if !missing.contains(&pointer_path) {
+                    missing.push(pointer_path);
+                }
+                None
+            }
+        };
+        let pointed = pointer
+            .as_ref()
+            .and_then(|values| value(values, "path"))
+            .filter(|path| is_absolute(path))
+            .map(str::to_string);
+        let directories: Vec<String> = pointed
+            .into_iter()
+            .chain([join(&[root, &format!("{avd}.avd")])])
+            .collect();
+        for directory in directories {
+            let config_path = join(&[&directory, "config.ini"]);
+            match read(&config_path) {
+                Some(config) => return ConfigStep::Config(ini_values(&config)),
+                None => {
+                    if !missing.contains(&config_path) {
+                        missing.push(config_path);
+                    }
+                }
+            }
+        }
+    }
+    ConfigStep::Read(missing)
+}
+
+/// A layout read as far as the files read so far allow.
+pub enum LayoutStep {
+    /// Layout files whose text the read still needs, in the order it needs them.
+    Read(Vec<String>),
+    /// The first skin directory with a layout, and that layout's text.
+    Layout(String, String),
+}
+
+/// `skin_layout` as a step: the layout when the files read so far hold it, else what to read.
+pub fn skin_layout_step(
+    directories: &[String],
+    read: &dyn Fn(&str) -> Option<String>,
+) -> LayoutStep {
+    let mut missing: Vec<String> = Vec::new();
+    for directory in directories {
+        let layout_path = join(&[directory, "layout"]);
+        match read(&layout_path) {
+            Some(layout) => return LayoutStep::Layout(directory.clone(), layout),
+            None => {
+                if !missing.contains(&layout_path) {
+                    missing.push(layout_path);
+                }
+            }
+        }
+    }
+    LayoutStep::Read(missing)
+}

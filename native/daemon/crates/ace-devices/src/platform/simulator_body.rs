@@ -20,7 +20,7 @@ pub const PIECES: [&str; 8] = [
 ];
 
 /// One piece of art stretched over `rect` of the body (edges stretch, corners don't).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlacedPiece {
     pub art: SvgArt,
     pub rect: Rect,

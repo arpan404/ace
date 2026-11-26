@@ -4,7 +4,7 @@
 //! lists every screen in `capabilities.plist` instead, each with its own chrome and mask, so a
 //! foldable iPhone Duo has a cover panel and an inner panel. Pure: parsed JSON in, panels out.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::posture::{Posture, is_open};
 
@@ -26,7 +26,7 @@ fn name(value: Option<&ace_json::Value>) -> Option<String> {
 }
 
 /// One built-in screen: its size in points, the chrome it wears, its mask and its notch.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimulatorPanel {
     pub width: f64,
     pub height: f64,
