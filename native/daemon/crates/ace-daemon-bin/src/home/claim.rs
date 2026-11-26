@@ -214,7 +214,6 @@ fn openers(files: &[PathBuf]) -> Vec<i64> {
     }
 }
 
-
 fn lock_owner(root: &Path) -> Option<i64> {
     let text = std::fs::read_to_string(root.join("daemon-lock")).ok()?;
     let value: serde_json::Value = serde_json::from_str(text.get(..256).unwrap_or(&text)).ok()?;
