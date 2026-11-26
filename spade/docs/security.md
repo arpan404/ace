@@ -674,7 +674,6 @@ organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.
   inside tools or performed in a logged-in browser, ace child, plugin, or bot
   code can escape that judgment. Ace children use ace's own permissions.
 
-
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
   copies on other volumes don't).
 - Egress for Windows runs without opening the network (ADR 0167 amendment 2, "Networked runs
@@ -690,11 +689,9 @@ organization's policy, and their steps go on a signed audit log: [orgs.md](orgs.
   strict); Spade reads it once it does.
 - `own_only` for `pr_comment` grants (whether the bot opened the pull request).
 
-
 Normal sandboxed commands on macOS and Linux get a workspace-owned `TMPDIR`.
 The shell maps a plain `cd /tmp` to that folder. Host temporary storage stays
 outside the sandbox's filesystem grants.
-
 
 On macOS, a Full access shell command outside the workspace sandbox keeps open
 network access under a Seatbelt profile that denies file access to known

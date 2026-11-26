@@ -809,7 +809,6 @@ address restrictions. Package network ceilings still apply. A change of
 autonomy revokes live tickets whose policy no longer applies, using the
 lock that serializes network policy changes with ticket issuance.
 
-
 Sandboxed commands use `TMPDIR` inside the bot's workspace. Normal shell runs on
 Seatbelt and Linux translate a plain `cd /tmp` to that directory. Absolute paths
 into host temporary storage remain outside the filesystem policy.

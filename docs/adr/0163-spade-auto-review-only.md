@@ -357,14 +357,12 @@ checkpoints stay in place for contained runs. An explicit outside request uses t
 existing outside launch binding, with Full access as its authorization. A command
 whose launch cannot be bound is refused. See ADR 0167 for the egress policy.
 
-
 Auto-review sends ordinary deterministic concerns to the reviewer, including tainted app
 calls, task changes, undeclared effects and explicit requests to leave the sandbox.
 The first model refusal goes to the bot. A later model refusal of the same call and
 review context reaches the person. Oversized input, review outages, and altered or
 unreadable launch bindings return errors to the bot. The three person-only effects
 always ask in both modes, even under a stored Always allow or matching grant. Organization authorization stays independent.
-
 
 ### Full access security review
 
@@ -380,7 +378,6 @@ other platforms without this guard refuse those launches. Full access declines
 connector forms. An intervening write or new untrusted result invalidates a
 reusable allow. A stored escalation needs matching review context and a prior
 refusal to replay.
-
 
 The macOS guard denies renaming, unlinking, or replacing credential path ancestors below the home directory.
 The macOS guard blocks common execution brokers and Apple Events. Guarded

@@ -343,6 +343,14 @@ export class IntentStore {
       ).get(id, except),
     );
   }
+  /** A compaction is pending, queued or running: another waits instead of doubling it. */
+  compacting(id: ThreadId, except = 0): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE thread_id=? AND kind='thread.compact' AND status IN ('pending','queued','running') AND id<>? LIMIT 1",
+      ).get(id, except),
+    );
+  }
   resolvingInteractions(id: ThreadId): ReadonlySet<InteractionId> {
     return new Set(
       this.sql(
