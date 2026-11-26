@@ -19,8 +19,8 @@ pub(crate) struct Job {
     pub origin: Option<InputSource>,
     /// The send's fence: asked again when the queue reaches this job (`session.ts:718`).
     pub fence: Option<super::input::Fence>,
-    /// The prompt this steer was admitted under. Once it settles, the turn it joined has
-    /// ended and the job is stale, whatever the fence last said (`session.ts:718`).
+    /// The turn's prompt this fenced steer was admitted for (`input.rs::aimed_at`). Set only
+    /// for a fence that names a turn; see `drain` for why a set `aim` is stale there.
     pub aim: Option<ace_supervisor::jsonrpc::RpcId>,
     pub batch: u64,
     pub bytes: usize,
@@ -87,8 +87,13 @@ impl AcpCore {
                 .get(&job.batch)
                 .is_some_and(|batch| batch.sent_prompt);
             // `next.fence && !next.fence.current() && !next.batch.written`
-            // (`session.ts:718`): the fence answers for the turn it named, and that turn's
-            // prompt has settled by the time the queue reaches a job it held.
+            // (`session.ts:718`), plus one rule this port adds on purpose: an aimed job is
+            // stale here even when the fence still reads current. `drain` runs only while
+            // nothing is active, so the prompt an aimed steer named has already settled; the
+            // engine may not have applied that turn's end frames yet, which is why its fence
+            // can still answer "current". TS would send the steer as the next prompt; Rust
+            // refuses it so a steer never joins another run, and the engine requeues it
+            // (`intent-delivery.ts:147`). Recorded in `docs/engine/behaviour.md` section 20.
             let stale =
                 job.fence.as_ref().is_some_and(|fence| !fence.current()) || job.aim.is_some();
             if stale && !prompt_written {
