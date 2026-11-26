@@ -45,7 +45,8 @@ impl Abort {
         for hook in hooks {
             hook();
         }
-        // A stored permit covers a waiter that checks, then waits, between the two.
+        // `notify_waiters` stores no permit: it wakes only the waiters registered now, which is
+        // why `wait` registers before it reads the flag.
         self.inner.notify.notify_waiters();
     }
 
@@ -75,10 +76,16 @@ impl Abort {
     /// Resolves once the signal aborts.
     pub async fn wait(&self) {
         loop {
+            // Register interest before reading the flag. `notify_waiters` stores no permit, so
+            // an abort landing between the check and the await would otherwise be lost; with
+            // `enable` first, either the abort sees this waiter or the check sees the abort.
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             if self.aborted() {
                 return;
             }
-            self.inner.notify.notified().await;
+            notified.await;
         }
     }
 
@@ -206,6 +213,39 @@ mod tests {
         second.abort();
         assert!(fused.aborted());
         assert!(!first.aborted());
+    }
+
+    #[tokio::test]
+    async fn a_wait_created_before_an_abort_returns_when_it_is_polled() {
+        let signal = Abort::new();
+        let waiting = signal.wait();
+        signal.abort();
+        tokio::time::timeout(std::time::Duration::from_millis(100), waiting)
+            .await
+            .expect("a wait parked on an abort it never saw");
+    }
+
+    #[test]
+    fn an_abort_racing_a_wait_is_never_lost() {
+        // Another OS thread, so the abort can land between a waiter's check and its
+        // registration: the window `notify_waiters` alone cannot cover.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("runtime");
+        for iteration in 0..1_000 {
+            let signal = Abort::new();
+            let aborting = signal.clone();
+            let aborter = std::thread::spawn(move || aborting.abort());
+            let waited = runtime.block_on(async {
+                tokio::time::timeout(std::time::Duration::from_millis(50), signal.wait()).await
+            });
+            aborter.join().expect("aborter");
+            assert!(
+                waited.is_ok(),
+                "an abort raced a wait and was lost, iteration {iteration}"
+            );
+        }
     }
 
     #[test]
