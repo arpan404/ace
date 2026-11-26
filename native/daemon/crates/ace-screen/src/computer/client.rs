@@ -57,8 +57,9 @@ pub type Spawner = Arc<
         + Sync,
 >;
 
-/// Everything the pool needs (`client.ts:20`). `Default` is the daemon's own shape with no way
-/// to start a helper, so a test only sets what it drives.
+/// Everything the pool needs (`client.ts:20`). The helper's path and the id generator are
+/// required: the generator is never defaulted, because a cancel's acknowledgment must never
+/// share the action's id (see `ConnectionOptions::new`).
 pub struct ComputerClientOptions {
     /// The installed helper executable, resolved before every start.
     pub helper: HelperPath,
@@ -88,10 +89,15 @@ pub struct ComputerClientOptions {
     pub timing: Option<Arc<dyn Fn(RequestTiming) + Send + Sync>>,
 }
 
-impl Default for ComputerClientOptions {
-    fn default() -> Self {
-        Self {
-            helper: Arc::new(|| Box::pin(async { Err(ComputerError::helper_unavailable()) })),
+impl ComputerClientOptions {
+    /// A pool ready for production once a spawner is set (`client.ts:20`): the helper's path and
+    /// the id generator are the caller's, never invented here.
+    pub fn new(
+        helper: HelperPath,
+        next_id: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> ComputerClientOptions {
+        ComputerClientOptions {
+            helper,
             environment: Arc::new(|| Box::pin(async { Ok(Vec::new()) })),
             helper_args: Vec::new(),
             spawn: Arc::new(|_, _, _, _| Err(ComputerError::helper_unavailable())),
@@ -103,7 +109,7 @@ impl Default for ComputerClientOptions {
             max_helpers: 6,
             max_reply_bytes: 32 * 1024 * 1024,
             now: Arc::new(|| 0.0),
-            next_id: Arc::new(|| "0".to_owned()),
+            next_id,
             timing: None,
         }
     }

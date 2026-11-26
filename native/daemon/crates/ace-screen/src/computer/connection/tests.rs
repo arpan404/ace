@@ -67,7 +67,11 @@ impl Helper {
         let Some(line) = writes.get(index) else {
             panic!("no write {index} to reply to");
         };
-        let id = id_in(line);
+        self.reply_to(&id_in(line), result);
+    }
+
+    /// Answer a line by the id it carried, whoever asked.
+    fn reply_to(&self, id: &str, result: &str) {
         self.output(&format!(
             "{{\"id\":\"{id}\",\"ok\":true,\"result\":{result}}}\n"
         ));
@@ -185,14 +189,14 @@ impl HelperStart for FakeStart {
 
 fn options(start: Arc<FakeStart>) -> ConnectionOptions {
     let ids = Arc::new(AtomicU32::new(0));
-    ConnectionOptions {
+    let mut options = ConnectionOptions::new(
         start,
-        next_id: Arc::new(move || format!("r{}", ids.fetch_add(1, Ordering::Relaxed) + 1)),
-        max_reply_bytes: 1024 * 1024,
-        grace_ms: 30,
-        force_kill_ms: 60,
-        ..ConnectionOptions::default()
-    }
+        Arc::new(move || format!("r{}", ids.fetch_add(1, Ordering::Relaxed) + 1)),
+    );
+    options.max_reply_bytes = 1024 * 1024;
+    options.grace_ms = 30;
+    options.force_kill_ms = 60;
+    options
 }
 
 fn payload() -> Map {
@@ -360,4 +364,54 @@ async fn while_a_stopping_helper_cannot_be_killed_the_apps_next_request_fails_in
     assert_eq!(error.code, "helper_stopping");
     assert_eq!(start.spawned(), 1, "no successor while the helper lives");
     assert!(!start.helper(0).exited.load(Ordering::Relaxed));
+}
+
+/// A cancel's acknowledgment carries its own id, so it can never satisfy the action it
+/// cancelled: the action keeps waiting for the helper's own reply and keeps the steps it did
+/// (`helper-connection.ts:299`, `:374`-`:381`).
+#[tokio::test]
+async fn a_cancels_acknowledgment_never_answers_the_action_it_cancelled() {
+    let start = Arc::new(FakeStart::default());
+    let mut options = options(Arc::clone(&start));
+    options.grace_ms = 5_000;
+    let connection = Connection::start(options);
+    let stop = CancellationToken::new();
+    let acting = tokio::spawn({
+        let connection = connection.clone();
+        let stop = stop.clone();
+        async move {
+            connection
+                .request("act", &payload(), 10_000, Some(stop), None)
+                .await
+        }
+    });
+    until("the act on the wire", || {
+        start.spawned() == 1 && start.helper(0).writes().len() == 1
+    })
+    .await;
+    stop.cancel();
+    until("the cancel on the wire", || {
+        start.helper(0).writes().len() == 2
+    })
+    .await;
+    let act_id = id_in(&start.helper(0).writes()[0]);
+    let cancel_id = id_in(&start.helper(0).writes()[1]);
+    assert_ne!(act_id, cancel_id, "every line carries a fresh id");
+    // The helper acknowledges the cancel at once; that is not the action's reply.
+    start
+        .helper(0)
+        .reply_to(&cancel_id, r#"{"cancelled":true}"#);
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    assert!(!acting.is_finished(), "the acknowledgment settled the act");
+    start.helper(0).reply(0, r#"{"done":["did key"]}"#);
+    let error = acting
+        .await
+        .unwrap_or_else(|_| panic!("request task"))
+        .unwrap_err();
+    assert_eq!(error.code, "cancelled");
+    assert_eq!(
+        error.result,
+        Some(ace_json::json!({ "done": ["did key"] })),
+        "the action's own reply, not the cancel's acknowledgment"
+    );
 }

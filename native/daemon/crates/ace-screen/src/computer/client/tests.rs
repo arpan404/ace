@@ -123,14 +123,15 @@ impl FakeWorld {
 }
 
 fn client(world: &FakeWorld, configure: impl FnOnce(&mut ComputerClientOptions)) -> ComputerClient {
-    let mut options = ComputerClientOptions {
-        spawn: world.spawner(),
-        helper: Arc::new(|| Box::pin(async { Ok("/fake/ace-screen-helper".to_owned()) })),
-        environment: Arc::new(|| Box::pin(async { Ok(Vec::new()) })),
-        grace_ms: 50,
-        force_kill_ms: 100,
-        ..ComputerClientOptions::default()
-    };
+    let ids = Arc::new(AtomicU32::new(0));
+    let mut options = ComputerClientOptions::new(
+        Arc::new(|| Box::pin(async { Ok("/fake/ace-screen-helper".to_owned()) })),
+        Arc::new(move || format!("r{}", ids.fetch_add(1, Ordering::Relaxed) + 1)),
+    );
+    options.spawn = world.spawner();
+    options.environment = Arc::new(|| Box::pin(async { Ok(Vec::new()) }));
+    options.grace_ms = 50;
+    options.force_kill_ms = 100;
     configure(&mut options);
     ComputerClient::new(options)
 }

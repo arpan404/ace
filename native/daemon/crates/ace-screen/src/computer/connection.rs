@@ -72,15 +72,6 @@ pub trait Dispatch: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
 }
 
-/// A start that always fails: the shape a `Default` option carries.
-struct NoStart;
-
-impl HelperStart for NoStart {
-    fn start(&self, _events: Arc<dyn ChildEvents>) -> StartFuture {
-        Box::pin(async { Err(ComputerError::helper_unavailable()) })
-    }
-}
-
 /// Everything one connection needs (`helper-connection.ts:16`).
 pub struct ConnectionOptions {
     pub start: Arc<dyn HelperStart>,
@@ -100,11 +91,17 @@ pub struct ConnectionOptions {
     pub timing: Option<Arc<dyn Fn(RequestTiming) + Send + Sync>>,
 }
 
-impl Default for ConnectionOptions {
-    fn default() -> Self {
-        Self {
-            start: Arc::new(NoStart),
-            next_id: Arc::new(|| "0".to_owned()),
+impl ConnectionOptions {
+    /// The two things a connection cannot invent: how to start a helper, and the id generator
+    /// every line carries (`helper-connection.ts:20`, `:18`). Never defaulted: two lines that
+    /// share an id let a cancel's acknowledgment answer the action it cancelled.
+    pub fn new(
+        start: Arc<dyn HelperStart>,
+        next_id: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> ConnectionOptions {
+        ConnectionOptions {
+            start,
+            next_id,
             now: Arc::new(|| 0.0),
             max_reply_bytes: 32 * 1024 * 1024,
             grace_ms: 3_000,
