@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Cases moved from the six TypeScript host process files (owner decision, 2026-11-25). Each
-//! Rust test keeps the TypeScript case's name and asserts the daemon side the core owns; the
-//! TypeScript cases themselves are deleted from those files, so nothing exists twice.
+//! Rust test keeps the TypeScript case's words, in snake case without the apostrophe or quotation
+//! marks a Rust identifier cannot hold, and asserts the daemon side the core owns; the TypeScript
+//! cases themselves are deleted from those files, so nothing exists twice.
 //!
 //! Moved one for one:
 //! - `host-ack`: "a storage acknowledgement that arrives after the host stopped waiting leaves the
@@ -166,7 +167,7 @@ fn a_cursor_host_survives_an_oversized_stderr_line_from_a_process_it_inherits_st
 }
 
 #[test]
-fn a_non_json_line_on_the_hosts_stdout_is_kept_as_raw_output_and_the_turn_goes_on() {
+fn a_non_json_line_on_the_hosts_stdout_is_kept_as_redacted_raw_output_and_the_turn_goes_on() {
     let mut host = core();
     let line = request_line("host:1", DELTA);
     let effects = feed(&mut host, &["console write", &line]);
