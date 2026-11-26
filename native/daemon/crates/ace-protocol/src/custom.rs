@@ -5,7 +5,7 @@
 
 use ace_json::{Map, Value};
 
-use crate::shape::{Custom, strip};
+use crate::shape::{Custom, fits, strip};
 
 /// `ThreadStatus` from `packages/protocol/src/thread-status.ts`.
 pub static THREAD_STATUS: Custom = Custom {
@@ -17,7 +17,21 @@ fn thread_status_fits(value: &Value) -> bool {
     let Value::Object(map) = value else {
         return false;
     };
-    matches!(map.get("state"), Some(Value::String(_)))
+    let Some(Value::String(state)) = map.get("state") else {
+        return false;
+    };
+    let state = state.as_str();
+    let length = state.chars().count();
+    if is_known_state(state) {
+        return fits(&crate::shapes::KNOWN_THREAD_STATUS, value);
+    }
+    if state == "unknown" {
+        return fits(&crate::shapes::KNOWN_THREAD_STATUS, value);
+    }
+    if length == 0 || length > 64 {
+        return false;
+    }
+    true
 }
 
 fn thread_status_strip(value: &Value) -> Option<Value> {
@@ -27,13 +41,8 @@ fn thread_status_strip(value: &Value) -> Option<Value> {
     let Some(Value::String(state)) = map.get("state") else {
         return Some(value.clone());
     };
-    if is_known_state(state.as_str()) {
+    if is_known_state(state.as_str()) || state.as_str() == "unknown" {
         return Some(strip(&crate::shapes::KNOWN_THREAD_STATUS, value));
-    }
-    // An `unknown` status with its `raw` is Zod's own output already (a typed producer wrote
-    // it); stripping it again would wrap it twice.
-    if state.as_str() == "unknown" && map.get("raw").is_some() {
-        return Some(value.clone());
     }
     let mut out = Map::with_capacity(2);
     out.insert("state", Value::String(ace_json::JsString::from("unknown")));
@@ -55,4 +64,48 @@ fn is_known_state(state: &str) -> bool {
             | "done"
             | "new"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use ace_json::{Value, parse};
+
+    use crate::custom::THREAD_STATUS;
+    use crate::shape::{Shape, fits, strip};
+
+    fn status() -> Shape {
+        Shape::Custom(&THREAD_STATUS)
+    }
+
+    #[test]
+    fn thread_status_rejects_an_empty_state() {
+        assert!(!fits(&status(), &parse(r#"{"state":""}"#).unwrap()));
+    }
+
+    #[test]
+    fn thread_status_rejects_a_state_longer_than_sixty_four_code_points() {
+        let state = "a".repeat(65);
+        assert!(!fits(
+            &status(),
+            &parse(&format!(r#"{{"state":"{state}"}}"#)).unwrap()
+        ));
+    }
+
+    #[test]
+    fn thread_status_unknown_strips_extra_keys() {
+        let text = r#"{"state":"unknown","raw":{},"extra":1}"#;
+        let stripped = strip(&status(), &parse(text).unwrap());
+        assert_eq!(
+            ace_json::to_string(&stripped),
+            r#"{"state":"unknown","raw":{}}"#
+        );
+    }
+
+    #[test]
+    fn thread_status_known_unknown_raw_must_fit_its_schema() {
+        assert!(!fits(
+            &status(),
+            &parse(r#"{"state":"unknown","raw":"nope"}"#).unwrap()
+        ));
+    }
 }
