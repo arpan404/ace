@@ -106,10 +106,11 @@ fn read(values: &Map<String, Value>, key: &str) -> Option<Value> {
     crate::schema::validate_value(key, values.get(key)?).ok()
 }
 
-/// A validated text value that isn't `default`.
+/// A validated text value that isn't `default`. It is passed through unchanged, as
+/// `roles.ts` does: the schema has already bounded it, and `" model "` is a model name.
 fn text(values: &Map<String, Value>, key: &str) -> Option<String> {
-    let value = read(values, key)?.as_str()?.trim().to_owned();
-    (!value.is_empty() && value != "default").then_some(value)
+    let value = read(values, key)?.as_str().map(str::to_owned)?;
+    (value != "default").then_some(value)
 }
 
 /// A validated provider name.
@@ -175,6 +176,16 @@ mod tests {
         assert_eq!(roles[0].1.provider, "claude");
         assert_eq!(roles[0].1.tier, None);
         assert_eq!(roles[0].1.model, None);
+    }
+
+    #[test]
+    fn a_model_name_is_passed_through_without_trimming() {
+        let set = values(json!({
+            "providers.coder.provider": "claude",
+            "providers.coder.model": " model "
+        }));
+        let roles = configured_roles(&set);
+        assert_eq!(roles[0].1.model.as_deref(), Some(" model "));
     }
 
     #[test]

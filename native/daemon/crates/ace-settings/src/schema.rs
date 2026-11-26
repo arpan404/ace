@@ -253,8 +253,24 @@ fn matches_enum(value: &Value, options: &[&str]) -> bool {
     value.as_str().is_some_and(|text| options.contains(&text))
 }
 
+/// A string's length as Zod measures it: UTF-16 code units, not code points, so 129 emoji
+/// are 258 units and a `.max(256)` refuses them.
+fn utf16_len(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
 fn text_len(value: &Value) -> Option<usize> {
-    value.as_str().map(|text| text.chars().count())
+    value.as_str().map(utf16_len)
+}
+
+/// An integer-valued JSON number: Zod's `.int()` keeps `1.0` as `1`.
+fn integer(value: &Value) -> Option<i64> {
+    if let Some(number) = value.as_i64() {
+        return Some(number);
+    }
+    let number = value.as_f64()?;
+    (number.is_finite() && number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_992.0)
+        .then_some(number as i64)
 }
 
 fn pattern(source: &str) -> Option<Regex> {
@@ -287,15 +303,13 @@ fn validate_kind(key: &str, kind: Kind, value: &Value) -> Result<Value, Settings
     let refusal = || invalid(key, SettingsCode::Validation);
     match kind {
         Kind::Bool => value.as_bool().map(Value::Bool).ok_or_else(refusal),
-        Kind::Int { min, max } => value
-            .as_i64()
+        Kind::Int { min, max } => integer(value)
             .filter(|number| (min..=max).contains(number))
             .map(Value::from)
             .ok_or_else(refusal),
         Kind::NullableInt { min, max } => match value {
             Value::Null => Ok(Value::Null),
-            _ => value
-                .as_i64()
+            _ => integer(value)
                 .filter(|number| (min..=max).contains(number))
                 .map(Value::from)
                 .ok_or_else(refusal),
@@ -364,7 +378,7 @@ fn validate_kind(key: &str, kind: Kind, value: &Value) -> Result<Value, Settings
                     continue;
                 };
                 let mode = mode.as_str().ok_or_else(refusal)?;
-                if !(1..=4096).contains(&mode.chars().count()) {
+                if !(1..=4096).contains(&utf16_len(mode)) {
                     return Err(refusal());
                 }
                 kept.insert(provider.to_string(), Value::String(mode.to_owned()));
@@ -387,7 +401,7 @@ fn validate_kind(key: &str, kind: Kind, value: &Value) -> Result<Value, Settings
 }
 
 fn kind_absolute_path_fits(path: &str) -> bool {
-    let length = path.chars().count();
+    let length = utf16_len(path);
     (1..=4096).contains(&length)
         && (path.starts_with('/')
             || (path.len() > 2
@@ -454,9 +468,36 @@ fn storage_retention(value: &Value) -> Result<Value, SettingsError> {
     Ok(Value::Object(kept))
 }
 
+/// The public host whose provider is fixed (`forge.ts`'s `publicForgeHosts`).
+fn public_forge_host(host: &str) -> Option<&'static str> {
+    match host {
+        "github.com" => Some("github"),
+        "gitlab.com" => Some("gitlab"),
+        "bitbucket.org" => Some("bitbucket"),
+        "codeberg.org" => Some("forgejo"),
+        "origin.cursor.com" => Some("origin"),
+        _ => None,
+    }
+}
+
+/// Cursor Origin is one hosted service: its API host is the only host it can have.
+const ORIGIN_API_HOST: &str = "origin.cursor.com";
+
+/// `configuredForge`: the explicit provider, else the public host's, else GitHub.
+fn configured_forge(host: &str, forge: Option<&str>) -> &'static str {
+    match forge {
+        Some(forge) => FORGES
+            .iter()
+            .find(|option| **option == forge)
+            .copied()
+            .unwrap_or("github"),
+        None => public_forge_host(host).unwrap_or("github"),
+    }
+}
+
 fn github_host(value: &Value) -> Option<String> {
     let text = value.as_str()?;
-    (text.chars().count() <= 253
+    (utf16_len(text) <= 253
         && pattern(r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$").is_some_and(|p| p.is_match(text)))
     .then(|| text.to_owned())
 }
@@ -480,22 +521,42 @@ fn source_control_preferences(value: &Value) -> Result<Value, SettingsError> {
             return Err(refusal());
         }
         names.push(name.clone());
+        if let Some(forge) = host.get("forge")
+            && !matches_enum(forge, FORGES)
+        {
+            return Err(refusal());
+        }
+        let forge = configured_forge(&name, host.get("forge").and_then(Value::as_str));
+        // A provider that contradicts its host is refused: `github.com` is GitHub, and
+        // Cursor Origin is only its own host.
+        if public_forge_host(&name).is_some_and(|fixed| fixed != forge)
+            || (forge == "origin" && name != ORIGIN_API_HOST)
+        {
+            return Err(refusal());
+        }
         let mut kept = Map::new();
         kept.insert("host".to_owned(), Value::String(name));
-        if let Some(forge) = host.get("forge") {
-            if !matches_enum(forge, FORGES) {
-                return Err(refusal());
-            }
-            kept.insert("forge".to_owned(), forge.clone());
+        if let Some(provider) = host.get("forge") {
+            kept.insert("forge".to_owned(), provider.clone());
         }
         if let Some(account) = host.get("account") {
             let fits = account.as_str().is_some_and(|account| {
-                (account.chars().count() <= 254 && account.contains('@'))
-                    || (account.chars().count() <= 100
+                (utf16_len(account) <= 254 && account.contains('@'))
+                    || (utf16_len(account) <= 100
                         && pattern(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
                             .is_some_and(|p| p.is_match(account)))
             });
             if !fits {
+                return Err(refusal());
+            }
+            // A GitHub account is GitHub's own login shape.
+            if forge == "github"
+                && !account.as_str().is_some_and(|account| {
+                    utf16_len(account) <= 100
+                        && pattern(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
+                            .is_some_and(|p| p.is_match(account))
+                })
+            {
                 return Err(refusal());
             }
             kept.insert("account".to_owned(), account.clone());
@@ -508,7 +569,7 @@ fn source_control_preferences(value: &Value) -> Result<Value, SettingsError> {
     }
     let remote = entries.get("remote").and_then(Value::as_str).unwrap_or("");
     if remote.is_empty()
-        || remote.chars().count() > 100
+        || utf16_len(remote) > 100
         || !pattern(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$").is_some_and(|p| p.is_match(remote))
     {
         return Err(refusal());
@@ -530,7 +591,7 @@ fn provider_configuration(value: &Value) -> Result<Value, SettingsError> {
     if let Some(instance) = row.get("instance") {
         let text = instance.as_str().ok_or_else(refusal)?;
         if text.is_empty()
-            || text.chars().count() > 256
+            || utf16_len(text) > 256
             || text.chars().any(|c| c.is_whitespace() || c.is_control())
         {
             return Err(refusal());
@@ -603,7 +664,7 @@ fn provider_configuration(value: &Value) -> Result<Value, SettingsError> {
                 .get("displayName")
                 .and_then(Value::as_str)
                 .ok_or_else(refusal)?;
-            if !(1..=256).contains(&display.chars().count())
+            if !(1..=256).contains(&utf16_len(display))
                 || !display.chars().any(|c| !c.is_whitespace())
             {
                 return Err(refusal());
@@ -627,7 +688,7 @@ fn provider_configuration(value: &Value) -> Result<Value, SettingsError> {
 }
 
 fn checked_id(text: &str) -> Option<String> {
-    let fits = (1..=256).contains(&text.chars().count())
+    let fits = (1..=256).contains(&utf16_len(text))
         && !text.chars().any(|c| c.is_whitespace() || c.is_control());
     fits.then(|| text.to_owned())
 }
@@ -697,7 +758,7 @@ fn utility_model(value: &Value) -> Result<Value, SettingsError> {
     kept.insert("provider".to_owned(), Value::String(provider.to_string()));
     if let Some(instance) = choice.get("instance") {
         let text = instance.as_str().ok_or_else(refusal)?;
-        if !(1..=256).contains(&text.chars().count()) {
+        if !(1..=256).contains(&utf16_len(text)) {
             return Err(refusal());
         }
         kept.insert("instance".to_owned(), instance.clone());
@@ -705,7 +766,7 @@ fn utility_model(value: &Value) -> Result<Value, SettingsError> {
     for name in ["model", "effort"] {
         if let Some(field) = choice.get(name) {
             let text = field.as_str().ok_or_else(refusal)?;
-            if !(1..=256).contains(&text.chars().count()) {
+            if !(1..=256).contains(&utf16_len(text)) {
                 return Err(refusal());
             }
             kept.insert(name.to_owned(), field.clone());
@@ -721,7 +782,7 @@ fn mcp_public_url(value: &Value) -> Result<Value, SettingsError> {
     let refusal = || invalid("remote.mcpPublicUrl", SettingsCode::Validation);
     match value {
         Value::Null => Ok(Value::Null),
-        Value::String(text) if text.chars().count() <= 2048 => {
+        Value::String(text) if utf16_len(text) <= 2048 => {
             let Some(parsed) = url::Url::parse(text).ok() else {
                 return Err(refusal());
             };
@@ -744,7 +805,7 @@ fn mcp_public_url(value: &Value) -> Result<Value, SettingsError> {
 fn relay_url(value: &Value) -> Result<Value, SettingsError> {
     let refusal = || invalid("remote.relayUrl", SettingsCode::Validation);
     let text = value.as_str().ok_or_else(refusal)?;
-    if text.chars().count() > 2048 {
+    if utf16_len(text) > 2048 {
         return Err(refusal());
     }
     if text.is_empty() {
@@ -767,7 +828,7 @@ fn relay_url(value: &Value) -> Result<Value, SettingsError> {
 fn push_gateway_url(value: &Value) -> Result<Value, SettingsError> {
     let refusal = || invalid("notifications.pushGatewayUrl", SettingsCode::Validation);
     let text = value.as_str().ok_or_else(refusal)?;
-    if text.chars().count() > 2048 {
+    if utf16_len(text) > 2048 {
         return Err(refusal());
     }
     let parsed = url::Url::parse(text).map_err(|_| refusal())?;
@@ -874,6 +935,55 @@ mod tests {
             validate_value("clients.theme", &json!(text)).map_err(|error| error.code),
             Err(SettingsCode::Size)
         );
+    }
+
+    #[test]
+    fn string_bounds_count_utf16_units_and_integers_may_be_integer_valued() {
+        let refused = "😀".repeat(129);
+        assert!(
+            validate_value("host.displayName", &json!(refused)).is_err(),
+            "258 UTF-16 units exceed 256"
+        );
+        assert!(validate_value("host.displayName", &json!("😀".repeat(128))).is_ok());
+        assert_eq!(
+            validate_value("agents.maxRunningChildren", &json!(1.0)).ok(),
+            Some(json!(1))
+        );
+        assert!(validate_value("agents.maxRunningChildren", &json!(1.5)).is_err());
+    }
+
+    #[test]
+    fn a_source_control_host_must_agree_with_its_provider() {
+        let good = json!({
+            "hosts": [{ "host": "github.com", "account": "octocat" }],
+            "host": "github.com",
+            "remote": "origin"
+        });
+        assert!(validate_value("sourceControl.preferences", &good).is_ok());
+        let mismatched = json!({
+            "hosts": [{ "host": "github.com", "forge": "gitlab" }],
+            "host": "github.com",
+            "remote": "origin"
+        });
+        assert!(validate_value("sourceControl.preferences", &mismatched).is_err());
+        let origin_elsewhere = json!({
+            "hosts": [{ "host": "git.example.com", "forge": "origin" }],
+            "host": "git.example.com",
+            "remote": "origin"
+        });
+        assert!(validate_value("sourceControl.preferences", &origin_elsewhere).is_err());
+        let origin = json!({
+            "hosts": [{ "host": "origin.cursor.com", "forge": "origin" }],
+            "host": "origin.cursor.com",
+            "remote": "origin"
+        });
+        assert!(validate_value("sourceControl.preferences", &origin).is_ok());
+        let dotted_github_account = json!({
+            "hosts": [{ "host": "github.com", "account": "a.b" }],
+            "host": "github.com",
+            "remote": "origin"
+        });
+        assert!(validate_value("sourceControl.preferences", &dotted_github_account).is_err());
     }
 
     #[test]
