@@ -4,6 +4,7 @@
 //! `ace-adapter-pi/src/session/io.rs`. The facade owns the process, its stop plan and its timers;
 //! this is the only place a session touches its pipes.
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ace_adapter_api::bridge::ReadGate;
@@ -23,6 +24,9 @@ pub struct CursorSessionShell {
     queue: EventQueue,
     gate: ReadGate,
     ports: Arc<OnceLock<ChildPorts>>,
+    /// The peer's write tickets whose bytes the pipe has not taken yet, in write order
+    /// (`stdin_written` releases the front one).
+    writes: Mutex<VecDeque<u64>>,
 }
 
 impl CursorSessionShell {
@@ -35,6 +39,7 @@ impl CursorSessionShell {
             queue,
             gate,
             ports: Arc::new(OnceLock::new()),
+            writes: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -52,11 +57,12 @@ impl CursorSessionShell {
 
     /// `openCursorSession`'s open (`session.ts:195`-`:217`), settling `operation`.
     pub fn open(&self, operation: u64, open: CursorOpen<'_>, snapshot: Option<Value>) {
-        let params = super::commands::open_params(
-            &self.lock().generation.clone(),
-            &self.lock().limits,
-            open,
-        );
+        // One lock, cloned out: two `self.lock()` calls in one statement would keep the first
+        // guard alive until the semicolon and deadlock on the second.
+        let params = {
+            let core = self.lock();
+            super::commands::open_params(&core.generation, &core.limits, open)
+        };
         self.input(|core| match core.start_open(operation, &params, snapshot) {
             Ok(effects) => effects,
             Err(error) => vec![CoreEffect::Event(SessionEvent::Settle {
@@ -199,7 +205,12 @@ impl CursorSessionShell {
                             },
                         ));
                     } else {
-                        let _ = ticket;
+                        // The peer hands out one write at a time and the pipe's own callback
+                        // (`stdin_written`) releases it, as `rpc-writer.ts` does.
+                        self.writes
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .push_back(ticket);
                     }
                 }
             }
@@ -230,6 +241,15 @@ impl OutputConsumer for CursorSessionShell {
 
     fn stdin_written(&self) {
         self.attach_gate();
+        // The pipe took the oldest line this session wrote: let the peer hand out the next.
+        let ticket = self
+            .writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop_front();
+        if let Some(ticket) = ticket {
+            self.input(|core| core.written(ticket));
+        }
     }
 
     fn stdin_error(&self, error: NodeIoError) {
@@ -262,3 +282,6 @@ impl OutputConsumer for CursorSessionShell {
 
 /// The port the shell publishes when the pipes are closed, re-exported for the binding.
 pub const EXITED_PORT: &str = PORT_EXITED;
+
+#[cfg(test)]
+mod tests;

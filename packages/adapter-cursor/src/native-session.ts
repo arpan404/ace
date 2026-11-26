@@ -17,7 +17,11 @@ import {
   type ProviderSession,
   type SessionContext,
 } from "@ace/engine-api";
-import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
+import {
+  discoveryFailureCode,
+  discoveryFailureReason,
+  type DiscoveryFailureCode,
+} from "@ace/provider-kit/discovery-failure";
 import { readCursorModelParams } from "@ace/provider-kit/cursor-selection";
 import {
   sessionBridge,
@@ -209,18 +213,26 @@ export async function openNativeCursorSession(
     }
   };
 
-  const stopChild = async () => {
-    if (!proc) return;
-    try {
-      if (process.platform === "win32") {
-        const { stopTreeAfterEof } = await import("@ace/provider-kit/tree-stop");
-        await stopTreeAfterEof(proc, limits.graceMs);
-      } else {
-        await proc.stop({ graceMs: limits.graceMs });
+  /** The session's terminal barrier arrived: every frame, callback and settle came before it. */
+  let drained = false;
+  /** The child's stop, memoized: the exit waits for it so the stop's answer precedes `Drained`. */
+  let stopping: Promise<void> | undefined;
+  const stopChild = (): Promise<void> => {
+    stopping ??= (async () => {
+      try {
+        if (proc) {
+          if (process.platform === "win32") {
+            const { stopTreeAfterEof } = await import("@ace/provider-kit/tree-stop");
+            await stopTreeAfterEof(proc, limits.graceMs);
+          } else {
+            await proc.stop({ graceMs: limits.graceMs });
+          }
+        }
+      } finally {
+        handle.note("stop");
       }
-    } finally {
-      handle.note("stop");
-    }
+    })();
+    return stopping;
   };
 
   const hooks: BridgeHooks = {
@@ -236,7 +248,9 @@ export async function openNativeCursorSession(
       stopReason ??= message;
       void stopChild().catch(() => {});
     },
-    drained: () => {},
+    drained: () => {
+      drained = true;
+    },
     port: (name, json) => {
       const payload = safeParse(json);
       if (name === "stderr") stderrLine(String(payload["line"] ?? ""));
@@ -272,6 +286,9 @@ export async function openNativeCursorSession(
   const reportExit = async () => {
     if (!proc) return;
     const exit = await proc.exited;
+    // A close's stop answers first: its settle must reach the queue before `Drained`, or the
+    // close's promise is rejected by the terminal barrier instead of settling.
+    if (stopping) await stopping.catch(() => {});
     handle.exit(exit.code ?? null, exit.signal ?? null, exit.reason, failureMessage(), stopCause());
   };
 
@@ -335,6 +352,9 @@ export async function openNativeCursorSession(
 
   let closing: Promise<void> | undefined;
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {
+    // A drained session has nothing left to stop or answer: its close resolves, as
+    // `session.ts:182`'s does once the child is gone.
+    if (closing === undefined && drained) return Promise.resolve();
     closing ??= (async () => {
       const id = ++nextId;
       handle.close(id, reason);
@@ -361,7 +381,7 @@ export async function openNativeCursorSession(
         selection.model,
         params === undefined ? undefined : JSON.stringify(params),
       );
-      await request(id);
+      await request(id, "configure");
     },
     async send(input, delivery, commandId, _origin, fence) {
       let steerLost = false;
