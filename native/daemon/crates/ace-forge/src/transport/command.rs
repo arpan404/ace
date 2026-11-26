@@ -277,17 +277,9 @@ fn set(env: &mut Vec<(String, String)>, name: &str, value: &str) {
 /// The credential-bearing environment values a CLI can echo as a bare value (ADR 0224 §8a):
 /// only names `@ace/redaction` calls secret, so `PATH`/`HOME` never become patterns.
 pub fn credential_environment(env: &[(String, String)]) -> EnvironmentMatcher {
-    // `value.length >= 4 || isSecretKey(name)` (`index.ts:59`): a short value is only worth
-    // masking when its name says it is a credential.
-    let values: Vec<&str> = env
-        .iter()
-        .filter(|(name, value)| {
-            !value.is_empty()
-                && (ace_json::utf16_len(value) >= 4 || ace_redaction::is_secret_key(name))
-        })
-        .map(|(_, value)| value.as_str())
-        .collect();
-    EnvironmentMatcher::new(&values)
+    // One composition: `ace-redaction` excludes the operational names (`ACE_LISTEN`,
+    // `NODE_ENV`, `TERM`, `XDG_*`, ...) and applies the length/secret-name filter.
+    ace_redaction::environment_matcher(env)
 }
 
 impl SupervisedRunner {

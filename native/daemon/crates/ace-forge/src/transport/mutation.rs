@@ -29,14 +29,25 @@ pub fn is_forge_mutation(request: &CommandRequest) -> bool {
     if args.first().is_none_or(|arg| arg != "api") {
         return false;
     }
+    // The method flags gh accepts (`gh api -X DELETE`, `-XDELETE`, `--method=DELETE`), then
+    // a body field — `-f`, `-F`, `--field`, `--raw-field` — which makes the request a POST.
+    let field = args.iter().any(|arg| {
+        matches!(arg.as_str(), "-f" | "-F" | "--field" | "--raw-field")
+            || arg.starts_with("--field=")
+            || arg.starts_with("--raw-field=")
+    });
     let method = if let Some(index) = args.iter().position(|arg| arg == "--method" || arg == "-X") {
         args.get(index + 1).map(String::as_str)
-    } else if let Some(method) = args.iter().find_map(|arg| arg.strip_prefix("--method=")) {
+    } else if let Some(method) = args.iter().find_map(|arg| {
+        arg.strip_prefix("--method=")
+            .or_else(|| arg.strip_prefix("-X="))
+            .or_else(|| arg.strip_prefix("-X").filter(|rest| !rest.is_empty()))
+    }) {
         Some(method)
-    } else if request.input.is_none() {
-        Some("GET")
-    } else {
+    } else if field || request.input.is_some() {
         Some("POST")
+    } else {
+        Some("GET")
     };
     if matches!(method, Some("GET" | "HEAD")) {
         return false;
@@ -291,6 +302,25 @@ mod tests {
             api(&["api", "repos/o/r/issues"], Some("{}")),
         ] {
             assert!(is_forge_mutation(&request), "{:?}", request.args);
+        }
+    }
+
+    #[test]
+    fn every_method_and_field_alias_is_read() {
+        let read = api(&["api", "repos/o/r", "-XGET"], None);
+        assert!(!is_forge_mutation(&read));
+        let read = api(&["api", "repos/o/r", "--method=GET"], None);
+        assert!(!is_forge_mutation(&read));
+        for write in [
+            api(&["api", "repos/o/r", "-XDELETE"], None),
+            api(&["api", "repos/o/r", "-X=DELETE"], None),
+            api(&["api", "repos/o/r", "--method=PATCH"], None),
+            api(&["api", "repos/o/r", "-f", "title=x"], None),
+            api(&["api", "repos/o/r", "-F", "file=@x"], None),
+            api(&["api", "repos/o/r", "--field", "title=x"], None),
+            api(&["api", "repos/o/r", "--raw-field=title=x"], None),
+        ] {
+            assert!(is_forge_mutation(&write), "{:?}", write.args);
         }
     }
 

@@ -1769,6 +1769,10 @@ mod tests {
                 r#"{"message":"Pull Request is not mergeable","errors":[{"code":"other"}]}"#,
                 Kind::Unprocessable,
             ),
+            (
+                r#"{"message":"Validation Failed","errors":[{"code":"custom","message":"A repository with this name already exists"}]}"#,
+                Kind::Conflict,
+            ),
         ] {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
