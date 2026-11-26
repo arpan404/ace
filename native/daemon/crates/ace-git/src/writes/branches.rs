@@ -102,6 +102,7 @@ pub async fn switch_branch(
         ));
     }
     let (_key, _serial) = serial_turn(root).await?;
+    crate::writes::overlap::refuse_switch_overwrite(port, root, branch).await?;
     checked(
         port,
         long_writing(Command::new(

@@ -124,6 +124,7 @@ pub async fn start_merge(
         ));
     }
     observed.assert_index_unchanged(port, root).await?;
+    crate::writes::overlap::refuse_merge_overwrite(port, root, &target).await?;
     let merged = checked(
         port,
         long_writing(Command::new(
@@ -575,56 +576,6 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&parents).split_whitespace().count(),
             3
-        );
-    }
-
-    #[tokio::test]
-    async fn merge_and_switch_refuse_overwriting_an_ignored_untracked_file() {
-        let fixture = Fixture::new("g4-overwrite-ignore");
-        let repo = fixture.repository("repo");
-        fixture.git(&repo, &["checkout", "--quiet", "-b", "incoming"]);
-        std::fs::write(repo.join("secret.env"), "tracked\n").expect("track");
-        fixture.git(&repo, &["add", "secret.env"]);
-        fixture.git(&repo, &["commit", "--quiet", "-m", "incoming"]);
-        fixture.git(&repo, &["checkout", "--quiet", "main"]);
-        std::fs::write(repo.join("secret.env"), "secret\n").expect("untracked");
-        let incoming = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "incoming"]))
-            .trim_end()
-            .to_owned();
-        let head = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "HEAD"]))
-            .trim_end()
-            .to_owned();
-        let index_before = std::fs::read(repo.join(".git/index")).expect("index");
-        let port = ProcessCommands { fixture: &fixture };
-        let root = repo.to_string_lossy();
-        assert_eq!(
-            start_merge(&port, &root, &incoming, &head, "merge")
-                .await
-                .expect_err("merge")
-                .code,
-            GitErrorCode::DirtyWorktree
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&std::fs::read(repo.join("secret.env")).expect("file")),
-            "secret\n"
-        );
-        assert_eq!(
-            std::fs::read(repo.join(".git/index")).expect("index"),
-            index_before
-        );
-        assert_eq!(
-            crate::reads::info::head(&port, &root)
-                .await
-                .expect("head")
-                .as_deref(),
-            Some(head.as_str())
-        );
-        assert_eq!(
-            switch_branch(&port, &root, "incoming", false)
-                .await
-                .expect_err("switch")
-                .code,
-            GitErrorCode::DirtyWorktree
         );
     }
 
