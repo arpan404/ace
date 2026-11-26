@@ -43,7 +43,7 @@ where
 }
 
 /// An optional field whose generated newtype wraps another one; serde finds the path.
-pub(crate) fn decoded_text<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
+pub fn decoded_text<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
     value.and_then(|text| serde_json::from_value(Value::String(text.to_owned())).ok())
 }
 

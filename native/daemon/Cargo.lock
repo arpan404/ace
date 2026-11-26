@@ -240,6 +240,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-model-catalog"
+version = "0.1.0"
+dependencies = [
+ "ace-models",
+ "ace-protocol",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ace-models"
 version = "0.1.0"
 dependencies = [

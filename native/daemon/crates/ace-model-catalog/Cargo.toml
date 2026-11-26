@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-model-catalog"
+description = "The model catalog service: classification, defaults, cache and discovery ports (ADR 0226, slice 4)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-protocol: the rows and their generated shapes.
+ace-protocol = { path = "../ace-protocol" }
+# ace-models: display names, matching, parsing and freezing.
+ace-models = { path = "../ace-models" }
+# serde: provider configuration and cache entries at the daemon boundary.
+serde = { version = "1", features = ["derive"] }
+# serde_json: rows, cache payloads and the bounded raw copies.
+serde_json = { version = "1", features = ["preserve_order"] }
+# regex: snapshot, lifecycle and endpoint-name rules from the TypeScript.
+regex = { version = "1" }
