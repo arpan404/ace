@@ -22,11 +22,13 @@ use std::sync::{Mutex, MutexGuard};
 use crate::translate::Translator;
 
 mod probe;
+mod recovery;
 mod replies;
 mod state;
 
 use super::ancestry::AncestryProbe;
 use super::evidence::RecoveryEvidence;
+use super::history::HistoryReader;
 use super::http::Http;
 use super::lookup::Lookup;
 use super::ownership::SessionOwnership;
@@ -133,6 +135,12 @@ pub struct OpenCodeTenant {
     http: Mutex<Http>,
     /// The ancestry chains in flight, one per probed session.
     lookups: Mutex<IndexMap<String, Lookup>>,
+    /// `this.history`: the heads the pass's refresh stops at (`session.ts:73`).
+    history: Mutex<HistoryReader>,
+    /// `this.recoveryRead` and `prepareReplay`'s loop (`:509`, `:550`).
+    recovery: Mutex<recovery::RecoveryRun>,
+    /// `server.eventWatermark` at the reply the facade is delivering.
+    watermark: AtomicU64,
 }
 
 impl OpenCodeTenant {
@@ -167,6 +175,9 @@ impl OpenCodeTenant {
             reconcile: AtomicBool::new(false),
             http: Mutex::new(Http::new()),
             lookups: Mutex::new(IndexMap::new()),
+            history: Mutex::new(HistoryReader::new()),
+            recovery: Mutex::new(recovery::RecoveryRun::default()),
+            watermark: AtomicU64::new(0),
         }
     }
 
@@ -238,6 +249,11 @@ impl OpenCodeTenant {
         self.recovering.load(Ordering::SeqCst)
     }
 
+    /// `this.opening`: the opening buffer still holds the pass off.
+    pub(crate) fn opening(&self) -> bool {
+        self.opening.load(Ordering::SeqCst)
+    }
+
     // Lock helpers: the tenant is shared across the server's inputs, so every
     // map is behind its own mutex. Poisoning would mean a panic elsewhere; the
     // data is still the last consistent state, so recover it.
@@ -277,6 +293,18 @@ impl OpenCodeTenant {
 
     pub(crate) fn lock_lookups(&self) -> MutexGuard<'_, IndexMap<String, Lookup>> {
         self.lookups
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    pub(crate) fn lock_history(&self) -> MutexGuard<'_, HistoryReader> {
+        self.history
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn lock_recovery(&self) -> MutexGuard<'_, recovery::RecoveryRun> {
+        self.recovery
             .lock()
             .unwrap_or_else(|error| error.into_inner())
     }

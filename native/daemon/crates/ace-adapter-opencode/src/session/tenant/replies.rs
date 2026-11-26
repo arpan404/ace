@@ -22,18 +22,22 @@ impl OpenCodeTenant {
         self.queue.publish(vec![event]);
     }
 
-    /// `reply(id, ok, json)`: a request nobody waits on is dropped.
+    /// `reply(id, ok, json)`: a request nobody waits on is dropped, and so is
+    /// every reply after the tenant closed.
     pub fn reply(&self, id: u64, ok: bool, json: &str) {
         let Some(owner) = self.lock_http().take(id) else {
             return;
         };
+        if self.closed() {
+            return;
+        }
         let reply = Reply::parse(ok, json);
         match owner {
             Owner::Moved(session) => self.moved_reply(&session, reply.ok, &reply.body),
             Owner::Ancestry(probed) => self.ancestry_reply(&probed, &reply),
-            // A pass's requests (`Owner::Recovery`, `Owner::Replay`) land with
-            // the recovery machine; nothing issues them yet.
-            Owner::Recovery | Owner::Replay => {}
+            // The pass's requests and the replay's re-read both advance the one
+            // read in flight (`session.ts:508`-`:513`, `:550`-`:570`).
+            Owner::Recovery | Owner::Replay => self.recovery_reply(&reply),
         }
     }
 

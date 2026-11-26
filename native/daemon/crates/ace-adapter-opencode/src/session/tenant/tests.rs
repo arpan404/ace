@@ -369,4 +369,5 @@ fn a_shell_exit_drops_the_shell_it_names() {
 
 mod chain;
 mod pass;
+mod recovery;
 mod scenarios;

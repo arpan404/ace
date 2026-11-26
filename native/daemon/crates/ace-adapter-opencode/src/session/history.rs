@@ -37,6 +37,23 @@ impl From<BoundaryError> for HistoryError {
     }
 }
 
+/// Why a page stopped: the read's own check, or the caller's delivery. The
+/// TypeScript's `receive` callback can throw, and that throw leaves the head
+/// where it was, so a page never commits past a message it could not deliver.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Failure<E> {
+    #[error("{0}")]
+    History(#[from] HistoryError),
+    #[error("{0}")]
+    Delivery(E),
+}
+
+impl<E> From<BoundaryError> for Failure<E> {
+    fn from(error: BoundaryError) -> Self {
+        Self::History(HistoryError::from(error))
+    }
+}
+
 /// One session's in-flight refresh.
 pub struct Read {
     session: String,
@@ -81,25 +98,27 @@ impl HistoryReader {
     }
 
     /// One page. Every message is handed to `deliver` in page order, as the
-    /// TypeScript's `receive` callback is.
-    pub fn step(
+    /// TypeScript's `receive` callback is; a failed delivery stops the read
+    /// before its head moves.
+    pub fn step<E>(
         &mut self,
         read: &mut Read,
         reply: &Reply,
-        deliver: &mut dyn FnMut(&Value),
-    ) -> Result<Step, HistoryError> {
+        deliver: &mut dyn FnMut(&Value) -> Result<(), E>,
+    ) -> Result<Step, Failure<E>> {
         let body = fields(&reply.body);
         let messages = parse_page(&reply.body)?;
         let mut reached = false;
         for message in messages {
             let key = s_in(fields(message), "id");
             if key.is_empty() {
-                return Err(HistoryError::MessageIdentity);
+                return Err(Failure::History(HistoryError::MessageIdentity));
             }
             if read.newest.is_empty() {
                 read.newest = key.to_owned();
             }
-            deliver(&Value::Object(parse_projected_message(message)?.clone()));
+            deliver(&Value::Object(parse_projected_message(message)?.clone()))
+                .map_err(Failure::Delivery)?;
             if read.head.as_deref() == Some(key) {
                 reached = true;
                 break;
@@ -114,10 +133,10 @@ impl HistoryReader {
             return Ok(Step::Done);
         }
         if !read.cursors.insert(next.to_owned()) {
-            return Err(HistoryError::RepeatedCursor);
+            return Err(Failure::History(HistoryError::RepeatedCursor));
         }
         if read.pages >= MAX_PAGES {
-            return Err(HistoryError::PageLimit);
+            return Err(Failure::History(HistoryError::PageLimit));
         }
         read.cursor = Some(next.to_owned());
         Ok(Step::Request(params(&read.session, Some(next))))

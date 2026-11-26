@@ -13,6 +13,7 @@ pub mod http;
 pub mod lookup;
 pub mod notes;
 pub mod ownership;
+pub mod recovery;
 pub mod routes;
 pub mod server;
 pub mod stream;
