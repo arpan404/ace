@@ -1012,3 +1012,47 @@ fn listing_filters_by_capability_and_availability() {
     let owner = hidden_fixture.principal("thread", &[], "root");
     assert!(hidden_fixture.registry.list(&owner).is_empty());
 }
+
+#[test]
+fn an_approval_target_reads_a_dispatched_call_as_the_tool_it_runs() {
+    let fixture = Fixture::new(1024, 256);
+    fixture
+        .registry
+        .register(ToolEntry::new(
+            descriptor(
+                "thread_read",
+                Some("Read a thread"),
+                "Read a thread",
+                "read-only",
+                None,
+                1_000,
+                ace_json::parse("{\"type\":\"object\"}").expect("schema"),
+                None,
+            ),
+            echo(),
+        ))
+        .expect("registration");
+    let dispatched =
+        ace_json::parse("{\"name\":\"mcp__ace__thread_read\",\"arguments\":{\"threadId\":\"t\"}}")
+            .expect("json");
+    let target = fixture
+        .registry
+        .action("tools_call", &dispatched)
+        .expect("an approval target");
+    assert_eq!(
+        target.get("tool").and_then(Value::as_str),
+        Some("thread_read")
+    );
+    assert_eq!(
+        target.get("riskClass").and_then(Value::as_str),
+        Some("read-only")
+    );
+    assert_eq!(
+        target
+            .get("input")
+            .and_then(|input| input.get("threadId"))
+            .and_then(Value::as_str),
+        Some("t")
+    );
+    assert!(fixture.registry.action("missing", &Value::Null).is_none());
+}

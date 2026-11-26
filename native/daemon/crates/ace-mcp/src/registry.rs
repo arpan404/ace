@@ -405,6 +405,20 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// The approval target a call shows (`registry.ts:396`): a `tools_call` reads as the call it
+    /// runs. The input is not re-validated here; a Rust family's decoder has already run, and the
+    /// engine's own gate validates what it forwards.
+    pub fn action(&self, name: &str, input: &Value) -> Option<Value> {
+        let call = crate::tool_names::dispatched_ace_call(name, input);
+        let entry = self.resolve(&call.name)?;
+        Some(crate::action::describe_ace_action(
+            &entry.descriptor.name,
+            &entry.descriptor.description,
+            Some(&entry.descriptor.risk_class),
+            &call.input,
+        ))
+    }
+
     /// The fields `name` mirrors into headers, by field path and header name.
     pub fn param_headers(&self, name: &str) -> Vec<(String, String)> {
         self.resolve(name)
