@@ -41,6 +41,23 @@ fn status_schema(value: &str) -> bool {
     matches!(value, "A" | "M" | "D" | "R" | "C" | "T")
 }
 
+fn diff_status_code(code: &str) -> Result<String, GitError> {
+    match code.chars().next() {
+        Some('R' | 'C') => {
+            if code.len() < 2 || !code[1..].bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(malformed("raw diff"));
+            }
+            if count(&code[1..])? > 100 {
+                return Err(malformed("similarity score"));
+            }
+            Ok(code[..1].to_owned())
+        }
+        Some(first @ ('A' | 'M' | 'D' | 'T')) if code.len() == 1 => Ok(first.to_string()),
+        Some('Z') => Err(malformed("diff status")),
+        _ => Err(malformed("raw diff")),
+    }
+}
+
 /// Parses the raw records, then the numstat records that must correspond to them.
 pub fn parse_diff(bytes: &[u8]) -> Result<Vec<DiffFile>, GitError> {
     let mut records = Records::new(nul(bytes)?);
@@ -60,19 +77,8 @@ pub fn parse_diff(bytes: &[u8]) -> Result<Vec<DiffFile>, GitError> {
         }
         hash(old_sha)?;
         hash(new_sha)?;
-        let status = match code.chars().next() {
-            Some(first) if status_schema(&first.to_string()) => first.to_string(),
-            _ => return Err(malformed("diff status")),
-        };
-        // `^(?:[AMDT]|[RC]\d+)$`: the plain codes have no tail, and R/C carry a score.
-        if matches!(status.as_str(), "R" | "C") {
-            if code.len() < 2 || !code[1..].bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(malformed("diff status"));
-            }
-            if count(&code[1..])? > 100 {
-                return Err(malformed("similarity score"));
-            }
-        } else if code.len() != 1 {
+        let status = diff_status_code(code)?;
+        if !status_schema(&status) {
             return Err(malformed("diff status"));
         }
         let first_path = path_schema(records.next()?).ok_or_else(|| malformed("diff path"))?;
@@ -144,30 +150,62 @@ mod tests {
     // Every case of `malformed-output.test.ts`'s "diff" table.
     #[test]
     fn malformed_diff_records_are_refused_with_a_typed_error() {
+        enum Suffix<'a> {
+            Alone,
+            AfterRaw,
+            AfterRawNumstat(&'a str),
+        }
         let raw = format!(":100644 100644 {SHA} {SHA} M\0file\0");
-        for (record, prefix) in [
-            (format!(":100644 100644 {SHA} M\0file\0"), false),
-            (format!(":100644 100644 {SHA} {SHA} Z\0file\0"), false),
-            (format!(":100644 100644 abc {SHA} M\0file\0"), false),
-            (format!(":100644 100644 {SHA} {SHA} R100\0file\0"), false),
-            ("-1\t0\tfile\0".to_owned(), true),
-            ("NaN\t0\tfile\0".to_owned(), true),
-            ("1\tInfinity\tfile\0".to_owned(), true),
-            ("9007199254740992\t0\tfile\0".to_owned(), true),
-            ("-\t1\tfile\0".to_owned(), true),
-            ("1\t0\tfile\textra\0".to_owned(), true),
-            (String::new(), true),
-            ("1\t0\tother\0".to_owned(), true),
-            (format!(":100644 100644 {SHA} {SHA} M50\0file\0"), false),
-            (format!(":100644 100644 {SHA} {SHA} Ax\0file\0"), false),
-            (format!(":100644 100644 {SHA} {SHA} R\0old\0new\0"), false),
+        for (record, suffix) in [
+            (format!(":100644 100644 {SHA} M\0file\0"), Suffix::Alone),
+            (
+                format!(":100644 100644 {SHA} {SHA} Z\0file\0"),
+                Suffix::Alone,
+            ),
+            (format!(":100644 100644 abc {SHA} M\0file\0"), Suffix::Alone),
+            (
+                format!(":100644 100644 {SHA} {SHA} R100\0file\0"),
+                Suffix::Alone,
+            ),
+            ("-1\t0\tfile\0".to_owned(), Suffix::AfterRaw),
+            ("NaN\t0\tfile\0".to_owned(), Suffix::AfterRaw),
+            ("1\tInfinity\tfile\0".to_owned(), Suffix::AfterRaw),
+            ("9007199254740992\t0\tfile\0".to_owned(), Suffix::AfterRaw),
+            ("-\t1\tfile\0".to_owned(), Suffix::AfterRaw),
+            ("1\t0\tfile\textra\0".to_owned(), Suffix::AfterRaw),
+            (String::new(), Suffix::AfterRaw),
+            ("1\t0\tother\0".to_owned(), Suffix::AfterRaw),
+            (
+                format!(":100644 100644 {SHA} {SHA} M50\0file\0"),
+                Suffix::AfterRawNumstat("1\t0\tfile\0"),
+            ),
+            (
+                format!(":100644 100644 {SHA} {SHA} Ax\0file\0"),
+                Suffix::AfterRawNumstat("1\t0\tfile\0"),
+            ),
+            (
+                format!(":100644 100644 {SHA} {SHA} R\0old\0new\0"),
+                Suffix::Alone,
+            ),
         ] {
             let mut output = Vec::new();
-            if prefix {
-                output.extend_from_slice(raw.as_bytes());
+            match suffix {
+                Suffix::Alone => output.extend_from_slice(record.as_bytes()),
+                Suffix::AfterRaw => {
+                    output.extend_from_slice(raw.as_bytes());
+                    output.extend_from_slice(record.as_bytes());
+                }
+                Suffix::AfterRawNumstat(numstat) => {
+                    output.extend_from_slice(raw.as_bytes());
+                    output.extend_from_slice(record.as_bytes());
+                    output.extend_from_slice(numstat.as_bytes());
+                }
             }
-            output.extend_from_slice(record.as_bytes());
-            rejects(&output);
+            let error = parse_diff(&output).expect_err("malformed");
+            assert_eq!(error.code, GitErrorCode::MalformedOutput, "{record}");
+            if record.contains("M50") || record.contains(" Ax") {
+                assert_eq!(error.message, "Malformed Git raw diff");
+            }
         }
     }
 

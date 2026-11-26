@@ -124,11 +124,12 @@ fn stat_value(metadata: &std::fs::Metadata, path: &str) -> String {
     }
 }
 
-fn newest_mtime(metadata: &std::fs::Metadata) -> i64 {
+fn newest_mtime_ms(metadata: &std::fs::Metadata) -> i64 {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        metadata.mtime()
+        let ms = metadata.mtime() as f64 * 1000.0 + metadata.mtime_nsec() as f64 / 1_000_000.0;
+        ms.floor() as i64
     }
     #[cfg(not(unix))]
     {
@@ -136,7 +137,8 @@ fn newest_mtime(metadata: &std::fs::Metadata) -> i64 {
             .modified()
             .ok()
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |elapsed| elapsed.as_secs() as i64)
+            .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
+            .floor() as i64
     }
 }
 
@@ -163,19 +165,23 @@ pub fn worktree_footprint(root: &str) -> Result<Footprint, GitError> {
         let metadata =
             std::fs::symlink_metadata(path).map_err(|error| GitError::from_io(&error))?;
         hash.update(stat_value(&metadata, &path.to_string_lossy()));
-        *modified_at = (*modified_at).max(newest_mtime(&metadata));
+        *modified_at = (*modified_at).max(newest_mtime_ms(&metadata));
         if metadata.is_dir() && !metadata.file_type().is_symlink() {
-            let names: Vec<String> = std::fs::read_dir(path)
+            let mut read_dir =
+                std::fs::read_dir(path).map_err(|error| GitError::from_io(&error))?;
+            let mut names: Vec<String> = Vec::new();
+            while let Some(entry) = read_dir
+                .next()
+                .transpose()
                 .map_err(|error| GitError::from_io(&error))?
-                .filter_map(Result::ok)
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect();
-            // The TypeScript checks before pushing each entry, so 10,001 names pass and the
-            // 10,002nd refuses.
-            if names.len() > FOOTPRINT_ENTRIES + 1 {
-                return Err(directory_error());
+            {
+                // The TypeScript checks before pushing each entry, so 10,001 names pass and the
+                // 10,002nd refuses.
+                if names.len() > FOOTPRINT_ENTRIES {
+                    return Err(directory_error());
+                }
+                names.push(entry.file_name().to_string_lossy().into_owned());
             }
-            let mut names = names;
             names.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
             for name in names {
                 walk(
@@ -350,6 +356,25 @@ mod tests {
         let third = worktree_footprint(&root.to_string_lossy()).expect("third");
         assert_ne!(third.digest, first.digest);
         assert_eq!(third.bytes, 16);
+    }
+
+    #[test]
+    fn a_directory_with_10001_entry_names_passes_listing_and_the_10002nd_is_refused() {
+        let fixture = Fixture::new("g3a-dir-cap");
+        let dir = fixture.root.join("many");
+        std::fs::create_dir_all(&dir).expect("dir");
+        for index in 0..10_001 {
+            std::fs::create_dir(dir.join(format!("{index:05}"))).expect("entry");
+        }
+        let error = worktree_footprint(&dir.to_string_lossy()).expect_err("visit budget");
+        assert_eq!(error.code, GitErrorCode::OutputTooLarge);
+        let dir = fixture.root.join("too-many");
+        std::fs::create_dir_all(&dir).expect("dir");
+        for index in 0..10_002 {
+            std::fs::create_dir(dir.join(format!("{index}"))).expect("entry");
+        }
+        let listed = worktree_footprint(&dir.to_string_lossy()).expect_err("directory listing cap");
+        assert_eq!(listed.message, "Worktree directory exceeds its budget");
     }
 
     #[test]

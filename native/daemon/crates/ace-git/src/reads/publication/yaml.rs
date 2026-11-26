@@ -9,9 +9,7 @@ use yaml_rust2::parser::{Event, Parser, Tag};
 use crate::core::error::{GitError, GitErrorCode};
 
 use super::credentials::{CredentialValue, has_sensitive_span, is_publication_credential_key};
-use super::{
-    YAML_BYTE_LIMIT, YAML_DEPTH_LIMIT, YAML_DOCUMENT_LIMIT, YAML_NODE_LIMIT, sensitive_publication,
-};
+use super::{YAML_BYTE_LIMIT, YAML_DEPTH_LIMIT, YAML_DOCUMENT_LIMIT, YAML_NODE_LIMIT};
 
 fn yaml_incomplete() -> GitError {
     GitError::new(
@@ -43,8 +41,11 @@ fn allowed_tag(tag: Option<&Tag>) -> bool {
     )
 }
 
-fn is_null_scalar(text: &str) -> bool {
-    matches!(text, "" | "~" | "null" | "Null" | "NULL")
+fn is_null_scalar(text: &str, tag: Option<&Tag>) -> bool {
+    if tag.is_some_and(|tag| tag.handle == "!!" && tag.suffix == "null") {
+        return true;
+    }
+    matches!(text, "" | "~")
 }
 
 #[derive(Debug)]
@@ -146,10 +147,14 @@ pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
                     };
                     continue;
                 }
-                if matches!(pending, Pending::Credential | Pending::ExecEnv)
-                    && !is_null_scalar(&value)
-                {
-                    return Err(sensitive_publication());
+                if let Pending::Credential | Pending::ExecEnv = pending {
+                    if !is_null_scalar(&value, tag.as_ref()) {
+                        return Err(if matches!(pending, Pending::Credential) {
+                            CredentialValue::Field.sensitive()
+                        } else {
+                            CredentialValue::ExecEnv.sensitive()
+                        });
+                    }
                 }
                 if has_sensitive_span(&value) {
                     return Err(GitError::new(
@@ -235,5 +240,30 @@ fn mark_value_done(frames: &mut [Frame]) {
 fn is_credential_value_frame(frame: &Frame) -> Option<CredentialValue> {
     match frame {
         Frame::Mapping { credential, .. } | Frame::Sequence { credential } => *credential,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::error::GitErrorCode;
+
+    #[test]
+    fn credential_fields_exec_env_and_scalars_carry_their_pinned_messages() {
+        for (yaml, message) in [
+            ("password: hunter2\n", "Sensitive YAML credential field"),
+            (
+                "steps:\n- exec:\n    env:\n      API_KEY: x\n",
+                "Sensitive YAML exec environment",
+            ),
+            ("note: password=hunter2\n", "Sensitive YAML scalar"),
+            ("password: \"null\"\n", "Sensitive YAML credential field"),
+        ] {
+            let error = assert_publication_yaml(yaml.as_bytes()).expect_err(yaml);
+            assert_eq!(error.code, GitErrorCode::SensitivePublication);
+            assert_eq!(error.message, message);
+        }
+        let incomplete = assert_publication_yaml(b"key: *anchor\n").expect_err("alias");
+        assert_eq!(incomplete.message, "YAML credential scan incomplete");
     }
 }

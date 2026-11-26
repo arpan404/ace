@@ -9,6 +9,7 @@
 
 use crate::core::decode::hash_schema;
 use crate::core::error::{GitError, GitErrorCode};
+use crate::core::reviewer::ecma_trim;
 use crate::reads::{Command, CommandPort, checked};
 use crate::writes::stage::{
     MAX_PATH_LENGTH, MAX_PATHS, is_ace_private, person_pathspecs, validate_repo_paths,
@@ -81,7 +82,7 @@ pub async fn commit_changes(
     root: &str,
     request: &CommitRequest,
 ) -> Result<String, GitError> {
-    let message = request.message.trim();
+    let message = ecma_trim(&request.message);
     if message.is_empty() {
         return Err(invalid("A commit message is required"));
     }
@@ -318,6 +319,33 @@ mod tests {
                 .code,
             GitErrorCode::StagedMeanwhile
         );
+    }
+
+    #[tokio::test]
+    async fn a_commit_message_one_code_point_over_the_cap_is_refused() {
+        let fixture = Fixture::new("g4a-overlong-message");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        std::fs::write(repo.join("file.txt"), "x\n").expect("file");
+        let mut request = request(&"m".repeat(MAX_COMMIT_MESSAGE_LENGTH + 1));
+        request.expected_head = crate::reads::info::head(&port, &repo.to_string_lossy())
+            .await
+            .expect("head");
+        let error = commit_changes(&port, &repo.to_string_lossy(), &request)
+            .await
+            .expect_err("overlong");
+        assert_eq!(error.code, GitErrorCode::InvalidArgument);
+        assert_eq!(error.message, "The commit message is too long");
+    }
+
+    #[tokio::test]
+    async fn the_pathspec_byte_cap_refuses_an_overlong_batch() {
+        let path = "a".repeat(90_000);
+        assert!(!within_commit_path_bytes(&[
+            path.clone(),
+            path.clone(),
+            path
+        ]));
     }
 
     #[tokio::test]

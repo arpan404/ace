@@ -279,6 +279,8 @@ mod tests {
             let error = parse_remotes(output.as_bytes()).expect_err(output);
             assert_eq!(error.code, GitErrorCode::MalformedOutput, "{output:?}");
         }
+        let empty = parse_remotes(b"remote.origin.url\n\0").expect_err("empty url");
+        assert_eq!(empty.message, "Malformed Git remote URL");
     }
 
     #[test]
