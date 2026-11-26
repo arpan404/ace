@@ -18,19 +18,21 @@ use crate::error::{DeviceError, DeviceErrorCode};
 pub const FULL_READ_DEPTH: u16 = 16;
 pub const FULL_READ_NODES: u32 = 512;
 
-/// The label a message names an element by: `@e3 (Button "Save")`.
-pub fn label(reference: &str, element: &SimElement) -> String {
-    let name = element.name.as_str();
-    let detail = if name.is_empty() {
-        element.role.to_string()
-    } else {
-        format!(
-            "{} {}",
-            element.role,
-            ace_json::to_string(&ace_json::Value::String(slice_utf16(name, 60)))
-        )
-    };
-    format!("@{} ({detail})", super::sim_refs::bare(reference))
+/// The label a message names an element by: `@e3 (Button "Save")`, in the SDK's
+/// UTF-16 units so a lone surrogate the platform printed survives.
+pub fn label(reference: &str, element: &SimElement) -> JsString {
+    let mut units: Vec<u16> = Vec::new();
+    units.push(u16::from(b'@'));
+    units.extend(super::sim_refs::bare(reference).encode_utf16());
+    units.extend(" (".encode_utf16());
+    units.extend(element.role.units());
+    if !element.name.as_str().is_empty() {
+        units.extend(" ".encode_utf16());
+        let quoted = ace_json::to_string(&ace_json::Value::String(element.name.slice_units(0, 60)));
+        units.extend(quoted.encode_utf16());
+    }
+    units.extend(")".encode_utf16());
+    JsString::from_units(&units)
 }
 
 /// The point a tap falls back to when the element has no `press` action: its
@@ -74,9 +76,11 @@ pub fn unknown_ref(reference: &str, device_id: &str) -> DeviceError {
 
 /// The refusal an element that has left the screen gets (`sim-act.ts:126`-`:130`).
 pub fn vanished(reference: &str, element: &SimElement) -> DeviceError {
+    let mut units: Vec<u16> = label(reference, element).units().collect();
+    units.extend(" is no longer on screen".encode_utf16());
     DeviceError::coded(
         DeviceErrorCode::StaleRef,
-        format!("{} is no longer on screen", label(reference, element)),
+        JsString::from_units(&units),
         words::tool_hint("simStaleRefHint"),
     )
 }
@@ -84,13 +88,11 @@ pub fn vanished(reference: &str, element: &SimElement) -> DeviceError {
 /// The refusal a UI action the element does not support gets
 /// (`sim-act.ts:143`-`:149`).
 pub fn unsupported_ui_action(reference: &str, element: &SimElement, action: &str) -> DeviceError {
+    let mut units: Vec<u16> = label(reference, element).units().collect();
+    units.extend(format!(" supports {}, not {action}", element.actions.join(", ")).encode_utf16());
     DeviceError::coded(
         DeviceErrorCode::NotSupported,
-        format!(
-            "{} supports {}, not {action}",
-            label(reference, element),
-            element.actions.join(", ")
-        ),
+        JsString::from_units(&units),
         words::tool_hint("simActionUnsupportedHint"),
     )
 }
@@ -102,15 +104,6 @@ pub fn takes_no_ref(action: &str) -> DeviceError {
         format!("{action} does not take a ref"),
         words::tool_hint("simActionNoRefHint"),
     )
-}
-
-/// `.slice(0, units)` in UTF-16 units, keeping a lone high surrogate as it is.
-fn slice_utf16(text: &str, units: usize) -> JsString {
-    let js = JsString::from(text);
-    if js.len_utf16() <= units {
-        return js;
-    }
-    JsString::from_units(&js.units().take(units).collect::<Vec<_>>())
 }
 
 #[cfg(test)]

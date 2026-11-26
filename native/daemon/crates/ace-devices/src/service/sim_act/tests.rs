@@ -17,7 +17,7 @@ use ace_json::JsString;
 
 fn element(name: &str, actions: &[&str]) -> SimElement {
     SimElement {
-        reference: String::from("r1"),
+        reference: JsString::from("r1"),
         role: JsString::from("Button"),
         name: JsString::from(name),
         bounds: Bounds {
@@ -122,4 +122,19 @@ fn the_label_names_the_element_with_its_name_cut_to_sixty() {
     assert!(labelled.starts_with("@e5 (Button \""));
     assert!(labelled.ends_with("\")"));
     assert_eq!(labelled.matches('a').count(), 60, "cut to sixty units");
+}
+
+#[test]
+fn the_label_keeps_a_lone_surrogate_the_way_javascript_writes_it() {
+    // A name is JSON-quoted, so a lone surrogate is its escape, as
+    // `JSON.stringify` writes it.
+    let mut element = element("", &[]);
+    element.name = JsString::from_units(&[0xD83D]);
+    let labelled = label("@e3", &element);
+    assert_eq!(labelled.as_str(), "@e3 (Button \"\\ud83d\")");
+
+    // A role is not quoted, so its own units stay raw.
+    element.role = JsString::from_units(&[0xD83D]);
+    let labelled = label("@e3", &element);
+    assert_eq!(labelled.units().filter(|unit| *unit == 0xD83D).count(), 1);
 }

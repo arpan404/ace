@@ -12,7 +12,7 @@ use ace_json::JsString;
 
 fn element(name: &str) -> SimElement {
     SimElement {
-        reference: String::from("r1"),
+        reference: JsString::from("r1"),
         role: JsString::from("Button"),
         name: JsString::from(name),
         bounds: Bounds {

@@ -167,3 +167,25 @@ fn the_fingerprint_is_the_type_script_json() {
     );
     assert_eq!(print, "[\"Button\",\"Save\",0.5,10,100,50.25]");
 }
+
+#[test]
+fn a_lone_surrogate_in_a_ref_and_a_name_survives() {
+    // A platform may print a lone high surrogate; the ref and the element keep it.
+    let mut node = actionable("r1");
+    node.name = JsString::from_units(&[0xD83D]);
+    node.reference = JsString::from_units(&[u16::from(b'r'), 0xD83D]);
+    let mut refs = SimRefs::new();
+    refs.label("agent-1", "ios:AAAA", &[node]);
+    let element = refs
+        .element("agent-1", "ios:AAAA", "@e1")
+        .expect("the element");
+    assert_eq!(element.reference.len_utf16(), 2);
+    assert_eq!(element.reference.units().last(), Some(0xD83D));
+
+    // The same element, matched by its platform ref, keeps its agent ref.
+    let mut again = actionable("r1");
+    again.name = JsString::from_units(&[0xD83D]);
+    again.reference = JsString::from_units(&[u16::from(b'r'), 0xD83D]);
+    let second = refs.label("agent-1", "ios:AAAA", &[again]);
+    assert_eq!(second.nodes[0].reference.as_deref(), Some("@e1"));
+}

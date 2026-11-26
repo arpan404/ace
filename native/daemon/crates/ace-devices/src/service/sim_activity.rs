@@ -65,7 +65,7 @@ pub fn sim_activity(args: &SimAct, element: Option<&SimElement>) -> Option<Activ
             point: Some(centre(element)),
             to: None,
             reference: Some(slice_utf16(super::sim_refs::bare(reference), 64)),
-            label: non_empty(&element.name).map(|name| slice_utf16(&name, 128)),
+            label: non_empty(&element.name).map(|name| name.slice_units(0, 128)),
             key: None,
         });
     }
@@ -125,11 +125,7 @@ fn non_empty(value: &JsString) -> Option<JsString> {
 
 /// `.slice(0, units)` in UTF-16 units, keeping a lone high surrogate as it is.
 fn slice_utf16(text: &str, units: usize) -> JsString {
-    let js = JsString::from(text);
-    if js.len_utf16() <= units {
-        return js;
-    }
-    JsString::from_units(&js.units().take(units).collect::<Vec<_>>())
+    JsString::from(text).slice_units(0, units)
 }
 
 #[cfg(test)]

@@ -61,7 +61,8 @@ pub struct SimNode {
 /// The element behind an agent ref, as it was last seen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SimElement {
-    pub reference: String,
+    /// The platform's own ref, in the SDK's UTF-16 units (a lone surrogate included).
+    pub reference: JsString,
     pub role: JsString,
     pub name: JsString,
     pub bounds: Bounds,
@@ -80,7 +81,7 @@ struct Scope {
     next: u64,
     /// `e3` → element, oldest first, so the cap evicts the refs seen longest ago.
     elements: IndexMap<String, SimElement>,
-    by_ref: IndexMap<String, String>,
+    by_ref: IndexMap<JsString, String>,
     by_print: IndexMap<String, String>,
 }
 
@@ -168,7 +169,7 @@ fn visit(node: &Node, scope: &mut Scope, seen: &mut IndexMap<String, SimElement>
     }
     let print = fingerprint(&node.role, &node.name, node.bounds);
     let known = [
-        scope.by_ref.get(node.reference.as_str()),
+        scope.by_ref.get(&node.reference),
         scope.by_print.get(&print),
     ]
     .into_iter()
@@ -183,7 +184,7 @@ fn visit(node: &Node, scope: &mut Scope, seen: &mut IndexMap<String, SimElement>
         }
     };
     let element = SimElement {
-        reference: node.reference.to_string(),
+        reference: node.reference.clone(),
         role: node.role.clone(),
         name: node.name.clone(),
         bounds: node.bounds,
@@ -200,10 +201,10 @@ fn remember(scope: &mut Scope, id: &str, element: &SimElement) {
     if let Some(previous) = scope.elements.shift_remove(id) {
         if scope
             .by_ref
-            .get(previous.reference.as_str())
+            .get(&previous.reference)
             .is_some_and(|value| value == id)
         {
-            scope.by_ref.shift_remove(previous.reference.as_str());
+            scope.by_ref.shift_remove(&previous.reference);
         }
         let print = fingerprint(&previous.role, &previous.name, previous.bounds);
         if scope.by_print.get(&print).is_some_and(|value| value == id) {
@@ -229,10 +230,10 @@ fn remember(scope: &mut Scope, id: &str, element: &SimElement) {
         scope.elements.shift_remove(&oldest);
         if scope
             .by_ref
-            .get(gone.reference.as_str())
+            .get(&gone.reference)
             .is_some_and(|value| value == &oldest)
         {
-            scope.by_ref.shift_remove(gone.reference.as_str());
+            scope.by_ref.shift_remove(&gone.reference);
         }
         let print = fingerprint(&gone.role, &gone.name, gone.bounds);
         if scope
