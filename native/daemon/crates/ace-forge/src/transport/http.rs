@@ -44,7 +44,7 @@ pub struct GhApi<'a> {
     runner: &'a dyn Runner,
     command: String,
     host: String,
-    now: Box<dyn Fn() -> f64 + Send + Sync>,
+    now: std::sync::Arc<dyn Fn() -> f64 + Send + Sync>,
     on_write: Option<Box<dyn Fn() + Send + Sync>>,
     cache: Mutex<HashMap<String, Page>>,
     cache_bytes: Mutex<usize>,
@@ -55,7 +55,7 @@ impl<'a> GhApi<'a> {
     pub fn new(
         runner: &'a dyn Runner,
         host: impl Into<String>,
-        now: Box<dyn Fn() -> f64 + Send + Sync>,
+        now: std::sync::Arc<dyn Fn() -> f64 + Send + Sync>,
     ) -> GhApi<'a> {
         GhApi {
             runner,
@@ -609,7 +609,7 @@ mod tests {
                 first_reply.as_str(),
                 "HTTP/2.0 304 Not Modified\r\nETag: \"v2\"\r\n\r\n",
             ]);
-            let api_client = GhApi::new(&stub, "github.com", Box::new(|| 0.0));
+            let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
             let first = api_client
                 .request("user", None, None, None, Default::default())
                 .await
@@ -646,7 +646,7 @@ mod tests {
                 mutation_reply.as_str(),
                 query_reply.as_str(),
             ]);
-            let api_client = GhApi::new(&stub, "github.com", Box::new(|| 0.0));
+            let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
             let query = json!({ "query": "query { viewer { login } }" });
             api_client
                 .request(
@@ -694,7 +694,7 @@ mod tests {
             .expect("runtime");
         runtime.block_on(async {
             let stub = stub(&["HTTP/2.0 403 Forbidden\r\n\r\n"]);
-            let api_client = GhApi::new(&stub, "github.com", Box::new(|| 0.0));
+            let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
             let error = api_client
                 .request("user", None, None, None, Default::default())
                 .await
@@ -712,7 +712,7 @@ mod tests {
             .expect("runtime");
         runtime.block_on(async {
             let stub = stub(&["HTTP/2.0 429 Too Many Requests\r\nRetry-After: 30\r\n\r\n"]);
-            let api_client = GhApi::new(&stub, "github.com", Box::new(|| 1_000.0));
+            let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 1_000.0));
             let error = api_client
                 .request("user", None, None, None, Default::default())
                 .await
@@ -750,7 +750,7 @@ mod tests {
         runtime.block_on(async {
             let text = api(r#"{"data":null,"errors":[{"type":"NOT_FOUND"}]}"#, "");
             let stub = stub(&[text.as_str()]);
-            let api_client = GhApi::new(&stub, "github.com", Box::new(|| 0.0));
+            let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
             let error = api_client
                 .request(
                     "graphql",
