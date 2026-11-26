@@ -83,3 +83,42 @@ impl Check {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct Fixture {
+        #[serde(rename = "stringBounds")]
+        string_bounds: Vec<Boundary>,
+    }
+
+    #[derive(Deserialize)]
+    struct Boundary {
+        name: String,
+        rule: Check,
+        length: usize,
+        accepted: bool,
+    }
+
+    #[test]
+    fn string_checks_match_zod_at_every_command_bound_with_emoji() {
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/stored-command-cases.json"
+        ))
+        .unwrap();
+        for case in fixture.string_bounds {
+            let mut text = "a".repeat(case.length.saturating_sub(1));
+            if case.length > 0 {
+                text.push('🌱');
+            }
+            assert_eq!(
+                case.rule.accepts(&Value::from(text)),
+                case.accepted,
+                "{}",
+                case.name
+            );
+        }
+    }
+}

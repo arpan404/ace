@@ -4,7 +4,7 @@
 
 use ace_json::Value;
 
-use super::record::{CONTINUATION_UNITS, REASONS, RecoveryRecord, TIMER_ACTIONS, TRIGGERS};
+use super::record::{REASONS, RecoveryRecord, TIMER_ACTIONS, TRIGGERS, continuation_fits};
 use crate::EngineError;
 
 /// A patch: every field optional, and `null` kept distinct from absent.
@@ -199,8 +199,7 @@ fn optional_continuation(value: Value) -> Result<Option<String>, EngineError> {
     match value {
         Value::Null => Ok(None),
         Value::String(text) => {
-            let units = text.len_utf16();
-            if units > CONTINUATION_UNITS {
+            if !continuation_fits(text.as_str()) {
                 return Err(EngineError::Records("Invalid queue metadata".into()));
             }
             Ok(Some(text.as_str().to_owned()))
@@ -212,7 +211,7 @@ fn optional_continuation(value: Value) -> Result<Option<String>, EngineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queue::record::RecoveryRecord;
+    use crate::queue::record::{CONTINUATION_CODE_POINTS, RecoveryRecord};
 
     fn record() -> RecoveryRecord {
         RecoveryRecord::defaults(0)
@@ -247,16 +246,16 @@ mod tests {
     }
 
     #[test]
-    fn a_continuation_is_capped_at_16384_utf16_units() {
+    fn a_continuation_is_capped_at_16384_code_points() {
         let fits = RecoveryPatch::parse(&format!(
             "{{\"continuation\":\"{}\"}}",
-            "a".repeat(CONTINUATION_UNITS)
+            "🌱".repeat(CONTINUATION_CODE_POINTS)
         ))
         .unwrap();
         assert!(fits.apply(&record()).is_ok());
         let over = RecoveryPatch::parse(&format!(
             "{{\"continuation\":\"{}\"}}",
-            "a".repeat(CONTINUATION_UNITS + 1)
+            "🌱".repeat(CONTINUATION_CODE_POINTS + 1)
         ));
         assert!(over.is_err());
     }

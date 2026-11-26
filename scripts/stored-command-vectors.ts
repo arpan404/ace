@@ -13,6 +13,7 @@ import {
   definition,
   refinementNames,
 } from "./stored-command-schema.ts";
+import { stringBoundCases } from "./stored-command-string-bounds.ts";
 
 type Fields = Record<string, unknown>;
 
@@ -274,6 +275,13 @@ function write(name: string, contents: string): void {
   }
 }
 
-write("tests/fixtures/stored-command-cases.json", `${JSON.stringify(cases)}\n`);
-write("src/intents/command/schema.json.inc", `${JSON.stringify(commandSchema(Command))}\n`);
-console.log(`${cases.length} cases across ${CommandPayload.options.length} stored command kinds`);
+const table = commandSchema(Command);
+const stringBounds = stringBoundCases(table);
+write(
+  "tests/fixtures/stored-command-cases.json",
+  `${JSON.stringify({ commands: cases, stringBounds })}\n`,
+);
+write("src/intents/command/schema.json.inc", `${JSON.stringify(table)}\n`);
+console.log(
+  `${cases.length} cases across ${CommandPayload.options.length} stored command kinds, ${stringBounds.length} string-bound cases`,
+);
