@@ -74,13 +74,19 @@ pub fn permission_target(
             .instance_id
             .clone()
             .ok_or_else(|| missing("instanceId"))?;
-        return Ok(Identity {
+        let identity = Identity {
             provider: "acp".to_owned(),
             backend: backend.map(str::to_owned),
             acp_agent_id: Some(acp_agent_id),
             installation_id: Some(installation_id),
             instance_id: Some(instance_id),
-        });
+        };
+        if !identity.valid() {
+            return Err(EngineError::Records(
+                "Invalid input: expected string to have >=1 characters".to_owned(),
+            ));
+        }
+        return Ok(identity);
     }
     Ok(Identity {
         provider: provider.to_owned(),
@@ -94,24 +100,76 @@ pub fn permission_target(
 /// The model catalog's permission capabilities for one account (`EngineModels.permissionCapabilities`,
 /// `models.ts:37`): the instance's reported modes over the provider's base capabilities, or none
 /// while the catalog knows none.
+///
+/// E5.6's `ModelCatalog` supplies [`PermissionCatalog::permission_modes`]; the default
+/// `permission_capabilities` is the adapter for `EngineModels.knownPermissionCapabilities`
+/// (`models.ts:37`-`:58`), so a catalog never repeats the merge.
 pub trait PermissionCatalog {
+    /// The native permission-mode rows (the protocol's `NativePermissionMode` JSON) the account's
+    /// catalogue knows, or `None` while it knows none: an agent that has not reported its session
+    /// modes yet is unknown, not one that offers nothing.
+    fn permission_modes(&self, _provider: &str, _instance: Option<&str>) -> Option<Vec<Value>> {
+        None
+    }
+
+    /// `permissionCapabilities`: the catalog's modes over the base, else the base unchanged.
     fn permission_capabilities(
         &self,
         provider: &str,
         instance: Option<&str>,
         base: &Value,
-    ) -> Option<Value>;
+    ) -> Option<Value> {
+        merge_permission_capabilities(self.permission_modes(provider, instance)?, base)
+    }
+}
+
+/// The adapter E5.6's `ModelCatalog` plugs in through: its `permission_modes` as a closure, so an
+/// engine that holds the catalog behind a trait object needs no wrapper type of its own.
+pub struct ModelCatalogAdapter<F>(pub F);
+
+impl<F> PermissionCatalog for ModelCatalogAdapter<F>
+where
+    F: Fn(&str, Option<&str>) -> Option<Vec<Value>>,
+{
+    fn permission_modes(&self, provider: &str, instance: Option<&str>) -> Option<Vec<Value>> {
+        (self.0)(provider, instance)
+    }
+}
+
+/// `knownPermissionCapabilities` (`models.ts:43`-`:58`): the rows become the capabilities'
+/// `permissionModes` and `permissions.modes`, on a base that already carries `permissions`. No
+/// modes, or no base permissions, leaves the base.
+fn merge_permission_capabilities(modes: Vec<Value>, base: &Value) -> Option<Value> {
+    if modes.is_empty() {
+        return None;
+    }
+    let mut next = base.clone();
+    let map = next.as_object_mut()?;
+    let permissions = map.get_mut("permissions")?.as_object_mut()?;
+    let ids: Vec<Value> = modes
+        .iter()
+        .filter_map(|mode| mode.get("id").and_then(Value::as_str).map(Value::from))
+        .collect();
+    permissions.insert("permissionModes", Value::Array(modes.clone().into()));
+    permissions.insert("modes", Value::Array(ids.into()));
+    map.insert("permissionModes", Value::Array(modes.into()));
+    Some(next)
 }
 
 /// `offeredModes` (`index.ts:696`): the access modes a provider's target instance genuinely
 /// supports, as the model catalog reports them and ace's table fills in.
 pub fn offered_modes(
     provider: &str,
+    registered: bool,
     selection: Option<&Selection>,
     base: Option<&Value>,
     catalog: Option<&dyn PermissionCatalog>,
     select_instance: Option<&str>,
 ) -> Vec<Offer> {
+    // `index.ts:700`: a provider the registry doesn't have offers nothing, not its table.
+    if !registered {
+        return Vec::new();
+    }
     let base = base
         .cloned()
         .unwrap_or_else(|| Value::Object(ace_json::Map::new()));
@@ -203,29 +261,35 @@ mod tests {
 
         // ACP without its install identity is refused, never given a default policy.
         assert!(permission_target("acp", None, None, "one").is_err());
+        // `AcpIdentity`'s ids are non-empty: an empty installation id is refused too.
+        assert!(
+            permission_target(
+                "acp",
+                None,
+                Some(&Selection {
+                    acp_agent_id: Some("local:one".into()),
+                    installation_id: Some(String::new()),
+                    instance_id: Some("one:default".into()),
+                    ..Selection::default()
+                }),
+                "one",
+            )
+            .is_err()
+        );
     }
 
     struct Catalog;
 
     impl PermissionCatalog for Catalog {
-        fn permission_capabilities(
-            &self,
-            provider: &str,
-            instance: Option<&str>,
-            base: &Value,
-        ) -> Option<Value> {
+        fn permission_modes(&self, provider: &str, instance: Option<&str>) -> Option<Vec<Value>> {
             (provider == "claude" && instance == Some("work")).then(|| {
-                let mut capabilities = base.clone();
-                if let Some(map) = capabilities.as_object_mut() {
-                    map.insert(
-                        "accessModes",
-                        ace_json::parse(
-                            r#"[{"mode":"read-only","native":"plan"},{"mode":"ask","native":"default"}]"#,
-                        )
-                        .unwrap(),
-                    );
-                }
-                capabilities
+                ace_json::parse(
+                    r#"[{"id":"plan","label":"Plan","description":"Read only","risk":"read-only"},{"id":"default","label":"Default","description":"Ask","risk":"thread-write"}]"#,
+                )
+                .unwrap()
+                .as_array()
+                .map(|rows| rows.to_vec())
+                .unwrap_or_default()
             })
         }
     }
@@ -234,7 +298,18 @@ mod tests {
     fn offered_modes_come_from_the_catalog_for_its_instance_and_from_the_table_otherwise() {
         let catalog = Catalog;
         let selection = selection(Some("work"), None);
-        let offered = offered_modes("claude", Some(&selection), None, Some(&catalog), None);
+        let base = ace_json::parse(
+            r#"{"accessModes":[{"mode":"read-only","native":"plan"},{"mode":"ask","native":"default"}]}"#,
+        )
+        .unwrap();
+        let offered = offered_modes(
+            "claude",
+            true,
+            Some(&selection),
+            Some(&base),
+            Some(&catalog),
+            None,
+        );
         assert_eq!(
             offered
                 .iter()
@@ -243,8 +318,54 @@ mod tests {
             vec!["read-only", "ask"]
         );
         // Another account has no catalog row: the provider table still answers.
-        let other = offered_modes("claude", None, None, Some(&catalog), None);
+        let other = offered_modes("claude", true, None, None, Some(&catalog), None);
         assert_eq!(other.len(), 4);
+        // A provider the registry doesn't have offers nothing.
+        assert!(offered_modes("claude", false, None, None, Some(&catalog), None).is_empty());
+    }
+
+    #[test]
+    fn the_model_catalog_adapter_merges_its_mode_rows_over_the_base_capabilities() {
+        let base = ace_json::parse(
+            r#"{"permissions":{"modes":[],"nativeAutoReview":true,"toolGate":true},"accessModes":[{"mode":"ask","native":"default"}]}"#,
+        )
+        .unwrap();
+        let adapter = ModelCatalogAdapter(|provider: &str, instance: Option<&str>| {
+            (provider == "claude" && instance == Some("work")).then(|| {
+                ace_json::parse(r#"[{"id":"plan"},{"id":"default"}]"#)
+                    .unwrap()
+                    .as_array()
+                    .map(|rows| rows.to_vec())
+                    .unwrap_or_default()
+            })
+        });
+        let merged = adapter
+            .permission_capabilities("claude", Some("work"), &base)
+            .expect("the catalog knows this account");
+        assert_eq!(
+            merged
+                .get("permissionModes")
+                .and_then(Value::as_array)
+                .map(|rows| rows.len()),
+            Some(2)
+        );
+        assert_eq!(
+            merged
+                .get("permissions")
+                .and_then(|permissions| permissions.get("modes"))
+                .and_then(Value::as_array)
+                .map(|modes| modes.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+            Some(vec!["plan", "default"])
+        );
+        // The base's own offers are kept: only the modes are replaced.
+        assert!(merged.get("accessModes").is_some());
+        // No modes for another account, or no base permissions, leaves the base.
+        assert_eq!(adapter.permission_capabilities("claude", None, &base), None);
+        let bare = ace_json::parse("{}").unwrap();
+        assert_eq!(
+            adapter.permission_capabilities("claude", Some("work"), &bare),
+            None
+        );
     }
 
     #[test]

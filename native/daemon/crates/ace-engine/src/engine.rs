@@ -158,8 +158,45 @@ fn start_ready(core: Rc<Core>) {
     let task = core.executor.spawn(Lane::Control, async move {
         let outcome = task_core.ready_steps().await;
         task_core.finish_ready(outcome);
+        start_open_fills(task_core);
     });
     core.tasks.borrow_mut().push(task);
+}
+
+/// The opener's deferred work (ADR 0170): the permission mapping and the title-input index run
+/// after ready, one bounded batch per pump turn, never inside `open`.
+fn start_open_fills(core: Rc<Core>) {
+    let weak = Rc::downgrade(&core);
+    let _task = core.executor.spawn(Lane::Control, async move {
+        let mut fills = crate::open::fills::OpenFills::new();
+        loop {
+            let Some(core) = weak.upgrade() else { return };
+            if core.closing.get() {
+                return;
+            }
+            match fills.step(&core.store) {
+                Ok(false) => return,
+                Ok(true) => {}
+                Err(error) => {
+                    core.ports.report(error.to_string());
+                    return;
+                }
+            }
+            {
+                let mut yielded = false;
+                crate::futures::future::poll_fn(move |context| {
+                    if yielded {
+                        std::task::Poll::Ready(())
+                    } else {
+                        yielded = true;
+                        context.waker().wake_by_ref();
+                        std::task::Poll::Pending
+                    }
+                })
+                .await;
+            }
+        }
+    });
 }
 
 fn start_sweep(core: &Rc<Core>) {

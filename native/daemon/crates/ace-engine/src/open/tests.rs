@@ -119,8 +119,17 @@ fn the_rust_opener_leaves_the_same_sqlite_master_as_the_typescript_opener() {
     seed_base(&conn, &base);
     let store = Shell::store(&conn);
     open(&store).expect("the opener");
-    let actual = engine_objects(&schema(&conn), &base);
-    let opened = engine_objects(&opened, &base);
+    assert!(
+        !crate::open::fills::title_index_exists(&store).expect("the index check"),
+        "the title index is deferred out of open"
+    );
+    crate::open::fills::ensure_title_index(&store).expect("the idle index");
+    let mut actual = engine_objects(&schema(&conn), &base);
+    let mut opened = engine_objects(&opened, &base);
+    // The title index is deferred out of open, so its creation position differs; the objects
+    // and their SQL text are still identical.
+    actual.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
+    opened.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
     let names = |rows: &[SchemaRow]| {
         rows.iter()
             .map(|row| (row.kind.clone(), row.name.clone()))
@@ -186,7 +195,7 @@ fn the_opener_maps_a_stored_native_permission_to_its_ace_mode() {
          INSERT INTO engine_permissions VALUES ('t','acceptEdits','acceptEdits',NULL,NULL,NULL,NULL);",
     )
     .expect("a stored pre-ace selection");
-    open(&store).expect("the second open");
+    crate::access::storage::migrate_permissions(&store).expect("the permission fill");
     let row = stmt_cache::get_row(
         &conn,
         "SELECT override,effective FROM engine_permissions WHERE thread_id='t'",

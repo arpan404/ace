@@ -49,6 +49,21 @@ pub struct Identity {
 }
 
 impl Identity {
+    /// `PermissionPolicyIdentity.parse`'s refinement (`permissions.ts:6`-`:14`): an ACP policy
+    /// carries its agent, installation and instance ids, all non-empty.
+    pub fn valid(&self) -> bool {
+        if self.provider != "acp" {
+            return true;
+        }
+        [
+            self.acp_agent_id.as_deref(),
+            self.installation_id.as_deref(),
+            self.instance_id.as_deref(),
+        ]
+        .iter()
+        .all(|field| field.is_some_and(|value| !value.is_empty()))
+    }
+
     pub fn new(provider: &str) -> Identity {
         Identity {
             provider: provider.to_owned(),

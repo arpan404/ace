@@ -42,18 +42,26 @@ pub(crate) fn thread_facts(
     };
     let metadata =
         storage::row_text(&row, "provider_metadata").and_then(|text| ace_json::parse(&text).ok());
-    let capabilities = metadata
+    let acp = storage::row_text(&row, "acp").and_then(|text| ace_json::parse(&text).ok());
+    // `thread-columns.ts:67`: effective capabilities live in the `acp` column; the older
+    // `provider_metadata` layout and the cold `capabilities` column stay readable.
+    let capabilities = acp
         .as_ref()
-        .and_then(|metadata| {
-            metadata
-                .get("effectiveCapabilities")
-                .or_else(|| metadata.get("capabilities"))
-        })
+        .and_then(|acp| acp.get("effectiveCapabilities"))
         .cloned()
+        .or_else(|| {
+            metadata
+                .as_ref()
+                .and_then(|metadata| {
+                    metadata
+                        .get("effectiveCapabilities")
+                        .or_else(|| metadata.get("capabilities"))
+                })
+                .cloned()
+        })
         .or_else(|| {
             storage::row_text(&row, "capabilities").and_then(|text| ace_json::parse(&text).ok())
         });
-    let acp = storage::row_text(&row, "acp").and_then(|text| ace_json::parse(&text).ok());
     Ok(Some(ThreadFacts {
         provider,
         capabilities,
@@ -106,6 +114,11 @@ fn policy_from_json(value: &Value) -> Result<Policy, EngineError> {
             .and_then(Value::as_str)
             .map(str::to_owned),
     };
+    if !identity.valid() {
+        return Err(EngineError::Records(
+            "permission_ceiling_unverifiable".to_owned(),
+        ));
+    }
     Ok(Policy::new(
         identity,
         value.get("mode").and_then(Value::as_str),
@@ -177,6 +190,16 @@ impl State {
                 ),
             })
         }
+        .and_then(|identity| {
+            // An ACP identity without its install fields cannot be ranked or compared.
+            if identity.valid() {
+                Ok(identity)
+            } else {
+                Err(EngineError::Records(
+                    "permission_ceiling_unverifiable".to_owned(),
+                ))
+            }
+        })
     }
 
     /// `Permissions.ceilingSelection`: a thread's own mode for its children, the stricter side of
@@ -378,6 +401,19 @@ mod tests {
         (conn, store, State::default())
     }
 
+    fn store_with_provider(
+        thread: &str,
+        provider: &str,
+    ) -> (std::sync::Arc<ace_store::Connection>, EngineStore, State) {
+        let header = header(thread).replace(
+            "\"provider\":\"codex\"",
+            &format!("\"provider\":\"{provider}\""),
+        );
+        let conn = home(thread, &header);
+        let store = Shell::store(&conn);
+        (conn, store, State::default())
+    }
+
     fn add_thread(conn: &std::sync::Arc<ace_store::Connection>, id: &str, provider: &str) {
         conn.exec(&format!(
             "INSERT INTO threads (id,workspace_id,title,provider,status,created_at,updated_at) \
@@ -490,5 +526,47 @@ mod tests {
             state.permission_validate_identity(&store, "child", Some("ask")),
             Err(EngineError::Records(_))
         ));
+    }
+
+    #[test]
+    fn an_acp_identity_without_its_install_fields_fails_the_ceiling() {
+        let (conn, store, mut state) = store_with_provider("acp-child", "acp");
+        conn.exec(
+            "INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-child','/tmp','one:default');
+             UPDATE threads SET provider='acp', acp='{}' WHERE id='acp-child';
+             INSERT INTO engine_permissions VALUES ('acp-child',NULL,NULL,'missing', 'acp',NULL,'{\"provider\":\"acp\"}');",
+        )
+        .expect("an unverifiable ACP row");
+        // The live identity and the stored ceiling both fail validation, so within is false and
+        // a refusal never takes the unranked comparison as containment.
+        assert!(
+            !state
+                .permission_within(&store, "acp-child", None)
+                .expect("within")
+        );
+        assert!(matches!(
+            state.permission_validate_identity(&store, "acp-child", None),
+            Err(EngineError::Records(_))
+        ));
+    }
+
+    #[test]
+    fn a_profile_reported_access_mode_is_read_from_the_acp_column() {
+        let (conn, store, mut state) = store_with_provider("acp-profile", "acp");
+        conn.exec(
+            "INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-profile','/tmp','one:default');
+             UPDATE threads SET provider='acp', acp='{\"effectiveCapabilities\":{\"accessModes\":[{\"mode\":\"read-only\",\"native\":\"plan\"}],\"permissions\":{\"modes\":[\"plan\"],\"nativeAutoReview\":false,\"toolGate\":true}}}' WHERE id='acp-profile';",
+        )
+        .expect("reported capabilities");
+        let offers = state
+            .permission_offers(&store, "acp-profile", "acp")
+            .expect("offers");
+        assert_eq!(
+            offers
+                .iter()
+                .map(|offer| offer.mode.as_str())
+                .collect::<Vec<_>>(),
+            vec!["read-only"]
+        );
     }
 }

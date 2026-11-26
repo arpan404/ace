@@ -12,13 +12,13 @@
 //! `engine_permissions` (one row per thread), as the TypeScript does.
 
 pub mod ddl;
+pub mod fills;
 
 #[cfg(test)]
 mod tests;
 
 use ace_store::{Value as Cell, stmt_cache};
 
-use crate::access::storage;
 use crate::repository::residency::cell_text;
 use crate::{EngineError, EngineStore};
 
@@ -61,14 +61,12 @@ pub fn open(store: &EngineStore) -> Result<(), EngineError> {
     // `indexEngineRecords(store)`.
     atomic(store, |tx| tx.conn().exec(ddl::RECORD_INDEXES))?;
     // `migrateEmptyCursorThreads`: E5.3's idle fill (`cursor-empty`).
-    // `AttachmentCorrelations` and `indexTitleInputs`.
+    // `AttachmentCorrelations`; `indexTitleInputs` is deferred to the idle fill.
     atomic(store, |tx| tx.conn().exec(ddl::ATTACHMENT_INPUTS))?;
-    atomic(store, |tx| tx.conn().exec(ddl::TITLE_INDEX))?;
     // The interaction and task entity index (`repository.ts:126`).
     atomic(store, |tx| tx.conn().exec(ddl::ENTITY_INDEX))?;
-    // `Permissions`: the table, then the one-time selection mapping.
+    // `Permissions`: the table; its one-time selection mapping is deferred to the idle fill.
     atomic(store, |tx| tx.conn().exec(ddl::PERMISSIONS))?;
-    storage::migrate_permissions(store)?;
     // `workspaceReservations.initializeSessions`: E5.3's fill (`workspace-sessions`).
     atomic(store, |tx| tx.conn().exec(ddl::SESSIONS_INDEX))?;
     // `ProviderRecovery`: its table; its cursor passes stay the Cursor item's reads.

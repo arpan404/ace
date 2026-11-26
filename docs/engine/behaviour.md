@@ -399,6 +399,15 @@ itself. Every implementation keeps this order exactly; the status tests (section
   server reads on that call's row (`liveAceCall`, `engine/ace-approvals.ts:9`); host approvals
   (Spade, ADR 0121) go through `openHostApproval`/`resolveHostApproval`. Agents never answer
   approvals.
+- **The Rust opener's deferred work (intended difference, ADR 0170).** `ace-engine::open` creates
+  the permission table but does not run `migratePermissions` over it, and does not build
+  `engine_first_person_input`; both are history-sized. After `ready` the engine runs them idle,
+  one bounded step at a time: at most 256 permission rows a step, with a done marker in
+  `upgrade_cleanup`, then the title index once. Until that index exists the title walk pages
+  `items_thread_creation` and applies the person-input predicate in Rust, so it stays bounded.
+  A Rust-opened home therefore lacks `engine_first_person_input` for the first idle moment; the
+  TypeScript opener builds it at open. The schema objects and their SQL text are otherwise
+  identical.
 
 ## 12. Stop, settle and deletion
 
