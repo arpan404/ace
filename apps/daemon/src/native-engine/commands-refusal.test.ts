@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { createThreadState } from "@ace/core";
-import { AgentId, NativeSessionId, ThreadId } from "@ace/protocol";
+import { AgentId, Command, NativeSessionId, ThreadId } from "@ace/protocol";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { createDevThread } from "../commands.ts";
 import { AdapterRegistry } from "../engine/registry.ts";
@@ -142,6 +142,44 @@ describe.runIf(native)("E5.4d's refusals and rollback", () => {
             ).n,
         ),
       ).toBe(updated);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a limit resume that rolls back neither wakes nor touches the deadline timer", async () => {
+    const reset = Date.now() + 60_000;
+    const { seam, thread } = await seededQueue({ recovery: { resetAt: () => reset } });
+    try {
+      const revision = seam.engine.queue(thread as never).revision;
+      const woken = seam.probe.woken().length;
+      const armed = seam.ports.calls.filter((call) => call.port === "clock.setTimer").length;
+      const timers = seam.probe.timerCount();
+      seam.engine.bindCommandPolicy(((_command: unknown, accept: () => unknown) => {
+        accept();
+        throw new Error("policy failed");
+      }) as never);
+      expect(() =>
+        seam.engine.handler.handle(
+          {
+            id: "limit",
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: thread,
+              expectedRevision: revision,
+              action: "resume_at_reset",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toThrow("policy failed");
+      expect(seam.engine.queue(thread as never).revision).toBe(revision);
+      expect(seam.probe.woken()).toHaveLength(woken);
+      // `schedule` is after-commit (`docs/engine/e5-4-brief.md`, "Receipt effects are
+      // commit-scoped"), so a rolled-back receipt cancels nothing and arms nothing.
+      expect(seam.probe.timerCount()).toBe(timers);
+      expect(seam.ports.calls.filter((call) => call.port === "clock.setTimer")).toHaveLength(armed);
     } finally {
       await seam.close();
     }
@@ -319,6 +357,324 @@ describe.runIf(native)("the receipt's provider ports", () => {
       ).toThrow("port failed");
       expect(seam.engine.queue(thread as never).revision).toBe(revision);
       expect(seam.store.headSeq()).toBe(seq);
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
+/** A stored command, as the TypeScript store writes it. */
+function storedSend(thread: string, id: string, text = "hello") {
+  return Command.parse({
+    id,
+    deviceId: "device",
+    payload: {
+      type: "thread.send",
+      threadId: thread,
+      input: [{ type: "text", text }],
+    },
+  });
+}
+
+function seedIntent(
+  seam: EngineSeam,
+  thread: string,
+  command: ReturnType<typeof storedSend>,
+  options: { uncertain?: boolean; status?: string } = {},
+): void {
+  seam.store.atomic((db) =>
+    db
+      .prepare(
+        "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position,uncertain) VALUES (?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        command.id,
+        thread,
+        command.payload.type,
+        JSON.stringify(command),
+        options.status ?? "pending",
+        "queue",
+        1,
+        options.uncertain ? 1 : 0,
+      ),
+  );
+}
+
+function setQueue(seam: EngineSeam, thread: string, patch: Record<string, unknown>): void {
+  const columns = Object.keys(patch);
+  seam.store.atomic((db) =>
+    db
+      .prepare(
+        `UPDATE engine_queue SET ${columns.map((column) => `${column}=?`).join(",")} WHERE thread_id=?`,
+      )
+      .run(...columns.map((column) => patch[column] as string | number | null), thread),
+  );
+}
+
+describe.runIf(native)("E5.4d's queue branches", () => {
+  test("a resend replaces an uncertain send and lifts the uncertainty hold", async () => {
+    const { seam, thread } = await seededQueue();
+    try {
+      seedIntent(seam, thread, storedSend(thread, "send-a", "once"), { uncertain: true });
+      setQueue(seam, thread, { paused: 1, reason: "uncertain", limited: 0 });
+      const revision = seam.engine.queue(thread as never).revision;
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "resend",
+            deviceId: "device",
+            payload: {
+              type: "queue.resend",
+              threadId: thread,
+              expectedRevision: revision,
+              messageId: "send-a",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "resend", ok: true });
+      const queue = seam.engine.queue(thread as never);
+      expect(queue.messages.map((message) => message.id)).toEqual(["resend"]);
+      expect(queue.messages[0]?.input).toEqual([{ type: "text", text: "once" }]);
+      // The release and the empty `reconcileUncertainty` patch are each a revision bump.
+      expect(queue).toMatchObject({ paused: false, reason: null, revision: revision + 2 });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a resume adds its intent and holds the queue under the current reason", async () => {
+    const { seam, thread } = await seededQueue();
+    try {
+      const revision = seam.engine.queue(thread as never).revision;
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "resume",
+            deviceId: "device",
+            payload: { type: "thread.resume", threadId: thread, expectedRevision: revision },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "resume", ok: true });
+      expect(seam.engine.queue(thread as never)).toMatchObject({
+        paused: true,
+        reason: "manual",
+        revision: revision + 1,
+      });
+      expect(
+        seam.store.atomic((db) =>
+          db.prepare("SELECT kind FROM intents WHERE command_id='resume'").get(),
+        ),
+      ).toEqual({ kind: "thread.resume" });
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a limit switch without a selection is refused before it writes", async () => {
+    const { seam, thread } = await seededQueue();
+    try {
+      const revision = seam.engine.queue(thread as never).revision;
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "switch",
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: thread,
+              expectedRevision: revision,
+              action: "switch",
+            },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "switch", ok: false, error: "switch_selection_required" });
+      expect(seam.engine.queue(thread as never).revision).toBe(revision);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("cancel_resume turns the scheduled resume into a clear and refuses a second one", async () => {
+    const reset = Date.now() + 60_000;
+    const { seam, thread } = await seededQueue();
+    try {
+      setQueue(seam, thread, {
+        paused: 1,
+        reason: "limit",
+        limited: 1,
+        resume_at: reset,
+        timer_action: "resume",
+      });
+      expect(seam.engine.queue(thread as never)).toMatchObject({
+        paused: true,
+        reason: "limit",
+        resumeAt: reset,
+      });
+      const timerAction = (): string | null =>
+        (
+          seam.store.atomic((db) =>
+            db.prepare("SELECT timer_action FROM engine_queue WHERE thread_id=?").get(thread),
+          ) as { timer_action: string | null }
+        ).timer_action;
+      expect(timerAction()).toBe("resume");
+      const revision = seam.engine.queue(thread as never).revision;
+      const cancel = (id: string) =>
+        seam.engine.handler.handle(
+          {
+            id,
+            deviceId: "device",
+            payload: {
+              type: "thread.limit",
+              threadId: thread,
+              expectedRevision: seam.engine.queue(thread as never).revision,
+              action: "cancel_resume",
+            },
+          } as never,
+          undefined as never,
+        );
+      expect(cancel("cancel")).toEqual({ commandId: "cancel", ok: true });
+      // `shown` hides `resumeAt` for a `clear` deadline, so the stored row is the check.
+      expect(seam.engine.queue(thread as never)).toMatchObject({
+        paused: true,
+        reason: "limit",
+        resumeAt: null,
+        revision: revision + 1,
+      });
+      expect(timerAction()).toBe("clear");
+      expect(
+        seam.store.atomic((db) =>
+          db.prepare("SELECT resume_at FROM engine_queue WHERE thread_id=?").get(thread),
+        ),
+      ).toEqual({ resume_at: reset });
+      expect(cancel("cancel-again")).toEqual({
+        commandId: "cancel-again",
+        ok: false,
+        error: "no_scheduled_resume",
+      });
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
+describe.runIf(native)("the shell's receipt", () => {
+  test("a null fence and a null host fall through, and an ok calls the commanded hook", async () => {
+    const { seam, thread } = await seededQueue();
+    try {
+      const commanded: unknown[] = [];
+      seam.engine.bindOwnershipFence((() => null) as never);
+      seam.engine.bindHostInteractions((() => null) as never);
+      (
+        seam.engine as unknown as { bindCommanded(cb: (command: unknown) => void): void }
+      ).bindCommanded((command) => commanded.push(command));
+      const revision = seam.engine.queue(thread as never).revision;
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "pause",
+            deviceId: "device",
+            payload: { type: "queue.pause", threadId: thread, expectedRevision: revision },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "pause", ok: true });
+      expect(commanded).toHaveLength(1);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a policy that accepts and then answers null runs the receipt once", async () => {
+    const { seam, thread } = await seededQueue();
+    try {
+      const revision = seam.engine.queue(thread as never).revision;
+      seam.engine.bindCommandPolicy(((_command: unknown, accept: () => unknown) => {
+        accept();
+        return null;
+      }) as never);
+      // A second run of the same receipt would see the bumped revision and answer
+      // `queue_conflict`, and a second bump would show one revision too many.
+      expect(
+        seam.engine.handler.handle(
+          {
+            id: "pause",
+            deviceId: "device",
+            payload: { type: "queue.pause", threadId: thread, expectedRevision: revision },
+          } as never,
+          undefined as never,
+        ),
+      ).toEqual({ commandId: "pause", ok: true });
+      expect(seam.engine.queue(thread as never).revision).toBe(revision + 1);
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
+/** A thread row only: readiness has no state to recover, so it settles. */
+async function seededRow(options: Partial<EngineOptions> = {}, ready = true) {
+  let thread = "";
+  const seam = await engineSeam({
+    options,
+    afterOpen: (store) => {
+      const workspace = store.createWorkspace(process.cwd(), "E5.4d");
+      thread = createDevThread(store, workspace).id;
+    },
+  });
+  if (ready) await seam.engine.ready();
+  else await seam.engine.ready().catch(() => {});
+  return { seam, thread };
+}
+
+describe.runIf(native)("prepareCommand", () => {
+  test("waits for the command's provider and for readiness", async () => {
+    const waited: string[] = [];
+    const { seam, thread } = await seededRow({
+      waitForProvider: async (provider) => {
+        waited.push(provider);
+      },
+    });
+    try {
+      await seam.engine.prepareCommand(
+        Command.parse({
+          id: "send",
+          deviceId: "device",
+          payload: {
+            type: "thread.send",
+            threadId: thread,
+            input: [{ type: "text", text: "hi" }],
+          },
+        }),
+      );
+      expect(waited).toEqual(["codex"]);
+    } finally {
+      await seam.close();
+    }
+  });
+
+  test("a recovery port it would have to run fails NotPorted naming E5.8", async () => {
+    // The preferences port makes the Rust readiness step E5.8's; prepareCommand throws first.
+    const { seam, thread } = await seededRow(
+      {
+        recovery: {
+          preferences: () => Promise.resolve({ followUpBehavior: "queue", limitPolicy: "manual" }),
+        },
+      },
+      false,
+    );
+    try {
+      await expect(
+        seam.engine.prepareCommand(
+          Command.parse({
+            id: "resume",
+            deviceId: "device",
+            payload: { type: "thread.resume", threadId: thread, expectedRevision: 0 },
+          }),
+        ),
+      ).rejects.toThrow("prepareCommand's recovery lands in E5.8");
     } finally {
       await seam.close();
     }

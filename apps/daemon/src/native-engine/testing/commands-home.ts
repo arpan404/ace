@@ -32,7 +32,7 @@ function add(
   thread: ThreadId,
   id: string,
   text: string,
-  extra: Partial<{ delivery: "queue" | "steer"; trigger: string }> = {},
+  extra: Partial<{ delivery: "queue" | "steer"; trigger: string; model: string }> = {},
 ): number {
   const command = Command.parse({
     id,
@@ -43,6 +43,7 @@ function add(
       input: [{ type: "text", text }],
       ...(extra.delivery ? { delivery: extra.delivery } : {}),
       ...(extra.trigger ? { trigger: extra.trigger } : {}),
+      ...(extra.model ? { model: extra.model } : {}),
     },
   });
   intents.add(command, thread);
@@ -172,6 +173,12 @@ store.appendEvents(
 );
 const bot = createDevThread(store, workspace).id;
 store.appendEvents(bot, [{ type: "thread.client.updated", changes: { host: "spade-bot" } }], at);
+const host = createDevThread(store, workspace).id;
+store.appendEvents(host, [{ type: "thread.client.updated", changes: { host: "spade" } }], at);
+const selecting = createDevThread(store, workspace).id;
+seedState(selecting);
+queue.ensure(selecting);
+add(selecting, "select-a", "steer me", { delivery: "steer", model: "gpt-5.5" });
 
 // `input:cancelled-fate` was written before its delivery stopped it; `input:written` has no
 // intent at all; `input:delivered-fate` was written and the journal hands it a run.
