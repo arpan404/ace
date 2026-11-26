@@ -14,9 +14,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use ace_json::Value;
-use ace_store::reads::items::{
-    ItemPageCapacityExceeded, ItemPageSource, PageRows, bounded_item_page, clip_item,
-};
+use ace_store::reads::items::{ItemPageSource, PageError, PageRows, bounded_item_page, clip_item};
 
 fn vectors() -> Value {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/vectors/item-page.json");
@@ -66,7 +64,7 @@ struct Call {
 
 /// The fixture's scripted source: answers the pages in order and records every read.
 struct Scripted {
-    pages: RefCell<VecDeque<Result<PageRows, ItemPageCapacityExceeded>>>,
+    pages: RefCell<VecDeque<Result<PageRows, PageError>>>,
     newest: Vec<Value>,
     has_before: Vec<(u64, bool)>,
     calls: RefCell<Vec<Call>>,
@@ -78,7 +76,7 @@ impl Scripted {
             .iter()
             .map(|page| {
                 if text(page, "kind") == "capacity" {
-                    return Err(ItemPageCapacityExceeded);
+                    return Err(PageError::Capacity);
                 }
                 let item_seqs = parse(&text(page, "itemSeqs"));
                 Ok(PageRows {
@@ -123,12 +121,7 @@ impl Scripted {
 }
 
 impl ItemPageSource for Scripted {
-    fn page(
-        &self,
-        before: u64,
-        limit: usize,
-        byte_limit: usize,
-    ) -> Result<PageRows, ItemPageCapacityExceeded> {
+    fn page(&self, before: u64, limit: usize, byte_limit: usize) -> Result<PageRows, PageError> {
         self.record(Call {
             call: "page".to_owned(),
             before,
@@ -181,7 +174,8 @@ fn every_bounded_page_is_the_typescripts() {
             number(case, "before") as u64,
             number(case, "limit") as usize,
             number(case, "byteLimit") as usize,
-        );
+        )
+        .expect("a page");
         assert_eq!(
             ace_json::to_string(&result),
             text(case, "expected"),

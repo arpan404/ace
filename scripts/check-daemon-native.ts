@@ -50,6 +50,7 @@ const generators = [
   "crates/ace-fanout/vectors/make-command-vectors.ts",
   "crates/ace-store/vectors/make-stored-vectors.ts",
   "crates/ace-store/vectors/make-item-page-vectors.ts",
+  "crates/ace-store/vectors/make-item-page-sql-vectors.ts",
 ];
 for (const generator of generators) {
   execFileSync("bun", [generator, "--check"], {

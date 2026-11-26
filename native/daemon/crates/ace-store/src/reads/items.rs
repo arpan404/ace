@@ -17,20 +17,24 @@ pub const ENVELOPE: usize = 512;
 /// and paths stay whole.
 pub const CLIP_FLOOR: usize = 256;
 
-/// One item is larger than a whole page's byte budget, so no page can start with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ItemPageCapacityExceeded;
+/// Why a page could not be read: the newest item alone exceeds the budget, a row a page needs
+/// is missing, or the store failed. Only a capacity report is recoverable by the bounded page;
+/// the rest fail the read, as the TypeScript throws out of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageError {
+    /// One item is larger than a whole page's byte budget, so no page can start with it.
+    Capacity,
+    /// A page's item has no body (or preview) row.
+    MissingItem,
+    /// The store could not answer.
+    Store(String),
+}
 
 /// What a bounded page reads from: a store page and the single item it could not start with.
 pub trait ItemPageSource {
     /// `page(before, limit, byteLimit)`: the page, or [`ItemPageCapacityExceeded`] when the
     /// newest item before `before` alone exceeds it.
-    fn page(
-        &self,
-        before: u64,
-        limit: usize,
-        byte_limit: usize,
-    ) -> Result<PageRows, ItemPageCapacityExceeded>;
+    fn page(&self, before: u64, limit: usize, byte_limit: usize) -> Result<PageRows, PageError>;
     /// `newestBefore(before)`: the newest item before the cursor, with its sequence.
     fn newest_before(&self, before: u64) -> Option<(Value, u64)>;
     /// `hasItemBefore(before)`.
@@ -122,14 +126,14 @@ pub fn bounded_item_page(
     before: u64,
     limit: usize,
     byte_limit: usize,
-) -> Value {
+) -> Result<Value, PageError> {
     let parts = fill(
         source,
         before,
         limit,
         byte_limit as isize,
         byte_limit as isize,
-    );
+    )?;
     let mut out = Map::with_capacity(5);
     out.insert("threadId", Value::String(JsString::from(thread_id)));
     out.insert("items", Value::Array(parts.items.into()));
@@ -144,7 +148,7 @@ pub fn bounded_item_page(
     if !parts.omitted.is_empty() {
         out.insert("omitted", Value::Array(parts.omitted.into()));
     }
-    Value::Object(out)
+    Ok(Value::Object(out))
 }
 
 struct Parts {
@@ -169,38 +173,36 @@ fn fill(
     limit: usize,
     budget: isize,
     full: isize,
-) -> Parts {
+) -> Result<Parts, PageError> {
     // Newer entries spent part of this page: the next page starts here with the whole budget.
     if budget < full && budget <= ENVELOPE as isize {
-        return stop(source, before);
+        return Ok(stop(source, before));
     }
     match source.page(before, limit, budget.max(0) as usize) {
         Ok(page) => {
-            return Parts {
+            return Ok(Parts {
                 items: page.items,
                 item_seqs: page.item_seqs,
                 omitted: Vec::new(),
                 items_before: page.items_before,
-            };
+            });
         }
-        Err(ItemPageCapacityExceeded) => {
+        Err(PageError::Capacity) => {
             if budget < full {
-                return stop(source, before);
+                return Ok(stop(source, before));
             }
         }
+        Err(other) => return Err(other),
     }
     let Some((item, seq)) = source.newest_before(before) else {
-        return stop(source, before);
+        return Ok(stop(source, before));
     };
     let bytes = json_bytes(&item);
     let marker = json_bytes(&summary(&item, seq, bytes, "item")) + 1;
     let room = budget - ENVELOPE as isize - marker as isize;
     let slim = without_raw(&item);
-    let Some(id) = item.get("id") else {
-        return stop(source, before);
-    };
-    let Value::String(id) = id else {
-        return stop(source, before);
+    let Some(Value::String(id)) = item.get("id") else {
+        return Ok(stop(source, before));
     };
     let clipped = if entry_bytes(&slim, id.as_str()) as isize <= room {
         None
@@ -233,7 +235,7 @@ fn fill(
         .map_or(0, |shown| entry_bytes(shown, id.as_str()))
         + marker;
     let rest = if limit > 1 {
-        fill(source, seq, limit - 1, budget - used as isize, full)
+        fill(source, seq, limit - 1, budget - used as isize, full)?
     } else {
         Parts {
             items: Vec::new(),
@@ -250,12 +252,12 @@ fn fill(
     }
     let mut omitted = rest.omitted;
     omitted.push(omission);
-    Parts {
+    Ok(Parts {
         items,
         item_seqs,
         omitted,
         items_before: rest.items_before,
-    }
+    })
 }
 
 /// `clipItem(item, maxBytes)`: the item with every long string cut to the longest length that
