@@ -239,6 +239,7 @@ fn read_inputs(options: &ace_json::Value) -> Inputs {
         };
     }
     inputs.idle_ms = number("idleMs");
+    inputs.silence_ms = number("silenceMs");
     if let Some(ace_json::Value::Object(ready)) = field("inputs") {
         let flag = |name: &str| matches!(ready.get(name), Some(ace_json::Value::Bool(true)));
         inputs.has_preferences = flag("preferences");

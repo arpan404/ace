@@ -16,6 +16,8 @@ pub trait CreationFacts {
     fn has_provider(&self, provider: &str, acp_identity: Option<&Value>) -> bool;
     /// The adapter's native transport, for the Cursor SDK budget and the cursor id mapping.
     fn backend(&self, provider: &str) -> Option<String>;
+    /// `registry.get(provider).capabilities`.
+    fn capabilities(&self, provider: &str) -> Value;
     /// `models.permissionCapabilities(provider, instanceId, entry.capabilities)`.
     fn permission_capabilities(
         &self,
@@ -162,7 +164,7 @@ pub fn validate_creation(
     } else {
         selected
     };
-    let base = Value::Object(ace_json::Map::new());
+    let base = facts.capabilities(provider);
     let capabilities = facts.permission_capabilities(provider, instance_id.as_deref(), &base);
     // The person's mode runs as the nearest offered one; only an instance with no mode refuses.
     let access = text(payload, "access").filter(|access| *access != "inherit");
@@ -242,6 +244,9 @@ mod tests {
         }
         fn backend(&self, _provider: &str) -> Option<String> {
             None
+        }
+        fn capabilities(&self, _provider: &str) -> Value {
+            Value::Object(ace_json::Map::new())
         }
         fn permission_capabilities(
             &self,

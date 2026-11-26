@@ -2399,7 +2399,13 @@ on; none is a behaviour left unported.
   branches call the three synchronous ports E5.1's amendment declares (`workspaceDirectory`,
   `portableHandoff`, `linkCreatedThread`) and the receipt's `context.preparedWorkspace`. With no
   bridge they fail `NotPorted` before writing, so a create is all-or-nothing; the local create
-  path (rows, session, queue, transitions, title) is complete and tested.
+  path (rows, session, queue, transitions, title, the catalog's model) is complete and tested.
+  `validateCreation` runs, with `directory` supplied in Rust by `commands/create/facts.rs`:
+  `canonicalize` plus its directory check, spelled as `realpathSync` spells it (the verbatim
+  prefix goes on Windows), since the owner's 2026-11-26 decision allows no new TypeScript port.
+  The model catalog's three Rust ports are declared and tested; the binding binds none of them
+  yet, so a native create takes the no-catalog path (`isDefaultSelection`) until the daemon
+  program supplies a catalog.
 - **The 4e binding members** (`index.ts:599`-`:646`, `:921`-`:926`, `:1092`-`:1110`):
   `admitCreation`, `creationPending`, `releaseCreation`, `spawn` and `cancelDelegatedInputs`, and
   the `creationOwner`/`preparedWorkspace` the shell would pass into `handle`. The engine side
