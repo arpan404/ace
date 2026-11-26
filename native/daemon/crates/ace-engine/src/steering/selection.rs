@@ -6,8 +6,7 @@
 
 use ace_json::Value;
 
-use crate::commands::{command_id, payload};
-use crate::transitions::switch_admission::{record_switch, resolve_switch};
+use crate::commands::{command_id, payload};use crate::transitions::switch_admission::{record_switch, resolve_switch};
 use crate::{Core, EngineError, State};
 
 /// A send ready to admit, and the pending switch split off it, if any.
@@ -75,6 +74,84 @@ pub fn fence_steer(
         map.insert("payload", stripped);
     }
     crate::intents::command::normalize(&out)
+}
+
+/// `activeRootRun` (`steer-selection.ts:71`): the root's running turn, or none between turns.
+pub fn active_root_run(
+    store: &crate::EngineStore,
+    state: &mut State,
+    id: &str,
+) -> Result<Option<String>, EngineError> {
+    let snapshot = state.repo.require_state(store, id)?;
+    let active = {
+        let borrowed = snapshot.borrow();
+        borrowed
+            .state
+            .root_key
+            .as_deref()
+            .and_then(|root| borrowed.state.agents.get(root))
+            .and_then(|record| record.active_run.clone())
+    };
+    Ok(active)
+}
+
+/// `aimSteerAtRun` (`:48`): a fresh steer is aimed at the turn the person is steering into, so
+/// that once that turn ends the message queues instead of cancelling a later one. Only a session
+/// that steers by cancelling the turn is aimed (`:57`); every other provider reads no run.
+pub fn aim_steer_at_run(
+    store: &crate::EngineStore,
+    state: &mut State,
+    command: &Value,
+    id: &str,
+    steers_by_cancel: bool,
+) -> Result<Value, EngineError> {
+    let p = payload(command);
+    if p.get("type").and_then(Value::as_str) != Some("thread.send")
+        || p.get("delivery").and_then(Value::as_str) != Some("steer")
+        || p.get("runId").is_some()
+        || !steers_by_cancel
+    {
+        return Ok(command.clone());
+    }
+    let run = active_root_run(store, state, id)?;
+    let mut payload = p.clone();
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("runId", run.map_or(Value::Null, Value::from));
+    }
+    let mut aimed = command.clone();
+    if let Some(map) = aimed.as_object_mut() {
+        map.insert("payload", payload);
+    }
+    crate::intents::command::normalize(&aimed)
+}
+
+/// `recordSteerAim` (`:78`): the turn an admitted steer went into, beside its payload. The
+/// lane's cancel path reads it where a session has no payload target yet.
+pub fn record_steer_aim(
+    store: &crate::EngineStore,
+    state: &mut State,
+    intent: i64,
+    id: &str,
+    command: &Value,
+) -> Result<(), EngineError> {
+    let p = payload(command);
+    if p.get("type").and_then(Value::as_str) != Some("thread.send")
+        || p.get("delivery").and_then(Value::as_str) != Some("steer")
+    {
+        return Ok(());
+    }
+    let run = active_root_run(store, state, id)?;
+    const RECORD: &str = "INSERT INTO engine_steer_aims(intent_id,run) VALUES (?,?) \
+                          ON CONFLICT(intent_id) DO UPDATE SET run=excluded.run";
+    ace_store::stmt_cache::run(
+        store.conn(),
+        RECORD,
+        vec![
+            ace_store::Value::Integer(intent),
+            run.map_or(ace_store::Value::Null, ace_store::Value::Text),
+        ],
+    )?;
+    Ok(())
 }
 
 /// `hasNextTurnSelection`: a model or options selection.
@@ -246,3 +323,6 @@ pub fn queue_steer_selection(
         command_id(&admission.send),
     )
 }
+
+#[cfg(test)]
+mod tests;

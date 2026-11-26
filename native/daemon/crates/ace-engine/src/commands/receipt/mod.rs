@@ -10,7 +10,9 @@ use ace_json::Value;
 
 use crate::commands::create::Context;
 use crate::commands::{command_id, error, ok, payload, payload_type};
-use crate::steering::selection::{admit_steer, fence_steer, queue_steer_selection};
+use crate::steering::selection::{
+    admit_steer, aim_steer_at_run, fence_steer, queue_steer_selection, record_steer_aim,
+};
 use crate::{Core, EngineError, State};
 
 /// `changesWork` (`thread-fence.ts:70`): events that never start or add work.
@@ -385,7 +387,11 @@ fn tail(
     let Some(admitted_send) = crate::queue::admission::admit(core, state, command, thread)? else {
         return Ok(fail("queue_capacity_exceeded"));
     };
-    let resolved = fence_steer(core, state, &admitted_send, thread)?;
+    // `aimSteerAtRun` (`handler.ts:498`): a fresh steer is aimed at the turn it means. The
+    // session fact `steersByCancel` arrives with E5.6's session; until then nothing is aimed and
+    // the functions' own tests pin the rule.
+    let aimed = aim_steer_at_run(&core.store, state, &admitted_send, thread, false)?;
+    let resolved = fence_steer(core, state, &aimed, thread)?;
     let steer = admit_steer(core, state, &resolved, thread)?;
     let admitted = steer.send.clone();
     if kind == "thread.send" {
@@ -435,7 +441,8 @@ fn tail(
             )?;
         }
     }
-    crate::intents::lifecycle::add(&core.store, &admitted, thread, None, None)?;
+    let intent = crate::intents::lifecycle::add(&core.store, &admitted, thread, None, None)?;
+    record_steer_aim(&core.store, state, intent, thread, &admitted)?;
     state.accept_input(&core.store, &admitted, thread, now)?;
     queue_steer_selection(core, state, thread, steer, now)?;
     if matches!(kind, "thread.create" | "thread.send") {
