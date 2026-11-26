@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The settlement half of the session core: one host settlement routes to the flight that awaits
-//! it (the open, a send's cancel or send, the interrupt's cancel, the close) or to the facade's
+//! it (the open, a send's cancel or send, the interrupt's cancel, the close) or to the caller's
 //! own promise, and each flight advances the machine here (`session.ts:250`-`:280`).
 
 use ace_adapter_api::bridge::queue::SessionEvent;
@@ -13,7 +13,7 @@ use super::super::frames;
 use super::{CoreEffect, CursorSessionCore, INTERNAL_CALL_BIT};
 
 impl CursorSessionCore {
-    /// One host settlement: the internal flights first, then the facade's own promises.
+    /// One host settlement: the internal flights first, then the caller's own promises.
     pub(super) fn settle(
         &mut self,
         id: u64,
@@ -113,7 +113,7 @@ impl CursorSessionCore {
                     if sending.replacement {
                         self.state.segment += 1.0;
                     } else {
-                        // The new turn's operation is the command's, else the facade's, else the
+                        // The new turn's operation is the command's, else the caller's, else the
                         // sequence (`session.ts:260`).
                         self.state.operation = match sending
                             .command_id

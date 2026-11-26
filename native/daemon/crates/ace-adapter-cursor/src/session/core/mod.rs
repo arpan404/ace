@@ -2,13 +2,15 @@
 //! The Cursor session core: the state `openCursorSession` keeps (`session.ts:142`-`:150`), the
 //! frames it hands to `onFrame`, and the host's own events mapped into the session's ordered
 //! queue. Sans-IO, like the host core it sits on: the shell owns the process, the pipes, the
-//! queue's delivery and the timers, and the facade owns every prose the engine shows.
+//! queue's delivery and the timers, and the caller owns every prose the engine shows.
 //!
 //! **Sequence.** `seq` starts at 1 and is shared by frames and the fallback operation id
 //! (`session.ts:76`, `:134`, `:260`), so the queue starts at 1 and a frame reserves the number it
-//! crosses with ([`EventQueue::reserve_seq`]). That number is what the facade reports back from
+//! crosses with ([`EventQueue::reserve_seq`]). That number is what the caller reports back from
 //! `onFrame`, so the core keeps the host's own frame number beside it: one acknowledgement per
 //! frame, as `host.ts:146`-`:169` waits for.
+
+use std::collections::HashMap;
 
 use ace_adapter_api::bridge::queue::{EventQueue, SessionEvent};
 use ace_adapter_api::session::CloseReason;
@@ -27,17 +29,16 @@ use super::error::HostErrorWire;
 use super::frames::CHANNEL;
 use super::host::{CursorHostConfig, CursorHostCore, HostEffect};
 
-/// Internal host-call ids: a facade id is a small counter, so the high half never leaves the core
-/// (`session.ts` has no such split; the facade settles its own calls there).
+/// Internal host-call ids: a caller id is a small counter, so the high half never leaves the core
+/// (`session.ts` has no such split; the caller settles its own calls there).
 pub(super) const INTERNAL_CALL_BIT: u64 = 1 << 63;
-/// The port a stopped host answers (`session.ts:188`, `host.ts:254`).
-pub const PORT_EXITED: &str = "exited";
-/// The facade-owned stop (`host.ts:254`-`:267`): the child is stopped outside the session. Its
+/// The daemon-owned stop (`host.ts:254`-`:267`): the child is stopped outside the session. Its
 /// payload is `{}`, and the answer is `note("stop")`, which settles the close's waiters. A stop
-/// the host's own failure caused carries `{"reason": ...}` from the host core, which the facade
-/// passes to `fail` (`host.ts:236`), so a reason always means a cause, never a plain stop.
+/// the host's own failure caused carries `{"reason": ...}` from the host core, which the caller
+/// turns into a failure (`host.ts:236`), so a reason always means a cause, never a plain stop.
 pub const PORT_STOP_CHILD: &str = "stop";
-/// The port a stray line's answer comes back on (E3.0c's hold, `host.ts:143`).
+/// The port a stray line's answer comes back on (E3.0c's hold, `host.ts:143`): the caller
+/// records the line, then answers `note("host-output", text)`.
 pub const PORT_HOST_OUTPUT: &str = "host-output";
 
 /// What the session core needs.
@@ -46,7 +47,7 @@ pub struct CursorSessionConfig {
     pub instance_id: String,
     pub root_key: String,
     pub limits: CursorLimits,
-    /// `onCapabilities`' argument object, rendered by the facade: the provider's capability
+    /// `onCapabilities`' argument object, rendered by the adapter: the provider's capability
     /// catalogs and the platform are TypeScript data (`policy.ts:44`).
     pub capabilities: String,
 }
@@ -67,6 +68,9 @@ pub(super) struct State {
     pub(super) control: bool,
     pub(super) deliberate: bool,
     pub(super) exited: bool,
+    /// A close or an interrupt's close was started: the host takes no more input
+    /// (`session.ts:230`'s `closing`).
+    pub(super) closed: bool,
 }
 
 /// A session core over one host child.
@@ -88,7 +92,7 @@ pub struct CursorSessionCore {
     /// The interrupt in flight (`session.ts:285`-`:303`).
     pub(super) interrupting: Option<super::commands::Interrupting>,
     /// Each published frame's session number and the host number it acknowledges.
-    pub(super) acknowledgements: Vec<(u64, u64)>,
+    pub(super) acknowledgements: HashMap<u64, u64>,
     /// Callbacks a received frame decided, published before it (`session.ts:105`-`:139`).
     pending_callbacks: Vec<(&'static str, String)>,
     pub(super) next_internal: u64,
@@ -116,6 +120,7 @@ impl CursorSessionCore {
                 control: false,
                 deliberate: false,
                 exited: false,
+                closed: false,
             },
             generation: config.generation,
             instance_id: config.instance_id,
@@ -127,7 +132,7 @@ impl CursorSessionCore {
             sending: None,
             closing: None,
             interrupting: None,
-            acknowledgements: Vec::new(),
+            acknowledgements: HashMap::new(),
             pending_callbacks: Vec::new(),
             next_internal: 1,
         }
@@ -160,7 +165,7 @@ impl CursorSessionCore {
         self.map_host(effects)
     }
 
-    /// The frame with the session's number `seq` could not be stored; `reason` is the facade's
+    /// The frame with the session's number `seq` could not be stored; `reason` is the caller's
     /// already-redacted `ace could not store a Cursor SDK frame: ...`.
     pub fn refused(&mut self, seq: u64, reason: &str) -> Vec<CoreEffect> {
         let Some(host_seq) = self.take_acknowledgement(seq) else {
@@ -183,14 +188,10 @@ impl CursorSessionCore {
     }
 
     fn take_acknowledgement(&mut self, seq: u64) -> Option<u64> {
-        let at = self
-            .acknowledgements
-            .iter()
-            .position(|(session_seq, _)| *session_seq == seq)?;
-        Some(self.acknowledgements.remove(at).1)
+        self.acknowledgements.remove(&seq)
     }
 
-    /// The open request (`session.ts:195`-`:217`): the host's reply settles the facade after the
+    /// The open request (`session.ts:195`-`:217`): the host's reply settles the caller after the
     /// recovery snapshot note, which the engine stores as part of opening.
     pub(super) fn start_open(
         &mut self,
@@ -241,9 +242,9 @@ impl CursorSessionCore {
         &mut self,
         facade_id: u64,
         agent: Option<&str>,
-        _cascade: bool,
+        cascade: bool,
     ) -> Result<Vec<CoreEffect>, HostErrorWire> {
-        super::commands::interrupt(self, facade_id, agent)
+        super::commands::interrupt(self, facade_id, agent, cascade)
     }
 
     /// `close` (`session.ts:182`-`:194`), memoized: a second caller waits on the first close.
@@ -252,7 +253,7 @@ impl CursorSessionCore {
     }
 
     /// One host effect, as the session sees it: its frames pass through `receive`, its writes go
-    /// to the pipe, its settlements reach the facade or a flight.
+    /// to the pipe, its settlements reach the caller or a flight.
     pub(super) fn map_host(&mut self, effects: Vec<HostEffect>) -> Vec<CoreEffect> {
         let mut out = Vec::new();
         for effect in effects {
@@ -274,7 +275,7 @@ impl CursorSessionCore {
                 }
                 if let Some(dir) = dir {
                     let session_seq = self.queue.reserve_seq();
-                    self.acknowledgements.push((session_seq, host_seq));
+                    self.acknowledgements.insert(session_seq, host_seq);
                     out.push(CoreEffect::Event(SessionEvent::Frame {
                         seq: session_seq,
                         dir,
@@ -305,14 +306,6 @@ impl CursorSessionCore {
             HostEffect::Drained => out.push(CoreEffect::Event(SessionEvent::Drained)),
         }
     }
-}
-
-/// A port with no payload.
-pub(super) fn listener(name: &'static str) -> CoreEffect {
-    CoreEffect::Event(SessionEvent::Port {
-        name,
-        json: String::from("{}"),
-    })
 }
 
 pub(super) fn listener_event(name: &'static str, message: &str) -> SessionEvent {

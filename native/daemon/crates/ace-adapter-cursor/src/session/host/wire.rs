@@ -272,7 +272,7 @@ impl CursorHostCore {
         self.peer_effects(None, effects, out);
     }
 
-    /// `onError`: the facade wraps the host's words and fails the host (`host.ts:152`-`:154`).
+    /// `onError`: the caller wraps the host's words and fails the host (`host.ts:152`-`:154`).
     fn connection(&mut self, message: &str, out: &mut Vec<HostEffect>) {
         if self.closed {
             return;

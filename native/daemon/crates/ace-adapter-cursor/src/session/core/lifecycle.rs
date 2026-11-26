@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The session's end (`session.ts:156`-`:181`): the pipes' close asks the facade for the exit, the
+//! The session's end (`session.ts:156`-`:181`): the pipes' close asks the caller for the exit, the
 //! exit publishes the host-exit note and the engine's callback, and a stdin failure stops the
 //! host as a connection failure. The stray line's note answers the host's hold here too.
 
@@ -9,30 +9,26 @@ use ace_json::Value;
 
 use super::super::frames;
 use super::super::host::{HostEffect, PORT_CONNECTION};
-use super::{
-    CoreEffect, CursorSessionCore, PORT_EXITED, PORT_HOST_OUTPUT, PORT_STOP_CHILD, listener,
-    listener_event,
-};
+use super::{CoreEffect, CursorSessionCore, PORT_HOST_OUTPUT, PORT_STOP_CHILD, listener_event};
 
 impl CursorSessionCore {
-    /// The pipes are closed: the host's tails drain, then the facade is asked for the exit
-    /// (`session.ts:156` waits on `process.exited`, which is after the pipes here).
+    /// The pipes are closed: the host's tails drain. The caller answers the exit once its own
+    /// wait on the child resolves (`session.ts:156` waits on `process.exited`).
     pub fn pipes_closed(&mut self) -> Vec<CoreEffect> {
         let mut effects = Vec::new();
         for effect in self.host.finish() {
             // The host's own `Drained` is not the session's: the session's comes after its
-            // host-exit frame, once the facade has answered the exit.
+            // host-exit frame, once the caller has answered the exit.
             if matches!(effect, HostEffect::Drained) {
                 continue;
             }
             self.apply_host(effect, &mut effects);
         }
-        effects.push(listener(PORT_EXITED));
         effects
     }
 
     /// `process.exited` resolved: the host-exit note, the engine's exit and the drain
-    /// (`session.ts:156`-`:181`). `detail` is the facade's `failureMessage`, `stop_cause` its
+    /// (`session.ts:156`-`:181`). `detail` is the caller's `failureMessage`, `stop_cause` its
     /// `stopCause`.
     pub fn exit(
         &mut self,
@@ -59,8 +55,8 @@ impl CursorSessionCore {
         effects
     }
 
-    /// The facade answered a port. `"host-output"` releases the host's hold with the redacted
-    /// text; `"stop"` is the child's stop; `"exited"` is answered by [`CursorSessionCore::exit`].
+    /// The caller answered a port. `"host-output"` releases the host's hold with the redacted
+    /// text; `"stop"` is the child's stop. The exit needs no port: the caller owns the child.
     pub fn note(&mut self, name: &str, text: Option<&str>) -> Vec<CoreEffect> {
         match name {
             PORT_HOST_OUTPUT => {

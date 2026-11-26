@@ -3,6 +3,7 @@
 //! turn it reads (`receive`), the send's admission and steer orders (`send`), and the interrupt
 //! and close machines (`close`).
 
+mod ack;
 mod close;
 mod receive;
 mod send;

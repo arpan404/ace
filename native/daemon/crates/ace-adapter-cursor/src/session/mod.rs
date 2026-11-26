@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The Cursor session (E3): the host's wire core (`host.ts`), its acknowledgement book, the SDK
 //! boundary contract (`contracts.ts`) and the bound walk every host value passes before it can
-//! become a frame. Sans-IO throughout: the facade owns the process, its pipes, its stop plan and
+//! become a frame. Sans-IO throughout: the caller owns the process, its pipes, its stop plan and
 //! every piece of host prose that needs redaction.
 
 pub mod ack;

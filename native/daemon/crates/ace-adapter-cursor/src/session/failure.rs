@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `CursorHost.request`'s catch (`host.ts:215`-`:241`) as one pure mapping: the discovery code
-//! the error or the metadata names, the "ended with code ..." reason for a closed pipe, the
-//! rejected `refused` mark, the `detail` only for `models`, and the host's last prose prefixed
-//! to `open`, `send` and `cancel`. The classifier that reads host prose (`discoveryFailureCode`
-//! and `discoveryFailureReason`) stays TypeScript (E3-cursor.3 point 3): its answers cross here.
+//! `CursorHost.request`'s catch (`host.ts:215`-`:241`) as one pure mapping: the "ended with
+//! code ..." reason for a closed pipe, the rejected `refused` mark, the `detail` only for
+//! `models`, and the host's last prose prefixed to `open`, `send` and `cancel`. The classifier
+//! that reads host prose (`discoveryFailureCode`/`discoveryFailureReason`) stays TypeScript
+//! (E3-cursor.3 point 3): its answer and this file's fallback cross as values.
 //! A settlement the bridge already classified as `InputRejected` or `SteerTargetLost` never
 //! reaches this mapping; the caller rethrows those first.
 
@@ -23,19 +23,21 @@ pub struct ExitState<'a> {
 /// What the catch knows when a command's settlement fails.
 pub struct RequestFailure<'a> {
     pub method: &'a str,
-    /// The discovery code the error itself carries, already validated by TypeScript.
-    pub code: Option<&'a str>,
-    /// `discoveryFailureReason`'s answer: the error's bounded, redacted detail.
+    /// `discoveryFailureCode(error, failure_fallback(metadata_code, exit))`'s answer: the code
+    /// the error, its status or the classifier's prose gave, else the fallback. The classifier
+    /// reads host prose and stays TypeScript (E3-cursor.3 point 3), so its answer crosses whole.
+    pub code: &'a str,
+    /// `discoveryFailureReason`'s answer: the error's bounded, redacted detail. The closed-pipe
+    /// check reads this, as `host.ts:223` reads `suppliedReason`.
     pub reason: &'a str,
     /// `CursorHost`'s last stderr prose (`this.errorMessage`).
     pub error_message: Option<&'a str>,
-    /// The last code and detail the host's stderr named.
-    pub metadata_code: Option<&'a str>,
+    /// The last detail the host's stderr named (`this.metadataFailureDetail`).
     pub metadata_detail: Option<&'a str>,
     pub exit: Option<ExitState<'a>>,
 }
 
-/// The failure the facade's promise rejects with.
+/// The failure the caller's promise rejects with.
 pub struct MappedFailure {
     pub message: String,
     pub code: String,
@@ -44,20 +46,26 @@ pub struct MappedFailure {
     pub refused: bool,
 }
 
-/// `request`'s catch, in its order: the code, the closed pipe's reason, then the message's
-/// prose prefix and its extra fields.
-pub fn request_failure(failure: RequestFailure<'_>) -> MappedFailure {
-    let exited = failure.exit.as_ref();
-    let default = match exited {
+/// The fallback `discoveryFailureCode` takes as its second argument (`host.ts:216`-`:221`): the
+/// metadata's code when the stderr named one, else `not_configured` when the host never started
+/// or exited 78, else `discovery_failed`.
+pub fn failure_fallback<'a>(
+    metadata_code: Option<&'a str>,
+    exit: Option<&ExitState<'a>>,
+) -> &'a str {
+    if let Some(code) = metadata_code {
+        return code;
+    }
+    match exit {
         Some(exit) if exit.reason == "spawn-error" || exit.code == Some(78) => NOT_CONFIGURED,
         _ => DISCOVERY_FAILED,
-    };
-    // The error's own code wins over the metadata's, which wins over the exit's default.
-    let code = failure
-        .code
-        .filter(|code| *code != DISCOVERY_FAILED)
-        .or(failure.metadata_code)
-        .unwrap_or(default);
+    }
+}
+
+/// `request`'s catch, in its order: the closed pipe's reason, then the message's prose prefix
+/// and its extra fields. The code is already the classifier's (see [`failure_fallback`]).
+pub fn request_failure(failure: RequestFailure<'_>) -> MappedFailure {
+    let exited = failure.exit.as_ref();
     let reason = if is_closed_pipe(failure.reason) {
         let code = exited
             .and_then(|exit| exit.code)
@@ -82,8 +90,9 @@ pub fn request_failure(failure: RequestFailure<'_>) -> MappedFailure {
             "{prose}Cursor SDK {} failed; delivery may be uncertain. Inspect history before resending.",
             failure.method
         ),
-        detail: (failure.method == "models" && code == DISCOVERY_FAILED).then(|| reason.clone()),
-        code: String::from(code),
+        detail: (failure.method == "models" && failure.code == DISCOVERY_FAILED)
+            .then(|| reason.clone()),
+        code: String::from(failure.code),
         refused: refused_by_host(failure.reason),
     }
 }
@@ -114,19 +123,22 @@ fn truncate_utf16(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExitState, RequestFailure, request_failure, truncate_utf16};
+    use super::{ExitState, RequestFailure, failure_fallback, request_failure, truncate_utf16};
 
     /// The catch's inputs with only the fields a case names.
-    fn failure<'a>(method: &'a str, reason: &'a str) -> RequestFailure<'a> {
+    fn failure<'a>(method: &'a str, reason: &'a str, code: &'a str) -> RequestFailure<'a> {
         RequestFailure {
             method,
-            code: None,
+            code,
             reason,
             error_message: None,
-            metadata_code: None,
             metadata_detail: None,
             exit: None,
         }
+    }
+
+    fn exited<'a>(code: Option<i64>, reason: &'a str) -> ExitState<'a> {
+        ExitState { code, reason }
     }
 
     #[test]
@@ -134,6 +146,7 @@ mod tests {
         let mapped = request_failure(failure(
             "send",
             r#"{"code":-32603,"data":{"refused":true}}"#,
+            "discovery_failed",
         ));
         assert_eq!(
             mapped.message,
@@ -146,13 +159,13 @@ mod tests {
     #[test]
     fn the_hosts_last_prose_prefixes_open_send_and_cancel_only() {
         let prose = Some("rate limited");
-        let mut open = failure("open", "x");
+        let mut open = failure("open", "x", "discovery_failed");
         open.error_message = prose;
         assert_eq!(
             request_failure(open).message,
             "rate limited Cursor SDK open failed; delivery may be uncertain. Inspect history before resending."
         );
-        let mut configure = failure("configure", "x");
+        let mut configure = failure("configure", "x", "discovery_failed");
         configure.error_message = prose;
         assert_eq!(
             request_failure(configure).message,
@@ -162,11 +175,8 @@ mod tests {
 
     #[test]
     fn a_closed_pipe_names_the_exit_and_the_metadatas_last_detail() {
-        let mut closed = failure("models", "EOF");
-        closed.exit = Some(ExitState {
-            code: Some(1),
-            reason: "exit",
-        });
+        let mut closed = failure("models", "EOF", "discovery_failed");
+        closed.exit = Some(exited(Some(1), "exit"));
         closed.metadata_detail = Some("boom");
         let mapped = request_failure(closed);
         assert_eq!(mapped.code, "discovery_failed");
@@ -177,24 +187,50 @@ mod tests {
     }
 
     #[test]
-    fn a_spawn_error_is_not_configured_and_carries_no_detail() {
-        let mut spawned = failure("models", "EOF");
-        spawned.exit = Some(ExitState {
-            code: None,
-            reason: "spawn-error",
-        });
-        let mapped = request_failure(spawned);
+    fn a_spawn_error_falls_back_to_not_configured_and_carries_no_detail() {
+        let spawn = exited(None, "spawn-error");
+        let code = failure_fallback(None, Some(&spawn));
+        assert_eq!(code, "not_configured");
+        let mapped = request_failure(failure("models", "EOF", code));
         assert_eq!(mapped.code, "not_configured");
         assert_eq!(mapped.detail, None);
     }
 
     #[test]
-    fn the_metadatas_code_wins_over_the_fallback() {
-        let mut classified = failure("models", "x");
-        classified.metadata_code = Some("auth_expired");
-        let mapped = request_failure(classified);
+    fn exit_code_78_is_not_configured_and_no_exit_is_discovery_failed() {
+        let refused_config = exited(Some(78), "exit");
+        assert_eq!(
+            failure_fallback(None, Some(&refused_config)),
+            "not_configured"
+        );
+        assert_eq!(failure_fallback(None, None), "discovery_failed");
+        assert_eq!(
+            failure_fallback(None, Some(&exited(Some(1), "exit"))),
+            "discovery_failed"
+        );
+    }
+
+    #[test]
+    fn a_real_eof_with_metadata_auth_expired_reports_the_hosts_death_as_auth_expired() {
+        // `discoveryFailureCode(error, "auth_expired")` finds nothing in "EOF" and takes the
+        // metadata's code; the detail is not a `discovery_failed` reason, so it is not attached.
+        let death = exited(Some(1), "exit");
+        let code = failure_fallback(Some("auth_expired"), Some(&death));
+        assert_eq!(code, "auth_expired");
+        let mapped = request_failure(RequestFailure {
+            method: "open",
+            code,
+            reason: "EOF",
+            error_message: None,
+            metadata_detail: Some("boom"),
+            exit: Some(exited(Some(1), "exit")),
+        });
         assert_eq!(mapped.code, "auth_expired");
         assert_eq!(mapped.detail, None);
+        assert_eq!(
+            mapped.message,
+            "Cursor SDK open failed; delivery may be uncertain. Inspect history before resending."
+        );
     }
 
     #[test]

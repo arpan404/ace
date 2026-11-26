@@ -4,7 +4,7 @@
 //! keeps the TypeScript literal's key order and drops a key bound to `undefined`, as
 //! `boundedJson` does.
 //!
-//! A host refusal is classified here, not in the facade: `refusedByHost` (`host-refusal.ts:11`)
+//! A host refusal is classified here, not in the caller: `refusedByHost` (`host-refusal.ts:11`)
 //! reads the reply's error JSON, and only a refusal proves the input never reached Cursor, so
 //! only a refusal is `InputRejected`.
 
@@ -23,14 +23,14 @@ use super::envelope::CursorLimits;
 use super::error::{ACE_CURSOR_RPC, HostErrorWire};
 
 /// The message `assert_steer_target` refuses a lost fenced steer with (`ace-adapter-api`'s
-/// `session.rs`), so the facade can rethrow the error it kept under the same text.
+/// `session.rs`), so the caller can rethrow the error it kept under the same text.
 pub const STEER_LOST_MESSAGE: &str = "The turn this message was meant to join has ended";
 /// `maxInputBytes`' failure code, as the engine sees it (`session.ts:240`).
 pub const INPUT_REJECTED_CODE: &str = INPUT_REJECTED;
 /// A lost steer's code (`session.ts:248`).
 pub const STEER_TARGET_LOST_CODE: &str = STEER_TARGET_LOST;
 
-/// What `open` carries (`session.ts:196`-`:214`). The facade owns these fields; the core builds
+/// What `open` carries (`session.ts:196`-`:214`). The caller owns these fields; the core builds
 /// the request in the literal's order.
 pub struct CursorOpen<'a> {
     pub cwd: &'a str,
@@ -152,7 +152,7 @@ pub fn input_rejected(message: impl Into<String>) -> HostErrorWire {
     }
 }
 
-/// The engine's `SteerTargetLost`: the facade rethrows the error `assertSteerTarget` kept.
+/// The engine's `SteerTargetLost`: the caller rethrows the error `assertSteerTarget` kept.
 pub fn steer_target_lost() -> HostErrorWire {
     HostErrorWire {
         code: STEER_TARGET_LOST_CODE,
@@ -160,18 +160,18 @@ pub fn steer_target_lost() -> HostErrorWire {
     }
 }
 
-/// A send the facade asked the core to admit (`session.ts:230`). `operation_id` is the facade's
+/// A send the caller asked the core to admit (`session.ts:230`). `operation_id` is the caller's
 /// `commandId ?? options.operationId?.()`; `None` lets the core fall back to its own sequence.
 pub struct CursorSend<'a> {
     pub command_id: Option<&'a str>,
     pub operation_id: Option<&'a str>,
     pub input: &'a Value,
     pub delivery: Delivery,
-    /// `assertSteerTarget(delivery, fence)` failed in the facade's hands (`session.ts:248`).
+    /// `assertSteerTarget(delivery, fence)` failed in the caller's hands (`session.ts:248`).
     pub steer_lost: bool,
 }
 
-/// A request the host refused before it was written, as the facade's promise sees it.
+/// A request the host refused before it was written, as the caller's promise sees it.
 pub(super) fn rpc_error(message: String) -> HostErrorWire {
     HostErrorWire {
         code: ACE_CURSOR_RPC,
@@ -179,7 +179,7 @@ pub(super) fn rpc_error(message: String) -> HostErrorWire {
     }
 }
 
-/// A plain `Error` in the facade, which the bridge maps from a code it does not know.
+/// A plain `Error` in the caller, which the bridge maps from a code it does not know.
 pub(super) fn plain(message: &str) -> HostErrorWire {
     HostErrorWire {
         code: PLAIN_CODE,
@@ -187,7 +187,7 @@ pub(super) fn plain(message: &str) -> HostErrorWire {
     }
 }
 
-/// A code the bridge does not name: the facade throws a plain `Error` with the message.
+/// A code the bridge does not name: the caller throws a plain `Error` with the message.
 pub const PLAIN_CODE: &str = "ACE_CURSOR_ERROR";
 
 #[cfg(test)]

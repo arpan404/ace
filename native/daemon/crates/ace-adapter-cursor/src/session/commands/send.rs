@@ -66,7 +66,7 @@ pub(crate) fn send(
     facade_id: u64,
     send: CursorSend<'_>,
 ) -> Result<Vec<CoreEffect>, HostErrorWire> {
-    if core.closing.is_some() || core.state.exited {
+    if core.state.closed || core.closing.is_some() || core.state.exited {
         return Err(input_rejected("SDK host is closed"));
     }
     if core.state.uncertain {
@@ -84,7 +84,7 @@ pub(crate) fn send(
     }
     let replacing = send.delivery == Delivery::Steer && core.state.active;
     if replacing && send.steer_lost {
-        // The fence failed in the facade's hands; it rethrows the error it kept (`session.ts:248`).
+        // The fence failed in the caller's hands; it rethrows the error it kept (`session.ts:248`).
         return Err(super::steer_target_lost());
     }
     core.state.control = true;
@@ -145,12 +145,20 @@ fn operation_for(
     }
 }
 
-/// `interrupt` (`session.ts:285`-`:303`).
+/// `interrupt` (`session.ts:285`-`:303`). Cursor advertises `interruptCascades: true`
+/// (`policy.ts:22`), and its interrupt closes the one host every SDK task runs in
+/// (`session.ts:294`-`:298`), so the close is the cascade: no request is made per child and
+/// `cascade` takes the same path as its absence, exactly as `session.ts:285` does.
 pub(crate) fn interrupt(
     core: &mut CursorSessionCore,
     facade_id: u64,
     agent: Option<&str>,
+    cascade: bool,
 ) -> Result<Vec<CoreEffect>, HostErrorWire> {
+    // A named child stays untargetable (`session.ts:288`). The close below stops every task in
+    // the host for both values, so the cascade needs no branch: `session.ts:285` never reads
+    // `target.cascade` either.
+    let _ = cascade;
     if let Some(agent) = agent
         && agent != core.root_key
     {
@@ -194,6 +202,7 @@ pub(crate) fn close(
         return Vec::new();
     }
     core.state.deliberate = true;
+    core.state.closed = true;
     core.closing = Some(CloseFlight {
         waiters: vec![CloseWaiter::Facade(facade_id)],
         internal: None,
@@ -222,7 +231,7 @@ pub(crate) fn close(
     }
 }
 
-/// Ask the facade to stop the child, once (`host.ts:254`-`:267`): the host's RPC is disposed
+/// Ask the caller to stop the child, once (`host.ts:254`-`:267`): the host's RPC is disposed
 /// first, as `host.stop()` does.
 pub(crate) fn request_stop(core: &mut CursorSessionCore) -> Vec<CoreEffect> {
     if core.closing.as_ref().is_some_and(|flight| flight.stopping) {
@@ -269,7 +278,7 @@ pub(crate) fn close_stopped(core: &mut CursorSessionCore) -> Vec<CoreEffect> {
     effects
 }
 
-/// One facade promise settled with what its command decided.
+/// One caller promise settled with what its command decided.
 pub(crate) fn settled(facade_id: u64, error: Option<HostErrorWire>) -> CoreEffect {
     CoreEffect::Event(SessionEvent::Settle {
         id: facade_id,
@@ -300,6 +309,7 @@ pub(crate) fn interrupt_close(
         return;
     }
     core.state.deliberate = true;
+    core.state.closed = true;
     core.closing = Some(CloseFlight {
         waiters: vec![waiter],
         internal: None,

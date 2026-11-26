@@ -128,3 +128,55 @@ fn the_stop_port_carries_no_reason_and_only_its_answer_settles_the_close() {
         vec![Ok(String::from("null"))]
     );
 }
+
+#[test]
+fn a_cascading_interrupt_stops_the_one_host_its_children_run_in() {
+    let mut core = session_core();
+    opened(&mut core);
+    let effects = core
+        .interrupt(2, None, true)
+        .expect("a cascading interrupt");
+    assert_eq!(
+        frames(&effects),
+        vec![(1, FrameDirection::Send, String::from("cancel"))]
+    );
+    let effects = ack(&mut core, effects);
+    let (cancel, method, _) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the cancel request");
+    assert_eq!(method, "cancel");
+    // A successful cancel still closes the host, because that close is Cursor's cascade.
+    let effects = reply(&mut core, cancel, r#"{"settled":true}"#);
+    let (_, method, params) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the close request");
+    assert_eq!(method, "close");
+    assert_eq!(params.get("reason").and_then(Value::as_str), Some("user"));
+    let (close, _, _) = requests(&effects)
+        .first()
+        .cloned()
+        .expect("the close request");
+    let effects = reply(&mut core, close, r#"{}"#);
+    assert_eq!(ports(&effects), vec![String::from("stop")]);
+    assert_eq!(
+        settled(&core.note("stop", None)),
+        vec![Ok(String::from("null"))]
+    );
+    // Nothing in the host — child tasks included — can take input after it.
+    let refused = core
+        .send(
+            3,
+            CursorSend {
+                command_id: None,
+                operation_id: None,
+                input: &ace_json::json!([{"type": "text", "text": "after"}]),
+                delivery: Delivery::Queue,
+                steer_lost: false,
+            },
+        )
+        .err()
+        .expect("the host is closed");
+    assert_eq!(refused.message, "SDK host is closed");
+}

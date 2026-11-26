@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The session's shell over a diverted child (E3.0b): one lock over [`CursorSessionCore`], one
 //! ordered [`EventQueue`], one [`ReadGate`], and the child's [`ChildPorts`]. Mirrors
-//! `ace-adapter-pi/src/session/io.rs`. The facade owns the process, its stop plan and its timers;
-//! this is the only place a session touches its pipes.
+//! `ace-adapter-pi/src/session/io.rs`. The Rust daemon owns the process, its stop plan and its
+//! timers; this is the only place a session touches its pipes.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -16,7 +16,7 @@ use ace_supervisor::errors::NodeIoError;
 use ace_supervisor::spawn::{Delivered, OutputStream, RawExit};
 
 use super::commands::CursorOpen;
-use super::core::{CoreEffect, CursorSessionConfig, CursorSessionCore, PORT_EXITED};
+use super::core::{CoreEffect, CursorSessionConfig, CursorSessionCore};
 
 /// One native Cursor session's shared state over a diverted child.
 pub struct CursorSessionShell {
@@ -87,7 +87,7 @@ impl CursorSessionShell {
         }
     }
 
-    /// `send` (`session.ts:230`-`:284`): the refusal is returned to the facade, which throws it.
+    /// `send` (`session.ts:230`-`:284`): the refusal is returned to the caller, which throws it.
     pub fn send(
         &self,
         operation: u64,
@@ -138,7 +138,8 @@ impl CursorSessionShell {
         self.input(|core| core.exit(None, None, "spawn-error", None, None));
     }
 
-    /// The facade answered the exit port (`session.ts:156`-`:181`).
+    /// The child ended (`session.ts:156`-`:181`): the caller supplies its end, its reason and
+    /// the prose the host left (already redacted: redaction is the caller's).
     pub fn exit(
         &self,
         code: Option<i64>,
@@ -150,7 +151,7 @@ impl CursorSessionShell {
         self.input(|core| core.exit(code, signal, reason, detail, stop_cause));
     }
 
-    /// The facade answered a port: `"host-output"` with the redacted text, `"stop"` with nothing.
+    /// The caller answered a port: `"host-output"` with the redacted text, `"stop"` with nothing.
     pub fn note(&self, name: &str, text: Option<&str>) {
         self.input(|core| core.note(name, text));
     }
@@ -279,9 +280,6 @@ impl OutputConsumer for CursorSessionShell {
         self.input(CursorSessionCore::pipes_closed);
     }
 }
-
-/// The port the shell publishes when the pipes are closed, re-exported for the binding.
-pub const EXITED_PORT: &str = PORT_EXITED;
 
 #[cfg(test)]
 mod tests;

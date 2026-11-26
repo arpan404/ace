@@ -7,11 +7,11 @@ use ace_supervisor::peer::PeerError;
 
 use super::bounded::BoundedError;
 
-/// The one code a peer failure crosses to the facade with: its message is the reply's error
+/// The one code a peer failure crosses to the caller with: its message is the reply's error
 /// JSON, which `refusedByHost` and `discoveryFailureCode` read (`host-refusal.ts:9`-`:15`).
 pub const ACE_CURSOR_RPC: &str = "ACE_CURSOR_RPC";
 
-/// A failure as it crosses with a settlement: the code the facade registers and the message.
+/// A failure as it crosses with a settlement: the code the caller registers and the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostErrorWire {
     pub code: &'static str,

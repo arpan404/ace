@@ -7,8 +7,8 @@
 //!
 //! **What stays the shell's, on purpose.** Host prose is never redacted or classified here
 //! (brief point 3): stderr lines, stray stdout lines, the peer's connection failure and an error
-//! frame's message cross as ports, and the facade keeps `CursorHost`'s diagnostic fields with
-//! `@ace/redaction`. The process, its stop plan and its timers are the facade's too.
+//! frame's message cross as ports, and the caller keeps `CursorHost`'s diagnostic fields with
+//! `@ace/redaction`. The process, its stop plan and its timers are the caller's too.
 //!
 //! **One parse per line.** The peer parses the line; this core walks that value once for the
 //! bound, and borrows the frame's text from the line when the host wrote it canonically (it does:
@@ -18,9 +18,9 @@
 //!
 //! **The stray-line hold** (`host.ts:143`). A stray line's `host-output` note frame takes its
 //! place in line order, before the next line is read. The core cannot push that frame itself -
-//! its text needs the facade's redaction - so it publishes `Port { name: "stray" }` and holds
-//! every later event until the facade answers [`CursorHostCore::note`] with `"host-output"`.
-//! The facade answers synchronously inside the same delivery, so a hold lasts one batch; while it
+//! its text needs the caller's redaction - so it publishes `Port { name: "stray" }` and holds
+//! every later event until the caller answers [`CursorHostCore::note`] with `"host-output"`.
+//! The caller answers synchronously inside the same delivery, so a hold lasts one batch; while it
 //! lasts the io shell pauses the read gate, which is how held events stay inside the queue's
 //! bound (a held event never outlives what the pipe already delivered).
 
@@ -63,7 +63,7 @@ pub const PEER_CLOSED: &str = "JSON-RPC peer closed";
 /// The pipe's end (`jsonrpc.ts:263`).
 pub const PROCESS_EXITED: &str = "process exited";
 
-/// The diagnostics the facade runs itself; the payload is the raw host text (never redacted
+/// The diagnostics the caller runs itself; the payload is the raw host text (never redacted
 /// here, brief point 3).
 pub const PORT_STDERR: &str = "stderr";
 pub const PORT_STRAY: &str = "stray";
@@ -87,14 +87,14 @@ pub enum HostEffect {
         wire: Vec<u8>,
         ticket: u64,
     },
-    /// Settles the facade's promise `id` with JSON, or with the peer's failure.
+    /// Settles the caller's promise `id` with JSON, or with the peer's failure.
     Settle {
         id: u64,
         result: Result<String, HostErrorWire>,
     },
     /// A host login URL that passed the check (`host.ts:174`).
     LoginUrl(String),
-    /// A diagnostic the facade owns; `json` is a one-field object.
+    /// A diagnostic the caller owns; `json` is a one-field object.
     Port {
         name: &'static str,
         json: String,
@@ -130,7 +130,7 @@ pub struct CursorHostCore {
     strays: usize,
     next_frame: u64,
     held: VecDeque<HostEffect>,
-    /// Stray ports the facade has not answered.
+    /// Stray ports the caller has not answered.
     notes: usize,
     closed: bool,
 }
@@ -160,7 +160,7 @@ impl CursorHostCore {
         }
     }
 
-    /// Whether events are waiting for the facade's `note("host-output")`.
+    /// Whether events are waiting for the caller's `note("host-output")`.
     pub fn holding(&self) -> bool {
         self.notes > 0
     }
@@ -196,7 +196,7 @@ impl CursorHostCore {
         out
     }
 
-    /// One facade call: `host.request` (`host.ts:207`-`:244`), minus the prose.
+    /// One caller call: `host.request` (`host.ts:207`-`:244`), minus the prose.
     pub fn request(
         &mut self,
         method: &str,
@@ -238,7 +238,7 @@ impl CursorHostCore {
         out
     }
 
-    /// The frame `seq` could not be stored (`onFrame` rejected); `reason` is the facade's
+    /// The frame `seq` could not be stored (`onFrame` rejected); `reason` is the caller's
     /// already-redacted `ace could not store a Cursor SDK frame: ...`.
     pub fn refused(&mut self, seq: u64, reason: &str) -> Vec<HostEffect> {
         self.errors.retain(|(frame, _)| *frame != seq);
@@ -265,7 +265,7 @@ impl CursorHostCore {
         out
     }
 
-    /// The facade's `stop()`: the RPC is disposed, which settles every call still pending.
+    /// The caller's `stop()`: the RPC is disposed, which settles every call still pending.
     pub fn close(&mut self, reason: &str) -> Vec<HostEffect> {
         let effects = self.peer.close(reason);
         self.closed = true;
@@ -274,7 +274,7 @@ impl CursorHostCore {
         out
     }
 
-    /// The facade answered a port. `"host-output"` releases the stray hold; anything else is
+    /// The caller answered a port. `"host-output"` releases the stray hold; anything else is
     /// ignored.
     pub fn note(&mut self, name: &str) -> Vec<HostEffect> {
         if name != "host-output" || self.notes == 0 {
@@ -284,7 +284,7 @@ impl CursorHostCore {
         let take = if self.notes == 0 {
             self.held.len()
         } else {
-            // Up to and including the next stray port: the facade answers one port per batch.
+            // Up to and including the next stray port: the caller answers one port per batch.
             self.held
                 .iter()
                 .position(
