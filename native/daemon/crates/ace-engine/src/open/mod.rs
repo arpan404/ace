@@ -8,8 +8,9 @@
 //! Open-time work stays bounded (ADR 0170): the history-sized passes the TypeScript constructors
 //! run (the queue-row backfill, the orphaned-input delete, the cursor-empty migration, the
 //! interaction backfill and the readiness rebuild) belong to E5.3's idle fills and are not run
-//! here. The permission row migration is E5.7's own and runs once per open over
-//! `engine_permissions` (one row per thread), as the TypeScript does.
+//! here. The permission row mapping is an idle fill too (`fills`), and the two partial indexes
+//! (`engine_first_person_input`, `thread_liveness_candidates`) are not built at all: a
+//! whole-table index build is not a bounded step, and their readers are bounded instead.
 
 pub mod ddl;
 pub mod fills;
