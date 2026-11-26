@@ -564,10 +564,10 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
         "input.admitted" => {
             matches!(
                 fact.get("nativeInputId"),
-                Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 512
+                Some(Json::String(id)) if !id.is_empty() && id.len_utf16() <= 512
             ) && match fact.get("commandId") {
                 None | Some(Json::Null) => true,
-                Some(Json::String(id)) => !id.is_empty() && id.len_code_points() <= 512,
+                Some(Json::String(id)) => !id.is_empty() && id.len_utf16() <= 512,
                 _ => false,
             }
         }
@@ -575,7 +575,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
             Some(Json::Array(ids)) => {
                 ids.len() <= 64
                     && ids.iter().all(
-                        |id| matches!(id, Json::String(id) if !id.is_empty() && id.len_code_points() <= 512),
+                        |id| matches!(id, Json::String(id) if !id.is_empty() && id.len_utf16() <= 512),
                     )
             }
             _ => false,
@@ -800,4 +800,47 @@ fn ensure_moved_target(to: &Map) -> bool {
         && matches!(to.get("hostId"), Some(Json::String(id)) if !id.is_empty())
         && matches!(to.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         && matches!(to.get("threadId"), Some(Json::String(id)) if !id.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_fact_ids_fit_the_first_512_utf16_units() {
+        let state = crate::state::create_thread_state(
+            "thread".to_owned(),
+            None,
+            crate::state::CoreConfig {
+                provider: "codex".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .expect("empty thread");
+        for (field, kind) in [
+            ("nativeInputId", "input.admitted"),
+            ("commandId", "input.admitted"),
+            ("nativeInputIds", "input.consumed"),
+        ] {
+            for length in [256, 257] {
+                let id = "😀".repeat(length);
+                let mut fact = Map::new();
+                fact.insert("nativeInputId", Json::from("input"));
+                fact.insert(
+                    field,
+                    if field == "nativeInputIds" {
+                        ace_json::json!([id])
+                    } else {
+                        Json::from(id)
+                    },
+                );
+                assert_eq!(
+                    shape_valid(&state, &fact, kind, 0),
+                    Ok(length == 256),
+                    "{field}"
+                );
+            }
+        }
+    }
 }

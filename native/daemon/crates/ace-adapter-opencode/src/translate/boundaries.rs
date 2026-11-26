@@ -58,7 +58,7 @@ pub fn parse_native_event(value: &Value) -> Result<NativeEvent<'_>, BoundaryErro
         _ => return Err(BoundaryError::Event("data")),
     };
     let location = match envelope.get("location") {
-        None | Some(Value::Null) => None,
+        None => None,
         Some(Value::Object(location)) => match location.get("directory") {
             Some(Value::String(directory)) if bounded(directory, 4096) => Some(location),
             _ => return Err(BoundaryError::Event("location")),
@@ -66,7 +66,7 @@ pub fn parse_native_event(value: &Value) -> Result<NativeEvent<'_>, BoundaryErro
         _ => return Err(BoundaryError::Event("location")),
     };
     let durable = match envelope.get("durable") {
-        None | Some(Value::Null) => None,
+        None => None,
         Some(Value::Object(cursor)) => Some(parse_durable(cursor)?),
         _ => return Err(BoundaryError::Event("durable")),
     };
@@ -88,19 +88,16 @@ fn parse_durable(cursor: &Map) -> Result<Durable<'_>, BoundaryError> {
         Some(Value::String(id)) if bounded(id, 512) => id.as_str(),
         _ => return Err(BoundaryError::Event("durable.aggregateID")),
     };
-    let seq = match cursor.get("seq") {
-        Some(Value::Number(seq)) => match seq.as_i64() {
-            Some(seq) if seq >= 0 => seq as f64,
-            _ => match seq.as_u64() {
-                Some(seq) => seq as f64,
-                None => match seq.as_f64() {
-                    Some(seq) if seq.fract() == 0.0 && seq >= 0.0 => seq,
-                    _ => return Err(BoundaryError::Event("durable.seq")),
-                },
-            },
-        },
-        _ => return Err(BoundaryError::Event("durable.seq")),
-    };
+    let seq = cursor
+        .get("seq")
+        .and_then(Value::as_f64)
+        .filter(|seq| (0.0..=9_007_199_254_740_991.0).contains(seq) && seq.fract() == 0.0)
+        .ok_or(BoundaryError::Event("durable.seq"))?;
+    if let Some(version) = cursor.get("version")
+        && !version.as_f64().is_some_and(f64::is_finite)
+    {
+        return Err(BoundaryError::Event("durable.version"));
+    }
     Ok(Durable { aggregate_id, seq })
 }
 
@@ -287,6 +284,83 @@ mod length_tests {
                     "{field}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn durable_session_and_projected_message_strings_count_code_points() {
+        for (field, limit) in [
+            ("aggregateID", 512),
+            ("session.id", 512),
+            ("message.id", 512),
+            ("message.type", 256),
+        ] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let accepted = match field {
+                    "aggregateID" => parse_native_event(&ace_json::json!({
+                        "id":"event", "type":"session.updated", "data":{},
+                        "durable": {"aggregateID": text, "seq":0}
+                    }))
+                    .is_ok(),
+                    "session.id" => parse_session_info(&ace_json::json!({
+                        "id":text, "projectID":"p", "location":{"directory":"/tmp"}
+                    }))
+                    .is_ok(),
+                    "message.id" => {
+                        parse_projected_message(&ace_json::json!({"id":text, "type":"user"}))
+                            .is_ok()
+                    }
+                    _ => parse_projected_message(&ace_json::json!({"id":"message", "type":text}))
+                        .is_ok(),
+                };
+                assert_eq!(accepted, length == limit, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn optional_event_objects_must_be_omitted_or_objects() {
+        let event = r#"{"id":"event","type":"session.updated","data":{}}"#;
+        let mut event = ace_json::parse(event).expect("event");
+        assert!(parse_native_event(&event).is_ok());
+        for key in ["location", "durable"] {
+            let mut invalid = event.clone();
+            invalid
+                .as_object_mut()
+                .expect("object")
+                .insert(key, Value::Null);
+            assert!(parse_native_event(&invalid).is_err(), "{key}");
+        }
+        event
+            .as_object_mut()
+            .expect("object")
+            .insert("location", ace_json::json!({"directory":"/tmp"}));
+        assert!(parse_native_event(&event).is_ok());
+    }
+
+    #[test]
+    fn durable_events_take_safe_sequences_and_finite_versions() {
+        for (cursor, accepted) in [
+            (r#"{"aggregateID":"s","seq":0}"#, true),
+            (
+                r#"{"aggregateID":"s","seq":9007199254740991,"version":1.5}"#,
+                true,
+            ),
+            (r#"{"aggregateID":"s","seq":9007199254740992}"#, false),
+            (r#"{"aggregateID":"s","seq":-1}"#, false),
+            (r#"{"aggregateID":"s","seq":0.5}"#, false),
+            (r#"{"aggregateID":"s","seq":1,"version":null}"#, false),
+            (r#"{"aggregateID":"s","seq":1,"version":"2"}"#, false),
+            (r#"{"aggregateID":"s","seq":1,"version":1e400}"#, false),
+        ] {
+            let event = ace_json::parse(&format!(
+                r#"{{"id":"event","type":"native","data":{{}},"durable":{cursor}}}"#
+            ));
+            let actual = event
+                .as_ref()
+                .is_ok_and(|event| parse_native_event(event).is_ok());
+            assert_eq!(actual, accepted, "{cursor}");
         }
     }
 }

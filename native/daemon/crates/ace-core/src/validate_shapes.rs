@@ -571,9 +571,11 @@ pub fn valid_raw_payload(value: &Json) -> bool {
         if as_count(map.get("size")).is_none() {
             return false;
         }
-        if !map.get("preview").is_none_or(
-            |preview| matches!(preview, Json::String(preview) if preview.len_code_points() <= 2048),
-        ) {
+        // RawPayload's refinement measures TextEncoder output.
+        if !map
+            .get("preview")
+            .is_none_or(|preview| matches!(preview, Json::String(preview) if preview.len() <= 2048))
+        {
             return false;
         }
         return true;
@@ -1134,4 +1136,19 @@ pub fn valid_step_measurement(value: &Json) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_payload_preview_is_bounded_by_utf8_bytes() {
+        for length in [512, 513] {
+            let raw = ace_json::json!({
+                "type":"provider", "blobRef":"raw", "size":4096, "preview":"😀".repeat(length)
+            });
+            assert_eq!(valid_raw_payload(&raw), length == 512);
+        }
+    }
 }

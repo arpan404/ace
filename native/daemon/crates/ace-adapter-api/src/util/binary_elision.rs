@@ -75,7 +75,7 @@ fn below_threshold(value: &str) -> bool {
     if value.len() < BINARY_ELISION_CHARS {
         return true;
     }
-    value.encode_utf16().count() < BINARY_ELISION_CHARS
+    ace_json::utf16_len(value) < BINARY_ELISION_CHARS
 }
 
 fn is_elision_alphabet(byte: u8) -> bool {
@@ -173,7 +173,7 @@ fn elide_value(value: &mut Value) {
 /// attachment bytes is visited string by string.
 pub fn elided_json(value: &Value) -> String {
     let plain = ace_json::to_string(value);
-    if plain.len() < BINARY_ELISION_CHARS {
+    if below_threshold(&plain) {
         return plain;
     }
     let mut owned = value.clone();
@@ -300,6 +300,20 @@ mod tests {
                 }
             }
             _ => {}
+        }
+    }
+
+    #[test]
+    fn serialized_astral_text_reaches_the_elision_scan_at_16384_utf16_units() {
+        for padding in [BINARY_ELISION_CHARS - 5, BINARY_ELISION_CHARS - 4] {
+            let value = Value::from(format!("{}😀", "x".repeat(padding)));
+            let plain = ace_json::to_string(&value);
+            assert!(plain.len() >= BINARY_ELISION_CHARS);
+            assert_eq!(
+                super::below_threshold(&plain),
+                padding == BINARY_ELISION_CHARS - 5
+            );
+            assert_eq!(elided_json(&value), plain);
         }
     }
 

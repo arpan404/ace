@@ -132,7 +132,7 @@ fn path_string(map: &Map, key: &str) -> Option<String> {
 }
 
 fn valid_path(text: &str) -> Option<String> {
-    (!text.is_empty() && text.len() <= 4096).then(|| text.to_owned())
+    (!text.is_empty() && text.chars().count() <= 4096).then(|| text.to_owned())
 }
 
 /// Zod's `uuid()`: 8-4-4-4-12 hexadecimal, dashes in place.
@@ -482,4 +482,37 @@ pub async fn records(
         }
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn journal_paths_accept_4096_code_points() {
+        for field in ["root", "roots"] {
+            for length in [4096, 4097] {
+                let path = format!("/{}", "😀".repeat(length - 1));
+                let mut record = ace_json::json!({
+                    "version":1,
+                    "id":"a5ef1f35-2a62-4eda-a201-a7a1f18f0537",
+                    "root":"/repo",
+                    "roots":["/repo"]
+                });
+                record.as_object_mut().expect("record").insert(
+                    field,
+                    if field == "root" {
+                        Value::from(path)
+                    } else {
+                        ace_json::json!([path])
+                    },
+                );
+                assert_eq!(
+                    LeaseRecord::parse(&ace_json::to_string(&record)).is_some(),
+                    length == 4096,
+                    "{field}"
+                );
+            }
+        }
+    }
 }
