@@ -249,8 +249,8 @@ async fn a_request_whose_signal_was_aborted_before_it_was_sent_never_reaches_the
         .request("act", &payload(), 10_000, Some(stop), None)
         .await
         .unwrap_err();
-    assert_eq!(error.code, "cancelled");
-    assert_eq!(error.message, "Cancelled.");
+    assert_eq!(error.code().as_str(), "cancelled");
+    assert_eq!(error.message().as_str(), "Cancelled.");
     assert!(!connection.busy().await);
     assert_eq!(start.spawned(), 0, "nothing may be spawned");
 }
@@ -276,7 +276,7 @@ async fn a_helper_whose_stdin_pipe_breaks_mid_request_fails_it_and_the_next_gets
         .await
         .unwrap_or_else(|_| panic!("request task"))
         .unwrap_err();
-    assert_eq!(error.code, "helper_exited");
+    assert_eq!(error.code().as_str(), "helper_exited");
     // A helper that took SIGTERM exited; the connection is still usable.
     assert!(!connection.is_closed());
     let next = tokio::spawn({
@@ -328,7 +328,7 @@ async fn a_stuck_helper_that_ignores_sigterm_is_force_killed_and_its_replacement
         .await
         .unwrap_or_else(|_| panic!("request task"))
         .unwrap_err();
-    assert_eq!(error.code, "timeout");
+    assert_eq!(error.code().as_str(), "timeout");
     until("the state on the second helper", || {
         start.spawned() == 2 && start.helper(1).writes().len() == 1
     })
@@ -373,12 +373,12 @@ async fn while_a_stopping_helper_cannot_be_killed_the_apps_next_request_fails_in
         .await
         .unwrap_or_else(|_| panic!("request task"))
         .unwrap_err();
-    assert_eq!(error.code, "timeout");
+    assert_eq!(error.code().as_str(), "timeout");
     let error = next
         .await
         .unwrap_or_else(|_| panic!("request task"))
         .unwrap_err();
-    assert_eq!(error.code, "helper_stopping");
+    assert_eq!(error.code().as_str(), "helper_stopping");
     assert_eq!(start.spawned(), 1, "no successor while the helper lives");
     assert!(!start.helper(0).exited.load(Ordering::Relaxed));
 }
@@ -425,10 +425,10 @@ async fn a_cancels_acknowledgment_never_answers_the_action_it_cancelled() {
         .await
         .unwrap_or_else(|_| panic!("request task"))
         .unwrap_err();
-    assert_eq!(error.code, "cancelled");
+    assert_eq!(error.code().as_str(), "cancelled");
     assert_eq!(
-        error.result,
-        Some(ace_json::json!({ "done": ["did key"] })),
+        error.result(),
+        Some(&ace_json::json!({ "done": ["did key"] })),
         "the action's own reply, not the cancel's acknowledgment"
     );
 }
@@ -447,7 +447,7 @@ async fn a_helper_that_exits_during_its_start_fails_the_request_and_the_next_sta
         .request("state", &payload(), 5_000, None, None)
         .await
         .unwrap_err();
-    assert_eq!(first.code, "helper_exited");
+    assert_eq!(first.code().as_str(), "helper_exited");
     assert_eq!(start.spawned(), 1, "the dead helper was never installed");
 
     let next = tokio::spawn({
@@ -533,7 +533,7 @@ async fn a_refused_sigkill_wakes_a_stopped_waiter_with_helper_stopping() {
     let waited = tokio::time::timeout(Duration::from_secs(2), connection.stopped()).await;
     let result = waited.expect("stopped answered once SIGKILL was refused");
     assert_eq!(
-        result.unwrap_err().code,
+        result.unwrap_err().code(),
         "helper_stopping",
         "the waiter is told the old helper is still running"
     );
@@ -578,8 +578,8 @@ async fn a_dispatch_that_finishes_after_shutdown_began_writes_nothing() {
         .request("act", &payload(), 10_000, None, Some(dispatch))
         .await
         .unwrap_err();
-    assert_eq!(error.code, "closed");
-    assert_eq!(error.message, "Computer use stopped.");
+    assert_eq!(error.code().as_str(), "closed");
+    assert_eq!(error.message().as_str(), "Computer use stopped.");
     until("the helper", || start.spawned() == 1).await;
     assert!(
         start.helper(0).writes().is_empty(),

@@ -2,7 +2,7 @@
 
 //! A computer-use failure whose message is written for the model (`computer/errors.ts`).
 
-use ace_json::Value;
+use ace_json::{JsString, Value};
 
 use crate::catalog::{Refusal, catalog};
 
@@ -10,37 +10,61 @@ use crate::catalog::{Refusal, catalog};
 /// helper had done when the request was cancelled or overran (`errors.ts:1`-`:14`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComputerError {
-    pub code: String,
-    pub message: String,
+    // Boxed: the error crosses every closure in the crate, and two `JsString`s plus a result
+    // make it too large to return by value cheaply.
+    detail: Box<Detail>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Detail {
+    code: JsString,
+    message: JsString,
     /// The helper's reply when it replied after a cancel (an act lists the steps it finished).
-    pub result: Option<Value>,
+    result: Option<Value>,
 }
 
 impl ComputerError {
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<JsString>, message: impl Into<JsString>) -> Self {
         Self {
-            code: code.into(),
-            message: message.into(),
-            result: None,
+            detail: Box::new(Detail {
+                code: code.into(),
+                message: message.into(),
+                result: None,
+            }),
         }
+    }
+
+    /// The code a tool result carries.
+    pub fn code(&self) -> &JsString {
+        &self.detail.code
+    }
+
+    /// The text the model reads.
+    pub fn message(&self) -> &JsString {
+        &self.detail.message
+    }
+
+    /// What the helper had done when a request was cancelled or overran.
+    pub fn result(&self) -> Option<&Value> {
+        self.detail.result.as_ref()
     }
 
     /// A catalog refusal, as it is written.
     pub fn refusal(refusal: &Refusal) -> Self {
-        Self::new(refusal.code.clone(), refusal.message.clone())
+        Self::new(refusal.code.as_str(), refusal.message.as_str())
     }
 
     /// A catalog refusal whose message names something, e.g. why a helper did not start.
     pub fn refusal_with(refusal: &Refusal, name: &str, value: &str) -> Self {
         Self::new(
-            refusal.code.clone(),
+            refusal.code.as_str(),
             crate::catalog::fill(refusal, name, value),
         )
     }
 
     /// The helper's reply, kept on a cancelled or overrun request.
     pub fn with_result(mut self, result: Option<Value>) -> Self {
-        self.result = result;
+        self.detail.result = result;
         self
     }
 
@@ -93,7 +117,7 @@ impl ComputerError {
 
 impl std::fmt::Display for ComputerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(self.detail.message.as_str())
     }
 }
 

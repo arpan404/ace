@@ -141,7 +141,7 @@ fn supervised_helper(
     spec: SpawnSpec,
     events: Arc<dyn ChildEvents>,
     handle: &tokio::runtime::Handle,
-) -> Result<SupervisedHelper, ComputerError> {
+) -> Result<SupervisedHelper, Box<ComputerError>> {
     let sink = Sink {
         events: Arc::clone(&events),
     };
@@ -152,8 +152,8 @@ fn supervised_helper(
 }
 
 /// A start the supervisor refused, as the model reads it (`helper-connection.ts:219`-`:225`).
-fn start_error(error: &SupervisorError) -> ComputerError {
-    ComputerError::helper_unavailable_with(&error.to_string())
+fn start_error(error: &SupervisorError) -> Box<ComputerError> {
+    Box::new(ComputerError::helper_unavailable_with(&error.to_string()))
 }
 
 #[cfg(all(test, unix))]

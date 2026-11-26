@@ -52,7 +52,7 @@ pub type Spawner = Arc<
             Vec<String>,
             Vec<(String, String)>,
             Arc<dyn ChildEvents>,
-        ) -> Result<Box<dyn HelperProcess>, ComputerError>
+        ) -> Result<Box<dyn HelperProcess>, Box<ComputerError>>
         + Send
         + Sync,
 >;
@@ -100,7 +100,7 @@ impl ComputerClientOptions {
             helper,
             environment: Arc::new(|| Box::pin(async { Ok(Vec::new()) })),
             helper_args: Vec::new(),
-            spawn: Arc::new(|_, _, _, _| Err(ComputerError::helper_unavailable())),
+            spawn: Arc::new(|_, _, _, _| Err(Box::new(ComputerError::helper_unavailable()))),
             deadline_ms: Arc::new(default_deadline_ms),
             grace_ms: 3_000,
             stop_grace_ms: 0,
@@ -585,7 +585,7 @@ impl HelperStart for PoolStart {
                 Ok(process) => process,
                 Err(error) => {
                     start.unclaim();
-                    return Err(error);
+                    return Err(*error);
                 }
             };
             start.spawned.store(true, Ordering::Relaxed);

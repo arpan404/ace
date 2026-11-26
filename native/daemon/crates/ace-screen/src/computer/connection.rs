@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 use ace_supervisor::signal::SignalName;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -124,8 +124,8 @@ enum Ending {
 struct Job {
     /// The actor's own number for this request, assigned when it is asked for.
     key: u64,
-    /// The id the helper's reply carries.
-    id: String,
+    /// The id the helper's reply carries (`JsString`: an id may hold any code unit).
+    id: JsString,
     line: Vec<u8>,
     deadline_ms: u64,
     cancel: Option<CancellationToken>,
@@ -337,14 +337,14 @@ impl Connection {
             dispatch,
             end,
         } = request;
-        let id = (self.shared.next_id)();
+        let id = JsString::from((self.shared.next_id)());
         // `{ ...payload, op, id }`: the request's own fields first, then `op` and `id`.
         let mut line = Map::with_capacity(payload.len() + 2);
         for (name, value) in payload {
             line.insert(name.clone(), value.clone());
         }
         line.insert("op".to_owned(), Value::from(op));
-        line.insert("id".to_owned(), Value::from(id.as_str()));
+        line.insert("id".to_owned(), Value::String(id.clone()));
         let mut bytes = Value::Object(line).to_json().into_bytes();
         bytes.push(b'\n');
         let timing = self
@@ -856,11 +856,11 @@ impl State {
             .get(&key)
             .map(|job| job.id.clone())
             .unwrap_or_default();
-        let id = (self.options.next_id)();
+        let id = JsString::from((self.options.next_id)());
         let mut cancel = Map::with_capacity(3);
-        cancel.insert("id".to_owned(), Value::from(id.as_str()));
+        cancel.insert("id".to_owned(), Value::String(id));
         cancel.insert("op".to_owned(), Value::from("cancel"));
-        cancel.insert("target".to_owned(), Value::from(target.as_str()));
+        cancel.insert("target".to_owned(), Value::String(target));
         let mut bytes = Value::Object(cancel).to_json().into_bytes();
         bytes.push(b'\n');
         if let Some(child) = self.child.as_ref()
@@ -922,7 +922,7 @@ impl State {
         match line {
             ReplyLine::Oversize { id } => {
                 if let Some(id) = id
-                    && self.jobs.get(&key).is_some_and(|job| job.id != id)
+                    && self.jobs.get(&key).is_some_and(|job| job.id.as_str() != id)
                 {
                     return;
                 }
@@ -939,7 +939,7 @@ impl State {
                 let Some(reply) = decode_reply(&text) else {
                     return;
                 };
-                if self.jobs.get(&key).is_none_or(|job| job.id != reply.id()) {
+                if self.jobs.get(&key).is_none_or(|job| job.id != *reply.id()) {
                     return;
                 }
                 let ending = self.jobs.get(&key).and_then(|job| job.ending);
@@ -950,6 +950,10 @@ impl State {
                     timing.reply(stamp, result.as_ref());
                 }
                 match (ending, reply) {
+                    (_, Reply::Unknown { .. }) => {
+                        // Kept for whoever reads the raw line; it answers no request.
+                        return;
+                    }
                     (Some(why), Reply::Ok { result, .. }) => {
                         self.current = None;
                         let error = ending_error(why, Some(result));

@@ -106,56 +106,59 @@ impl ReplyLines {
 }
 
 /// `reply-lines.ts:25`'s `/"id"\s*:\s*"((?:[^"\\\n]|\\.){1,128})"/`, by hand: the id of a
-/// reply whose line was too long, so its request can fail without waiting for the deadline.
+/// reply whose line was too long, so its request can fail without waiting for the deadline. The
+/// regex counts UTF-16 code units, not bytes: an id of 65 `é` is 130 bytes and 65 units.
 fn id_in(bytes: &[u8]) -> Option<String> {
     let text = String::from_utf8_lossy(bytes);
-    let bytes = text.as_bytes();
     let mut at = 0;
-    while at + 4 <= bytes.len() {
-        if &bytes[at..at + 4] != b"\"id\"" {
-            at += 1;
+    while let Some(offset) = text[at..].find("\"id\"") {
+        let mut index = at + offset + 4;
+        let rest = &text[index..];
+        let after_space =
+            rest.trim_start_matches(|character: char| character.is_ascii_whitespace());
+        index += rest.len() - after_space.len();
+        if !after_space.starts_with(':') {
+            at = index.max(at + 1);
             continue;
         }
-        let mut index = at + 4;
-        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-            index += 1;
-        }
-        if index >= bytes.len() || bytes[index] != b':' {
-            at += 4;
+        let after_colon =
+            after_space[1..].trim_start_matches(|character: char| character.is_ascii_whitespace());
+        index += 1 + (after_space[1..].len() - after_colon.len());
+        if !after_colon.starts_with('"') {
+            at = index.max(at + 1);
             continue;
         }
-        index += 1;
-        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-            index += 1;
-        }
-        if index >= bytes.len() || bytes[index] != b'"' {
-            at += 4;
-            continue;
-        }
-        index += 1;
-        let start = index;
+        let content = &text[index + 1..];
         let mut units = 0;
-        while index < bytes.len() {
-            let byte = bytes[index];
-            if byte == b'"' {
-                if units == 0 || units > MAX_ID_UNITS {
+        let mut end = None;
+        let mut characters = content.char_indices();
+        while let Some((position, character)) = characters.next() {
+            match character {
+                '"' => {
+                    end = Some(position);
                     break;
                 }
-                return Some(String::from_utf8_lossy(&bytes[start..index]).into_owned());
+                '\n' => break,
+                '\\' => {
+                    // `\\.`: one iteration of the quantifier, whatever the escaped character is.
+                    if characters.next().is_none() {
+                        break;
+                    }
+                    units += 1;
+                }
+                _ => units += character.len_utf16(),
             }
-            if byte == b'\n' || units == MAX_ID_UNITS {
+            if units > MAX_ID_UNITS {
                 break;
             }
-            if byte == b'\\' {
-                // `\\.`: an escape takes the next byte with it.
-                index += 2;
-                units += 1;
-                continue;
-            }
-            index += 1;
-            units += 1;
         }
-        at += 4;
+        if let Some(end) = end
+            && units > 0
+            && units <= MAX_ID_UNITS
+        {
+            return Some(content[..end].to_owned());
+        }
+        at = index.max(at + 1);
     }
     None
 }
@@ -178,6 +181,26 @@ mod tests {
             vec![line("{\"a\":1}"), line("{\"b\":2}")]
         );
         assert_eq!(lines.push(b"-done\n"), vec![line("half-done")]);
+    }
+
+    #[test]
+    fn an_oversized_line_recovers_a_multi_byte_id_by_its_utf16_units() {
+        let mut lines = ReplyLines::new(64);
+        let id = "é".repeat(65);
+        let mut chunk = format!("{{\"id\":\"{id}\",\"ok\":true,\"result\":\"").into_bytes();
+        chunk.extend(std::iter::repeat_n(b'x', 4 * 1024));
+        chunk.extend_from_slice(b"\"}\n");
+        assert_eq!(
+            lines.push(&chunk),
+            vec![ReplyLine::Oversize { id: Some(id) }],
+            "130 bytes are 65 units, within the regex's 128"
+        );
+        // One more unit is past the cap, as in the TypeScript.
+        let over = "é".repeat(129);
+        let mut chunk = format!("{{\"id\":\"{over}\",\"ok\":true,\"result\":\"").into_bytes();
+        chunk.extend(std::iter::repeat_n(b'x', 4 * 1024));
+        chunk.extend_from_slice(b"\"}\n");
+        assert_eq!(lines.push(&chunk), vec![ReplyLine::Oversize { id: None }]);
     }
 
     #[test]
