@@ -12,7 +12,7 @@ const OUTPUT_TAIL_LIMIT: usize = 4_096;
 pub fn text_output(stdout: &[u8]) -> Result<String, GitError> {
     let text = std::str::from_utf8(stdout)
         .map_err(|_| GitError::new(GitErrorCode::MalformedOutput, "Malformed Git UTF-8 scalar"))?;
-    Ok(text.strip_suffix('\n').unwrap_or(text).to_owned())
+    Ok(crate::core::paths::strip_terminator(text, false).to_owned())
 }
 
 /// Streaming patch output (`patchOutput` in `cli.ts`): omits incomplete trailing UTF-8 sequence when truncated.

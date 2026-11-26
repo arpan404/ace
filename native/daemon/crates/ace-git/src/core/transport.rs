@@ -17,13 +17,7 @@ pub fn single_path(output: &ConfigOutput, is_windows: bool) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout).into_owned();
-    if is_windows && text.ends_with("\r\n") {
-        return Some(text[..text.len() - 2].to_owned());
-    }
-    if text.ends_with('\n') {
-        return Some(text[..text.len() - 1].to_owned());
-    }
-    Some(text)
+    Some(crate::core::paths::strip_terminator(&text, is_windows).to_owned())
 }
 
 /// The checkout's working tree and Git common directory, as absolute paths.
