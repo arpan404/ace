@@ -143,6 +143,7 @@ impl CursorHostCore {
             max_pending: MAX_PENDING_REQUESTS,
             max_queued_bytes: limits.max_pending_bytes,
             max_incoming: MAX_INCOMING_REQUESTS,
+            frame_text: false,
         });
         CursorHostCore {
             peer,

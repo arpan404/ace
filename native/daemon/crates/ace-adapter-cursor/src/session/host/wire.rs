@@ -51,9 +51,15 @@ impl CursorHostCore {
         out: &mut Vec<HostEffect>,
     ) {
         let mut pending: VecDeque<PeerEffect> = effects.into();
+        // The shared peer carries a notification's `params` once, on the `recv` frame of the
+        // same line, which precedes the notification (`ace-supervisor`'s `PeerEffect`).
+        let mut frame_params: Option<Value> = None;
         while let Some(effect) = pending.pop_front() {
             let follow = match effect {
-                PeerEffect::Frame { .. } => Vec::new(),
+                PeerEffect::Frame { value, .. } => {
+                    frame_params = value.get("params").cloned();
+                    Vec::new()
+                }
                 PeerEffect::Write { wire, ticket } => {
                     self.emit(out, vec![HostEffect::Write { wire, ticket }]);
                     Vec::new()
@@ -72,8 +78,8 @@ impl CursorHostCore {
                 PeerEffect::ServerRequest { id, method, params } => {
                     self.server_request(line, id, method, params, out)
                 }
-                PeerEffect::Notification { method, params } => {
-                    self.notification(line, method, params, out)
+                PeerEffect::Notification { method } => {
+                    self.notification(line, method, frame_params.take(), out)
                 }
                 PeerEffect::Malformed { line } => {
                     self.malformed(&line, out);
