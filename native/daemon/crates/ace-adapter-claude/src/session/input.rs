@@ -87,15 +87,6 @@ impl Writes {
         }
     }
 
-    /// The write the port refused: the front of the queue, the one handed over first.
-    pub(crate) fn take_refused(&mut self) -> Option<Record> {
-        let record = self.records.pop_front()?;
-        if matches!(record.after, After::Input(_)) {
-            self.inputs = self.inputs.saturating_sub(1);
-        }
-        Some(record)
-    }
-
     /// Every queued write, for a port that failed.
     pub(crate) fn take_all(&mut self) -> Vec<Record> {
         self.inputs = 0;
@@ -164,41 +155,46 @@ impl ClaudeWire {
         Ok(effects)
     }
 
-    /// One write reached the port.
+    /// One write reached the port. A late ack after the barrier emits nothing.
     pub fn stdin_written(&mut self) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
         self.writes.written()
     }
 
-    /// The port failed; its message is the session's failure text.
+    /// The port failed: every queued control settles `Uncertain`, then the latch.
     pub fn stdin_error(&mut self, message: &str) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
+        self.failed = true;
+        self.settle_queued(message)
+    }
+
+    /// The port refused a write: every queued control settles `Uncertain` (`pushed > 0`), then
+    /// the latch. The later writes cannot reach a closed port either.
+    pub fn write_refused(&mut self) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
+        self.failed = true;
+        self.settle_queued(STDIN_CLOSED)
+    }
+
+    fn settle_queued(&mut self, message: &str) -> Vec<Effect> {
         let mut effects = Vec::new();
         for record in self.writes.take_all() {
-            if let Some((id, request_id)) = record.control {
-                self.controls.settle(&request_id);
+            if let Some((tag, request_id)) = record.control
+                && self.controls.settle(&request_id).is_some()
+            {
                 effects.push(Effect::Settle {
-                    id,
+                    id: tag,
                     result: Err(ClaudeError::Uncertain(message.to_owned())),
                 });
             }
         }
         effects.push(self.writes.fail(message));
-        effects
-    }
-
-    /// The port refused a write: its control settles `Uncertain` (`pushed > 0`), then the latch.
-    pub fn write_refused(&mut self) -> Vec<Effect> {
-        let Some(record) = self.writes.take_refused() else {
-            return Vec::new();
-        };
-        let mut effects = Vec::new();
-        if let Some((id, request_id)) = record.control {
-            self.controls.settle(&request_id);
-            effects.push(Effect::Settle {
-                id,
-                result: Err(ClaudeError::Uncertain(STDIN_CLOSED.to_owned())),
-            });
-        }
-        effects.push(self.writes.fail(STDIN_CLOSED));
         effects
     }
 }

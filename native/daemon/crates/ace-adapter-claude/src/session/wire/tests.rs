@@ -810,7 +810,7 @@ fn send_refuses_whole_then_frames_each_write() {
     ));
     assert_eq!(
         refused.send(&format!("[{message}]"), None),
-        Err(ClaudeError::Refused("Claude stdin closed".to_owned()))
+        Err(ClaudeError::Refused("Claude session is closed".to_owned()))
     );
 }
 
@@ -845,6 +845,85 @@ fn a_stdin_error_is_fatal_and_refuses_later_sends() {
     ));
     assert_eq!(
         wire.send("[]", None),
-        Err(ClaudeError::Refused("write EPIPE".to_owned()))
+        Err(ClaudeError::Refused("Claude session is closed".to_owned()))
     );
+}
+
+#[test]
+fn a_late_ack_or_refusal_after_the_barrier_emits_nothing() {
+    let message = r#"{"type":"user","uuid":"uuid-1","message":{"role":"user","content":"hi"}}"#;
+    let mut wire = new_wire();
+    wire.send(&format!("[{message}]"), None).expect("admitted");
+    let effects = wire.finish();
+    assert!(matches!(effects.last(), Some(Effect::Drained)));
+    assert!(
+        wire.stdin_written().is_empty(),
+        "no send frame after Drained"
+    );
+    assert!(wire.write_refused().is_empty(), "no settle after Drained");
+    assert!(wire.stdin_error("write EPIPE").is_empty());
+}
+
+#[test]
+fn a_refused_write_settles_every_queued_control_and_latches() {
+    let mut wire = new_wire();
+    push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    wire.control(r#"{"subtype":"mcp_status"}"#, 1)
+        .expect("open");
+    wire.control(r#"{"subtype":"mcp_status"}"#, 2)
+        .expect("open");
+    wire.send(
+        r#"[{"type":"user","uuid":"uuid-1","message":{"role":"user","content":"hi"}}]"#,
+        None,
+    )
+    .expect("admitted");
+    let effects = wire.write_refused();
+    assert!(matches!(
+        &effects[0],
+        Effect::Settle { id: 1, result: Err(ClaudeError::Uncertain(text)) }
+            if text == "Claude stdin closed"
+    ));
+    assert!(matches!(&effects[1], Effect::Settle { id: 2, .. }));
+    assert!(matches!(effects.last(), Some(Effect::Fatal { .. })));
+    assert_eq!(effects.len(), 3, "the input write has no tag to settle");
+
+    assert!(wire.control(r#"{"subtype":"mcp_status"}"#, 3).is_err());
+    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
+    assert!(wire.expire().is_empty());
+    assert!(
+        wire.send(
+            r#"[{"type":"user","uuid":"uuid-2","message":{"role":"user","content":"hi"}}]"#,
+            None
+        )
+        .is_err()
+    );
+    assert!(wire.stdin_written().is_empty());
+}
+
+#[test]
+fn a_bad_control_request_is_refused() {
+    let mut wire = new_wire();
+    assert!(matches!(
+        wire.control("not json", 1),
+        Err(ClaudeError::Refused(_))
+    ));
+    assert!(matches!(
+        wire.control(r#"{"subtype":"future"}"#, 2),
+        Err(ClaudeError::Refused(_))
+    ));
+}
+
+#[test]
+fn no_answer_is_written_once_input_is_closed() {
+    let mut wire = new_wire();
+    wire.end_input();
+    let effects = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-9","request":{"subtype":"future_kind"}}"#,
+    );
+    assert_eq!(effects.len(), 1);
+    assert_eq!(frame(&effects[0]).1, "wire");
 }

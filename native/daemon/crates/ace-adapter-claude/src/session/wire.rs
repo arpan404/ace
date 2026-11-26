@@ -192,6 +192,7 @@ impl ClaudeWire {
             return Vec::new();
         }
         self.finished = true;
+        self.end_input();
         let mut effects = Vec::new();
 
         let tail = self.stdout.finish();
@@ -211,7 +212,6 @@ impl ClaudeWire {
 
         // The terminal expiry: every interaction ends once, and its default answer only while
         // stdin is open (`session.ts:104`, `:117`).
-        self.end_input();
         effects.extend(self.expire_pending());
 
         for tag in self.controls.drain() {

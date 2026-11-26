@@ -20,10 +20,10 @@ impl ClaudeWire {
             return Err(ClaudeError::Refused(CLOSED.to_owned()));
         }
         let request = parse_request(request_json)?;
-        // The wire learns the hooks it declared from the initialize it writes (P2c).
-        if let Request::Initialize(init) = &request {
-            self.declared_hooks = init.hooks.clone();
-        }
+        let declared = match &request {
+            Request::Initialize(init) => Some(init.hooks.clone()),
+            _ => None,
+        };
         let (request_id, envelope) = self
             .controls
             .request(request, id)
@@ -41,6 +41,10 @@ impl ClaudeWire {
                 return Err(ClaudeError::Refused(message));
             }
         };
+        // The wire learns the hooks it declared from the initialize it actually wrote.
+        if let Some(hooks) = declared {
+            self.declared_hooks = hooks;
+        }
         Ok(vec![self.writes.push(
             wire,
             After::Wire(WIRE, captured),
@@ -75,6 +79,9 @@ impl ClaudeWire {
 
     /// Write one answer envelope; its `send`/`wire` frame follows the write.
     pub(crate) fn answer_envelope(&mut self, envelope: Value) -> Vec<Effect> {
+        if self.finished || self.failed || !self.input_open {
+            return Vec::new();
+        }
         let mut wire = ace_json::to_string(&envelope).into_bytes();
         wire.push(b'\n');
         match self.capture(&envelope) {
@@ -86,9 +93,9 @@ impl ClaudeWire {
 
 /// The facade's request JSON, as the typed request `Controls` builds from.
 fn parse_request(json: &str) -> Result<Request, ClaudeError> {
-    let value = ace_json::parse(json).map_err(|_| ClaudeError::Uncertain(INVALID.to_owned()))?;
+    let value = ace_json::parse(json).map_err(|_| ClaudeError::Refused(INVALID.to_owned()))?;
     let Some(map) = value.as_object() else {
-        return Err(ClaudeError::Uncertain(INVALID.to_owned()));
+        return Err(ClaudeError::Refused(INVALID.to_owned()));
     };
     let request = match map.get("subtype").and_then(Value::as_str) {
         Some("initialize") => Request::Initialize(initialize(map)),
@@ -116,7 +123,7 @@ fn parse_request(json: &str) -> Result<Request, ClaudeError> {
         Some("get_usage") => Request::GetUsage {
             skip_behaviors: flag(map.get("skip_behaviors")),
         },
-        _ => return Err(ClaudeError::Uncertain(INVALID.to_owned())),
+        _ => return Err(ClaudeError::Refused(INVALID.to_owned())),
     };
     Ok(request)
 }
