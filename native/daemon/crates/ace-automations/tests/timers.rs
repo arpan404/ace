@@ -323,3 +323,109 @@ fn a_notification_that_fills_the_last_slot_keeps_the_waiting_run_waiting() {
         "waiting run starts once room frees"
     );
 }
+
+#[test]
+fn a_deduplicated_schedule_fire_never_reuses_a_run_id_after_restart() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&scheduled("skip", 0), None).expect("put");
+    let mut scheduled_variables = std::collections::BTreeMap::new();
+    scheduled_variables.insert(
+        "scheduled_at".to_owned(),
+        ace_automations::calendar::iso_string(START),
+    );
+    let existing = service
+        .trigger(
+            "triage",
+            &format!("schedule:{START}"),
+            scheduled_variables,
+            "schedule",
+            None,
+        )
+        .expect("existing");
+    let existing_id = run_id(&existing);
+    service.take_actions();
+    service
+        .complete(&existing_id, "succeeded", Some("thread"), Some("done"))
+        .expect("finish");
+
+    // The due occurrence is the one the trigger already claimed: the tick deduplicates it.
+    h.clock.0.set(START);
+    assert!(service.tick().expect("tick").is_some());
+    service.take_actions();
+    service.take_published();
+
+    h.clock.0.set(START + DAY);
+    let second = service.timer_fired().expect("timer").expect("second");
+    let second_id = run_id(&second);
+    service
+        .complete(&second_id, "succeeded", Some("thread"), Some("done"))
+        .expect("finish");
+    h.clock.0.set(START + 2 * DAY);
+    let third = service.timer_fired().expect("timer").expect("third");
+    let third_id = run_id(&third);
+    service
+        .complete(&third_id, "succeeded", Some("thread"), Some("done"))
+        .expect("finish");
+    drop(service);
+
+    // A reopened service's generated ids are the host's, never a sequence reseeded from rows a
+    // deduplicated fire left behind.
+    let store = h.reopen();
+    let mut service = h.service_on(&store);
+    service.start().expect("restart");
+    h.clock.0.set(START + 3 * DAY);
+    let fourth = service.timer_fired().expect("timer").expect("fourth");
+    let fourth_id = run_id(&fourth);
+    assert_ne!(fourth_id, third_id);
+    assert_ne!(fourth_id, second_id);
+    assert_ne!(fourth_id, existing_id);
+    assert_eq!(
+        sv(&fourth, "eventKey"),
+        Some(format!("schedule:{}", START + 3 * DAY).as_str())
+    );
+}
+
+#[test]
+fn a_schedule_whose_run_cannot_be_written_is_parked_and_the_timer_keeps_the_next_one() {
+    let h = Harness::new();
+    let mut service = h.started();
+    let mut first = scheduled("skip", 0);
+    first.id = "aaa".to_owned();
+    service.put(&first, None).expect("first");
+    let mut second = scheduled("skip", 0);
+    second.id = "bbb".to_owned();
+    if let Trigger::Schedule { schedule } = &mut second.trigger {
+        schedule.start_at = START + DAY;
+    }
+    service.put(&second, None).expect("second");
+
+    // The host's next id is already a stored run's id: this claim's insert is refused.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec(
+        "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES('run-1','other','other','succeeded','{}',NULL,1)",
+    )
+    .expect("blocking row");
+    raw.close().expect("close");
+
+    h.clock.0.set(START);
+    assert!(service.tick().expect("tick").is_none());
+    let parked = h.store.metadata("aaa").expect("meta").expect("job");
+    assert!(parked.trigger_error.is_some());
+    assert_eq!(parked.due, None);
+    assert_eq!(service.armed_delay(), Some(60_000));
+
+    h.clock.0.set(START + DAY);
+    let run = service
+        .timer_fired()
+        .expect("timer")
+        .expect("next schedule");
+    assert_eq!(sv(&run, "automationId"), Some("bbb"));
+}

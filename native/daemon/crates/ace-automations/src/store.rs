@@ -858,16 +858,6 @@ impl AutomationStore {
             .collect())
     }
 
-    /// The highest run sequence, so a reopened service's generated ids never repeat one.
-    pub fn max_run_seq(&self) -> Result<u64> {
-        Ok(self
-            .query("SELECT coalesce(max(seq),0) FROM automation_runs", &[])?
-            .first()
-            .and_then(|row| row_int(row, 0))
-            .unwrap_or(0)
-            .max(0) as u64)
-    }
-
     /// The stored run count, for the scheduler's admission tests and future listings.
     pub fn run_count(&self) -> Result<usize> {
         self.count("SELECT COUNT(*) AS n FROM automation_runs", None)

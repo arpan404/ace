@@ -5,7 +5,7 @@
 
 use std::cell::Cell;
 
-use ace_automations::scheduler::{Admission, Clock};
+use ace_automations::scheduler::{Admission, Clock, CounterIds};
 use ace_automations::service::{Ports, Service};
 use ace_automations::webhook_secret_box::SecretBox;
 use ace_automations::webhook_signature::sign_webhook;
@@ -35,6 +35,7 @@ struct Harness {
     store: AutomationStore,
     clock: TestClock,
     admission: TestAdmission,
+    ids: CounterIds,
 }
 
 impl Harness {
@@ -47,6 +48,7 @@ impl Harness {
             store,
             clock: TestClock(Cell::new(START)),
             admission: TestAdmission(Cell::new(true)),
+            ids: CounterIds::new("run"),
         }
     }
 
@@ -62,6 +64,7 @@ impl Harness {
                 random: &ZeroRandom,
                 admission: &self.admission,
                 timer: &ace_automations::service::NoopTimer,
+                ids: &self.ids,
                 workspace: None,
                 model_loading: None,
             },
@@ -320,6 +323,7 @@ fn a_retried_delivery_returns_its_run_instead_of_starting_another_also_after_res
         (rotated.hook_id, rotated.secret, first)
     };
     let store = AutomationStore::open(h.path().to_str().expect("utf8")).expect("reopen");
+    let ids = CounterIds::new("run");
     let mut service = Service::new(
         &store,
         Ports {
@@ -327,6 +331,7 @@ fn a_retried_delivery_returns_its_run_instead_of_starting_another_also_after_res
             random: &ZeroRandom,
             admission: &h.admission,
             timer: &ace_automations::service::NoopTimer,
+            ids: &ids,
             workspace: None,
             model_loading: None,
         },

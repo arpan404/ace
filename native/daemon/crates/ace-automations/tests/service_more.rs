@@ -104,6 +104,7 @@ fn github_polls_establish_a_baseline_emit_changes_and_keep_etags_across_restart(
             random: &h.random,
             admission: &h.admission,
             timer: &h.timer,
+            ids: &h.ids,
             workspace: Some(&h.workspace),
             model_loading: None,
         },

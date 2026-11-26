@@ -184,13 +184,13 @@ mod tests {
         let h = Harness::new();
         h.put(&scheduled("skip", 0));
         h.clock.0.set(START + 3 * 3_600_000);
-        let mut ids = CounterIds::new("run");
-        let skipped = h.scheduler().tick(&mut ids).expect("tick");
+        let ids = CounterIds::new("run");
+        let skipped = h.scheduler().tick(&ids).expect("tick");
         assert!(skipped.run.is_none());
         assert!(!h.store.running("triage").expect("running"));
         assert_eq!(h.store.run_count().expect("count"), 0);
         h.clock.0.set(START + DAY);
-        let next = h.scheduler().tick(&mut ids).expect("tick");
+        let next = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(
             prompt(&next),
             Some(format!(
@@ -206,8 +206,8 @@ mod tests {
         let h = Harness::new();
         h.put(&scheduled("run_once", 0));
         h.clock.0.set(START + 3 * 3_600_000);
-        let mut ids = CounterIds::new("run");
-        let first = h.scheduler().tick(&mut ids).expect("tick");
+        let ids = CounterIds::new("run");
+        let first = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(
             prompt(&first),
             Some(format!(
@@ -215,7 +215,7 @@ mod tests {
                 ace_automations::calendar::iso_string(START)
             ))
         );
-        let second = h.scheduler().tick(&mut ids).expect("tick");
+        let second = h.scheduler().tick(&ids).expect("tick");
         assert!(second.run.is_none());
     }
 
@@ -224,8 +224,8 @@ mod tests {
         let h = Harness::new();
         h.put(&scheduled("skip", 0));
         h.clock.0.set(START + 30_000);
-        let mut ids = CounterIds::new("run");
-        let run = h.scheduler().tick(&mut ids).expect("tick");
+        let ids = CounterIds::new("run");
+        let run = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(
             prompt(&run),
             Some(format!(
@@ -241,8 +241,8 @@ mod tests {
         h.put(&scheduled("skip", 0));
         h.admission.open.set(false);
         h.clock.0.set(START);
-        let mut ids = CounterIds::new("run");
-        let skipped = h.scheduler().tick(&mut ids).expect("tick");
+        let ids = CounterIds::new("run");
+        let skipped = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(run_status(&skipped).as_deref(), Some("skipped"));
         assert_eq!(run_result(&skipped).as_deref(), Some(PAUSED_RESULT));
         assert_eq!(
@@ -251,7 +251,7 @@ mod tests {
         );
         h.admission.open.set(true);
         h.clock.0.set(START + DAY);
-        let run = h.scheduler().tick(&mut ids).expect("tick");
+        let run = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(
             prompt(&run),
             Some("Triage 2024-01-02T09:00:00.000Z".to_owned())
@@ -270,8 +270,8 @@ mod tests {
         h.put(&auto);
         assert_eq!(h.scheduler().arm_delay().expect("delay"), Some(60_000));
         h.clock.0.set(START + 59_400);
-        let mut ids = CounterIds::new("run");
-        let first = h.scheduler().tick(&mut ids).expect("tick");
+        let ids = CounterIds::new("run");
+        let first = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(event_key(&first), Some(format!("schedule:{START}")));
         assert_eq!(
             prompt(&first),
@@ -279,7 +279,7 @@ mod tests {
         );
         assert_eq!(h.scheduler().arm_delay().expect("delay"), Some(60_000));
         h.clock.0.set(START + 119_400);
-        let second = h.scheduler().tick(&mut ids).expect("tick");
+        let second = h.scheduler().tick(&ids).expect("tick");
         assert_eq!(
             event_key(&second),
             Some(format!("schedule:{}", START + 60_000))
@@ -310,8 +310,8 @@ mod tests {
             let scheduler = Scheduler::new(&reopened, &h.clock, &h.random, &h.admission);
             scheduler.put(&auto, None).expect("identical put");
             h.clock.0.set(START + 5000);
-            let mut ids = CounterIds::new("run");
-            let first = scheduler.tick(&mut ids).expect("tick");
+            let ids = CounterIds::new("run");
+            let first = scheduler.tick(&ids).expect("tick");
             let input = first
                 .input
                 .expect("input")
@@ -327,7 +327,7 @@ mod tests {
                 Some("read-only")
             );
             h.clock.0.set(START + DAY + 9000);
-            let second = scheduler.tick(&mut ids).expect("tick");
+            let second = scheduler.tick(&ids).expect("tick");
             assert_eq!(
                 prompt(&second),
                 Some("Triage 2024-01-02T09:00:00.000Z".to_owned())
@@ -533,8 +533,8 @@ mod tests {
             assert!(started.errors[0].contains("newer"));
             assert_eq!(scheduler.arm_delay().expect("delay"), Some(60_000));
             h.clock.0.set(START);
-            let mut ids = CounterIds::new("run");
-            let run = scheduler.tick(&mut ids).expect("tick");
+            let ids = CounterIds::new("run");
+            let run = scheduler.tick(&ids).expect("tick");
             assert_eq!(
                 prompt(&run),
                 Some("Triage 2024-01-01T09:00:00.000Z".to_owned())

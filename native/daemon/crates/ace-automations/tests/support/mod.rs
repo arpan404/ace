@@ -5,7 +5,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use ace_automations::scheduler::{Admission, Clock, Random};
+use ace_automations::scheduler::{Admission, Clock, IdSource, Random};
 use ace_automations::service::{Action, Ports, Service, TimerPort, Workspace};
 use ace_automations::{AutomationStore, Definition, Schedule, ScheduleKind, Trigger};
 use ace_json::Value;
@@ -65,6 +65,21 @@ pub(crate) struct TestAdmission {
 impl Admission for TestAdmission {
     fn open(&self) -> bool {
         self.open.get()
+    }
+}
+
+/// A host id generator: one counter for the whole test file, including across reopens, as a
+/// daemon's generator is not reset by a restart.
+#[derive(Default)]
+pub(crate) struct TestIds {
+    next: Cell<u64>,
+}
+
+impl IdSource for TestIds {
+    fn next_id(&self) -> String {
+        let next = self.next.get() + 1;
+        self.next.set(next);
+        format!("run-{next}")
     }
 }
 
@@ -128,6 +143,7 @@ pub(crate) struct Harness {
     pub(crate) admission: TestAdmission,
     pub(crate) workspace: TestWorkspace,
     pub(crate) timer: TestTimer,
+    pub(crate) ids: TestIds,
 }
 
 impl Harness {
@@ -145,6 +161,7 @@ impl Harness {
             },
             workspace: TestWorkspace::default(),
             timer: TestTimer::default(),
+            ids: TestIds::default(),
         }
     }
 
@@ -153,13 +170,19 @@ impl Harness {
     }
 
     pub(crate) fn service(&self) -> Service<'_> {
+        self.service_on(&self.store)
+    }
+
+    /// A service over another store (a reopen) with this harness's ports and id generator.
+    pub(crate) fn service_on<'b>(&'b self, store: &'b AutomationStore) -> Service<'b> {
         Service::new(
-            &self.store,
+            store,
             Ports {
                 clock: &self.clock,
                 random: &self.random,
                 admission: &self.admission,
                 timer: &self.timer,
+                ids: &self.ids,
                 workspace: Some(&self.workspace),
                 model_loading: None,
             },

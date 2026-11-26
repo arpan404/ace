@@ -7,6 +7,7 @@
 //! Sans-IO: the clock, the random draw and ids are injected ports; no code here reads
 //! `Instant`, `SystemTime` or a global RNG.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ace_json::{Map, Value};
@@ -50,13 +51,13 @@ impl Random for FixedRandom {
 }
 
 pub trait IdSource {
-    fn next_id(&mut self) -> String;
+    fn next_id(&self) -> String;
 }
 
 /// Deterministic ids for tests and for a host that already owns an id generator.
 pub struct CounterIds {
     prefix: String,
-    next: u64,
+    next: Cell<u64>,
 }
 
 impl CounterIds {
@@ -67,15 +68,16 @@ impl CounterIds {
     pub fn with_start(prefix: impl Into<String>, next: u64) -> CounterIds {
         CounterIds {
             prefix: prefix.into(),
-            next,
+            next: Cell::new(next),
         }
     }
 }
 
 impl IdSource for CounterIds {
-    fn next_id(&mut self) -> String {
-        self.next += 1;
-        format!("{}-{}", self.prefix, self.next)
+    fn next_id(&self) -> String {
+        let next = self.next.get() + 1;
+        self.next.set(next);
+        format!("{}-{}", self.prefix, next)
     }
 }
 
@@ -232,7 +234,7 @@ impl<'a> Scheduler<'a> {
     /// One due schedule's turn (`service.ts:661`): a late fire with the skip policy moves on
     /// without a run; otherwise the due occurrence is admitted under the current admission gate
     /// and the next one is persisted with its jittered deadline.
-    pub fn tick(&self, ids: &mut dyn IdSource) -> Result<TickOutcome> {
+    pub fn tick(&self, ids: &dyn IdSource) -> Result<TickOutcome> {
         let now = self.clock.now_ms();
         let Some(job) = self.store.next_scheduled()? else {
             return Ok(TickOutcome::default());
@@ -353,7 +355,20 @@ impl<'a> Scheduler<'a> {
             self.store
                 .save_poll(&job.automation.id, &occurrence_value(occurrence))?;
             Ok(claimed)
-        })?;
+        });
+        let claimed = match claimed {
+            Ok(claimed) => claimed,
+            // A refused write parks this occurrence with its health, as the TypeScript's tick
+            // catch does, so one failing row never keeps another schedule from its deadline.
+            Err(error) => {
+                self.isolate(&job, now, &error);
+                return Ok(TickOutcome {
+                    run: None,
+                    input: None,
+                    deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                });
+            }
+        };
         Ok(TickOutcome {
             run: Some(claimed),
             input,

@@ -16,7 +16,7 @@ use crate::decisions::{
 };
 use crate::error::{AutomationsError, Result};
 use crate::recurrence::Occurrence;
-use crate::scheduler::{Admission, Clock, CounterIds, IdSource, Random, Scheduler};
+use crate::scheduler::{Admission, Clock, IdSource, Random, Scheduler};
 use crate::store::{AutomationStore, Claim, Definition, JobMetadata, Trigger};
 
 /// What the host must do, in order, after a service call.
@@ -64,6 +64,8 @@ pub struct Ports<'a> {
     pub random: &'a dyn Random,
     pub admission: &'a dyn Admission,
     pub timer: &'a dyn TimerPort,
+    /// Restart-safe generated ids for non-manual runs; the host's own generator.
+    pub ids: &'a dyn IdSource,
     pub workspace: Option<&'a dyn Workspace>,
     /// Whether discovery for this automation's provider is still running.
     pub model_loading: Option<&'a dyn Fn(&Definition) -> bool>,
@@ -134,7 +136,6 @@ struct Watch {
 pub struct Service<'a> {
     store: &'a AutomationStore,
     ports: Ports<'a>,
-    ids: CounterIds,
     lives: Lifecycle,
     revision: u64,
     watches: HashMap<String, Watch>,
@@ -162,11 +163,9 @@ struct Retry {
 
 impl<'a> Service<'a> {
     pub fn new(store: &'a AutomationStore, ports: Ports<'a>) -> Service<'a> {
-        let next = store.max_run_seq().unwrap_or(0);
         Service {
             store,
             ports,
-            ids: CounterIds::with_start("run", next),
             lives: Lifecycle::new(),
             revision: 0,
             watches: HashMap::new(),
@@ -593,7 +592,7 @@ impl<'a> Service<'a> {
         let run_id = if kind == "manual" {
             manual_id(&automation.id, key)
         } else {
-            self.ids.next_id()
+            self.ports.ids.next_id()
         };
         let webhook = automation.trigger.kind() == "webhook";
         let access = run_access(automation.access.as_deref(), webhook);
@@ -691,10 +690,14 @@ impl<'a> Service<'a> {
             return Ok(None);
         }
         let generation = self.generation;
-        let mut ids = std::mem::replace(&mut self.ids, CounterIds::new("run"));
-        let outcome = self.scheduler().tick(&mut ids);
-        self.ids = ids;
-        let outcome = outcome?;
+        let outcome = self.scheduler().tick(self.ports.ids);
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.arm();
+                return Err(error);
+            }
+        };
         let run = outcome.run.map(|claimed| claimed.run);
         if let Some(run) = &run
             && run_status(run).as_deref() == Some("running")
