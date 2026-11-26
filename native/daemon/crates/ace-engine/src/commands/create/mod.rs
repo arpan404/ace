@@ -13,7 +13,6 @@ use std::rc::Rc;
 
 use crate::access::storage;
 use crate::commands::validation::CreationFacts;
-use crate::commands::worktree::base_branch_label;
 use crate::commands::{command_id, error, ok, payload, payload_type};
 use crate::snapshot::Snapshot;
 use crate::snapshot::touched::Touched;
@@ -23,7 +22,8 @@ mod facts;
 mod row;
 
 use row::{
-    details, live, selection_json, selection_provider, silence_ms, thread_json, title, title_source,
+    details, live, machine, selection_json, selection_provider, silence_ms, thread_json, title,
+    title_source,
 };
 
 /// What the receipt's context carries that the create reads.
@@ -241,7 +241,7 @@ pub fn create(
     }
     let selection = selection_json(p, model.as_deref(), valid.instance_id.as_deref());
     let instance = text(&selection, "instanceId").map(str::to_owned);
-    let details = details(core, state, p, &cwd)?;
+    let details = details(&core.store, p, &cwd, machine(core))?;
     let live = live(p, model.as_deref(), instance.as_deref());
     let new = NewThread {
         id: &thread_id,

@@ -8,7 +8,7 @@ use ace_json::{Map, Value};
 use super::{NewThread, options, text};
 use crate::commands::worktree::base_branch_label;
 use crate::inputs::provisional_title::{UNTITLED_THREAD, provisional_title};
-use crate::{Core, EngineError, State};
+use crate::{Core, EngineError};
 
 pub(super) fn selection_provider(selection: &Value) -> String {
     text(selection, "provider").unwrap_or_default().to_owned()
@@ -78,10 +78,24 @@ pub(super) fn thread_json(new: &NewThread<'_>, permission: &Value) -> Value {
     Value::Object(thread)
 }
 
+/// `...(machine ? { machine } : {})` (`handler.ts:320`): the paired machine the daemon was
+/// given, as JSON. An unbound port means a local thread.
+pub fn machine(core: &Core) -> Option<Value> {
+    core.ports
+        .machine()
+        .ok()
+        .and_then(|json| ace_json::parse(&json).ok())
+}
+
 /// The create's `details`: the workspace, the mode and the checkout, in `ThreadDetails` order.
-pub fn details(core: &Core, state: &mut State, p: &Value, cwd: &str) -> Result<Value, EngineError> {
+pub fn details(
+    store: &crate::EngineStore,
+    p: &Value,
+    cwd: &str,
+    machine: Option<Value>,
+) -> Result<Value, EngineError> {
     let workspace_id = text(p, "workspaceId").unwrap_or_default();
-    let (path, name, kind) = workspace_row(&core.store, workspace_id)
+    let (path, name, kind) = workspace_row(store, workspace_id)
         .unwrap_or_else(|| (cwd.to_owned(), workspace_id.to_owned(), None));
     let mut workspace = Map::new();
     workspace.insert("id", Value::from(workspace_id));
@@ -103,14 +117,9 @@ pub fn details(core: &Core, state: &mut State, p: &Value, cwd: &str) -> Result<V
     if let Some(base) = base_branch_label(p) {
         out.insert("baseBranch", Value::from(base.as_str()));
     }
-    // `...(machine ? { machine } : {})` (`handler.ts:320`): the paired machine, when the daemon
-    // was given one. The port answers JSON; an unbound port means a local thread.
-    if let Ok(machine) = core.ports.machine()
-        && let Ok(machine) = ace_json::parse(&machine)
-    {
+    if let Some(machine) = machine {
         out.insert("machine", machine);
     }
-    let _ = state;
     Ok(Value::Object(out))
 }
 
@@ -160,9 +169,6 @@ pub fn title_source(p: &Value) -> &'static str {
     }
     "provisional"
 }
-
-/// The receipt's create (`handler.ts:205`-`:375`). The context's prepared workspace, a pull
-/// request and a handoff need the three synchronous ports E5.4e does not bind yet.
 
 pub(super) fn selection_json(p: &Value, model: Option<&str>, instance: Option<&str>) -> Value {
     let mut selection = Map::new();
