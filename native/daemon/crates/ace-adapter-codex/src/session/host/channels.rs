@@ -39,9 +39,11 @@ impl Inner {
 
     /// An outgoing frame: a tenant's own, its answer, or an init frame to
     /// everyone (`#sent`, `:437`).
-    pub(super) fn sent(&mut self, data: &Value) -> Option<RefusedSend> {
+    pub(super) fn sent(&mut self, data: Value) -> Option<RefusedSend> {
+        // The frame is decoded once by the peer; every recipient shares it.
+        let data = Arc::new(data);
         let sender = self.sender;
-        let tenant = self.router.sent(data, sender.as_ref());
+        let tenant = self.router.sent(&data, sender.as_ref());
         if let Some(tenant) = tenant {
             // `Tenant.deliver` for a muted or closed channel: no frames reach
             // its handlers, and it is not asked to admit one; its requests
@@ -57,9 +59,6 @@ impl Inner {
             if admitted {
                 self.admitted_send = None;
             }
-            // One shared value for the frame's delivery and its departed-tenant
-            // copy; a per-recipient deep clone is what the hot path paid before.
-            let data = Arc::new(data.clone());
             let mut failed = None;
             if self.deliver_vetted(tenant, Direction::Send, &data, admitted, Some(&mut failed)) {
                 return None;
@@ -83,20 +82,19 @@ impl Inner {
         }
         let method = data.get("method").and_then(Value::as_str)?;
         if method == "initialize" {
-            self.initialize_id = id_of(data);
+            self.initialize_id = id_of(&data);
         }
         if method == "initialize" || method == "initialized" {
-            self.broadcast_init(Direction::Send, data);
+            self.broadcast_init(Direction::Send, &data);
         }
         None
     }
 
     /// Init frames are replayed to every tenant that attaches (`:449`).
-    pub(super) fn broadcast_init(&mut self, dir: Direction, data: &Value) {
-        let data = Arc::new(data.clone());
-        self.init_frames.push((dir, Arc::clone(&data)));
+    pub(super) fn broadcast_init(&mut self, dir: Direction, data: &Arc<Value>) {
+        self.init_frames.push((dir, Arc::clone(data)));
         for tenant in self.tenant_ids() {
-            self.deliver_shared(tenant, dir, &data, None);
+            self.deliver_shared(tenant, dir, data, None);
         }
     }
 
