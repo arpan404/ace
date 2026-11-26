@@ -20,4 +20,5 @@ pub mod opencode;
 pub mod pi;
 pub mod raw;
 pub mod row;
+pub mod search;
 pub mod source;
