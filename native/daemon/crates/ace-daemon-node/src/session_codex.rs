@@ -150,6 +150,8 @@ impl CodexPoolNative {
             stop_closure,
         );
         let port = SessionPort::new(events, channel.queue(), channel.gate())?;
+        let intake = Arc::clone(&channel);
+        port.set_resume(Arc::new(move || intake.queue_consumed()));
         if let Err(error) = entry.shared.host.attach(tenant, channel.clone()) {
             return Err(napi::Error::from_reason(error.to_string()));
         }
@@ -464,12 +466,12 @@ impl CodexChannelNative {
 
     #[napi(catch_unwind)]
     pub fn set_paused(&self, paused: bool) {
-        self.port.set_paused(paused);
+        self.channel.set_paused(paused);
     }
 
     #[napi(catch_unwind)]
     pub fn fail(&self) {
-        self.port.fail();
+        self.channel.fail_intake();
     }
 
     #[napi(catch_unwind)]

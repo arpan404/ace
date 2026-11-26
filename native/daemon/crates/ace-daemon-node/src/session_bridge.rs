@@ -34,6 +34,8 @@ struct PortState {
     ack: tokio::sync::Notify,
     /// The single claim of ADR 0223 §4: at most one call is posted at a time.
     posted: AtomicBool,
+    /// The session's intake can read again after a batch was taken.
+    resume: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl PortState {
@@ -69,6 +71,7 @@ impl SessionPort {
             events: Mutex::new(Some(Arc::new(events))),
             ack: tokio::sync::Notify::new(),
             posted: AtomicBool::new(false),
+            resume: Mutex::new(None),
         });
         runtime()?.spawn(post(Arc::clone(&state)));
         Ok(Self { state })
@@ -94,6 +97,14 @@ impl SessionPort {
     pub fn drain(&self) {
         self.state.gate.drain();
     }
+
+    /// The session's queue can take more: re-open its intake if it is under
+    /// the bound. Called by the posting task after every batch it takes.
+    pub fn set_resume(&self, resume: Arc<dyn Fn() + Send + Sync>) {
+        if let Ok(mut slot) = self.state.resume.lock() {
+            *slot = Some(resume);
+        }
+    }
 }
 
 /// Posts the queue to JavaScript, one batch at a time, in queue order. The wake
@@ -109,6 +120,11 @@ async fn post(state: Arc<PortState>) {
             continue;
         }
         let batch = state.queue.take_batch(BATCH_FRAMES, BATCH_BYTES);
+        if let Ok(resume) = state.resume.lock()
+            && let Some(resume) = resume.as_ref()
+        {
+            resume();
+        }
         if batch.is_empty() {
             state.posted.store(false, Ordering::SeqCst);
             continue;

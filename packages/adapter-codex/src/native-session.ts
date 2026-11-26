@@ -258,7 +258,9 @@ export async function openNativeCodexSession(
     fatal: () => {
       void close("shutdown").catch(stopFailed);
     },
-    drained: () => {},
+    drained: () => {
+      drained = true;
+    },
     port: (name, json) => {
       if (name === "stop") return;
       if (name === "launch") {
@@ -282,9 +284,30 @@ export async function openNativeCodexSession(
     interaction_unavailable: CodexInteractionUnavailable,
   });
   let closed = false;
+  let drained = false;
   let closePromise: Promise<void> | undefined;
   let nextOperation = 1;
   const operation = () => nextOperation++;
+  /** Register the settlement before the binding call: a synchronous refusal or
+   * the terminal `Drained` can otherwise beat the pending promise. */
+  /** New work after the exit/drain is the session's own refusal, not the bridge's. */
+  const guard = () => {
+    if (closed || drained) throw new Error("Codex session is closed");
+  };
+  const settle = <T = unknown>(
+    id: number,
+    run: () => void,
+    onClosed: () => Error = () => new Error("Codex session is closed"),
+  ): Promise<T> => {
+    const pending = (bridge.expect(id) as Promise<T>).catch((error: unknown) => {
+      // The terminal barrier rejects whatever is still pending; the session's
+      // own refusal is the answer a caller expects after it.
+      if (error instanceof Error && error.message === "session closed") throw onClosed();
+      throw error;
+    });
+    run();
+    return pending;
+  };
   const request = async (
     method: string,
     params: unknown,
@@ -302,11 +325,17 @@ export async function openNativeCodexSession(
     );
   function close(reason: "idle" | "user" | "shutdown"): Promise<void> {
     if (closePromise) return closePromise;
+    // A session whose pipes already closed is gone: a later close only releases.
+    if (drained) {
+      release();
+      return Promise.resolve();
+    }
     closed = true;
     const id = operation();
-    channel.close(id, reason);
-    closePromise = bridge.expect(id).then(
-      () => {
+    closePromise = settle(id, () => channel.close(id, reason)).then(
+      async () => {
+        // The terminal barrier: every frame, callback and settle arrived.
+        await bridge.drainedPromise;
         release();
       },
       (error: unknown) => {
@@ -468,8 +497,7 @@ export async function openNativeCodexSession(
   } catch (error) {
     if (!closePromise) {
       const id = operation();
-      channel.failOpen(id);
-      await bridge.expect(id).catch(() => {});
+      await settle(id, () => channel.failOpen(id)).catch(() => {});
     }
     release();
     throw error;
@@ -482,16 +510,17 @@ export async function openNativeCodexSession(
       return true;
     },
     async configure(selection) {
-      if (closed) throw new Error("Codex session is closed");
+      if (closed || drained) throw new Error("Codex session is closed");
       const executionOptions = CodexSelectionOptions.parse(selection.options);
       const id = operation();
-      channel.configure(
-        id,
-        JSON.stringify({ ...executionOptions }),
-        selection.model ?? null,
-        Boolean(ctx.aceMcp && (selection.model ?? "") !== (ctx.model ?? "")),
+      const outcome = await settle(id, () =>
+        channel.configure(
+          id,
+          JSON.stringify({ ...executionOptions }),
+          selection.model ?? null,
+          Boolean(ctx.aceMcp && (selection.model ?? "") !== (ctx.model ?? "")),
+        ),
       );
-      const outcome = await bridge.expect(id);
       if (outcome === "reopen") return "reopen" as const;
       model = selection.model ?? "";
       selectedOptions = executionOptions;
@@ -500,43 +529,43 @@ export async function openNativeCodexSession(
     mcp: {
       appliesNextTurn: true,
       async status() {
+        guard();
         const id = operation();
-        channel.mcpStatus(id);
-        return bridge.expect(id) as Promise<{ name: string; status: string }[]>;
+        return settle<{ name: string; status: string }[]>(id, () => channel.mcpStatus(id));
       },
       async add(name, input) {
+        guard();
         const id = operation();
-        channel.mcpAdd(id, name, JSON.stringify(input));
-        await bridge.expect(id);
+        await settle(id, () => channel.mcpAdd(id, name, JSON.stringify(input)));
       },
       async replace() {
         throw new Error("Codex does not support replacing live MCP servers");
       },
       async reconnect() {
+        guard();
         const id = operation();
-        channel.mcpReconnect(id);
-        await bridge.expect(id);
+        await settle(id, () => channel.mcpReconnect(id));
       },
       async enable(name) {
+        guard();
         const id = operation();
-        channel.mcpToggle(id, name, true);
-        await bridge.expect(id);
+        await settle(id, () => channel.mcpToggle(id, name, true));
       },
       async disable(name) {
+        guard();
         const id = operation();
-        channel.mcpToggle(id, name, false);
-        await bridge.expect(id);
+        await settle(id, () => channel.mcpToggle(id, name, false));
       },
     },
     async setGoal(change) {
+      guard();
       const id = operation();
-      channel.goal(id, JSON.stringify(change));
-      await bridge.expect(id);
+      await settle(id, () => channel.goal(id, JSON.stringify(change)));
     },
     async clearGoal() {
+      guard();
       const id = operation();
-      channel.clearGoal(id);
-      await bridge.expect(id);
+      await settle(id, () => channel.clearGoal(id));
     },
     async send(
       input: ContentPart[],
@@ -545,42 +574,49 @@ export async function openNativeCodexSession(
       origin?: InputSource,
       fence?: SteerFence,
     ) {
+      guard();
       assertSteerTarget(delivery, fence);
       const id = operation();
       const fenceJson: FenceJson | undefined =
         fence === undefined ? undefined : { current: fence.current(), turn: fence.turn };
-      channel.send(
-        id,
-        JSON.stringify(input),
-        delivery,
-        commandId,
-        origin,
-        fenceJson === undefined ? undefined : JSON.stringify(fenceJson),
-        io.userMessageId(),
+      await settle(id, () =>
+        channel.send(
+          id,
+          JSON.stringify(input),
+          delivery,
+          commandId,
+          origin,
+          fenceJson === undefined ? undefined : JSON.stringify(fenceJson),
+          io.userMessageId(),
+        ),
       );
-      await bridge.expect(id);
     },
     async interrupt(target) {
+      guard();
       const id = operation();
-      channel.interrupt(id, target.agent ?? null, target.cascade);
-      await bridge.expect(id);
+      await settle(id, () => channel.interrupt(id, target.agent ?? null, target.cascade));
     },
     async stopTask(task) {
+      guard();
       const id = operation();
-      channel.stopTask(id, task);
-      await bridge.expect(id);
+      await settle(id, () => channel.stopTask(id, task));
     },
     async resolve(interaction, resolution: InteractionResolution) {
+      if (closed || drained) throw new CodexInteractionUnavailable(interaction);
       const id = operation();
-      channel.resolve(
+      await settle(
         id,
-        interaction,
-        JSON.stringify(resolution),
-        io.userMessageId(),
-        ctx.interactionId?.(interaction) ?? null,
-        model,
+        () =>
+          channel.resolve(
+            id,
+            interaction,
+            JSON.stringify(resolution),
+            io.userMessageId(),
+            ctx.interactionId?.(interaction) ?? null,
+            model,
+          ),
+        () => new CodexInteractionUnavailable(interaction),
       );
-      await bridge.expect(id);
     },
   };
 }

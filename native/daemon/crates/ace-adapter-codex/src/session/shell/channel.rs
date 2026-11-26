@@ -2,7 +2,7 @@
 //! One session's channel: the facade's calls, the host's callbacks and the
 //! ordered effects they decide.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ace_adapter_api::bridge::ReadGate;
@@ -20,14 +20,14 @@ use crate::session::host::{
 };
 use crate::session::permissions::{codex_turn_policy, configured_turn_policy};
 use crate::session::selection::{Selection, parse_selection, selection_options};
-use crate::session::state::{Session, SessionConfig};
+use crate::session::state::Session;
 use crate::session::terminals::RateLimitsRead;
 use crate::session::tools::CodexToolFacts;
 use crate::session::tools::read::{ToolFactsOutcome, ToolFactsRead};
 
-use super::ShellConfig;
 use super::host::{HostShell, Owner, SharedHost};
-use super::redact::redactor;
+
+mod construct;
 
 /// One session's channel on a host: its state, its ordered queue and the
 /// facade's calls.
@@ -42,6 +42,10 @@ pub struct SessionChannel {
     now: Mutex<f64>,
     /// The spawn's `maxLineBytes`, shared with the diverted consumer.
     line_limit: Arc<AtomicUsize>,
+    /// The session's admission inputs, so the host can vet a frame without the
+    /// core lock (the host holds its own lock when it asks).
+    bearer: Option<String>,
+    drained: AtomicBool,
 }
 
 struct Core {
@@ -75,51 +79,6 @@ struct FactsJob {
 }
 
 impl SessionChannel {
-    pub fn new(
-        shared: Arc<SharedHost>,
-        tenant: u64,
-        config: ShellConfig,
-        stop: Arc<dyn Fn(String) + Send + Sync>,
-    ) -> Arc<SessionChannel> {
-        let gate = ReadGate::new();
-        let queue = EventQueue::new(gate.clone());
-        let host = Arc::clone(&shared.host);
-        let cwd = config.cwd.clone();
-        let redact = redactor(&config);
-        let session = Session::new(SessionConfig {
-            scope: config.scope,
-            started: config.started,
-            cwd: config.cwd,
-            bearer: config.bearer.clone(),
-            redact,
-            foreign: Box::new(move |thread: &str| host.foreign(tenant, &JsString::from(thread))),
-        });
-        let channel = Arc::new(SessionChannel {
-            tenant,
-            shared: Arc::clone(&shared),
-            stop,
-            cwd,
-            core: Mutex::new(Core {
-                session,
-                jobs: Jobs::default(),
-                model: String::new(),
-                selection: Selection::default(),
-                open_operation: None,
-                opened: false,
-                close_operation: None,
-                work_operation: None,
-                permission_port: false,
-                read_operations: Vec::new(),
-            }),
-            queue,
-            gate,
-            now: Mutex::new(config.started),
-            line_limit: Arc::new(AtomicUsize::new(super::LINE_LIMIT)),
-        });
-        shared.add(Arc::clone(&channel));
-        channel
-    }
-
     pub fn queue(&self) -> EventQueue {
         self.queue.clone()
     }
@@ -130,6 +89,30 @@ impl SessionChannel {
 
     pub fn line_limit(&self) -> Arc<AtomicUsize> {
         Arc::clone(&self.line_limit)
+    }
+
+    /// The engine's `outputFlow` pause: stop this tenant's pumps through the
+    /// host gate, which is the gate the diverted child actually answers.
+    pub fn set_paused(&self, paused: bool) {
+        self.shared.host.set_paused(self.tenant, paused);
+    }
+
+    /// A commit failed: stop intake for good.
+    pub fn fail_intake(&self) {
+        self.shared.host.gate().fail();
+    }
+
+    /// The queue dropped back under its bound: let the pumps read again.
+    pub fn queue_consumed(&self) {
+        self.shared.host.gate().set_backlog(self.queue.at_bound());
+    }
+
+    /// The terminal barrier: every event before it is already on the queue.
+    pub fn finish_drained(&self) {
+        if self.drained.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.publish(vec![SessionEvent::Drained]);
     }
 
     pub fn set_now(&self, now: f64) {
@@ -149,6 +132,10 @@ impl SessionChannel {
     pub fn publish(&self, events: Vec<SessionEvent>) {
         if !events.is_empty() {
             self.queue.publish(events);
+            // A stalled facade fills this session's queue; stop the child's
+            // pumps until it has taken a batch (E3.0c rule 4, same as TS's
+            // outputFlow).
+            self.shared.host.gate().set_backlog(self.queue.at_bound());
         }
     }
 
@@ -439,6 +426,7 @@ impl SessionChannel {
             effects
         };
         self.apply(effects);
+        self.finish_drained();
         self.shared.remove(self.tenant);
     }
 
@@ -1017,7 +1005,10 @@ impl SessionChannel {
                     let operation = self.core().close_operation.take();
                     if let Some(operation) = operation {
                         match result {
-                            Ok(()) => self.settle_operation(operation, Ok(Value::Null)),
+                            Ok(()) => {
+                                self.settle_operation(operation, Ok(Value::Null));
+                                self.finish_drained();
+                            }
                             Err(message) => self.settle_operation(
                                 operation,
                                 Err(crate::session::frames::Failure::failed(message)),
@@ -1294,7 +1285,14 @@ impl SessionChannel {
 
 impl ChannelHandlers for SessionChannel {
     fn admit(&self, dir: Direction, data: &Value) -> Admission {
-        self.core().session.admit(dir, data)
+        let dir = match dir {
+            Direction::Send => FrameDir::Send,
+            Direction::Recv => FrameDir::Recv,
+        };
+        match crate::session::frames::admission(self.bearer.as_deref(), dir, data) {
+            Some(message) => Admission::Failed(message),
+            None => Admission::Taken,
+        }
     }
 
     fn frame(&self, dir: Direction, data: &Value) {
@@ -1463,3 +1461,6 @@ fn goal_params(thread: &str, change: &Value) -> Map {
     }
     params
 }
+
+#[cfg(test)]
+mod tests;
