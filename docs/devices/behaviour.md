@@ -680,3 +680,7 @@ The capture's error mapping is now all the addon's under the switch: the not-boo
 two Simulator window refusals and the helper's H.264 refusal come from `capture.rs` like the
 route's own errors. The frame-encoder's per-picture `frame` command stays TypeScript by the
 per-frame rule above; its ingest events and line splitter, once per switch, are Rust.
+
+## 14. D3.4: chrome and skins (2026-11-26)
+
+- **PDF streams inflate to at most 64 MiB** (D3.4, `pdf_objects.rs` `MAX_INFLATED`). Node's `inflateSync` has no smaller bound and throws only near its buffer limit, so a small Flate bomb in a device art PDF could exhaust memory. The Rust reader refuses the stream past 64 MiB, and that drawing renders without it. Apple's chrome PDFs are far smaller.

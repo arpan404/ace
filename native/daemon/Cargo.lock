@@ -163,6 +163,7 @@ dependencies = [
  "ace-transport",
  "bytes",
  "getrandom 0.4.3",
+ "indexmap",
  "napi",
  "napi-build",
  "napi-derive",
@@ -246,6 +247,14 @@ dependencies = [
  "indexmap",
  "ryu-js",
  "serde",
+]
+
+[[package]]
+name = "ace-mcp"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "thiserror",
 ]
 
 [[package]]

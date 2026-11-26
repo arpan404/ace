@@ -172,11 +172,6 @@ impl GitErrorCode {
             _ => None,
         }
     }
-
-    /// True when the error means mutation is currently unavailable (`isMutationUnavailable`).
-    pub const fn is_mutation_unavailable(self) -> bool {
-        matches!(self, Self::GitQuarantined | Self::GitBusy)
-    }
 }
 
 impl fmt::Display for GitErrorCode {
@@ -296,8 +291,10 @@ impl GitError {
         ace_json::to_string(&Value::Object(root))
     }
 
+    /// `isMutationUnavailable`: a quarantine refusal, or any failure whose cleanup receipt
+    /// outlives its supervised ownership. `git_busy` alone is an ordinary retryable refusal.
     pub fn is_mutation_unavailable(&self) -> bool {
-        self.code.is_mutation_unavailable()
+        self.code == GitErrorCode::GitQuarantined || self.cleanup_id.is_some()
     }
 }
 
@@ -370,4 +367,24 @@ pub fn json_string_array(items: &[String]) -> Value {
 /// Probe stub kept for compatibility with G0 callers.
 pub fn probe(op: &str) -> Result<(), crate::error::Error> {
     Err(crate::error::Error::unimplemented("core::error", op))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quarantine_refusal_or_a_cleanup_receipt_means_mutation_is_unavailable() {
+        assert!(GitError::new(GitErrorCode::GitQuarantined, "locked").is_mutation_unavailable());
+        // A busy call limit or a busy lease is retryable, not a quarantined mutation.
+        assert!(!GitError::new(GitErrorCode::GitBusy, "busy").is_mutation_unavailable());
+        assert!(!GitError::new(GitErrorCode::GitFailed, "failed").is_mutation_unavailable());
+        // The cleanup a bounded failure left behind outlives this call: the mutation is not
+        // available until its settlement is confirmed.
+        assert!(
+            GitError::new(GitErrorCode::GitTimeout, "timed out")
+                .with_cleanup_id(7)
+                .is_mutation_unavailable()
+        );
+    }
 }

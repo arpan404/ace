@@ -173,13 +173,13 @@ fn the_sdk_framing_rules() {
 #[test]
 fn a_block_the_json_parser_refuses_fails_the_stream() {
     assert_eq!(
-        run(&[b"data: {\"a\":\n\n"]),
-        Err(StreamError::MalformedResponse)
+        run(&[b"data: {\"a\":\n\n"]).map_err(|error| error.code()),
+        Err(Some("MalformedResponse"))
     );
     // U+0085 is not JavaScript whitespace, so it stays in the data.
     assert_eq!(
-        run(&[b"data: \xc2\x851\n\n"]),
-        Err(StreamError::MalformedResponse)
+        run(&[b"data: \xc2\x851\n\n"]).map_err(|error| error.code()),
+        Err(Some("MalformedResponse"))
     );
 }
 
@@ -188,7 +188,10 @@ fn events_before_a_malformed_one_are_already_parsed() {
     let mut stream = EventStream::new();
     let mut steps = Vec::new();
     let result = stream.push(b"data: 1\n\ndata: nope\n\n", &mut steps);
-    assert_eq!(result, Err(StreamError::MalformedResponse));
+    assert_eq!(
+        result.map_err(|error| error.code()),
+        Err(Some("MalformedResponse"))
+    );
     assert_eq!(events(&steps), vec!["1"]);
 }
 
@@ -213,7 +216,7 @@ fn the_event_byte_bound_counts_since_the_last_blank_line() {
     assert_eq!(run(&[&over]), Err(StreamError::EventBytes));
     assert_eq!(
         StreamError::EventBytes.to_string(),
-        "OpenCode event exceeds byte limit"
+        "Transport: OpenCode event exceeds byte limit"
     );
 
     // The blank line resets the count: two events at the bound both fit.
@@ -291,6 +294,48 @@ fn the_sdk_buffer_bound_applies_to_the_final_chunk() {
     assert_eq!(
         over.push(text.as_bytes(), true, &mut events),
         Err(StreamError::SseEventTooLarge)
+    );
+}
+
+#[test]
+fn a_chunk_that_trips_the_bound_delivers_only_the_piece_a_read_already_took() {
+    // The elider emits piece 1 (the first event), the "x" string, piece 3 (the
+    // second event), the "y" string, then a tail over the bound. The SDK's
+    // transform enqueues them all in one task: a pending read takes piece 1,
+    // the rest wait, and the throw errors the stream and drops the waiters.
+    let chunk = format!(
+        "data: 1\n\ndata: \"x\"\n\ndata: 2\n\ndata: \"y\"\n\n{}",
+        "z".repeat(MAX_EVENT_BYTES + 2)
+    );
+    let mut stream = EventStream::new();
+    let mut steps = Vec::new();
+    let result = stream.push(chunk.as_bytes(), &mut steps);
+    assert_eq!(result, Err(StreamError::EventBytes));
+    assert_eq!(
+        events(&steps),
+        vec!["1"],
+        "only the read piece is delivered"
+    );
+}
+
+#[test]
+fn a_stream_failure_names_the_error_the_type_script_surfaces() {
+    // `reader.read()` rejects with the transform's error, which the SDK wraps
+    // as ClientError("Transport", { cause }).
+    let bound = StreamError::EventBytes;
+    assert_eq!(bound.code(), Some("Transport"));
+    assert_eq!(
+        bound.message(),
+        "Transport: OpenCode event exceeds byte limit"
+    );
+
+    // A malformed block is MalformedResponse with the parser's text after it.
+    let error = run(&[b"data: nope\n\n"]).expect_err("malformed");
+    assert_eq!(error.code(), Some("MalformedResponse"));
+    let message = error.message();
+    assert!(
+        message.starts_with("MalformedResponse: ") && message.contains("at position"),
+        "{message}"
     );
 }
 
