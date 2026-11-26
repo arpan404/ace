@@ -8,7 +8,7 @@ use crate::actor::ActorDeps;
 use crate::executor::{Budget, Notified, Notifier};
 use crate::frames::live::UnportedLive;
 use crate::limits::LimitOverrides;
-use crate::repository::testsupport::{Shell, header, home, model_resolution};
+use crate::repository::testsupport::{Shell, header, header_with_root_run, home, model_resolution};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -99,6 +99,14 @@ impl Receipt {
 
     fn queue(&self, sql: &str) -> &Receipt {
         self.exec(sql)
+    }
+
+    /// Replaces the thread's stored snapshot (the state the receipt folds against).
+    fn state(&self, header: &str) -> &Receipt {
+        self.exec(&format!(
+            "UPDATE thread_state SET state = {}",
+            crate::repository::testsupport::sql_text(header)
+        ))
     }
 
     fn session(&self, sql: &str) -> &Receipt {
@@ -292,6 +300,39 @@ fn an_unknown_agent_a_stale_run_and_an_unsupported_goal_refuse() {
             r#"{"id":"g","deviceId":"device","payload":{"type":"thread.goal.set","threadId":"t","goal":{"text":"x"}}}"#
         ),
         result("g", "unsupported_goal")
+    );
+}
+
+#[test]
+fn a_stop_that_names_the_root_turns_run_interrupts_it() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.state(&header_with_root_run("t", "run-1", "active"));
+    // The web's Stop carries `runId` and no `agentId` (`live-actions.ts:100`): the run is looked
+    // up under the root's **state** key, whose record id is not the key itself.
+    let accepted = receipt.handle(
+        r#"{"id":"stop","deviceId":"device","payload":{"type":"thread.interrupt","threadId":"t","cascade":true,"runId":"run-1"}}"#,
+    );
+    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true), "{accepted}");
+    assert_eq!(
+        receipt.text("SELECT reason AS value FROM engine_queue WHERE thread_id='t'"),
+        Some("stopped".to_owned())
+    );
+    // A run the root is not in, or one that already ended, is stale.
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.state(&header_with_root_run("t", "run-2", "active"));
+    assert_eq!(
+        receipt.handle(
+            r#"{"id":"r","deviceId":"device","payload":{"type":"thread.interrupt","threadId":"t","runId":"run-1"}}"#
+        ),
+        result("r", "stale_interrupt")
+    );
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.state(&header_with_root_run("t", "run-1", "ended"));
+    assert_eq!(
+        receipt.handle(
+            r#"{"id":"r","deviceId":"device","payload":{"type":"thread.interrupt","threadId":"t","runId":"run-1"}}"#
+        ),
+        result("r", "stale_interrupt")
     );
 }
 

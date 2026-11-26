@@ -275,10 +275,14 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
     }
     if kind == "thread.interrupt" {
         let agent = p.get("agentId").and_then(Value::as_str).map(str::to_owned);
+        let run_id = p.get("runId").and_then(Value::as_str).map(str::to_owned);
         let snapshot = state.repo.require_state(&core.store, &thread)?;
-        let (known, root, target, run, run_state, child_controls) = {
+        let (known, root_key, root_id, target, run, run_state, child_controls) = {
             let borrowed = snapshot.borrow();
-            let root = borrowed.root_agent_id();
+            // `runId` names a **state** key (`state.agents[target]`, `handler.ts:432`-`:441`);
+            // `agentId` names an agent id, which the index maps to its key.
+            let root_key = borrowed.state.root_key.clone();
+            let root_id = borrowed.root_agent_id();
             let known = agent.as_deref().is_none_or(|agent| {
                 borrowed
                     .state
@@ -287,26 +291,26 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
                     .any(|record| record.agent.id == agent)
             });
             let target = match agent.as_deref() {
-                None => root.clone(),
+                None => root_key.clone(),
                 Some(agent) => borrowed.state.indexes.agent_keys_by_id.get(agent).cloned(),
             };
             let active = target
                 .as_ref()
                 .and_then(|key| borrowed.state.agents.get(key))
                 .and_then(|record| record.active_run.clone());
-            let run_state = borrowed
-                .state
-                .runs
-                .get(p.get("runId").and_then(Value::as_str).unwrap_or_default())
+            let run_state = run_id
+                .as_deref()
+                .and_then(|run| borrowed.state.runs.get(run))
                 .map(|run| run.state.clone());
-            (known, root, target, active, run_state, false)
+            (known, root_key, root_id, target, active, run_state, false)
         };
-        let _ = (root, child_controls);
+        let _ = (root_key, child_controls);
         if !known {
             return Ok(fail("agent_not_found"));
         }
         if let Some(before) = p.get("beforeSeq").and_then(Value::as_i64) {
-            let target = agent.as_deref().or(target.as_deref()).unwrap_or_default();
+            // The SQL's agent id: the named agent, else the root record's own id.
+            let target = agent.as_deref().or(root_id.as_deref()).unwrap_or_default();
             let sql = "SELECT 1 FROM events WHERE thread_id=? AND seq>? AND (
               (type='run.started' AND json_extract(payload,'$.run.agentId')=?) OR
               (type='item.created' AND json_extract(payload,'$.item.agentId')=? AND json_extract(payload,'$.item.role')='user' AND COALESCE(json_extract(payload,'$.item.synthetic'),0)=0)
@@ -325,7 +329,7 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
                 return Ok(fail("stale_interrupt"));
             }
         }
-        if let Some(run_id) = p.get("runId").and_then(Value::as_str)
+        if let Some(run_id) = run_id.as_deref()
             && (target.is_none()
                 || run.as_deref() != Some(run_id)
                 || run_state.as_deref() != Some("active"))

@@ -64,6 +64,24 @@ pub(crate) fn header(thread: &str) -> String {
     HEADER.replace("\"threadId\":\"t\"", &format!("\"threadId\":\"{thread}\""))
 }
 
+/// The same header after a turn began: the root record under `rootKey`, its active run and that
+/// run's history. This is the shape a real thread's snapshot has once a run started.
+pub(crate) fn header_with_root_run(thread: &str, run: &str, run_state: &str) -> String {
+    let agents = format!(
+        r#""agents":{{"root":{{"agent":{{"id":"root","threadId":"{thread}","origin":"root","native":{{"provider":"codex"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"working","activity":"thinking"}},"createdAt":1}},"activity":"thinking","lastSignalAt":2,"activeRun":"{run}"}}}}"#
+    );
+    let runs = format!(
+        r#""runs":{{"{run}":{{"id":"{run}","threadId":"{thread}","agentId":"root","trigger":"person","state":"{run_state}","startedAt":1}}}}"#
+    );
+    header(thread)
+        .replace(
+            &format!(r#""threadId":"{thread}","config""#),
+            &format!(r#""threadId":"{thread}","rootKey":"root","config""#),
+        )
+        .replace(r#""agents":{}"#, &agents)
+        .replace(r#""runs":{}"#, &runs)
+}
+
 /// A `ModelResolution` as the models port answers it (`packages/protocol/src/models.ts:200`):
 /// `model` is the whole `CatalogModel` row, never its id.
 pub(crate) fn model_resolution(native_model_id: &str, native_provider_id: Option<&str>) -> String {
