@@ -212,7 +212,15 @@ impl SupervisedRunner {
     /// The child's whole environment, as the TypeScript builds it: the daemon's own, the
     /// runner's additions, prompts disabled, and `GH_DEBUG`/`DEBUG` removed.
     fn environment(&self) -> Vec<(String, String)> {
-        let mut env: Vec<(String, String)> = std::env::vars().collect();
+        // Node's `process.env` reads a non-UTF-8 value lossily; `vars()` would panic.
+        let mut env: Vec<(String, String)> = std::env::vars_os()
+            .map(|(name, value)| {
+                (
+                    name.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+            .collect();
         for (name, value) in &self.options.env {
             set(&mut env, name, value);
         }
@@ -283,11 +291,14 @@ impl SupervisedRunner {
                 too_large: false,
             }),
             close: std::sync::Mutex::new(None),
+            leader_exit: std::sync::Mutex::new(None),
             overflow: Notify::new(),
             max_bytes: self.options.max_bytes,
         });
         let (close_tx, close_rx) = oneshot::channel();
         *capture.close.lock().expect("capture close lock") = Some(close_tx);
+        let (exit_tx, exit_rx) = oneshot::channel();
+        *capture.leader_exit.lock().expect("leader exit lock") = Some(exit_tx);
         let spec = SpawnSpec {
             command: request.command.clone(),
             args: request.args.clone(),
@@ -307,11 +318,17 @@ impl SupervisedRunner {
         let spawned = spawn_child(&spec, Sink(capture.clone()), &self.runtime, None);
         let child = match spawned {
             Ok(child) => child,
-            Err(_) => {
+            Err(error) => {
+                // Only an exec failure proves nothing started; a later setup failure leaves
+                // the write uncertain (`command.ts:120-128`).
+                let dispatched = !matches!(
+                    error,
+                    ace_supervisor::errors::SupervisorError::SpawnFailed { .. }
+                );
                 return Err(ForgeError {
                     kind: Kind::Cli,
                     retry_at: None,
-                    dispatched: Some(false),
+                    dispatched: Some(!dispatched),
                     receipt: None,
                     status: None,
                 });
@@ -327,6 +344,8 @@ impl SupervisedRunner {
         child.end_stdin();
         let deadline = Duration::from_millis(self.options.timeout_ms as u64);
         let stop = |child: &SupervisedChild| {
+            // The CLI starts a session of its own: the group is what ends its tree.
+            let _ = child.signal_group(SignalName::Kill);
             child.kill(SignalName::Kill);
         };
         let cancelled = async {
@@ -343,8 +362,15 @@ impl SupervisedRunner {
                 capture.overflow.notified().await;
             }
         };
+        let mut close = close_rx;
         let exit = tokio::select! {
-            exit = close_rx => exit,
+            exit = &mut close => exit,
+            _ = exit_rx => {
+                // The leader ended with its own code; its descendants must not hold the
+                // request open, so the group ends with it.
+                stop(&child);
+                (&mut close).await
+            }
             _ = tokio::time::sleep(deadline) => {
                 stop(&child);
                 return Err(ForgeError::new(Kind::Cli));
@@ -399,6 +425,7 @@ struct CaptureState {
 struct Capture {
     state: std::sync::Mutex<CaptureState>,
     close: std::sync::Mutex<Option<oneshot::Sender<Result<RawExit, ()>>>>,
+    leader_exit: std::sync::Mutex<Option<oneshot::Sender<()>>>,
     overflow: Notify,
     max_bytes: usize,
 }
@@ -429,7 +456,13 @@ impl EventSink for Sink {
 
     fn end(&self, _stream: OutputStream) {}
 
-    fn exit(&self, _exit: RawExit) {}
+    fn exit(&self, _exit: RawExit) {
+        // The leader is gone: its group may outlive it through a descendant holding a pipe,
+        // exactly as node's runner kills the group on `exit` (`command.ts:103`).
+        if let Some(exit) = self.0.leader_exit.lock().expect("leader exit lock").take() {
+            let _ = exit.send(());
+        }
+    }
 
     fn close(&self, exit: RawExit) {
         if let Some(close) = self.0.close.lock().expect("capture close lock").take() {
@@ -645,6 +678,30 @@ mod tests {
             assert_eq!(result.code, Some(1));
             assert!(result.unreachable);
             assert_eq!(result.stdout, "");
+        });
+    }
+
+    #[test]
+    fn a_descendant_holding_stdout_does_not_hold_the_request_open() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let started = std::time::Instant::now();
+            let result = runner(3_000.0, 4_194_304)
+                .run(python(
+                    "import subprocess,sys;subprocess.Popen(['sleep','5']);print('done')",
+                ))
+                .await
+                .expect("the CLI exited");
+            assert_eq!(result.code, Some(0));
+            assert_eq!(result.stdout.trim(), "done");
+            assert!(
+                started.elapsed() < std::time::Duration::from_millis(2_000),
+                "waited {:?} for a descendant",
+                started.elapsed()
+            );
         });
     }
 

@@ -20,6 +20,11 @@ use crate::transport::mutation::is_forge_mutation;
 /// How long a verified identity admits reads without another probe.
 pub const IDENTITY_VERIFICATION_MS: f64 = 60_000.0;
 
+/// The predicate naming the requests a runner pins (`PinnedRunnerInput.pins`).
+pub type Pins = Box<dyn Fn(&CommandRequest) -> bool + Send + Sync>;
+/// The caller's own preference check (`PinnedRunnerInput.assertCurrent`).
+pub type AssertCurrent = Box<dyn Fn() -> Result<(), ForgeError> + Send + Sync>;
+
 /// Whether `login` is the shape the schemas accept: a letter or digit, then letters, digits
 /// or hyphens, at most 100 characters.
 pub fn valid_login(login: &str) -> bool {
@@ -52,6 +57,8 @@ pub struct Pinned<'a> {
     ttl_ms: f64,
     on_verified: Option<Box<dyn Fn(f64) + Send + Sync>>,
     on_mismatch: Option<Box<dyn Fn() + Send + Sync>>,
+    pins: Option<Pins>,
+    assert_current: Option<AssertCurrent>,
 }
 
 impl<'a> Pinned<'a> {
@@ -73,6 +80,8 @@ impl<'a> Pinned<'a> {
             ttl_ms: IDENTITY_VERIFICATION_MS,
             on_verified: None,
             on_mismatch: None,
+            pins: None,
+            assert_current: None,
         }
     }
 
@@ -92,6 +101,26 @@ impl<'a> Pinned<'a> {
     pub fn on_mismatch(mut self, on_mismatch: Box<dyn Fn() + Send + Sync>) -> Pinned<'a> {
         self.on_mismatch = Some(on_mismatch);
         self
+    }
+
+    /// Requests this runner pins; any other passes straight through (`pinned-runner.ts:71`).
+    pub fn pins(mut self, pins: Pins) -> Pinned<'a> {
+        self.pins = Some(pins);
+        self
+    }
+
+    /// The caller's own preference check (`assertCurrent`): asked before a pinned request and
+    /// again after it, so a preference that moved during a write marks the result.
+    pub fn assert_current(mut self, assert_current: AssertCurrent) -> Pinned<'a> {
+        self.assert_current = Some(assert_current);
+        self
+    }
+
+    fn current(&self) -> Result<(), ForgeError> {
+        match &self.assert_current {
+            Some(assert_current) => assert_current(),
+            None => Ok(()),
+        }
     }
 
     fn fresh(&self) -> bool {
@@ -148,7 +177,12 @@ impl<'a> Pinned<'a> {
 
     /// Runs one request under the pin, or fails closed.
     pub async fn run(&self, request: CommandRequest) -> Result<CommandResult, ForgeError> {
-        if request.command != "gh" {
+        self.current()?;
+        let pinned = match &self.pins {
+            Some(pins) => pins(&request),
+            None => request.command == "gh",
+        };
+        if !pinned {
             return self.runner.run(request).await;
         }
         let write = is_forge_mutation(&request);
@@ -169,12 +203,19 @@ impl<'a> Pinned<'a> {
                     self.verified();
                 }
             }
+            // Preferences may change while the write is in flight: a moved selection makes
+            // the result uncertain rather than publishing it under an account nobody chose.
+            if self.current().is_err() {
+                result.identity_changed = true;
+            }
             return Ok(result);
         }
         if !self.fresh() {
             self.verify(&request).await?;
         }
-        self.runner.run(request).await
+        let result = self.runner.run(request).await?;
+        self.current()?;
+        Ok(result)
     }
 }
 
@@ -356,6 +397,56 @@ mod tests {
             );
             let result = pinned.run(write()).await.expect("a dispatched write");
             assert!(result.identity_changed);
+        });
+    }
+
+    #[test]
+    fn a_pins_predicate_skips_requests_it_does_not_pin() {
+        runtime().block_on(async {
+            let stub = Stub {
+                replies: Mutex::new(vec![String::from("{}")]),
+                seen: Mutex::new(Vec::new()),
+            };
+            let pinned = Pinned::new(
+                &stub,
+                "github.com",
+                "octo",
+                std::sync::Arc::new(|| 0.0),
+                None,
+            )
+            .pins(Box::new(|request: &CommandRequest| {
+                request.command == "glab"
+            }));
+            pinned.run(read()).await.expect("not pinned, no probe");
+            assert_eq!(stub.seen.lock().expect("seen").len(), 1);
+        });
+    }
+
+    #[test]
+    fn a_moved_preference_marks_a_write_identity_changed() {
+        runtime().block_on(async {
+            let stub = Stub {
+                replies: Mutex::new(vec![user("octo"), String::from("{}"), user("octo")]),
+                seen: Mutex::new(Vec::new()),
+            };
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let seen = calls.clone();
+            let pinned = Pinned::new(
+                &stub,
+                "github.com",
+                "octo",
+                std::sync::Arc::new(|| 0.0),
+                None,
+            )
+            .assert_current(Box::new(move || {
+                // The first ask (before the request) passes; the post-write one does not.
+                let _ = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }));
+            let result = pinned.run(write()).await.expect("a dispatched write");
+            assert!(!result.identity_changed);
+            let seen = calls.load(std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(seen, 2, "asked before and after the write");
         });
     }
 

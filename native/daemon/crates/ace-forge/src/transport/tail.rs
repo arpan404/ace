@@ -24,6 +24,9 @@ pub struct LogTail {
     bytes: usize,
     line: String,
     line_bytes: usize,
+    /// Bytes of the unfinished last line: decoding waits for its newline, so a character
+    /// split across two chunks is read whole (the TypeScript's `StringDecoder`).
+    pending: Vec<u8>,
     discard: bool,
     truncated: bool,
     environment: Option<EnvironmentMatcher>,
@@ -41,6 +44,7 @@ impl LogTail {
             bytes: 0,
             line: String::new(),
             line_bytes: 0,
+            pending: Vec::new(),
             discard: false,
             truncated: false,
             environment: None,
@@ -53,15 +57,32 @@ impl LogTail {
         self
     }
 
-    /// One chunk of stdout; a character split across chunks is read whole.
+    /// One chunk of stdout; only the bytes up to the last newline are decoded, so a
+    /// character split across chunks is read whole.
     pub fn write(&mut self, chunk: &[u8]) {
-        // A chunk is decoded on its own only at a whole-character boundary; the runner reads
-        // the reply as UTF-8 once, so a split here is a split the CLI made.
-        self.consume(&String::from_utf8_lossy(chunk));
+        self.pending.extend_from_slice(chunk);
+        // A single line longer than the cap is discarded, and its bytes need not be kept.
+        if self.pending.len() > MAX_LINE_BYTES.saturating_mul(2) && !self.pending.contains(&b'\n') {
+            self.pending.clear();
+            self.line.clear();
+            self.line_bytes = 0;
+            self.discard = true;
+            self.truncated = true;
+            return;
+        }
+        if let Some(cut) = self.pending.iter().rposition(|byte| *byte == b'\n') {
+            let complete: Vec<u8> = self.pending.drain(..=cut).collect();
+            self.consume(&String::from_utf8_lossy(&complete));
+        }
     }
 
     /// The kept text (newest bytes) and whether older output was dropped.
     pub fn finish(mut self) -> (String, bool) {
+        if !self.pending.is_empty() {
+            let rest = String::from_utf8_lossy(&self.pending).into_owned();
+            self.pending.clear();
+            self.consume(&rest);
+        }
         if !self.line.is_empty() || self.discard {
             let line = if self.discard {
                 String::from("[oversized log line omitted]")
@@ -235,6 +256,18 @@ mod tests {
         let (text, truncated) = tail.finish();
         assert_eq!(text, "[oversized log line omitted]\nlast\n");
         assert!(truncated);
+    }
+
+    #[test]
+    fn a_character_split_across_chunks_is_kept_whole() {
+        let mut tail = LogTail::new(4_096).expect("valid cap");
+        let bytes = "caf\u{e9} line\n".as_bytes();
+        for chunk in bytes.chunks(2) {
+            tail.write(chunk);
+        }
+        let (text, _) = tail.finish();
+        assert_eq!(text, "caf\u{e9} line\n");
+        assert!(!text.contains('\u{fffd}'));
     }
 
     #[test]

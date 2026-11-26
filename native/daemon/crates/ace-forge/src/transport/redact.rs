@@ -13,7 +13,7 @@ use regex::Regex;
 pub const REDACTED: &str = "[REDACTED]";
 
 static GITHUB_TOKEN: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    Regex::new(r"\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)")
+    Regex::new(r"(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)")
         .expect("the GitHub token pattern compiles")
 });
 static BEARER: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
@@ -34,7 +34,9 @@ pub fn redact(text: &str, environment: Option<&EnvironmentMatcher>) -> String {
             let token = whole
                 .split_once(char::is_whitespace)
                 .map_or("", |(_, token)| token);
-            format!("{}{REDACTED}", &whole[..whole.len() - token.len()])
+            // The TypeScript always writes the canonical scheme, keeping the input's case out.
+            let _ = token;
+            format!("Bearer {REDACTED}")
         })
         .into_owned();
     out = ASSIGNMENT
@@ -96,7 +98,9 @@ mod tests {
             redact("curl -H 'Authorization: Bearer abc.def-1'", None),
             "curl -H 'Authorization: [REDACTED]"
         );
-        assert_eq!(redact("bEaReR OPAQUE", None), "bEaReR [REDACTED]");
+        assert_eq!(redact("bEaReR OPAQUE", None), "Bearer [REDACTED]");
+        // A token glued to a word character is still the token (`redact.ts:4`).
+        assert_eq!(redact("xghp_12345678901234567890", None), "x[REDACTED]");
     }
 
     #[test]

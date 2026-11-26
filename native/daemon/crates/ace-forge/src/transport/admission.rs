@@ -84,7 +84,10 @@ pub fn is_read_only_api_request(cli: HostCli, request: &CommandRequest, host: &s
     let Some(endpoint) = args.get(1) else {
         return false;
     };
-    if args.first().is_none_or(|arg| arg != "api") || endpoint.starts_with('-') {
+    if args.first().is_none_or(|arg| arg != "api")
+        || endpoint.is_empty()
+        || endpoint.starts_with('-')
+    {
         return false;
     }
     match cli {
@@ -257,11 +260,13 @@ fn percent_decode(text: &str) -> Option<String> {
 /// traversal, empty or encoded segment. Reads may carry a plain query; writes may not.
 fn bkt_endpoint(endpoint: &str, read: bool) -> bool {
     static PATH: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(r"^/2\.0/(?:user|repositories/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[\w.-]+)*)$")
-            .expect("the bkt path pattern compiles")
+        Regex::new(
+            r"^/2\.0/(?:user|repositories/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)$",
+        )
+        .expect("the bkt path pattern compiles")
     });
     static QUERY: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(r"^[\w.~%=&+:,-]+$").expect("the bkt query pattern compiles")
+        Regex::new(r"^[A-Za-z0-9_.~%=&+:,-]+$").expect("the bkt query pattern compiles")
     });
     let mut parts = endpoint.split('?');
     let path = parts.next().unwrap_or("");

@@ -10,6 +10,7 @@ use crate::schema::github::{
     Check, Comment, Kind, LegacyStatus, Pull, Review, parse_check, parse_comment,
     parse_legacy_status, parse_pull, parse_review,
 };
+use crate::transport::http::redact_data;
 
 /// A check's mapped state: what the panel and `ciStatus` read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -99,7 +100,7 @@ pub struct PrStatus {
 /// Maps one check run; `details_url`/`html_url` supply the link, and an Actions job link
 /// carries the job identifier a third-party check does not.
 pub fn map_check(input: &Value) -> Result<CheckRow, Kind> {
-    let check = parse_check(input)?;
+    let check = parse_check(&redact_data(input))?;
     let status = check_status(&check);
     let url = check.details_url.clone().or_else(|| check.html_url.clone());
     let job_id = url.as_deref().and_then(job_from_url);
@@ -151,7 +152,7 @@ fn job_from_url(url: &str) -> Option<i64> {
 
 /// Maps a legacy commit status (`mapLegacyStatus`).
 pub fn map_legacy_status(input: &Value) -> Result<CheckRow, Kind> {
-    let status: LegacyStatus = parse_legacy_status(input)?;
+    let status: LegacyStatus = parse_legacy_status(&redact_data(input))?;
     let mapped = match status.state.as_str() {
         "pending" => CheckStatus::Pending,
         "success" => CheckStatus::Success,
@@ -198,7 +199,7 @@ pub fn ci_status(checks: &[CheckRow]) -> &'static str {
 
 /// Maps an inline review comment (`mapComment`).
 pub fn map_comment(input: &Value) -> Result<CommentRow, Kind> {
-    let comment: Comment = parse_comment(input)?;
+    let comment: Comment = parse_comment(&redact_data(input))?;
     Ok(CommentRow {
         kind: "inline",
         id: comment.id,
@@ -227,7 +228,7 @@ pub fn map_issue_comment(input: &Value) -> Result<CommentRow, Kind> {
 
 /// Maps a review (`mapReviewComment`): no file, no line, its state kept.
 pub fn map_review_comment(input: &Value) -> Result<CommentRow, Kind> {
-    let review: Review = parse_review(input)?;
+    let review: Review = parse_review(&redact_data(input))?;
     Ok(CommentRow {
         kind: "review",
         id: review.id,
@@ -248,7 +249,8 @@ pub fn map_review_comment(input: &Value) -> Result<CommentRow, Kind> {
 
 /// Maps a pull into its protocol status (`mapPr`): merged before closed before draft/open.
 pub fn map_pr(reference: &PrRef, input: &Value, checks: &[CheckRow]) -> Result<PrStatus, Kind> {
-    let pull: Pull = parse_pull(input)?;
+    let redacted = redact_data(input);
+    let pull: Pull = parse_pull(&redacted)?;
     let state = if pull.merged == Some(true) || pull.merged_at.is_some() {
         "merged"
     } else if pull.state == "closed" {
@@ -277,7 +279,7 @@ pub fn map_pr(reference: &PrRef, input: &Value, checks: &[CheckRow]) -> Result<P
         ci: String::from(ci_status(checks)),
         checks: checks.to_vec(),
         comments: Vec::new(),
-        raw: input.clone(),
+        raw: redacted,
     })
 }
 
@@ -429,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pull_status_keeps_the_redacted_raw_and_its_checks() {
+    fn a_pull_status_redacts_its_raw_before_the_schema_sees_it() {
         let checks = vec![map_check(&check("completed", Some("failure"))).unwrap()];
         let status = map_pr(
             &reference(),
@@ -439,7 +441,7 @@ mod tests {
         .unwrap();
         assert_eq!(status.ci, "failure");
         assert_eq!(status.checks.len(), 1);
-        assert_eq!(status.raw["extra"], json!("ghp_secret1"));
+        assert_eq!(status.raw["extra"], json!("[REDACTED]"));
     }
 
     #[test]
