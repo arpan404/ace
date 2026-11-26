@@ -25,6 +25,9 @@ jiff = { version = "1.0", default-features = false, features = [
   "std",
   "tzdb-bundle-always",
 ] }
+# sha2: a manual run's idempotency key is the SHA-256 of its automation and event key, so a
+# retried request maps to the same run even after its row was pruned.
+sha2 = "0.10"
 # serde: definitions are derived structs in the protocol's field order.
 serde = { version = "1", features = ["derive"] }
 # thiserror: one typed error enum for the crate.

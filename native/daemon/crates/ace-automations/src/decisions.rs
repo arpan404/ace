@@ -102,11 +102,11 @@ pub fn recover_occurrence(
     due: i64,
     now: i64,
     skip: bool,
-) -> Result<Occurrence> {
+) -> Result<Option<Occurrence>> {
     if due < now && skip {
-        return Ok(recurrence.seek(now, Some(current))?.unwrap_or(current));
+        return recurrence.seek(now, Some(current));
     }
-    Ok(current)
+    Ok(Some(current))
 }
 
 /// `scheduledDeadline` (`decisions.ts:51`): jitter is capped by the time to the next nominal

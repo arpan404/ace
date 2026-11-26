@@ -61,9 +61,13 @@ pub struct CounterIds {
 
 impl CounterIds {
     pub fn new(prefix: impl Into<String>) -> CounterIds {
+        CounterIds::with_start(prefix, 0)
+    }
+
+    pub fn with_start(prefix: impl Into<String>, next: u64) -> CounterIds {
         CounterIds {
             prefix: prefix.into(),
-            next: 0,
+            next,
         }
     }
 }
@@ -185,18 +189,21 @@ impl<'a> Scheduler<'a> {
                     now,
                     job.automation.missed_run_skips(),
                 )?;
-                if occurrence.at != nominal {
+                if occurrence.map(|occurrence| occurrence.at) != Some(nominal) {
                     let deadline = scheduled_deadline(
-                        Some(occurrence),
+                        occurrence,
                         &recurrence,
                         job.automation.jitter_ms,
                         self.random.draw(),
                     )?;
                     self.store.transaction(|| {
+                        self.store.advance(
+                            &job.automation.id,
+                            occurrence.map(|occurrence| occurrence.at),
+                            deadline,
+                        )?;
                         self.store
-                            .advance(&job.automation.id, Some(occurrence.at), deadline)?;
-                        self.store
-                            .save_poll(&job.automation.id, &occurrence_value(Some(occurrence)))
+                            .save_poll(&job.automation.id, &occurrence_value(occurrence))
                     })?;
                 }
                 Ok(())

@@ -789,6 +789,16 @@ impl AutomationStore {
             .max(0) as usize)
     }
 
+    /// The highest run sequence, so a reopened service's generated ids never repeat one.
+    pub fn max_run_seq(&self) -> Result<u64> {
+        Ok(self
+            .query("SELECT coalesce(max(seq),0) FROM automation_runs", &[])?
+            .first()
+            .and_then(|row| row_int(row, 0))
+            .unwrap_or(0)
+            .max(0) as u64)
+    }
+
     /// The stored run count, for the scheduler's admission tests and future listings.
     pub fn run_count(&self) -> Result<usize> {
         self.count("SELECT COUNT(*) AS n FROM automation_runs", None)
@@ -868,6 +878,229 @@ impl AutomationStore {
             skipped.push(run);
         }
         Ok(skipped)
+    }
+
+    /// Why a running run was cancelled, while its cancellation is still being carried out.
+    pub fn cancellation(&self, run_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .query(
+                "SELECT reason FROM automation_cancellations WHERE run_id=?",
+                &[text_of(run_id)],
+            )?
+            .first()
+            .and_then(|row| row_text(row, 0))
+            .map(str::to_owned))
+    }
+
+    /// Running runs whose cancellation is not carried out yet, for start-up to send again.
+    pub fn cancelling(&self) -> Result<Vec<(Value, Value)>> {
+        let rows = self.query(
+      "SELECT r.body,r.input FROM automation_cancellations c JOIN automation_runs r ON r.id=c.run_id WHERE r.status='running' LIMIT 256",
+      &[],
+    )?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let body = parse_json(row_text(row, 0)?).ok()?;
+                let input = parse_json(row_text(row, 1)?).ok()?;
+                Some((body, input))
+            })
+            .collect())
+    }
+
+    /// Running runs this build can read, oldest first.
+    pub fn active(&self) -> Result<Vec<(Value, Value)>> {
+        let rows = self.query(
+            "SELECT body,input FROM automation_runs WHERE status='running' ORDER BY seq LIMIT 256",
+            &[],
+        )?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let body = parse_json(row_text(row, 0)?).ok()?;
+                let input = parse_json(row_text(row, 1)?).ok()?;
+                Some((body, input))
+            })
+            .collect())
+    }
+
+    /// Start this automation's oldest waiting run once nothing of it is running (`store.ts:497`).
+    pub fn promote(&self, automation: &Definition, now: i64) -> Result<Option<(Value, Value)>> {
+        let active = self.count(
+            "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id=? AND status='running'",
+            Some(&automation.id),
+        )?;
+        let total = self.count(
+            "SELECT COUNT(*) AS n FROM automation_runs WHERE status='running'",
+            None,
+        )?;
+        if !crate::decisions::can_promote(active, total) {
+            return Ok(None);
+        }
+        let rows = self.query(
+      "SELECT id,body,input FROM automation_runs WHERE automation_id=? AND status='queued' ORDER BY seq LIMIT 1",
+      &[text_of(&automation.id)],
+    )?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let Some(run_id) = row_text(row, 0) else {
+            return Ok(None);
+        };
+        let Some(body) = row_text(row, 1) else {
+            return Ok(None);
+        };
+        let Some(input) = row_text(row, 2) else {
+            return Ok(None);
+        };
+        let mut run = parse_json(body)?;
+        if let Value::Object(map) = &mut run {
+            map.insert("status", text("running"));
+            map.insert("startedAt", number(now));
+        }
+        self.execute(
+            "UPDATE automation_runs SET status='running',body=? WHERE id=? AND status='queued'",
+            &[text_of(&ace_json::to_string(&run)), text_of(run_id)],
+        )?;
+        Ok(Some((run, parse_json(input)?)))
+    }
+
+    /// Settle a running run with its executor's outcome (`store.ts:567`).
+    pub fn finish(
+        &self,
+        run_id: &str,
+        now: i64,
+        status: &str,
+        thread_id: Option<&str>,
+        result: Option<&str>,
+    ) -> Result<Option<Value>> {
+        self.transaction(|| {
+            let rows = self.query(
+                "SELECT body FROM automation_runs WHERE id=? AND status='running'",
+                &[text_of(run_id)],
+            )?;
+            let Some(row) = rows.first() else {
+                return Ok(None);
+            };
+            let Some(body) = row_text(row, 0) else {
+                return Ok(None);
+            };
+            let mut run = parse_json(body)?;
+            let automation_id = match &run {
+                Value::Object(map) => map
+                    .get("automationId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+                _ => String::new(),
+            };
+            if let Value::Object(map) = &mut run {
+                map.insert("status", text(status));
+                if let Some(thread_id) = thread_id {
+                    map.insert("threadId", text(thread_id));
+                }
+                if let Some(result) = result {
+                    map.insert("result", text(result));
+                }
+                map.insert("finishedAt", number(now));
+            }
+            self.execute(
+        "UPDATE automation_runs SET status=?,body=?,finished_at=? WHERE id=? AND status='running'",
+        &[
+          text_of(status),
+          text_of(&ace_json::to_string(&run)),
+          Some(SqlValue::Integer(now)),
+          text_of(run_id),
+        ],
+      )?;
+            self.execute(
+                "DELETE FROM automation_cancellations WHERE run_id=?",
+                &[text_of(run_id)],
+            )?;
+            self.prune(&automation_id)?;
+            Ok(Some(run))
+        })
+    }
+
+    /// One page of run history, newest first (`store.ts:631`).
+    pub fn inbox(
+        &self,
+        limit: usize,
+        before: Option<i64>,
+        automation_id: Option<&str>,
+        finished_after: Option<i64>,
+    ) -> Result<(Vec<Value>, Option<i64>)> {
+        let limit = limit.clamp(1, 100);
+        let mut where_clause = vec!["seq < ?".to_owned()];
+        let mut values: Vec<Option<SqlValue>> =
+            vec![Some(SqlValue::Integer(before.unwrap_or(i64::MAX)))];
+        if let Some(automation_id) = automation_id {
+            where_clause.push("automation_id=?".to_owned());
+            values.push(text_of(automation_id));
+        }
+        if let Some(finished_after) = finished_after {
+            where_clause.push(format!("coalesce(finished_at, {NOT_FINISHED}) > ?"));
+            values.push(Some(SqlValue::Integer(finished_after)));
+        }
+        let sql = format!(
+            "SELECT seq,body FROM automation_runs WHERE {} ORDER BY seq DESC LIMIT ?",
+            where_clause.join(" AND ")
+        );
+        values.push(Some(SqlValue::Integer(limit as i64 + 1)));
+        let rows = self.query(&sql, &values)?;
+        let mut runs = Vec::new();
+        for row in rows.iter().take(limit) {
+            if let Some(body) = row_text(row, 1) {
+                runs.push(parse_json(body)?);
+            }
+        }
+        let next = if rows.len() > limit {
+            rows.get(limit - 1).and_then(|row| row_int(row, 0))
+        } else {
+            None
+        };
+        Ok((runs, next))
+    }
+
+    /// One indexed lookup per live automation, without scanning run history.
+    pub fn latest_runs(&self) -> Result<Vec<(String, Value)>> {
+        let rows = self.query(
+      "SELECT j.id AS aid, (SELECT r.body FROM automation_runs r WHERE r.automation_id=j.id ORDER BY r.seq DESC LIMIT 1) AS runBody FROM automation_jobs j ORDER BY j.id LIMIT 1001",
+      &[],
+    )?;
+        let mut runs = Vec::new();
+        for row in &rows {
+            let (Some(id), Some(body)) = (row_text(row, 0), row_text(row, 1)) else {
+                continue;
+            };
+            if let Ok(run) = parse_json(body) {
+                runs.push((id.to_owned(), run));
+            }
+        }
+        Ok(runs)
+    }
+
+    /// The execution input stored with a run, for recovery that finds nothing sent.
+    pub fn run_input(&self, run_id: &str) -> Result<Option<Value>> {
+        let rows = self.query(
+            "SELECT input FROM automation_runs WHERE id=?",
+            &[text_of(run_id)],
+        )?;
+        match rows.first().and_then(|row| row_text(row, 0)) {
+            Some(input) => Ok(Some(parse_json(input)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn latest_run(&self, automation_id: &str) -> Result<Option<Value>> {
+        let rows = self.query(
+            "SELECT body FROM automation_runs WHERE automation_id=? ORDER BY seq DESC LIMIT 1",
+            &[text_of(automation_id)],
+        )?;
+        match rows.first().and_then(|row| row_text(row, 0)) {
+            Some(body) => Ok(Some(parse_json(body)?)),
+            None => Ok(None),
+        }
     }
 
     fn prune(&self, id: &str) -> Result<()> {
