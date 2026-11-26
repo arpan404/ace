@@ -27,6 +27,8 @@ ace-projection = { path = "../ace-projection" }
 ace-adapter-api = { path = "../ace-adapter-api" }
 # ace-protocol: the generated selection, goal and capability shapes a session's calls carry.
 ace-protocol = { path = "../ace-protocol" }
+# ace-models: the catalogue's rows, search and default-selection rule (never rediscovered here).
+ace-models = { path = "../ace-models" }
 # async-task: the local executor's spawn_local runnables (from smol-rs, Apache-2.0/MIT, the parts async-executor is made of); engine state is Rc, never shared, never locked.
 async-task = "4.7"
 # concurrent-queue: the executor's ready queue beside async-task.
