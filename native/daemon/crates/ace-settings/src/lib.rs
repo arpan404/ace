@@ -15,3 +15,4 @@ pub mod roles;
 pub mod schema;
 pub mod service;
 pub mod validation;
+pub mod workspace;

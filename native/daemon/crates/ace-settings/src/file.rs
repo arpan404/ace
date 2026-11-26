@@ -6,6 +6,7 @@
 //! comments; a read that a build migrates is written back; a malformed file keeps its
 //! diagnostic and leaves the last good values in place.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -35,10 +36,20 @@ pub struct FileChange {
 /// Stops a watch or a scheduled callback.
 pub type Stop = Box<dyn FnOnce()>;
 
+/// A containment check run before a read and again before a write commits.
+pub type Validate = Rc<dyn Fn() -> Result<(), SettingsError>>;
+
 /// The file port: bounded reads, atomic writes and a watch.
 pub trait SettingsIo {
     fn read(&self, path: &std::path::Path) -> Result<Option<String>, SettingsError>;
-    fn write(&self, path: &std::path::Path, text: &str) -> Result<(), SettingsError>;
+    /// A write is atomic: `before_commit` runs after the temporary file is complete and
+    /// immediately before the destination is replaced.
+    fn write(
+        &self,
+        path: &std::path::Path,
+        text: &str,
+        before_commit: Option<&Validate>,
+    ) -> Result<(), SettingsError>;
     fn watch(
         &self,
         path: &std::path::Path,
@@ -59,9 +70,11 @@ pub struct SettingsFile {
     prepared: DecodedDocument,
     document: std::collections::BTreeMap<String, Value>,
     diagnostic: Option<FileDiagnostic>,
-    watcher_diagnostic: Option<FileDiagnostic>,
+    watcher_diagnostic: Rc<RefCell<Option<FileDiagnostic>>>,
+    validate: Option<Validate>,
     io: std::sync::Arc<dyn SettingsIo>,
     stop_watch: Option<Stop>,
+    schedule: Option<Rc<dyn Fn()>>,
     changed: Rc<dyn Fn(FileChange)>,
     closed: bool,
 }
@@ -91,9 +104,11 @@ impl SettingsFile {
             prepared,
             document,
             diagnostic: None,
-            watcher_diagnostic: None,
+            watcher_diagnostic: Rc::new(RefCell::new(None)),
+            validate: None,
             io,
             stop_watch: None,
+            schedule: None,
             changed,
             closed: false,
         }
@@ -108,10 +123,10 @@ impl SettingsFile {
         &self.prepared.text
     }
 
-    pub fn diagnostic(&self) -> Option<&FileDiagnostic> {
+    pub fn diagnostic(&self) -> Option<FileDiagnostic> {
         self.diagnostic
-            .as_ref()
-            .or(self.watcher_diagnostic.as_ref())
+            .clone()
+            .or_else(|| self.watcher_diagnostic.borrow().clone())
     }
 
     fn publish(&mut self, prepared: DecodedDocument) {
@@ -148,24 +163,58 @@ impl SettingsFile {
         });
     }
 
+    /// Attaches the workspace's permanent containment check, running it once now.
+    pub fn protect(&mut self, validate: Validate) {
+        if self.validate.is_none() {
+            self.validate = Some(validate);
+        }
+        if let Err(error) = self.check() {
+            self.report(error);
+        }
+    }
+
+    fn check(&self) -> Result<(), SettingsError> {
+        match &self.validate {
+            Some(validate) => validate(),
+            None => Ok(()),
+        }
+    }
+
     /// Starts watching the file: a change schedules `schedule` (the service's debounced
-    /// reload), and a broken watch reports its own diagnostic until it recovers.
+    /// reload), and a broken watch reports its own diagnostic, then schedules a retry so a
+    /// repaired watch recovers.
     pub fn watch(&mut self, schedule: Rc<dyn Fn()>) -> Result<(), SettingsError> {
         if self.closed {
             return Ok(());
         }
+        self.schedule = Some(schedule.clone());
         let layer = self.layer;
         let notify = self.changed.clone();
+        let watcher = self.watcher_diagnostic.clone();
+        let retry = schedule.clone();
         let failed = Rc::new(move || {
-            notify(FileChange {
-                keys: Vec::new(),
-                diagnostic: Some(FileDiagnostic {
-                    layer,
-                    code: SettingsCode::Io,
-                    message: "Settings watcher failed".to_owned(),
-                    offset: None,
-                }),
-            });
+            let diagnostic = FileDiagnostic {
+                layer,
+                code: SettingsCode::Io,
+                message: "Settings watcher failed".to_owned(),
+                offset: None,
+            };
+            let report = {
+                let mut current = watcher.borrow_mut();
+                if current.as_ref() == Some(&diagnostic) {
+                    false
+                } else {
+                    *current = Some(diagnostic.clone());
+                    true
+                }
+            };
+            if report {
+                notify(FileChange {
+                    keys: Vec::new(),
+                    diagnostic: Some(diagnostic),
+                });
+            }
+            retry();
         });
         match self.io.watch(&self.path, schedule, failed) {
             Ok(stop) => {
@@ -173,11 +222,11 @@ impl SettingsFile {
                     previous();
                 }
                 self.stop_watch = Some(stop);
-                self.watcher_diagnostic = None;
+                *self.watcher_diagnostic.borrow_mut() = None;
                 Ok(())
             }
             Err(error) => {
-                self.watcher_diagnostic = Some(FileDiagnostic {
+                *self.watcher_diagnostic.borrow_mut() = Some(FileDiagnostic {
                     layer,
                     code: SettingsCode::Io,
                     message: "Settings watcher failed".to_owned(),
@@ -188,18 +237,25 @@ impl SettingsFile {
         }
     }
 
-    /// Reads the file again; a migrated document is written back.
+    /// Reads the file again; a migrated document is written back. A malformed file, a failed
+    /// containment check or an unreadable file reports its diagnostic and keeps the last good
+    /// values: the read stays effective and the watch stays installed for a repair.
     pub fn reload(&mut self) -> Result<(), SettingsError> {
-        match self.reload_inner() {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                self.report(error.clone());
-                Err(error)
-            }
+        if self.closed {
+            return Ok(());
         }
+        let schedule = self.schedule.clone();
+        if let Some(schedule) = schedule {
+            let _ = self.watch(schedule);
+        }
+        if let Err(error) = self.reload_inner() {
+            self.report(error);
+        }
+        Ok(())
     }
 
     fn reload_inner(&mut self) -> Result<(), SettingsError> {
+        self.check()?;
         let source = self
             .io
             .read(&self.path)?
@@ -210,7 +266,8 @@ impl SettingsFile {
             DecodedDocument::decode(&source)?
         };
         if prepared.migrated {
-            self.io.write(&self.path, &prepared.text)?;
+            self.io
+                .write(&self.path, &prepared.text, self.validate.as_ref())?;
         }
         self.publish(prepared);
         Ok(())
@@ -270,6 +327,7 @@ impl SettingsFile {
         &mut self,
         change: impl FnOnce(&DecodedDocument) -> Result<DecodedDocument, SettingsError>,
     ) -> Result<(), SettingsError> {
+        self.check()?;
         let raw = self
             .io
             .read(&self.path)?
@@ -281,7 +339,8 @@ impl SettingsFile {
         };
         let result = change(&source)?;
         if source.migrated || result.text != source.text {
-            self.io.write(&self.path, &result.text)?;
+            self.io
+                .write(&self.path, &result.text, self.validate.as_ref())?;
         }
         self.publish(result);
         Ok(())
@@ -322,7 +381,15 @@ mod tests {
                 .cloned())
         }
 
-        fn write(&self, path: &std::path::Path, text: &str) -> Result<(), SettingsError> {
+        fn write(
+            &self,
+            path: &std::path::Path,
+            text: &str,
+            before_commit: Option<&Validate>,
+        ) -> Result<(), SettingsError> {
+            if let Some(before_commit) = before_commit {
+                before_commit()?;
+            }
             *self
                 .writes
                 .lock()
@@ -400,7 +467,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(PathBuf::from("/settings.json"), "{".to_owned());
-        assert!(file.reload().is_err());
+        file.reload().unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(
             file.diagnostic().map(|diagnostic| diagnostic.code),
             Some(SettingsCode::Parse)
