@@ -88,15 +88,16 @@ fn validate_selection(selection: &SourceControlSelection) -> Result<(), GitError
             base,
             base_ref,
         } => {
-            if branch.is_empty() || branch.encode_utf16().count() > 256 {
+            if branch.is_empty() || branch.chars().count() > 256 {
                 return Err(invalid("Invalid branch"));
             }
-            if base.is_empty() || base.encode_utf16().count() > 256 {
+            if base.is_empty() || base.chars().count() > 256 {
                 return Err(invalid("Invalid base"));
             }
-            if base_ref.as_ref().is_some_and(|base_ref| {
-                base_ref.is_empty() || base_ref.encode_utf16().count() > 1200
-            }) {
+            if base_ref
+                .as_ref()
+                .is_some_and(|base_ref| base_ref.is_empty() || base_ref.chars().count() > 1200)
+            {
                 return Err(invalid("Invalid base ref"));
             }
         }
@@ -496,7 +497,7 @@ enum FingerprintSelection {
     Pr {
         branch: String,
         base: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "baseRef", skip_serializing_if = "Option::is_none")]
         base_ref: Option<String>,
     },
 }
@@ -508,6 +509,7 @@ struct Fingerprint<'a> {
     head: Option<&'a str>,
     branch: Option<&'a str>,
     base: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     remote: Option<&'a crate::parse::repository::Remote>,
     from: &'a str,
     to: &'a str,
@@ -626,6 +628,55 @@ mod tests {
         .await
         .expect("again");
         assert_eq!(again.fingerprint, context.fingerprint);
+    }
+
+    #[test]
+    fn fingerprint_json_matches_typescript_stringify() {
+        use sha2::Digest;
+        let commit = Fingerprint {
+            selection: FingerprintSelection::Commit {
+                paths: vec!["src/lib.rs".to_owned()],
+            },
+            head: None,
+            branch: None,
+            base: None,
+            remote: None,
+            from: &"0".repeat(40),
+            to: &"1".repeat(40),
+            conventions: &[],
+        };
+        let commit_json = ace_json::ser::to_string(&commit).expect("json");
+        let commit_hash = format!("{:x}", Sha256::digest(commit_json.as_bytes()));
+        assert_eq!(
+            commit_hash,
+            "e4e99079e5db2a7af53840a5fcc343a497b0fe003541c4602393ea7c1fc01bc7"
+        );
+        let head = "a".repeat(40);
+        let base = "b".repeat(40);
+        let from = "c".repeat(40);
+        let to = head.clone();
+        let pr = Fingerprint {
+            selection: FingerprintSelection::Pr {
+                branch: "feature".to_owned(),
+                base: "main".to_owned(),
+                base_ref: Some("origin/main".to_owned()),
+            },
+            head: Some(head.as_str()),
+            branch: Some("feature"),
+            base: Some(base.as_str()),
+            remote: None,
+            from: &from,
+            to: &to,
+            conventions: &[],
+        };
+        let pr_json = ace_json::ser::to_string(&pr).expect("json");
+        let pr_hash = format!("{:x}", Sha256::digest(pr_json.as_bytes()));
+        assert_eq!(
+            pr_hash,
+            "ffde0b2c3de79dcbbd269da3f59854b84542ec71ca026eecac82781e13e75544"
+        );
+        assert!(!pr_json.contains("base_ref"));
+        assert!(!commit_json.contains("remote"));
     }
 
     #[tokio::test]

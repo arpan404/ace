@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::core::error::{GitError, GitErrorCode};
 use crate::core::paths;
-use crate::reads::{Command, CommandPort, checked, text_output};
+use crate::reads::{Command, CommandPort, checked};
 
 /// The exclude pattern ace keeps in the repository's local `info/exclude`, never committed.
 pub const ACE_PRIVATE_PATTERN: &str = ".ace-upload-*";
@@ -41,16 +41,15 @@ pub async fn exclude_ace_private(
         ),
     )
     .await?;
-    if common.truncated || exclude.truncated {
+    if common.truncated || exclude.truncated || common.exit_code != 0 || exclude.exit_code != 0 {
         return Ok(());
     }
-    let (Ok(common_dir), Ok(exclude_path)) =
-        (text_output(&common.stdout), text_output(&exclude.stdout))
-    else {
+    let Some(common_dir) = single_git_path(&common.stdout, is_windows) else {
         return Ok(());
     };
-    let common_dir = paths::strip_terminator(&common_dir, is_windows).to_owned();
-    let exclude_path = paths::strip_terminator(&exclude_path, is_windows).to_owned();
+    let Some(exclude_path) = single_git_path(&exclude.stdout, is_windows) else {
+        return Ok(());
+    };
     if common_dir.is_empty() || exclude_path.is_empty() {
         return Ok(());
     }
@@ -89,6 +88,23 @@ pub async fn exclude_ace_private(
     )
     .map_err(|error| GitError::from_io(&error))?;
     Ok(())
+}
+
+/// One `rev-parse` path: strict UTF-8, exactly one platform terminator stripped.
+fn single_git_path(bytes: &[u8], is_windows: bool) -> Option<String> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let stripped = if is_windows && text.ends_with("\r\n") {
+        &text[..text.len() - 2]
+    } else if text.ends_with('\n') {
+        &text[..text.len() - 1]
+    } else {
+        text
+    };
+    if stripped.is_empty() {
+        None
+    } else {
+        Some(stripped.to_owned())
+    }
 }
 
 fn absent(error: &std::io::Error) -> bool {
