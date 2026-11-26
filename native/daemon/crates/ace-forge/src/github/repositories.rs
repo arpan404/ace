@@ -318,8 +318,11 @@ impl<'a> Repositories<'a> {
             )
             .await?;
         // The host accepted the write: a reply we cannot read is uncertain, never failed.
-        let repository = hosted(&self.host, &response.body)
-            .map_err(|_| ForgeError::new(Kind::OutcomeUncertain))?;
+        let repository = hosted(&self.host, &response.body).map_err(|_| {
+            let mut error = ForgeError::new(Kind::OutcomeUncertain);
+            error.dispatched = Some(true);
+            error
+        })?;
         if response.identity_changed {
             // The result exists but cannot be published under this identity: keep it.
             let mut error = ForgeError::new(Kind::OutcomeUncertain);
@@ -346,12 +349,12 @@ fn valid_owner(owner: &str) -> bool {
 /// `ForgeRepository.name`: word characters, dots and hyphens, bounded as the schema is.
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
-        && name.chars().count() <= 256
+        && name.chars().count() <= 100
         && name != "."
         && name != ".."
-        && name
-            .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '.' | '-'))
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-')
+        })
 }
 
 #[cfg(test)]

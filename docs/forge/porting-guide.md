@@ -139,6 +139,12 @@ admission (`read-only-api.ts:49`, `:148`), pinned identities and the 60 s window
 every cache and output (rule 2), error kinds
 (`errors.ts:20`–`:74`), read budgets.
 
+- **Owed at the caller (P1, fourth recheck).** The retry fence an uncertain write
+  relies on is the daemon composition's: `MutationDispatch` and the
+  ten-minute window live here, but a caller that retries is the one that must
+  consult `outcome_uncertain` with `dispatched: true` before sending again. When
+  the daemon's forge callers move onto this core, that fence lands with them;
+  the crate proves only the outcome type and its `dispatched` flag.
 - Proof: `command-search.process`, `identity-probes.process`, `readiness.process`,
   `graphql-refusals.process`, `retry-regressions.process`, `cache-regressions.process`,
   `cache-overlap`, `change-regressions.process`, `ssh-aliases.process`, `command.process` (its

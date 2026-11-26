@@ -41,36 +41,109 @@ pub fn is_forge_mutation(request: &CommandRequest) -> bool {
     if args.get(1).is_some_and(|arg| arg == "markdown") {
         return false;
     }
-    if args.get(1).is_some_and(|arg| arg == "graphql") {
-        let query = graphql_query(request.input.as_deref());
-        if let Some(query) = query
-            && starts_with_query(&query)
-        {
-            return false;
-        }
+    if args.get(1).is_some_and(|arg| arg == "graphql")
+        && let Some((document, operation)) = graphql_request(request.input.as_deref())
+        && selected_is_query(&document, operation.as_deref())
+    {
+        return false;
     }
     true
 }
 
-/// `GraphqlRequest.parse(JSON.parse(input)).query`: a string field, else nothing.
-fn graphql_query(input: Option<&str>) -> Option<String> {
+/// The document and the `operationName` GraphQL would execute (`GraphqlRequest`).
+fn graphql_request(input: Option<&str>) -> Option<(String, Option<String>)> {
     let value: Value = ace_json::parse(input?).ok()?;
     let body = value.as_object()?;
-    body.get("query")
-        .and_then(|query| query.as_str().map(str::to_owned))
+    let document = body.get("query")?.as_str()?.to_owned();
+    let operation = body
+        .get("operationName")
+        .and_then(|name| name.as_str().map(str::to_owned));
+    Some((document, operation))
 }
 
-/// `^\s*(?:query\b|\{)`: a complete query cannot change state.
-fn starts_with_query(query: &str) -> bool {
-    let trimmed = query.trim_start();
-    trimmed.starts_with('{')
-        || trimmed
-            .strip_prefix("query")
-            .is_some_and(|rest| !rest.chars().next().is_some_and(is_word))
+/// The operation a document executes is a query (or the anonymous shorthand).
+///
+/// A document's first word is not enough: `query A { … } mutation B { … }` with
+/// `operationName: B` executes the mutation. Operations are scanned (names and `{`/`(`),
+/// and the selected one decides; an ambiguous multi-operation document without a name is
+/// a write, never a read.
+fn selected_is_query(document: &str, operation: Option<&str>) -> bool {
+    let operations = graphql_operations(document);
+    match operation {
+        Some(name) => operations
+            .iter()
+            .find(|(operation_name, _)| operation_name.as_deref() == Some(name))
+            .is_some_and(|(_, is_query)| *is_query),
+        None => match operations.len() {
+            1 => operations[0].1,
+            _ => false,
+        },
+    }
 }
 
-fn is_word(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '_'
+/// The top-level operations of a document: its name (when it has one) and whether it is a
+/// query. The anonymous `{ … }` shorthand is one unnamed query.
+fn graphql_operations(document: &str) -> Vec<(Option<String>, bool)> {
+    let bytes = document.as_bytes();
+    let mut operations = Vec::new();
+    let mut index = 0;
+    let mut depth = 0i32;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        match byte {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+                continue;
+            }
+            b'{' | b'(' | b'[' => depth += 1,
+            b'}' | b')' | b']' => depth -= 1,
+            b'q' | b'm' | b's' if depth <= 0 => {
+                let rest = &document[index..];
+                let (keyword, is_query) = if rest.starts_with("query") {
+                    ("query", true)
+                } else if rest.starts_with("mutation") {
+                    ("mutation", false)
+                } else if rest.starts_with("subscription") {
+                    ("subscription", false)
+                } else {
+                    index += 1;
+                    continue;
+                };
+                let after = index + keyword.len();
+                // The keyword needs a boundary: `queryX` is a name, not a query.
+                if document
+                    .as_bytes()
+                    .get(after)
+                    .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+                {
+                    index += 1;
+                    continue;
+                }
+                let named = document
+                    .get(after..)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .filter(|word| {
+                        !word.is_empty()
+                            && word
+                                .chars()
+                                .next()
+                                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+                            && *word != "{"
+                    });
+                operations.push((named.map(str::to_owned), is_query));
+                index = after;
+                continue;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    if operations.is_empty() && document.trim_start().starts_with('{') {
+        operations.push((None, true));
+    }
+    operations
 }
 
 /// True once a write reserved at `at` has outlived the uncertainty window.
@@ -133,7 +206,9 @@ impl MutationDispatch {
         if self.definitely_failed() || error.kind == Kind::OutcomeUncertain {
             error
         } else {
-            ForgeError::new(Kind::OutcomeUncertain)
+            let mut error = ForgeError::new(Kind::OutcomeUncertain);
+            error.dispatched = Some(true);
+            error
         }
     }
 }
@@ -212,6 +287,32 @@ mod tests {
         ] {
             assert!(is_forge_mutation(&request), "{:?}", request.args);
         }
+    }
+
+    #[test]
+    fn a_named_mutation_second_in_the_document_is_a_write() {
+        let request = api(
+            &["api", "graphql", "--method", "POST"],
+            Some(
+                r#"{"query":"query A { viewer { login } } mutation B { x }","operationName":"B"}"#,
+            ),
+        );
+        assert!(is_forge_mutation(&request));
+        let query = api(
+            &["api", "graphql", "--method", "POST"],
+            Some(
+                r#"{"query":"query A { viewer { login } } mutation B { x }","operationName":"A"}"#,
+            ),
+        );
+        assert!(!is_forge_mutation(&query));
+        let ambiguous = api(
+            &["api", "graphql", "--method", "POST"],
+            Some(r#"{"query":"query A { x } query B { y }"}"#),
+        );
+        assert!(
+            is_forge_mutation(&ambiguous),
+            "an unnamed multi-operation document is a write"
+        );
     }
 
     #[test]

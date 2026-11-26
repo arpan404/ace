@@ -220,6 +220,9 @@ fn tea_endpoint(endpoint: &str) -> bool {
     });
     static FORBIDDEN: std::sync::LazyLock<Regex> =
         std::sync::LazyLock::new(|| Regex::new(r"[\\#{}\s]").expect("compiles"));
+    /// After decoding, a `?` can only have come from `%3F`: never a path character.
+    static DECODED_FORBIDDEN: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"[\\?#{}\s]").expect("compiles"));
     static ENCODED: std::sync::LazyLock<Regex> =
         std::sync::LazyLock::new(|| Regex::new(r"(?i)%[0-9a-f]{2}").expect("compiles"));
     if !PREFIX.is_match(endpoint) || FORBIDDEN.is_match(endpoint) {
@@ -233,7 +236,7 @@ fn tea_endpoint(endpoint: &str) -> bool {
         return false;
     };
     !decoded.split('/').any(|part| part == "." || part == "..")
-        && !FORBIDDEN.is_match(&decoded)
+        && !DECODED_FORBIDDEN.is_match(&decoded)
         && !ENCODED.is_match(&decoded)
 }
 
@@ -477,6 +480,35 @@ mod tests {
                 None
             ),
             ""
+        ));
+    }
+
+    #[test]
+    fn a_raw_query_delimiter_is_allowed_but_an_encoded_one_is_refused() {
+        let read = |endpoint: &str| {
+            request(
+                "tea",
+                &[
+                    "api",
+                    endpoint,
+                    "--method",
+                    "GET",
+                    "--login",
+                    "gitea.example",
+                    "--include",
+                ],
+                None,
+            )
+        };
+        assert!(is_read_only_api_request(
+            HostCli::Tea,
+            &read("repos/octo/ace/issues?state=open"),
+            "gitea.example"
+        ));
+        assert!(!is_read_only_api_request(
+            HostCli::Tea,
+            &read("repos/octo/ace/issues%3Ffoo"),
+            "gitea.example"
         ));
     }
 

@@ -156,6 +156,12 @@ pub struct CommandResult {
 /// A runner: the port every host request goes through. A test or the store may supply its
 /// own; the default is the supervised one below.
 pub trait Runner: Send + Sync {
+    /// The request's exact credential values, when the runner is the person's CLI; a test or
+    /// a substitution answers nothing. `GhApi` masks every page and header with them.
+    fn credential_environment(&self) -> Option<EnvironmentMatcher> {
+        None
+    }
+
     /// Runs one request, or fails with the category the caller publishes.
     fn run<'a>(
         &'a self,
@@ -280,7 +286,18 @@ pub fn credential_environment(env: &[(String, String)]) -> EnvironmentMatcher {
     EnvironmentMatcher::new(&values)
 }
 
+impl SupervisedRunner {
+    /// The child's environment values the guide requires masked (`GH_TOKEN`, ...).
+    pub fn values(&self) -> EnvironmentMatcher {
+        credential_environment(&self.environment())
+    }
+}
+
 impl Runner for SupervisedRunner {
+    fn credential_environment(&self) -> Option<EnvironmentMatcher> {
+        Some(self.values())
+    }
+
     fn run<'a>(
         &'a self,
         request: CommandRequest,

@@ -74,7 +74,7 @@ impl<'a> GhApi<'a> {
             order: Mutex::new(Vec::new()),
             cache_bytes: Mutex::new(0),
             next_page_id: std::sync::atomic::AtomicU64::new(1),
-            environment: None,
+            environment: runner.credential_environment(),
         }
     }
 
@@ -238,7 +238,8 @@ impl<'a> GhApi<'a> {
             let Some(mut cached) = cached else {
                 return Err(ForgeError::new(Kind::InvalidData));
             };
-            if let Some(polled) = safe_headers(&headers)
+            if let Some(polled) = self
+                .mask_headers(&headers)
                 .into_iter()
                 .find(|(name, _)| name == "x-poll-interval")
             {
@@ -369,12 +370,13 @@ impl<'a> GhApi<'a> {
         let Some(environment) = &self.environment else {
             return kept;
         };
-        kept.retain_mut(|(name, value)| {
-            let masked = super::redact::redact(value, Some(environment));
-            if masked != *value && matches!(name.as_str(), "etag" | "last-modified") {
+        // A header that carried a configured value is dropped whole: a validator would
+        // return it as `If-None-Match`, and a `Link` would keep it in the cache.
+        kept.retain_mut(|(_, value)| {
+            if !environment.spans(value).is_empty() {
                 return false;
             }
-            *value = masked;
+            *value = super::redact::redact(value, Some(environment));
             true
         });
         kept
@@ -583,7 +585,7 @@ impl GhApi<'_> {
         if output.truncated {
             return Err(ForgeError::new(Kind::Limit));
         }
-        Ok(body.to_owned())
+        Ok(super::redact::redact(body, self.environment.as_ref()))
     }
 
     /// A job log's newest `tail_bytes`; `gh api` follows GitHub's redirect to the text.
@@ -955,17 +957,34 @@ fn unprocessable_kind(text: &str) -> Kind {
             }
         }
     }
+    // A validation detail's message is the reason before the envelope's own message.
+    let detail = ace_json::parse(text)
+        .ok()
+        .and_then(|body| {
+            body.as_object()
+                .and_then(|fields| fields.get("errors"))
+                .and_then(|errors| errors.as_array())
+                .and_then(|errors| {
+                    errors.iter().find_map(|error| {
+                        error
+                            .as_object()
+                            .and_then(|error| error.get("message"))
+                            .and_then(|message| message.as_str().map(str::to_owned))
+                    })
+                })
+        })
+        .unwrap_or_default();
     if head {
         Kind::HeadMissing
     } else if base {
         Kind::BaseMissing
     } else if already_exists {
         Kind::Conflict
-    } else if NO_COMMITS.is_match(&message) {
+    } else if NO_COMMITS.is_match(&detail) || NO_COMMITS.is_match(&message) {
         Kind::NoCommits
-    } else if PR_EXISTS.is_match(&message) {
+    } else if PR_EXISTS.is_match(&detail) || PR_EXISTS.is_match(&message) {
         Kind::PrExists
-    } else if CONFLICT.is_match(&message) {
+    } else if CONFLICT.is_match(&detail) || CONFLICT.is_match(&message) {
         Kind::Conflict
     } else {
         Kind::Unprocessable
@@ -1372,6 +1391,98 @@ mod tests {
                     .expect_err("unreadable");
                 assert_eq!(error.kind, Kind::OutcomeUncertain);
                 assert!(!dispatch.definitely_failed(), "the fence stays");
+            });
+    }
+
+    #[test]
+    fn the_default_supervised_runner_masks_its_childs_credentials() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let token = "opaque-gh-token-value";
+        let path = std::env::temp_dir().join(format!("forge-echo-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            "#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\nETag: \"%s\"\\r\\n\\r\\n{\"note\":\"%s\"}' \"$GH_TOKEN\" \"$GH_TOKEN\"\n",
+        )
+        .expect("script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            // No `.environment(…)` call: the supervised runner supplies its own.
+            let runner = crate::transport::command::SupervisedRunner::new(
+                tokio::runtime::Handle::current(),
+                crate::transport::command::RunnerOptions {
+                    env: vec![(String::from("GH_TOKEN"), token.to_owned())],
+                    ..crate::transport::command::RunnerOptions::default()
+                },
+            )
+            .expect("runner");
+            let api_client = GhApi::new(&runner, "github.com", std::sync::Arc::new(|| 0.0))
+                .command(path.to_string_lossy().into_owned());
+            let page = api_client
+                .request("user", None, None, None, Default::default())
+                .await
+                .expect("a page");
+            let text = ace_json::ser::to_string(&page.body).expect("serializes");
+            assert!(!text.contains(token), "{text}");
+            assert!(text.contains("[REDACTED]"), "{text}");
+            assert_eq!(page.header("etag"), None, "a validator is dropped");
+        });
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_lost_write_response_is_an_uncertain_outcome_that_was_dispatched() {
+        #[derive(Default)]
+        struct Lost {
+            seen: Mutex<Vec<CommandRequest>>,
+        }
+
+        impl Runner for Lost {
+            fn run<'a>(
+                &'a self,
+                request: CommandRequest,
+            ) -> Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<CommandResult, crate::transport::error::ForgeError>,
+                        > + Send
+                        + 'a,
+                >,
+            > {
+                Box::pin(async move {
+                    if let Some(dispatch) = &request.dispatch {
+                        dispatch.prepare();
+                        dispatch.record();
+                    }
+                    self.seen.lock().expect("seen").push(request);
+                    Err(crate::transport::error::ForgeError::new(Kind::Cli))
+                })
+            }
+        }
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let runner = Lost::default();
+                let api_client = GhApi::new(&runner, "github.com", std::sync::Arc::new(|| 0.0));
+                let error = api_client
+                    .request(
+                        "repos/octo/ace/issues/1/comments",
+                        Some(json!({ "body": "x" })),
+                        None,
+                        None,
+                        Default::default(),
+                    )
+                    .await
+                    .expect_err("the response was lost");
+                assert_eq!(error.kind, Kind::OutcomeUncertain);
+                assert_eq!(error.dispatched, Some(true));
             });
     }
 
