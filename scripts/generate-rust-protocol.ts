@@ -107,6 +107,16 @@ const rawSchema = z.toJSONSchema(combined, {
       jsonSchema.title = "ScreenKey";
       return;
     }
+    if (zodSchema === ModelTier.shape.speed.unwrap()) {
+      // A tier's speed is a known speed or a provider's newer one kept as sent,
+      // so it is an open string on the wire. `typify` renders the union as a
+      // flattened struct a bare string cannot deserialize into; the open string
+      // is both the wire shape and the lenient read (rule 8).
+      for (const key of Object.keys(jsonSchema)) delete jsonSchema[key as keyof typeof jsonSchema];
+      jsonSchema.type = "string";
+      jsonSchema.title = "ModelTierSpeed";
+      return;
+    }
     for (const [name, rootSchema] of Object.entries(roots)) {
       if (zodSchema === rootSchema) {
         jsonSchema.title = name;

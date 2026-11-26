@@ -7292,70 +7292,7 @@ pub struct ModelTier {
     pub name: Schema308,
     pub parameters: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub speed: ::std::option::Option<ModelTierSpeed>,
-}
-#[doc = "`ModelTierSpeed`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct ModelTierSpeed {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<ModelTierSpeedSubtype0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema308>,
-}
-#[doc = "`ModelTierSpeedSubtype0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum ModelTierSpeedSubtype0 {
-    #[serde(rename = "standard")]
-    Standard,
-    #[serde(rename = "fast")]
-    Fast,
-    #[serde(rename = "ultrafast")]
-    Ultrafast,
-}
-impl ::std::fmt::Display for ModelTierSpeedSubtype0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Standard => f.write_str("standard"),
-            Self::Fast => f.write_str("fast"),
-            Self::Ultrafast => f.write_str("ultrafast"),
-        }
-    }
-}
-impl ::std::str::FromStr for ModelTierSpeedSubtype0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "standard" => Ok(Self::Standard),
-            "fast" => Ok(Self::Fast),
-            "ultrafast" => Ok(Self::Ultrafast),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ModelTierSpeedSubtype0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ModelTierSpeedSubtype0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
+    pub speed: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`PermissionMode`"]
 #[derive(

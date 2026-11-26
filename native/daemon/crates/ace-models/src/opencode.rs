@@ -20,6 +20,7 @@ use crate::effort::{EffortValue, model_efforts};
 use crate::free::free_opencode_model;
 use crate::instance::ModelInstance;
 use crate::metadata::{chat_metadata, legacy_metadata};
+use crate::native::{LABEL_LIMIT, label, positive_int, required_label};
 use crate::row::{RowError, base, decoded_text, nonzero, texts, validate_row};
 
 /// The cold-catalog poll interval (`catalogPollMs`).
@@ -29,7 +30,6 @@ pub const CATALOG_READS: usize = 40;
 /// How long a cold catalog is waited for (`catalogBudgetMs`).
 pub const CATALOG_BUDGET_MS: u64 = 5_000;
 
-const ID_LIMIT: usize = 256;
 const ROWS_LIMIT: usize = 512;
 const DATA_LIMIT: usize = 8_192;
 const MODALITIES_LIMIT: usize = 256;
@@ -118,22 +118,6 @@ struct NativeModel {
     context: u64,
     input: Vec<String>,
     variants: Vec<String>,
-}
-
-fn label(value: Option<&Value>) -> Option<String> {
-    let text = value?.as_str()?;
-    (1..=ID_LIMIT)
-        .contains(&text.chars().count())
-        .then(|| text.to_owned())
-}
-
-fn required_label(entry: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
-    label(entry.get(key))
-}
-
-fn positive_int(value: Option<&Value>) -> Option<u64> {
-    let number = value?.as_u64()?;
-    (number > 0).then_some(number)
 }
 
 /// A v2 entry's `capabilities.input`: a mime list, or an enabled-flag record.
@@ -283,7 +267,8 @@ pub fn normalize_opencode_v2(
         if let Some(connected) = connected {
             let provider = raw.get("providerID").and_then(Value::as_str);
             if !provider.is_some_and(|provider| {
-                (1..=ID_LIMIT).contains(&provider.chars().count()) && connected.contains(provider)
+                (1..=LABEL_LIMIT).contains(&provider.chars().count())
+                    && connected.contains(provider)
             }) {
                 continue;
             }
