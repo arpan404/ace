@@ -4,7 +4,7 @@
 //! rules of behaviour.md §3.
 
 use super::{Actor, ActorKind, Controller, ControllerLease, LEASE_MS, agent_owner};
-use crate::error::{DeviceError, DeviceErrorCode};
+use crate::error::DeviceErrorCode;
 use crate::service::words;
 
 fn human(owner: &str) -> Actor {

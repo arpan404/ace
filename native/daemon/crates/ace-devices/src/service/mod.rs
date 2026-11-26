@@ -6,10 +6,12 @@
 //!
 //! Sans-IO: the clock is a parameter, never a global, and nothing here awaits.
 
+pub mod input_queue;
 pub mod lease;
 pub mod queue;
 pub mod words;
 
+pub use input_queue::{Admission, MAX_PENDING_PER_KIND, PendingInput, SharedInput};
 pub use lease::{
     Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, LeaseWatch, Retained,
     WatchStep, agent_owner,
