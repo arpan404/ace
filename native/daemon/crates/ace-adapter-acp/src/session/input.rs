@@ -237,8 +237,8 @@ impl AcpCore {
             BatchState {
                 operation,
                 open,
-                written: false,
-                sent_prompt: false,
+                wrote_any: false,
+                wrote_prompt: false,
                 settled: false,
             },
         );
