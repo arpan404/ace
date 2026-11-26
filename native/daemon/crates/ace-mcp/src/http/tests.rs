@@ -737,22 +737,25 @@ async fn a_scoped_endpoint_refuses_a_call_before_it_runs() {
 #[test]
 fn notification_streams_are_bounded_per_lease_and_in_all() {
     let mut streams = Streams::default();
-    let first = streams.open("a", 2, 3).expect("first");
-    let second = streams.open("a", 2, 3).expect("second");
+    let first = streams.open(LeaseId(1), 2, 3).expect("first");
+    let second = streams.open(LeaseId(1), 2, 3).expect("second");
     // A newer stream from the same lease closes its oldest rather than being refused.
     let third = streams
-        .open("a", 2, 3)
+        .open(LeaseId(1), 2, 3)
         .expect("the lease's third replaces its oldest");
     assert_ne!(third, first);
-    assert_eq!(streams.held("a"), 2);
+    assert_eq!(streams.held(LeaseId(1)), 2);
     assert!(
         streams.drain(first).is_empty(),
         "the replaced stream still had frames"
     );
-    assert!(streams.open("b", 2, 3).is_some());
+    assert!(streams.open(LeaseId(2), 2, 3).is_some());
     // The server-wide cap refuses a stream from a lease with no room of its own.
-    assert!(streams.open("c", 2, 3).is_none(), "a fourth stream in all");
-    streams.tools_changed("a");
+    assert!(
+        streams.open(LeaseId(3), 2, 3).is_none(),
+        "a fourth stream in all"
+    );
+    streams.tools_changed(LeaseId(1));
     let frames = streams.drain(second);
     assert_eq!(frames.len(), 1);
     assert_eq!(
@@ -760,8 +763,8 @@ fn notification_streams_are_bounded_per_lease_and_in_all() {
         Some("notifications/tools/list_changed")
     );
     assert!(streams.close(second));
-    assert_eq!(streams.held("a"), 1);
-    assert!(streams.open("c", 2, 3).is_some());
+    assert_eq!(streams.held(LeaseId(1)), 1);
+    assert!(streams.open(LeaseId(3), 2, 3).is_some());
     assert!(!streams.close(second));
 }
 
@@ -1021,4 +1024,223 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
         400
     );
     let _ = &fixture.secrets;
+}
+
+/// The same request authenticated as another lease.
+fn as_lease(mut request: HttpRequest, lease: &SessionLease) -> HttpRequest {
+    for (name, value) in request.headers.iter_mut() {
+        if name == "authorization" {
+            *value = format!("Bearer {}", lease.bearer);
+        }
+    }
+    request
+}
+
+/// A tool that waits for the gate before answering with its input.
+fn waiting_tool(
+    gate: &Arc<tokio::sync::Notify>,
+    started: &Arc<tokio::sync::Notify>,
+) -> Arc<dyn crate::registry::ToolHandler> {
+    let gate = Arc::clone(gate);
+    let started = Arc::clone(started);
+    Arc::new(FnTool(move |input: Value, _context| {
+        let gate = Arc::clone(&gate);
+        let started = Arc::clone(&started);
+        async move {
+            started.notify_one();
+            gate.notified().await;
+            Ok(input)
+        }
+    }))
+}
+
+#[tokio::test]
+async fn two_leases_sharing_a_session_name_keep_cancellation_and_discovery_apart() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    fixture.register_echo();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(tokio::sync::Notify::new());
+    let mut wait = descriptor(
+        "ace_wait",
+        None,
+        "Wait",
+        "read-only",
+        None,
+        30_000,
+        parse("{\"type\":\"object\"}").expect("schema"),
+        None,
+    );
+    wait.toolset = Some("ace-agents".to_owned());
+    fixture
+        .registry()
+        .register(ToolEntry::new(wait, waiting_tool(&gate, &started)))
+        .expect("registration");
+    // Two leases carry one session id: they are still different callers.
+    let twin = fixture
+        .credentials
+        .issue(
+            McpScope::new("session", "thread", "twin", &[]),
+            &Abort::new(),
+        )
+        .expect("lease");
+    let server = Arc::clone(&fixture.server);
+    let first = {
+        let request = fixture.request(
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"ace_wait","arguments":{}}}"#,
+        );
+        tokio::spawn(async move { server.handle(request, Arc::new(|_| {})).await })
+    };
+    started.notified().await;
+    // The twin's cancellation names the same request id, and must not reach the first lease.
+    let cancelled = fixture
+        .server
+        .handle(
+            as_lease(
+                fixture.request(
+                    r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":9}}"#,
+                ),
+                &twin,
+            ),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert_eq!(cancelled.status, 202);
+    let mut first = first;
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut first)
+            .await
+            .is_err(),
+        "the twin's cancellation aborted the first lease's call"
+    );
+    // The twin may use the same request id: request ids are per lease.
+    let twin_call = fixture
+        .server
+        .handle(
+            as_lease(
+                fixture.request(
+                    r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"ace_echo","arguments":{"value":"twin"}}}"#,
+                ),
+                &twin,
+            ),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert_eq!(
+        result_of(&twin_call)
+            .get("structuredContent")
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str),
+        Some("twin"),
+        "the twin's own request id was refused as a duplicate"
+    );
+    gate.notify_waiters();
+    assert_eq!(code_of(&first.await.expect("call")), "");
+}
+
+#[tokio::test]
+async fn another_lease_never_inherits_an_open_family_and_an_ended_lease_forgets_its_own() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    for name in ["guide", "thread_start"] {
+        let toolset = (name != "guide").then(|| "ace-threads".to_owned());
+        let mut entry = descriptor(
+            name,
+            None,
+            name,
+            "read-only",
+            None,
+            1_000,
+            if name == "guide" {
+                parse("{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}}}")
+                    .expect("schema")
+            } else {
+                parse("{\"type\":\"object\"}").expect("schema")
+            },
+            None,
+        );
+        entry.toolset = toolset;
+        fixture
+            .registry()
+            .register(ToolEntry::new(
+                entry,
+                Arc::new(FnTool(|input: Value, _context| async move { Ok(input) })),
+            ))
+            .expect("registration");
+    }
+    let core = |body: &str| {
+        let mut request = fixture.request(body);
+        request
+            .headers
+            .push(("x-ace-tools".to_owned(), "core".to_owned()));
+        request
+    };
+    let lists_thread_start = |response: &HttpResponse| {
+        result_of(response)
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| {
+                tools
+                    .iter()
+                    .any(|tool| tool.get("name").and_then(Value::as_str) == Some("thread_start"))
+            })
+    };
+    let opened = fixture
+        .server
+        .handle(
+            core(r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guide","arguments":{"topic":"ace-threads"}}}"#),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert_eq!(opened.status, 200);
+    let mine = fixture
+        .server
+        .handle(
+            core(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert!(lists_thread_start(&mine), "the guide opened no family");
+    let twin = fixture
+        .credentials
+        .issue(
+            McpScope::new("session", "thread", "twin", &[]),
+            &Abort::new(),
+        )
+        .expect("lease");
+    let theirs = fixture
+        .server
+        .handle(
+            as_lease(
+                core(r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#),
+                &twin,
+            ),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert!(
+        !lists_thread_start(&theirs),
+        "a second lease inherited another lease's open family"
+    );
+    // The lease ends; a replacement carrying the same session id starts empty.
+    fixture.lease.end();
+    let replacement = fixture
+        .credentials
+        .issue(
+            McpScope::new("session", "thread", "replacement", &[]),
+            &Abort::new(),
+        )
+        .expect("lease");
+    let inherited = fixture
+        .server
+        .handle(
+            as_lease(
+                core(r#"{"jsonrpc":"2.0","id":4,"method":"tools/list"}"#),
+                &replacement,
+            ),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert!(
+        !lists_thread_start(&inherited),
+        "a replacement lease inherited an ended lease's open family"
+    );
 }

@@ -12,13 +12,13 @@
 //! annotations travel with its descriptor, and ace only hides what the caller's scope or a
 //! switched-off group cannot reach. It never adds an approval.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ace_json::{JsString, Map, Value};
 
-use crate::credentials::{CredentialRegistry, Principal};
+use crate::credentials::{CredentialRegistry, LeaseId, Principal};
 use crate::jsonrpc::{INTERNAL_ERROR, INVALID_PARAMS, Id, METHOD_NOT_FOUND, Message, RpcError};
 use crate::limits::{
     MAX_HEADER_BYTES, MAX_REQUESTS, NOTIFICATION_STREAMS_TOTAL, PROGRESS_INTERVAL_MS,
@@ -115,15 +115,15 @@ pub type Emitter = Arc<dyn Fn(Value) + Send + Sync>;
 /// the server-wide cap a stream is refused instead.
 #[derive(Default)]
 pub struct Streams {
-    leases: HashMap<String, VecDeque<u64>>,
+    leases: HashMap<LeaseId, VecDeque<u64>>,
     frames: HashMap<u64, Vec<Value>>,
     next: u64,
 }
 
 impl Streams {
     /// Opens one stream for `lease`. `None` only when the server-wide total is reached.
-    pub fn open(&mut self, lease: &str, per_lease: usize, total: usize) -> Option<u64> {
-        let owned = self.leases.entry(lease.to_owned()).or_default();
+    pub fn open(&mut self, lease: LeaseId, per_lease: usize, total: usize) -> Option<u64> {
+        let owned = self.leases.entry(lease).or_default();
         if owned.len() >= per_lease.max(1) {
             if let Some(oldest) = owned.pop_front() {
                 self.frames.remove(&oldest);
@@ -150,8 +150,8 @@ impl Streams {
     }
 
     /// Queues `notifications/tools/list_changed` for every stream of `lease`.
-    pub fn tools_changed(&mut self, lease: &str) {
-        let Some(owned) = self.leases.get(lease) else {
+    pub fn tools_changed(&mut self, lease: LeaseId) {
+        let Some(owned) = self.leases.get(&lease) else {
             return;
         };
         let ids: Vec<u64> = owned.iter().copied().collect();
@@ -173,12 +173,68 @@ impl Streams {
             .unwrap_or_default()
     }
 
-    pub fn held(&self, lease: &str) -> usize {
-        self.leases.get(lease).map_or(0, VecDeque::len)
+    pub fn held(&self, lease: LeaseId) -> usize {
+        self.leases.get(&lease).map_or(0, VecDeque::len)
+    }
+
+    /// Ends every stream of a lease that ended.
+    pub fn close_lease(&mut self, lease: LeaseId) {
+        if let Some(owned) = self.leases.remove(&lease) {
+            for id in owned {
+                self.frames.remove(&id);
+            }
+        }
     }
 
     pub fn total(&self) -> usize {
         self.frames.len()
+    }
+}
+
+/// One JSON-RPC request as a lease spied it: request ids are per caller, never per session name.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CallKey {
+    lease: LeaseId,
+    id: String,
+}
+
+/// The state one endpoint keeps per lease. It is shared with each lease's abort hook, so ending
+/// a lease forgets everything it held even if no request ever mentions it again.
+struct Shared {
+    calls: Mutex<HashMap<CallKey, Abort>>,
+    toolsets: Mutex<OpenToolsets>,
+    streams: Mutex<Streams>,
+    legacy: Mutex<LegacySessions>,
+    watched: Mutex<HashSet<LeaseId>>,
+}
+
+impl Shared {
+    fn forget(&self, lease: LeaseId) {
+        let gone: Vec<Abort> = {
+            let mut calls = self.calls.lock().unwrap_or_else(|error| error.into_inner());
+            let gone: Vec<Abort> = calls
+                .iter()
+                .filter(|(key, _)| key.lease == lease)
+                .map(|(_, abort)| abort.clone())
+                .collect();
+            calls.retain(|key, _| key.lease != lease);
+            gone
+        };
+        for abort in gone {
+            abort.abort();
+        }
+        self.toolsets
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .forget(lease);
+        self.streams
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .close_lease(lease);
+        self.legacy
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .forget_lease(lease);
     }
 }
 
@@ -192,10 +248,7 @@ pub struct McpServer {
     scheduler: Arc<dyn Scheduler>,
     active: AtomicUsize,
     closing: AtomicBool,
-    calls: Mutex<HashMap<String, Abort>>,
-    toolsets: Mutex<OpenToolsets>,
-    streams: Mutex<Streams>,
-    legacy: Mutex<LegacySessions>,
+    shared: Arc<Shared>,
 }
 impl std::fmt::Debug for McpServer {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -244,15 +297,18 @@ impl McpServer {
             scheduler: options.scheduler,
             active: AtomicUsize::new(0),
             closing: AtomicBool::new(false),
-            calls: Mutex::new(HashMap::new()),
-            toolsets: Mutex::new(OpenToolsets::new()),
-            streams: Mutex::new(Streams::default()),
-            legacy: Mutex::new(LegacySessions::new(
-                NOTIFICATION_STREAMS_TOTAL,
-                options
-                    .session_ids
-                    .unwrap_or_else(|| Arc::new(default_session_id)),
-            )),
+            shared: Arc::new(Shared {
+                calls: Mutex::new(HashMap::new()),
+                toolsets: Mutex::new(OpenToolsets::new()),
+                streams: Mutex::new(Streams::default()),
+                legacy: Mutex::new(LegacySessions::new(
+                    NOTIFICATION_STREAMS_TOTAL,
+                    options
+                        .session_ids
+                        .unwrap_or_else(|| Arc::new(default_session_id)),
+                )),
+                watched: Mutex::new(HashSet::new()),
+            }),
         })
     }
 
@@ -264,18 +320,45 @@ impl McpServer {
     pub fn close(&self) {
         self.closing.store(true, Ordering::SeqCst);
         self.credentials.close();
-        self.legacy
+        self.shared
+            .legacy
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .close_all();
     }
 
     /// Announces a changed tool list to every open stream of `lease`.
-    pub fn tools_changed(&self, lease: &str) {
-        self.streams
+    pub fn tools_changed(&self, lease: LeaseId) {
+        self.shared
+            .streams
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .tools_changed(lease);
+    }
+
+    /// Forgets a lease's calls, families, streams and sessions the moment it ends (`forget`,
+    /// `http.ts:388`; `toolsets.ts:181`; `legacy-sessions.ts:114`), even while it has no request
+    /// in flight.
+    fn watch(&self, principal: &Principal) {
+        if !self
+            .shared
+            .watched
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(principal.lease)
+        {
+            return;
+        }
+        let shared = Arc::clone(&self.shared);
+        let lease = principal.lease;
+        principal.lifetime.on_abort(Box::new(move || {
+            shared.forget(lease);
+            shared
+                .watched
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&lease);
+        }));
     }
 
     /// Serves one request. `emit` receives notifications the reply cannot carry (progress).
@@ -318,10 +401,12 @@ impl McpServer {
                 .push(("www-authenticate".to_owned(), bearer_challenge(&parameters)));
             return response;
         };
+        self.watch(&principal);
         // A named legacy session must exist and belong to this lease.
         if let Some(id) = request.header("mcp-session-id").map(str::to_owned) {
             if request.method == "DELETE" {
                 let removed = self
+                    .shared
                     .legacy
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
@@ -333,6 +418,7 @@ impl McpServer {
                 };
             }
             let known = self
+                .shared
                 .legacy
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -352,6 +438,7 @@ impl McpServer {
                 let mut response = self.post(request, principal.clone(), emit).await;
                 if creates && response.status == 200 {
                     let opened = self
+                        .shared
                         .legacy
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
@@ -418,6 +505,7 @@ impl McpServer {
                 {
                     let key = call_key(&principal, &id);
                     if let Some(abort) = self
+                        .shared
                         .calls
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
@@ -510,20 +598,21 @@ impl McpServer {
         result: &crate::result::CallToolResult,
     ) {
         let call = dispatched_ace_call(name, arguments);
+        let lease = principal.lease;
         let mut toolsets = self
+            .shared
             .toolsets
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let session = &principal.scope.session_id;
         let opened = if crate::tool_names::bare_tool_name(&call.name) == ACE_TOOL_SEARCH {
             let families = found_families(result.structured.as_ref());
-            toolsets.add(session, &families)
+            toolsets.add(lease, &families)
         } else {
-            toolsets.opened(session, &call.name, &call.input)
+            toolsets.opened(lease, &call.name, &call.input)
         };
         drop(toolsets);
         if opened {
-            self.tools_changed(session);
+            self.tools_changed(lease);
         }
     }
 
@@ -533,25 +622,18 @@ impl McpServer {
         let holds = holds_on_demand_tools(listing, client);
         let mut tools = Vec::new();
         let toolsets = self
+            .shared
             .toolsets
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         for descriptor in self.registry.list(principal) {
             let set = self.registry.toolset(&descriptor.name);
-            if !toolsets.lists(
-                &principal.scope.session_id,
-                listing,
-                &descriptor.name,
-                set.as_deref(),
-            ) {
+            if !toolsets.lists(principal.lease, listing, &descriptor.name, set.as_deref()) {
                 continue;
             }
             if holds
                 && listed_on_demand(&descriptor.name)
-                && !toolsets.is_open(
-                    &principal.scope.session_id,
-                    crate::toolsets::ON_DEMAND_TOOLSET,
-                )
+                && !toolsets.is_open(principal.lease, crate::toolsets::ON_DEMAND_TOOLSET)
             {
                 continue;
             }
@@ -654,13 +736,18 @@ impl McpServer {
         let budget = call_budget_seconds(header(headers, CALL_BUDGET_HEADER));
         let key = call_key(principal, id);
         {
-            let mut calls = self.calls.lock().unwrap_or_else(|error| error.into_inner());
+            let mut calls = self
+                .shared
+                .calls
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             if calls.contains_key(&key) {
                 return Ok(duplicate_id_result());
             }
             calls.insert(key.clone(), Abort::new());
         }
         let abort = self
+            .shared
             .calls
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -698,7 +785,8 @@ impl McpServer {
             )
             .await;
         stop();
-        self.calls
+        self.shared
+            .calls
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .remove(&key);
@@ -869,8 +957,11 @@ fn duplicate_id_result() -> Value {
     Value::Object(map)
 }
 
-fn call_key(principal: &Principal, id: &Id) -> String {
-    format!("{}:{}", principal.scope.session_id, id.key())
+fn call_key(principal: &Principal, id: &Id) -> CallKey {
+    CallKey {
+        lease: principal.lease,
+        id: id.key(),
+    }
 }
 
 /// `progressHeartbeat` (`progress-heartbeat.ts`): a beat every 30 s while the call runs.

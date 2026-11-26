@@ -6,7 +6,7 @@
 //! lifetime aborting, or by the registry closing. The authenticator is asked on every request, so a
 //! revocation applies to the next one. Only the lease carries the bearer.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
@@ -14,6 +14,12 @@ use sha2::{Digest as _, Sha256};
 
 use crate::limits::{MAX_CREDENTIAL_AGE_MS, MAX_LEASES};
 use crate::signal::{Abort, Scheduler};
+
+/// The identity of one lease. Two leases can carry the same scope and session id; their state
+/// (calls, opened families, streams) still belongs to each lease alone, as the TypeScript's
+/// per-`Principal` `WeakMap`s keep it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LeaseId(pub(crate) u64);
 
 /// A caller's scope (`McpScope`): which session, thread and agent, and what it may reach.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -67,6 +73,8 @@ impl McpScope {
 #[derive(Clone)]
 pub struct Principal {
     pub scope: Arc<McpScope>,
+    /// This lease's own identity, never its session's name.
+    pub lease: LeaseId,
     pub lifetime: Abort,
 }
 
@@ -148,6 +156,7 @@ struct CredentialCore {
     secret: Box<dyn Fn() -> String + Send + Sync>,
     limit: usize,
     expiry: Option<(Arc<dyn Scheduler>, u64)>,
+    next_lease: AtomicU64,
     closed: AtomicBool,
 }
 
@@ -197,6 +206,7 @@ impl CredentialRegistry {
                 secret: Box::new(secret),
                 limit,
                 expiry,
+                next_lease: AtomicU64::new(0),
                 closed: AtomicBool::new(false),
             }),
         }
@@ -234,6 +244,7 @@ impl CredentialRegistry {
         let ended = Abort::new();
         let principal = Principal {
             scope: Arc::new(scope),
+            lease: LeaseId(core.next_lease.fetch_add(1, Ordering::SeqCst) + 1),
             lifetime: ended.clone(),
         };
         let expiry = core.expiry.as_ref().map(|(scheduler, max_age_ms)| {

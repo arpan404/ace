@@ -130,6 +130,13 @@ impl LegacySessions {
         self.entries.clear();
     }
 
+    /// Ends every session of a lease whose lifetime ended, so the cap is free at once
+    /// (`legacy-sessions.ts:114`).
+    pub fn forget_lease(&mut self, lease: crate::credentials::LeaseId) {
+        self.entries
+            .retain(|_, session| session.principal.lease != lease);
+    }
+
     /// The sessions of one lease, in open order (`toolsChangedFor`).
     pub fn of(&self, principal: &Principal) -> Vec<String> {
         self.entries
@@ -140,9 +147,9 @@ impl LegacySessions {
     }
 }
 
-/// Two principals are the same lease when they share the scope the authenticator handed out.
+/// Two principals are the same lease when the authenticator handed out the same lease.
 fn same_lease(left: &Principal, right: &Principal) -> bool {
-    Arc::ptr_eq(&left.scope, &right.scope)
+    left.lease == right.lease
 }
 
 #[cfg(test)]

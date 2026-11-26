@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use ace_json::Value;
 
+use crate::credentials::LeaseId;
 use crate::limits::{MAX_CALL_BUDGET_SECONDS, MIN_CALL_BUDGET_SECONDS};
 use crate::tool_names::{ACE_TOOL_DISPATCH, ACE_TOOL_SEARCH, bare_tool_name};
 
@@ -127,10 +128,11 @@ pub fn opened_toolset(tool: &str, args: &Value) -> Option<String> {
     }
 }
 
-/// The toolsets a session has opened, keyed by its session id: they last as long as the lease.
+/// The toolsets a lease has opened, keyed by the lease: they last as long as the credential,
+/// and two leases sharing a session id never share them (`toolsets.ts:181`).
 #[derive(Default)]
 pub struct OpenToolsets {
-    open: HashMap<String, Vec<String>>,
+    open: HashMap<LeaseId, Vec<String>>,
 }
 
 impl OpenToolsets {
@@ -139,22 +141,22 @@ impl OpenToolsets {
     }
 
     /// `opened`: true when this call opened a toolset the session did not have.
-    pub fn opened(&mut self, session: &str, tool: &str, args: &Value) -> bool {
+    pub fn opened(&mut self, lease: LeaseId, tool: &str, args: &Value) -> bool {
         match opened_toolset(tool, args) {
-            Some(topic) => self.add(session, &[topic]),
+            Some(topic) => self.add(lease, &[topic]),
             None => false,
         }
     }
 
-    pub fn is_open(&self, session: &str, toolset: &str) -> bool {
+    pub fn is_open(&self, lease: LeaseId, toolset: &str) -> bool {
         self.open
-            .get(session)
+            .get(&lease)
             .is_some_and(|topics| topics.iter().any(|topic| topic == toolset))
     }
 
     /// Opens these families; true when any of them was new.
-    pub fn add(&mut self, session: &str, topics: &[String]) -> bool {
-        let open = self.open.entry(session.to_owned()).or_default();
+    pub fn add(&mut self, lease: LeaseId, topics: &[String]) -> bool {
+        let open = self.open.entry(lease).or_default();
         let before = open.len();
         for topic in topics {
             if !open.iter().any(|open| open == topic) {
@@ -168,7 +170,7 @@ impl OpenToolsets {
     /// not complete; in core mode a tool without a family is always listed.
     pub fn lists(
         &self,
-        session: &str,
+        lease: LeaseId,
         listing: ToolListing,
         tool: &str,
         toolset: Option<&str>,
@@ -187,14 +189,14 @@ impl OpenToolsets {
             return false;
         }
         match toolset {
-            Some(toolset) => self.is_open(session, toolset),
+            Some(toolset) => self.is_open(lease, toolset),
             None => true,
         }
     }
 
-    /// Forgets a session's opened toolsets when its lease ends.
-    pub fn forget(&mut self, session: &str) {
-        self.open.remove(session);
+    /// Forgets a lease's opened toolsets when it ends.
+    pub fn forget(&mut self, lease: LeaseId) {
+        self.open.remove(&lease);
     }
 }
 
@@ -259,35 +261,55 @@ mod tests {
     #[test]
     fn core_mode_lists_the_entry_points_and_opens_a_family_only_when_it_is_used() {
         let mut toolsets = OpenToolsets::new();
-        assert!(toolsets.lists("s", ToolListing::Core, "context", None));
-        assert!(toolsets.lists("s", ToolListing::Core, "ace_thread_link_pr", None));
+        assert!(toolsets.lists(LeaseId(1), ToolListing::Core, "context", None));
+        assert!(toolsets.lists(LeaseId(1), ToolListing::Core, "ace_thread_link_pr", None));
         // A tool with a family is listed once a guide or an entry point opens it.
-        assert!(!toolsets.lists("s", ToolListing::Core, "thread_start", Some("ace-threads")));
+        assert!(!toolsets.lists(
+            LeaseId(1),
+            ToolListing::Core,
+            "thread_start",
+            Some("ace-threads")
+        ));
         let args = parse("{\"topic\":\"ace-threads\"}").expect("json");
-        assert!(toolsets.opened("s", "guide", &args));
-        assert!(toolsets.lists("s", ToolListing::Core, "thread_start", Some("ace-threads")));
-        // Another session has not opened it.
-        assert!(!toolsets.lists("t", ToolListing::Core, "thread_start", Some("ace-threads")));
+        assert!(toolsets.opened(LeaseId(1), "guide", &args));
+        assert!(toolsets.lists(
+            LeaseId(1),
+            ToolListing::Core,
+            "thread_start",
+            Some("ace-threads")
+        ));
+        // Another lease has not opened it.
+        assert!(!toolsets.lists(
+            LeaseId(2),
+            ToolListing::Core,
+            "thread_start",
+            Some("ace-threads")
+        ));
         // A tool without a family is always listed in core mode.
-        assert!(toolsets.lists("s", ToolListing::Core, "html_render", None));
+        assert!(toolsets.lists(LeaseId(1), ToolListing::Core, "html_render", None));
         // tools_call is offered wherever the list is incomplete.
-        assert!(toolsets.lists("s", ToolListing::Core, "tools_call", None));
-        assert!(!toolsets.lists("s", ToolListing::All, "tools_call", None));
+        assert!(toolsets.lists(LeaseId(1), ToolListing::Core, "tools_call", None));
+        assert!(!toolsets.lists(LeaseId(1), ToolListing::All, "tools_call", None));
     }
 
     #[test]
     fn a_static_listing_lists_only_the_core_entry_points_and_nothing_opened() {
         let mut toolsets = OpenToolsets::new();
         let args = parse("{\"topic\":\"ace-agents\"}").expect("json");
-        assert!(toolsets.opened("s", "delegate", &args));
-        assert!(toolsets.lists("s", ToolListing::Static, "delegate", Some("ace-agents")));
+        assert!(toolsets.opened(LeaseId(1), "delegate", &args));
+        assert!(toolsets.lists(
+            LeaseId(1),
+            ToolListing::Static,
+            "delegate",
+            Some("ace-agents")
+        ));
         assert!(!toolsets.lists(
-            "s",
+            LeaseId(1),
             ToolListing::Static,
             "thread_start",
             Some("ace-threads")
         ));
-        assert!(toolsets.lists("s", ToolListing::Static, "tools_call", None));
+        assert!(toolsets.lists(LeaseId(1), ToolListing::Static, "tools_call", None));
         assert!(names_destructive_tools(
             ToolListing::Static,
             Some(AceClient::Codex)
