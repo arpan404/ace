@@ -9,12 +9,14 @@ pub mod error;
 pub mod hooks;
 pub mod input;
 pub mod interactions;
+pub mod io;
 pub mod tasks;
 pub mod wire;
 
 use crate::session::error::ClaudeError;
 
 pub use ace_adapter_api::FrameDirection as FrameDir;
+pub use io::ClaudeSessionCore;
 pub use wire::ClaudeWire;
 
 /// The effects of one input, in the order the state changed.
