@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The engine's shared state: plain data, so no port lives in a `with_state` closure.
 
-use crate::Core;
 use crate::actor;
 use crate::commands;
 use crate::error::{EngineError, Lifecycle};
@@ -15,6 +14,7 @@ use crate::repository;
 use crate::sessions;
 use crate::transitions;
 use crate::workers;
+use crate::{Core, ThreadId};
 use std::rc::Rc;
 
 /// The engine's shared state. It holds no port, no executor and no store handle, so a
@@ -41,6 +41,8 @@ pub struct State {
     /// Queue changes the fold staged: their rows are written, their events wait for the borrow
     /// to be released (E5.4a round 2).
     pub(crate) deferred_queue: Vec<crate::queue::write::StagedEvent>,
+    /// Threads whose wake waits for the store to stop publishing history (E5.4f's `wake`).
+    pub(crate) deferred_wakes: std::collections::HashSet<ThreadId>,
 }
 
 impl Default for State {
@@ -61,6 +63,7 @@ impl Default for State {
             liveness: liveness::Liveness,
             engine: std::rc::Weak::new(),
             deferred_queue: Vec::new(),
+            deferred_wakes: std::collections::HashSet::new(),
         }
     }
 }

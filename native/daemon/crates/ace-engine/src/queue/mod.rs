@@ -16,4 +16,5 @@ pub mod resume;
 pub mod stale;
 pub mod store;
 pub mod wake;
+pub mod worker;
 pub mod write;
