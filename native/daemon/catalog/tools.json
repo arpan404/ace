@@ -1259,7 +1259,7 @@
       "title": "Delegate to child agents",
       "toolset": "ace-agents",
       "riskClass": "agent-execution",
-      "description": "Start child agents as threads on any provider or paired machine, for independent or parallel work. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll. More: guide ace-agents.",
+      "description": "Start child agents as threads on any provider or paired machine. Returns threadIds; set waitSeconds for results now, or end your turn and they arrive as a new one. Never poll.",
       "capability": "agents",
       "timeoutMs": 630000,
       "input": {
@@ -1379,7 +1379,7 @@
             "description": "One per child."
           },
           "waitSeconds": {
-            "description": "Wait for results, as wait does. Omit to return at once.",
+            "description": "Wait for results. Omit to return at once.",
             "type": "integer",
             "maximum": 600
           },
@@ -1759,7 +1759,7 @@
       "title": "Show an HTML visual inline",
       "toolset": "visualize",
       "riskClass": "thread-write",
-      "description": "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.",
+      "description": "Show a chart, diagram, mockup or interactive page inline in your reply. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.",
       "capability": null,
       "timeoutMs": 30000,
       "input": {
@@ -2527,7 +2527,7 @@
       "title": "Link a pull request",
       "toolset": "ace-threads",
       "riskClass": "thread-write",
-      "description": "Link this thread's pull request, by URL or number, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.",
+      "description": "Link this thread's pull request, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.",
       "capability": "thread_control",
       "timeoutMs": 630000,
       "input": {

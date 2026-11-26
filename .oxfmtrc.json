@@ -19,6 +19,12 @@
     "spade/target/**",
     "spade/crates/spade-server/shipped/**",
     "spade/crates/spade-classify/model/REPORT.md",
-    "spade/crates/spade-server/src/a2a/card/*-signed.json"
+    "spade/crates/spade-server/src/a2a/card/*-signed.json",
+    "native/daemon/catalog/tools.json",
+    "native/daemon/catalog/errors.json",
+    "native/daemon/catalog/instructions.json",
+    "native/daemon/catalog/control-hints.json",
+    "native/daemon/catalog/session-guidance.json",
+    "native/daemon/catalog/listing-headers.json"
   ]
 }
