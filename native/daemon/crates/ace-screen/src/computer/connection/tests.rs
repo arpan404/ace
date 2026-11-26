@@ -586,3 +586,86 @@ async fn a_dispatch_that_finishes_after_shutdown_began_writes_nothing() {
         "no action reaches stdin after shutdown began"
     );
 }
+
+/// A dispatch whose authority check takes a while, holding the connection's task exactly where
+/// the TypeScript awaits one.
+struct SlowDispatch;
+
+impl Dispatch for SlowDispatch {
+    fn ready(&self) -> Pin<Box<dyn Future<Output = Result<bool, String>> + Send + '_>> {
+        Box::pin(async { Ok(true) })
+    }
+
+    fn authorize(&self) -> bool {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        true
+    }
+
+    fn wait(
+        &self,
+        _cancel: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// A request's clock starts when it is asked for, not when the task reads it
+/// (`helper-connection.ts:145`): time the task spends on another request is queue time, and
+/// the deadline covers it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_requests_clock_starts_when_it_is_asked_not_when_the_task_reads_it() {
+    use super::RequestTiming;
+
+    let start = Arc::new(FakeStart::default());
+    let timings: Arc<Mutex<Vec<RequestTiming>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut options = options(Arc::clone(&start));
+    let began = std::time::Instant::now();
+    options.now = Arc::new(move || began.elapsed().as_secs_f64() * 1_000.0);
+    let sink = Arc::clone(&timings);
+    options.timing = Some(Arc::new(move |timing| {
+        if let Ok(mut timings) = sink.lock() {
+            timings.push(timing);
+        }
+    }));
+    let connection = Connection::start(options);
+    let acting = tokio::spawn({
+        let connection = connection.clone();
+        async move {
+            connection
+                .request("act", &payload(), 5_000, None, Some(Arc::new(SlowDispatch)))
+                .await
+        }
+    });
+    // The task is now blocked in the act's authority check.
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    let queued = tokio::spawn({
+        let connection = connection.clone();
+        async move {
+            connection
+                .request("state", &payload(), 30_000, None, None)
+                .await
+        }
+    });
+    until("the act on the wire", || {
+        start.spawned() == 1 && start.helper(0).writes().len() == 1
+    })
+    .await;
+    start.helper(0).reply(0, r#"{"done":[]}"#);
+    let _ = acting.await;
+    until("the state on the wire", || {
+        start.helper(0).writes().len() == 2
+    })
+    .await;
+    start.helper(0).reply(1, r#"{"app":"calculator"}"#);
+    let _ = queued.await;
+    let state = timings
+        .lock()
+        .ok()
+        .and_then(|timings| timings.iter().find(|timing| timing.op == "state").cloned())
+        .unwrap_or_else(|| panic!("the state's timing was reported"));
+    assert!(
+        state.queue_ms >= 100.0,
+        "time spent behind the act is queue time: {}ms",
+        state.queue_ms
+    );
+}

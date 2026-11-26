@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use ace_json::{Map, Value};
@@ -122,9 +122,10 @@ enum Ending {
 }
 
 struct Job {
+    /// The actor's own number for this request, assigned when it is asked for.
+    key: u64,
     /// The id the helper's reply carries.
     id: String,
-    op: String,
     line: Vec<u8>,
     deadline_ms: u64,
     cancel: Option<CancellationToken>,
@@ -136,6 +137,9 @@ struct Job {
     /// The token a parked request's wait is aborted by (`helper-connection.ts:261`).
     wait_token: Option<CancellationToken>,
     end: oneshot::Sender<Result<Value, ComputerError>>,
+    /// Ends this request's own tasks (its deadline and cancel listener) when it settles
+    /// (`helper-connection.ts:407`).
+    cleanup: CancellationToken,
 }
 
 struct ChildHandle {
@@ -223,6 +227,23 @@ struct Shared {
     next_id: Arc<dyn Fn() -> String + Send + Sync>,
     tx: mpsc::UnboundedSender<Cmd>,
     closed: AtomicBool,
+    /// The request number, assigned before the task sees the request, so its deadline and its
+    /// timing start when the caller asked (`helper-connection.ts:145`).
+    next_job: AtomicU64,
+    /// Whether each request's span is taken, and the clock it reads: both belong to the caller
+    /// and start before the task sees the request.
+    timing_enabled: bool,
+    now: Clock,
+}
+
+/// One caller's request, before it becomes a job with its own number and clock.
+struct NewRequest<'a> {
+    op: &'a str,
+    payload: &'a Map,
+    deadline_ms: u64,
+    cancel: Option<CancellationToken>,
+    dispatch: Option<Arc<dyn Dispatch>>,
+    end: oneshot::Sender<Result<Value, ComputerError>>,
 }
 
 impl Connection {
@@ -233,6 +254,9 @@ impl Connection {
             next_id: Arc::clone(&options.next_id),
             tx: tx.clone(),
             closed: AtomicBool::new(false),
+            next_job: AtomicU64::new(0),
+            timing_enabled: options.timing.is_some(),
+            now: Arc::clone(&options.now),
         });
         let state = State::new(options, Arc::clone(&shared));
         tokio::spawn(state.run(rx));
@@ -256,9 +280,45 @@ impl Connection {
         if cancel.as_ref().is_some_and(|token| token.is_cancelled()) {
             return Err(ComputerError::cancelled());
         }
+        let key = self.shared.next_job.fetch_add(1, Ordering::Relaxed) + 1;
         let (end, finished) = oneshot::channel();
-        let job = self.build_job(op, payload, deadline_ms, cancel, dispatch, end);
+        let job = self.build_job(
+            key,
+            NewRequest {
+                op,
+                payload,
+                deadline_ms,
+                cancel,
+                dispatch,
+                end,
+            },
+        );
+        let cleanup = job.cleanup.clone();
+        if let Some(token) = job.cancel.clone() {
+            let tx = self.shared.tx.clone();
+            let cleanup = cleanup.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    () = token.cancelled() => {
+                        let _ = tx.send(Cmd::Cancel { key, why: Ending::Cancelled });
+                    }
+                    () = cleanup.cancelled() => {}
+                }
+            });
+        }
+        let deadline = job.deadline_ms;
+        let tx = self.shared.tx.clone();
+        let cleanup_for_deadline = cleanup.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_millis(deadline)) => {
+                    let _ = tx.send(Cmd::Deadline { key });
+                }
+                () = cleanup_for_deadline.cancelled() => {}
+            }
+        });
         if self.shared.tx.send(Cmd::Begin(Box::new(job))).is_err() {
+            cleanup.cancel();
             return Err(ComputerError::stopped());
         }
         match finished.await {
@@ -268,37 +328,42 @@ impl Connection {
         }
     }
 
-    fn build_job(
-        &self,
-        op: &str,
-        payload: &Map,
-        deadline_ms: u64,
-        cancel: Option<CancellationToken>,
-        dispatch: Option<Arc<dyn Dispatch>>,
-        end: oneshot::Sender<Result<Value, ComputerError>>,
-    ) -> Job {
+    fn build_job(&self, key: u64, request: NewRequest<'_>) -> Job {
+        let NewRequest {
+            op,
+            payload,
+            deadline_ms,
+            cancel,
+            dispatch,
+            end,
+        } = request;
         let id = (self.shared.next_id)();
         // `{ ...payload, op, id }`: the request's own fields first, then `op` and `id`.
         let mut line = Map::with_capacity(payload.len() + 2);
-        for (key, value) in payload {
-            line.insert(key.clone(), value.clone());
+        for (name, value) in payload {
+            line.insert(name.clone(), value.clone());
         }
         line.insert("op".to_owned(), Value::from(op));
         line.insert("id".to_owned(), Value::from(id.as_str()));
         let mut bytes = Value::Object(line).to_json().into_bytes();
         bytes.push(b'\n');
+        let timing = self
+            .shared
+            .timing_enabled
+            .then(|| RequestSpan::new(op, Arc::clone(&self.shared.now)));
         Job {
+            key,
             id,
-            op: op.to_owned(),
             line: bytes,
             deadline_ms,
             cancel,
             dispatch,
             child: None,
             ending: None,
-            timing: None,
+            timing,
             wait_token: None,
             end,
+            cleanup: CancellationToken::new(),
         }
     }
 
@@ -368,7 +433,6 @@ struct State {
     current: Option<u64>,
     parked: HashSet<u64>,
     jobs: HashMap<u64, Job>,
-    next_job: u64,
     child: Option<ChildHandle>,
     next_child: u64,
     /// The helper a start in flight will produce; `stopped`/`gone` wait for it.
@@ -396,7 +460,6 @@ impl State {
             current: None,
             parked: HashSet::new(),
             jobs: HashMap::new(),
-            next_job: 1,
             child: None,
             next_child: 1,
             starting: None,
@@ -457,35 +520,13 @@ impl State {
         self.current.is_some() || !self.queue.is_empty() || !self.parked.is_empty()
     }
 
-    fn begin(&mut self, mut job: Job) {
+    fn begin(&mut self, job: Job) {
         if self.closed() {
+            job.cleanup.cancel();
             let _ = job.end.send(Err(ComputerError::stopped()));
             return;
         }
-        if self.options.timing.is_some() {
-            job.timing = Some(RequestSpan::new(
-                job.op.clone(),
-                Arc::clone(&self.options.now),
-            ));
-        }
-        let key = self.next_job;
-        self.next_job += 1;
-        if let Some(cancel) = job.cancel.clone() {
-            let tx = self.shared.tx.clone();
-            tokio::spawn(async move {
-                cancel.cancelled().await;
-                let _ = tx.send(Cmd::Cancel {
-                    key,
-                    why: Ending::Cancelled,
-                });
-            });
-        }
-        let deadline_ms = job.deadline_ms;
-        let tx = self.shared.tx.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(deadline_ms)).await;
-            let _ = tx.send(Cmd::Deadline { key });
-        });
+        let key = job.key;
         self.jobs.insert(key, job);
         self.queue.push_back(key);
         self.pump();
@@ -513,6 +554,10 @@ impl State {
             Some(Ending::Cancelled) => Outcome::Cancelled,
             None => Outcome::Error,
         };
+        job.cleanup.cancel();
+        if let Some(token) = job.wait_token.take() {
+            token.cancel();
+        }
         self.report(&mut job, outcome);
         let _ = job.end.send(Err(error));
     }
@@ -522,6 +567,10 @@ impl State {
         let Some(mut job) = self.jobs.remove(&key) else {
             return;
         };
+        job.cleanup.cancel();
+        if let Some(token) = job.wait_token.take() {
+            token.cancel();
+        }
         self.report(&mut job, Outcome::Ok);
         let _ = job.end.send(Ok(value));
     }
