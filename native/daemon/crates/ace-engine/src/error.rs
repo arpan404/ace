@@ -15,6 +15,8 @@ pub enum EngineError {
         item: &'static str,
     },
     #[error(transparent)]
+    Access(#[from] crate::access::AccessError),
+    #[error(transparent)]
     Port(#[from] ports::PortError),
     #[error(transparent)]
     Store(#[from] ace_store::Error),

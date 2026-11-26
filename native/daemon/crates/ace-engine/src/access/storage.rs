@@ -2,8 +2,9 @@
 //! Ported by E5.4c as a synchronous receipt dependency; owned by E5.7.
 //!
 //! `permissions.ts:115`-`:124` (`ensure`, with `state` and `read`) and
-//! `permission-storage.ts`'s `permissionState`: the permission row every create ensures. The
-//! rest of access, approvals and the ceiling stay E5.7's.
+//! `permission-storage.ts`'s `permissionState`: the permission row every create ensures. E5.7
+//! adds `migrateSelection`; the DDL and the one-time row migration stay the TypeScript opener's
+//! (decision 8), so this module never runs a table statement.
 
 use ace_store::{Value as Cell, stmt_cache};
 
@@ -64,6 +65,17 @@ fn mode(stored: Option<&str>) -> Option<String> {
     stored
         .filter(|value| MODES.contains(value))
         .map(str::to_owned)
+}
+
+/// `migrateSelection` (`permission-storage.ts:23`): a selection stored before the four ace modes
+/// becomes the ace mode the migration table names, or null (the defaults) without one. A
+/// `custom:` selection is already ace's own and stays.
+pub fn migrate_selection(provider: &str, stored: Option<&str>) -> Option<String> {
+    match stored {
+        None => None,
+        Some(value) if value.starts_with("custom:") => Some(value.to_owned()),
+        Some(value) => crate::access::modes::stored_access(provider, Some(value)),
+    }
 }
 
 /// `permissionState` (`permission-storage.ts:28`): the four modes, the native selector a
