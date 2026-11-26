@@ -40,6 +40,8 @@ const freeModels =
         cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
       }))
     : [];
+// OpenCode 2.4.2 fills a Location's catalog after its first model read, which answers empty.
+let coldModelReads = Number(process.env.ACE_TEST_COLD_MODELS ?? 0);
 // "release-X" keeps the version itself out of the env values that diagnostics redact.
 const release = process.env.ACE_TEST_RELEASE?.replace(/^release-/, "");
 if (args.includes("--version")) {
@@ -663,8 +665,13 @@ const server = createServer(async (req, res) => {
   if (path === "/api/model") {
     const directory =
       process.env.ACE_TEST_MODEL_LOCATION ?? url.searchParams.get("location[directory]");
-    if (process.env.ACE_TEST_EMPTY_MODELS === "true") {
+    if (coldModelReads-- > 0 || process.env.ACE_TEST_EMPTY_MODELS === "true") {
       json({ location: { directory }, data: [] });
+      return;
+    }
+    const sample = process.env.ACE_TEST_CATALOG_FILE;
+    if (sample) {
+      json({ location: { directory }, data: JSON.parse(readFileSync(sample, "utf8")) });
       return;
     }
     json({
