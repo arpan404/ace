@@ -136,7 +136,7 @@ impl ClaudeWire {
         data.insert("resolution", resolution);
         let mut effects = match self.frame(FrameDir::Send, pending.channel, &Value::Object(data)) {
             Ok(effect) => vec![effect],
-            Err(message) => return (true, vec![Effect::Fatal { message }]),
+            Err(message) => return (true, vec![self.fatal(format!("RangeError: {message}"))]),
         };
         effects.extend(self.answer_envelope(host::success(id, result)));
         (true, effects)
@@ -184,7 +184,7 @@ impl ClaudeWire {
         let data = Value::Object(user_dialog_request(request));
         let mut effects = match self.frame(FrameDir::Recv, USER_DIALOG, &data) {
             Ok(effect) => vec![effect],
-            Err(message) => return vec![Effect::Fatal { message }],
+            Err(message) => return vec![self.fatal(format!("RangeError: {message}"))],
         };
         effects.extend(self.answer_envelope(host::success(request_id, default_dialog())));
         effects
@@ -201,18 +201,14 @@ impl ClaudeWire {
         default: Value,
     ) -> Vec<Effect> {
         if self.interactions.pending.len() >= MAX_PENDING {
-            return vec![Effect::Fatal {
-                message: "Claude interaction capacity reached".to_owned(),
-            }];
+            return vec![self.fatal("Error: Claude interaction capacity reached".to_owned())];
         }
         if self.interactions.pending.contains_key(id) {
-            return vec![Effect::Fatal {
-                message: "Duplicate Claude request id".to_owned(),
-            }];
+            return vec![self.fatal("Error: Duplicate Claude request id".to_owned())];
         }
         let mut effects = match self.frame(FrameDir::Recv, channel, &data) {
             Ok(effect) => vec![effect],
-            Err(message) => return vec![Effect::Fatal { message }],
+            Err(message) => return vec![self.fatal(format!("RangeError: {message}"))],
         };
         let request = ace_json::to_string(&request);
         self.interactions.pending.insert(

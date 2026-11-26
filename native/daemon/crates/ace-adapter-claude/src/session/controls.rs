@@ -68,7 +68,7 @@ impl ClaudeWire {
         wire.push(b'\n');
         match self.capture(&envelope) {
             Ok(captured) => vec![self.writes.push(wire, After::Wire(WIRE, captured))],
-            Err(message) => vec![Effect::Fatal { message }],
+            Err(message) => vec![self.fatal(format!("RangeError: {message}"))],
         }
     }
 }

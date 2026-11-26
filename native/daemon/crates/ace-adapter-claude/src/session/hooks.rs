@@ -54,7 +54,7 @@ impl ClaudeWire {
         let input = request.get("input").cloned().unwrap_or(Value::Null);
         let mut effects = match self.frame(FrameDir::Recv, OBSERVATIONAL, &input) {
             Ok(effect) => vec![effect],
-            Err(message) => return vec![Effect::Fatal { message }],
+            Err(message) => return vec![self.fatal(format!("RangeError: {message}"))],
         };
         effects.extend(self.answer_envelope(host::success(request_id, empty())));
         effects

@@ -10,9 +10,10 @@
 //! of claude-session.md is the hot path: one parse, one capture, moves only.
 
 use ace_json::{Map, Value};
+use std::borrow::Cow;
+
 use ace_supervisor::budget::{DroppedLine, DroppedNotes, DroppingGate, Framed, NoteStep};
-use ace_supervisor::jsonl::JsonLines;
-use ace_supervisor::lines::{FramedLines, Utf8Decoder};
+use ace_supervisor::lines::{FramedLines, LineFramer, SHIELD, restore};
 use agent_stream_json::Controls;
 use agent_stream_json::{Line, MessageKind, classify};
 
@@ -52,20 +53,20 @@ pub struct ClaudeWire {
     /// The `UserPromptSubmit` callbacks still waiting for `answer_hook`.
     pub(crate) pending_hooks: Vec<String>,
     tasks: SessionTasks,
-    stdout: JsonLines,
+    stdout: LineFramer,
     stderr: DroppingGate,
-    stderr_decoder: Utf8Decoder,
-    /// A stderr line still being assembled.
-    stderr_pending: String,
-    /// The LF of a CRLF whose CR ended the previous chunk.
-    stderr_skip_lf: bool,
+    /// The stderr lines `DroppingGate` kept: decode and split them (P2).
+    stderr_lines: LineFramer,
     notes: DroppedNotes,
     confirmed: bool,
     pub(crate) finished: bool,
+    /// A failed line was reported; every later input is ignored.
+    failed: bool,
 }
 
 impl ClaudeWire {
     pub fn new(config: WireConfig) -> ClaudeWire {
+        let confirmed = config.resume;
         ClaudeWire {
             config,
             controls: Controls::new(),
@@ -73,14 +74,13 @@ impl ClaudeWire {
             writes: Writes::new(),
             pending_hooks: Vec::new(),
             tasks: SessionTasks::new(),
-            stdout: JsonLines::new(LINE_BYTES),
+            stdout: LineFramer::new(LINE_BYTES),
             stderr: DroppingGate::new(LINE_BYTES),
-            stderr_decoder: Utf8Decoder::default(),
-            stderr_pending: String::new(),
-            stderr_skip_lf: false,
+            stderr_lines: LineFramer::new(LINE_BYTES),
             notes: DroppedNotes::new(),
-            confirmed: false,
+            confirmed,
             finished: false,
+            failed: false,
         }
     }
 
@@ -88,10 +88,19 @@ impl ClaudeWire {
     /// today's gate aborts the process rather than dropping it (`process.ts:256`-`:268`, no
     /// `onStdoutLineDropped`).
     pub fn stdout_bytes(&mut self, chunk: &[u8]) -> Vec<Effect> {
-        let push = self.stdout.push(chunk);
+        if self.finished || self.failed {
+            return Vec::new();
+        }
+        match self.stdout.push(chunk) {
+            Ok(lines) => self.stdout_framed(&lines),
+            Err(message) => vec![self.fatal(message)],
+        }
+    }
+
+    fn stdout_framed(&mut self, framed: &FramedLines) -> Vec<Effect> {
         let mut effects = Vec::new();
-        for line in lines(&push.lines) {
-            let mut line_effects = self.stdout_line(line);
+        for line in lines(framed) {
+            let mut line_effects = self.stdout_line(&unshield(line));
             let fatal = line_effects
                 .iter()
                 .any(|effect| matches!(effect, Effect::Fatal { .. }));
@@ -100,15 +109,15 @@ impl ClaudeWire {
                 break;
             }
         }
-        if let Some(error) = push.error {
-            effects.push(Effect::Fatal { message: error });
-        }
         effects
     }
 
     /// One stderr chunk: the same 16 MiB bound, but an oversized line is dropped and noted
     /// (`spawnSdkProcess` passes `onStderrLineDropped`, `sdk-process.ts:50`).
     pub fn stderr_bytes(&mut self, chunk: &[u8]) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
         let frames = self.stderr.push(chunk);
         self.stderr_frames(frames)
     }
@@ -116,11 +125,16 @@ impl ClaudeWire {
     /// A facade note: `{"channel": "<name>", "data": <value>}`. The wire captures `data` and
     /// emits it on that note channel; an unknown channel is dropped, never fatal.
     pub fn note(&mut self, json: &str) -> Vec<Effect> {
-        let Ok(value) = ace_json::parse(json) else {
+        if self.finished || self.failed {
             return Vec::new();
+        }
+        let Ok(value) = ace_json::parse(json) else {
+            debug_assert!(false, "a note is the facade's own JSON");
+            return vec![self.fatal("Claude note is not valid JSON".to_owned())];
         };
         let Some(object) = value.as_object() else {
-            return Vec::new();
+            debug_assert!(false, "a note is a facade object");
+            return vec![self.fatal("Claude note is not valid JSON".to_owned())];
         };
         let channel = match object.get("channel").and_then(Value::as_str) {
             Some("lifecycle") => LIFECYCLE,
@@ -128,7 +142,10 @@ impl ClaudeWire {
             Some("catalog.runtime") => CATALOG,
             Some("accounts") => ACCOUNTS,
             Some("interrupt_receipt") => RECEIPT,
-            _ => return Vec::new(),
+            _ => {
+                debug_assert!(false, "a note names a known channel");
+                return vec![self.fatal("Claude note has an unknown channel".to_owned())];
+            }
         };
         let data = object.get("data").unwrap_or(&Value::Null);
         self.framed(FrameDir::Note, channel, data)
@@ -136,6 +153,9 @@ impl ClaudeWire {
 
     /// The drop notes' interval. Other keys arrive with E3-claude.3.
     pub fn timer(&mut self, key: &str) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
         if key == NOTES_KEY {
             let step = self.notes.fire();
             return self.note_step(step);
@@ -162,19 +182,13 @@ impl ClaudeWire {
         self.finished = true;
         let mut effects = Vec::new();
 
-        if let Some(error) = self.stdout.finish(false) {
-            effects.push(Effect::Fatal { message: error });
-        }
+        let tail = self.stdout.finish();
+        effects.extend(self.stdout_framed(&tail));
 
         let frames = self.stderr.finish();
         effects.extend(self.stderr_frames(frames));
-        let mut text = String::new();
-        self.stderr_decoder.finish(&mut text);
-        self.split_stderr(&text, &mut effects);
-        let pending = std::mem::take(&mut self.stderr_pending);
-        if !pending.is_empty() {
-            effects.extend(self.stderr_line(&pending));
-        }
+        let tail = self.stderr_lines.finish();
+        effects.extend(self.stderr_framed(&tail));
 
         effects.push(Effect::CancelTimer {
             key: NOTES_KEY.to_owned(),
@@ -213,15 +227,16 @@ impl ClaudeWire {
                 match self.frame(FrameDir::Recv, SDK, &value) {
                     Ok(effect) => effects.push(effect),
                     Err(message) => {
-                        // `frame('recv','sdk',...)` threw inside the pump: the session's failure.
-                        effects.push(Effect::Fatal { message });
+                        // `frame('recv','sdk',...)` threw inside the pump: `String(error)` keeps
+                        // the class prefix, which ends the session.
+                        let effect = self.fatal(format!("RangeError: {message}"));
+                        effects.push(effect);
                         return effects;
                     }
                 }
                 if let Err(error) = self.tasks.observe(&value) {
-                    effects.push(Effect::Fatal {
-                        message: error.to_string(),
-                    });
+                    let effect = self.fatal(format!("Error: {error}"));
+                    effects.push(effect);
                     return effects;
                 }
                 if kind == MessageKind::RateLimitEvent
@@ -233,8 +248,7 @@ impl ClaudeWire {
                     });
                 }
             }
-            // The CLI cancelled a pending interaction: `control_cancel_request` is a `sdk`
-            // frame even though its type starts with `control_` (`session.ts:247`-`:253`).
+            // A control request the CLI sent: its `recv`/`wire` frame, then the channel ask.
             Line::HostRequest {
                 request_id,
                 request,
@@ -243,7 +257,8 @@ impl ClaudeWire {
                 match self.frame(FrameDir::Recv, WIRE, &value) {
                     Ok(effect) => effects.push(effect),
                     Err(message) => {
-                        effects.push(Effect::Fatal { message });
+                        let effect = self.fatal(format!("RangeError: {message}"));
+                        effects.push(effect);
                         return effects;
                     }
                 }
@@ -257,7 +272,8 @@ impl ClaudeWire {
                 match self.frame(FrameDir::Recv, WIRE, &value) {
                     Ok(effect) => effects.push(effect),
                     Err(message) => {
-                        effects.push(Effect::Fatal { message });
+                        let effect = self.fatal(format!("RangeError: {message}"));
+                        effects.push(effect);
                         return effects;
                     }
                 }
@@ -268,9 +284,27 @@ impl ClaudeWire {
                 effects.extend(self.interaction_cancelled(&request_id));
                 effects.extend(self.framed(FrameDir::Recv, SDK, &value));
             }
-            Line::Unknown { value } => {
-                effects.extend(self.framed(FrameDir::Recv, WIRE, &value));
-            }
+            // An unknown type (or none) is `recv/wire` and then `recv/sdk`: the SDK yields it
+            // to the iterator too, and the pump frames it again (seq 5-8 of the recording).
+            Line::Unknown { value } => match self.frame(FrameDir::Recv, WIRE, &value) {
+                Ok(Effect::Frame { text, .. }) => {
+                    effects.push(Effect::Frame {
+                        dir: FrameDir::Recv,
+                        channel: WIRE,
+                        text: text.clone(),
+                    });
+                    effects.push(Effect::Frame {
+                        dir: FrameDir::Recv,
+                        channel: SDK,
+                        text,
+                    });
+                }
+                Ok(effect) => effects.push(effect),
+                Err(message) => {
+                    let effect = self.fatal(format!("RangeError: {message}"));
+                    effects.push(effect);
+                }
+            },
         }
         effects
     }
@@ -293,17 +327,21 @@ impl ClaudeWire {
     }
 
     /// One captured frame, or the `Fatal` its capture failure becomes. `sdk-process.ts`'s line
-    /// listener does not catch `onWire`'s throw: it reaches the daemon's fatal log, which ends
-    /// the session. Reporting `Fatal` gives the same end without taking the daemon down.
+    /// listener does not catch `onWire`'s throw: it reaches the readline consumer
+    /// (`line-reader.ts:99`), which stops stdout, so the session ends. `Fatal` ends it the same
+    /// way (behaviour.md section 14 records the intended difference).
     pub(crate) fn framed(
-        &self,
+        &mut self,
         dir: FrameDir,
         channel: &'static str,
         value: &Value,
     ) -> Vec<Effect> {
         match self.frame(dir, channel, value) {
             Ok(effect) => vec![effect],
-            Err(message) => vec![Effect::Fatal { message }],
+            Err(message) => {
+                let effect = self.fatal(format!("RangeError: {message}"));
+                vec![effect]
+            }
         }
     }
 
@@ -322,41 +360,35 @@ impl ClaudeWire {
         capture(value, self.config.bearer.as_deref()).map_err(|error| error.to_string())
     }
 
+    /// Report a failure and latch: nothing after a `Fatal` reaches the CLI or the frames.
+    pub(crate) fn fatal(&mut self, message: String) -> Effect {
+        self.failed = true;
+        Effect::Fatal { message }
+    }
+
     fn stderr_frames(&mut self, frames: Vec<Framed>) -> Vec<Effect> {
         let mut effects = Vec::new();
         for frame in frames {
             match frame {
-                Framed::Data(bytes) => {
-                    let mut text = String::new();
-                    self.stderr_decoder.push(&bytes, &mut text);
-                    self.split_stderr(&text, &mut effects);
-                }
+                Framed::Data(bytes) => match self.stderr_lines.push(&bytes) {
+                    Ok(lines) => effects.extend(self.stderr_framed(&lines)),
+                    Err(message) => {
+                        let fatal = self.fatal(message);
+                        effects.push(fatal);
+                    }
+                },
                 Framed::Drop(line) => effects.extend(self.stderr_dropped(line)),
             }
         }
         effects
     }
 
-    /// `lineReader` lines end at CR, LF or CRLF; an empty line is still a line.
-    fn split_stderr(&mut self, text: &str, effects: &mut Vec<Effect>) {
-        let mut pending = std::mem::take(&mut self.stderr_pending);
-        pending.push_str(text);
-        let mut start = 0;
-        for (at, character) in pending.char_indices() {
-            if self.stderr_skip_lf {
-                self.stderr_skip_lf = false;
-                if character == '\n' {
-                    start = at + 1;
-                    continue;
-                }
-            }
-            if character == '\r' || character == '\n' {
-                effects.extend(self.stderr_line(&pending[start..at]));
-                start = at + character.len_utf8();
-                self.stderr_skip_lf = character == '\r';
-            }
+    fn stderr_framed(&mut self, framed: &FramedLines) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        for line in lines(framed) {
+            effects.extend(self.stderr_line(&unshield(line)));
         }
-        self.stderr_pending = pending[start..].to_owned();
+        effects
     }
 
     /// `onStderr`: `frame("stderr","sdk", line)` (`session.ts:246`).
@@ -364,7 +396,7 @@ impl ClaudeWire {
         self.stderr_note(line)
     }
 
-    fn stderr_note(&self, line: &str) -> Vec<Effect> {
+    fn stderr_note(&mut self, line: &str) -> Vec<Effect> {
         self.framed(FrameDir::Stderr, SDK, &Value::from(line))
     }
 
@@ -374,7 +406,7 @@ impl ClaudeWire {
         self.note_step(step)
     }
 
-    fn note_step(&self, step: NoteStep) -> Vec<Effect> {
+    fn note_step(&mut self, step: NoteStep) -> Vec<Effect> {
         let mut effects = Vec::new();
         if let Some(note) = step.note {
             effects.extend(self.stderr_note(&note));
@@ -393,6 +425,15 @@ impl ClaudeWire {
 fn lines(framed: &FramedLines) -> impl Iterator<Item = &str> {
     let count = framed.count;
     framed.text.split('\n').take(count)
+}
+
+/// A line's text with `LineFramer`'s U+2028/U+2029 shield undone, copied only when shielded.
+fn unshield(line: &str) -> Cow<'_, str> {
+    if line.contains(SHIELD) {
+        Cow::Owned(restore(line))
+    } else {
+        Cow::Borrowed(line)
+    }
 }
 
 /// `{type: "malformed_stdout", line}` (`sdk-process.ts:66`-`:71`).

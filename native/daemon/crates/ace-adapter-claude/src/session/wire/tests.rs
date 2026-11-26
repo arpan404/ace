@@ -24,6 +24,7 @@ fn wire_with_session(session_id: &str) -> ClaudeWire {
         root_key: "root".to_owned(),
         bearer: None,
         hooks: Vec::new(),
+        resume: false,
     })
 }
 
@@ -138,7 +139,6 @@ fn a_parentless_user_line_confirms_once_and_a_child_line_does_not() {
 #[test]
 fn control_lines_keep_their_frame_channels() {
     let cases = [
-        (r#"{"type":"command_lifecycle","state":"queued"}"#, "wire"),
         (
             r#"{"type":"control_request","request_id":"r","request":{"subtype":"can_use_tool"}}"#,
             "wire",
@@ -151,16 +151,12 @@ fn control_lines_keep_their_frame_channels() {
             r#"{"type":"control_cancel_request","request_id":"r"}"#,
             "sdk",
         ),
-        (r#"{"type":null,"x":1}"#, "wire"),
     ];
     for (line, channel) in cases {
         let effects = push_line(&mut new_wire(), line);
         let (dir, seen, _) = frame(&effects[0]);
         assert_eq!(dir, FrameDir::Recv, "{line}");
         assert_eq!(seen, channel, "{line}");
-        if channel == "wire" && line.starts_with(r#"{"type":"command"#) {
-            assert_eq!(effects.len(), 1, "{line}");
-        }
     }
 
     let malformed = push_line(&mut new_wire(), "not json");
@@ -172,16 +168,6 @@ fn control_lines_keep_their_frame_channels() {
             r#"{"type":"malformed_stdout","line":"not json"}"#
         )
     );
-}
-
-#[test]
-fn a_stdout_line_over_16_mib_is_fatal() {
-    let effects = new_wire().stdout_bytes(&vec![b'x'; 16 * 1024 * 1024 + 1]);
-    assert_eq!(effects.len(), 1);
-    assert!(matches!(
-        &effects[0],
-        Effect::Fatal { message } if message == "JSONL line exceeded limit"
-    ));
 }
 
 #[test]
@@ -264,24 +250,159 @@ fn notes_route_by_channel_and_unknown_channels_are_dropped() {
             r#"{"type":"rate_limit_observation_failed"}"#
         )
     );
-    assert!(wire.note(r#"{"channel":"future","data":{}}"#).is_empty());
 }
 
 #[test]
-fn finish_reports_an_unfinished_line_then_drains() {
+fn finish_delivers_a_final_line_without_a_newline() {
     let mut wire = new_wire();
-    wire.stdout_bytes(br#"{"type":"keep_alive"}"#);
+    assert!(wire.stdout_bytes(br#"{"type":"keep_alive"}"#).is_empty());
     let effects = wire.finish();
-    assert!(matches!(
-        &effects[0],
-        Effect::Fatal { message } if message == "Incomplete JSONL record"
-    ));
+    assert_eq!(
+        frame(&effects[0]),
+        (FrameDir::Recv, "sdk", r#"{"type":"keep_alive"}"#)
+    );
     assert!(matches!(
         &effects[1],
         Effect::CancelTimer { key } if key == "notes"
     ));
     assert!(matches!(effects.last(), Some(Effect::Drained)));
     assert!(wire.finish().is_empty());
+}
+
+#[test]
+fn an_empty_stdout_line_is_malformed_stdout() {
+    let effects = new_wire().stdout_bytes(b"\n");
+    assert_eq!(
+        frame(&effects[0]),
+        (
+            FrameDir::Recv,
+            "wire",
+            r#"{"type":"malformed_stdout","line":""}"#
+        )
+    );
+}
+
+#[test]
+fn a_bare_cr_ends_a_stdout_line() {
+    let mut wire = new_wire();
+    let effects = wire.stdout_bytes(b"{\"type\":\"keep_alive\"}\r");
+    assert_eq!(
+        frame(&effects[0]),
+        (FrameDir::Recv, "sdk", r#"{"type":"keep_alive"}"#)
+    );
+    assert!(
+        wire.stdout_bytes(b"\n").is_empty(),
+        "the LF of a split CRLF is skipped"
+    );
+}
+
+#[test]
+fn a_known_and_unknown_type_keep_the_frame_set_they_have_today() {
+    // `native-ace-mcp.jsonl` seq 5-8: an unknown type is `recv/wire` and then `recv/sdk`.
+    let line = recorded(NATIVE_ACE_MCP, |data| is_type(data, "command_lifecycle"));
+    let text = ace_json::to_string(&line);
+    let effects = push_line(&mut new_wire(), &text);
+    assert_eq!(effects.len(), 2);
+    assert_eq!(frame(&effects[0]), (FrameDir::Recv, "wire", text.as_str()));
+    assert_eq!(frame(&effects[1]), (FrameDir::Recv, "sdk", text.as_str()));
+    let null_type = push_line(&mut new_wire(), r#"{"type":null,"x":1}"#);
+    assert_eq!(null_type.len(), 2);
+    assert_eq!(frame(&null_type[1]).1, "sdk");
+}
+
+#[test]
+fn a_resumed_wire_starts_confirmed() {
+    let mut wire = ClaudeWire::new(WireConfig {
+        session_id: "session-1".to_owned(),
+        root_key: "root".to_owned(),
+        bearer: None,
+        hooks: Vec::new(),
+        resume: true,
+    });
+    let parentless = r#"{"type":"user","session_id":"session-1","parent_tool_use_id":null,"message":{"role":"user","content":[]}}"#;
+    let effects = push_line(&mut wire, parentless);
+    assert!(matches!(effects.as_slice(), [Effect::Frame { .. }]));
+}
+
+#[test]
+fn a_fatal_or_finish_latches_every_later_input() {
+    let mut wire = new_wire();
+    wire.stdout_bytes(&vec![b'x'; 16 * 1024 * 1024 + 1]);
+    assert!(wire.stdout_bytes(b"{\"type\":\"keep_alive\"}\n").is_empty());
+    assert!(wire.stderr_bytes(b"a line\n").is_empty());
+    assert!(wire.note(r#"{"channel":"accounts","data":{}}"#).is_empty());
+
+    let mut finished = new_wire();
+    finished.finish();
+    assert!(
+        finished
+            .stdout_bytes(b"{\"type\":\"keep_alive\"}\n")
+            .is_empty()
+    );
+    assert!(finished.stderr_bytes(b"a line\n").is_empty());
+    assert!(
+        finished
+            .note(r#"{"channel":"accounts","data":{}}"#)
+            .is_empty()
+    );
+}
+
+#[test]
+fn the_16_mib_gate_counts_raw_bytes_per_line() {
+    const LIMIT: usize = 16 * 1024 * 1024;
+    let gate = "Process output line exceeded limit (line limit 16777216 bytes)";
+    // A bare base64 run: not JSON, and elided to a marker, so the line stays cheap to capture.
+    let exact = vec![b'A'; LIMIT];
+    let mut chunk = exact.clone();
+    chunk.push(b'\n');
+    assert_eq!(frame(&new_wire().stdout_bytes(&chunk)[0]).1, "wire");
+
+    let mut over = exact.clone();
+    over.push(b'x');
+    over.push(b'\n');
+    let effects = new_wire().stdout_bytes(&over);
+    assert!(matches!(&effects[0], Effect::Fatal { message } if message == gate));
+
+    // A CR or LF resets the count, so a chunk past 16 MiB of two lines is admitted.
+    for delimiter in [b'\r', b'\n'] {
+        let mut chunk = vec![b'A'; LIMIT - 1];
+        chunk.push(delimiter);
+        chunk.extend_from_slice(b"{\"type\":\"keep_alive\"}\n");
+        let effects = new_wire().stdout_bytes(&chunk);
+        assert_eq!(effects.len(), 2, "both lines are framed");
+        assert_eq!(frame(&effects[1]).1, "sdk");
+    }
+}
+
+#[test]
+fn a_capture_failure_and_a_task_capacity_error_keep_their_class_prefixes() {
+    let huge = format!(
+        r#"{{"type":"keep_alive","data":"{}"}}"#,
+        " ".repeat(1024 * 1024)
+    );
+    let capture = push_line(&mut new_wire(), &huge);
+    assert!(matches!(
+        &capture[0],
+        Effect::Fatal { message } if message == "RangeError: Provider payload exceeds byte limit"
+    ));
+
+    let mut tasks = new_wire();
+    for index in 0..512 {
+        push_line(
+            &mut tasks,
+            &format!(
+                r#"{{"type":"system","subtype":"task_started","task_id":"task-{index}","tool_use_id":"spawn-{index}"}}"#
+            ),
+        );
+    }
+    let over = push_line(
+        &mut tasks,
+        r#"{"type":"system","subtype":"task_started","task_id":"task-over","tool_use_id":"spawn-over"}"#,
+    );
+    assert!(matches!(
+        &over[over.len() - 1],
+        Effect::Fatal { message } if message == "Error: Claude live task capacity reached"
+    ));
 }
 
 #[test]
@@ -503,7 +624,7 @@ fn the_interaction_cap_and_duplicate_ids_fail_before_a_frame() {
     assert_eq!(over.len(), 2);
     assert!(matches!(
         &over[1],
-        Effect::Fatal { message } if message == "Claude interaction capacity reached"
+        Effect::Fatal { message } if message == "Error: Claude interaction capacity reached"
     ));
 
     let mut duplicate = new_wire();
@@ -512,7 +633,7 @@ fn the_interaction_cap_and_duplicate_ids_fail_before_a_frame() {
     let again = push_line(&mut duplicate, line);
     assert!(matches!(
         &again[1],
-        Effect::Fatal { message } if message == "Duplicate Claude request id"
+        Effect::Fatal { message } if message == "Error: Duplicate Claude request id"
     ));
 }
 
