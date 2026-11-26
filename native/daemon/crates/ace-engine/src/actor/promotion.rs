@@ -20,10 +20,11 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
         state.done = true;
     }
     if core.closing.get() {
-        // Close has already retired every registry a promotion could move into. A deferred commit
-        // that fires now must not spawn a mailbox, re-insert a seat or add a stopping entry: the
-        // kept-aside actors are retired with the rest.
-        retire_kept_aside(core, promotion);
+        // A commit that fires into a closing engine must not spawn a mailbox or take a seat. The
+        // pledged victims are stopped exactly as a normal commit stops them: their pending frames
+        // are sealed into their own tail, so a task that is still live folds them
+        // (`actor.ts:599`-`:600`), and close's terminal cleanup retires whatever is left.
+        stop_kept_aside(core, promotion);
         return;
     }
     let thread = promotion.created.clone();
@@ -55,14 +56,15 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     }
 }
 
-/// Retire the actors a promotion kept for a rollback it can no longer make.
-fn retire_kept_aside(core: &Rc<Core>, promotion: &state::Promotion) {
+/// Stop the actors a promotion kept for a rollback it can no longer make: the same seal-and-stop a
+/// committed eviction gives them, so their accepted tail still folds.
+fn stop_kept_aside(core: &Rc<Core>, promotion: &state::Promotion) {
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
     for (_, _, actor) in aside {
         let instance = actor.borrow().instance;
         core.with_state(|state| state.actors.aside.shift_remove(&instance))
             .ok();
-        crate::actor::retire_instance(core, &actor);
+        stop_evicted(core, actor);
     }
 }
 

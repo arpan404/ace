@@ -494,10 +494,12 @@ fn a_discarded_batch_releases_only_the_handles_it_still_owns() {
 }
 
 #[test]
-fn a_promotion_that_fires_during_close_spawns_no_mailbox() {
+fn a_promotion_that_fires_in_the_closing_window_resurrects_no_actor() {
     let harness = Harness::with_limits("late-commit", 1.0);
     let core = harness.engine.core();
     let original = install_actor(core, "a", 1, 0);
+    // A victim's mailbox task is live: its sealed tail belongs to the actor that stops it.
+    original.borrow_mut().mailbox_task = Some(7);
     original.borrow_mut().pending.push(pending(71, 0, 3));
     let (ack_tx, mut ack_rx) = crate::futures::channel::oneshot::channel();
     original.borrow_mut().pending_ack = Some(crate::actor::BatchAck {
@@ -518,7 +520,7 @@ fn a_promotion_that_fires_during_close_spawns_no_mailbox() {
     );
 
     // Close begins (the sequence is still running) and the transaction's commit releases the
-    // deferred promotion: it must not spawn a mailbox or move the pledged actor to stopping.
+    // deferred promotion: without the closing guard it would spawn a mailbox and promote "b".
     core.closing.set(true);
     let seats = core
         .with_state(|state| state.actors.next_seat)
@@ -540,22 +542,22 @@ fn a_promotion_that_fires_during_close_spawns_no_mailbox() {
     assert!(!spawned, "no mailbox task is spawned into a closing engine");
     assert!(!promoted, "the provisional actor never takes its slot");
     assert!(
-        core.with_state(|state| state.actors.stopping.is_empty())
-            .expect("the state is free"),
-        "no eviction starts after close"
-    );
-    assert!(
         core.with_state(|state| state.actors.aside.is_empty())
             .expect("the state is free"),
-        "the pledged actor is retired with the rest"
+        "the pledged actor stops with the rest"
     );
-    finish_close(core);
 
+    // The terminal cleanup rejects what the pledged actor still held; no seat comes back.
+    finish_close(core);
+    assert_eq!(
+        ack_rx.try_recv(),
+        Ok(Some(Err("Engine closed".to_string()))),
+        "the pledged actor's acknowledgement is rejected once, at close"
+    );
     assert!(
         core.with_state(|state| live_thread_ids(state))
             .expect("the state is free")
-            .is_empty(),
-        "no provisional actor is resurrected"
+            .is_empty()
     );
     assert!(
         core.with_state(|state| state.actors.seats.is_empty()
@@ -568,47 +570,68 @@ fn a_promotion_that_fires_during_close_spawns_no_mailbox() {
         core.with_state(|state| state.actors.next_seat)
             .expect("the state is free"),
         seats,
-        "no post-close creation took a seat"
-    );
-    assert_eq!(
-        ack_rx.try_recv(),
-        Ok(Some(Err("Engine closed".to_string()))),
-        "the pledged actor's acknowledgement stays rejected"
+        "no creation took a seat after close"
     );
 }
 
 #[test]
-fn a_promotion_that_fires_after_close_resurrects_no_actor() {
-    let harness = Harness::with_limits("late-commit", 1.0);
+fn a_commit_in_the_closing_window_seals_the_victims_tail_for_live_folding() {
+    let harness = Harness::with_limits("tail-race", 1.0);
     let core = harness.engine.core();
-    install_actor(core, "a", 1, 0);
+    let victim = install_actor(core, "a", 1, 0);
+    victim.borrow_mut().mailbox_task = Some(7);
+    victim.borrow_mut().pending.push(pending(72, 0, 3));
+    let (ack_tx, mut ack_rx) = crate::futures::channel::oneshot::channel();
+    victim.borrow_mut().pending_ack = Some(crate::actor::BatchAck {
+        js: None,
+        native: vec![ack_tx],
+    });
     core.store
         .atomic(|_| get_or_create(core, &"b".to_string()))
         .expect("the creation commits");
     let released = harness.shell.take_released();
-    core.closing.set(true);
-    let seats = core
-        .with_state(|state| state.actors.next_seat)
-        .expect("the state is free");
-    finish_close(core);
 
+    // The commit fires while close is running: TS stops the victim, which seals its pending frames
+    // into the tail its own task still folds (`actor.ts:599`-`:600`). Retiring it here would drop
+    // a batch that can still commit.
+    core.closing.set(true);
     core.after.release(&released);
 
     assert!(
-        core.with_state(|state| live_thread_ids(state))
-            .expect("the state is free")
-            .is_empty()
+        core.with_state(|state| state.actors.stopping.contains_key(&1))
+            .expect("the state is free"),
+        "the stopped victim stays with its live task"
     );
     assert!(
-        core.with_state(|state| state.actors.seats.is_empty()
-            && state.actors.stopping.is_empty()
-            && state.actors.aside.is_empty())
-            .expect("the state is free")
+        harness.acks.released.borrow().is_empty(),
+        "its sealed frames are not released as refused"
     );
     assert_eq!(
-        core.with_state(|state| state.actors.next_seat)
-            .expect("the state is free"),
-        seats
+        ack_rx.try_recv(),
+        Ok(None),
+        "its acknowledgement still waits for the fold"
+    );
+    let sealed = core
+        .with_state(|state| {
+            state
+                .actors
+                .stopping
+                .get(&1)
+                .map(|actor| actor.borrow().mailbox.len())
+        })
+        .expect("the state is free");
+    assert_eq!(sealed, Some(1), "one sealed batch waits in the tail");
+
+    // Close's terminal cleanup still disposes of whatever the fold did not reach.
+    finish_close(core);
+    assert_eq!(
+        harness.acks.released.borrow().as_slice(),
+        [72],
+        "the terminal cleanup releases the rest, once"
+    );
+    assert_eq!(
+        ack_rx.try_recv(),
+        Ok(Some(Err("Engine closed".to_string())))
     );
 }
 
