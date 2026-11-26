@@ -79,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-json",
+ "ace-redaction",
  "ace-supervisor",
  "indexmap",
  "serde",
@@ -207,6 +208,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-forge"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "ace-protocol",
+ "ace-redaction",
+ "ace-store",
+ "ace-supervisor",
+ "regex",
+ "sha2 0.10.9",
+ "thiserror",
+]
+
+[[package]]
 name = "ace-git"
 version = "0.1.0"
 dependencies = [
@@ -276,6 +291,14 @@ dependencies = [
  "schemars",
  "serde_json",
  "typify",
+]
+
+[[package]]
+name = "ace-redaction"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "regex",
 ]
 
 [[package]]
