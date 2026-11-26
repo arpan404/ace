@@ -6,6 +6,7 @@
 //! only turns bytes into catalog rows, maps efforts onto ace's scale, searches and
 //! freezes them.
 
+pub mod acp;
 pub mod claude;
 pub mod codex;
 pub mod cursor;
@@ -16,5 +17,7 @@ pub mod instance;
 pub mod metadata;
 pub mod native;
 pub mod opencode;
+pub mod pi;
 pub mod raw;
 pub mod row;
+pub mod source;
