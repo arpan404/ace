@@ -10,6 +10,7 @@ pub mod holds;
 pub mod messages;
 pub mod page;
 pub mod patch;
+pub mod ready;
 pub mod record;
 pub mod resume;
 pub mod stale;
