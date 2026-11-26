@@ -370,7 +370,10 @@ impl Ports for Shell {
         self.set_timer(ms)
     }
     fn thread_id(&self) -> String {
-        "t".to_owned()
+        // `options.threadId`, else the shell's UUIDv7: distinct per allocation, as it is live.
+        let next = self.ids.get() + 1;
+        self.ids.set(next);
+        format!("thread-{next}")
     }
     fn command_id(&self) -> String {
         "command".to_owned()

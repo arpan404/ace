@@ -568,6 +568,28 @@ fn a_create_naming_an_existing_thread_refuses_thread_exists() {
 }
 
 #[test]
+fn a_create_without_an_id_takes_the_ports_next_thread_id() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    let command = r#"{"id":"create","deviceId":"device","payload":{"type":"thread.create","workspaceId":"workspace","provider":"codex","input":[{"type":"text","text":"hello"}]}}"#;
+    let accepted = receipt.handle(command);
+    assert_eq!(
+        accepted.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{accepted}"
+    );
+    // `p.threadId ?? nextId()` (`handler.ts:244`): the port named it, not the empty string.
+    assert_eq!(
+        accepted.get("threadId").and_then(Value::as_str),
+        Some("thread-1"),
+        "{accepted}"
+    );
+    assert_eq!(
+        receipt.text("SELECT id AS value FROM threads WHERE id='thread-1'"),
+        Some("thread-1".to_owned())
+    );
+}
+
+#[test]
 fn a_create_with_a_catalog_stores_the_model_the_catalog_resolves() {
     let receipt = Receipt::new(LimitOverrides::default());
     receipt

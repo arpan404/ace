@@ -349,7 +349,9 @@ pub fn create(
         Err(error) => return Err(error),
     };
     // `p.threadId ?? nextId()` (`handler.ts:244`): a client may let the daemon name the thread.
-    let thread_id = text(p, "threadId").unwrap_or_default().to_owned();
+    let thread_id = text(p, "threadId")
+        .map(str::to_owned)
+        .unwrap_or_else(|| core.ports.thread_id());
     // A prepared thread runs nothing until it is sent work, which reserves a slot then.
     if kind != "thread.prepare" && !state.repo.reserve(&core.store, &thread_id)? {
         let freed =
