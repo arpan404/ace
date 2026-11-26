@@ -484,6 +484,21 @@
       "code": "not_supported",
       "message": "This device's capture can't stream video for a live view",
       "hint": "Live views are H.264 only. Restart the device's live view; if it persists, check its capture tools."
+    },
+    "personOnly": {
+      "code": "permission_denied",
+      "message": "Only a person can do this",
+      "hint": "Use the sim_* tools; sim_start takes the simulator for this thread."
+    },
+    "toolsPersonOnly": {
+      "code": "permission_denied",
+      "message": "Only a person can download device tools",
+      "hint": "Ask the person to download device tools in Devices."
+    },
+    "humanAuthorization": {
+      "code": "permission_denied",
+      "message": "Human authorization required",
+      "hint": "Ask the user to grant the permission from the device panel."
     }
   },
   "adbTransports": {

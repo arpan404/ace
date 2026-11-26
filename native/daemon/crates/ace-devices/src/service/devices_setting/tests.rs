@@ -96,8 +96,10 @@ fn a_newer_choice_with_the_same_value_still_keeps_the_loop_going() {
     let first = setting.want(true, false);
     let second = setting.want(true, false);
     assert_ne!(first.id(), second.id(), "each choice is its own");
+    // `Done` would end the loop for the goal it belongs to, so only an identity
+    // comparison keeps it going for the newer choice.
     assert!(
-        setting.settle(first, Step::Devices, true),
+        setting.settle(first, Step::Done, true),
         "a newer choice is in force"
     );
     assert_eq!(setting.current().map(|goal| goal.id()), Some(second.id()));

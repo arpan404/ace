@@ -586,11 +586,7 @@ export class DevicesService {
       ["enable", "controller", "stream.configure", "stream.keyframe"].includes(operation.op) &&
       actor.kind !== "human"
     )
-      throw new DeviceError(
-        "permission_denied",
-        "Only a person can do this",
-        "Use the sim_* tools; sim_start takes the simulator for this thread.",
-      );
+      throw catalogRefusal("personOnly");
     if (operation.op === "enable") {
       if (this.disabling)
         throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
@@ -632,12 +628,7 @@ export class DevicesService {
     if (operation.op === "permissions" || operation.op === "permissions.request")
       return this.permissions(operation, actor);
     if (operation.op === "tools.install") {
-      if (actor.kind !== "human")
-        throw new DeviceError(
-          "permission_denied",
-          "Only a person can download device tools",
-          "Ask the person to download device tools in Devices.",
-        );
+      if (actor.kind !== "human") throw catalogRefusal("toolsPersonOnly");
       const tools = await this.options.platform.downloadTools(this.options.runtime);
       // The inventory's notes drop the missing-tools one once the next read finds them.
       void this.list().catch(() => {});
@@ -920,12 +911,7 @@ export class DevicesService {
         "Run ace's desktop app on a Mac to view and control iOS Simulators.",
       );
     if (operation.op === "permissions") return screen.inspectDevicePermissions();
-    if (actor.kind !== "human")
-      throw new DeviceError(
-        "permission_denied",
-        "Human authorization required",
-        "Ask the user to grant the permission from the device panel.",
-      );
+    if (actor.kind !== "human") throw catalogRefusal("humanAuthorization");
     return screen.requestPermission(operation.permission);
   }
   private async ui<T>(session: DeviceSession, actor: Actor, run: () => Promise<T>): Promise<T> {

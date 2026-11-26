@@ -23,7 +23,9 @@ pub fn permission_key(permission: DevicePermission) -> &'static str {
 pub fn permission_denied(permission: DevicePermission) -> DeviceError {
     let word = crate::platform::words::refusal(permission_key(permission));
     DeviceError::Coded {
-        code: DeviceErrorCode::PermissionDenied,
+        // The code is the catalog's too, so the two backends cannot drift on it.
+        code: DeviceErrorCode::parse(word.code.as_str())
+            .unwrap_or(DeviceErrorCode::PermissionDenied),
         message: word.message.into(),
         hint: word.hint.into(),
         permission: Some(permission),
