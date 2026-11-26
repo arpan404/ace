@@ -124,6 +124,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-daemon-bin"
+version = "0.1.0"
+dependencies = [
+ "ace-store",
+ "ace-transport",
+ "bytes",
+ "getrandom 0.4.3",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [

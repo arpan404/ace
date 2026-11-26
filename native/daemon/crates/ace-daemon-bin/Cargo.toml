@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-daemon-bin"
+description = "ace's daemon as a Rust program: the home, its lock, the endpoint and token files, the store's open and the transport's listeners (slice 1)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "ace-daemon"
+path = "src/main.rs"
+
+[dependencies]
+# ace-store: the one SQLite connection owner (ADR 0222); the daemon lock and the
+# event store's open go through it, never a second SQLite library.
+ace-store = { path = "../ace-store" }
+# ace-transport: the loopback listener and the remote TLS listeners (T1a, T1b),
+# served in this process with no proxy to JavaScript.
+ace-transport = { path = "../ace-transport" }
+# bytes: the payloads the socket's send path takes.
+bytes = { version = "1.12" }
+# getrandom: the token, host id and receipt ids, from the OS CSPRNG.
+getrandom = { version = "0.4" }
+# http: the in-process HTTP server's request and response types.
+http = { version = "1.5" }
+# http-body-util: Full, the body the in-process server answers with.
+http-body-util = { version = "0.1.5" }
+# hyper: the in-process HTTP/1.1 server the loopback listener forwards to.
+hyper = { version = "1.12", features = ["http1", "server"] }
+# hyper-util: TokioIo bridges the accepted TCP stream to hyper.
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+# rustix: this process's user id, so a data directory owned by another user is
+# refused as `secureDataDir` refuses it. Safe API only; already in the workspace
+# graph through the supervisor.
+rustix = { version = "1.1.6", features = ["process"] }
+# serde: the run marker, the shutdown receipt and the status answer.
+serde = { version = "1", features = ["derive"] }
+# serde_json: the same JSON files the TypeScript daemon writes.
+serde_json = { version = "1" }
+# tokio: the runtime the listener, the HTTP server and signal handling run on.
+tokio = { version = "1.54", features = [
+  "io-util",
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+] }
