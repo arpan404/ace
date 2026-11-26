@@ -18,6 +18,8 @@ use crate::error::ComputerError;
 /// One supervised helper process, as the connection drives it (`HelperProcess`).
 pub struct SupervisedHelper {
     child: SupervisedChild,
+    /// Where a write that no longer reaches the helper is reported (`:344`-`:351`).
+    events: Arc<dyn ChildEvents>,
 }
 
 impl HelperProcess for SupervisedHelper {
@@ -26,8 +28,11 @@ impl HelperProcess for SupervisedHelper {
     }
 
     fn write(&self, bytes: Vec<u8>) {
-        // A failed write arrives as `ChildEvents::stdin_error`; the exit fails the request.
-        let _ = self.child.write_stdin(bytes);
+        // A pipe that closed mid-write (the helper exited) makes it unusable: the connection
+        // hears it now, not only when the exit is reported (`helper-connection.ts:344`).
+        if self.child.write_stdin(bytes).is_err() {
+            self.events.stdin_error();
+        }
     }
 
     fn end_stdin(&self) {
@@ -96,9 +101,11 @@ pub fn supervised_spawner(
             stdout: StdioMode::Piped,
             stderr: StdioMode::Piped,
         };
-        let sink = Sink { events };
+        let sink = Sink {
+            events: Arc::clone(&events),
+        };
         match spawn_child(&spec, sink, &handle, None) {
-            Ok(child) => Ok(Box::new(SupervisedHelper { child }) as Box<dyn HelperProcess>),
+            Ok(child) => Ok(Box::new(SupervisedHelper { child, events }) as Box<dyn HelperProcess>),
             Err(error) => Err(start_error(&error)),
         }
     })

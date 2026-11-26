@@ -78,6 +78,13 @@ impl Helper {
     }
 }
 
+/// The events of a helper that exits during its start.
+fn events_for_exit(helper: &Helper) {
+    if let Some(events) = helper.events.lock().ok().and_then(|events| events.clone()) {
+        events.exit();
+    }
+}
+
 struct FakeProcess(Helper);
 
 impl HelperProcess for FakeProcess {
@@ -125,6 +132,8 @@ struct FakeStart {
     spawns: AtomicU32,
     ignores_stop: bool,
     refuses_kill: bool,
+    /// The next helper exits before its start is reported (`helper-connection.ts:244`).
+    exits_once: Arc<AtomicBool>,
 }
 
 impl FakeStart {
@@ -182,6 +191,10 @@ impl HelperStart for FakeStart {
         };
         if let Ok(mut helpers) = self.helpers.lock() {
             helpers.push(helper.clone());
+        }
+        if self.exits_once.swap(false, Ordering::Relaxed) {
+            // The exit reaches the connection before the start does.
+            events_for_exit(&helper);
         }
         Box::pin(async move { Ok(Box::new(FakeProcess(helper)) as Box<dyn HelperProcess>) })
     }
@@ -413,5 +426,46 @@ async fn a_cancels_acknowledgment_never_answers_the_action_it_cancelled() {
         error.result,
         Some(ace_json::json!({ "done": ["did key"] })),
         "the action's own reply, not the cancel's acknowledgment"
+    );
+}
+
+/// A helper that exits before its start is reported fails its request at once, and the next
+/// request starts a fresh helper (`helper-connection.ts:244`): the exit is never lost behind
+/// `Started`.
+#[tokio::test]
+async fn a_helper_that_exits_during_its_start_fails_the_request_and_the_next_starts_fresh() {
+    let start = Arc::new(FakeStart {
+        exits_once: Arc::new(AtomicBool::new(true)),
+        ..FakeStart::default()
+    });
+    let connection = Connection::start(options(Arc::clone(&start)));
+    let first = connection
+        .request("state", &payload(), 5_000, None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(first.code, "helper_exited");
+    assert_eq!(start.spawned(), 1, "the dead helper was never installed");
+
+    let next = tokio::spawn({
+        let connection = connection.clone();
+        async move {
+            connection
+                .request("state", &payload(), 5_000, None, None)
+                .await
+        }
+    });
+    until("the second helper", || start.spawned() == 2).await;
+    until("the state on the wire", || {
+        start.helper(1).writes().len() == 1
+    })
+    .await;
+    start.helper(1).reply(0, r#"{"app":"calculator"}"#);
+    let result = next
+        .await
+        .unwrap_or_else(|_| panic!("request task"))
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        result.get("app").and_then(Value::as_str),
+        Some("calculator")
     );
 }

@@ -367,8 +367,12 @@ struct State {
     next_job: u64,
     child: Option<ChildHandle>,
     next_child: u64,
-    /// A start in flight; `stopped`/`gone` wait for it.
-    starting: bool,
+    /// The helper a start in flight will produce; `stopped`/`gone` wait for it.
+    starting: Option<u64>,
+    /// Helpers whose exit arrived before their start was reported (`helper-connection.ts:244`):
+    /// the actor never installs one of these, so a helper that dies at once fails its request
+    /// instead of waiting out the deadline.
+    exited_while_starting: HashSet<u64>,
     stopping: Option<Stopping>,
     /// The stopping helper refused SIGKILL and still runs: no successor may start.
     unkillable: bool,
@@ -391,7 +395,8 @@ impl State {
             next_job: 1,
             child: None,
             next_child: 1,
-            starting: false,
+            starting: None,
+            exited_while_starting: HashSet::new(),
             stopping: None,
             unkillable: false,
             stopped_waiters: Vec::new(),
@@ -411,7 +416,11 @@ impl State {
             self.apply(command);
             self.settle_waiters();
             self.idle_changed();
-            if self.shutdown && self.jobs.is_empty() && !self.starting && self.stopping.is_none() {
+            if self.shutdown
+                && self.jobs.is_empty()
+                && self.starting.is_none()
+                && self.stopping.is_none()
+            {
                 break;
             }
         }
@@ -553,7 +562,7 @@ impl State {
     }
 
     fn start_helper(&mut self) {
-        if self.starting {
+        if self.starting.is_some() {
             return;
         }
         if self.stopping.is_some() {
@@ -565,9 +574,9 @@ impl State {
             }
             return;
         }
-        self.starting = true;
         let seq = self.next_child;
         self.next_child += 1;
+        self.starting = Some(seq);
         let events = Arc::new(ChannelEvents {
             tx: self.shared.tx.clone(),
             seq,
@@ -581,7 +590,14 @@ impl State {
     }
 
     fn started(&mut self, seq: u64, result: Result<Box<dyn HelperProcess>, ComputerError>) {
-        self.starting = false;
+        if self.starting != Some(seq) {
+            // A start the state no longer wants (it was closed, or replaced).
+            if let Ok(process) = result {
+                let _ = process;
+            }
+            return;
+        }
+        self.starting = None;
         match result {
             Err(error) => {
                 for waiter in self.pid_waiters.drain(..) {
@@ -590,6 +606,11 @@ impl State {
                 self.fail_current(error);
             }
             Ok(process) => {
+                if self.exited_while_starting.remove(&seq) {
+                    // It exited before it was installed: it never gets the request.
+                    self.fail_current(ComputerError::helper_exited());
+                    return;
+                }
                 let pid = process.pid();
                 let lines = ReplyLines::new(self.options.max_reply_bytes);
                 self.child = Some(ChildHandle {
@@ -881,6 +902,11 @@ impl State {
     }
 
     fn exit(&mut self, child: u64) {
+        if self.starting == Some(child) {
+            // Its start has not been reported yet; remember it so `started` installs nothing.
+            self.exited_while_starting.insert(child);
+            return;
+        }
         if self.child.as_ref().map(|handle| handle.seq) == Some(child) {
             self.child = None;
         }
@@ -1021,7 +1047,7 @@ impl State {
     }
 
     fn wait_stopped(&mut self, reply: oneshot::Sender<Result<(), ComputerError>>) {
-        if !self.starting && self.stopping.is_none() {
+        if self.starting.is_none() && self.stopping.is_none() {
             let _ = reply.send(Ok(()));
             return;
         }
@@ -1033,7 +1059,7 @@ impl State {
     }
 
     fn wait_gone(&mut self, reply: oneshot::Sender<()>) {
-        if !self.starting && self.stopping.is_none() {
+        if self.starting.is_none() && self.stopping.is_none() {
             let _ = reply.send(());
             return;
         }
@@ -1041,7 +1067,7 @@ impl State {
     }
 
     fn settle_waiters(&mut self) {
-        if self.starting || self.stopping.is_some() {
+        if self.starting.is_some() || self.stopping.is_some() {
             return;
         }
         for waiter in self.stopped_waiters.drain(..) {
