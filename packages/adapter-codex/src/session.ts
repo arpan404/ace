@@ -32,7 +32,6 @@ import type { ThreadResumeParams } from "./generated/v2/ThreadResumeParams.ts";
 import { createSessionCommands, type Pending } from "./session-commands.ts";
 import { asyncKey, list, obj, planKey, questions, requestKey, str } from "./native.ts";
 import { readRateLimits } from "./rate-limits-read.ts";
-import { sessionBackend } from "@ace/provider-kit/native-switches";
 
 const PermissionProfiles = z.object({
   data: z
@@ -57,8 +56,6 @@ export async function openCodexSession(
   ctx: CodexSessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
-  if (sessionBackend("codex") === "native")
-    return (await import("./native-session.ts")).openNativeCodexSession(ctx, options);
   let permissionMode = ctx.permissionMode ?? null;
   let appliedPermissionMode = permissionMode;
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
