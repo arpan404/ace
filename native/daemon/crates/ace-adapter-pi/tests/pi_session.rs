@@ -1401,3 +1401,66 @@ fn a_send_after_a_fatal_close_is_refused_and_never_reaches_pi() -> TestResult {
     );
     Ok(())
 }
+
+/// An abort after a successful open closes Pi and ends its lease, as `ctx.signal` does for the
+/// session's lifetime (`native-session.ts:381`–`:391`).
+#[test]
+fn an_abort_after_a_successful_open_closes_pi_and_ends_the_lease() -> TestResult {
+    let harness = Harness::new("abort-after-open")?;
+    let cancel = Abort::new();
+    let ended = Arc::new(AtomicU64::new(0));
+    let flag = Arc::clone(&ended);
+    let open = harness.open_input(
+        Vec::new(),
+        None,
+        |_| {},
+        None,
+        Some(PiLease::new(
+            "http://127.0.0.1:1/mcp".to_owned(),
+            "e".repeat(64),
+            move || {
+                flag.fetch_add(1, Ordering::SeqCst);
+            },
+        )),
+        cancel.clone(),
+    );
+    let session = harness
+        .runtime
+        .block_on(open_pi_session(open, harness.runtime.handle()))?;
+    cancel.abort();
+    assert!(
+        harness
+            .observer
+            .wait(|state| !state.exits().is_empty(), 5_000),
+        "the aborted session never stopped"
+    );
+    assert_eq!(
+        ended.load(Ordering::SeqCst),
+        1,
+        "the abort did not end the lease"
+    );
+    let _ = session.native_session_id();
+    Ok(())
+}
+
+/// A closed session retains nothing: the disposed child releases the stdin task's sink, the
+/// pumps and the state they owned (`process.ts:295`–`:298`).
+#[test]
+fn a_closed_session_retains_nothing() -> TestResult {
+    let harness = Harness::new("retained")?;
+    let baseline = Arc::strong_count(&harness.observer);
+    let session = harness.open(Vec::new(), None, |_| {}, None)?;
+    send(&harness, &session, "hello", Delivery::Queue)?;
+    harness.close(&session)?;
+    drop(session);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Arc::strong_count(&harness.observer) > baseline && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        Arc::strong_count(&harness.observer),
+        baseline,
+        "the closed session retained its observer"
+    );
+    Ok(())
+}

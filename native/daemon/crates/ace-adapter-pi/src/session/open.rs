@@ -272,15 +272,26 @@ pub async fn open_pi_session(
         () = open.cancel.wait() => Err(PiSessionError::Cancelled),
     };
     match opened {
-        Ok((state, native_id)) => Ok(PiSession::new(
-            inner,
-            native_id,
-            state.session_file,
-            open.root_key,
-            open.control_secret,
-            open.launch.model,
-            open.launch.effort,
-        )),
+        Ok((state, native_id)) => {
+            // The abort listener lives for the session (`native-session.ts:381`-`:391`,
+            // `session.ts:206`-`:212`): a thread switched away after its open must not leave Pi
+            // and its MCP lease running. A weak handle keeps the signal from owning the session.
+            let weak = Arc::downgrade(&inner);
+            open.cancel.on_abort(Box::new(move || {
+                if let Some(inner) = weak.upgrade() {
+                    inner.fatal();
+                }
+            }));
+            Ok(PiSession::new(
+                inner,
+                native_id,
+                state.session_file,
+                open.root_key,
+                open.control_secret,
+                open.launch.model,
+                open.launch.effort,
+            ))
+        }
         Err(error) => {
             // A child exists here, so its close (or the cutoff) brings Drained after the stop.
             if !inner.closing.load(std::sync::atomic::Ordering::Acquire) {
