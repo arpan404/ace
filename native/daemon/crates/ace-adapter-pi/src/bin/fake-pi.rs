@@ -8,7 +8,8 @@
 //! session writes, exactly as the extension would.
 //!
 //! Environment hooks: `FAKE_PI_HOME` (the history home), `FAKE_PI_EXTENSION_MISSING`,
-//! `FAKE_PI_LOAD_FAILURE`, `FAKE_PI_CRASH_MID_TURN`, `FAKE_PI_CANCEL_SWITCH`, `FAKE_PI_ARGS_FILE`.
+//! `FAKE_PI_LOAD_FAILURE`, `FAKE_PI_CRASH_MID_TURN`, `FAKE_PI_CANCEL_SWITCH`, `FAKE_PI_ARGS_FILE`,
+//! `FAKE_PI_SLOW_STATE_MS` and `FAKE_PI_SLOW_STATE_MARKER` (a late handshake reply).
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -71,6 +72,17 @@ fn main() {
                 reply(&mut stdout, id, kind, Value::Object(data));
             }
             "get_state" => {
+                // `FAKE_PI_SLOW_STATE_MS`: a handshake Pi answers late, so a test can cancel an
+                // open while it waits. The marker file proves the reply is the delayed one.
+                if let Some(ms) = std::env::var("FAKE_PI_SLOW_STATE_MS")
+                    .ok()
+                    .and_then(|ms| ms.parse::<u64>().ok())
+                {
+                    if let Some(marker) = std::env::var_os("FAKE_PI_SLOW_STATE_MARKER") {
+                        let _ = std::fs::write(marker, b"waiting");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                }
                 let mut data = Map::with_capacity(5);
                 data.insert(
                     "sessionFile",

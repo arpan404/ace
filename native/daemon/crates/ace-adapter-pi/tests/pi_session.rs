@@ -236,6 +236,21 @@ impl Harness {
         launch: impl FnOnce(&mut PiLaunchInput),
         config_root: Option<PathBuf>,
     ) -> Result<PiSession, PiSessionError> {
+        let open = self.open_input(env, resume, launch, config_root, None, Abort::new());
+        self.runtime
+            .block_on(open_pi_session(open, self.runtime.handle()))
+    }
+
+    /// One open's inputs, assembled the way every case builds them.
+    fn open_input(
+        &self,
+        env: Vec<(String, String)>,
+        resume: Option<String>,
+        launch: impl FnOnce(&mut PiLaunchInput),
+        config_root: Option<PathBuf>,
+        lease: Option<PiLease>,
+        cancel: Abort,
+    ) -> PiSessionOpen {
         let mut input = PiLaunchInput {
             executable: env!("CARGO_BIN_EXE_fake-pi").to_owned(),
             version: Some("0.86.0".to_owned()),
@@ -260,11 +275,11 @@ impl Harness {
             ..PiLaunchInput::default()
         };
         launch(&mut input);
-        let open = PiSessionOpen {
+        PiSessionOpen {
             launch: input,
             root_key: "root".to_owned(),
             control_secret: "a".repeat(64),
-            lease: None,
+            lease,
             reference_dir: self.home.join("references"),
             config_root: config_root.unwrap_or_else(|| self.home.join("config")),
             nonce: "session".to_owned(),
@@ -273,11 +288,9 @@ impl Harness {
             observer: Arc::clone(&self.observer) as Arc<dyn ace_adapter_api::SessionObserver>,
             clock: Arc::new(FixedClock),
             timer: Arc::clone(&self.timer) as Arc<dyn ace_adapter_pi::session::Timer>,
-            cancel: Abort::new(),
+            cancel,
             max_output_bytes: None,
-        };
-        self.runtime
-            .block_on(open_pi_session(open, self.runtime.handle()))
+        }
     }
 
     /// An open with a lease whose end is counted, for the revocation cases.
@@ -290,49 +303,20 @@ impl Harness {
     ) -> (Result<PiSession, PiSessionError>, Arc<AtomicU64>) {
         let ended = Arc::new(AtomicU64::new(0));
         let flag = Arc::clone(&ended);
-        let mut input = PiLaunchInput {
-            executable: env!("CARGO_BIN_EXE_fake-pi").to_owned(),
-            version: Some("0.86.0".to_owned()),
-            cwd: std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .to_string_lossy()
-                .to_string(),
-            env: vec![
-                ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
-                (
-                    "FAKE_PI_HOME".to_owned(),
-                    self.home.to_string_lossy().to_string(),
-                ),
-            ]
-            .into_iter()
-            .chain(env)
-            .collect(),
-            extension_path: "/ace/extension.ts".to_owned(),
-            ..PiLaunchInput::default()
-        };
-        launch(&mut input);
-        let open = PiSessionOpen {
-            launch: input,
-            root_key: "root".to_owned(),
-            control_secret: "b".repeat(64),
-            lease: Some(PiLease::new(
+        let open = self.open_input(
+            env,
+            resume,
+            launch,
+            config_root,
+            Some(PiLease::new(
                 "http://127.0.0.1:1/mcp".to_owned(),
                 "c".repeat(64),
                 move || {
                     flag.fetch_add(1, Ordering::SeqCst);
                 },
             )),
-            reference_dir: self.home.join("references"),
-            config_root: config_root.unwrap_or_else(|| self.home.join("config")),
-            nonce: "lease".to_owned(),
-            process_id: "rust-pi-process".to_owned(),
-            resume,
-            observer: Arc::clone(&self.observer) as Arc<dyn ace_adapter_api::SessionObserver>,
-            clock: Arc::new(FixedClock),
-            timer: Arc::clone(&self.timer) as Arc<dyn ace_adapter_pi::session::Timer>,
-            cancel: Abort::new(),
-            max_output_bytes: None,
-        };
+            Abort::new(),
+        );
         (
             self.runtime
                 .block_on(open_pi_session(open, self.runtime.handle())),
@@ -781,6 +765,11 @@ fn a_close_stops_the_child_and_leaves_nothing_writable() -> TestResult {
     assert_eq!(exits.len(), 1, "one exit notice");
     assert!(exits[0].deliberate);
     assert_eq!(exits[0].message, "Pi process stopped, code null");
+    // The terminal barrier holds: the notice is the last thing the observer hears.
+    assert!(
+        matches!(record.log.last(), Some(Logged::Exit(_))),
+        "a frame arrived after the exit notice"
+    );
     let error = send(&harness, &session, "late", Delivery::Queue).err();
     assert!(
         error
@@ -1214,5 +1203,73 @@ fn an_aborted_cancel_signal_refuses_the_open_and_ends_the_lease() -> TestResult 
         .ok_or("the open succeeded")?;
     assert!(matches!(error, PiSessionError::Cancelled));
     assert!(ended.load(Ordering::SeqCst));
+    Ok(())
+}
+
+/// A cancel that arrives while Pi is answering the handshake returns at once and stops the
+/// child: an open the engine abandoned leaves nothing running (`ctx.signal`, `session.ts:62`).
+#[test]
+fn an_open_cancelled_while_pi_answers_late_returns_at_once_and_stops_the_child() -> TestResult {
+    let harness = Harness::new("cancel-mid-open")?;
+    let marker = harness.home.join("busy");
+    let cancel = Abort::new();
+    let ended = Arc::new(AtomicU64::new(0));
+    let flag = Arc::clone(&ended);
+    let open = harness.open_input(
+        vec![
+            ("FAKE_PI_SLOW_STATE_MS".to_owned(), "3000".to_owned()),
+            (
+                "FAKE_PI_SLOW_STATE_MARKER".to_owned(),
+                marker.to_string_lossy().to_string(),
+            ),
+        ],
+        None,
+        |_| {},
+        None,
+        Some(PiLease::new(
+            "http://127.0.0.1:1/mcp".to_owned(),
+            "f".repeat(64),
+            move || {
+                flag.fetch_add(1, Ordering::SeqCst);
+            },
+        )),
+        cancel.clone(),
+    );
+    let runtime = harness.runtime.handle().clone();
+    let child_runtime = runtime.clone();
+    let running = runtime.spawn(async move { open_pi_session(open, &child_runtime).await });
+    // Pi has the request and is holding the reply: the open is genuinely mid-handshake.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !marker.exists() {
+        if Instant::now() >= deadline {
+            return Err("Pi never reached its delayed reply".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    cancel.abort();
+    let at = Instant::now();
+    let joined = harness
+        .runtime
+        .block_on(async { tokio::time::timeout(Duration::from_secs(2), running).await });
+    let result = joined.map_err(|_| "the cancelled open did not return")??;
+    assert!(
+        matches!(result.err(), Some(PiSessionError::Cancelled)),
+        "the cancelled open did not refuse"
+    );
+    assert!(
+        at.elapsed() < Duration::from_secs(2),
+        "the open waited for Pi's late reply"
+    );
+    assert_eq!(ended.load(Ordering::SeqCst), 1, "the lease ended");
+    assert!(
+        !harness.home.join("config").join("session").exists(),
+        "the private configuration survived"
+    );
+    assert!(
+        harness
+            .observer
+            .wait(|state| !state.exits().is_empty(), 5_000),
+        "the child was never stopped"
+    );
     Ok(())
 }

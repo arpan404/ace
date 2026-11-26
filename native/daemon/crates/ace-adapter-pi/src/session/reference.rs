@@ -525,6 +525,13 @@ mod tests {
             read_session_header(&wrong.to_string_lossy()).unwrap_err(),
             PiHistoryError::Header
         );
+        // An empty file is as untrustworthy as a missing one: neither names a session.
+        let empty = root.join("empty.jsonl");
+        std::fs::write(&empty, "").expect("write");
+        assert_eq!(
+            read_session_header(&empty.to_string_lossy()).unwrap_err(),
+            PiHistoryError::Header
+        );
         assert_eq!(
             read_session_header(&root.join("missing.jsonl").to_string_lossy()).unwrap_err(),
             PiHistoryError::Missing

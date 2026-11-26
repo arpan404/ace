@@ -245,6 +245,9 @@ pub async fn open_pi_session(
     inner.spawned(Arc::clone(&child), started);
     runtime.spawn(drain(Arc::clone(&inner)));
 
+    // An abort during the handshake returns at once rather than after Pi's reply: the child is
+    // stopped below, so a thread switched away mid-open leaves nothing running. The TypeScript
+    // aborts its `ctx.signal` the same way (`session.ts:62`).
     let opened = async {
         let mut note = Map::with_capacity(2);
         note.insert("type", Value::from("started"));
@@ -263,8 +266,11 @@ pub async fn open_pi_session(
         check_cancelled(&open.cancel)?;
         open.observer.identity(&native_id);
         Ok::<_, PiSessionError>((state, native_id))
-    }
-    .await;
+    };
+    let opened = tokio::select! {
+        result = opened => result,
+        () = open.cancel.wait() => Err(PiSessionError::Cancelled),
+    };
     match opened {
         Ok((state, native_id)) => Ok(PiSession::new(
             inner,
