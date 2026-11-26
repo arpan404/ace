@@ -13,6 +13,8 @@ use ace_protocol::generated::{
     AcpIdentity, Capabilities, CatalogModel, ExecutionSelection, NativePermissionMode, ProviderKind,
 };
 
+use crate::EngineError;
+
 /// `ModelSelectionError`: a named model the provider's catalog does not offer.
 pub const MODEL_UNAVAILABLE: &str = "model_unavailable";
 
@@ -469,6 +471,121 @@ pub fn provider_command_metadata(
             .cloned();
     }
     None
+}
+
+impl crate::State {
+    /// `EngineModels.remember` (`models.ts:139`): the choice a confirmed selection keeps. The
+    /// session row, the per-model option, the transition metadata, the agent's model fact and the
+    /// `thread.updated` event all land in the caller's transaction.
+    pub fn remember_selection(
+        &mut self,
+        store: &crate::EngineStore,
+        id: &str,
+        selection: &ExecutionSelection,
+        at: f64,
+    ) -> Result<(), EngineError> {
+        let json = ace_json::ser::to_string(selection)
+            .map_err(|error| EngineError::Records(error.to_string()))?;
+        let selection_json: Value =
+            ace_json::parse(&json).map_err(|error| EngineError::Records(error.to_string()))?;
+        let provider = provider_name(selection.provider);
+        let previous = self.transition_get(store, id)?;
+        let session = crate::sessions::metadata::session(store, id)?;
+        let mut old_models: Vec<Option<String>> = vec![session.model.clone()];
+        if let Some(previous) = previous
+            .selection
+            .as_ref()
+            .and_then(|selection| selection.get("model"))
+            .and_then(Value::as_str)
+        {
+            old_models.push(Some(previous.to_owned()));
+        }
+        old_models.dedup();
+        store.atomic(|tx| {
+            for model in old_models {
+                if is_default_selection(model.as_deref()) {
+                    ace_store::stmt_cache::run(
+                        tx.conn(),
+                        "DELETE FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?",
+                        vec![
+                            ace_store::Value::Text(id.to_owned()),
+                            ace_store::Value::Text(provider.clone()),
+                            ace_store::Value::Text(model.unwrap_or_default()),
+                        ],
+                    )?;
+                }
+            }
+            ace_store::stmt_cache::run(
+                tx.conn(),
+                "UPDATE engine_sessions SET model=? WHERE thread_id=?",
+                vec![
+                    selection
+                        .model
+                        .as_deref()
+                        .map_or(ace_store::Value::Null, |model| {
+                            ace_store::Value::Text(model.to_owned())
+                        }),
+                    ace_store::Value::Text(id.to_owned()),
+                ],
+            )?;
+            Ok(())
+        })?;
+        // The metadata keeps the other fields the transition wrote, with the new selection.
+        let mut metadata = ace_json::Map::new();
+        metadata.insert("selection", selection_json.clone());
+        for (key, value) in [
+            ("fork", previous.fork),
+            ("handoff", previous.handoff),
+            ("fallback", previous.fallback),
+        ] {
+            if let Some(value) = value {
+                metadata.insert(key, value);
+            }
+        }
+        if let Some(marker) = previous.marker {
+            metadata.insert("marker", Value::from(marker.as_str()));
+        }
+        if !previous.context.is_empty() {
+            metadata.insert(
+                "context",
+                Value::Array(
+                    previous
+                        .context
+                        .iter()
+                        .map(|entry| Value::from(entry.as_str()))
+                        .collect::<Vec<Value>>()
+                        .into(),
+                ),
+            );
+        }
+        self.transition_set(store, id, &Value::Object(metadata))?;
+        self.transition_remember(store, id, &selection_json)?;
+        if selection.model.is_some() {
+            let root = self
+                .repo
+                .require_state(store, id)?
+                .borrow()
+                .state
+                .root_key
+                .clone()
+                .unwrap_or_else(|| "root".to_owned());
+            let facts = ace_json::json!([{
+                "type": "agent.linked",
+                "agent": root,
+                "model": selection.model.as_ref().map(|model| model.0.clone()).unwrap_or_default(),
+            }]);
+            let facts = ace_json::to_string(&facts);
+            self.apply(store, id, &facts, at, None)?;
+        }
+        store.write_events(
+            id,
+            &ace_json::to_string(&ace_json::json!([{
+                "type": "thread.updated",
+                "execution": selection_json.clone(),
+            }])),
+            at,
+        )
+    }
 }
 
 #[cfg(test)]

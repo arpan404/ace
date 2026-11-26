@@ -323,3 +323,88 @@ fn command_metadata_reads_only_the_metadata_channels() {
         .expect("init");
     assert_eq!(found.get("subtype").and_then(Value::as_str), Some("init"));
 }
+
+#[test]
+fn a_confirmed_selection_is_remembered_on_the_session_and_the_transition() {
+    // model-selection.process.test.ts: a confirmed model selection updates snapshots, resume and
+    // cold SQLite recovery — the session row, the remembered option and the transition metadata.
+    let conn = crate::repository::testsupport::home(
+        "remember",
+        &crate::repository::testsupport::header("remember"),
+    );
+    let store = crate::repository::testsupport::Shell::store(&conn);
+    let mut state = crate::State::default();
+    // E5.7's interaction gate is another item's; the fold's own facts run as the probe's do.
+    state.repo.probe_passthrough = true;
+    let selection: ExecutionSelection = serde_json::from_value(serde_json::json!({
+        "provider": "claude",
+        "model": "opus",
+        "instanceId": "account",
+        "options": {"effort": "high"},
+    }))
+    .expect("selection");
+    state
+        .remember_selection(&store, "remember", &selection, 5.0)
+        .expect("remember");
+
+    let session = crate::sessions::metadata::session(&store, "remember").expect("session row");
+    assert_eq!(session.model.as_deref(), Some("opus"));
+    let transition = state
+        .transition_get(&store, "remember")
+        .expect("transition");
+    assert_eq!(
+        transition
+            .selection
+            .as_ref()
+            .and_then(|selection| selection.get("model"))
+            .and_then(Value::as_str),
+        Some("opus")
+    );
+    let option = ace_store::stmt_cache::get_row(
+        store.conn(),
+        "SELECT provider, model FROM engine_model_options WHERE thread_id='remember'",
+        vec![],
+    )
+    .expect("option");
+    let option = option.expect("the chosen model is remembered");
+    assert_eq!(
+        option.get("provider").and_then(|cell| match cell {
+            ace_store::Value::Text(text) => Some(text.as_str()),
+            _ => None,
+        }),
+        Some("claude")
+    );
+}
+
+#[test]
+fn a_default_choice_clears_the_remembered_option_it_replaces() {
+    let conn = crate::repository::testsupport::home(
+        "defaults",
+        &crate::repository::testsupport::header("defaults"),
+    );
+    let store = crate::repository::testsupport::Shell::store(&conn);
+    store
+        .conn()
+        .exec("INSERT INTO engine_model_options VALUES ('defaults','claude','default','{}')")
+        .expect("seed");
+    // The session still records the default it is replacing.
+    store
+        .conn()
+        .exec("UPDATE engine_sessions SET model='default' WHERE thread_id='defaults'")
+        .expect("old model");
+    let mut state = crate::State::default();
+    state.repo.probe_passthrough = true;
+    let default: ExecutionSelection =
+        serde_json::from_value(serde_json::json!({"provider":"claude","options":{}}))
+            .expect("selection");
+    state
+        .remember_selection(&store, "defaults", &default, 6.0)
+        .expect("remember");
+    let row = ace_store::stmt_cache::get_row(
+        store.conn(),
+        "SELECT provider FROM engine_model_options WHERE thread_id='defaults' AND model='default'",
+        vec![],
+    )
+    .expect("read");
+    assert!(row.is_none(), "the replaced default's option is gone");
+}
