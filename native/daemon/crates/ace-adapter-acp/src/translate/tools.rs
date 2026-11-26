@@ -56,7 +56,7 @@ fn numeric_value(value: &Value) -> Option<f64> {
 }
 
 /// A tool's interpreted detail.
-pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
+pub fn tool_detail(update: &Map, quirks: QuirksKind) -> Value {
     let input = object(update.get("rawInput").unwrap_or(&Value::Null));
     let output = object(update.get("rawOutput").unwrap_or(&Value::Null));
     let kind_field = string(update.get("kind").unwrap_or(&Value::Null));
@@ -337,7 +337,7 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
     }
 }
 
-fn changes_for_kind(update: &Value, kind: &str) -> Vec<Value> {
+fn changes_for_kind(update: &Map, kind: &str) -> Vec<Value> {
     let _ = kind;
     list(update.get("content").unwrap_or(&Value::Null))
         .iter()
