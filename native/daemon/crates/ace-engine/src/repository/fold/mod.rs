@@ -83,6 +83,28 @@ impl State {
             if self.goal_correction(store, id, &root, &input, now)? {
                 continue;
             }
+            // `provider-facts.ts:78`-`:85`: an echoed native input binds its transcript item to
+            // the run that consumed it. A reopen replays the stored transcript and never rebinds.
+            if kind(&input) == "input.consumed" {
+                if opening || text_field(&input, "agent") != Some(root.as_str()) {
+                    continue;
+                }
+                let native_ids: Vec<String> = match input.get("nativeInputIds") {
+                    Some(Value::Array(ids)) => ids
+                        .iter()
+                        .filter_map(|id| id.as_str().map(str::to_owned))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                for native_id in native_ids {
+                    if let Some(key) = self.input_key_for(id, &native_id)? {
+                        // The binding's payloads are events, not facts: they name the item's new
+                        // run for the clients and mark the record the save persists.
+                        emitted.extend(self.bind_consumed_input(id, &key, generation, now)?);
+                    }
+                }
+                continue;
+            }
             let queue = if kind(&input) == "turn.started" {
                 Some(self.queue_get(id)?)
             } else {
@@ -281,5 +303,161 @@ impl State {
             .borrow_mut()
             .update_deadlines(&raw_facts, &emitted, now as i64);
         Ok(FoldedFrame::new(snapshot, &raw_facts, emitted))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::actor::ActorDeps;
+    use crate::executor::{Notified, Notifier};
+    use crate::frames::live::UnportedLive;
+    use crate::repository::testsupport::{Shell, header, home};
+    use crate::{Engine, Inputs};
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    fn engine(conn: &Arc<ace_store::Connection>) -> Engine {
+        let (_, shell) = Shell::store_with_controls(conn);
+        Engine::new(
+            shell.clone(),
+            shell,
+            Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            conn,
+            Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+        )
+        .expect("the test engine constructs")
+    }
+
+    /// The root agent's id and its active run, after a turn started.
+    fn root_agent(engine: &Engine, thread: &str) -> (String, String) {
+        engine
+            .core()
+            .with_state(|state| {
+                let snapshot = state
+                    .repo
+                    .require_state(&engine.core().store, thread)
+                    .expect("the resident snapshot");
+                let borrowed = snapshot.borrow();
+                let record = &borrowed.state.agents["root"];
+                (
+                    record.agent.id.clone(),
+                    record.active_run.clone().expect("the turn started a run"),
+                )
+            })
+            .expect("the state is free")
+    }
+
+    /// A thread whose root has an active run: the E5.5 call a root turn start reaches is still
+    /// unported, so the probe scaffolding answers it. The journal rows are written afterwards,
+    /// so the turn start's `bindStartedRun` does not take the input first.
+    fn started_engine(thread: &str) -> (Arc<ace_store::Connection>, Engine) {
+        let conn = home(thread, &header(thread));
+        let engine = engine(&conn);
+        engine
+            .core()
+            .with_state(|state| state.repo.probe_passthrough = true)
+            .expect("the state is free");
+        engine
+            .core()
+            .apply(
+                thread,
+                r#"[{"type":"turn.started","agent":"root","trigger":"user","nativeTurnId":"turn-1"}]"#,
+                1.0,
+                None,
+            )
+            .expect("the turn starts");
+        (conn, engine)
+    }
+
+    /// The transcript's input message and its journal rows: a native id names it, and the
+    /// session was handed it with no run yet.
+    fn seed_input(conn: &Arc<ace_store::Connection>, thread: &str, agent: &str) {
+        conn.exec(&format!(
+            r#"INSERT INTO engine_state_records VALUES ('{thread}','items','input:send',
+                 '{{"id":"m1","threadId":"{thread}","agentId":"{agent}","createdAt":1,"complete":true,"type":"message","role":"user","parts":[{{"type":"text","text":"q"}}]}}');
+               INSERT INTO engine_input_identities VALUES ('{thread}','native:send','send');
+               INSERT INTO engine_inputs VALUES (1,'{thread}','input:send','sig','{{"kind":"person"}}',1,0,NULL,NULL);"#
+        ))
+        .expect("the input's rows");
+    }
+
+    fn echo(engine: &Engine, thread: &str) {
+        engine
+            .core()
+            .apply(
+                thread,
+                r#"[{"type":"input.consumed","agent":"root","nativeInputIds":["native:send"]}]"#,
+                2.0,
+                None,
+            )
+            .expect("the echo folds");
+    }
+
+    fn stored_input_run(conn: &Arc<ace_store::Connection>, thread: &str) -> Option<String> {
+        let row = ace_store::stmt_cache::get_row(
+            conn,
+            "SELECT run_id FROM engine_inputs WHERE thread_id=? AND item_key='input:send'",
+            vec![ace_store::Value::Text(thread.to_owned())],
+        )
+        .expect("the journal row")
+        .expect("the input's row");
+        match row.get("run_id") {
+            Some(ace_store::Value::Text(run)) => Some(run.clone()),
+            _ => None,
+        }
+    }
+
+    fn stored_item(conn: &Arc<ace_store::Connection>, thread: &str) -> String {
+        let row = ace_store::stmt_cache::get_row(
+            conn,
+            "SELECT value FROM engine_state_records WHERE thread_id=? AND section='items' AND key='input:send'",
+            vec![ace_store::Value::Text(thread.to_owned())],
+        )
+        .expect("the item's row")
+        .expect("the stored item");
+        match row.get("value") {
+            Some(ace_store::Value::Text(json)) => json.clone(),
+            other => panic!("expected the item's JSON, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_echoed_input_binds_its_message_to_the_run_that_consumed_it() {
+        let thread = "consumed";
+        let (conn, engine) = started_engine(thread);
+        let (agent, run) = root_agent(&engine, thread);
+        seed_input(&conn, thread, &agent);
+        echo(&engine, thread);
+        assert_eq!(stored_input_run(&conn, thread), Some(run.clone()));
+        assert!(
+            stored_item(&conn, thread).contains(&format!(r#""runId":"{run}""#)),
+            "{}",
+            stored_item(&conn, thread)
+        );
+    }
+
+    #[test]
+    fn a_reopen_replays_a_consumed_input_without_rebinding_it() {
+        let thread = "reopened";
+        let (conn, engine) = started_engine(thread);
+        let (agent, _) = root_agent(&engine, thread);
+        seed_input(&conn, thread, &agent);
+        engine
+            .core()
+            .with_state(|state| state.repo.opening.insert(thread.to_owned()))
+            .expect("the state is free");
+        echo(&engine, thread);
+        assert_eq!(stored_input_run(&conn, thread), None);
+        assert!(!stored_item(&conn, thread).contains("runId"));
     }
 }

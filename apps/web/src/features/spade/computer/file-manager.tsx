@@ -1,23 +1,33 @@
+import { isMarkdownPath } from "@ace/ui-core";
 import {
   focusedGroup,
-  groupsOf,
   openEditor,
   openEditorToSide,
+  setViewState,
   type EditorLayout,
 } from "@ace/ui-core/editor-workbench";
-import { FolderPlusIcon, SidebarSimpleIcon, UploadSimpleIcon } from "@ace/icons";
+import { DotsThreeIcon, FolderPlusIcon, SidebarSimpleIcon, UploadSimpleIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useElementSize } from "@/lib/element-size.ts";
+import { cn } from "@/lib/cn.ts";
 import { groupIds } from "@/lib/workspace/index.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { saveAs } from "../save-as.ts";
 import { SpadeRequestError } from "../spade-requests.ts";
+import { PanelSurfaceHeader, roundButton } from "../spade-profile-parts.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "../spade-machine.tsx";
 import {
@@ -35,21 +45,21 @@ import {
   spadeEditorRoot,
 } from "./editor/spade-editor-registry.ts";
 import { SpadeFileTree, type OpenHow } from "./editor/spade-file-tree.tsx";
+import { PanelFileList } from "./panel-file-list.tsx";
+import type { FilesAt } from "./files-at.ts";
 
 /** Why a change to the bot's files can't be made now: the computer is changing hands. */
 export const notNowToChange = "Files can change once the computer is yours or shared again";
 
-/** Narrower than this, the files and the editor take turns instead of sitting side by side. */
+/** Narrower than this, the panel shows one level at a time instead of tree beside editor. */
 const sideBySide = 560;
 
-/**
- * A bot's files in ace's editor: its explorer (the files as a tree, Upload, New folder, and on
- * each row's ⋯ Download, Rename or move, Delete after asking) beside the editor's tabs. The tree
- * reads again, and open files check their revision, when the bot's stream says its files changed.
- * Browsing and downloads always work; every change needs the person able to act (`writable`:
- * cowork, or exclusive while they drive), checked again right before it goes, so nothing lands
- * while the computer changes hands.
- */
+/** What the side panel gives `FileManager` so its header stays synced with the open file or folder. */
+export interface PanelFileHost {
+  onBack(): void;
+  onExpand(at: FilesAt): void;
+}
+
 /** What the person saw of a file before changing it. */
 type Seen =
   | { kind: "revision"; revision: string | undefined }
@@ -62,7 +72,41 @@ const couldntCheck = "Couldn't check the file. Try again.";
 /** Every folder on the way to `folder`, outermost first: "a", "a/b". */
 const foldersTo = (folder: string) =>
   folder ? folder.split("/").map((_, index, parts) => parts.slice(0, index + 1).join("/")) : [];
+const fileName = (path: string) => path.split("/").at(-1) ?? path;
+const parentFolder = (path: string) => path.split("/").slice(0, -1).join("/");
 
+/**
+ * Whether the panel container is narrower than `breakpoint`, observed on the container itself
+ * (never the window). In panel mode without layout measurements (jsdom), stays narrow by default.
+ */
+function usePanelNarrow(
+  ref: RefObject<HTMLElement | null>,
+  enabled: boolean,
+  breakpoint: number,
+): boolean {
+  const [narrow, setNarrow] = useState(enabled);
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width > 0) setNarrow(width < breakpoint);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, enabled, breakpoint]);
+  return enabled ? narrow : false;
+}
+
+/**
+ * A bot's files in ace's editor: full-height desktop tree beside the editor in full screen or a
+ * wide panel (>= 560px), and a calm single-level list or clean reader in a narrow side panel
+ * (< 560px), adapting to the panel container via `@container/panel`.
+ */
 export function FileManager(props: {
   bot: { id: string; name: string };
   /** The folder a link pointed at: it opens in the tree, and new files go there. */
@@ -72,8 +116,10 @@ export function FileManager(props: {
   side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined;
   /** The person may act: their changes may go to Spade. */
   writable: boolean;
+  /** Set when mounted inside the side panel: renders the panel header and adapts at 560px. */
+  panel?: PanelFileHost | undefined;
 }) {
-  const { bot } = props;
+  const { bot, panel } = props;
   // Read again right before each change goes, after any wait (a confirmation, a file's bytes).
   const writable = useRef(props.writable);
   useEffect(() => {
@@ -87,16 +133,18 @@ export function FileManager(props: {
   const [renaming, setRenaming] = useState<string>();
   /** The folder a new folder's name is being typed in. */
   const [making, setMaking] = useState<string>();
-  /** Where Upload and New folder put things: the folder last opened in the tree. */
+  /** Where Upload and New folder put things: the folder last opened. */
   const [folder, setFolder] = useState(props.folder);
+  const [initialFolder, setInitialFolder] = useState(props.folder);
+  const [browsing, setBrowsing] = useState(props.file === undefined);
+  const [enteredOnFile, setEnteredOnFile] = useState(props.file !== undefined);
   const picker = useRef<HTMLInputElement>(null);
   const workspaceKey = ["spade", "workspace", machine.key, bot.id] as const;
   const folderKey = (path: string) => [...workspaceKey, path] as const;
   const root = spadeEditorRoot(machine.key, bot.id);
   const registry = spadeEditorRegistry(client);
   const { layout, change, current } = useSpadeEditorLayout(root);
-  // The editor's buffers read once its passive effects run: the bot's files are bound in a layout
-  // effect, which runs before them. A binding stays (see `bindSpadeRoot`), so it needs no cleanup.
+
   useLayoutEffect(() => {
     bindSpadeRoot(root, {
       target: client,
@@ -119,13 +167,10 @@ export function FileManager(props: {
     [props.side, cache, registry, root],
   );
 
-  // Room: side by side when there is, else the files and the editor take turns.
-  const box = useRef<HTMLDivElement>(null);
-  const width = useElementSize(box).width;
-  const narrow = width < sideBySide;
-  const [browsing, setBrowsing] = useState(false);
+  // Panel container width: adapts between single-level narrow panel and wide tree+editor.
+  const box = useRef<HTMLElement>(null);
+  const narrow = usePanelNarrow(box, Boolean(panel), sideBySide);
   const explorer = layout.explorer;
-  const showFiles = narrow ? browsing || !anyOpen(layout) : explorer.open;
   const setExplorer = (patch: Partial<EditorLayout["explorer"]>) =>
     change({ ...current(), explorer: { ...current().explorer, ...patch } });
   const expanded = new Set(explorer.expanded);
@@ -147,12 +192,19 @@ export function FileManager(props: {
     );
     setBrowsing(false);
   };
+
   // A link's folder opens in the tree (new files go there), and its file in the editor.
   const [linked, setLinked] = useState({ folder: props.folder, file: props.file });
   if (linked.folder !== props.folder || linked.file !== props.file) {
     setLinked({ folder: props.folder, file: props.file });
-    if (linked.folder !== props.folder) setFolder(props.folder);
-    if (linked.file !== props.file) setBrowsing(false);
+    if (linked.folder !== props.folder) {
+      setFolder(props.folder);
+      setInitialFolder(props.folder);
+    }
+    if (linked.file !== props.file) {
+      setBrowsing(props.file === undefined);
+      setEnteredOnFile(props.file !== undefined);
+    }
   }
   useEffect(() => {
     if (!props.folder) return;
@@ -175,11 +227,6 @@ export function FileManager(props: {
         ? "It changed since you opened it. Look again, then try once more."
         : message(error),
     });
-  /**
-   * A file as the person sees it now, read when they begin a change (opening Delete's question,
-   * starting a rename, picking a file to replace): the change names its revision and is refused
-   * if the file moves on before it goes. Fails closed: when the read fails, nothing is sent.
-   */
   const seenOf = (path: string): Promise<Seen> =>
     readFile(client, bot.id, path).then(
       (file): Seen => ({ kind: "revision", revision: file.revision }),
@@ -188,19 +235,13 @@ export function FileManager(props: {
           ? { kind: "gone" }
           : { kind: "unchecked" },
     );
-  /** What the person saw of the file a rename started from. */
   const renameSeen = useRef<Promise<Seen>>(undefined);
   const inFolder = (name: string) => (folder ? `${folder}/${name}` : name);
-  /** Whether a change may go now; says why not when it can't. */
   const mayWrite = () => {
     if (writable.current) return true;
     toast.error({ title: notNowToChange });
     return false;
   };
-  /**
-   * The revision a change of `name` goes with, or undefined after saying why it can't go: the
-   * file couldn't be checked, or (for a change of the file itself) it is gone.
-   */
   const baseFor = (saw: Seen, name: string): { revision: string | undefined } | undefined => {
     if (saw.kind === "revision") return { revision: saw.revision };
     if (saw.kind === "unchecked") toast.error({ title: couldntCheck });
@@ -215,19 +256,16 @@ export function FileManager(props: {
     for (const file of files) {
       if (!mayWrite()) break;
       const path = inFolder(file.name);
-      // Replacing a file shown here: only the one the person saw.
       const replaced = cache
         .getQueryData<SpadeFolder>(folderKey(folder))
         ?.entries.some((entry) => entry.kind === "file" && entry.path === path);
       const seen = replaced ? seenOf(path) : Promise.resolve(unseen);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const saw = await seen;
-      // Gone since: a new file, which needs no revision. Unreadable: not this one.
       if (saw.kind === "unchecked") {
         toast.error({ title: couldntCheck, description: file.name });
         continue;
       }
-      // Reading took a while: the person may have handed back meanwhile.
       if (!mayWrite()) break;
       const opened = saw.kind === "revision" ? saw.revision : undefined;
       await uploadFile(client, bot.id, path, bytes, opened).catch(
@@ -238,10 +276,9 @@ export function FileManager(props: {
   };
   const download = (path: string) =>
     void downloadFile(client, bot.id, path).then(
-      (blob) => saveAs(blob, path.split("/").at(-1) ?? "file"),
+      (blob) => saveAs(blob, fileName(path)),
       failed("Couldn't download the file"),
     );
-  /** Asks first; `opened` is the revision the person saw (the open file's), else read now. */
   const remove = (entry: Pick<SpadeFileEntry, "path" | "name" | "kind">, opened?: string) => {
     const seen: Promise<Seen> =
       entry.kind === "file" && opened === undefined
@@ -255,21 +292,21 @@ export function FileManager(props: {
           : `This deletes ${entry.path} from ${bot.name}'s files.`,
       confirm: "Delete",
       run: () => {
-        // Asked first: the person may have handed back while the question was open.
         if (!mayWrite()) return;
         void seen.then((saw) => {
           const base = baseFor(saw, entry.name);
-          // Checked again once the revision is in, right before it goes.
           if (!base || !mayWrite()) return;
           return deletePath(client, bot.id, entry.path, base.revision).then(
-            refresh,
+            () => {
+              if (entry.path === focusedGroup(current()).active) setBrowsing(true);
+              refresh();
+            },
             failed(`Couldn't delete ${entry.name}`),
           );
         });
       },
     });
   };
-  // Paths go as typed: Spade keeps them inside the workspace.
   const startRename = (entry: Pick<SpadeFileEntry, "path" | "kind">) => {
     renameSeen.current = entry.kind === "file" ? seenOf(entry.path) : Promise.resolve(unseen);
     setRenaming(entry.path);
@@ -281,7 +318,6 @@ export function FileManager(props: {
     if (!to || to === from || !mayWrite()) return;
     void seen.then((saw) => {
       const base = baseFor(saw, from);
-      // Checked again once the revision is in, right before it goes.
       if (!base || !mayWrite()) return;
       return movePath(client, bot.id, from, to, base.revision).then(
         refresh,
@@ -294,13 +330,14 @@ export function FileManager(props: {
     if (!name || !mayWrite()) return;
     void makeFolder(client, bot.id, inFolder(name)).then(refresh, failed(`Couldn't make ${name}`));
   };
+
   const reason = props.writable ? undefined : notNowToChange;
   const menu = (entry: SpadeFileEntry) => (
     <>
       {entry.kind !== "folder" && (
         <MenuItem onClick={() => open(entry.path, "keep")}>Open</MenuItem>
       )}
-      {entry.kind !== "folder" && (
+      {entry.kind !== "folder" && !narrow && (
         <MenuItem onClick={() => open(entry.path, "side")}>Open to the side</MenuItem>
       )}
       {entry.kind === "file" && <MenuItem onClick={() => download(entry.path)}>Download</MenuItem>}
@@ -312,22 +349,191 @@ export function FileManager(props: {
       </MenuItem>
     </>
   );
-  const currentFile = focusedGroup(layout).active;
 
-  return (
+  const activeGroup = focusedGroup(layout);
+  const currentFile = activeGroup.active;
+  const shownFile = browsing ? undefined : (currentFile ?? props.file);
+  const showingList = narrow && (browsing || shownFile === undefined);
+  const showingFile = narrow && !browsing && shownFile !== undefined;
+  const activeTab = shownFile ? activeGroup.tabs.find((tab) => tab.path === shownFile) : undefined;
+  const markdownMode =
+    shownFile && isMarkdownPath(shownFile)
+      ? activeTab?.view?.["markdown"] === "source"
+        ? ("source" as const)
+        : ("preview" as const)
+      : undefined;
+  const setMarkdownMode = (next: "preview" | "source") => {
+    if (!shownFile) return;
+    const now = current();
+    const group = focusedGroup(now);
+    const tab = group.tabs.find((each) => each.path === shownFile);
+    change(
+      setViewState(now, { group: group.id, path: shownFile }, { ...tab?.view, markdown: next }),
+    );
+  };
+
+  const panelTitle = showingFile
+    ? fileName(shownFile)
+    : narrow && folder
+      ? fileName(folder)
+      : !narrow && currentFile
+        ? fileName(currentFile)
+        : "Files";
+
+  const onPanelBack = () => {
+    if (!panel) return;
+    if (narrow) {
+      if (showingFile) {
+        if (enteredOnFile) panel.onBack();
+        else setBrowsing(true);
+        return;
+      }
+      if (folder && folder !== initialFolder) {
+        setFolder(parentFolder(folder));
+        return;
+      }
+    }
+    panel.onBack();
+  };
+
+  const onPanelExpand = () => {
+    if (!panel) return;
+    const file = showingList ? undefined : (currentFile ?? (browsing ? undefined : props.file));
+    panel.onExpand({
+      folder: file ? parentFolder(file) : folder,
+      ...(file ? { file } : {}),
+    });
+  };
+
+  const panelHeaderActions = panel && narrow && (
+    <Menu>
+      <MenuTrigger
+        render={
+          <IconButton
+            icon={DotsThreeIcon}
+            label={showingFile ? "File options" : "More"}
+            tip="More"
+            size="default"
+            className={cn(roundButton, "@[560px]/panel:hidden")}
+          />
+        }
+      />
+      <MenuContent align="end">
+        {showingFile ? (
+          <>
+            {markdownMode && (
+              <>
+                <MenuRadioGroup
+                  value={markdownMode}
+                  onValueChange={(next) =>
+                    setMarkdownMode(next === "source" ? "source" : "preview")
+                  }
+                >
+                  <MenuRadioItem value="preview">Preview</MenuRadioItem>
+                  <MenuRadioItem value="source">Source</MenuRadioItem>
+                </MenuRadioGroup>
+                <MenuSeparator />
+              </>
+            )}
+            {enteredOnFile && (
+              <MenuItem
+                onClick={() => {
+                  setEnteredOnFile(false);
+                  setBrowsing(true);
+                }}
+              >
+                All files
+              </MenuItem>
+            )}
+            <MenuItem onClick={() => download(shownFile)}>Download</MenuItem>
+            <MenuItem
+              disabled={!props.writable}
+              reason={reason}
+              onClick={() => {
+                setEnteredOnFile(false);
+                setBrowsing(true);
+                setFolder(parentFolder(shownFile));
+                startRename({ path: shownFile, kind: "file" });
+              }}
+            >
+              Rename or move
+            </MenuItem>
+            <MenuItem
+              danger
+              disabled={!props.writable}
+              reason={reason}
+              onClick={() => remove({ path: shownFile, name: fileName(shownFile), kind: "file" })}
+            >
+              Delete
+            </MenuItem>
+          </>
+        ) : (
+          <>
+            <MenuItem
+              disabled={!props.writable}
+              reason={reason}
+              onClick={() => picker.current?.click()}
+            >
+              Upload
+            </MenuItem>
+            <MenuItem disabled={!props.writable} reason={reason} onClick={() => setMaking(folder)}>
+              New folder
+            </MenuItem>
+          </>
+        )}
+      </MenuContent>
+    </Menu>
+  );
+
+  const uploadInput = (
+    <input
+      ref={picker}
+      type="file"
+      multiple
+      hidden
+      aria-label="Files to upload"
+      onChange={(event) => {
+        const files = event.target.files;
+        if (files?.length) void upload(files);
+        event.target.value = "";
+      }}
+    />
+  );
+
+  const showDesktopTree = !narrow && explorer.open;
+  const body = (
     <div
-      ref={box}
-      className="flex h-[max(26rem,calc(100dvh-24rem))] min-h-0 overflow-hidden border-y border-border"
+      className={cn(
+        "flex min-h-0 flex-1 overflow-hidden",
+        !panel && "border-t border-border",
+        panel && !narrow && "border-t border-border",
+      )}
     >
-      {showFiles && (
+      {showingList && (
+        <PanelFileList
+          bot={bot}
+          folder={folder}
+          folderKey={folderKey}
+          onOpenFolder={(path) => setFolder(path)}
+          onOpenFile={(path) => open(path, "keep")}
+          writable={props.writable}
+          onUpload={() => picker.current?.click()}
+          renaming={renaming}
+          onRenamed={move}
+          making={making}
+          onMade={create}
+          menu={menu}
+          className="@[560px]/panel:hidden"
+        />
+      )}
+      {showDesktopTree && (
         <aside
           aria-label={`${bot.name}'s files`}
-          style={narrow ? undefined : { width: Math.min(explorer.width, 240) }}
-          className={
-            narrow
-              ? "flex min-w-0 flex-1 flex-col"
-              : "flex shrink-0 flex-col border-r border-border"
-          }
+          style={{ width: Math.min(explorer.width, 240) }}
+          className={cn(
+            "flex shrink-0 flex-col border-r border-border",
+            panel && "hidden @[560px]/panel:flex",
+          )}
         >
           <div
             data-part="tabs"
@@ -354,25 +560,11 @@ export function FileManager(props: {
                 className="size-7 rounded-sm hover:bg-hover"
               />
             </DisabledReason>
-            {(narrow ? anyOpen(layout) : true) && (
-              <IconButton
-                icon={SidebarSimpleIcon}
-                label={narrow ? "Back to the editor" : "Hide files"}
-                onClick={() => (narrow ? setBrowsing(false) : setExplorer({ open: false }))}
-                className="size-7 rounded-sm hover:bg-hover"
-              />
-            )}
-            <input
-              ref={picker}
-              type="file"
-              multiple
-              hidden
-              aria-label="Files to upload"
-              onChange={(event) => {
-                const files = event.target.files;
-                if (files?.length) void upload(files);
-                event.target.value = "";
-              }}
+            <IconButton
+              icon={SidebarSimpleIcon}
+              label="Hide files"
+              onClick={() => setExplorer({ open: false })}
+              className="size-7 rounded-sm hover:bg-hover"
             />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -394,7 +586,7 @@ export function FileManager(props: {
           </div>
         </aside>
       )}
-      {!(narrow && showFiles) && (
+      {!showingList && (
         <SpadeEditor
           root={root}
           bot={bot}
@@ -403,22 +595,43 @@ export function FileManager(props: {
           current={current}
           writable={props.writable}
           onDownload={download}
+          compact={narrow}
+          chromeClassName={panel ? "@max-[559px]/panel:hidden" : undefined}
           explorerToggle={
-            showFiles ? undefined : (
+            showDesktopTree || narrow ? undefined : (
               <IconButton
                 icon={SidebarSimpleIcon}
                 label="Show files"
-                onClick={() => (narrow ? setBrowsing(true) : setExplorer({ open: true }))}
+                onClick={() => setExplorer({ open: true })}
                 className="ml-1 size-7 shrink-0 rounded-sm hover:bg-hover"
               />
             )
           }
         />
       )}
+      {uploadInput}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </div>
   );
-}
 
-/** Whether any pane has a file open. */
-const anyOpen = (layout: EditorLayout) => groupsOf(layout).some((group) => group.tabs.length > 0);
+  if (panel) {
+    return (
+      <section
+        ref={box}
+        aria-label={panelTitle}
+        className="@container/panel flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        <PanelSurfaceHeader
+          title={panelTitle}
+          onBack={onPanelBack}
+          onExpand={onPanelExpand}
+          actions={panelHeaderActions}
+          border={showingFile}
+        />
+        {body}
+      </section>
+    );
+  }
+
+  return <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">{body}</div>;
+}

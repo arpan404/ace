@@ -9,6 +9,10 @@ export interface UsageScannerOptions {
   spawn?(entry: URL): ChildProcess;
 }
 
+export function storageUsageWorkerEntry(): URL {
+  return new URL("./usage-worker.ts", import.meta.url);
+}
+
 /** One read-only process per scan. Kernel-owned descriptors die with a crashed worker. */
 export class UsageScanner {
   private root: string;
@@ -24,7 +28,7 @@ export class UsageScanner {
     if (this.active) throw new Error("storage_busy");
     signal?.throwIfAborted();
     const limits = UsageLimits.parse(this.options.limits ?? {});
-    const entry = new URL("./usage-worker.ts", import.meta.url);
+    const entry = storageUsageWorkerEntry();
     const worker =
       this.options.spawn?.(entry) ??
       fork(entry, [], {
@@ -80,7 +84,7 @@ export class UsageScanner {
     worker.on("message", (input: unknown) => {
       const reply = UsageWorkerReply.safeParse(input);
       if (cancelled) result.reject(new Error("storage_usage_cancelled"));
-      else if (!reply.success || reply.data.kind === "error")
+      else if (!reply.success || reply.data.kind !== "usage")
         result.reject(new Error("storage_usage_failed"));
       else result.resolve(reply.data.usage);
     });

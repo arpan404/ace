@@ -53,6 +53,13 @@ pub struct Link {
     /// The asks-ledger ids (main's) this lane owns.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asks: Vec<String>,
+    /// The last genuine person message copied from main, with its original id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_source: Option<PersonSource>,
+    /// Number of initial events copied or synthesized by the harness, including this link.
+    /// Older lanes have only the unverified synthetic opening message.
+    #[serde(default, skip_serializing_if = "no_copied_events")]
+    pub copied_events: usize,
     /// Main had untrusted content in view when it wrote the brief (ADR 0161's rule): the brief
     /// reaches the lane as the bot's message, which taints the lane's turn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -60,6 +67,63 @@ pub struct Link {
     /// The main reply this lane carries on, when Spade moved it (ADR 0217 §2a).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_from: Option<String>,
+}
+
+fn no_copied_events(count: &usize) -> bool {
+    *count == 0
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonSource {
+    pub id: String,
+    pub text: String,
+}
+
+pub fn person_source(events: &[Event], ids: &[String]) -> Option<PersonSource> {
+    ids.iter()
+        .filter_map(|id| {
+            if id.contains('.') {
+                return None;
+            }
+            let index = usize::try_from(crate::chat_markup::seq_of(id)?)
+                .ok()?
+                .checked_sub(1)?;
+            let event = events.get(index)?;
+            crate::asks::person_text(event).map(|text| {
+                (
+                    index,
+                    PersonSource {
+                        id: id.clone(),
+                        text: text.to_owned(),
+                    },
+                )
+            })
+        })
+        .max_by_key(|(index, _)| *index)
+        .map(|(_, source)| source)
+}
+
+pub fn moved_person_source(events: &[Event], reply: &str) -> Option<PersonSource> {
+    let start = events.iter().rposition(|event| {
+        matches!(event,
+            Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply
+        )
+    })?;
+    let floor = events[..start]
+        .iter()
+        .rposition(is_reply_end)
+        .map_or(0, |at| at + 1);
+    events
+        .iter()
+        .enumerate()
+        .skip(floor)
+        .rev()
+        .find_map(|(index, event)| {
+            crate::asks::person_text(event).map(|text| PersonSource {
+                id: crate::chat_markup::id(index as u64 + 1, 0),
+                text: text.to_owned(),
+            })
+        })
 }
 
 /// `lane_started`, in main: the bot started a lane.
@@ -712,8 +776,21 @@ pub fn move_due(events: &[Event], reply: &str, elapsed_ms: i64) -> bool {
         return false;
     }
     // Jobs and wakes move with it (or stay with main, named); only the person holds it here.
-    let waiting = !transcript.awaiting.is_empty() || transcript.asking();
-    !waiting && steps > 0
+    if !transcript.awaiting.is_empty() || transcript.asking() || steps == 0 {
+        return false;
+    }
+    // A question left for later does not pause the turn, but copying it to the lane would
+    // give it a second owner. Wait until the original question is answered or dismissed.
+    let mut cards = crate::question::OpenCards::default();
+    let current = events.iter().rposition(
+        |event| matches!(event, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
+    );
+    if let Some(start) = current {
+        for event in &events[start..] {
+            cards.read(event);
+        }
+    }
+    !cards.any()
 }
 
 /// Whether main's task was last set in a reply Spade moved to a lane (ADR 0217 §2a): the lane
@@ -763,7 +840,19 @@ pub fn moved(events: &[Event], reply: &str) -> Option<(Vec<Event>, Vec<String>)>
         *context = recent_chat(&events[..previous_end]);
     }
     let mut lane = vec![first];
-    lane.extend(events[start..].iter().cloned());
+    // A move starts at a quiet boundary. The calls and their results carry on,
+    // but the request cards were shown in main and keep their original owner.
+    lane.extend(
+        events[start..]
+            .iter()
+            .filter(|event| {
+                !matches!(
+                    event,
+                    Event::Known(Known::ApprovalRequested { .. } | Known::QuestionAsked { .. })
+                )
+            })
+            .cloned(),
+    );
     Some((lane, asks))
 }
 
@@ -886,6 +975,23 @@ pub fn persons_words(events: &[Event], id: &str) -> Option<String> {
     }
 }
 
+/// What the task will do, in one line for its card: its goal's title, else the first line of the
+/// brief it was started with (its first user message).
+pub fn brief_line(events: &[Event], goal_title: Option<&str>) -> Option<String> {
+    let first = |text: &str| {
+        text.lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(str::to_owned)
+    };
+    goal_title.and_then(first).or_else(|| {
+        events.iter().find_map(|event| match event {
+            Event::Known(Known::UserMessage { text, .. }) => first(text),
+            _ => None,
+        })
+    })
+}
+
 /// What a lane reads for a job of the moved reply that stayed with main (ADR 0217 §2a).
 pub const KEPT_JOB: &str =
     "Job stayed in main chat; main will forward what you need via task_message when it ends.";
@@ -903,7 +1009,7 @@ pub fn note(event: &Known) -> String {
             };
             format!(
                 "<moved task=\"{}\" from=\"spade\">\nMoved to task {}, which continues this work \
-                 with its jobs and waits transferred (the person was told); you are free to \
+                 with its jobs and waits transferred (its card shows it; say nothing of it); you are free to \
                  talk.{kept}\n</moved>",
                 moved.lane,
                 quoted(&moved.title)

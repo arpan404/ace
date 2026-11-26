@@ -1,5 +1,6 @@
 import type { CatalogMention } from "@ace/protocol";
 import {
+  catalogMark,
   pickSuggestion,
   suggestionToken,
   type ComposerSuggestion,
@@ -52,11 +53,17 @@ export function suggestionRow(
     detail: source.detail ? preview(source.detail, 512) : null,
     icon: source.path
       ? "file"
-      : source.threadId
-        ? "thread"
-        : source.tab
-          ? "tab"
-          : (source.entry?.kind ?? "command"),
+      : source.tab
+        ? "tab"
+        : source.device
+          ? "device"
+          : source.addressee
+            ? "agent"
+            : source.threadId
+              ? "thread"
+              : source.entry && catalogMark(source.entry).kind === "app"
+                ? "app"
+                : (source.entry?.kind ?? "command"),
     pick: pick.kind,
     notice: pick.kind === "refused" ? pick.notice : null,
     action: pick.kind === "action" ? pick.action : null,

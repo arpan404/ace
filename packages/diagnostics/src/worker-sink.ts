@@ -6,6 +6,7 @@ import type { BatchSink, LogRecord } from "./logger.ts";
 import type { FileSinkOptions } from "./file-sink.ts";
 import { appendLogLinesSync, openFileSink } from "./file-sink.ts";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import { redactedLine } from "./trusted.ts";
 const WorkerAcknowledgement = z.object({
   ready: z.boolean().optional(),
   ok: z.boolean().optional(),
@@ -21,7 +22,7 @@ export async function createFileSink(
 ): Promise<BatchSink> {
   const redact = createDiagnosticRedactor(options.context);
   const lines = (records: readonly LogRecord[]) =>
-    records.map((entry) => redact(JSON.stringify(entry)) + "\n");
+    records.map((entry) => redactedLine(entry, redact) + "\n");
   // Crash-path appends rescan the directory, so they need only the latest cap.
   let limits: FileSinkOptions = {
     directory: options.directory,

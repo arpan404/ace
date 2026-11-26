@@ -5,14 +5,7 @@ import { AppMark } from "@/components/ui/app-mark.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
-import {
-  CardBody,
-  CardFooter,
-  CardPrimary,
-  CardWord,
-  NeedsYouLine,
-  RaisedCard,
-} from "./spade-card.tsx";
+import { CardActions, CardBody, NeedsYouLine, RaisedCard } from "./spade-card.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { ConnectProgress } from "./spade-connect-progress.tsx";
 import { connectProgress, useConnectApp } from "./use-connect-app.ts";
@@ -182,34 +175,36 @@ export function ConnectAppCard(props: {
           </p>
         )}
       </CardBody>
-      <CardFooter
-        start={
-          <>
-            {props.onLater && (
-              <CardWord disabled={busy} onClick={props.onLater}>
-                Later
-              </CardWord>
-            )}
-            {props.onNotNow && (
-              <CardWord disabled={busy} onClick={props.onNotNow}>
-                Not now
-              </CardWord>
-            )}
-          </>
+      <CardActions
+        secondary={[
+          props.onLater && {
+            key: "later",
+            label: "Later",
+            disabled: busy,
+            onClick: props.onLater,
+          },
+          props.onNotNow && {
+            key: "not-now",
+            label: "Not now",
+            disabled: busy,
+            onClick: props.onNotNow,
+          },
+        ]}
+        primary={
+          action
+            ? {
+                label: giving
+                  ? "Connecting…"
+                  : failure && flow.phase.kind === "failed"
+                    ? "Try again"
+                    : action,
+                disabled: busy,
+                hint: needsKey ? "enter" : undefined,
+                onClick: act,
+              }
+            : undefined
         }
-        end={
-          action ? (
-            <CardPrimary disabled={busy} onClick={act}>
-              {giving
-                ? "Connecting…"
-                : failure && flow.phase.kind === "failed"
-                  ? "Try again"
-                  : action}
-            </CardPrimary>
-          ) : (
-            <span className="text-ui text-muted-foreground">Not available yet</span>
-          )
-        }
+        primaryFallback={<span className="text-ui text-muted-foreground">Not available yet</span>}
       />
     </RaisedCard>
   );

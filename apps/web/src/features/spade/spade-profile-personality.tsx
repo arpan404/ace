@@ -45,15 +45,21 @@ export function ProfilePersonality(props: { bot: RosterBot }) {
     setShown(undefined);
   };
   return (
-    <ProfileSection label="Personality">
-      <PersonalityRows value={now} onChange={(next) => void save(next)} />
-      {bot.kind !== "main" && <AccentRow bot={bot} />}
-      {refusal && (
-        <p data-setting-slot="" className="py-2 text-xs">
-          <Refusal>{refusal}</Refusal>
-        </p>
+    <>
+      <ProfileSection label="Style">
+        <PersonalityRows value={now} onChange={(next) => void save(next)} />
+        {refusal && (
+          <p data-setting-slot="" className="py-2 text-xs">
+            <Refusal>{refusal}</Refusal>
+          </p>
+        )}
+      </ProfileSection>
+      {bot.kind !== "main" && (
+        <ProfileSection label="Appearance">
+          <AccentRow bot={bot} />
+        </ProfileSection>
       )}
-    </ProfileSection>
+    </>
   );
 }
 

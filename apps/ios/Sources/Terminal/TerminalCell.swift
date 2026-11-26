@@ -45,6 +45,8 @@ struct TerminalStyle: Hashable, Sendable {
     var foreground = TerminalColour.standard
     var background = TerminalColour.standard
     var flags: TerminalFlags = []
+    /// The OSC 8 hyperlink the cell belongs to, 1-based in the screen's registry (0: none).
+    var link: UInt16 = 0
     static let plain = TerminalStyle()
 }
 

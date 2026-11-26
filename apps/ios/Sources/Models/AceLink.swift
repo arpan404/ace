@@ -57,6 +57,7 @@ extension SettingsRoute {
         case "notifications": [.notifications]
         case "lock": [.lock]
         case "appearance", "general": [.appearance]
+        case "editor", "code": [.editor]
         case "keyboard", "shortcuts": [.keyboard]
         case "cache": [.cache]
         case "archive", "archived": [.archive]

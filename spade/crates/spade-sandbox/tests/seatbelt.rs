@@ -562,3 +562,119 @@ fn an_offline_runs_environment_is_restored_only_inside_the_sandbox() {
         .unwrap_or_else(|error| panic!("{error}"));
     assert!(!bare.status.success());
 }
+
+fn guarded_outside(home: &Path, script: &str) -> std::io::Result<std::process::Output> {
+    use spade_sandbox::{credentials, seatbelt};
+    let profile = seatbelt::credentials_only(home, &[], None, &credentials::places(home));
+    Command::new(seatbelt::SANDBOX_EXEC)
+        .args(["-p", &profile, "/bin/sh", "-c", script])
+        .env_clear()
+        .env("HOME", home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+}
+
+#[test]
+fn an_outside_run_cannot_move_a_credential_stores_parent() -> Result<(), Box<dyn std::error::Error>>
+{
+    let world = world();
+    let secret = world.home.join(".config/gh/hosts.yml");
+    std::fs::create_dir_all(world.home.join(".config/gh"))?;
+    std::fs::write(&secret, "dummy credential")?;
+    let alias = Path::new("/System/Volumes/Data").join(secret.strip_prefix("/")?);
+    assert_eq!(std::fs::read_to_string(alias)?, "dummy credential");
+    let run = guarded_outside(
+        &world.home,
+        r#"
+        mv ~/.config ~/.config-moved && exit 10
+        mv "/System/Volumes/Data$HOME/.config" ~/.config-moved && exit 11
+        cat ~/.config/gh/hosts.yml && exit 12
+        mv ~/.config/gh ~/.gh-moved && exit 13
+        mv ~/.cargo ~/.cargo-moved && exit 14
+        exit 0
+        "#,
+    )?;
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(secret)?, "dummy credential");
+    assert!(!world.home.join(".config-moved").exists());
+    assert!(!world.home.join(".gh-moved").exists());
+    assert!(!world.home.join(".cargo-moved").exists());
+    Ok(())
+}
+
+#[test]
+fn an_outside_run_can_write_next_to_a_credential_store() -> std::io::Result<()> {
+    let world = world();
+    std::fs::create_dir_all(world.home.join(".config/gh"))?;
+    let run = guarded_outside(
+        &world.home,
+        "mkdir -p ~/.config/some-other-app && printf normal > ~/.config/some-other-app/settings",
+    )?;
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(world.home.join(".config/some-other-app/settings"))?,
+        "normal"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_outside_run_cannot_remove_or_replace_an_existing_ancestor() -> std::io::Result<()> {
+    let world = world();
+    let ancestor = world.home.join(".gem");
+    let replacement = world.home.join("replacement");
+    std::fs::create_dir(&ancestor)?;
+    std::fs::create_dir(&replacement)?;
+    let run = guarded_outside(
+        &world.home,
+        r#"
+        move_dir() { /usr/bin/perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$@"; }
+        mkdir ~/probe ~/replaceable || exit 12
+        move_dir ~/probe ~/replaceable || exit 13
+        /bin/rmdir ~/.gem && exit 10
+        move_dir ~/replacement ~/.gem && exit 11
+        exit 0
+        "#,
+    )?;
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(ancestor.is_dir());
+    assert!(replacement.is_dir());
+    Ok(())
+}
+
+#[test]
+fn an_outside_run_can_create_a_missing_ancestor() -> std::io::Result<()> {
+    let world = world();
+    assert!(!world.home.join(".config").exists());
+    let run = guarded_outside(
+        &world.home,
+        r#"
+        mkdir ~/.config || exit 10
+        mkdir ~/.config/gh && exit 11
+        exit 0
+        "#,
+    )?;
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(world.home.join(".config").is_dir());
+    assert!(!world.home.join(".config/gh").exists());
+    Ok(())
+}

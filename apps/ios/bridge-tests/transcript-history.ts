@@ -2,7 +2,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, ScenarioPlayer, fakeTransport, multiDayDemo } from "@ace/fake-daemon";
 import { DeviceId, ThreadId } from "@ace/protocol";
 import { host } from "../bridge/polyfills.ts";
-import { NativeTranscript, phoneWindow } from "../bridge/native-transcript.ts";
+import { NativeTranscript } from "../bridge/native-transcript.ts";
 
 /**
  * Bounded history regression tests for NativeTranscript (ADR 0062), through the real public
@@ -13,8 +13,6 @@ import { NativeTranscript, phoneWindow } from "../bridge/native-transcript.ts";
 
 const THREAD_ID = "thread-history";
 const THREAD = ThreadId.parse(THREAD_ID);
-/** Rows the reading view may hold while paging older: the window and the live tail it joins. */
-const WINDOW_ITEM_BOUND = phoneWindow.capacity + 200;
 
 export function installHistoryScenarios(): void {
   if (typeof globalThis.setTimeout !== "function") {
@@ -247,7 +245,6 @@ async function olderPagesTask(): Promise<Record<string, unknown>> {
     return {
       pages: counts.length,
       counts,
-      bound: WINDOW_ITEM_BOUND,
       withinPageDupes,
       overlapConsistent,
       prependedAreOlder,
@@ -297,19 +294,26 @@ async function windowBoundTask(): Promise<Record<string, unknown>> {
       { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "hold" },
       new AbortController().signal,
     );
-    let maxItems = 0;
+    // The phone keeps every page it loaded (#2774): paging older only ever adds rows, and every
+    // row read stays in the window until the reader leaves it.
     let pages = 0;
     let reachedStart = false;
+    let evicted = false;
+    let held = fixture.rows().length;
+    const seen = new Set<string>(fixture.rows());
     for (; pages < 30; pages++) {
       const result = await readOlder(fixture);
-      maxItems = Math.max(maxItems, fixture.rows().length);
+      const rows = fixture.rows();
+      if (rows.length < held) evicted = true;
+      held = rows.length;
+      for (const id of rows) seen.add(id);
       if (!result.hasOlder) {
         reachedStart = true;
         pages++;
         break;
       }
     }
-    return { pages, maxItems, bound: WINDOW_ITEM_BOUND, reachedStart };
+    return { pages, reachedStart, evicted, held, seen: seen.size };
   } finally {
     await teardownFixture(fixture);
   }

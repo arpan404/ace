@@ -19,8 +19,8 @@ use napi_derive::napi;
 use tokio::sync::mpsc;
 
 use super::bridge::{
-    JsCleanupSupervisorPort, JsGroupPort, JsLeasePorts, JsScheduler, JsSpawner, JsStreamCallbacks,
-    PortCallFn, PortHub, parse_git_error_code,
+    JsCleanupSupervisorPort, JsConfigPorts, JsGroupPort, JsLeasePorts, JsScheduler, JsSpawner,
+    JsStreamCallbacks, PortCallFn, PortHub, parse_git_error_code,
 };
 use super::wire::{self, Frame};
 use super::{caught, failed, unwind};
@@ -35,6 +35,16 @@ type JsonSettle = ThreadsafeFunction<String>;
 pub fn git_core_probe(op: String) -> napi::Result<String> {
     caught("git core probe", || {
         ace_git::core::cli::probe(&op).map(|()| "ok".to_owned())
+    })
+}
+
+/// Decodes `git version M.m` text with the core's schemas (`decode.ts`).
+#[napi(catch_unwind)]
+pub fn git_decode_version(text: String) -> napi::Result<String> {
+    caught("git decode version", || {
+        ace_git::core::decode::decode_version(&text)
+            .map(ace_git::core::decode::version_to_json)
+            .map_err(ace_git::error::Error::from)
     })
 }
 
@@ -66,6 +76,8 @@ pub struct NativeGitCore {
     /// The process-wide lease state and the ports its operations ask the shell for.
     leases: Arc<LeaseState>,
     lease_ports: Arc<JsLeasePorts>,
+    /// The config-fact cache, whose ports ask each call's owner for its answers.
+    config_facts: Arc<ace_git::core::config::ConfigFacts>,
 }
 
 /// One core config frame, read with `ace-json` like every other JS value.
@@ -231,6 +243,11 @@ impl NativeGitCore {
             Arc::new(ports),
         )
         .map_err(|e| failed(ace_git::error::Error::from(e)))?;
+        let config_facts = Arc::new(ace_git::core::config::ConfigFacts::new(Arc::new(
+            JsConfigPorts {
+                hub: Arc::clone(&hub),
+            },
+        )));
         let lease_ports = Arc::new(JsLeasePorts {
             hub: Arc::clone(&hub),
             scheduler: lease_scheduler,
@@ -244,6 +261,7 @@ impl NativeGitCore {
             stdin_senders: Arc::new(Mutex::new(HashMap::new())),
             leases: Arc::clone(global_leases()),
             lease_ports,
+            config_facts,
         })
     }
 
@@ -531,6 +549,107 @@ impl NativeGitCore {
                 }
             }
         });
+        Ok(())
+    }
+
+    /// Reads one cached configuration fact (G2c): the cache, stamps and learning are
+    /// the core's; the caller's `sources`, `compute`, `keep` and clock answer its ports.
+    #[napi(catch_unwind)]
+    pub fn config_read(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(map) = wire::object(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(
+                    ace_git::core::config::invalid_request(),
+                ))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let call = wire::count(&map, "callId").unwrap_or(0);
+        let cwd = wire::string(&map, "cwd").unwrap_or_default();
+        let name = wire::string(&map, "name").unwrap_or_default();
+        let env = wire::pairs(&map, "env").unwrap_or_default();
+        let facts = Arc::clone(&self.config_facts);
+        self.runtime.spawn(async move {
+            match facts.read(call, &cwd, &env, &name).await {
+                Ok(value) => {
+                    let _ = settle.call(
+                        Ok(ace_json::to_string(&value)),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                }
+                Err(error) => {
+                    let _ = settle.call(
+                        Err(failed(ace_git::error::Error::from(error))),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// The files whose change can alter a checkout's configuration (G2c): parsed,
+    /// listed and walked from the raw `rev-parse`/`config --list` output.
+    #[napi(catch_unwind)]
+    pub fn config_watch(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(input) = ace_git::core::config::watch_input_from_json(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(
+                    ace_git::core::config::invalid_request(),
+                ))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let paths = input.watched();
+        let _ = settle.call(
+            Ok(ace_git::core::config::paths_to_json(paths.as_deref())),
+            ThreadsafeFunctionCallMode::NonBlocking,
+        );
+        Ok(())
+    }
+
+    /// Prepares one Git call's execution policy (G2c): the environment and the
+    /// arguments that precede the command, from the caller's scope.
+    #[napi(catch_unwind)]
+    pub fn prepare_call(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(map) = wire::object(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(GitError::new(
+                    GitErrorCode::InvalidArgument,
+                    "invalid policy request",
+                )))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let transport = match map.get("transport") {
+            Some(ace_json::Value::Object(transport)) => Some((
+                wire::strings(transport, "protocols").unwrap_or_default(),
+                wire::string(transport, "sshCommand"),
+            )),
+            _ => None,
+        };
+        let call = ace_git::core::policy::CallPolicy {
+            guarded: wire::flag(&map, "guarded"),
+            hookless: wire::flag(&map, "hookless"),
+            transport,
+            keys: wire::string(&map, "keys").unwrap_or_default(),
+        };
+        let reply = ace_git::core::policy::prepare(&call)
+            .map(|prepared| ace_git::core::policy::prepared_to_json(&prepared));
+        match reply {
+            Ok(json) => {
+                let _ = settle.call(Ok(json), ThreadsafeFunctionCallMode::NonBlocking);
+            }
+            Err(error) => {
+                let _ = settle.call(
+                    Err(failed(ace_git::error::Error::from(error))),
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
+            }
+        }
         Ok(())
     }
 }

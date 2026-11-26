@@ -598,6 +598,7 @@ pub(super) fn call_message(from: FromAgent) -> Event {
         from_group: None,
         from_thread: None,
         reply_to: None,
+        invoke: None,
     })
 }
 

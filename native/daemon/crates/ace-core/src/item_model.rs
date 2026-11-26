@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Protocol leaf types the item fold reads or validates, mirroring
-//! `packages/protocol` JSON for JSON. Optional fields are omitted, never
-//! `null`. Unknown fields are rejected at validation (the Zod schemas strip
-//! them and `preservesFields` then fails), so every struct below denies them;
-//! the few `passthrough` / `z.unknown()` leaves keep their bytes verbatim in
-//! `Box<RawValue>`.
+//! Protocol leaf types read by the item fold. Stored records keep extras
+//! where they are represented on the Rust type.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::CoreError;
 use crate::json_io::{Json, Map, Maybe, de_i64};
 use ace_json::JsString;
+
+pub use crate::tool_model::{LineRange, OutputSummary, ToolCall, ToolDetail};
 
 /// A provider's original payload, stored verbatim as canonical ace-json.
 #[derive(Debug, Clone, Serialize)]
@@ -175,7 +173,7 @@ pub struct NativeRef {
 
 /// Where a text's whole value lives when the carried text is a preview.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct TextSource {
     #[serde(rename = "streamId")]
     pub stream_id: String,
@@ -188,7 +186,7 @@ pub struct TextSource {
 
 /// A bounded native document or resource prepared by the daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct Attachment {
     pub sha256: String,
     pub bytes: i64,
@@ -205,11 +203,15 @@ pub struct Attachment {
     pub height: Option<i64>,
     #[serde(rename = "thumbnailAvailable", skip_serializing_if = "Option::is_none")]
     pub thumbnail_available: Option<bool>,
+    /// Fields a newer build wrote; the TypeScript validates without stripping and writes the
+    /// raw value back, so they travel with the object.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A single file change, normalised from provider edits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct FileChange {
     pub path: String,
     pub kind: String,
@@ -231,7 +233,7 @@ pub struct FileChange {
 
 /// One entry of a plan or todo list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct TodoEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -241,7 +243,7 @@ pub struct TodoEntry {
 
 /// Bounded native file content carried beside a file part.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "encoding", deny_unknown_fields)]
+#[serde(tag = "encoding")]
 pub enum FileContent {
     /// Base64 bytes, at most 44 MiB of characters.
     #[serde(rename = "base64")]
@@ -253,7 +255,7 @@ pub enum FileContent {
 
 /// One content part of a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
+#[serde(tag = "type")]
 pub enum ContentPart {
     /// A catalog mention (skill, command, plugin, agent, workflow…).
     #[serde(rename = "mention")]
@@ -282,6 +284,8 @@ pub enum ContentPart {
             serialize_with = "crate::json_io::serialize_opt_raw"
         )]
         invocation: Option<ace_json::Raw>,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// Plain text, with its stream source when it is a preview. A JavaScript string: a
     /// provider can split a surrogate pair across frames, and the units must survive.
@@ -291,6 +295,8 @@ pub enum ContentPart {
         text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<TextSource>,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// An image by URL.
     #[serde(rename = "image")]
@@ -298,6 +304,8 @@ pub enum ContentPart {
         #[serde(rename = "mimeType")]
         mime_type: String,
         url: String,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// A file by path, with bounded content when the daemon prepared it.
     #[serde(rename = "file")]
@@ -309,195 +317,17 @@ pub enum ContentPart {
         name: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         content: Option<FileContent>,
+        #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
 }
 
-/// The normalised view of a call, by kind.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", deny_unknown_fields)]
-pub enum ToolDetail {
-    /// A shell command with its bounded output summary.
-    #[serde(rename = "shell")]
-    Shell {
-        command: String,
-        #[serde(rename = "rawCommand", skip_serializing_if = "Option::is_none")]
-        raw_command: Option<String>,
-        /// What the provider says the command is for (Claude's Bash `description`).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        description: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cwd: Option<String>,
-        #[serde(rename = "exitCode", skip_serializing_if = "Option::is_none")]
-        exit_code: Option<Option<i64>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        output: Option<OutputSummary>,
-    },
-    /// Reading a file, with an optional line range.
-    #[serde(rename = "file.read")]
-    FileRead {
-        path: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        range: Option<LineRange>,
-    },
-    /// Editing, writing, deleting or moving files.
-    #[serde(rename = "file.edit")]
-    FileEdit { changes: Vec<FileChange> },
-    /// Writing a file.
-    #[serde(rename = "file.write")]
-    FileWrite { changes: Vec<FileChange> },
-    /// Deleting a file.
-    #[serde(rename = "file.delete")]
-    FileDelete { changes: Vec<FileChange> },
-    /// Moving a file.
-    #[serde(rename = "file.move")]
-    FileMove { changes: Vec<FileChange> },
-    /// Searching code or the tool list.
-    #[serde(rename = "search")]
-    Search {
-        query: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        matches: Option<i64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        scope: Option<String>,
-    },
-    /// A web search.
-    #[serde(rename = "web.search")]
-    WebSearch { query: String },
-    /// Fetching a URL.
-    #[serde(rename = "web.fetch")]
-    WebFetch { url: String },
-    /// An MCP tool call with its verbatim arguments.
-    #[serde(rename = "mcp")]
-    Mcp {
-        server: String,
-        tool: String,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::json_io::deserialize_opt_raw",
-            serialize_with = "crate::json_io::serialize_opt_raw"
-        )]
-        arguments: Option<ace_json::Raw>,
-    },
-    /// Spawning a subagent.
-    #[serde(rename = "agent.spawn")]
-    AgentSpawn {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        description: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        prompt: Option<String>,
-        #[serde(rename = "agentType", skip_serializing_if = "Option::is_none")]
-        agent_type: Option<String>,
-        #[serde(rename = "childAgentId", skip_serializing_if = "Option::is_none")]
-        child_agent_id: Option<String>,
-    },
-    /// Messaging another agent.
-    #[serde(rename = "agent.message")]
-    AgentMessage {
-        #[serde(rename = "targetAgentId", skip_serializing_if = "Option::is_none")]
-        target_agent_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        message: Option<String>,
-    },
-    /// A todo list.
-    #[serde(rename = "todo")]
-    Todo { todos: Vec<TodoEntry> },
-    /// A plan with its markdown and todos.
-    #[serde(rename = "plan")]
-    Plan {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        markdown: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        todos: Option<Vec<TodoEntry>>,
-    },
-    /// Asking the person (the native ask-user tool).
-    #[serde(rename = "ask_user")]
-    AskUser,
-    /// An image the agent posted.
-    #[serde(rename = "image")]
-    Image {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-        #[serde(rename = "sourcePath", skip_serializing_if = "Option::is_none")]
-        source_path: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        attachment: Option<Attachment>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        unavailable: Option<String>,
-    },
-    /// A browser, notebook or custom tool call.
-    #[serde(rename = "browser")]
-    Browser,
-    /// A notebook tool call.
-    #[serde(rename = "notebook")]
-    Notebook,
-    /// Any other provider tool call.
-    #[serde(rename = "custom")]
-    Custom,
-}
-
-/// A line range within a file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LineRange {
-    #[serde(deserialize_with = "de_i64")]
-    pub start: i64,
-    #[serde(deserialize_with = "de_i64")]
-    pub end: i64,
-}
-
-/// Full output lives in the daemon stream store; the summary stays bounded.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OutputSummary {
-    #[serde(rename = "streamId")]
-    pub stream_id: String,
-    #[serde(deserialize_with = "de_i64")]
-    pub bytes: i64,
-    #[serde(default)]
-    pub tail: String,
-    pub truncated: bool,
-}
-
-/// One tool call in the transcript. Its JSON order is written in `item_json`.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ToolCall {
-    pub id: String,
-    #[serde(rename = "agentId")]
-    pub agent_id: String,
-    pub kind: String,
-    /// Human-readable one-liner, e.g. "Read src/math.ts".
-    pub title: String,
-    pub status: String,
-    pub detail: ToolDetail,
-    /// Set when the call outlives the turn.
-    #[serde(rename = "backgroundTaskId", skip_serializing_if = "Option::is_none")]
-    pub background_task_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<crate::item_meta::ToolResult>,
-    #[serde(rename = "startedAt", deserialize_with = "de_i64")]
-    pub started_at: i64,
-    #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
-    pub ended_at: Option<i64>,
-    /// Complete native call and result, verbatim.
-    #[serde(default)]
-    pub raw: Vec<RawPayload>,
-    /// Keys the fold added after the item was parsed (`item.call.backgroundTaskId = ...`):
-    /// JavaScript appends a new own key at the end, so they serialize last.
-    #[serde(skip)]
-    pub trailing: Vec<&'static str>,
-}
-
-impl ToolCall {
-    /// Record a key the fold appended, as `item.call[key] = value` does for a new key.
-    pub fn appended(&mut self, key: &'static str) {
-        if !self.trailing.contains(&key) {
-            self.trailing.push(key);
+impl ContentPart {
+    pub(crate) fn text(text: JsString) -> Self {
+        Self::Text {
+            text,
+            source: None,
+            extra: Default::default(),
         }
     }
 }

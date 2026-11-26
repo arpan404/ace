@@ -33,6 +33,7 @@ fn message(text: &str, documents: Vec<DocumentRef>, voice: Option<Box<VoiceRef>>
         from_group: None,
         from_thread: None,
         reply_to: None,
+        invoke: None,
     })
 }
 

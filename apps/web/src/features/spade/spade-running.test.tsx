@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -82,11 +82,13 @@ test("Spade's own profile opens Running; another bot's doesn't offer it", async 
   });
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
+  await openSettingsPage("Job");
   await screen.findByRole("heading", { name: "Task" });
   expect(screen.queryByRole("heading", { name: "Running" })).toBeNull();
 
   await userEvent.click(await botRow("Spade"));
   await openProfile("Spade");
+  await openSettingsPage("Activity and safety");
   const heading = await screen.findByRole("heading", { name: "Running" });
   await userEvent.click(
     within(heading.closest("section") ?? document.body).getByRole("link", { name: "Open" }),

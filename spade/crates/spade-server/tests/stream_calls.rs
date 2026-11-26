@@ -329,14 +329,19 @@ async fn streaming_steer_changes_the_review_prompt_before_a_write_can_run() -> R
     until(|| reviews().len() == 1).await?;
     spade.say(&id, "Hold off on posting.").await?;
     release.notify_one();
-    let events = spade.wait_for(&id, "approval_requested").await?;
+    let events = spade.wait_for(&id, "tool_finished").await?;
     let reviews = reviews();
     assert_eq!(reviews.len(), 2);
     assert!(reviews[1].body.to_string().contains("Hold off on posting."));
     assert!(
         events
             .iter()
-            .any(|e| e["type"] == "call_reviewed" && e["verdict"] == "escalate")
+            .any(|e| e["type"] == "call_reviewed" && e["verdict"] == "refuse")
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["type"] == "approval_requested")
     );
     assert_eq!(count(&writes), 0);
     Ok(())
@@ -424,12 +429,17 @@ async fn streaming_review_setting_change_discards_the_pending_verdict() -> Resul
         .await?;
     assert_eq!(status, 200, "{body}");
     terminal.notify_one();
-    let events = spade.wait_for(&id, "approval_requested").await?;
+    let events = spade.wait_for(&id, "tool_finished").await?;
     assert!(
         events.iter().any(|e| e["type"] == "call_reviewed"
             && e["model"] == "fake/other"
-            && e["verdict"] == "escalate"),
+            && e["verdict"] == "refuse"),
         "{events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["type"] == "approval_requested")
     );
     assert_eq!(count(&writes), 0);
     Ok(())

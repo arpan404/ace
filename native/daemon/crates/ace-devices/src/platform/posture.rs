@@ -20,6 +20,11 @@ pub enum Posture {
     Open,
 }
 
+/// Whether a device in `posture` shows its inner screen: open, even half way, does.
+pub fn is_open(posture: Option<Posture>) -> bool {
+    matches!(posture, Some(Posture::Open | Posture::PartiallyOpen))
+}
+
 /// The hinge angle each posture folds to, in degrees: 0 is shut, 180 flat. Half open sits well
 /// inside the system's partly-open band, where a book rests.
 pub fn posture_angle(posture: Posture) -> u16 {

@@ -3,7 +3,7 @@ import { useId, useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { ProfileSection } from "./spade-profile-parts.tsx";
+import { ProfileCardSkeleton, ProfileProblem, ProfileSection } from "./spade-profile-parts.tsx";
 import {
   readAgentReach,
   reachKey,
@@ -36,7 +36,21 @@ export function ProfileReach(props: { bot: RosterBot }) {
     queryFn: ({ signal }) => readAgentReach(client, props.bot.id, signal),
   });
   const [refusal, setRefusal] = useState<string>();
-  if (own.isPending || own.isError) return null;
+  if (own.isPending)
+    return (
+      <ProfileSection label="Notifications" flush>
+        <ProfileCardSkeleton label="notifications" rows={2} lines={1} />
+      </ProfileSection>
+    );
+  if (own.isError)
+    return (
+      <ProfileSection label="Notifications">
+        <ProfileProblem
+          text="Couldn't read notification settings."
+          onRetry={() => void own.refetch()}
+        />
+      </ProfileSection>
+    );
   const save = (change: Partial<SpadeAgentReach>) => {
     setRefusal(undefined);
     void setAgentReach(client, props.bot.id, change)
@@ -47,6 +61,7 @@ export function ProfileReach(props: { bot: RosterBot }) {
     <ProfileSection label="Notifications">
       <SettingRow
         inline
+        density="compact"
         title="Notify me"
         description={refusal && <Refusal>{refusal}</Refusal>}
         htmlFor={id}
@@ -59,10 +74,10 @@ export function ProfileReach(props: { bot: RosterBot }) {
         />
       </SettingRow>
       {own.data.notify !== false && (
-        <SettingRow title="During quiet hours, approvals and questions">
+        <SettingRow title="During quiet hours, approvals and questions" density="compact">
           <Select
             label="During quiet hours, approvals and questions"
-            className="@max-[440px]:w-full"
+            className="w-full"
             value={own.data.approvals ?? "inherit"}
             options={approvalChoices}
             onValueChange={(next) =>

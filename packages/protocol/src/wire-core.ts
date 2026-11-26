@@ -22,6 +22,7 @@ import { OmittedItem } from "./omitted-items.ts";
 import { QueueState } from "./queue.ts";
 import { ReviewData } from "./review.ts";
 import { Run, Thread } from "./thread.ts";
+import { ThreadDetails } from "./thread-client.ts";
 import { ListAttention, ListedThreadPlace, ThreadListResume } from "./thread-place.ts";
 import { EditorLaunch } from "./workspace-actions.ts";
 import { MachineCode } from "./machine-access.ts";
@@ -121,11 +122,22 @@ export const ThreadListWindow = z.object({
   attention: ListAttention.optional(),
 });
 export type ThreadListWindow = z.infer<typeof ThreadListWindow>;
+const sharedIndex = z.number().int().nonnegative().max(63);
 export const ThreadListView = z.object({
   window: ThreadListWindow.optional(),
   kind: z.literal("threads"),
   seq,
   threads: records(ThreadListEntry),
+  /** Repeated row metadata sent once in a snapshot to clients advertising `sidebar-shared`. */
+  shares: z
+    .object({
+      workspaces: z.array(ThreadDetails.shape.workspace.unwrap()).max(64),
+      effectiveCapabilities: z.array(Capabilities).max(64),
+      rows: records(
+        z.object({ workspace: sharedIndex.optional(), capabilities: sharedIndex.optional() }),
+      ),
+    })
+    .optional(),
   /**
    * Answering a `resume`: threads unchanged since the client's revision, which it keeps from
    * the copy it holds. `threads` then holds only what changed. A kept id the client doesn't
@@ -331,7 +343,8 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * Redundant bytes this client can put back, so the daemon may leave them out of snapshots
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
        * their defaults), `provider-capabilities` (threads that name their capabilities by a key
-       * sent once in `provider.capabilities`), `spade-hidden` (accepts the hidden Spade
+       * sent once in `provider.capabilities`), `sidebar-shared` (repeated sidebar workspace and
+       * capability data), `spade-hidden` (accepts the hidden Spade
        * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
        * only show, in snapshots, pages, turn steps and live item events, come without them and
        * marked `rawOmitted`; `item.raw` reads them), `storage-hold` (accepts the `storage`

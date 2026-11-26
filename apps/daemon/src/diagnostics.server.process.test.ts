@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SettingsService, fileIO } from "@ace/settings";
+import { SettingsError, SettingsService, fileIO } from "@ace/settings";
 import { Command, DiagnosticsHealth } from "@ace/protocol";
 import { expect, it } from "vitest";
 import { setup as remoteFixture } from "./remote-test-support.ts";
@@ -54,6 +54,23 @@ it("authenticated health commands return current measurements on retries without
   }
 });
 const noop = () => {};
+/**
+ * Fills `settings` to its admission limit and leaves one slot free. The daemon's own watchers
+ * hold slots too, so the count is discovered, never assumed.
+ */
+async function fillSettings(settings: SettingsService): Promise<(() => void)[]> {
+  const stops: (() => void)[] = [];
+  for (;;) {
+    try {
+      stops.push(await settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop));
+    } catch (error) {
+      if (!(error instanceof SettingsError) || error.code !== "limit") throw error;
+      break;
+    }
+  }
+  stops.pop()?.();
+  return stops;
+}
 it("one pending health request per socket bounds waiting responses and a failed sample returns an error", async () => {
   let reject: (error: Error) => void = noop;
   const pending = new Promise<DiagnosticsHealth>((_resolve, fail) => {
@@ -172,6 +189,7 @@ it("settings and pending health share a socket and release their capacity on shu
         return sample.promise;
       },
     });
+    stops.push(...(await fillSettings(settings)));
     const client = await f.connect();
     await client.next();
     client.send({
@@ -182,8 +200,7 @@ it("settings and pending health share a socket and release their capacity on shu
       scope: {},
     });
     expect(await client.next()).toMatchObject({ type: "settings.result", ok: true });
-    for (let index = 0; index < 1023; index++)
-      stops.push(await settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop));
+    // The socket's subscription takes the service's last admission.
     await expect(
       settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop),
     ).rejects.toMatchObject({ code: "limit" });
@@ -214,6 +231,54 @@ it("settings and pending health share a socket and release their capacity on shu
     stops.push(await settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop));
   } finally {
     sample.resolve(health(1));
+    for (const stop of stops) stop();
+    await f?.close();
+    await settings.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("a socket's settings subscriptions return their capacity when it disconnects", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ace-settings-cycles-"));
+  const settings = new SettingsService({
+    dataDir: directory,
+    io: { ...fileIO, watch: async () => () => {} },
+  });
+  const stops: (() => void)[] = [];
+  let f: Awaited<ReturnType<typeof fixture>> | undefined;
+  try {
+    f = await fixture({ settings });
+    stops.push(...(await fillSettings(settings)));
+    // Each cycle takes the one free admission through a socket, then must get it back.
+    for (let cycle = 0; cycle < 8; cycle++) {
+      const client = await f.connect();
+      await client.next();
+      client.send({
+        type: "settings.subscribe",
+        requestId: `prefs-${cycle}`,
+        subscriptionId: `prefs-${cycle}`,
+        keys: ["threads.settleOnClose"],
+        scope: {},
+      });
+      expect(await client.next()).toMatchObject({ type: "settings.result", ok: true });
+      await client.close();
+      // Socket cleanup runs after the client sees close; the freed slot must come back.
+      await expect
+        .poll(
+          async () => {
+            try {
+              (await settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop))();
+              return "admitted";
+            } catch (error) {
+              if (error instanceof SettingsError && error.code === "limit") return "full";
+              throw error;
+            }
+          },
+          { timeout: 5_000 },
+        )
+        .toBe("admitted");
+    }
+  } finally {
     for (const stop of stops) stop();
     await f?.close();
     await settings.close();

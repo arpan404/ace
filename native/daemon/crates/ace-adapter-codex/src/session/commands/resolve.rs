@@ -245,25 +245,41 @@ fn question_text(question: &AsyncQuestion, resolution: &Value) -> String {
 /// One answer's label: the option's, else the answer's own id.
 fn option_label(questions: &Value, id: &str, answer: &Value) -> String {
     let answer_id = answer.as_str().unwrap_or_default();
-    for question in questions
+    let list = questions
         .as_array()
         .map(|questions| questions.to_vec())
+        .unwrap_or_default();
+    // The engine's question id is the item's, with the question's index appended
+    // (`q0`); the raw item carries no per-question id.
+    let index = id
+        .chars()
+        .rev()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>()
+        .parse::<usize>()
+        .ok();
+    let named = list
+        .iter()
+        .find(|question| question.get("id").and_then(Value::as_str) == Some(id));
+    let question = named
+        .or_else(|| index.and_then(|index| list.get(index)))
+        .or_else(|| (list.len() == 1).then(|| list.first()).flatten());
+    let Some(question) = question else {
+        return answer_id.to_owned();
+    };
+    for option in question
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|options| options.to_vec())
         .unwrap_or_default()
     {
-        if question.get("id").and_then(Value::as_str) != Some(id) {
-            continue;
-        }
-        for option in question
-            .get("options")
-            .and_then(Value::as_array)
-            .map(|options| options.to_vec())
-            .unwrap_or_default()
+        if option.get("id").and_then(Value::as_str) == Some(answer_id)
+            && let Some(label) = option.get("label").and_then(Value::as_str)
         {
-            if option.get("id").and_then(Value::as_str) == Some(answer_id)
-                && let Some(label) = option.get("label").and_then(Value::as_str)
-            {
-                return label.to_owned();
-            }
+            return label.to_owned();
         }
     }
     answer_id.to_owned()

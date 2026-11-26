@@ -255,12 +255,7 @@ impl Session {
             Direction::Send => FrameDir::Send,
             Direction::Recv => FrameDir::Recv,
         };
-        let refused = match dir {
-            FrameDir::Recv => self.frames.undispatchable(dir, data),
-            FrameDir::Send => self.frames.refuses_send(data),
-            FrameDir::Stderr | FrameDir::Note => None,
-        };
-        match refused {
+        match super::frames::admission(self.frames.bearer(), dir, data) {
             Some(message) => Admission::Failed(message),
             None => Admission::Taken,
         }

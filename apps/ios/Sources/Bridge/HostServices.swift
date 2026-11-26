@@ -72,6 +72,11 @@ struct HostServices: Sendable {
             try FileManager.default.createDirectory(at: directoryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(value.utf8).write(to: directoryURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return ""
+        case "editor.wasm":
+            guard let url = Bundle.main.url(forResource: "editor_wasm_bg", withExtension: "wasm") else {
+                throw HostError.unsupported
+            }
+            return try Data(contentsOf: url).base64EncodedString()
         case "attachment.chunk":
             let read = try JSONDecoder().decode(ChunkRead.self, from: input)
             let staging = attachments.holds(read.localId) ? attachments : draftAttachments

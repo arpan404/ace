@@ -96,6 +96,8 @@ pub struct ShownModel {
     pub context: Option<u64>,
     /// `None` when nobody said what it can do.
     pub capabilities: Option<Vec<Capability>>,
+    /// `None` when the model declares no supported thinking efforts.
+    pub efforts: Option<Vec<spade_models::Effort>>,
 }
 
 fn invalid(text: impl Into<String>) -> EndpointError {
@@ -197,6 +199,7 @@ impl Engine {
                 models.push(ShownModel {
                     context: shipped.context,
                     capabilities: Some(shipped.capabilities.clone()),
+                    efforts: (!shipped.efforts.is_empty()).then(|| shipped.efforts.clone()),
                     model: shipped.clone(),
                     source: "preset".to_owned(),
                 });
@@ -214,9 +217,11 @@ impl Engine {
         let context = saved.context.or_else(|| preset.and_then(|p| p.context));
         let capabilities =
             (saved.capabilities.is_some() || preset.is_some()).then(|| model.capabilities.clone());
+        let efforts = (!model.efforts.is_empty()).then(|| model.efforts.clone());
         ShownModel {
             context,
             capabilities,
+            efforts,
             source: saved.source.clone(),
             model,
         }
@@ -284,6 +289,7 @@ impl Engine {
                 Some(names) => names.iter().filter_map(|n| Capability::parse(n)).collect(),
                 None => preset.map_or(fallback.capabilities, |p| p.capabilities.clone()),
             },
+            efforts: preset.map_or(fallback.efforts, |p| p.efforts.clone()),
             price,
         }
     }

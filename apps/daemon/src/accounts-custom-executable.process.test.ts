@@ -152,6 +152,7 @@ test.each(["configuration", "login revision"])(
       await f.management.close();
       let binaryPath = join(f.bin, "codex");
       restored = new AccountManagement({
+        platform: process.platform,
         registry: f.registry,
         accounts: f.accounts,
         dataDir: f.dataDir,

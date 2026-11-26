@@ -1,7 +1,9 @@
 /*
  * When ace-media re-encodes a Simulator's picture for a viewer (E3b, in `media-vt`), and at what
- * size. Pure.
+ * size. Pure; under ACE_DEVICE_PLATFORM=native the decision and spec come from the addon
+ * (once per settings change, not per frame).
  */
+import { nativeEncodeSpec, nativeNeedsTranscode, nativeVideo } from "./native-video.ts";
 
 /**
  * The least serve-sim sends while the screen is busy (its documented default is 6 to 30 Mbit/s
@@ -20,6 +22,17 @@ const passThroughFrom = 5.5 / 6;
  * state, so the rate has some room before it flips back.
  */
 export function simulatorNeedsTranscode(input: {
+  transcoding: boolean;
+  bitrate: number;
+  box: { maxWidth: number; maxHeight: number };
+  native: { width: number; height: number } | undefined;
+  source?: number | undefined;
+}): boolean {
+  if (nativeVideo) return nativeNeedsTranscode(input);
+  return tsNeedsTranscode(input);
+}
+
+function tsNeedsTranscode(input: {
   transcoding: boolean;
   bitrate: number;
   box: { maxWidth: number; maxHeight: number };
@@ -47,6 +60,7 @@ export function simulatorEncodeSpec(
   native: { width: number; height: number },
   settings: { maxWidth: number; maxHeight: number; bitrate: number },
 ): { id: number; codec: string; width: number; height: number; fps: number; bitrate: number } {
+  if (nativeVideo) return nativeEncodeSpec(native, settings);
   const fit = Math.min(1, settings.maxWidth / native.width, settings.maxHeight / native.height);
   return {
     id: 1,

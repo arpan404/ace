@@ -5,6 +5,7 @@ import type { SpadeStored } from "./wire.ts";
 import { spadeChatSegments, spadeMessageId } from "./chat-markup.ts";
 import { spadeDocCard, type SpadeDocCard } from "./documents-in-chat.ts";
 import { spadeMayFold } from "./long-messages.ts";
+import { spadeFoldReaction, type SpadeMessageReactions } from "./reactions.ts";
 import {
   spadeQuoteOf,
   spadeReplyToField,
@@ -78,7 +79,7 @@ export type SpadeGroupItem =
       replyTo?: SpadeReplyTo | undefined;
     }
   /** `seq`: the stored event, which names the messages its words hold (ADR 0212 §3). */
-  | { kind: "member"; key: string; bot: SpadeGroupBot; text: string; seq?: number }
+  | { kind: "member"; key: string; bot: SpadeGroupBot; text: string; seq?: number; run?: string }
   /** A handoff, a queued ask, one that failed, Stop: a short muted line. */
   | { kind: "line"; key: string; text: string };
 
@@ -91,6 +92,8 @@ export interface SpadeGroupState {
   pending: { key: string; text: string; replyTo?: SpadeReplyTo | undefined }[];
   /** Asks still open, by ask id, in the order they were made. */
   asks: Map<string, { run: string; to: SpadeGroupBot }>;
+  /** Standing reactions per message id across club members and the person. */
+  reactions: Map<string, SpadeMessageReactions>;
   /** The group's state and few words, from the live stream's `status` frames. */
   state: "idle" | "working" | "waiting";
   status: string | undefined;
@@ -111,6 +114,7 @@ export function emptySpadeGroup(): SpadeGroupState {
     items: [],
     pending: [],
     asks: new Map(),
+    reactions: new Map(),
     state: "idle",
     status: undefined,
     waitingMember: undefined,
@@ -177,6 +181,10 @@ function foldStored(state: SpadeGroupState, stored: SpadeStored): boolean {
   state.lastSeq = stored.seq;
   const firstLoad = !state.loaded;
   state.loaded = true;
+  if (stored.event.type === "reaction") {
+    spadeFoldReaction(state.reactions, stored.event);
+    return true;
+  }
   // Group events are no bot conversation's, so the shared parser keeps them as raw data.
   const raw = stored.event.type === "unknown" ? stored.event.raw : undefined;
   const parsed = groupEvent.safeParse(raw);
@@ -189,7 +197,14 @@ function foldEvent(state: SpadeGroupState, event: GroupEvent, seq: number): bool
   switch (event.type) {
     case "group_message": {
       if (event.from) {
-        state.items.push({ kind: "member", key, bot: event.from, text: event.text, seq });
+        state.items.push({
+          kind: "member",
+          key,
+          bot: event.from,
+          text: event.text,
+          seq,
+          ...(event.run ? { run: event.run } : {}),
+        });
         return true;
       }
       const mine = state.pending.findIndex((message) => message.text === event.text);
@@ -282,6 +297,8 @@ export type SpadeGroupRow =
       doc?: SpadeDocCard;
       /** Long enough to fold past ten lines (ADR 0212 amendment 2, `spadeMayFold`). */
       fold?: true;
+      /** The run this message belongs to, when stored. */
+      run?: string;
       /** First of a run of consecutive messages from this bot: its name shows above. */
       first: boolean;
       /** Last of the run: its face shows beside. */
@@ -292,6 +309,8 @@ export type SpadeGroupRow =
 export interface SpadeGroupView {
   loaded: boolean;
   rows: SpadeGroupRow[];
+  /** Standing reactions per message id across club members and the person. */
+  reactions: ReadonlyMap<string, SpadeMessageReactions>;
   /** Anything is open: an ask, or the group says it isn't idle. Stop is offered then. */
   busy: boolean;
   state: "idle" | "working" | "waiting";
@@ -331,6 +350,7 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
         ...(id ? { id } : {}),
         ...(quote ? { quote } : {}),
         ...(doc ? { doc } : {}),
+        ...(item.run ? { run: item.run } : {}),
         ...(!doc && spadeMayFold(segment.text) ? { fold: true as const } : {}),
       });
       if (id) said.add(id, segment.title ?? segment.text, { kind: "member", name: item.bot.name });
@@ -357,6 +377,7 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
   return {
     loaded: state.loaded,
     rows,
+    reactions: new Map(state.reactions),
     busy: state.state !== "idle" || state.asks.size > 0,
     state: state.state,
     status: state.status,

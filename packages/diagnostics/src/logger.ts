@@ -1,5 +1,6 @@
 import { bounded, logMetadata } from "./bounded.ts";
 import { overflowVictim } from "./log-policy.ts";
+import { redactedLine } from "./trusted.ts";
 export type Level = "debug" | "info" | "warn" | "error";
 export interface LogRecord {
   at: number;
@@ -153,7 +154,7 @@ export function createLogger(options: LoggerOptions) {
       const lines: string[] = [];
       for (let i = 0; i < recentSize; i++) {
         const record = ring[(ringIndex - recentSize + i + recentCapacity) % recentCapacity];
-        if (record) lines.push(options.redact(JSON.stringify(record)));
+        if (record) lines.push(redactedLine(record, options.redact));
       }
       return lines;
     },

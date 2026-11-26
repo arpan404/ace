@@ -44,7 +44,9 @@ struct SpadeTab: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if machines.isEmpty { Color.clear } else { SpadeList(inbox: inbox) }
+                // Shown from memory before the machines answer: rows standing in while they connect.
+                if machines.isEmpty { SkeletonRows(count: 3, label: "Connecting to Spade").frame(maxHeight: .infinity, alignment: .top) }
+                else { SpadeList(inbox: inbox) }
             }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar {

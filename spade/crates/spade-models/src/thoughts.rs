@@ -5,26 +5,36 @@ use genai::chat::{ContentPart, CustomPart, MessageContent};
 
 use crate::prompt::Thought;
 
-/// The thoughts in a reply's content, in order. `reasoning` is reasoning the SDK reported apart
-/// from the content (OpenAI-compatible `reasoning_content`); it is kept when no thought already
-/// carries reasoning text.
-pub(crate) fn read(content: Option<&MessageContent>, reasoning: Option<&str>) -> Vec<Thought> {
+/// The thoughts in a reply's content, in order, each bound to `bound` (the digest of what came
+/// before the reply; see `bound.rs`). `reasoning` is reasoning the SDK reported apart from the
+/// content (OpenAI-compatible `reasoning_content`); it is kept when no thought already carries
+/// reasoning text.
+pub(crate) fn read(
+    content: Option<&MessageContent>,
+    reasoning: Option<&str>,
+    bound: &str,
+) -> Vec<Thought> {
     let mut out: Vec<Thought> = Vec::new();
     for part in content.map(MessageContent::parts).into_iter().flatten() {
         match part {
             ContentPart::ThoughtSignature(signature) => out.push(Thought::Signed {
                 signature: signature.clone(),
                 reasoning: None,
+                bound: Some(bound.to_owned()),
             }),
             ContentPart::ReasoningContent(text) => match out.last_mut() {
                 Some(Thought::Signed {
                     reasoning: slot @ None,
                     ..
                 }) => *slot = Some(text.clone()),
-                _ => out.push(Thought::Reasoning { text: text.clone() }),
+                _ => out.push(Thought::Reasoning {
+                    text: text.clone(),
+                    bound: Some(bound.to_owned()),
+                }),
             },
             ContentPart::Custom(custom) if is_thinking(custom) => out.push(Thought::Block {
                 data: custom.data.clone(),
+                bound: Some(bound.to_owned()),
             }),
             _ => {}
         }
@@ -39,6 +49,7 @@ pub(crate) fn read(content: Option<&MessageContent>, reasoning: Option<&str>) ->
             0,
             Thought::Reasoning {
                 text: text.to_owned(),
+                bound: Some(bound.to_owned()),
             },
         );
     }
@@ -53,14 +64,17 @@ pub(crate) fn parts(thoughts: &[Thought]) -> Vec<ContentPart> {
             Thought::Signed {
                 signature,
                 reasoning,
+                ..
             } => {
                 out.push(ContentPart::ThoughtSignature(signature.clone()));
                 if let Some(reasoning) = reasoning {
                     out.push(ContentPart::ReasoningContent(reasoning.clone()));
                 }
             }
-            Thought::Reasoning { text } => out.push(ContentPart::ReasoningContent(text.clone())),
-            Thought::Block { data } => out.push(ContentPart::Custom(CustomPart {
+            Thought::Reasoning { text, .. } => {
+                out.push(ContentPart::ReasoningContent(text.clone()))
+            }
+            Thought::Block { data, .. } => out.push(ContentPart::Custom(CustomPart {
                 model_iden: None,
                 data: data.clone(),
             })),

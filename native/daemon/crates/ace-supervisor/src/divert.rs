@@ -17,7 +17,9 @@ pub trait OutputConsumer: Send + Sync + 'static {
     fn end(&self, stream: OutputStream);
     fn stdin_written(&self);
     fn stdin_error(&self, error: NodeIoError);
-    /// The leader's end (node's `exit`). Pipes may still drain.
+    /// The leader's end (node's `exit`). The child's pumps were read out first,
+    /// boundedly, so the bytes it wrote are all delivered; only a pipe a
+    /// descendant still holds can drain past this.
     fn exit(&self, exit: RawExit);
     /// The pipes are done (node's `close`): no byte follows. The terminal barrier.
     fn close(&self, exit: RawExit);
