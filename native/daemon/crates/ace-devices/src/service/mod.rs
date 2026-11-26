@@ -9,6 +9,7 @@
 pub mod actions;
 pub mod binding;
 pub mod bridge;
+pub mod control;
 pub mod control_delivery;
 pub mod cowork;
 pub mod device_tools_wire;
@@ -35,6 +36,7 @@ pub mod words;
 
 pub use actions::{CaptureFacts, QueuedAction, Step as ActionStep};
 pub use binding::{Bind, Bound};
+pub use control::{Assignment, Claim};
 pub use control_delivery::{ControlDelivery, Flush, Sent};
 pub use cowork::Cowork;
 pub use device_tools_wire::check_request as check_tools_request;

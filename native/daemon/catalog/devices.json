@@ -444,6 +444,36 @@
       "code": "not_supported",
       "message": "ui needs a ref",
       "hint": "Read sim_ui and pass one of its refs."
+    },
+    "personControlling": {
+      "code": "lease_required",
+      "message": "A person is controlling this device",
+      "hint": "Wait until the person hands it back, then call sim_start again."
+    },
+    "otherAgentUsing": {
+      "code": "busy",
+      "message": "Another agent is using this device",
+      "hint": "Use another simulator, or retry after that agent finishes."
+    },
+    "controlChanged": {
+      "code": "busy",
+      "message": "Device control changed",
+      "hint": "Take control again."
+    },
+    "deviceNotTaken": {
+      "code": "lease_required",
+      "message": "Device is not taken for this thread",
+      "hint": "Call sim_start to take this simulator first."
+    },
+    "devicesDisabled": {
+      "code": "permission_denied",
+      "message": "Devices are disabled",
+      "hint": "Enable devices in the device panel."
+    },
+    "controlChangedRead": {
+      "code": "lease_required",
+      "message": "Control of this device changed during the read",
+      "hint": "Call sim_start again, then read the clipboard again."
     }
   },
   "adbTransports": {
