@@ -1104,9 +1104,6 @@ fn rate_limited_body(text: &str) -> bool {
         .is_some_and(|message| LIMITED.is_match(&message))
 }
 
-        .unwrap_or_else(|| text.to_owned())
-}
-
 fn sha256_hex(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
