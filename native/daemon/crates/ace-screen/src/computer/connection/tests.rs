@@ -5,15 +5,19 @@
 //! before it was sent, a broken stdin pipe, a helper that ignores SIGTERM, and one that
 //! refuses SIGKILL. No real helper and no screen: the start is a fake process.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use ace_json::{Map, Value};
 use ace_supervisor::signal::SignalName;
 use tokio_util::sync::CancellationToken;
 
-use super::{ChildEvents, Connection, ConnectionOptions, HelperProcess, HelperStart, StartFuture};
+use super::{
+    ChildEvents, Connection, ConnectionOptions, Dispatch, HelperProcess, HelperStart, StartFuture,
+};
 
 /// One fake helper, as the test drives it. `ignores_stop` stands in for
 /// `FAKE_IGNORE_STOP`; `refuses_kill` for a system that rejects SIGKILL.
@@ -534,4 +538,51 @@ async fn a_refused_sigkill_wakes_a_stopped_waiter_with_helper_stopping() {
         "the waiter is told the old helper is still running"
     );
     let _ = stuck.await;
+}
+
+/// A dispatch whose authority check begins shutdown: the answer is already in the mailbox when
+/// `close` arrives, and the action must not reach stdin (`helper-connection.ts:186`-`:195`,
+/// `:230`-`:254`).
+struct ClosesDuringAuthorize {
+    connection: Arc<OnceLock<Connection>>,
+}
+
+impl Dispatch for ClosesDuringAuthorize {
+    fn ready(&self) -> Pin<Box<dyn Future<Output = Result<bool, String>> + Send + '_>> {
+        Box::pin(async { Ok(true) })
+    }
+
+    fn authorize(&self) -> bool {
+        if let Some(connection) = self.connection.get() {
+            connection.close();
+        }
+        true
+    }
+
+    fn wait(
+        &self,
+        _cancel: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test]
+async fn a_dispatch_that_finishes_after_shutdown_began_writes_nothing() {
+    let start = Arc::new(FakeStart::default());
+    let connection = Connection::start(options(Arc::clone(&start)));
+    let cell = Arc::new(OnceLock::new());
+    let _ = cell.set(connection.clone());
+    let dispatch = Arc::new(ClosesDuringAuthorize { connection: cell });
+    let error = connection
+        .request("act", &payload(), 10_000, None, Some(dispatch))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "closed");
+    assert_eq!(error.message, "Computer use stopped.");
+    until("the helper", || start.spawned() == 1).await;
+    assert!(
+        start.helper(0).writes().is_empty(),
+        "no action reaches stdin after shutdown began"
+    );
 }

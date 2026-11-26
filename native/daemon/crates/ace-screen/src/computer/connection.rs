@@ -657,6 +657,15 @@ impl State {
     }
 
     fn dispatch_ready(&mut self, key: u64, ready: Result<bool, String>) {
+        // Shutdown may already have begun while this answer waited in the mailbox: nothing is
+        // authorized or written after `close` (`helper-connection.ts:186`-`:195`).
+        if self.closed() {
+            if self.current == Some(key) {
+                self.current = None;
+                self.settle(key, ComputerError::stopped());
+            }
+            return;
+        }
         if self.current != Some(key) {
             return;
         }
@@ -727,7 +736,19 @@ impl State {
 
     /// Write the request's line to `seq`'s helper (`helper-connection.ts:230`-`:254`).
     fn deliver(&mut self, key: u64, seq: u64) {
-        if self.child.as_ref().map(|child| child.seq) != Some(seq) {
+        // The last check before native stdin: shutdown, or a helper that is no longer the one
+        // this request may use (a stopping one included), means it is never written.
+        if self.closed() {
+            self.current = None;
+            self.settle(key, ComputerError::stopped());
+            return;
+        }
+        let usable = self.child.as_ref().is_some_and(|child| child.seq == seq)
+            && self
+                .stopping
+                .as_ref()
+                .is_none_or(|stopping| stopping.seq != seq);
+        if !usable {
             self.current = None;
             self.settle(key, ComputerError::helper_exited());
             self.pump();
