@@ -115,7 +115,7 @@ fn valid_permission_mode(value: Option<&Json>) -> bool {
     match value {
         None => true,
         Some(Json::Null) => true,
-        Some(Json::String(mode)) => !mode.is_empty() && mode.len() <= 4096,
+        Some(Json::String(mode)) => !mode.is_empty() && mode.len_code_points() <= 4096,
         _ => false,
     }
 }
