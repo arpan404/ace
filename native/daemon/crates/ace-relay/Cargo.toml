@@ -26,6 +26,8 @@ sha2 = { version = "0.11" }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 # data-encoding: base32 for the relay host id, the form pairing links and the relay protocol use.
 data-encoding = { version = "2.6" }
+# base64: a relay transfer chunk carries its bytes base64, as `Buffer.from(data, "base64")`.
+base64 = { version = "0.22" }
 # ace-keys: the one base32 host-id and 64-hex fingerprint rule.
 ace-keys = { path = "../ace-keys" }
 # hmac: HKDF-SHA256 derives each handshake key the Noise spec names (extract then expand).

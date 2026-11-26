@@ -11,6 +11,7 @@ pub mod cipher;
 pub mod error;
 pub mod host;
 pub mod http;
+pub mod machine;
 pub mod nk;
 pub mod noise;
 pub mod route;
@@ -30,6 +31,10 @@ pub use host::{
     first_message, http_answer, valid_host_id, valid_ticket,
 };
 pub use http::{HOOKS_PATH, RelayHttpTarget, relay_http_enabled, relay_http_target};
+pub use machine::{
+    Admission, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots, URGENT, WAITING, answer,
+    hosted_relay_carries, incoming, refusal, transfer_chunk, welcome,
+};
 pub use nk::admission::{
     Held, NK_LIMITS, NkAdmission, NkClock, NkLimits, NkSession, Rate, Remaining, Suppression,
     Suppressive,
