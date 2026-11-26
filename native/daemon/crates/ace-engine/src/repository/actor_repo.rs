@@ -9,7 +9,7 @@
 use ace_json::Value;
 
 use crate::actor::deps::{ActorRepo, Route, ScheduleView, Unported};
-use crate::repository::collaborators::{InputFacts, MoveFacts};
+use crate::repository::collaborators::MoveFacts;
 use crate::repository::residency::{cell_int, text};
 use crate::{Core, EngineError, State, ThreadId};
 

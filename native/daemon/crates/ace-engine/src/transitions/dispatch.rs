@@ -118,7 +118,7 @@ fn run_switch(
         &selection,
         |_| ace_json::json!({ "resume": true, "sessionOptions": true }),
     )?;
-    let selection = resolved.map_err(|code| EngineError::Records(code))?;
+    let selection = resolved.map_err(EngineError::Records)?;
     state.transition_admit_model(&core.store, thread, &selection)?;
     let previous = state.transition_get(&core.store, thread)?;
     let mut metadata = metadata_json(&previous);
@@ -131,7 +131,7 @@ fn run_switch(
         &Value::Object(metadata_json(&admitted)),
     )?;
     state.transition_remember(&core.store, thread, &selection)?;
-    apply_switch_applied(core, state, thread, &selection, &command_id(command))
+    apply_switch_applied(core, state, thread, &selection, command_id(command))
 }
 
 fn apply_switch_applied(

@@ -475,6 +475,7 @@ pub fn commit(
         handoff,
         pull_request_context,
     } = settle;
+    let _ = &fence.owners;
     let Some(worktree) = details.get("worktree").and_then(Value::as_str) else {
         return Err(records("workspace_unavailable"));
     };

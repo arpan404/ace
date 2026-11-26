@@ -17,6 +17,9 @@ use crate::executor::TaskId;
 /// Thread transitions, workspace changes and live moves (E5.9).
 #[derive(Debug, Default)]
 pub struct Transitions {
+    /// Whether boot's readiness rebuild is still running. While it is, only the threads it has
+    /// reached answer ready; a thread it has not reached is never "done".
+    pub(crate) booting: bool,
     /// Threads whose readiness rebuild has committed this boot.
     pub(crate) rebuilt: std::collections::HashSet<String>,
 }

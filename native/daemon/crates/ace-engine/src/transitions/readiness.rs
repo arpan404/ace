@@ -98,7 +98,7 @@ pub fn accepts_person_input(
     thread: &str,
     now: i64,
 ) -> Result<bool, EngineError> {
-    if !state.transitions.rebuilt.contains(thread) {
+    if !is_rebuilt(state, thread) {
         return Ok(false);
     }
     let Some(snapshot) = state.readiness_snapshot(thread)? else {
@@ -139,9 +139,14 @@ pub fn accepts_person_input(
 }
 
 /// Whether the thread's readiness rebuild committed this boot.
-pub fn rebuilt(store: &EngineStore, state: &State, thread: &str) -> Result<bool, EngineError> {
-    let _ = store;
-    Ok(state.transitions.rebuilt.contains(thread))
+pub fn rebuilt(_store: &EngineStore, state: &State, thread: &str) -> Result<bool, EngineError> {
+    Ok(is_rebuilt(state, thread))
+}
+
+/// Whether the thread's readiness answer is one this boot stands behind. Before boot (or after
+/// it) every thread is; during the rebuild only a thread it has already replaced is.
+pub fn is_rebuilt(state: &State, thread: &str) -> bool {
+    !state.transitions.booting || state.transitions.rebuilt.contains(thread)
 }
 
 pub fn mark_rebuilt(state: &mut State, thread: &str) {
@@ -293,7 +298,10 @@ pub fn rebuild(
 
 /// On boot, rebuild readiness for loaded threads in bounded steps.
 pub fn boot_rebuild(store: &EngineStore, state: &mut State, now: i64) -> Result<(), EngineError> {
-    for thread in rebuild(store.conn(), now)? {
+    state.transitions.booting = true;
+    let rebuilt = rebuild(store.conn(), now);
+    state.transitions.booting = false;
+    for thread in rebuilt? {
         mark_rebuilt(state, &thread);
     }
     Ok(())
