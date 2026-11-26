@@ -1,0 +1,40 @@
+{
+  "computer": {
+    "closed": {
+      "code": "closed",
+      "message": "Computer use is shutting down."
+    },
+    "stopped": {
+      "code": "closed",
+      "message": "Computer use stopped."
+    },
+    "cancelled": {
+      "code": "cancelled",
+      "message": "Cancelled."
+    },
+    "timeout": {
+      "code": "timeout",
+      "message": "The app did not respond in time (it may be busy or stuck on a dialog). Try again; if it keeps failing, take a screenshot to see what it is showing."
+    },
+    "helperExited": {
+      "code": "helper_exited",
+      "message": "The computer-use helper stopped. Try again."
+    },
+    "helperStopping": {
+      "code": "helper_stopping",
+      "message": "The app's previous computer-use helper has not exited yet. Try again shortly."
+    },
+    "helperUnavailable": {
+      "code": "helper_unavailable",
+      "message": "The computer-use helper could not start."
+    },
+    "helperUnavailableWith": {
+      "code": "helper_unavailable",
+      "message": "The computer-use helper could not start: {message}"
+    },
+    "replyTooLarge": {
+      "code": "reply_too_large",
+      "message": "The app's reply was larger than {mb} MB. Ask for less: use find, skip the screenshot, or pick a smaller window."
+    }
+  }
+}
