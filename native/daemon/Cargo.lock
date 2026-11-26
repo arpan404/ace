@@ -43,6 +43,7 @@ dependencies = [
  "indexmap",
  "serde",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

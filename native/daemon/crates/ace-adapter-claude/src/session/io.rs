@@ -18,6 +18,45 @@ use ace_supervisor::spawn::{Delivered, OutputStream, RawExit};
 const CUTOFF: &str = "cutoff";
 const CUTOFF_MS: f64 = 1_000.0;
 
+/// The variables the session adds to ace's environment (`session.ts:241`): ace's client-app
+/// marker, and the session-state read the recorded 2.1.331 handshake shows the harness sets and
+/// nothing else (claude-session.md Q3, `fixtures/claude/handshake-2.1.331/env-added.json`).
+pub const SESSION_ENV: [(&str, &str); 2] = [
+    ("CLAUDE_AGENT_SDK_CLIENT_APP", "ace/0.0.0"),
+    ("CLAUDE_CODE_SDK_READS_SESSION_STATE", "1"),
+];
+
+/// The environment the child is spawned with: ace's own, and then the session's variables, so
+/// ace's value wins over one a caller left in place (`{ ...env, … , CLAUDE_… : "1" }`).
+pub fn session_env(base: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = base
+        .into_iter()
+        .filter(|(name, _)| !SESSION_ENV.iter().any(|(own, _)| own == name))
+        .collect();
+    env.extend(
+        SESSION_ENV
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+    );
+    env
+}
+
+/// The message a session reports once for its exit (`session.ts:101`-`:109`, `:257`-`:268`): a
+/// recorded failure wins, else the process's own end, which reads its code, then its signal,
+/// then the shell's reason. An end with none of the three cannot happen today (node reports a
+/// code or a signal), so the last arm names it rather than inventing one of them.
+pub fn exit_message(failure: Option<&str>, exit: &RawExit, reason: Option<&str>) -> String {
+    if let Some(message) = failure {
+        return message.to_owned();
+    }
+    let end = match (&exit.code, &exit.signal) {
+        (Some(code), _) => code.to_string(),
+        (None, Some(signal)) => signal.clone(),
+        (None, None) => reason.unwrap_or("unknown").to_owned(),
+    };
+    format!("Claude process exited: {end}")
+}
+
 /// One native Claude session's shared state. The binding holds it; the diverted child's
 /// consumer is a clone of the same `Arc`.
 pub struct ClaudeSessionCore {
@@ -321,5 +360,351 @@ mod tests {
                 .any(|event| matches!(event, SessionEvent::Fatal { .. }))
         );
         assert!(matches!(events.last(), Some(SessionEvent::Drained)));
+    }
+
+    /// The session's own variables are the last word on the child's environment.
+    #[test]
+    fn the_session_owns_its_two_variables_and_leaves_the_rest_alone() {
+        let base = vec![
+            ("PATH".to_owned(), "/usr/bin".to_owned()),
+            (
+                "CLAUDE_CODE_SDK_READS_SESSION_STATE".to_owned(),
+                "0".to_owned(),
+            ),
+            ("HOME".to_owned(), "/home/person".to_owned()),
+        ];
+        let env = session_env(base);
+        assert_eq!(
+            env,
+            vec![
+                ("PATH".to_owned(), "/usr/bin".to_owned()),
+                ("HOME".to_owned(), "/home/person".to_owned()),
+                (
+                    "CLAUDE_AGENT_SDK_CLIENT_APP".to_owned(),
+                    "ace/0.0.0".to_owned()
+                ),
+                (
+                    "CLAUDE_CODE_SDK_READS_SESSION_STATE".to_owned(),
+                    "1".to_owned()
+                ),
+            ]
+        );
+    }
+
+    /// A failure's text wins over the process's own end (`session.ts:257`-`:268`).
+    #[test]
+    fn a_recorded_failure_is_the_exit_message() {
+        assert_eq!(
+            exit_message(
+                Some("Claude session state is unreadable"),
+                &clean_exit(),
+                None
+            ),
+            "Claude session state is unreadable"
+        );
+    }
+
+    /// Without a failure the exit reports its code, else its signal, else the shell's reason.
+    #[test]
+    fn the_exit_message_reports_the_code_then_the_signal_then_the_reason() {
+        let signalled = RawExit {
+            code: None,
+            signal: Some("SIGTERM".to_owned()),
+        };
+        let silent = RawExit {
+            code: None,
+            signal: None,
+        };
+        assert_eq!(
+            exit_message(None, &clean_exit(), Some("stopped")),
+            "Claude process exited: 0"
+        );
+        assert_eq!(
+            exit_message(None, &signalled, Some("stopped")),
+            "Claude process exited: SIGTERM"
+        );
+        assert_eq!(
+            exit_message(None, &silent, Some("output-limit")),
+            "Claude process exited: output-limit"
+        );
+    }
+
+    /// A stop with no target is the TS's no-agent branch: every live task, certain
+    /// (`session.ts:457`-`:460`).
+    #[test]
+    fn a_cascade_with_no_target_names_every_live_task() {
+        let core = core();
+        core.input(|wire| {
+            wire.stdout_bytes(
+                br#"{"type":"system","subtype":"task_started","task_id":"task-1","tool_use_id":"tool-1"}
+"#,
+            )
+        });
+        assert_eq!(
+            core.task_cascade(None),
+            r#"{"ids":["task-1"],"uncertain":false}"#
+        );
+        core.input(|wire| {
+            wire.stdout_bytes(
+                br#"{"type":"system","subtype":"task_started","task_id":"task-2","tool_use_id":"tool-2"}
+"#,
+            )
+        });
+        assert_eq!(
+            core.task_cascade(None),
+            r#"{"ids":["task-1","task-2"],"uncertain":false}"#
+        );
+        core.input(|wire| {
+            wire.stdout_bytes(
+                br#"{"type":"system","subtype":"task_notification","task_id":"task-1","status":"completed"}
+"#,
+            )
+        });
+        assert_eq!(
+            core.task_cascade(None),
+            r#"{"ids":["task-2"],"uncertain":false}"#
+        );
+    }
+}
+
+/// The shell against a real child: `cat` reads what the session writes and echoes it back, so
+/// an acknowledged write is visible as the child's own output and the pipe's ends are real.
+#[cfg(all(test, unix))]
+mod child {
+    // A test's setup failures are panics: the runtime, the child and every admitted write.
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use ace_adapter_api::frame::FrameDirection;
+    use ace_supervisor::child::{SupervisedChild, spawn_child};
+    use ace_supervisor::divert::{DivertTarget, Diverted};
+    use ace_supervisor::signal::SignalName;
+    use ace_supervisor::spawn::{EventSink, SpawnSpec, StdioMode};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// The shell side of a diverted child receives nothing: its events are the session's.
+    #[derive(Clone)]
+    struct Silent;
+
+    impl EventSink for Silent {
+        fn output(&self, _stream: OutputStream, _bytes: Vec<u8>, delivered: Delivered) {
+            delivered.taken(true);
+        }
+        fn end(&self, _stream: OutputStream) {}
+        fn exit(&self, _exit: RawExit) {}
+        fn close(&self, _exit: RawExit) {}
+        fn stdin_written(&self) {}
+        fn stdin_error(&self, _error: NodeIoError) {}
+        fn hold_limit(&self) {}
+        fn held(&self, _message: String) {}
+    }
+
+    /// The child's loop: copy every line back at once, so a write is visible as the child's own
+    /// output without waiting for a buffer or for EOF.
+    const ECHO: &str = "while IFS= read -r line; do printf '%s\\n' \"$line\"; done";
+
+    /// The session and its real child, with every event it published kept in pull order.
+    struct Child {
+        core: Arc<ClaudeSessionCore>,
+        child: SupervisedChild,
+        /// Dropped last: the pumps and the reaper live on it.
+        _runtime: tokio::runtime::Runtime,
+        seen: Vec<Vec<SessionEvent>>,
+    }
+
+    impl Child {
+        /// A real child as the session's: every line written to stdin comes back on stdout.
+        fn open() -> Child {
+            let core = Arc::new(ClaudeSessionCore::new(WireConfig {
+                session_id: "session-1".to_owned(),
+                root_key: "root".to_owned(),
+                bearer: None,
+                resume: false,
+            }));
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            let target = DivertTarget {
+                consumer: Arc::clone(&core) as Arc<dyn OutputConsumer>,
+                ports: Arc::clone(core.ports()),
+            };
+            let sink = Diverted::new(Silent, Arc::clone(&target.consumer));
+            let child = spawn_child(&spec(), sink, runtime.handle(), Some(&target))
+                .expect("spawn the echo child");
+            Child {
+                core,
+                child,
+                _runtime: runtime,
+                seen: Vec::new(),
+            }
+        }
+
+        /// Pulls the queue until an event matches, or nothing more arrives for ten seconds.
+        fn wait(&mut self, done: impl Fn(&SessionEvent) -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let batch = self.core.queue().take_batch(4096, 4 * 1024 * 1024);
+                if !batch.is_empty() {
+                    self.seen.push(batch);
+                }
+                if self.events().any(&done) || Instant::now() > deadline {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        /// Every event published so far, oldest first.
+        fn events(&self) -> impl Iterator<Item = &SessionEvent> {
+            self.seen.iter().flatten()
+        }
+
+        /// The frames the session sent, in the order they were written and acknowledged.
+        fn sent(&self) -> Vec<(&str, &str)> {
+            self.events()
+                .filter_map(|event| match event {
+                    SessionEvent::Frame {
+                        dir: FrameDirection::Send,
+                        channel,
+                        text,
+                        ..
+                    } => Some((channel.as_str(), text.as_str())),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.child.kill(SignalName::Kill);
+        }
+    }
+
+    fn spec() -> SpawnSpec {
+        SpawnSpec {
+            command: "/bin/sh".to_owned(),
+            args: vec!["-c".to_owned(), ECHO.to_owned()],
+            cwd: None,
+            env: Vec::new(),
+            windows_verbatim: false,
+            hide_window: true,
+            contain: false,
+            max_output_bytes: None,
+            stdin: StdioMode::Piped,
+            stdout: StdioMode::Piped,
+            stderr: StdioMode::Piped,
+        }
+    }
+
+    fn is_drained(event: &SessionEvent) -> bool {
+        matches!(event, SessionEvent::Drained)
+    }
+
+    fn is_answer(event: &SessionEvent) -> bool {
+        matches!(event,
+            SessionEvent::Frame { dir: FrameDirection::Send, channel, text, .. }
+                if channel == "wire" && text.contains("Claude request ended."))
+    }
+
+    /// A user line as the session writes one.
+    fn message(uuid: &str, text: &str) -> String {
+        format!(
+            r#"{{"type":"user","uuid":"{uuid}","session_id":"session-1","parent_tool_use_id":null,"message":{{"role":"user","content":[{{"type":"text","text":"{text}"}}]}},"priority":"next"}}"#
+        )
+    }
+
+    /// The ask the fake CLI sends when it needs a tool approved.
+    const ASK: &str = r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}"#;
+
+    /// `q.close()`'s order: the expiry's answer is written and acknowledged while stdin is open,
+    /// ending input follows, the barrier's `Drained` comes last, and nothing is written after it.
+    #[test]
+    fn the_answer_is_written_before_input_ends_and_drained_comes_last() {
+        let mut child = Child::open();
+        child
+            .core
+            .input(|wire| wire.stdout_bytes(format!("{ASK}\n").as_bytes()));
+        // expire(): every pending ask gets its default answer, written while stdin is open.
+        child.core.expire();
+        child.wait(is_answer);
+        // end_input(): EOF after everything queued; a second expiry writes nothing.
+        child.core.end_input();
+        child.core.expire();
+        // The child's own end is the terminal barrier; Drained follows the answer's frame.
+        child.wait(is_drained);
+        let events: Vec<&SessionEvent> = child.events().collect();
+        let position =
+            |want: &dyn Fn(&SessionEvent) -> bool| events.iter().position(|event| want(event));
+        let lifecycle = position(&|event| {
+            matches!(event, SessionEvent::Frame { channel, text, .. }
+                if channel == "interaction_lifecycle" && text.contains(r#""state":"expired""#))
+        });
+        let answer = position(&is_answer);
+        let drained = position(&|event| is_drained(event));
+        assert!(
+            lifecycle.is_some() && lifecycle < answer,
+            "the lifecycle frame precedes the answer: {lifecycle:?} {answer:?}"
+        );
+        assert_eq!(drained, Some(events.len() - 1), "Drained is the last event");
+        let written = child.sent();
+        assert_eq!(
+            written
+                .iter()
+                .filter(|(_, text)| text.contains("Claude request ended."))
+                .count(),
+            1,
+            "one answer, and none after input ended: {written:?}"
+        );
+        assert!(
+            written
+                .iter()
+                .any(|(channel, text)| *channel == "wire" && text.contains(r#""behavior":"deny""#)),
+            "the expiry answered the CLI: {written:?}"
+        );
+    }
+
+    /// Acknowledged writes are reported strictly in the order they were written: two user lines,
+    /// then a control request.
+    #[test]
+    fn acknowledgements_are_reported_in_write_order() {
+        let mut child = Child::open();
+        let messages = format!("[{},{}]", message("u-1", "one"), message("u-2", "two"));
+        child
+            .core
+            .send(&messages, Some("command-1"))
+            .expect("send is admitted");
+        child
+            .core
+            .control(r#"{"subtype":"mcp_status"}"#, 1)
+            .expect("the control is written");
+        child.wait(
+            |event| matches!(event, SessionEvent::Frame { channel, .. } if channel == "wire"),
+        );
+        let sent = child.sent();
+        assert_eq!(
+            sent.iter()
+                .take(3)
+                .map(|(channel, _)| *channel)
+                .collect::<Vec<_>>(),
+            ["sdk", "sdk", "wire"],
+            "one frame per acknowledged write, in write order: {sent:?}"
+        );
+        assert!(sent[0].1.contains("u-1"));
+        assert!(sent[1].1.contains("u-2"));
+        assert!(sent[2].1.contains("mcp_status"));
+        // The child echoes the lines it read back on stdout, so the bytes reached its stdin.
+        let read_back = |event: &SessionEvent| {
+            matches!(event,
+                SessionEvent::Frame { dir: FrameDirection::Recv, channel, text, .. }
+                    if channel == "sdk" && text.contains(r#""text":"one""#))
+        };
+        child.wait(read_back);
+        assert!(
+            child.events().any(read_back),
+            "the child read what was written"
+        );
     }
 }
