@@ -994,9 +994,9 @@ impl Catalog {
 
     /// Shuts the catalog down: abort flights, drain writes, flush deletions, close storage.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        let (flights, invalidations, observed) = self.with_inner(|inner| {
+        let (flights, invalidations, observed, writes) = self.with_inner(|inner| {
             if inner.closed {
-                return (Vec::new(), Vec::new(), None);
+                return (Vec::new(), Vec::new(), None, Vec::new());
             }
             inner.closed = true;
             inner.listeners.clear();
@@ -1014,7 +1014,8 @@ impl Catalog {
                     invalidations.push(pending.clone());
                 }
             }
-            (flights, invalidations, observed)
+            let writes = inner.write_tails.values().cloned().collect();
+            (flights, invalidations, observed, writes)
         });
         if let Some(cancel) = observed {
             cancel();
@@ -1024,6 +1025,10 @@ impl Catalog {
         }
         for pending in invalidations {
             pending.done.wait().await;
+        }
+        // Accepted session writes are drained before storage closes.
+        for tail in writes {
+            tail.wait().await;
         }
         let deletions = self.with_inner(|inner| inner.deletions.flush());
         deletions?;

@@ -132,7 +132,12 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
                 ..Default::default()
             });
             let instance = request.instance;
-            let url = format!("{}{CATALOG_PATH}", base_url(&instance));
+            // A v2 server answers for a Location: its directory rides on the query.
+            let url = format!(
+                "{}{CATALOG_PATH}?location[directory]={}",
+                base_url(&instance),
+                percent_encode(&instance.cwd)
+            );
             let aborted = {
                 let signal = signal.clone();
                 move || signal.is_aborted()
@@ -150,6 +155,19 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
             })
         })
     }
+}
+
+/// A query value with only the characters a directory path needs left literal.
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 /// The server an instance talks to: its configured base URL, else OpenCode's default.
@@ -466,6 +484,10 @@ mod tests {
             .requests
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        assert_eq!(requests[0].url, "http://127.0.0.1:4096/api/model");
+        assert!(
+            requests[0]
+                .url
+                .starts_with("http://127.0.0.1:4096/api/model?location[directory]=")
+        );
     }
 }

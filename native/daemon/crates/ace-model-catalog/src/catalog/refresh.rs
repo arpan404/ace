@@ -113,17 +113,15 @@ impl Catalog {
             if inner.closed {
                 return FlightStart::Skipped;
             }
-            if cause != RefreshCause::Request {
-                let facts = AcpRowFacts {
-                    loaded: state.entry.is_some(),
-                    loaded_before: inner.acp_loaded.contains(id) || state.entry.is_some(),
-                    due: state.acp_due,
-                };
-                if state.config.provider == ProviderKind::Acp
-                    && !acp_probe_allowed(state.config.model_probe, facts, cause)
-                {
-                    return FlightStart::Skipped;
-                }
+            let facts = AcpRowFacts {
+                loaded: state.entry.is_some(),
+                loaded_before: inner.acp_loaded.contains(id) || state.entry.is_some(),
+                due: state.acp_due,
+            };
+            if state.config.provider == ProviderKind::Acp
+                && !acp_probe_allowed(state.config.model_probe, facts, cause)
+            {
+                return FlightStart::Skipped;
             }
             if !self.enabled(&state.config) || now < state.retry_at {
                 return FlightStart::Skipped;
@@ -191,10 +189,15 @@ impl Catalog {
     /// One flight's body. Every write re-checks that this row and revision are current.
     async fn run_flight(&self, id: &str, _cause: RefreshCause, token: u64) {
         let _permit = self.limiter.acquire().await;
+        let gate = self
+            .with_inner(|inner| inner.states.get(id).and_then(|state| state.flight.clone()))
+            .map(|flight| flight.done)
+            .unwrap_or_default();
         let _guard = FlightGuard {
             catalog: self.clone(),
             id: id.to_owned(),
             token,
+            gate,
         };
         let Some(config) = self.registered(id) else {
             return;
@@ -716,6 +719,7 @@ struct FlightGuard {
     catalog: Catalog,
     id: String,
     token: u64,
+    gate: crate::signals::Gate,
 }
 
 impl Drop for FlightGuard {
@@ -725,15 +729,16 @@ impl Drop for FlightGuard {
             if let Some(state) = inner.states.get_mut(&self.id)
                 && state.flight_token == Some(self.token)
             {
-                if let Some(flight) = state.flight.take() {
-                    flight.done.open();
-                }
+                state.flight.take();
                 if let Some(abort) = state.abort.take() {
                     abort.abort();
                 }
                 state.probe_revision = None;
                 state.flight_token = None;
             }
+            // The gate belongs to this flight, not to whichever state replaced it:
+            // an invalidate or remove waiting on it must never hang.
+            self.gate.open();
         });
         if let Some(config) = self.catalog.registered(&self.id) {
             self.catalog.notify_config(&config);

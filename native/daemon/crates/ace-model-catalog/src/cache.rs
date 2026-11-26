@@ -337,6 +337,34 @@ pub fn encode_entry(entry: &CacheEntry) -> Result<Value, CacheError> {
 
 /// The row checks a cached entry must pass before it is stored (`CachedEntry.refine`).
 pub fn validate_entry(entry: &CacheEntry) -> Result<(), CacheError> {
+    if entry.models.len() > MAX_ROWS {
+        return Err(CacheError::TooManyRows);
+    }
+    if entry.permission_modes.as_ref().is_some_and(|modes| {
+        modes.len() > MAX_MODES
+            || modes.iter().any(|mode| {
+                let Some(mode) = mode.as_object() else {
+                    return true;
+                };
+                let label = |key: &str, max: usize| {
+                    mode.get(key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| (1..=max).contains(&text.chars().count()))
+                };
+                !label("id", 4096)
+                    || !label("label", 256)
+                    || mode
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .is_none_or(|text| text.chars().count() > 2048)
+                    || !mode
+                        .get("risk")
+                        .and_then(Value::as_str)
+                        .is_some_and(|risk| matches!(risk, "low" | "medium" | "high"))
+            })
+    }) {
+        return Err(CacheError::TooManyModes);
+    }
     let mut seen = Vec::with_capacity(entry.models.len());
     for row in &entry.models {
         if row.instance.0 != entry.instance || row.provider != entry.provider {
@@ -693,6 +721,21 @@ mod tests {
         storage
             .replace(&cli)
             .unwrap_or_else(|_| panic!("a CLI row may weigh up to 4 MiB"));
+    }
+
+    #[test]
+    fn a_row_past_512_and_a_malformed_permission_mode_are_refused_on_write() {
+        let mut storage = MemoryStorage::new();
+        let mut entry = stored(ProviderKind::Codex, "account");
+        let agent = ModelInstance::cli("account", ProviderKind::Codex, "", "/repo");
+        entry.models = (0..513)
+            .map(|index| Arc::new(row(&format!("model-{index}"))))
+            .collect();
+        let _ = agent;
+        assert_eq!(storage.replace(&entry), Err(CacheError::TooManyRows));
+        entry.models.clear();
+        entry.permission_modes = Some(vec![json!({ "id": "plan", "risk": "medium" })]);
+        assert_eq!(storage.replace(&entry), Err(CacheError::TooManyModes));
     }
 
     #[test]
