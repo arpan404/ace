@@ -76,6 +76,21 @@ export interface Dependencies {
    * run is skipped, Run now is refused and waiting runs stay waiting until it reopens.
    */
   admission?: Admission;
+  /**
+   * Whether discovery for this automation's provider or instance is still running. A scheduled
+   * fire needs its model, so while this is true the occurrence stays due instead of being spent
+   * on a thread the engine would refuse; the service is woken through `modelsReady()` once
+   * discovery settles.
+   */
+  modelLoading?: (automation: Automation) => boolean;
+  /**
+   * How long one occurrence waits for that discovery before its model is treated as
+   * unavailable (30 s by default): a run is then admitted and its refusal is recorded, so a
+   * discovery that never settles cannot hold the occurrence forever.
+   */
+  modelHoldMs?: number;
+  /** How often a scheduler held for model lists rechecks when no wake arrives; 30 s by default. */
+  modelRetryMs?: number;
 }
 export interface Admission {
   open(): boolean;

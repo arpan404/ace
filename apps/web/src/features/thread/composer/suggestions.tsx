@@ -27,6 +27,10 @@ export interface Suggestion {
   device?: DeviceContextItem | undefined;
   /** What the row and its chip show beside the name. */
   picture?: MentionPicture | undefined;
+  /** Where a `/` row comes from (a plugin's name), shown at the row's end. */
+  source?: string | undefined;
+  /** A `/` row that runs the screen's action of this name instead of leaving a chip. */
+  action?: string | undefined;
 }
 export type Suggestions = (
   | { state: "closed" }

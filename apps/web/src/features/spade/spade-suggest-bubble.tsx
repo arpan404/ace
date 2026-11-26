@@ -10,10 +10,8 @@ import { cn } from "@/lib/cn.ts";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import {
+  CardActions,
   CardBody,
-  CardFooter,
-  CardPrimary,
-  CardWord,
   LaterClock,
   NeedsYouLine,
   RaisedCard,
@@ -112,24 +110,23 @@ export function SpadeSuggestBubble(props: {
             {`Nothing is installed until you review it. ${props.botName} can't install it.`}
           </p>
         </CardBody>
-        <CardFooter
-          start={
-            <>
-              <CardWord
-                onClick={
-                  item.standing === "deferred"
-                    ? () => setOpened(false)
-                    : () => void props.onReply(item.callId, { defer: true })
-                }
-              >
-                Later
-              </CardWord>
-              <CardWord onClick={() => void props.onReply(item.callId, { dismiss: true })}>
-                Not now
-              </CardWord>
-            </>
-          }
-          end={<CardPrimary onClick={review}>Review install</CardPrimary>}
+        <CardActions
+          secondary={[
+            {
+              key: "later",
+              label: "Later",
+              onClick:
+                item.standing === "deferred"
+                  ? () => setOpened(false)
+                  : () => void props.onReply(item.callId, { defer: true }),
+            },
+            {
+              key: "not-now",
+              label: "Not now",
+              onClick: () => void props.onReply(item.callId, { dismiss: true }),
+            },
+          ]}
+          primary={{ label: "Review install", onClick: review }}
         />
       </RaisedCard>
     );

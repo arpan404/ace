@@ -100,7 +100,7 @@ export function VoiceRows(props: { bot?: string | undefined; speechModel: string
         <SettingRow title="Voice" density="compact" inline>
           <Select<string>
             label="Voice"
-            className="w-52 max-w-full"
+            className={bot ? "w-44" : "w-52 max-w-full"}
             value={chosen ?? follow}
             options={[first, ...options.filter((option) => option.value !== follow)]}
             onValueChange={(value) => setVoiceChoice(bot, { [field]: value || undefined })}

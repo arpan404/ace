@@ -14,10 +14,20 @@ export type SpadeRole = (typeof spadeRoles)[number];
 
 export const spadeRoleNames: Record<SpadeRole, string> = {
   /** A bot's task lanes (ADR 0217 §8a): "Same as main" until set. */
-  task: "Tasks",
+  task: "Background work",
   helper: "Helpers",
   verify: "Checking done",
   review: "Reviewing steps",
+  compact: "Summaries",
+  title: "Titles",
+};
+
+/** Short role titles used inside a bot's "Models for other work" rows. */
+export const spadeBotRoleNames: Record<SpadeRole, string> = {
+  task: "Background work",
+  helper: "Helpers",
+  verify: "Checking done",
+  review: "Review",
   compact: "Summaries",
   title: "Titles",
 };
@@ -52,6 +62,59 @@ export const spadeEffortNames: Record<SpadeEffort, string> = {
   high: "High thinking",
   max: "Most thinking",
 };
+
+/** Short labels for segmented thinking controls and compact role summaries. */
+export const spadeEffortShortNames: Record<SpadeEffort, string> = {
+  provider: "Default",
+  off: "Off",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  max: "Max",
+};
+
+/**
+ * The thinking efforts a model supports, from its declared catalogue `efforts` or its `reasoning`
+ * capability when no explicit list is given. Empty when the model has no thinking control.
+ */
+export function spadeModelEfforts(
+  model:
+    | { efforts?: readonly SpadeEffort[] | undefined; capabilities?: readonly string[] | undefined }
+    | undefined,
+): SpadeEffort[] {
+  if (!model) return [];
+  if (model.efforts?.length) {
+    const out: SpadeEffort[] = [];
+    for (const effort of model.efforts) {
+      if (effort !== "provider" && !out.includes(effort)) out.push(effort);
+    }
+    return out;
+  }
+  if (model.capabilities?.includes("reasoning")) return ["low", "medium", "high"];
+  return [];
+}
+
+/** The default effort for a model from its supported list: `fallback` (default medium), or middle. */
+export function spadeModelDefaultEffort(
+  efforts: readonly SpadeEffort[],
+  fallback: SpadeEffort = "medium",
+): SpadeEffort | undefined {
+  if (efforts.length === 0) return undefined;
+  if (efforts.includes(fallback)) return fallback;
+  if (efforts.includes("medium")) return "medium";
+  return efforts[Math.floor((efforts.length - 1) / 2)];
+}
+
+/** Effort to use after switching models: keep `current` when supported, else the model's default. */
+export function spadeNextModelEffort(
+  efforts: readonly SpadeEffort[],
+  current: SpadeEffort | undefined,
+  fallback: SpadeEffort = "medium",
+): SpadeEffort | undefined {
+  if (efforts.length === 0) return undefined;
+  if (current && efforts.includes(current)) return current;
+  return spadeModelDefaultEffort(efforts, fallback);
+}
 
 const isEffort = (value: unknown): value is SpadeEffort =>
   typeof value === "string" && (spadeEfforts as readonly string[]).includes(value);

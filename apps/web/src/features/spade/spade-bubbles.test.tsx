@@ -31,7 +31,12 @@ test("a bot's bubbles in a row are one run with no face beside them, under one t
   const [run, ...more] = chat.getAllByRole("article", { name: "Garden" });
   if (!run) throw new Error("expected Garden's run");
   expect(more).toEqual([]);
-  expect(within(run).getByText("In October.")).toBeTruthy();
+  // Two separate reply turns stack as separate bubbles inside the single run.
+  expect(
+    [...run.querySelectorAll("[data-part=spade-message]")].map((bubble) =>
+      bubble.textContent?.trim(),
+    ),
+  ).toEqual(["In October.", "Mulch it after."]);
   // A one-to-one chat carries the bot's face in the pill and the working line, never by bubbles.
   expect(run.querySelector("svg.bot-face")).toBeNull();
 });
@@ -50,8 +55,13 @@ test("each bubble offers its exact time and Copy, and Copy takes the words witho
   expect((await chat.findByText("Garlic")).tagName).toBe("STRONG");
   expect(chat.queryByText(/\*\*|##/)).toBeNull();
   const run = chat.getByRole("article", { name: "Garden" });
-  expect(within(run).getByText(/^Today \d{1,2}:\d{2}/)).toBeTruthy();
-  await userEvent.click(within(run).getByRole("button", { name: "Copy" }));
+  // The hover actions are bare icons beside the bubble; the time and Copy are in More.
+  expect(within(run).getByRole("button", { name: "React" })).toBeTruthy();
+  expect(within(run).getByRole("button", { name: "Reply" })).toBeTruthy();
+  expect(within(run).queryByRole("button", { name: "Copy" })).toBeNull();
+  await userEvent.click(within(run).getByRole("button", { name: "More" }));
+  expect(await screen.findByText(/^Sent Today \d{1,2}:\d{2}/)).toBeTruthy();
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Copy" }));
   expect(written).toHaveBeenCalledWith("Garlic\n\n- Plant in October");
 });
 
@@ -153,10 +163,10 @@ test("a reply's work stays out of the chat until Show work, which hides it again
   // What it did is work: not in the chat, its Undo with it.
   expect(chat.queryByText("Ran 3 commands, wrote a file")).toBeNull();
   expect(chat.queryByRole("button", { name: "Undo these changes" })).toBeNull();
-  await userEvent.click(chat.getByRole("button", { name: "More" }));
+  await userEvent.click(chat.getAllByRole("button", { name: "More" }).at(-1)!);
   await userEvent.click(await screen.findByRole("menuitem", { name: "Show work" }));
   expect(await chat.findByText("Ran 3 commands, wrote a file")).toBeTruthy();
-  await userEvent.click(chat.getByRole("button", { name: "More" }));
+  await userEvent.click(chat.getAllByRole("button", { name: "More" }).at(-1)!);
   await userEvent.click(await screen.findByRole("menuitem", { name: "Hide work" }));
   await waitFor(() => expect(chat.queryByText("Ran 3 commands, wrote a file")).toBeNull());
 });
@@ -370,4 +380,21 @@ test("a failed reply says what failed and what to do, and Try again answers it i
   await waitFor(() => expect(chat.queryByText(sentence)).toBeNull());
   expect(spade.sent("POST", "/v1/conversations/c-garden/messages")).toEqual([]);
   expect(chat.getAllByText("Plan my week")).toHaveLength(1);
+});
+
+test("the person's bubble is filled with the bot's own colour, from its face", async () => {
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    spade.store(garden.conversation, { type: "user_message", text: "When do I plant garlic?" });
+    spade.reply(garden, "In October.");
+  });
+  const chat = await feed("Garden");
+  await within(chat).findByText("In October.");
+  const mine = within(chat).getByText("When do I plant garlic?").closest("[data-part]");
+  expect(chat.contains(mine)).toBe(true);
+  // The conversation hands its bubbles the bot's colour; the pill takes it as its fill.
+  expect(chat.style.getPropertyValue("--agent-accent-dark")).toMatch(/^#|^rgb|^oklch|^hsl/);
+  expect(chat.className).toContain("--agent-accent-light");
 });

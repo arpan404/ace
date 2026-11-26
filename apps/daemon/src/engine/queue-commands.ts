@@ -1,4 +1,9 @@
-import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
+import {
+  admitSteer,
+  queueSteerSelection,
+  reaimSteerAtRun,
+  recordSteerAim,
+} from "./steer-selection.ts";
 import { editedContext } from "./edited-context.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
@@ -62,11 +67,16 @@ export function handleQueue(
         ...(old.type === "thread.send" ? { delivery: p.delivery ?? old.delivery } : {}),
       };
       // A message changed to steer goes in like a fresh steer, its selection split off the same way.
-      const steer = admitSteer(
-        dependencies.repo,
-        Command.parse({ ...entry.command, payload }),
-        p.threadId,
-      );
+      // The turn running as the person chooses it is the one they meant: choosing Steer again on a
+      // message that already fell back replaces its dead target, never aims it at it again.
+      const editedPayload = Command.parse({ ...entry.command, payload });
+      // Only choosing Steer aims the message: any other edit keeps the payload target it was
+      // admitted with, as it keeps its recorded aim.
+      const aimed =
+        p.delivery === "steer"
+          ? reaimSteerAtRun(dependencies.repo, editedPayload, p.threadId)
+          : editedPayload;
+      const steer = admitSteer(dependencies.repo, aimed, p.threadId);
       const edited = steer.send;
       dependencies.repo.queue.edit(entry.id, edited);
       // The person steering a waiting message in (an agent's too) makes it their own steer.
@@ -77,6 +87,9 @@ export function handleQueue(
       ) {
         if (agentDevices.has(command.deviceId)) dependencies.repo.steerNotes.steeredAgain(entry.id);
         else dependencies.repo.steerNotes.personSteered(entry.id);
+        // Choosing Steer aims the message at the turn running now, replacing the one it kept.
+        // Any other edit keeps the aim it had, as it keeps its payload target.
+        if (p.delivery === "steer") recordSteerAim(dependencies.repo, entry.id, p.threadId, edited);
       }
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
       queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
@@ -124,7 +137,12 @@ export function handleQueue(
       if (continuation) dependencies.repo.pending.finishContinuation(p.threadId);
       // The durable continuation remains available to Resume. Creating a runnable
       // recovery intent here would bypass a later manual or Stop hold.
-      if (!heldContinuation) dependencies.repo.add(replacement, p.threadId);
+      if (!heldContinuation) {
+        const added = dependencies.repo.add(replacement, p.threadId);
+        // A replacement steer is admitted like a fresh one: it keeps the turn running now as its
+        // aim, so a cancel-steered session cancels that turn, never a later one it never saw.
+        recordSteerAim(dependencies.repo, added, p.threadId, replacement);
+      }
       if (!continuation)
         dependencies.repo.acceptInput(replacement, p.threadId, dependencies.clock.now());
       // Only the ambiguity hold may be released, never a later pause or recovery hold.

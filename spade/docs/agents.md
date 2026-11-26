@@ -56,6 +56,7 @@ is in view, `profile_update` runs without asking. Otherwise it asks the person.
 - `task_update {new_task, why}` rewrites the bot's own task, used from its next turn. It runs at
   once in a turn with nothing untrusted in view, and otherwise goes to the person as a request
   (`self_edit::TASK_TAINTED`), in every access level, never covered by "always" or a grant.
+  Resubmitting the current task returns immediately without a write or an approval card.
 - Every task change is `agent_configured` with `change: {by: "person"|"bot", previous, why?}`
   (none on a change of model alone, or on events from before). A bot's own change shows in its
   chat; the person's Undo and Restore are `PATCH /agents/{id} {task, task_why}`.

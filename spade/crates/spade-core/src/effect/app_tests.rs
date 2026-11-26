@@ -96,7 +96,7 @@ fn a_connected_apps_undeclared_list_and_search_run_with_no_card() {
             assert_eq!(route(call), Route::Run, "{name} {mode:?}");
         }
         // With untrusted content in view a read only its name vouches for is checked by the
-        // reviewer first, in both modes; never put to the person.
+        // reviewer in Auto-review. Full access runs the call.
         for mode in [Mode::AutoReview, Mode::FullAccess] {
             let tainted = Call {
                 tainted: true,
@@ -105,7 +105,10 @@ fn a_connected_apps_undeclared_list_and_search_run_with_no_card() {
             };
             assert_eq!(
                 route(tainted),
-                Route::Review(Some(GUESSED_READ.to_owned())),
+                match mode {
+                    Mode::AutoReview => Route::Review(Some(GUESSED_READ.to_owned())),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{name} tainted {mode:?}"
             );
         }
@@ -224,7 +227,7 @@ fn an_app_that_says_a_tool_may_write_narrows_a_read_its_name_makes() {
 }
 
 #[test]
-fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_check_for_steering() {
+fn only_auto_review_checks_tainted_app_writes_for_steering() {
     for mode in [Mode::AutoReview, Mode::FullAccess] {
         for remembered in [None, Some(true)] {
             for name in ["notion-create-pages", "duplicate_page"] {
@@ -236,7 +239,10 @@ fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_chec
                 };
                 assert_eq!(
                     route(call),
-                    Route::Review(Some(APP_TAINTED_REVIEW.to_owned())),
+                    match mode {
+                        Mode::AutoReview => Route::Review(Some(APP_TAINTED_REVIEW.to_owned())),
+                        Mode::FullAccess => Route::Run,
+                    },
                     "{name} {remembered:?} {mode:?}"
                 );
             }
@@ -267,7 +273,7 @@ fn with_untrusted_content_in_view_an_apps_writes_go_to_the_reviewer_told_to_chec
 }
 
 #[test]
-fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_still_asks() {
+fn auto_review_checks_destructive_app_edits_and_deletes_each_time() {
     let marked = Mcp {
         destructive: true,
         annotated: true,
@@ -281,7 +287,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             };
             assert_eq!(
                 route(call),
-                Route::Review(Some(OVERWRITES.to_owned())),
+                match mode {
+                    Mode::AutoReview => Route::Review(Some(OVERWRITES.to_owned())),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{name} {mode:?}"
             );
             let tainted = Call {
@@ -290,7 +299,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             };
             assert_eq!(
                 route(tainted),
-                Route::Review(Some(OVERWRITES_TAINTED.to_owned())),
+                match mode {
+                    Mode::AutoReview => Route::Review(Some(OVERWRITES_TAINTED.to_owned())),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{name} tainted {mode:?}"
             );
             // Neither the person's earlier "yes" nor an Always allow skips the review.
@@ -306,7 +318,10 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             ] {
                 assert_eq!(
                     route(skip),
-                    Route::Review(Some(OVERWRITES.to_owned())),
+                    match mode {
+                        Mode::AutoReview => Route::Review(Some(OVERWRITES.to_owned())),
+                        Mode::FullAccess => Route::Run,
+                    },
                     "{name}"
                 );
             }
@@ -320,7 +335,14 @@ fn an_edit_its_app_marks_destructive_is_reviewed_each_call_and_a_named_delete_st
             mode,
             ..notion("notion-delete-pages", "", marked)
         };
-        assert_eq!(route(delete), Route::ask(DESTRUCTIVE), "{mode:?}");
+        assert_eq!(
+            to_auto_review(&delete, route(delete)),
+            match mode {
+                Mode::AutoReview => Route::Review(Some(DESTRUCTIVE.to_owned())),
+                Mode::FullAccess => Route::Run,
+            },
+            "{mode:?}"
+        );
     }
 }
 
@@ -446,18 +468,14 @@ fn a_tool_renamed_after_it_was_pinned_loses_its_read_until_reviewed_again() {
 }
 
 #[test]
-fn in_full_access_an_unresolved_app_tool_is_reviewed_never_run_on_the_classifier_alone() {
+fn in_full_access_an_unresolved_app_tool_runs_without_a_review() {
     for classifier in [true, false] {
         let call = Call {
             mode: Mode::FullAccess,
             classifier,
             ..notion("create_page", "", silent())
         };
-        assert_eq!(
-            route(call),
-            Route::Review(Some(UNDECLARED_REVIEW.to_owned())),
-            "classifier={classifier}"
-        );
+        assert_eq!(route(call), Route::Run, "classifier={classifier}");
     }
     // The person's Always allow for its app lets it run, still past the classifier.
     let granted = Call {
@@ -543,4 +561,108 @@ fn in_full_access_a_clean_app_read_is_never_screened_into_a_card() {
         mode: Mode::AutoReview,
         ..write
     }));
+}
+
+#[test]
+fn a_generic_command_is_classified_from_the_operation_and_payload() {
+    use serde_json::json;
+    let schema = json!({"type":"object","properties":{"command":{"type":"string"}}});
+    for command in [
+        "get-project",
+        "list-projects",
+        "call get-project alpha",
+        "call execute-sql {SELECT count(*) FROM events}",
+    ] {
+        let reading = super::app_call(
+            Mcp::default(),
+            "exec",
+            "",
+            &schema,
+            &json!({"command":command}),
+            false,
+        );
+        assert_eq!(reading.effect, Some(Effect::Read), "{command}");
+        assert!(reading.guessed);
+    }
+    for command in [
+        "project-get",
+        "update-list-projects",
+        "get-project --delete",
+        "get-project update",
+        "get-project send-email",
+        "call execute-sql {SELECT * FROM events -- comment}",
+        "call execute-sql {SELECT * /* comment */ FROM events}",
+        "call execute-sql {WITH changed AS (DELETE FROM events) SELECT * FROM changed}",
+        "call execute-sql {SELECT * INTO other FROM events}",
+        "call execute-sql {SELECT FROM events}",
+        "call execute-sql {SELECT * FROM}",
+        "call execute-sql {SELECT count(*) FROM events WHERE id =}",
+        "call execute-sql {SELECT pg_sleep(1)}",
+        "call execute-sql {SELECT * FROM events; DELETE FROM events}",
+        "call execute-sql {SELECT dblink_exec()}",
+        "list-projects && project-delete",
+    ] {
+        let reading = super::app_call(
+            Mcp {
+                annotated: true,
+                read_only: true,
+                trusted: true,
+                declared: Some(Effect::Read),
+                ..Mcp::default()
+            },
+            "get_project",
+            "",
+            &schema,
+            &json!({"command":command}),
+            false,
+        );
+        assert_eq!(reading.effect, None, "{command}");
+    }
+    let reading = super::app_call(
+        Mcp::default(),
+        "exec",
+        "",
+        &schema,
+        &json!({"command":"call send-email"}),
+        false,
+    );
+    assert_eq!(reading.effect, Some(Effect::SendAsPerson));
+}
+
+#[test]
+fn inferred_hard_stops_override_read_hints_and_broad_declarations_in_full_access() {
+    use serde_json::json;
+    for (name, description, arguments, expected) in [
+        ("send_email", "", json!({}), Effect::SendAsPerson),
+        ("get_card", "Create payment", json!({}), Effect::Pay),
+        ("exec", "", json!({"command":"create payment"}), Effect::Pay),
+        (
+            "exec",
+            "",
+            json!({"command":"call grant-access"}),
+            Effect::ChangeAccess,
+        ),
+    ] {
+        for declared in [None, Some(Effect::Read), Some(Effect::Network)] {
+            let reading = super::app_call(
+                Mcp {
+                    read_only: true,
+                    annotated: true,
+                    trusted: true,
+                    declared,
+                    ..Mcp::default()
+                },
+                name,
+                description,
+                &json!({}),
+                &arguments,
+                false,
+            );
+            assert_eq!(reading.effect, Some(expected));
+            let (mut call, _) = app_call(name, "", silent(), &json!({}), &json!({}), false);
+            call.mode = Mode::FullAccess;
+            call.effect = reading.effect;
+            assert!(person_decides(&route(call)), "{name} {description}");
+        }
+    }
 }

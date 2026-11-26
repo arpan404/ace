@@ -1,6 +1,8 @@
 import {
+  Addressee,
   BrowserTabContextItem,
   CatalogMention,
+  DeviceContextItem,
   Mention,
   ThreadRefContextItem,
   type CatalogEntry,
@@ -11,7 +13,9 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import {
+  addresseesOf,
   composerInput,
+  devicesOf,
   parseGoalCommand,
   referenceContext,
   referenceLimits,
@@ -25,7 +29,8 @@ import { z } from "zod";
  * picked from `@` or `/` is remembered beside them as the words it inserted and what they point
  * at. On send the bridge finds each one still written in the message (deleted or edited words
  * drop it) and builds what the web's composer sends: catalog entries inline in `input`, files
- * as `context.mentions`, threads and browser tabs as `context.items`. Pure.
+ * as `context.mentions`, threads and devices as `context.items`, and agents and devices also as
+ * a `thread.address` beside the send. Pure.
  */
 
 const offset = z.number().int().nonnegative().max(1_000_000);
@@ -38,6 +43,10 @@ export const Reference = z.object({
   file: Mention.optional().catch(undefined),
   thread: ThreadRefContextItem.optional().catch(undefined),
   browserTab: BrowserTabContextItem.optional().catch(undefined),
+  /** Another thread's agent the message also goes to (ADR 0198). */
+  addressee: Addressee.optional().catch(undefined),
+  /** A device the message names for the work (ADR 0198). */
+  device: DeviceContextItem.optional().catch(undefined),
 });
 export type Reference = z.infer<typeof Reference>;
 /**
@@ -59,9 +68,9 @@ export const References = z
 export function placeReferences(text: string, references: readonly Reference[]): ComposerToken[] {
   const placed: ComposerToken[] = [];
   for (const reference of references.toSorted((a, b) => a.start - b.start)) {
-    const { label, start, end, catalog, file, thread, browserTab } = reference;
+    const { label, start, end, catalog, file, thread, browserTab, addressee, device } = reference;
     if (end - start !== label.length || text.slice(start, end) !== label) continue;
-    if (!catalog && !file && !thread && !browserTab) continue;
+    if (!catalog && !file && !thread && !browserTab && !addressee && !device) continue;
     if (placed.some((token) => start < token.end && token.start < end)) continue;
     placed.push({
       start,
@@ -71,6 +80,8 @@ export function placeReferences(text: string, references: readonly Reference[]):
       ...(file ? { file } : {}),
       ...(thread ? { thread } : {}),
       ...(browserTab ? { browserTab } : {}),
+      ...(addressee ? { addressee } : {}),
+      ...(device ? { device } : {}),
     });
   }
   return placed;
@@ -78,8 +89,12 @@ export function placeReferences(text: string, references: readonly Reference[]):
 
 export interface MessageContent {
   input: ContentPart[];
-  /** Files, threads and tabs the message points at; undefined when it points at none. */
+  /** Files, threads, tabs and devices the message points at; undefined when it points at none. */
   references: Pick<MessageContext, "mentions" | "items"> | undefined;
+  /** Agents the message also goes to, as the web's `thread.address` carries them. */
+  addressees?: Addressee[] | undefined;
+  /** Devices the message names, as the web's `thread.address` carries them. */
+  devices?: DeviceContextItem[] | undefined;
 }
 
 /**
@@ -93,6 +108,8 @@ export function messageContent(
 ): MessageContent {
   const tokens = withTypedCommand(text, placeReferences(text, references), entries);
   const context = referenceContext(tokens);
+  const addressees = addresseesOf(tokens);
+  const devices = devicesOf(tokens);
   return {
     input: composerInput(text, tokens),
     references:
@@ -102,6 +119,8 @@ export function messageContent(
             ...(context.items.length ? { items: context.items } : {}),
           }
         : undefined,
+    ...(addressees.length ? { addressees } : {}),
+    ...(devices.length ? { devices } : {}),
   };
 }
 

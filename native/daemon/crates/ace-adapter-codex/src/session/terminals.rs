@@ -204,6 +204,11 @@ impl RateLimitsRead {
         (RateLimitsRead { call }, vec![effect])
     }
 
+    /// The call the read waits on.
+    pub fn call(&self) -> u64 {
+        self.call
+    }
+
     /// The answer, as a note frame. A closed session, a failed read and a
     /// value that is not an object change nothing; a reply that cannot be
     /// admitted is dropped, as the TypeScript's unhandled rejection is.

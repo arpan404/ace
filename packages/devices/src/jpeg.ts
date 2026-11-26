@@ -1,4 +1,5 @@
 import { DeviceError } from "./sdk.ts";
+import { catalogWord } from "./catalog.ts";
 const MAX_FRAME = 8 * 1024 * 1024;
 const endMarker = Buffer.from([255, 217]);
 /** Bounded geometric accumulation; emitted bytes are borrowed until emit returns. */
@@ -32,8 +33,10 @@ export class JpegDecoder {
   }
   private append(chunk: Buffer): void {
     const next = this.size + chunk.length;
-    if (next > MAX_FRAME)
-      throw new DeviceError("limit", "Android JPEG exceeds 8 MiB", "Reduce emulator resolution.");
+    if (next > MAX_FRAME) {
+      const word = catalogWord("jpegTooLarge");
+      throw new DeviceError(word.code, word.message, word.hint);
+    }
     if (next > this.buffer.length) {
       const grown = Buffer.allocUnsafe(Math.min(MAX_FRAME, Math.max(next, this.buffer.length * 2)));
       this.buffer.copy(grown, 0, 0, this.size);

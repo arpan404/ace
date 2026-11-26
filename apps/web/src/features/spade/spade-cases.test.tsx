@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
@@ -81,6 +81,7 @@ test("the profile lists a bot's kept runs with Delete, and lists nothing once no
       made_at: 1,
     });
   });
+  await openSettingsPage("Activity and safety");
   const section = within(await screen.findByRole("region", { name: "Kept as tests" }));
   expect(section.getByText("Where is order •••?")).toBeTruthy();
   expect(
@@ -107,5 +108,7 @@ test("a reply still being written offers no Keep as a test", async () => {
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Orders" }));
   const run = await chat.findByRole("article", { name: "Orders" });
   expect(await within(run).findByText("Looking.")).toBeTruthy();
-  expect(within(run).queryByRole("button", { name: "More" })).toBeNull();
+  await userEvent.click(within(run).getByRole("button", { name: "More" }));
+  await screen.findByRole("menuitem", { name: "Copy" });
+  expect(screen.queryByRole("menuitem", { name: "Keep as a test" })).toBeNull();
 });

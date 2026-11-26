@@ -96,9 +96,18 @@ for (const args of [
 ])
   cargo(args);
 
+// The MCP catalog (M1): every word, descriptor and header the TypeScript writes, compared with
+// the committed files the Rust server embeds.
+execFileSync("bun", ["scripts/export-catalog.ts", "--check"], { cwd: root, stdio: "inherit" });
+
 // The device words are one catalog both backends read (ADR 0225 safeguard 3): render every
 // key through the built Rust addon and compare it with the file.
 execFileSync("bun", ["scripts/check-devices-catalog.ts"], { cwd: root, stdio: "inherit" });
+
+// The OpenCode call table's proof (E3-opencode.6): the method, request target and body of every
+// SDK call the Rust session makes, recorded by driving `@opencode/client` itself. A bumped SDK
+// moves a route or a body field, the golden goes stale, and the Rust table test follows it.
+execFileSync("bun", ["scripts/opencode-routes.ts", "--check"], { cwd: root, stdio: "inherit" });
 
 // The core's wasm binding ships beside the addon: the `@ace/core` facade
 // reads it under `ACE_CORE=wasm`, so this check builds it on the pinned

@@ -555,3 +555,36 @@ basis:
    move, they don't multiply.
 6. **Phase gates**: T1 ships only if no slower, otherwise together with T3; T2 to T4 wait for store
    phase 5's writer default-on (§6); a Windows VM run gates every phase.
+
+## The owner's decision (2026-11-26): no new bridges, build the Rust daemon directly
+
+The owner: "as we are going full on rust, now stop writing unnecessary ts bridge", and, asked
+about the work in flight, "stop bridges now". The per-piece route of §5 and §6 (Bun stays the
+program, every Rust piece is reached through a binding and a TypeScript facade behind its own
+switch, and the inversion comes once every switch has been on by default) is replaced for all new
+work:
+
+- **No new bridges.** No new `JsSocketService`, `JsHttpRoute`, `JsSession` or `JsTool`, napi
+  binding in `ace-daemon-node`, TypeScript facade (`native-*.ts`), per-piece switch wiring, or
+  TypeScript seam in a TypeScript module. Bridge code already merged stays as it is, off by default,
+  fixed only when broken, and is deleted with the TypeScript it shadows.
+- **Rust cores, proven in Rust.** Each item builds its Rust crate (sans-IO logic, a Rust shell) and
+  proves it with Rust tests that port the TypeScript cases, which are named in the test file's
+  header, as E1's translators and the E3 cores already do.
+- **The daemon program is built directly.** `ace-daemon-bin` composes the Rust crates (store,
+  transport, engine, sessions, git, devices, MCP) into a program that serves ace's wire. It is
+  written as soon as the first end-to-end slice can serve a client, and runs beside the Bun daemon
+  only when `ACE_DAEMON=native` is set.
+- **Proof at the program.** The TypeScript server and process test files that drive a daemon over
+  its endpoint (socket, HTTP and process tests) run against `ace-daemon-bin` as each slice they
+  need lands. Together with the ported Rust tests they replace the "both legs" proof. The
+  cross-mode gate becomes a home booted alternately by the Bun daemon and `ace-daemon-bin`.
+- **The inversion gate changes.** §5's gates 1 to 4 lose their object, since no JavaScript runs in
+  `ace-daemon-bin`. Gate 5 (every switch default-on for one release) is replaced by: the TypeScript
+  server and process files pass against `ace-daemon-bin` on macOS, Linux and the Windows VM, the
+  cross-mode runs pass both ways, `bench:daemon` is no worse, and §8's three rollback runs pass.
+  `ACE_DAEMON=native` then defaults on as §5 describes.
+- **Still to plan**: the order of slices for `ace-daemon-bin` (which crates it needs to serve a
+  first client end to end: configuration, home and locks, the store, the transport's T1 to T3
+  pieces, the engine through E5.10, the provider sessions, then HTTP, relay and the tools). It
+  goes in `docs/daemon/rust-daemon-plan.md`, briefed before builders start on it.

@@ -44,6 +44,11 @@ sha2 = "0.10"
 tar = "0.4"
 # notify: filesystem watches for the AVD folder and CoreSimulator device set (D2).
 notify = { version = "8" }
+# regex: the ANSI escape sequences Node's stripVTControlCharacters removes, already in the
+# workspace lockfile through ace-git.
+regex = "1"
+# indexmap: the service's retained-lease counts keep insertion order as a JS Map does.
+indexmap = { version = "2" }
 # serde: the results are structs in the TypeScript's field order, serialized by ace-json.
 serde = { version = "1", features = ["derive"] }
 # serde_json: reads the device word catalog this crate embeds (catalog/devices.json).

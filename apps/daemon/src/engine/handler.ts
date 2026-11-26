@@ -4,7 +4,7 @@ import { WorkspaceIssueLinks } from "../workspace-issue-links.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { isDefaultSelection } from "@ace/models";
 import { ModelSelectionError, type EngineModels } from "./models.ts";
-import { providerCommandDisabled } from "@ace/core";
+import { compactionBlocked, providerCommandDisabled } from "@ace/core";
 import { provisionalTitle } from "@ace/ui-core/thread-title";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend } from "./queue-store.ts";
@@ -14,7 +14,13 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { admitSteer, fenceSteer, queueSteerSelection } from "./steer-selection.ts";
+import {
+  admitSteer,
+  aimSteerAtRun,
+  fenceSteer,
+  queueSteerSelection,
+  recordSteerAim,
+} from "./steer-selection.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import {
   ExecutionOptions,
@@ -197,6 +203,7 @@ export function engineHandler(
           "thread.mode.set",
           "thread.goal.set",
           "thread.goal.clear",
+          "thread.compact",
           "interaction.resolve",
           "background_task.stop",
         ].includes(p.type)
@@ -401,6 +408,21 @@ export function engineHandler(
               .capabilities.goals
           )
             return fail("unsupported_goal");
+          if (p.type === "thread.compact") {
+            const capabilities =
+              repo.store.getThread(threadId)?.effectiveCapabilities ??
+              registry.get(repo.requireState(threadId).config.provider, repo.backend(threadId))
+                .capabilities;
+            if (!capabilities.compaction) return fail("unsupported_compact");
+            // A provider compacts its own idle context: never in the middle of its turn, and
+            // never twice at once (the first click's ack returns before any provider frame).
+            if (repo.pending.compacting(threadId)) return fail("thread_not_idle");
+            const root = repo.requireState(threadId).rootKey;
+            const status = root
+              ? repo.requireState(threadId).agents[root]?.agent.status
+              : undefined;
+            if (compactionBlocked(status)) return fail("thread_not_idle");
+          }
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&
@@ -489,7 +511,8 @@ export function engineHandler(
         const admittedSend = recovery.admit(deliveryCommand, threadId);
         if (!admittedSend) return fail("queue_capacity_exceeded");
         // After the default delivery is resolved: an omitted one may have become a steer.
-        const resolved = fenceSteer(repo, admittedSend, threadId);
+        const aimed = aimSteerAtRun(repo, admittedSend, threadId);
+        const resolved = fenceSteer(repo, aimed, threadId);
         const steer = admitSteer(repo, resolved, threadId);
         const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
@@ -533,7 +556,8 @@ export function engineHandler(
               .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
             now(),
           );
-        repo.add(admitted, threadId, resolutionId);
+        const intentId = repo.add(admitted, threadId, resolutionId);
+        recordSteerAim(repo, intentId, threadId, admitted);
         repo.acceptInput(admitted, threadId, now());
         queueSteerSelection(repo, threadId, steer, now());
         if (p.type === "thread.create" || p.type === "thread.send") {

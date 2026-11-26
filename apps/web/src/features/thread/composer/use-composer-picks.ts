@@ -54,6 +54,8 @@ export function useComposerPicks(args: {
   addMenu: RefObject<AddHandle | null>;
   box: RefObject<HTMLDivElement | null>;
   onPlan?: (() => void) | undefined;
+  /** A `/` row of the screen's own was picked: what it does. */
+  onSlashAction?: ((action: string) => void) | undefined;
 }) {
   "use no memo";
   const client = useClient();
@@ -121,6 +123,13 @@ export function useComposerPicks(args: {
     if (!trigger) return;
     if (item.plain) {
       edit(accept(text, trigger, item.insert));
+      return;
+    }
+    if (item.action !== undefined) {
+      // The screen's action: its `/word` is taken out of the message, and the action runs.
+      edit(accept(text, trigger, ""));
+      args.setDismissed(trigger.start);
+      args.onSlashAction?.(item.action);
       return;
     }
     const outcome = pickSuggestion(item, heldReferences(tokens));

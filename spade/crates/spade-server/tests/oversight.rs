@@ -110,6 +110,37 @@ async fn always_allowed_write(
 }
 
 #[tokio::test]
+async fn a_matching_write_reuses_the_optional_second_review() -> Result {
+    let (spade, conversation, sent) = always_allowed_write(
+        true,
+        vec![
+            Script::reply("").plain(r#"{"verdict":"allow","reason":"Confirmed recipients."}"#),
+            Script::reply("").call("c3", "send_email", json!({ "to": "everyone@example.com" })),
+            Script::reply("Sent."),
+        ],
+    )
+    .await?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    assert_eq!(sent.lock().map(|calls| calls.len()).unwrap_or(0), 3);
+    let verdict = |call| {
+        events
+            .iter()
+            .find(|e| e["type"] == "call_reviewed" && e["call_id"] == call)
+    };
+    assert_eq!(
+        verdict("c2").ok_or("missing model allow")?["model"],
+        "fake/m"
+    );
+    let reused = verdict("c3").ok_or("missing reused allow")?;
+    assert_eq!(reused["verdict"], "allow");
+    assert_eq!(reused["cost_micros"], 0);
+    assert_eq!(reused["model"], "");
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_review_escalates_a_write_it_judges_wrong_with_its_reason() -> Result {
     let (spade, conversation, sent) = always_allowed_write(
         true,

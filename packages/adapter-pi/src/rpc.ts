@@ -18,6 +18,8 @@ export class PiRpc {
       resolve: (data: unknown) => void;
       reject: (error: Error) => void;
       cancel: () => void;
+      /** The budget this request was given, kept so a resumed deadline is not shortened. */
+      timeoutMs: number;
     }
   >();
   private seq = 0;
@@ -77,13 +79,17 @@ export class PiRpc {
       .send(line + "\n", Buffer.byteLength(line) + 1)
       .then(() => this.frame("send", payload));
   }
-  request(command: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  request(
+    command: string,
+    params: Record<string, unknown> = {},
+    timeoutMs = 30_000,
+  ): Promise<unknown> {
     if (this.closed) return Promise.reject(new PiCommandRefused("Pi RPC closed"));
     if (this.pending.size >= 64)
       return Promise.reject(new PiCommandRefused("Pi command capacity exceeded"));
     const id = `ace-${++this.seq}`;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { command, resolve, reject, cancel: () => {} });
+      this.pending.set(id, { command, resolve, reject, cancel: () => {}, timeoutMs });
       if (!this.waitingOnHuman) this.armDeadline(id);
       void this.write({ type: command, ...params, id }).catch((error: unknown) => {
         this.pending.get(id)?.cancel();
@@ -91,6 +97,14 @@ export class PiRpc {
         reject(error);
       });
     });
+  }
+  /**
+   * Writes a command whose reply is read as events only: no deadline and no pending entry, so
+   * nothing waits on it and a later command (a Stop) is never held behind it. Its answer, if
+   * one comes, is ignored.
+   */
+  fire(command: string, params: Record<string, unknown> = {}): Promise<void> {
+    return this.write({ type: command, ...params, id: `ace-${++this.seq}` });
   }
   pauseDeadlines(): void {
     this.waitingOnHuman = true;
@@ -104,11 +118,12 @@ export class PiRpc {
   private armDeadline(id: string): void {
     const pending = this.pending.get(id);
     if (!pending) return;
+    pending.cancel();
     pending.cancel = this.schedule(() => {
       this.pending.delete(id);
       pending.reject(new Error("Pi command timed out; execution uncertain"));
       this.fail(new Error("Pi command timed out"));
-    }, 30_000);
+    }, pending.timeoutMs);
   }
   close(error = new Error("Pi RPC closed")): void {
     if (this.closed) return;

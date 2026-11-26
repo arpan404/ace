@@ -155,6 +155,15 @@ impl DeviceError {
         }
     }
 
+    /// The code this failure carries: a coded refusal's own, or `CommandFailed`
+    /// for the transport-level ones, as `to_failure` reports them.
+    pub fn code(&self) -> DeviceErrorCode {
+        match self {
+            Self::Coded { code, .. } => *code,
+            _ => DeviceErrorCode::CommandFailed,
+        }
+    }
+
     pub fn to_failure(&self, platform: Option<DevicePlatformKind>) -> DeviceFailure {
         match self {
             Self::Coded {

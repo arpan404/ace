@@ -26,7 +26,6 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
   const invoiceAsk =
     "The March invoice has the VAT line wrong. Fix it and send it to Dana once it's right.";
   person(invoiceAsk);
-  answer("On it. I'll fix the VAT line, check the totals, then send it to Dana.");
   const invoice = `${main}-lane-invoice`;
   lanes.start({
     task: invoice,
@@ -66,7 +65,6 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
 
   const flightsAsk = "Also book flights to Lisbon, out on the 14th and back the 18th. Window seat.";
   person(flightsAsk);
-  answer("Started on the flights. I'll check with you before paying for anything.");
   const flights = `${main}-lane-flights`;
   lanes.start({
     task: flights,
@@ -129,7 +127,6 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
 
   const driveAsk = "Clean up the shared drive: one folder per client.";
   person(driveAsk);
-  answer("I'll sort it into client folders. Nothing gets deleted.");
   const drive = `${main}-lane-drive`;
   lanes.start({
     task: drive,
@@ -154,7 +151,6 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
 
   const crmAsk = "And compare the three CRM quotes in /quotes.";
   person(crmAsk);
-  answer("Comparing them now.");
   const crm = `${main}-lane-crm`;
   lanes.start({
     task: crm,
@@ -230,7 +226,6 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
   lanes.overlapped(quarterly, invoice, "finance/Q3-totals.xlsx");
 
   person("Then renew the domain before it lapses.");
-  answer("Queued behind the running tasks; it starts when one ends.");
   lanes.start({
     task: `${main}-lane-domain`,
     main,

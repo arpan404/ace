@@ -1,0 +1,191 @@
+[
+  {
+    "id": "deepseek-v4.1-flash",
+    "modelID": "deepseek-v4.1-flash",
+    "providerID": "opencode",
+    "family": "deepseek-flash",
+    "name": "DeepSeek V4.1 Flash 1017",
+    "capabilities": {
+      "tools": true,
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ],
+      "temperature": true
+    },
+    "variants": [
+      {
+        "id": "low",
+        "settings": {
+          "reasoningEffort": "low"
+        }
+      },
+      {
+        "id": "high",
+        "settings": {
+          "reasoningEffort": "high"
+        }
+      },
+      {
+        "id": "max",
+        "settings": {
+          "reasoningEffort": "max"
+        }
+      }
+    ],
+    "time": {
+      "released": 1792195200000
+    },
+    "cost": [],
+    "status": "active",
+    "enabled": true,
+    "limit": {
+      "context": 1000000,
+      "output": 384000
+    }
+  },
+  {
+    "id": "gemini-4-neon",
+    "modelID": "gemini-4-neon",
+    "providerID": "opencode",
+    "family": "gemini",
+    "name": "Gemini 4 Neon",
+    "capabilities": {
+      "tools": true,
+      "input": [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ],
+      "temperature": false
+    },
+    "variants": [
+      {
+        "id": "low",
+        "settings": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      },
+      {
+        "id": "medium",
+        "settings": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      },
+      {
+        "id": "high",
+        "settings": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      },
+      {
+        "id": "xhigh",
+        "settings": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    ],
+    "time": {
+      "released": 1794960000000
+    },
+    "cost": [],
+    "status": "active",
+    "enabled": true,
+    "limit": {
+      "context": 1048576,
+      "output": 65536
+    }
+  },
+  {
+    "id": "hy4-flash-free",
+    "modelID": "hy4-flash-free",
+    "providerID": "opencode",
+    "family": "hy-flash-free",
+    "name": "Hy4 flash Free",
+    "capabilities": {
+      "tools": true,
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ],
+      "temperature": true
+    },
+    "variants": [
+      {
+        "id": "none",
+        "settings": {
+          "reasoningEffort": "none"
+        }
+      },
+      {
+        "id": "high",
+        "settings": {
+          "reasoningEffort": "high"
+        }
+      }
+    ],
+    "time": {
+      "released": 1794787200000
+    },
+    "cost": [],
+    "status": "active",
+    "enabled": true,
+    "limit": {
+      "context": 1048576,
+      "output": 65536
+    }
+  },
+  {
+    "id": "kimi-k2.7-code",
+    "modelID": "kimi-k2.7-code",
+    "providerID": "opencode",
+    "family": "kimi-code",
+    "name": "Kimi K2.7 Code",
+    "capabilities": {
+      "tools": true,
+      "input": [
+        "text",
+        "image",
+        "video"
+      ],
+      "output": [
+        "text"
+      ],
+      "temperature": false
+    },
+    "variants": [],
+    "time": {
+      "released": 1781222400000
+    },
+    "cost": [],
+    "status": "active",
+    "enabled": true,
+    "limit": {
+      "context": 262144,
+      "output": 262144
+    }
+  }
+]

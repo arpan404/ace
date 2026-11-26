@@ -13,6 +13,64 @@ pub const MARKER: &str = "SPADE_RUN_ENV";
 /// Each carried variable's name starts with this.
 pub const PREFIX: &str = "SPADE_RUN_ENV_";
 
+/// Variables that must not be sent into a credential-guarded outside command.
+pub fn credential_guard_drops(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    matches!(
+        name.as_str(),
+        "SSH_AUTH_SOCK"
+            | "SSH_AGENT_PID"
+            | "SSH_ASKPASS"
+            | "GIT_ASKPASS"
+            | "GIT_CONFIG_PARAMETERS"
+            | "GPG_AGENT_INFO"
+            | "GPG_TTY"
+            | "BASH_ENV"
+            | "ENV"
+            | "KRB5CCNAME"
+            | "KRB5_KTNAME"
+            | "KUBECONFIG"
+            | "AUTHORIZATION"
+            | "HTTP_AUTHORIZATION"
+            | "SPADE_RUN_ENV"
+    ) || [
+        "LD_",
+        "DYLD_",
+        "BASH_FUNC_",
+        "SPADE_RUN_ENV_",
+        "GIT_CONFIG_VALUE_",
+    ]
+    .iter()
+    .any(|prefix| name.starts_with(prefix))
+        || name
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|part| {
+                matches!(
+                    part,
+                    "TOKEN"
+                        | "TOKENS"
+                        | "KEY"
+                        | "KEYS"
+                        | "APIKEY"
+                        | "ACCESSKEY"
+                        | "PRIVATEKEY"
+                        | "SECRET"
+                        | "SECRETS"
+                        | "PASSWORD"
+                        | "PASSWD"
+                        | "PASSPHRASE"
+                        | "CREDENTIAL"
+                        | "CREDENTIALS"
+                        | "BEARER"
+                        | "JWT"
+                        | "PAT"
+                        | "COOKIE"
+                        | "AUTHORIZATION"
+                        | "AUTH"
+                )
+            })
+}
+
 /// Why a variable can't be carried: a name with `=` would be read back as another name and
 /// value, and one that is empty or not UTF-8 can't be named again exactly.
 fn checked(name: &OsStr) -> Result<&str, String> {

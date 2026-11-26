@@ -357,31 +357,34 @@ impl Security {
         says: &dyn Fn(&str) -> bool,
         refused: &'static str,
     ) -> Result<BotSecurity, SecurityError> {
-        self.change(bot, |current| {
-            // Read under the same lock as the write, with the machine's: a parent raised or a
-            // machine default changed meanwhile is what this change is decided against.
-            let above = self.above(bot);
-            let machine = self.machine().autonomy;
-            self.deciding(bot);
-            let with = |own: Option<Mode>| {
-                let mut chain = above.clone();
-                chain.push(BotSecurity {
-                    autonomy: own,
-                    ..BotSecurity::default()
-                });
-                settings::autonomy(&chain, machine)
-            };
-            let raises = mode == Some(Mode::FullAccess)
-                || (with(mode) == Mode::FullAccess && with(current.autonomy) != Mode::FullAccess);
-            if raises {
-                let value = mode.map_or("null", Mode::name);
-                if !says(value) {
-                    return Err(SecurityError::PersonOnly(refused));
+        self.narrowing(|| {
+            self.change(bot, |current| {
+                // Read under the same lock as the write, with the machine's: a parent raised or a
+                // machine default changed meanwhile is what this change is decided against.
+                let above = self.above(bot);
+                let machine = self.machine().autonomy;
+                self.deciding(bot);
+                let with = |own: Option<Mode>| {
+                    let mut chain = above.clone();
+                    chain.push(BotSecurity {
+                        autonomy: own,
+                        ..BotSecurity::default()
+                    });
+                    settings::autonomy(&chain, machine)
+                };
+                let raises = mode == Some(Mode::FullAccess)
+                    || (with(mode) == Mode::FullAccess
+                        && with(current.autonomy) != Mode::FullAccess);
+                if raises {
+                    let value = mode.map_or("null", Mode::name);
+                    if !says(value) {
+                        return Err(SecurityError::PersonOnly(refused));
+                    }
+                    current.full_access_confirmed = true;
                 }
-                current.full_access_confirmed = true;
-            }
-            current.autonomy = mode;
-            Ok(())
+                current.autonomy = mode;
+                Ok(())
+            })
         })
     }
 
@@ -478,7 +481,7 @@ impl Security {
         {
             return Err(SecurityError::PersonOnly(attest::PERSON_ONLY));
         }
-        self.change_machine(|machine| machine.autonomy = mode)
+        self.narrowing(|| self.change_machine(|machine| machine.autonomy = mode))
     }
 
     /// Whether the bot runs its commands outside the sandbox.
@@ -862,6 +865,9 @@ impl Security {
     pub(crate) fn issued(&self, bot: &str) -> [NetworkPolicy; 2] {
         if self.reaches_nothing(bot) {
             return [NetworkPolicy::off(), NetworkPolicy::off()];
+        }
+        if self.autonomy(bot) == Mode::FullAccess {
+            return [NetworkPolicy::open(), NetworkPolicy::open()];
         }
         let held = self.effective(bot);
         [held.network, held.plugin_network]

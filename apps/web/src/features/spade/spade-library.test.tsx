@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -120,6 +120,13 @@ test("an empty Library says so in one line per section, and Add on a heading wri
   await userEvent.click(pages.getByRole("button", { name: "Cancel" }));
   expect(pages.getByText("No pages yet.")).toBeTruthy();
   expect(pages.queryByRole("textbox", { name: "Title" })).toBeNull();
+
+  const files = await section("Files");
+  await files.findByText("Flights hasn't kept any files yet.");
+  await userEvent.click(files.getByRole("button", { name: "Open files" }));
+  await panel.findByRole("heading", { name: "Files" });
+  await userEvent.click(panel.getByRole("button", { name: "Back" }));
+  await panel.findByRole("heading", { name: "Notes" });
 });
 
 test("Stop ends a running service in place, and a service that ended offers no Stop", async () => {
@@ -133,7 +140,14 @@ test("Stop ends a running service in place, and a service that ended offers no S
       exit_code: 255,
     });
   });
-  const list = within(await (await profile()).findByRole("list", { name: "Flights's services" }));
+  const list = within(
+    await within(await screen.findByRole("dialog", { name: "Flights's computer" })).findByRole(
+      "list",
+      {
+        name: "Flights's services",
+      },
+    ),
+  );
   const row = (name: string) => within(list.getByText(name).closest("li") as HTMLElement);
   await waitFor(() => expect(row("alerts tail").getByText("Ended · exit 255")).toBeTruthy());
   expect(row("alerts tail").queryByRole("button", { name: "Stop" })).toBeNull();
@@ -154,7 +168,14 @@ test("Start runs an ended service again in place, and none is offered while one 
     api.services.start("flights", { name: "web", command: "bun run dev", state: "stopped" });
     api.services.start("flights", { name: "web", command: "bun run dev" });
   });
-  const list = within(await (await profile()).findByRole("list", { name: "Flights's services" }));
+  const list = within(
+    await within(await screen.findByRole("dialog", { name: "Flights's computer" })).findByRole(
+      "list",
+      {
+        name: "Flights's services",
+      },
+    ),
+  );
   const rows = () => list.getAllByRole("listitem").map((item) => within(item));
   await waitFor(() => expect(rows()).toHaveLength(3));
   const [tail, oldWeb] = rows();
@@ -170,9 +191,10 @@ test("a role following Settings says so until the person picks its model on the 
     withFlights(api);
     api.roles.spend.set("flights", { helper: 420_000 });
   });
+  await openSettingsPage("Model");
   const panel = await profile();
-  await userEvent.click(await panel.findByText("Models for other work"));
-  const helpers = await panel.findByRole("button", { name: "Helpers" });
+  await userEvent.click(await panel.findByRole("button", { name: /^Helpers/ }));
+  const helpers = await panel.findByRole("button", { name: "Model" });
   const row = within(helpers.closest("[data-setting-slot]") as HTMLElement);
   expect(row.getByText("$0.42 this month")).toBeTruthy();
   expect(row.getByText("Follows Settings")).toBeTruthy();

@@ -75,6 +75,13 @@ async fn two_independent_requests_run_as_two_lanes_while_main_answers_a_quick_qu
         ],
         "{running:#?}"
     );
+    // Each card says in one line what its task will do.
+    assert!(
+        running.iter().all(|t| t["brief"]
+            .as_str()
+            .is_some_and(|b| !b.is_empty() && !b.contains('\n'))),
+        "{running:#?}"
+    );
     let row = roster_state(&spade, &agent).await?;
     assert_eq!(row["state"], "working", "{row}");
     assert_eq!(row["tasks"], 2, "{row}");

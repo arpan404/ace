@@ -2,7 +2,7 @@ import Markit
 import SwiftUI
 import UIKit
 
-/// ace's look for markit (DESIGN.md): SF Pro prose at the transcript size with its 23pt lines,
+/// ace's look for markit (DESIGN.md): SF Pro prose at the transcript size with its 25pt lines,
 /// headings at the title and row-title sizes, SF Mono code at the code size on the code surface
 /// with a hairline edge and 12pt corners, links in the accent, quotes, rules and table edges in
 /// the separator, and the diff tints of the changes views.
@@ -11,8 +11,7 @@ import UIKit
 /// `standard` for the default palette at the default size, and the last few others (a saved
 /// palette, Settings › Appearance's transcript size, a thought's muted ink) in a small cache.
 @MainActor enum AceMarkdownTheme {
-    /// What prose is drawn in: the foreground, or the muted ink of a thought.
-    enum Tone: Equatable, Sendable { case body, muted }
+    enum Tone: Equatable, Sendable { case body, muted, answer, onAccent }
 
     /// Everything a theme is made from, so equal looks share one theme value.
     private struct Look: Equatable {
@@ -30,7 +29,8 @@ import UIKit
 
     /// The theme for the palette on screen. Reading it from a view's body follows palette saves.
     static func current(scale: CGFloat = 1, tone: Tone = .body) -> MarkitTheme {
-        let look = Look(palette: Dictionary(uniqueKeysWithValues: roles.map { ($0, livePair($0)) }), scale: scale, tone: tone)
+        let activeRoles = tone == .onAccent ? roles + ["onAccent"] : roles
+        let look = Look(palette: Dictionary(uniqueKeysWithValues: activeRoles.map { ($0, livePair($0)) }), scale: scale, tone: tone)
         if look == standardLook { return standard }
         if let index = recent.firstIndex(where: { $0.look == look }) {
             // Least recently used goes first: a hit moves to the front.
@@ -69,40 +69,45 @@ import UIKit
         theme.tableFont = .scaled(body, relativeTo: .body)
         theme.captionFont = .scaled(.systemFont(ofSize: type.caption.size * scale, weight: .regular), relativeTo: .caption1)
 
-        theme.textColor = colour(look.tone == .muted ? "mutedForeground" : "foreground")
-        theme.secondaryTextColor = colour("mutedForeground")
-        theme.linkColor = colour("accent")
-        theme.inlineCodeBackground = colour("fill")
-        theme.codeBlockBackground = colour("fill")
-        theme.codeHeaderBackground = colour("fill")
-        theme.codeBorder = colour("separator")
-        theme.quoteBar = colour("separator")
-        theme.tableBorder = colour("separator")
-        theme.tableHeaderBackground = colour("fill")
-        theme.ruleColor = colour("separator")
+        let onAccent = look.tone == .onAccent
+        let inkRole = onAccent ? "onAccent" : "foreground"
+        let textInk = colour(inkRole)
+        let well = colour(onAccent ? "accent" : "fill")
+        let rule = onAccent ? textInk.withAlphaComponent(AceDesign.Ink.recede) : colour("separator")
+        theme.textColor = look.tone == .muted ? colour("mutedForeground") : textInk
+        theme.secondaryTextColor = onAccent ? textInk : colour("mutedForeground")
+        theme.linkColor = onAccent ? textInk : colour("accent")
+        theme.inlineCodeBackground = well
+        theme.codeBlockBackground = well
+        theme.codeHeaderBackground = well
+        theme.codeBorder = rule
+        theme.quoteBar = rule
+        theme.tableBorder = rule
+        theme.tableHeaderBackground = well
+        theme.ruleColor = rule
         // GitHub alerts stay monochrome, as ace drew them: colour means state (DESIGN.md), so the
         // kind reads from its title word, in the ink.
-        let alert = colour("foreground")
+        let alert = textInk
         theme.alertNote = alert
         theme.alertTip = alert
         theme.alertImportant = alert
         theme.alertWarning = alert
         theme.alertCaution = alert
         theme.footnoteFont = .scaled(.systemFont(ofSize: type.caption.size * scale, weight: .regular), relativeTo: .footnote)
-        theme.diffAddition = UIColor(AceTheme.Colours.diffAdd)
-        theme.diffDeletion = UIColor(AceTheme.Colours.diffDelete)
-        // markit's grammar colours, with plain code in the page's own ink.
-        let ink = look.palette["foreground"] ?? defaultPair("foreground")
+        theme.diffAddition = onAccent ? .clear : UIColor(AceTheme.Colours.diffAdd)
+        theme.diffDeletion = onAccent ? .clear : UIColor(AceTheme.Colours.diffDelete)
+        // A picked accent only guarantees contrast for its paired ink.
+        let ink = look.palette[inkRole] ?? defaultPair(inkRole)
         let text = MarkitColorPair(light: rgb(ink.light), dark: rgb(ink.dark))
         var syntax = MarkitColorPair.defaultSyntaxPalette
         if !syntax.isEmpty { syntax[0] = text }
-        theme.syntaxPalette = syntax
+        theme.syntaxPalette = onAccent ? syntax.map { _ in text } : syntax
         theme.syntaxFallback = text
 
-        // The transcript's 23pt lines over 16pt type, at the transcript's size.
         theme.lineSpacing = max(0, answer.lineHeight * scale - body.lineHeight)
-        theme.paragraphSpacing = AceTheme.Spacing.sm
-        theme.blockSpacing = AceTheme.Spacing.sm
+        let blockGap = look.tone == .answer ? AceDesign.Space.row : AceTheme.Spacing.sm
+        theme.paragraphSpacing = blockGap
+        theme.blockSpacing = blockGap
         theme.listIndent = AceTheme.Spacing.lg
         theme.quoteIndent = AceTheme.Spacing.md
         theme.quoteBarWidth = AceTheme.Spacing.xxs

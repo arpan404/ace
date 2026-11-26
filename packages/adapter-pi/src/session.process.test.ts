@@ -15,6 +15,47 @@ import { obj, str } from "./native.ts";
 const received = (type: string, id?: string) => (f: { dir: string; data: unknown }) =>
   f.dir === "recv" && obj(f.data).type === type && (id === undefined || obj(f.data).id === id);
 const text = (value: string) => [{ type: "text" as const, text: value }];
+test("compaction is Pi's own compact command, and its result is one compaction row", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.compact?.();
+    expect(h.frames.filter((f) => f.dir === "send" && obj(f.data).type === "compact")).toHaveLength(
+      1,
+    );
+    await h.wait(received("compaction_end"));
+    expect(
+      Object.values(h.h.state.items).filter((item) => item.type === "compaction"),
+    ).toMatchObject([
+      {
+        summary: "The earlier turns, summarised by Pi.",
+        tokensBefore: 150_000,
+        tokensAfter: 32_000,
+      },
+    ]);
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("a Stop reaches Pi while its compaction is still running, and ends it", async () => {
+  const h = await sessionHarness({}, false, { FAKE_PI_SLOW_COMPACT: "1" });
+  try {
+    // The ask does not wait for Pi's reply (the summary), so this resolves at once.
+    await h.session.compact?.();
+    await h.wait(received("compaction_start"));
+    await h.session.interrupt({ cascade: true });
+    const sent = h.frames.filter((f) => f.dir === "send").map((f) => str(obj(f.data).type));
+    expect(sent.slice(sent.indexOf("compact"))).toEqual(
+      expect.arrayContaining(["abort", "abort_bash"]),
+    );
+    // The provider's own end of the aborted compaction still settles the thread.
+    await h.wait(received("compaction_end"));
+    expect(Object.values(h.h.state.items).filter((item) => item.type === "compaction")).toEqual([]);
+  } finally {
+    await h.dispose();
+  }
+});
+
 test("explicit native resume reloads the saved session before any prompt", async () => {
   const h = await sessionHarness({}, true);
   try {

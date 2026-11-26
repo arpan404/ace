@@ -173,6 +173,7 @@ impl Engine {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         });
         // Subscribed first, so the reply cannot slip by between delivering and listening.
         let frames = self.live(&target.conversation).frames.subscribe();

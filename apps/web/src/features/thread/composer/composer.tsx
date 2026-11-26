@@ -168,6 +168,12 @@ function ComposerBody({
     () => recentFiles(storage, props.thread.workspaceId),
     !!props.filesOnly,
     props.mentionNames,
+    props.slash && {
+      menu: props.slash,
+      chipped: tokens.some((token) =>
+        props.slash?.rows.some((row) => row.entry?.id === token.catalog?.entryId),
+      ),
+    },
   );
   const { trigger, suggestions, items, active, adding, setAdding, setDismissed } = list;
   const empty = !text.trim() && !attachments.items.length && !annotations.count && !quotes.count;
@@ -262,6 +268,7 @@ function ComposerBody({
     addMenu,
     box,
     onPlan: props.onPlan,
+    onSlashAction: props.slash?.onAction,
   });
   const off = props.unavailable?.reason;
   const blocked = sendBlockedReason({

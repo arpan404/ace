@@ -3,10 +3,16 @@ import Observation
 
 @MainActor @Observable final class BlockModel: Identifiable {
     let id: String
-    var row: BlockRow { didSet { if row.room != room { room = row.room } } }
-    /// Observed apart from `row`, so the feed's spacing never re-reads on a block's live update.
-    private(set) var room: BlockRow.Room?
-    init(id: String, row: BlockRow) { self.id = id; self.row = row; self.room = row.room }
+    var row: BlockRow {
+        didSet { if row.kind != kind { kind = row.kind } }
+    }
+    /// Observed apart from the streaming row so prose deltas never recalculate feed spacing.
+    private(set) var kind: String
+    init(id: String, row: BlockRow) {
+        self.id = id
+        self.row = row
+        kind = row.kind
+    }
 }
 
 /// The open thread's blocks, composer controls, history paging and model list. Block identity
