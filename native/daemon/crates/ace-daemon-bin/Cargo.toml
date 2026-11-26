@@ -16,7 +16,16 @@ workspace = true
 name = "ace-daemon"
 path = "src/main.rs"
 
+[dev-dependencies]
+# futures-util: the WebSocket client's sink and stream in the program tests.
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# tokio-tungstenite: the client the socket tests drive the real daemon with.
+tokio-tungstenite = { version = "0.30" }
+
 [dependencies]
+# ace-auth: the daemon token's reader and comparison (T2), so the Rust program and
+# the CLI read a Bun-written home's token the same way.
+ace-auth = { path = "../ace-auth" }
 # ace-store: the one SQLite connection owner (ADR 0222); the daemon lock and the
 # event store's open go through it, never a second SQLite library.
 ace-store = { path = "../ace-store" }

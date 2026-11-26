@@ -84,6 +84,8 @@ impl UpgradeAdmission for Admission {
 struct Sink {
     live: Arc<Live>,
     auth: Arc<dyn session::Authenticator>,
+    /// The loopback listener admits the host token; remote listeners never do.
+    local: bool,
 }
 
 impl SocketSink for Sink {
@@ -101,6 +103,7 @@ impl SocketSink for Sink {
             stream,
             deflate,
             Arc::clone(&self.auth),
+            self.local,
             Arc::new(move || signed_in.authenticated(reservation)),
             Arc::new(move || closed.closed(reservation)),
         );
@@ -190,6 +193,7 @@ impl Transport {
             Arc::new(Sink {
                 live: Arc::clone(&live),
                 auth: Arc::clone(&authenticator),
+                local: true,
             }),
         ));
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -308,6 +312,7 @@ async fn bind_remote(
         Arc::new(Sink {
             live: Arc::clone(live),
             auth: authenticator,
+            local: false,
         }),
     ));
     let (addr, limits) = match plan.listen {

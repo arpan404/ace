@@ -16,6 +16,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+pub use ace_auth::valid_token;
+
 /// Why the token could not be loaded.
 #[derive(Debug)]
 pub enum TokenError {
@@ -68,14 +70,13 @@ pub fn load(data_dir: &Path) -> Result<Token, TokenError> {
         action: "Cannot restrict the daemon token".to_owned(),
         source,
     })?;
-    let token = std::fs::read_to_string(&path).map_err(|source| TokenError::Io {
-        action: "Cannot read the daemon token".to_owned(),
-        source,
-    })?;
-    if !is_token(&token) {
-        return Err(TokenError::Invalid);
+    // One reader with the CLI's (`local-token.ts` via `ace-auth`): it trims the
+    // trailing newline a Bun-written home has, and a leading BOM, before checking
+    // the 64 hex characters.
+    match ace_auth::read_local_token(data_dir) {
+        Ok(token) => Ok(Token { token, path }),
+        Err(error) => Err(token_error(error)),
     }
-    Ok(Token { token, path })
 }
 
 /// `loadHostId`: `<home>/host-id`, made on first start and kept after.
@@ -105,29 +106,20 @@ pub fn load_host_id(data_dir: &Path) -> Result<String, TokenError> {
     })
 }
 
-/// `validToken`: constant time over hash-sized buffers, wrong lengths included.
-pub fn valid_token(actual: &str, expected: &str) -> bool {
-    let mut padded = [0_u8; 64];
-    let input = actual.as_bytes();
-    let copied = input.len().min(64);
-    padded[..copied].copy_from_slice(&input[..copied]);
-    let expected = expected.as_bytes();
-    if expected.len() != 64 {
-        return false;
+/// `ace-auth`'s refusal, said in the daemon's own words: a file that is there but
+/// not a token is "Invalid daemon token file", and anything else keeps its cause.
+fn token_error(error: ace_auth::AuthError) -> TokenError {
+    match error {
+        ace_auth::AuthError::Token(message) if message.contains("not valid") => TokenError::Invalid,
+        ace_auth::AuthError::Token(message) => TokenError::Io {
+            action: "Cannot read the daemon token".to_owned(),
+            source: io::Error::other(message),
+        },
+        other => TokenError::Io {
+            action: "Cannot read the daemon token".to_owned(),
+            source: io::Error::other(other.to_string()),
+        },
     }
-    let mut difference = 0_u8;
-    for (left, right) in padded.iter().zip(expected) {
-        difference |= left ^ right;
-    }
-    difference == 0 && input.len() == 64
-}
-
-/// The token file's shape: `/^[0-9a-f]{64}$/`.
-fn is_token(text: &str) -> bool {
-    text.len() == 64
-        && text
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// `chmodSync(path, 0o600)`.
@@ -190,7 +182,6 @@ mod tests {
     /// without the trailing newline": a home the Bun daemon wrote has one, and
     /// this reader must accept it.
     #[test]
-    #[ignore = "the fix uses ace-auth's read_local_token, wired with the T2 merge"]
     fn a_token_file_with_a_trailing_newline_or_bom_loads() {
         let token = "ab".repeat(32);
         for written in [

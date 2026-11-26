@@ -6,6 +6,7 @@
 //! with the same codes `@ace/service/exit-codes` names. The program composes the
 //! modules beside it; no behaviour lives here.
 
+mod auth;
 mod config;
 mod daemon;
 mod endpoint;

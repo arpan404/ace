@@ -111,10 +111,10 @@ pub(super) fn address_in_use(error: &crate::transport::TransportError) -> bool {
     }
 }
 
-pub(super) fn fields_value(fields: Vec<(&'static str, String)>) -> serde_json::Value {
+pub(super) fn fields_value(fields: Vec<(&'static str, serde_json::Value)>) -> serde_json::Value {
     let mut object = serde_json::Map::new();
     for (name, value) in fields {
-        object.insert(name.to_owned(), value.into());
+        object.insert(name.to_owned(), value);
     }
     serde_json::Value::Object(object)
 }

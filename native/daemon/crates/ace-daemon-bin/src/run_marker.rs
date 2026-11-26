@@ -102,7 +102,13 @@ impl Run {
 
     /// The startup log line naming how the previous run ended
     /// (`previousRunRecord`).
-    pub fn previous_line(&self) -> (&'static str, &'static str, Vec<(&'static str, String)>) {
+    pub fn previous_line(
+        &self,
+    ) -> (
+        &'static str,
+        &'static str,
+        Vec<(&'static str, serde_json::Value)>,
+    ) {
         match &self.previous {
             Previous::None => ("info", "No previous daemon run recorded", Vec::new()),
             Previous::Stopped {
@@ -119,19 +125,19 @@ impl Run {
                 } else {
                     "Previous daemon run stopped after its shutdown deadline; some resources had not closed"
                 };
-                let mut fields = vec![
-                    ("previousPid", pid.to_string()),
-                    ("previousSource", source.clone()),
+                let mut fields: Vec<(&'static str, serde_json::Value)> = vec![
+                    ("previousPid", (*pid).into()),
+                    ("previousSource", source.clone().into()),
                 ];
                 if let Some(signal) = signal {
-                    fields.push(("previousSignal", signal.clone()));
+                    fields.push(("previousSignal", signal.clone().into()));
                 }
                 fields.push((
                     "previousStoppedAt",
-                    crate::home::iso8601(*stopped_at as u64),
+                    crate::home::iso8601(*stopped_at as u64).into(),
                 ));
                 if !overran.is_empty() {
-                    fields.push(("previousPending", overran.join(", ")));
+                    fields.push(("previousPending", overran.join(", ").into()));
                 }
                 (level, message, fields)
             }
@@ -141,10 +147,10 @@ impl Run {
                 "warn",
                 "Previous daemon run ended without stopping: it crashed or was killed",
                 vec![
-                    ("previousPid", pid.to_string()),
+                    ("previousPid", (*pid).into()),
                     (
                         "previousStartedAt",
-                        crate::home::iso8601(*started_at as u64),
+                        crate::home::iso8601(*started_at as u64).into(),
                     ),
                 ],
             ),

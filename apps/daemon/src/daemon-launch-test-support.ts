@@ -36,14 +36,29 @@ export function daemonEnv(home: string): NodeJS.ProcessEnv {
   };
 }
 
-/** `ace start` from source; readiness is the CLI's own "Token file:" line. */
+/**
+ * `ace start` from source; readiness is the CLI's own "Token file:" line.
+ *
+ * `ACE_TEST_DAEMON_BINARY`, test-only, starts `ace-daemon-bin` instead of the
+ * TypeScript CLI: the same words (`start`), the same home and environment, and
+ * the same readiness line, so a test that launches the daemon as a program can
+ * prove the Rust program's wiring. Unset, nothing changes.
+ */
 export function startDaemonCli(home: string, cleanups: Cleanups, preload?: string) {
-  const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), cli, "start"], {
-    cwd: daemonPackage,
-    env: daemonEnv(home),
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
+  const binary = process.env.ACE_TEST_DAEMON_BINARY;
+  const child = binary
+    ? spawn(binary, ["start"], {
+        cwd: daemonPackage,
+        env: daemonEnv(home),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      })
+    : spawn(process.execPath, [...(preload ? ["--import", preload] : []), cli, "start"], {
+        cwd: daemonPackage,
+        env: daemonEnv(home),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
   let output = "";
   let errors = "";
   child.stderr?.on("data", (chunk: Buffer) => {

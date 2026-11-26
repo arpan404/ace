@@ -199,8 +199,13 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         serde_json::json!({"durationMs": began.elapsed().as_millis()}),
     );
     let tokens = token::load(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
-    let _host_id =
+    let host_id =
         token::load_host_id(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
+    // The hello and authentication T2 owns, opened on the store's own database.
+    let auth =
+        crate::auth::DaemonAuth::open(&data_dir, &tokens.token, &host_id).map_err(|error| {
+            FailedStart::failed(format!("Cannot open the daemon's devices: {error}"))
+        })?;
     let (stop, mut stopped) = mpsc::unbounded_channel::<StopReason>();
     let home_for_stop = data_dir.clone();
     let stop_for_http = stop.clone();
@@ -243,7 +248,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
             None
         }
     };
-    let authenticator: Arc<dyn session::Authenticator> = Arc::new(session::RefusingAuthenticator);
+    let authenticator: Arc<dyn session::Authenticator> = Arc::new(auth);
     let transport =
         match Transport::bind(http, config.port, plan, authenticator, Arc::clone(&log)).await {
             Ok(transport) => transport,

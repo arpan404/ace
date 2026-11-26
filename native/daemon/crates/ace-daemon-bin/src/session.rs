@@ -11,8 +11,7 @@
 //!
 //! [`Authenticator`] is the socket-facing seam: T2's `ace-auth` supplies the
 //! decision (welcome or refusal) and the daemon releases the socket's
-//! pre-authentication slot when it accepts one. Slice 1 ships
-//! [`RefusingAuthenticator`].
+//! pre-authentication slot when it accepts one.
 //!
 //! TypeScript cases ported: `apps/daemon/src/auth.server.process.test.ts`
 //! ("closes without sending data for a non-hello first frame", "closes without
@@ -44,9 +43,9 @@ pub enum Welcome {
 
 /// Who decides a hello, and with what answer. T2's `ace-auth` implements this.
 pub trait Authenticator: Send + Sync + 'static {
-    /// The `hello` frame's parsed JSON. `None` means the frame was not a hello at
-    /// all; the caller refuses it before asking.
-    fn hello(&self, value: &Value) -> Answer;
+    /// The `hello` frame's text, and whether this socket is on loopback. The
+    /// authenticator parses it with `ace-auth`'s one hello decoder.
+    fn hello(&self, text: &str, local: bool) -> Answer;
 }
 
 /// An authenticator's answer to one hello.
@@ -60,27 +59,19 @@ pub enum Answer {
     Refused { message: &'static str },
     /// The hello did not match the protocol: "Message does not match the protocol".
     Invalid,
-}
-
-/// Slice 1's authenticator: no credential check exists yet, so every hello is
-/// refused as a hello that authenticates nothing is. T2 replaces it.
-pub struct RefusingAuthenticator;
-
-impl Authenticator for RefusingAuthenticator {
-    fn hello(&self, _value: &Value) -> Answer {
-        Answer::Refused {
-            message: "Valid hello required",
-        }
-    }
+    /// Finishing the hello failed in the store: close `1011 service_unavailable`.
+    Unavailable,
 }
 
 /// Open a socket and run its session on the current runtime. The returned handle
 /// is what a shutdown closes; `authenticated` runs once the hello is accepted, and
 /// `closed` when the last event arrived.
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     stream: Box<dyn UpgradeIo>,
     deflate: Option<Deflate>,
     auth: Arc<dyn Authenticator>,
+    local: bool,
     authenticated: Arc<dyn Fn() + Send + Sync>,
     closed: Closed,
 ) -> SocketHandle {
@@ -97,6 +88,7 @@ pub fn start(
                         &sending,
                         &next,
                         &auth,
+                        local,
                         &authenticated,
                         &data,
                         binary,
@@ -118,10 +110,12 @@ pub fn start(
 }
 
 /// The answer a session owes one inbound message. Returns whether it is signed in.
+#[allow(clippy::too_many_arguments)]
 fn handle_message(
     handle: &SocketHandle,
     next: &AtomicU64,
     auth: &Arc<dyn Authenticator>,
+    local: bool,
     authenticated: &Arc<dyn Fn() + Send + Sync>,
     data: &[u8],
     binary: bool,
@@ -136,26 +130,37 @@ fn handle_message(
         return signed_in;
     };
     match value.get("type").and_then(Value::as_str) {
-        // A heartbeat is answered before any handler, authenticated or not.
-        Some("ping") => {
+        // A heartbeat is answered only once welcomed: before the hello, every
+        // frame but the hello is refused (`server.ts:866`).
+        Some("ping") if signed_in => {
             send(handle, next, br#"{"type":"pong"}"#);
             signed_in
         }
-        Some("hello") if !signed_in => match auth.hello(&value) {
-            Answer::Authenticated(Welcome::Frame(frame)) => {
-                authenticated();
-                send(handle, next, &frame);
-                true
-            }
-            Answer::Refused { message } => {
-                refuse(handle, next, message);
-                signed_in
-            }
-            Answer::Invalid => {
+        Some("hello") if !signed_in => {
+            let Ok(text) = std::str::from_utf8(data) else {
                 refuse(handle, next, "Message does not match the protocol");
-                signed_in
+                return signed_in;
+            };
+            match auth.hello(text, local) {
+                Answer::Authenticated(Welcome::Frame(frame)) => {
+                    authenticated();
+                    send(handle, next, &frame);
+                    true
+                }
+                Answer::Refused { message } => {
+                    refuse(handle, next, message);
+                    signed_in
+                }
+                Answer::Invalid => {
+                    refuse(handle, next, "Message does not match the protocol");
+                    signed_in
+                }
+                Answer::Unavailable => {
+                    let _ = handle.close(Some(1011), "service_unavailable".to_owned());
+                    signed_in
+                }
             }
-        },
+        }
         // A second hello on an authenticated socket closes it without another
         // welcome (`auth.server.process.test.ts`).
         Some("hello") => {
