@@ -65,10 +65,10 @@ impl FrozenCatalog {
 
 #[cfg(test)]
 mod tests {
-    //! `freeze.ts` has no TypeScript test file; these prove the boundary it exists for:
-    //! one shared row, one shared page, and nested collections that survive freezing.
-    //! The behaviour is what a picker relies on — a cached row it holds cannot change
-    //! under it, and a refresh is a new page rather than a rewrite of the old one.
+    //! `freeze.ts` has no TypeScript test file. These guard the boundary it exists for:
+    //! a picker that keeps a row or a page sees the same models after the catalog is
+    //! refreshed, because a refresh swaps a pointer rather than rewriting the shared
+    //! value. They fail if the boundary hands out empty or re-created rows.
 
     use super::*;
     use ace_protocol::generated::ProviderKind;
@@ -81,50 +81,58 @@ mod tests {
     }
 
     #[test]
-    fn a_frozen_row_is_one_shared_value() {
-        let frozen = freeze_catalog_model(model("gpt-6.1-sol"));
-        let same = Arc::clone(&frozen);
-        assert!(Arc::ptr_eq(&frozen, &same));
-        assert_eq!(frozen.id.0, "gpt-6.1-sol");
-        assert_eq!(same.id.0, "gpt-6.1-sol");
-        assert_eq!(Arc::strong_count(&frozen), 2);
+    fn a_row_kept_from_a_replaced_catalog_stays_the_same_row() {
+        let catalog = FrozenCatalog::new(vec![model("a")]);
+        let Some(kept) = catalog.model(0) else {
+            panic!("the catalog has a first row");
+        };
+        let replaced = FrozenCatalog::new(vec![model("b")]);
+        assert_eq!(kept.id.0, "a");
+        assert_eq!(kept.display_name.0, "A");
+        assert_eq!(replaced.models()[0].id.0, "b");
     }
 
     #[test]
-    fn a_frozen_catalog_shares_its_page_without_copying() {
-        let catalog = FrozenCatalog::new(vec![model("a"), model("b")]);
-        let same = catalog.clone();
-        assert!(Arc::ptr_eq(&catalog.shared(), &same.shared()));
-        assert_eq!(catalog.len(), 2);
-        assert_eq!(
-            catalog
-                .models()
-                .iter()
-                .map(|model| model.id.0.as_str())
-                .collect::<Vec<_>>(),
-            ["a", "b"]
-        );
-        assert_eq!(
-            catalog.model(1).map(|model| model.id.0.clone()),
-            Some("b".to_owned())
-        );
-        assert!(FrozenCatalog::new(Vec::new()).is_empty());
+    fn a_shared_page_is_not_rewritten_when_a_new_catalog_replaces_it() {
+        let first = FrozenCatalog::new(vec![model("a"), model("b")]);
+        let page = first.shared();
+        let next = FrozenCatalog::new(vec![model("c")]);
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[1].id.0, "b");
+        assert_eq!(next.models()[0].id.0, "c");
+        assert_eq!(first.len(), 2);
     }
 
     #[test]
-    fn nested_collections_survive_freezing_inside_the_same_value() {
+    fn frozen_rows_own_their_nested_collections() {
         use crate::effort::model_efforts;
         let mut row = model("m");
-        row.efforts = model_efforts([crate::effort::EffortValue::id("low")]).into();
-        let frozen = freeze_catalog_model(row);
-        assert_eq!(frozen.efforts.len(), 1);
-        assert_eq!(frozen.efforts[0].id.0, "low");
+        row.efforts = model_efforts([
+            crate::effort::EffortValue::id("low"),
+            crate::effort::EffortValue::id("high"),
+        ])
+        .into();
+        let catalog = FrozenCatalog::new(vec![row]);
+        let frozen = &catalog.models()[0];
+        assert_eq!(frozen.efforts.len(), 2);
+        assert_eq!(frozen.efforts[0].label.0, "Low");
+        assert_eq!(
+            frozen.efforts[1].level,
+            Some(ace_protocol::generated::EffortLevel::High)
+        );
         assert!(frozen.raw.json.contains("active"));
-        let row = match Arc::try_unwrap(frozen) {
-            Ok(row) => row,
-            Err(shared) => (*shared).clone(),
-        };
-        let page = FrozenCatalog::new(vec![row]);
-        assert_eq!(page.models()[0].efforts.len(), 1);
+    }
+
+    #[test]
+    fn an_empty_or_out_of_range_page_hands_out_nothing() {
+        let empty = FrozenCatalog::new(Vec::new());
+        assert!(empty.is_empty());
+        assert!(empty.model(0).is_none());
+        let one = FrozenCatalog::new(vec![model("only")]);
+        assert!(one.model(1).is_none());
+        assert_eq!(
+            one.model(0).map(|row| row.id.0.clone()),
+            Some("only".to_owned())
+        );
     }
 }

@@ -7,9 +7,10 @@
 //! accepted and 257 is not.
 
 use serde_json::Value;
+
+use crate::native::{label, labels};
 use std::sync::OnceLock;
 
-const ID_LIMIT: usize = 256;
 const ALIAS_LIMIT: usize = 32;
 
 /// The hints ace reads from a native model entry, each independently decoded.
@@ -40,29 +41,14 @@ fn flag(value: Option<&Value>) -> Option<bool> {
     value?.as_bool()
 }
 
-/// An id is 1 to 256 code points, counted the way zod counts them.
-fn id(value: Option<&Value>) -> Option<String> {
-    let text = value?.as_str()?;
-    let count = text.chars().count();
-    (1..=ID_LIMIT).contains(&count).then(|| text.to_owned())
-}
-
-fn ids(value: Option<&Value>) -> Option<Vec<String>> {
-    let items = value?.as_array()?;
-    if items.len() > ALIAS_LIMIT {
-        return None;
-    }
-    items.iter().map(|item| id(Some(item))).collect()
-}
-
 /// The hints in `value`; an unreadable field is absent and does not affect the rest.
 pub fn catalog_metadata(value: &Value) -> CatalogMetadata {
     let capabilities = field(value, "capabilities");
     CatalogMetadata {
         status: text(field(value, "status")),
-        resolved_model: id(field(value, "resolvedModel")),
-        resolved_model_id: id(field(value, "resolvedModelId")),
-        aliases: ids(field(value, "aliases")),
+        resolved_model: label(field(value, "resolvedModel")),
+        resolved_model_id: label(field(value, "resolvedModelId")),
+        aliases: labels(field(value, "aliases"), ALIAS_LIMIT),
         deprecated: flag(field(value, "deprecated")),
         legacy: flag(field(value, "legacy")),
         internal: flag(field(value, "internal")),
