@@ -5,232 +5,385 @@
 #![allow(unused_imports)]
 
 // Part server_message_99.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_70_RUN_3_FIELDS: [Field; 5] = [
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "operation",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "startedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "finishedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_72_RESULT_5_FIELDS: [Field; 3] = [
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"attachments\""]) },
+    Field { key: "attachments", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
+    Field { key: "nextCursor", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }) },
 ];
 
-pub(crate) static SERVER_MESSAGE_71_FIELDS: [Field; 6] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "requestId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "ok", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "permissions", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FIELDS, extra: Extra::Strip } },
-    Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "error", presence: Presence::Optional, shape: Shape::Copy },
-];
-
-pub(crate) static SERVER_MESSAGE_72_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_72_RESULT_6_FIELDS: [Field; 3] = [
     Field {
-        key: "type",
+        key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"mentions\""]),
     },
     Field {
-        key: "requestId",
+        key: "entries",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_72_RESULT_6_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
     },
     Field {
-        key: "result",
+        key: "diagnostics",
         presence: Presence::Required,
-        shape: Shape::Tagged {
-            key: "kind",
-            options: &[
-                (
-                    "\"draft\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_72_RESULT_0_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"error\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_72_RESULT_1_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"upload\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_72_RESULT_2_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"attachment\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_72_RESULT_3_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"attachment.data\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_72_RESULT_4_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"attachments\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_100::SERVER_MESSAGE_72_RESULT_5_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"mentions\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_100::SERVER_MESSAGE_72_RESULT_6_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"completion\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_100::SERVER_MESSAGE_72_RESULT_7_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"ok\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_100::SERVER_MESSAGE_72_RESULT_8_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-            ],
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_72_RESULT_6_DIAGNOSTICS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_72_RESULT_0_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_72_RESULT_6_ENTRIES_FIELDS: [Field; 3] = [
     Field {
-        key: "kind",
+        key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "draftId",
+        key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "truncated",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_72_RESULT_1_FIELDS: [Field; 3] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_72_RESULT_6_DIAGNOSTICS_FIELDS: [Field; 3] = [
     Field {
         key: "code",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"invalid_request\"",
+            "\"forbidden\"",
+            "\"not_found\"",
+            "\"outside_workspace\"",
+            "\"ignored\"",
+            "\"binary\"",
+            "\"truncated\"",
+            "\"quota\"",
+            "\"busy\"",
+            "\"offset\"",
+            "\"hash_mismatch\"",
+            "\"invalid_image\"",
+            "\"unsupported\"",
+        ]),
+    },
+    Field {
+        key: "path",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "message",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_72_RESULT_2_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_72_RESULT_7_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"completion\""]),
     },
     Field {
-        key: "uploadId",
+        key: "paths",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: None,
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(50),
+        },
     },
     Field {
-        key: "offset",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "bytes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "ready",
+        presence: Presence::Default("true"),
+        shape: Shape::Bool,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_72_RESULT_3_FIELDS: [Field; 2] = [
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "attachment", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip } },
+pub(crate) static SERVER_MESSAGE_72_RESULT_8_FIELDS: [Field; 1] = [Field {
+    key: "kind",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"ok\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_73_FIELDS: [Field; 5] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"settings.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "ok",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "entries",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_73_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(32),
+        },
+    },
+    Field {
+        key: "diagnostics",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_73_DIAGNOSTICS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(3),
+        },
+    },
 ];
 
-pub(crate) static SERVER_MESSAGE_72_RESULT_4_FIELDS: [Field; 8] = [
+pub(crate) static SERVER_MESSAGE_73_ENTRIES_FIELDS: [Field; 4] = [
     Field {
-        key: "kind",
+        key: "key",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"storage.retention\"",
+            "\"storage.scheduledCleanup\"",
+            "\"storage.worktreeRetentionDays\"",
+            "\"storage.backupWorktrees\"",
+            "\"storage.retentionDays\"",
+            "\"logs.maxBytes\"",
+            "\"sourceControl.preferences\"",
+            "\"providers.configuration\"",
+            "\"host.displayName\"",
+            "\"host.icon\"",
+            "\"projects.roots\"",
+            "\"threads.followUpBehavior\"",
+            "\"threads.forkOnSwitch\"",
+            "\"threads.limitPolicy\"",
+            "\"providers.default\"",
+            "\"providers.coder.provider\"",
+            "\"providers.coder.model\"",
+            "\"providers.coder.tier\"",
+            "\"providers.coder.reasoningEffort\"",
+            "\"providers.reviewer.provider\"",
+            "\"providers.reviewer.model\"",
+            "\"providers.reviewer.tier\"",
+            "\"providers.reviewer.reasoningEffort\"",
+            "\"providers.planner.provider\"",
+            "\"providers.planner.model\"",
+            "\"providers.planner.tier\"",
+            "\"providers.planner.reasoningEffort\"",
+            "\"providers.verifier.provider\"",
+            "\"providers.verifier.model\"",
+            "\"providers.verifier.tier\"",
+            "\"providers.verifier.reasoningEffort\"",
+            "\"providers.codex.toolSource\"",
+            "\"providers.claude.chrome\"",
+            "\"browser.backend\"",
+            "\"browser.backendLoss\"",
+            "\"browser.profile\"",
+            "\"browser.profileScope\"",
+            "\"browser.downloadDir\"",
+            "\"browser.downloadDefault\"",
+            "\"browser.userChrome.storageReads\"",
+            "\"computer.blockedApps\"",
+            "\"computer.lockedUse\"",
+            "\"spade.enabled\"",
+            "\"beta.spade\"",
+            "\"beta.marketplace\"",
+            "\"market.askBeforeAgentPublish\"",
+            "\"devices.emulatorWindow\"",
+            "\"devices.enabled\"",
+            "\"access.defaultMode\"",
+            "\"access.nativeModes\"",
+            "\"threads.useWorktree\"",
+            "\"worktree.preparationTimeoutMs\"",
+            "\"threads.autoSettleAfter\"",
+            "\"threads.unresponsiveAfter\"",
+            "\"threads.settleOnMerge\"",
+            "\"threads.settleOnClose\"",
+            "\"threads.sortBy\"",
+            "\"threads.keepSettledFor\"",
+            "\"remote.enabled\"",
+            "\"remote.transport\"",
+            "\"remote.lan\"",
+            "\"remote.tailscale\"",
+            "\"remote.relay\"",
+            "\"remote.agentAccess\"",
+            "\"remote.agentTransfers\"",
+            "\"remote.transferIgnoredFiles\"",
+            "\"remote.hostedPairingLink\"",
+            "\"remote.machineLocalhost\"",
+            "\"remote.relayMcp\"",
+            "\"remote.relayWebhooks\"",
+            "\"remote.tailscaleWebhooks\"",
+            "\"remote.publicUrlWebhooks\"",
+            "\"remote.tailscaleMcp\"",
+            "\"remote.mcpPublicUrl\"",
+            "\"remote.relayUrl\"",
+            "\"notifications.remotePush\"",
+            "\"notifications.pushGatewayUrl\"",
+            "\"automations.enabled\"",
+            "\"agents.maxRunningChildren\"",
+            "\"generation.model\"",
+            "\"generation.autoDraftCommits\"",
+            "\"clients.theme\"",
+            "\"clients.keybindings\"",
+        ]),
     },
     Field {
-        key: "sha256",
+        key: "value",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Later(&crate::shapes::client_message_lazy::CLIENT_MESSAGE_77_VALUE),
     },
     Field {
-        key: "variant",
+        key: "provenance",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"defaults\"",
+            "\"global\"",
+            "\"workspace\"",
+            "\"thread\"",
+            "\"environment\"",
+        ]),
     },
     Field {
-        key: "mimeType",
+        key: "localValue",
+        presence: Presence::Optional,
+        shape: Shape::Later(&crate::shapes::client_message_lazy::CLIENT_MESSAGE_77_VALUE),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_73_DIAGNOSTICS_FIELDS: [Field; 4] = [
+    Field {
+        key: "layer",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"defaults\"", "\"global\"", "\"workspace\"", "\"thread\""]),
+    },
+    Field {
+        key: "code",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"parse\"",
+            "\"validation\"",
+            "\"version\"",
+            "\"secret\"",
+            "\"size\"",
+            "\"io\"",
+            "\"limit\"",
+        ]),
+    },
+    Field {
+        key: "message",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_74_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"settings.changed\""]),
     },
     Field {
-        key: "bytes",
+        key: "subscriptionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "data",
+        key: "entries",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "eof",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_73_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(32),
+        },
     },
 ];

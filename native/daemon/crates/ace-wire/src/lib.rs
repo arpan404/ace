@@ -113,7 +113,10 @@ pub fn decode_client_value(value: Value) -> Result<ClientEnvelope, WireError> {
         });
     }
     refine::client(&envelope.type_, &value)?;
-    let message = decode_client_body(&envelope.type_, &value)
+    // Zod fills defaults and applies transforms before its output exists; the generated type
+    // describes that output, so decode the value the shape table's parse produces.
+    let shaped = strip(shape, &value);
+    let message = decode_client_body(&envelope.type_, &shaped)
         .ok_or_else(|| WireError::UnknownType {
             type_: envelope.type_.clone(),
         })?
@@ -138,7 +141,8 @@ pub fn decode_server(text: &str) -> Result<ServerEnvelope, WireError> {
         });
     }
     refine::server(&envelope.type_, &value)?;
-    let message = ace_protocol::wire::decode_server(&envelope.type_, &value)
+    let shaped = strip(shape, &value);
+    let message = ace_protocol::wire::decode_server(&envelope.type_, &shaped)
         .ok_or_else(|| WireError::UnknownType {
             type_: envelope.type_.clone(),
         })?
@@ -174,27 +178,32 @@ pub fn encode_server(value: &Value) -> Result<String, WireError> {
 /// as `ThreadStatus`); a producer that hits one writes the value instead.
 pub fn encode_client_body(body: &ClientBody) -> Result<String, WireError> {
     let text = ace_protocol::wire::encode_client(body).map_err(WireError::Body)?;
-    reorder(&CLIENT_MESSAGE, body.type_(), &text)
+    let shape = client_option(body.type_()).ok_or_else(|| WireError::UnknownType {
+        type_: body.type_().to_string(),
+    })?;
+    Ok(ace_json::to_string(&strip(shape, &parse(&text)?)))
 }
 
 /// `body` as the bytes a client parses, as [`encode_client_body`].
 pub fn encode_server_body(body: &ServerBody) -> Result<String, WireError> {
     let text = ace_protocol::wire::encode_server(body).map_err(WireError::Body)?;
-    reorder(&SERVER_MESSAGE, body.type_(), &text)
+    let shape = option(&SERVER_MESSAGE, body.type_()).ok_or_else(|| WireError::UnknownType {
+        type_: body.type_().to_string(),
+    })?;
+    Ok(ace_json::to_string(&strip(shape, &parse(&text)?)))
 }
 
-/// What Zod's parse keeps of a client message, across every union the socket accepts.
-pub fn canonical_client(type_: &str, value: &Value) -> Option<Value> {
-    client_option(type_).map(|shape| strip(shape, value))
+fn parse(text: &str) -> Result<Value, WireError> {
+    ace_json::parse(text).map_err(|error| WireError::Json(error.to_string()))
 }
 
 fn write(shape: &'static Shape, value: &Value) -> Result<String, WireError> {
     Ok(ace_json::to_string(&strip(shape, value)))
 }
 
-/// The shape one client message type's body has, in any of the client unions.
-fn client_option(type_: &str) -> Option<&'static Shape> {
-    CLIENT_ROOTS.iter().find_map(|root| option(root, type_))
+/// What Zod's parse keeps of a client message, across every union the socket accepts.
+pub fn canonical_client(type_: &str, value: &Value) -> Option<Value> {
+    client_option(type_).map(|shape| strip(shape, value))
 }
 
 /// What Zod's parse keeps of `value` for the message of `type` in `root`: fields in schema
@@ -203,33 +212,36 @@ pub fn canonical(root: &'static Shape, type_: &str, value: &Value) -> Option<Val
     option(root, type_).map(|shape| strip(shape, value))
 }
 
-/// `text` with its keys in Zod's order: the struct's own order is not the schema's, so the
-/// value is read back and stripped through the message's shape before it goes to a client.
-fn reorder(root: &'static Shape, type_: &str, text: &str) -> Result<String, WireError> {
-    let value = parse(text)?;
-    let shaped = canonical(root, type_, &value).ok_or_else(|| WireError::UnknownType {
-        type_: type_.to_string(),
-    })?;
-    Ok(ace_json::to_string(&shaped))
+/// The shape one client message type's body has, in any of the client unions.
+fn client_option(type_: &str) -> Option<&'static Shape> {
+    CLIENT_ROOTS.iter().find_map(|root| option(root, type_))
 }
 
-fn parse(text: &str) -> Result<Value, WireError> {
-    ace_json::parse(text).map_err(|error| WireError::Json(error.to_string()))
-}
-
-/// The shape one message type's body has, from the union's tagged table.
+/// The shape one message type's body has. A union may be tagged (`Tagged`) or a plain union
+/// of objects (`OneOf`), and an object's own `type` field may be the literal that names it.
 fn option(root: &'static Shape, type_: &str) -> Option<&'static Shape> {
-    let Shape::Tagged { key, options } = root else {
-        return None;
-    };
-    if *key != "type" {
-        return None;
-    }
     let printed = ace_json::to_string(&Value::String(ace_json::JsString::from(type_)));
-    options
-        .iter()
-        .find(|(literal, _)| *literal == printed)
-        .map(|(_, shape)| shape)
+    fn find(shape: &'static Shape, printed: &str) -> Option<&'static Shape> {
+        match shape {
+            Shape::Tagged { key, options } if *key == "type" => options
+                .iter()
+                .find(|(literal, _)| *literal == printed)
+                .map(|(_, option)| option),
+            Shape::OneOf(options) => options.iter().find_map(|option| find(option, printed)),
+            Shape::Object { fields, .. } => {
+                let named = fields.iter().any(|field| {
+                    field.key == "type"
+                        && matches!(
+                            field.shape,
+                            Shape::Enum(values) if values.contains(&printed)
+                        )
+                });
+                named.then_some(shape)
+            }
+            _ => None,
+        }
+    }
+    find(root, &printed)
 }
 
 /// A string field, when its value is a string JavaScript can read as one.

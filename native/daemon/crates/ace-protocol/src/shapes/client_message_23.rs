@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_23.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_44_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.conflicts\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "pr",
@@ -33,12 +39,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_45_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.draft.context\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "selection",
@@ -69,12 +81,22 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_45_SELECTION_0_FIELDS: [Field; 2] 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"commit\""]),
     },
     Field {
         key: "paths",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(4096),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: Some(1),
+            max: Some(1000),
+        },
     },
 ];
 
@@ -82,22 +104,40 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_45_SELECTION_1_FIELDS: [Field; 4] 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pr\""]),
     },
     Field {
         key: "branch",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "base",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "baseRef",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -105,12 +145,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_46_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.draft.generate\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "input",
@@ -126,7 +172,13 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_46_INPUT_FIELDS: [Field; 4] = [
     Field {
         key: "generationId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "selection",
@@ -154,12 +206,24 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_46_INPUT_FIELDS: [Field; 4] = [
     Field {
         key: "fingerprint",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "preference",
         presence: Presence::Default("\"\""),
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -167,17 +231,29 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_47_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.draft.cancel\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "generationId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -185,22 +261,40 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_48_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"runs.list\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "before",
         presence: Presence::Default("9007199254740991"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("50"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(100.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -208,12 +302,18 @@ pub(crate) static CLIENT_MESSAGE_62_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"projects.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "operation",
@@ -309,16 +409,28 @@ pub(crate) static CLIENT_MESSAGE_62_OPERATION_0_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.list\""]),
     },
     Field {
         key: "after",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("50"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(100.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];

@@ -9,7 +9,10 @@ const LIMIT = 1500;
  * hand-written source can (the same reason `routeTree.gen.ts` is skipped below).
  */
 // `scripts/generate-rust-protocol.ts` (typify) writes the whole wire schema here.
-const GENERATED_FILES = new Set(["native/daemon/crates/ace-protocol/src/generated.rs"]);
+const GENERATED_FILES = new Set([
+  "native/daemon/crates/ace-protocol/src/generated.rs",
+  "native/daemon/crates/ace-protocol/src/wire.rs",
+]);
 // The same generator writes the shape table for the column encoders into this folder.
 const GENERATED_DIRS = ["native/daemon/crates/ace-protocol/src/shapes/"];
 

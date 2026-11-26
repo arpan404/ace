@@ -5,39 +5,59 @@
 #![allow(unused_imports)]
 
 // Part server_message_5.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_FIELDS: [Field; 5] = [
     Field {
         key: "supported",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "extensionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "extensionPath",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "installed",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_8_RESULT_0_STATUS_INSTALLED_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_8_RESULT_0_STATUS_INSTALLED_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(32),
+        },
     },
     Field {
         key: "connections",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_8_RESULT_0_STATUS_CONNECTIONS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_8_RESULT_0_STATUS_CONNECTIONS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(8),
+        },
     },
 ];
 
@@ -45,37 +65,60 @@ pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_INSTALLED_FIELDS: [Field; 2] 
     Field {
         key: "browser",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "manifestPath",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_CONNECTIONS_FIELDS: [Field; 4] = [
-    Field { key: "connectionId", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "connectionId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
     Field { key: "browser", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_0_BROWSER_FIELDS, extra: Extra::Strip } },
-    Field { key: "connectedAt", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "tabs", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_TABS_FIELDS, extra: Extra::Strip }) },
+    Field { key: "connectedAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "tabs", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_TABS_FIELDS, extra: Extra::Strip }, min: None, max: Some(512) } },
 ];
 
 pub(crate) static SERVER_MESSAGE_8_RESULT_1_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"error\""]),
     },
     Field {
         key: "code",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"forbidden\"",
+            "\"unsupported\"",
+            "\"unavailable\"",
+            "\"failed\"",
+        ]),
     },
     Field {
         key: "message",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -83,85 +126,172 @@ pub(crate) static SERVER_MESSAGE_9_FIELDS: [Field; 16] = [
     Field {
         key: "commandId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "attempt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"running\"",
+            "\"cancelling\"",
+            "\"cancelled\"",
+            "\"failed\"",
+            "\"done\"",
+            "\"local\"",
+        ]),
     },
     Field {
         key: "step",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"preparing\"",
+            "\"fetching\"",
+            "\"creating\"",
+            "\"checking_out\"",
+            "\"setup\"",
+            "\"done\"",
+        ]),
     },
     Field {
         key: "percent",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "startedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "elapsedMs",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "steps",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::thread_details_2::THREAD_DETAILS_WORKTREE_CREATION_STEPS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields:
+                    &crate::shapes::thread_details_2::THREAD_DETAILS_WORKTREE_CREATION_STEPS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(6),
+        },
     },
     Field {
         key: "details",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(1024),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(200),
+        },
     },
     Field {
         key: "message",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "lockPath",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "cleanupComplete",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "actions",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Enum(&["\"cancel\"", "\"local\"", "\"retry\"", "\"continue\""]),
+            min: None,
+            max: Some(4),
+        },
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"worktree.creation.progress\""]),
     },
 ];
 
@@ -169,22 +299,34 @@ pub(crate) static SERVER_MESSAGE_10_FIELDS: [Field; 5] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"worktree.creation.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"not_found\"",
+            "\"forbidden\"",
+            "\"busy\"",
+            "\"cleanup_required\"",
+            "\"settled\"",
+        ]),
     },
     Field {
         key: "progress",

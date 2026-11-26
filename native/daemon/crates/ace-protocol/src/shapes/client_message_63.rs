@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_63.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_142_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"search.status\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,18 +30,24 @@ pub(crate) static CLIENT_MESSAGE_143_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"media.connect\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_144_FIELDS: [Field; 3] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "requestId", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"screen.request\""]) },
+    Field { key: "requestId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[\\w-]{1,64}$"), format: None, trim: false }) },
     Field { key: "operation", presence: Presence::Required, shape: Shape::Tagged { key: "op", options: &[("\"enable\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_0_FIELDS, extra: Extra::Strip }), ("\"status\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_1_FIELDS, extra: Extra::Strip }), ("\"stop.all\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_2_FIELDS, extra: Extra::Strip }), ("\"mode\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_3_FIELDS, extra: Extra::Strip }), ("\"secure.input\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_4_FIELDS, extra: Extra::Strip }), ("\"open.app\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_5_FIELDS, extra: Extra::Strip }), ("\"permissions\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_6_FIELDS, extra: Extra::Strip }), ("\"permissions.request\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_7_FIELDS, extra: Extra::Strip }), ("\"targets\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_8_FIELDS, extra: Extra::Strip }), ("\"sessions\"", Shape::Object { fields: &CLIENT_MESSAGE_144_OPERATION_9_FIELDS, extra: Extra::Strip }), ("\"start\"", Shape::Object { fields: &crate::shapes::client_message_64::CLIENT_MESSAGE_144_OPERATION_10_FIELDS, extra: Extra::Strip }), ("\"stop\"", Shape::Object { fields: &crate::shapes::client_message_64::CLIENT_MESSAGE_144_OPERATION_11_FIELDS, extra: Extra::Strip }), ("\"controller\"", Shape::Object { fields: &crate::shapes::client_message_64::CLIENT_MESSAGE_144_OPERATION_12_FIELDS, extra: Extra::Strip }), ("\"action\"", Shape::Object { fields: &crate::shapes::client_message_64::CLIENT_MESSAGE_144_OPERATION_13_FIELDS, extra: Extra::Strip }), ("\"subscribe\"", Shape::Object { fields: &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_14_FIELDS, extra: Extra::Strip }), ("\"stream.configure\"", Shape::Object { fields: &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_15_FIELDS, extra: Extra::Strip }), ("\"unsubscribe\"", Shape::Object { fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_16_FIELDS, extra: Extra::Strip }), ("\"record.start\"", Shape::Object { fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_17_FIELDS, extra: Extra::Strip }), ("\"record.stop\"", Shape::Object { fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_18_FIELDS, extra: Extra::Strip }), ("\"capabilities\"", Shape::Object { fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_19_FIELDS, extra: Extra::Strip }), ("\"ui.tree\"", Shape::Object { fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_20_FIELDS, extra: Extra::Strip }), ("\"ui.find\"", Shape::Object { fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_21_FIELDS, extra: Extra::Strip }), ("\"ui.act\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_22_FIELDS, extra: Extra::Strip }), ("\"input\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_FIELDS, extra: Extra::Strip }), ("\"simulators\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_24_FIELDS, extra: Extra::Strip }), ("\"simulator.boot\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_25_FIELDS, extra: Extra::Strip })] } },
 ];
 
@@ -43,42 +55,48 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_0_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"enable\""]),
     },
     Field {
         key: "enabled",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_1_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"status\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_2_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"stop.all\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_3_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"mode\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "mode",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"background\"", "\"foreground\""]),
     },
 ];
 
@@ -86,17 +104,23 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_4_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"secure.input\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "allowed",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -104,42 +128,48 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_5_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"open.app\""]),
     },
     Field {
         key: "bundleId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_6_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"permissions\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_7_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"permissions.request\""]),
     },
     Field {
         key: "permission",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"screenRecording\"", "\"accessibility\""]),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_8_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"targets\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_9_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"sessions\""]),
 }];

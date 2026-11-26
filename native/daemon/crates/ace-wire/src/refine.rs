@@ -14,6 +14,12 @@ use crate::error::WireError;
 pub fn client(type_: &str, value: &Value) -> Result<(), WireError> {
     match type_ {
         "hello" => hello(value),
+        "turns.page" => turns_page(value),
+        "items.window" => items_window_request(value),
+        "thread.catchUp" => catch_up(value),
+        "commands.list" => exactly_one(value, &["threadId", "draft"], "commands.list"),
+        "catalog.list" => exactly_one(value, &["threadId", "draft", "workspace"], "catalog.list"),
+        "spade.computer.drive" => at_least_one(value, &["driver", "mode"], "spade.computer.drive"),
         _ => Ok(()),
     }
 }
@@ -33,6 +39,7 @@ pub fn server(type_: &str, value: &Value) -> Result<(), WireError> {
             }
         }
         "items.page" => items_page(value),
+        "items.window" => items_window_response(value),
         _ => Ok(()),
     }
 }
@@ -137,8 +144,85 @@ fn events(value: &Value) -> Result<(), WireError> {
     Ok(())
 }
 
+/// Exactly one of `keys` is present.
+fn exactly_one(value: &Value, keys: &[&str], type_: &str) -> Result<(), WireError> {
+    let map = object(value);
+    let count = keys
+        .iter()
+        .filter(|key| map.is_some_and(|map| map.get(**key).is_some()))
+        .count();
+    if count == 1 {
+        Ok(())
+    } else {
+        Err(rule(type_, "exactly one of the named fields is required"))
+    }
+}
+
+/// At least one of `keys` is present.
+fn at_least_one(value: &Value, keys: &[&str], type_: &str) -> Result<(), WireError> {
+    let map = object(value);
+    if keys
+        .iter()
+        .any(|key| map.is_some_and(|map| map.get(*key).is_some()))
+    {
+        Ok(())
+    } else {
+        Err(rule(type_, "at least one of the named fields is required"))
+    }
+}
+
+/// `turns.page`: at most one exclusive ordinal cursor.
+fn turns_page(value: &Value) -> Result<(), WireError> {
+    let map = object(value);
+    let has = |key: &str| map.is_some_and(|map| map.get(key).is_some());
+    if has("before") && has("after") {
+        return Err(rule("turns.page", "at most one of before and after"));
+    }
+    Ok(())
+}
+
+/// `items.window` request: exactly one target, and the two counts stay under 200 together.
+fn items_window_request(value: &Value) -> Result<(), WireError> {
+    let map = object(value);
+    let targets = ["aroundSeq", "turnOrdinal", "itemId"]
+        .iter()
+        .filter(|key| map.is_some_and(|map| map.get(**key).is_some()))
+        .count();
+    if targets != 1 {
+        return Err(rule("items.window", "exactly one target"));
+    }
+    let before = number(map, "before").unwrap_or(0.0);
+    let after = number(map, "after").unwrap_or(0.0);
+    if before + after >= 200.0 {
+        return Err(rule("items.window", "before + after is at most 200"));
+    }
+    Ok(())
+}
+
+/// `items.window` response: every window item carries its creation sequence.
+fn items_window_response(value: &Value) -> Result<(), WireError> {
+    rule_items(value, "items.window")
+}
+
+/// `thread.catchUp`: exactly one of `sinceSeq` and `sinceTime`.
+fn catch_up(value: &Value) -> Result<(), WireError> {
+    let map = object(value);
+    let has = |key: &str| map.is_some_and(|map| map.get(key).is_some());
+    if has("sinceSeq") == has("sinceTime") {
+        return Err(rule(
+            "thread.catchUp",
+            "exactly one of sinceSeq and sinceTime",
+        ));
+    }
+    Ok(())
+}
+
 /// `items.page`: every item carries its creation sequence.
 fn items_page(value: &Value) -> Result<(), WireError> {
+    rule_items(value, "items.page")
+}
+
+fn rule_items(value: &Value, type_: &str) -> Result<(), WireError> {
     let map = object(value);
     let Some(items) = map.and_then(|map| map.get("items")).and_then(array) else {
         return Ok(());
@@ -148,7 +232,7 @@ fn items_page(value: &Value) -> Result<(), WireError> {
         let id = text(object(item), "id");
         let found = id.is_some_and(|id| item_seqs.is_some_and(|seqs| seqs.get(id).is_some()));
         if !found {
-            return Err(rule("items.page", "itemSeqs holds every item's sequence"));
+            return Err(rule(type_, "itemSeqs holds every item's sequence"));
         }
     }
     Ok(())

@@ -5,282 +5,346 @@
 #![allow(unused_imports)]
 
 // Part server_message_65.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_1_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_53_RESULT_3_FIELDS: [Field; 5] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"search\""]),
     },
     Field {
-        key: "reason",
+        key: "query",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_20_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "code",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_53_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "result",
-        presence: Presence::Required,
-        shape: Shape::Tagged {
-            key: "kind",
-            options: &[
-                (
-                    "\"projects\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_53_RESULT_0_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"project\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_53_RESULT_1_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"inspection\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_53_RESULT_2_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"search\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_66::SERVER_MESSAGE_53_RESULT_3_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"completion\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_66::SERVER_MESSAGE_53_RESULT_4_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"cloneUrl\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_66::SERVER_MESSAGE_53_RESULT_5_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"home\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_66::SERVER_MESSAGE_53_RESULT_6_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"recentFolders\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_66::SERVER_MESSAGE_53_RESULT_7_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"directories\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_67::SERVER_MESSAGE_53_RESULT_8_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"cancelled\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_67::SERVER_MESSAGE_53_RESULT_9_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"error\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_67::SERVER_MESSAGE_53_RESULT_10_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-            ],
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_53_RESULT_0_FIELDS: [Field; 3] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "projects",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields:
-                &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_14_WORKSPACES_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "next",
+        key: "indexing",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_53_RESULT_1_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
-        key: "project",
+        key: "entries",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_14_WORKSPACES_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_53_RESULT_3_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
         },
     },
+    Field {
+        key: "truncated",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
 ];
 
-pub(crate) static SERVER_MESSAGE_53_RESULT_2_FIELDS: [Field; 7] = [
+pub(crate) static SERVER_MESSAGE_53_RESULT_3_ENTRIES_FIELDS: [Field; 7] = [
+    Field {
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "defaultIcon",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "git",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Object {
-            fields: &SERVER_MESSAGE_53_RESULT_2_GIT_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "gitUnavailable",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "isGitRepo",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
     Field {
-        key: "suggestedRepoRoot",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "isProject",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
     Field {
-        key: "marker",
+        key: "lastOpened",
         presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_53_RESULT_2_MARKER_FIELDS,
-            extra: Extra::Reject,
-        },
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
     },
+    Field {
+        key: "recentScore",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "score",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_53_RESULT_4_FIELDS: [Field; 5] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"completion\""]),
+    },
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "candidates",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_53_RESULT_4_CANDIDATES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
+        },
+    },
+    Field {
+        key: "commonPrefix",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "truncated",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_53_RESULT_2_GIT_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_53_RESULT_4_CANDIDATES_FIELDS: [Field; 8] = [
     Field {
-        key: "root",
+        key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "branch",
+        key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "defaultBranch",
+        key: "isGitRepo",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
-        key: "remotes",
+        key: "isProject",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_53_RESULT_2_GIT_REMOTES_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "lastOpened",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "recentScore",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "score",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "completion",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_53_RESULT_2_GIT_REMOTES_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_53_RESULT_5_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"cloneUrl\""]),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "fetchUrls",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "pushUrls",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_53_RESULT_2_MARKER_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_53_RESULT_6_FIELDS: [Field; 5] = [
     Field {
-        key: "version",
+        key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"home\""]),
     },
     Field {
-        key: "id",
+        key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "name",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "canonicalPath",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "roots",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(4096),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(32),
+        },
+    },
+    Field {
+        key: "initialBranch",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_53_RESULT_7_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"recentFolders\""]),
+    },
+    Field {
+        key: "folders",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields:
+                    &crate::shapes::server_message_61::SERVER_MESSAGE_52_RESULT_14_WORKSPACES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
+        },
     },
 ];

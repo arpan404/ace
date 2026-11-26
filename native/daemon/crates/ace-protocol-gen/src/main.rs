@@ -15,7 +15,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let text = std::fs::read_to_string(&schema_path)?;
     let document: serde_json::Value = serde_json::from_str(&text)?;
 
-    let mut space = typify::TypeSpace::new(&typify::TypeSpaceSettings::default());
+    // `ThreadStatus` is a union with a `.transform()` branch whose output JSON Schema is
+    // unconstrained, so typify would emit a flattened struct that cannot serialize back.
+    // Zod's output is `{ state: "unknown", raw }`; the hand-written type says so.
+    let mut settings = typify::TypeSpaceSettings::default();
+    settings.with_replacement(
+        "ThreadStatus",
+        "crate::thread_status::ThreadStatus",
+        std::iter::empty(),
+    );
+    let mut space = typify::TypeSpace::new(&settings);
     if let Some(defs) = document.get("$defs").and_then(serde_json::Value::as_object) {
         let mut types = Vec::with_capacity(defs.len());
         for (name, schema) in defs {

@@ -5,41 +5,69 @@
 #![allow(unused_imports)]
 
 // Part client_message_85.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_165_FIELDS: [Field; 6] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.files.choose\""]),
     },
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "chooserId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "files",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_165_FILES_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_165_FILES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(16),
+        },
     },
 ];
 
@@ -47,12 +75,24 @@ pub(crate) static CLIENT_MESSAGE_165_FILES_FIELDS: [Field; 2] = [
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(255),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -60,45 +100,85 @@ pub(crate) static CLIENT_MESSAGE_166_FIELDS: [Field; 8] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.files.drop\""]),
     },
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "x",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "y",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "modifiers",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(15.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "files",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_166_FILES_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_166_FILES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(16),
+        },
     },
 ];
 
@@ -106,12 +186,24 @@ pub(crate) static CLIENT_MESSAGE_166_FILES_FIELDS: [Field; 2] = [
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(255),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -119,37 +211,73 @@ pub(crate) static CLIENT_MESSAGE_167_FIELDS: [Field; 7] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.download.read\""]),
     },
     Field {
         key: "downloadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "length",
         presence: Presence::Default("1048576"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(1048576.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "validator",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -157,27 +285,45 @@ pub(crate) static CLIENT_MESSAGE_168_FIELDS: [Field; 5] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.tabs.mute\""]),
     },
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "muted",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -185,26 +331,44 @@ pub(crate) static CLIENT_MESSAGE_169_FIELDS: [Field; 5] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.tabs.private\""]),
     },
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "private",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];

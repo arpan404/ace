@@ -12,7 +12,9 @@
 //! `#[serde(flatten)]`. No generated type is decoded with
 //! `deny_unknown_fields` anywhere.
 
+pub mod custom;
 pub mod generated;
 pub mod shape;
 pub mod shapes;
+pub mod thread_status;
 pub mod wire;

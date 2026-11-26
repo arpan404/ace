@@ -5,23 +5,29 @@
 #![allow(unused_imports)]
 
 // Part user_browser_extension_message.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_0_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"user_browser.register\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["1"]),
     },
     Field {
         key: "browser",
@@ -37,22 +43,49 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_0_BROWSER_FIELDS: [Field; 4] = 
     Field {
         key: "family",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"chrome\"",
+            "\"edge\"",
+            "\"brave\"",
+            "\"chromium\"",
+            "\"arc\"",
+            "\"vivaldi\"",
+            "\"opera\"",
+            "\"other\"",
+        ]),
     },
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "profileId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "extensionVersion",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -60,22 +93,28 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_1_0_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"user_browser.reply\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "result",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
 ];
 
@@ -83,27 +122,39 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_1_1_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"user_browser.reply\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["false"]),
     },
     Field {
         key: "error",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_FIELDS: [Field; 2] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"user_browser.event\""]) },
     Field { key: "event", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"tabs\"", Shape::Object { fields: &USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_FIELDS, extra: Extra::Strip }), ("\"cdp\"", Shape::Object { fields: &USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_1_FIELDS, extra: Extra::Strip }), ("\"detached\"", Shape::Object { fields: &crate::shapes::user_browser_extension_message_2::USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_2_FIELDS, extra: Extra::Strip }), ("\"download\"", Shape::Object { fields: &crate::shapes::user_browser_extension_message_2::USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_3_FIELDS, extra: Extra::Strip })] } },
 ];
 
@@ -111,15 +162,19 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_FIELDS: [Field; 2] = 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"tabs\""]),
     },
     Field {
         key: "tabs",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_TABS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_TABS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(512),
+        },
     },
 ];
 
@@ -127,52 +182,82 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_TABS_FIELDS: [Field; 
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "windowId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "title",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "active",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "access",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"shared\"", "\"agent\""]),
     },
     Field {
         key: "attached",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "openerTabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "audible",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "muted",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -180,26 +265,44 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_1_FIELDS: [Field; 5] = 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cdp\""]),
     },
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "sessionId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "method",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "params",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
 ];

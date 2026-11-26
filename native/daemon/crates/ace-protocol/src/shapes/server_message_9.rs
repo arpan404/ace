@@ -5,201 +5,75 @@
 #![allow(unused_imports)]
 
 // Part server_message_9.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS: [Field; 9] = [
-    Field {
-        key: "sha256",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "bytes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "mimeType",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "kind",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "delivery",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "width",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "height",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "thumbnailAvailable",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_12_ITEMS_1_IMAGE_FIELDS: [Field; 3] = [
+    Field { key: "attachment", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip } },
+    Field { key: "alt", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(300), pattern: None, format: None, trim: false }) },
+    Field { key: "caption", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(500), pattern: None, format: None, trim: false }) },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "data",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_12_ITEMS_2_FIELDS: [Field; 19] = [
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "agentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "runId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "createdAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "nativeId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "executionSource", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_7::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS, extra: Extra::Strip } },
+    Field { key: "complete", presence: Presence::Default("true"), shape: Shape::Bool },
+    Field { key: "inherited", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_INHERITED_FIELDS, extra: Extra::Strip } },
+    Field { key: "rawOmitted", presence: Presence::Optional, shape: Shape::Enum(&["true"]) },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"message\""]) },
+    Field { key: "role", presence: Presence::Required, shape: Shape::Enum(&["\"user\"", "\"assistant\""]) },
+    Field { key: "parts", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "type", options: &[("\"mention\"", Shape::Object { fields: &crate::shapes::client_message_41::CLIENT_MESSAGE_85_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_3_FIELDS, extra: Extra::Strip })] }, min: None, max: None } },
+    Field { key: "attachments", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
+    Field { key: "synthetic", presence: Presence::Default("false"), shape: Shape::Bool },
+    Field { key: "origin", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_113::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_ORIGIN_FIELDS, extra: Extra::Strip } },
+    Field { key: "notAnswered", presence: Presence::Optional, shape: Shape::Enum(&["\"stopped\""]) },
+    Field { key: "mergedContext", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_2_MERGED_CONTEXT_FIELDS, extra: Extra::Strip } },
+    Field { key: "speaker", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_2_SPEAKER_FIELDS, extra: Extra::Strip } },
+    Field { key: "raw", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::OneOf(&[Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS, extra: Extra::Strip }, Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS, extra: Extra::Strip }]), min: None, max: None } },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS: [Field; 5] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "blobRef",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "size",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "preview",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_12_ITEMS_2_MERGED_CONTEXT_FIELDS: [Field; 4] = [
+    Field { key: "sourceThreadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "summary", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(262144), pattern: None, format: None, trim: false }) },
+    Field { key: "citations", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_CITATION_FIELDS, extra: Extra::Strip }, min: Some(1), max: Some(100) } },
+    Field { key: "patchApplied", presence: Presence::Required, shape: Shape::Bool },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_1_FIELDS: [Field; 12] = [
+pub(crate) static SERVER_MESSAGE_12_ITEMS_2_SPEAKER_FIELDS: [Field; 8] = [
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"bot\""]) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(128), pattern: None, format: None, trim: false }) },
+    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(120), pattern: None, format: None, trim: false }) },
+    Field { key: "avatar", presence: Presence::Optional, shape: Shape::Record(&Shape::OneOf(&[Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }), Shape::Num(&NumBounds { min: None, min_inclusive: false, max: None, max_inclusive: false, integral: false }), Shape::Bool, Shape::Null])) },
+    Field { key: "club", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_2_SPEAKER_CLUB_FIELDS, extra: Extra::Strip } },
+    Field { key: "machine", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_0_MACHINE_FIELDS, extra: Extra::Strip } },
+    Field { key: "about", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "ask", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(160), pattern: None, format: None, trim: false }) },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_2_SPEAKER_CLUB_FIELDS: [Field; 2] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "agentId",
+        key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "runId",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "createdAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "nativeId",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "executionSource",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "complete",
-        presence: Presence::Default("true"),
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "inherited",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_INHERITED_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "rawOmitted",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "image",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_12_ITEMS_1_IMAGE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "raw",
-        presence: Presence::Default("[]"),
-        shape: Shape::Array(&Shape::OneOf(&[
-            Shape::Object {
-                fields: &SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS,
-                extra: Extra::Strip,
-            },
-            Shape::Object {
-                fields: &SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS,
-                extra: Extra::Strip,
-            },
-        ])),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_1_IMAGE_FIELDS: [Field; 3] = [
-    Field {
-        key: "attachment",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "alt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "caption",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(120),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

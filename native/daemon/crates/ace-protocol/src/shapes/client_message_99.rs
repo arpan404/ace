@@ -5,23 +5,35 @@
 #![allow(unused_imports)]
 
 // Part client_message_99.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_8_FIELDS: [Field; 4] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"reply\""]),
     },
     Field {
         key: "commentId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(60000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "pendingReview",
@@ -37,12 +49,24 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_8_PENDING_REVIEW_
     Field {
         key: "reviewId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -50,27 +74,45 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_9_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"comment.edit\""]),
     },
     Field {
         key: "commentId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"issue\"", "\"inline\""]),
     },
     Field {
         key: "expectedBody",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(60000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -78,22 +120,34 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_10_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"comment.delete\""]),
     },
     Field {
         key: "commentId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"issue\"", "\"inline\""]),
     },
     Field {
         key: "expectedBody",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -101,22 +155,34 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_11_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"comment.hide\""]),
     },
     Field {
         key: "commentId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"issue\"", "\"inline\""]),
     },
     Field {
         key: "reason",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"off-topic\"",
+            "\"outdated\"",
+            "\"resolved\"",
+            "\"duplicate\"",
+            "\"spam\"",
+        ]),
     },
 ];
 
@@ -124,17 +190,23 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_12_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"comment.unhide\""]),
     },
     Field {
         key: "commentId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"issue\"", "\"inline\""]),
     },
 ];
 
@@ -142,12 +214,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_13_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"thread.resolve\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -155,12 +233,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_14_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"thread.unresolve\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -168,17 +252,29 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_15_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"file.view\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -186,16 +282,28 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_16_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"file.unview\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];

@@ -5,68 +5,160 @@
 #![allow(unused_imports)]
 
 // Part server_message_2.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static SERVER_MESSAGE_1_RESULT_1_PLAN_ITEMS_FIELDS: [Field; 12] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"threads\"",
+            "\"attachments\"",
+            "\"artifacts\"",
+            "\"logs\"",
+            "\"worktrees\"",
+            "\"caches\"",
+        ]),
     },
     Field {
         key: "label",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "bytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "modifiedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "threadIds",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(128),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: None,
+        },
     },
     Field {
         key: "disposition",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"remove\"", "\"protect\""]),
     },
     Field {
         key: "reasons",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Enum(&[
+                "\"retention_disabled\"",
+                "\"within_retention\"",
+                "\"archived_thread\"",
+                "\"not_archived\"",
+                "\"not_settled\"",
+                "\"not_merged\"",
+                "\"pinned\"",
+                "\"active_tree\"",
+                "\"pending_input\"",
+                "\"live_thread\"",
+                "\"referenced\"",
+                "\"leased\"",
+                "\"unowned\"",
+                "\"expired\"",
+                "\"task_finished\"",
+                "\"pr_merged\"",
+                "\"pr_closed\"",
+                "\"orphaned\"",
+                "\"missing_directory\"",
+                "\"main_worktree\"",
+                "\"locked_worktree\"",
+                "\"uncommitted\"",
+                "\"unpushed\"",
+                "\"unknown_git_state\"",
+                "\"unsafe_path\"",
+                "\"changed\"",
+                "\"already_removed\"",
+                "\"cleanup_in_progress\"",
+                "\"owner_unavailable\"",
+            ]),
+            min: Some(1),
+            max: Some(16),
+        },
     },
     Field {
         key: "forced",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "branch",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
         key: "removeBranch",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "effects",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Enum(&[
+                "\"transcript_payloads\"",
+                "\"attachment_references\"",
+                "\"browser_data\"",
+                "\"worktree\"",
+                "\"local_branch\"",
+                "\"file\"",
+            ]),
+            min: None,
+            max: Some(6),
+        },
     },
 ];
 
@@ -74,7 +166,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_2_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"apply\""]),
     },
     Field {
         key: "apply",
@@ -90,20 +182,30 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_2_APPLY_FIELDS: [Field; 3] = [
     Field {
         key: "planId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"complete\"", "\"pending\"", "\"stale\""]),
     },
     Field {
         key: "items",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_1_RESULT_2_APPLY_ITEMS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_1_RESULT_2_APPLY_ITEMS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(256),
+        },
     },
 ];
 
@@ -111,22 +213,64 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_2_APPLY_ITEMS_FIELDS: [Field; 4] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"removed\"", "\"pending\"", "\"protected\""]),
     },
     Field {
         key: "reason",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"retention_disabled\"",
+            "\"within_retention\"",
+            "\"archived_thread\"",
+            "\"not_archived\"",
+            "\"not_settled\"",
+            "\"not_merged\"",
+            "\"pinned\"",
+            "\"active_tree\"",
+            "\"pending_input\"",
+            "\"live_thread\"",
+            "\"referenced\"",
+            "\"leased\"",
+            "\"unowned\"",
+            "\"expired\"",
+            "\"task_finished\"",
+            "\"pr_merged\"",
+            "\"pr_closed\"",
+            "\"orphaned\"",
+            "\"missing_directory\"",
+            "\"main_worktree\"",
+            "\"locked_worktree\"",
+            "\"uncommitted\"",
+            "\"unpushed\"",
+            "\"unknown_git_state\"",
+            "\"unsafe_path\"",
+            "\"changed\"",
+            "\"already_removed\"",
+            "\"cleanup_in_progress\"",
+            "\"owner_unavailable\"",
+        ]),
     },
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -134,7 +278,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_3_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"compaction\""]),
     },
     Field {
         key: "compaction",
@@ -150,37 +294,61 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_3_COMPACTION_FIELDS: [Field; 7] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"complete\"", "\"pending\"", "\"abandoned\""]),
     },
     Field {
         key: "incrementalUnavailable",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "databaseBytesBefore",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "databaseBytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "reclaimableDatabaseBytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "checkpointed",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -188,16 +356,28 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_4_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"error\""]),
     },
     Field {
         key: "code",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"forbidden\"",
+            "\"busy\"",
+            "\"not_found\"",
+            "\"invalid_request\"",
+            "\"unavailable\"",
+        ]),
     },
     Field {
         key: "message",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

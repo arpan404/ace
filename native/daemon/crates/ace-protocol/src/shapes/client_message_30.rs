@@ -5,28 +5,46 @@
 #![allow(unused_imports)]
 
 // Part client_message_30.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_7_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"read\""]),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(40),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -34,27 +52,51 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_8_FIELDS: [Field; 5] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"look\""]),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(40),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "version",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: Some("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -62,37 +104,73 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_9_FIELDS: [Field; 7] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"prepare\""]),
     },
     Field {
         key: "source",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(40),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "version",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: Some("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "registry",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^org_[A-Za-z0-9]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "trustKey",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Za-z0-9_-]{43}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -100,12 +178,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_10_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"registryRefresh\""]),
     },
     Field {
         key: "registry",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^org_[A-Za-z0-9]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -113,12 +197,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_11_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"registryLeft\""]),
     },
     Field {
         key: "registry",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^org_[A-Za-z0-9]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -126,17 +216,29 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_12_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"readReview\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9-]{1,80}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -144,17 +246,29 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_13_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"install\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9-]{1,80}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "hash",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "choices",
@@ -170,22 +284,32 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_13_CHOICES_FIELDS: [Field; 4] = [
     Field {
         key: "bots",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(80),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
     },
     Field {
         key: "needs",
         presence: Presence::Default("{}"),
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Bool),
     },
     Field {
         key: "startRoutines",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "effects",
         presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Bool),
     },
 ];
 
@@ -193,11 +317,17 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_14_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cancel\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9-]{1,80}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];

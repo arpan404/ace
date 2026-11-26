@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_22.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_34_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"branches.list\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,12 +30,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_35_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.origin\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -37,17 +49,29 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_36_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspaces.match\""]),
     },
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "subpath",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -55,12 +79,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_37_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.checkout\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -68,32 +98,66 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_38_FIELDS: [Field; 6] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspaces.identitySuggestions\""]),
     },
     Field {
         key: "remotes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(4096),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
     },
     Field {
         key: "subpath",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "identityId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "after",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("32"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(64.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -101,12 +165,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_39_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"thread.details\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -114,12 +184,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_40_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pr.status\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -127,12 +203,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_41_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.status\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -140,42 +222,78 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_42_FIELDS: [Field; 8] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.diff\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "from",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "stage",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"staged\"", "\"unstaged\""]),
     },
     Field {
         key: "commit",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[0-9a-f]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(33554432.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "expected",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -183,16 +301,28 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_43_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"git.log\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

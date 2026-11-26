@@ -5,38 +5,94 @@
 #![allow(unused_imports)]
 
 // Part thread_details_3.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_DETAILS_WORKSPACE_FIELDS: [Field; 6] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "icon",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(4096),
+                pattern: Some(
+                    "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+                ),
+                format: None,
+                trim: false,
+            }),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(131072),
+                pattern: Some(
+                    "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+                ),
+                format: None,
+                trim: false,
+            }),
+        ])),
     },
     Field {
         key: "defaultIcon",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(4096),
+                pattern: Some(
+                    "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+                ),
+                format: None,
+                trim: false,
+            }),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(131072),
+                pattern: Some(
+                    "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+                ),
+                format: None,
+                trim: false,
+            }),
+        ])),
     },
     Field {
         key: "kind",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"chat\""]),
     },
 ];
 
@@ -44,22 +100,40 @@ pub(crate) static THREAD_DETAILS_BASE_FIELDS: [Field; 4] = [
     Field {
         key: "ref",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "remote",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: Some("^[\\w.-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "head",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "fetch",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"fetched\"", "\"unreachable\""]),
     },
 ];
 
@@ -67,22 +141,46 @@ pub(crate) static THREAD_DETAILS_CONTINUED_ON_FIELDS: [Field; 4] = [
     Field {
         key: "hostId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -90,12 +188,24 @@ pub(crate) static THREAD_DETAILS_MACHINE_FIELDS: [Field; 3] = [
     Field {
         key: "host",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "icon",
@@ -111,12 +221,27 @@ pub(crate) static THREAD_DETAILS_MACHINE_ICON_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"laptop\"",
+            "\"desktop\"",
+            "\"monitor\"",
+            "\"server\"",
+            "\"cloud\"",
+            "\"cpu\"",
+            "\"terminal\"",
+            "\"phone\"",
+        ]),
     },
     Field {
         key: "color",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"default\"",
+            "\"blue\"",
+            "\"green\"",
+            "\"purple\"",
+            "\"orange\"",
+        ]),
     },
 ];
 
@@ -124,12 +249,24 @@ pub(crate) static THREAD_DETAILS_GUEST_FIELDS: [Field; 2] = [
     Field {
         key: "host",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -137,16 +274,34 @@ pub(crate) static THREAD_DETAILS_DIFF_FIELDS: [Field; 3] = [
     Field {
         key: "files",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "additions",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "deletions",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];

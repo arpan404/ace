@@ -5,58 +5,96 @@
 #![allow(unused_imports)]
 
 // Part client_message_46.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_93_OPERATION_2_FIELDS: [Field; 10] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"search\""]),
     },
     Field {
         key: "pattern",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "regex",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "case",
         presence: Presence::Default("\"smart\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"sensitive\"", "\"insensitive\"", "\"smart\""]),
     },
     Field {
         key: "wholeWord",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "include",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(512),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
     },
     Field {
         key: "exclude",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(512),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
     },
     Field {
         key: "includeIgnored",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "maxMatches",
         presence: Presence::Default("2000"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(5000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "maxFileBytes",
         presence: Presence::Default("4194304"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(67108864.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -64,12 +102,18 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_3_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"stat\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -77,37 +121,71 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_4_FIELDS: [Field; 7] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"read\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "length",
         presence: Presence::Default("262144"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(262144.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "validator",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "maxSize",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "encodings",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Enum(&["\"gzip\""]),
+            min: None,
+            max: Some(4),
+        },
     },
 ];
 
@@ -115,22 +193,40 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_5_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"download\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "validator",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -138,27 +234,51 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_6_FIELDS: [Field; 5] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"link.download\""]),
     },
     Field {
         key: "itemId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "reference",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "validator",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -166,22 +286,40 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_7_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"artifact.download\""]),
     },
     Field {
         key: "artifactId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "validator",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -189,17 +327,23 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_8_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"archive.preview\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "includeIgnored",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -207,11 +351,17 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_9_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"archive.download\""]),
     },
     Field {
         key: "previewId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

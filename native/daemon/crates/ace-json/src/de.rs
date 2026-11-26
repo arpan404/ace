@@ -133,10 +133,126 @@ impl<'de> de::Deserializer<'de> for Deserializer<'de> {
         }
     }
 
+    /// A unit enum arrives as its renamed string (`"thread"`); serde's derived enums ask for
+    /// `deserialize_enum`, so the string becomes the variant identifier.
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value> {
+        match self.value {
+            Value::String(text) => visitor.visit_enum(UnitVariant {
+                name: text.as_str(),
+            }),
+            Value::Object(map) if map.len() == 1 => match map.iter().next() {
+                Some((name, value)) => visitor.visit_enum(MapVariant {
+                    name: name.as_str(),
+                    value,
+                }),
+                None => Err(de::Error::custom("an enum needs one key")),
+            },
+            _ => Err(de::Error::custom(
+                "an enum must be a string or one-key object",
+            )),
+        }
+    }
+
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf unit unit_struct seq tuple tuple_struct map struct
-        enum identifier ignored_any
+        identifier ignored_any
+    }
+}
+
+/// One unit variant named by a string, as serde's derived enum visitor reads it.
+struct UnitVariant<'a> {
+    name: &'a str,
+}
+
+impl<'de> de::EnumAccess<'de> for UnitVariant<'de> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self)> {
+        let value = seed.deserialize(de::value::StrDeserializer::<Error>::new(self.name))?;
+        Ok((value, self))
+    }
+}
+
+/// One externally tagged variant: its name and the value beside it.
+struct MapVariant<'a, 'de> {
+    name: &'a str,
+    value: &'de Value,
+}
+
+impl<'de> de::EnumAccess<'de> for MapVariant<'_, 'de> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self)> {
+        let value = seed.deserialize(de::value::StrDeserializer::<Error>::new(self.name))?;
+        Ok((value, self))
+    }
+}
+
+impl<'de> de::VariantAccess<'de> for MapVariant<'_, 'de> {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<()> {
+        match self.value {
+            Value::Null => Ok(()),
+            _ => Err(de::Error::custom("a unit variant carries no value")),
+        }
+    }
+
+    fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value> {
+        seed.deserialize(Deserializer::new(self.value))
+    }
+
+    fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value> {
+        <Deserializer as de::Deserializer>::deserialize_tuple(
+            Deserializer::new(self.value),
+            len,
+            visitor,
+        )
+    }
+
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value> {
+        <Deserializer as de::Deserializer>::deserialize_struct(
+            Deserializer::new(self.value),
+            "",
+            fields,
+            visitor,
+        )
+    }
+}
+
+impl<'de> de::VariantAccess<'de> for UnitVariant<'de> {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<()> {
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, _seed: T) -> Result<T::Value> {
+        Err(de::Error::custom("an enum value is a unit variant"))
+    }
+
+    fn tuple_variant<V: Visitor<'de>>(self, _len: usize, _visitor: V) -> Result<V::Value> {
+        Err(de::Error::custom("an enum value is a unit variant"))
+    }
+
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        _fields: &'static [&'static str],
+        _visitor: V,
+    ) -> Result<V::Value> {
+        Err(de::Error::custom("an enum value is a unit variant"))
     }
 }
 

@@ -5,23 +5,35 @@
 #![allow(unused_imports)]
 
 // Part client_message_48.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_93_OPERATION_19_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"delete\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
 ];
 
@@ -29,41 +41,59 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_20_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"restore\""]),
     },
     Field {
         key: "trashId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_93_OPERATION_21_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"artifacts.list\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_93_OPERATION_22_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"artifact.support\""]),
     },
     Field {
         key: "includeThreads",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -71,12 +101,18 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_23_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"artifact.output\""]),
     },
     Field {
         key: "streamId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -84,12 +120,18 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_24_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"artifact.raw\""]),
     },
     Field {
         key: "blobRef",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -97,17 +139,29 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_25_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"trash.list\""]),
     },
     Field {
         key: "after",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("32"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(64.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -115,17 +169,29 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_26_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"forge.media.download\""]),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -133,17 +199,29 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_27_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"attachment.download\""]),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "maxBytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(33554432.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -151,17 +229,33 @@ pub(crate) static CLIENT_MESSAGE_94_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"files.watch\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "folders",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(4096),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(512),
+        },
     },
 ];
 
@@ -169,16 +263,28 @@ pub(crate) static CLIENT_MESSAGE_95_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"files.credit\""]),
     },
     Field {
         key: "channel",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(4294967295.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "credits",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(8.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];

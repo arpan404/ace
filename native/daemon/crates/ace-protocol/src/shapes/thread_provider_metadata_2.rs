@@ -5,19 +5,30 @@
 #![allow(unused_imports)]
 
 // Part thread_provider_metadata_2.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GUARANTEES_FIELDS:
     [Field; 4] = [
     Field {
         key: "mode",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "level",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"tool-gate\"",
+            "\"sandbox\"",
+            "\"tool-selection\"",
+            "\"permission-requests\"",
+        ]),
     },
     Field {
         key: "gates",
@@ -31,27 +42,48 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GU
     Field {
         key: "limitations",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(2048),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(32),
+        },
     },
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GUARANTEES_GATES_FIELDS: [Field; 4] = [
-    Field { key: "writes", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "network", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "protectedReads", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "shell", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "writes", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "network", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "protectedReads", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "shell", presence: Presence::Required, shape: Shape::Bool },
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS: [Field; 2] = [
     Field {
         key: "mode",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"read-only\"",
+            "\"ask\"",
+            "\"auto-review\"",
+            "\"full-access\"",
+        ]),
     },
     Field {
         key: "native",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -60,27 +92,43 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ATTACHMENT_INP
     Field {
         key: "format",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"acp\""]),
     },
     Field {
         key: "documents",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(128),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(32),
+        },
     },
     Field {
         key: "embeddedContext",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "interleaved",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "maxInlineBytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(33554432.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -96,32 +144,32 @@ pub(crate) static THREAD_PROVIDER_METADATA_ACP_SUPPORT_FIELDS: [Field; 8] = [
     Field {
         key: "mcp",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"http\"", "\"stdio\"", "\"unavailable\""]),
     },
     Field {
         key: "modelSelection",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "modeSelection",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "subagentSessions",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "coverage",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"source_profile\"", "\"generic\"", "\"legacy\""]),
     },
     Field {
         key: "visibility",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"limited\""]),
     },
     Field {
         key: "raw",
@@ -137,17 +185,17 @@ pub(crate) static THREAD_PROVIDER_METADATA_ACP_SUPPORT_CAPABILITIES_FIELDS: [Fie
     Field {
         key: "resume",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "imageInput",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "planMode",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -155,11 +203,17 @@ pub(crate) static THREAD_PROVIDER_METADATA_ACP_SUPPORT_RAW_FIELDS: [Field; 2] = 
     Field {
         key: "json",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "truncated",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];

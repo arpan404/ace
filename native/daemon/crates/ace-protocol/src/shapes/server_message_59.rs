@@ -5,202 +5,257 @@
 #![allow(unused_imports)]
 
 // Part server_message_59.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_28_ITEMS_0_FIELDS: [Field; 7] = [
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "sha256",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "mimeType",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "bytes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "width",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "height",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_28_ITEMS_1_FIELDS: [Field; 1] = [Field {
-    key: "state",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_28_ITEMS_2_FIELDS: [Field; 2] = [
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_29_FIELDS: [Field; 2] = [
-    Field {
-        key: "resource",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "images",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_1_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "scripts",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_1_SCRIPTS_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_1_SCRIPTS_FIELDS: [Field; 4] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_52_RESULT_4_REFS_FIELDS: [Field; 5] = [
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "source",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "remote",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: Some("^[\\w.-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "command",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "upstream",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "ahead",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "behind",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_2_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_52_RESULT_5_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"origin\""]),
     },
     Field {
-        key: "editors",
+        key: "url",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_2_EDITORS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
-        key: "terminals",
+        key: "key",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_2_EDITORS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
-    },
-    Field {
-        key: "fileManager",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_2_EDITORS_FIELDS: [Field; 3] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "command",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_3_FIELDS: [Field; 1] = [Field {
-    key: "kind",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_4_FIELDS: [Field; 6] = [
+pub(crate) static SERVER_MESSAGE_52_RESULT_6_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"match\""]),
     },
     Field {
-        key: "branches",
+        key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
-        key: "truncated",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "refs",
+        key: "keyVersion",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_60::SERVER_MESSAGE_52_RESULT_4_REFS_FIELDS,
+        shape: Shape::Enum(&["2"]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_7_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"checkout\""]),
+    },
+    Field {
+        key: "checkout",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_52_RESULT_7_CHECKOUT_FIELDS,
             extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_7_CHECKOUT_FIELDS: [Field; 3] = [
+    Field {
+        key: "repository",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "remotes",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(4096),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
+    },
+    Field {
+        key: "subpath",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_8_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"identitySuggestions\""]),
+    },
+    Field {
+        key: "suggestions",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_52_RESULT_8_SUGGESTIONS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(64),
+        },
+    },
+    Field {
+        key: "next",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_8_SUGGESTIONS_FIELDS: [Field; 4] = [
+    Field {
+        key: "workspaceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "defaultBranch",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "shared",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(4096),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
     },
     Field {
-        key: "unbornHead",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "sameRemotes",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
+    Field {
+        key: "marker",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_9_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"details\""]),
+    },
+    Field {
+        key: "details",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &crate::shapes::thread_details::THREAD_DETAILS_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_10_FIELDS: [Field; 2] = [
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"pr\""]) },
+    Field { key: "status", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_53::SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_STATUS_FIELDS, extra: Extra::Strip }) },
 ];

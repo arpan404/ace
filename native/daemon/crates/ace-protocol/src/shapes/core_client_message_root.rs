@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part core_client_message_root.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub static CORE_CLIENT_MESSAGE: Shape = Shape::Tagged {
     key: "type",

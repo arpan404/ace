@@ -16,6 +16,11 @@ workspace = true
 # ace-json: the shape table's walk keeps values in JavaScript's key order, numbers and lone
 # surrogates, as Zod's parse does.
 ace-json = { path = "../ace-json" }
+# fancy-regex: the JavaScript patterns the schemas state (lookaheads included) are checked as
+# Zod checks them.
+fancy-regex = "0.16"
+# url: the WHATWG parser `z.url()` uses, so a string Zod refuses is refused here.
+url = "2"
 # serde: generated types serialize for tests and stored rows.
 serde = { version = "1", features = ["derive"] }
 # serde_json: generated types keep stored JSON as stored (RawValue), never re-encoded.

@@ -5,13 +5,29 @@
 #![allow(unused_imports)]
 
 // Part client_message_lazy.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub static CLIENT_MESSAGE_77_VALUE: Shape = Shape::OneOf(&[
-    Shape::Copy,
-    Shape::Copy,
-    Shape::Copy,
-    Shape::Copy,
-    Shape::Array(&Shape::Later(&CLIENT_MESSAGE_77_VALUE)),
+    Shape::Str(&StrBounds {
+        min: None,
+        max: None,
+        pattern: None,
+        format: None,
+        trim: false,
+    }),
+    Shape::Num(&NumBounds {
+        min: None,
+        min_inclusive: false,
+        max: None,
+        max_inclusive: false,
+        integral: false,
+    }),
+    Shape::Bool,
+    Shape::Null,
+    Shape::Array {
+        item: &Shape::Later(&CLIENT_MESSAGE_77_VALUE),
+        min: None,
+        max: None,
+    },
     Shape::Record(&Shape::Later(&CLIENT_MESSAGE_77_VALUE)),
 ]);

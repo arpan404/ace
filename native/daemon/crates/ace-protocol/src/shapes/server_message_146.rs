@@ -5,48 +5,89 @@
 #![allow(unused_imports)]
 
 // Part server_message_146.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_0_CHANGES_FIELDS: [Field; 25] = [
-    Field { key: "pinned", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "pinOrder", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "listOrder", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "unread", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "readAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settledAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settledReason", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settledOverQueue", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "snoozedUntil", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "snoozeWake", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Tagged { key: "on", options: &[("\"needs_you\"", Shape::Object { fields: &crate::shapes::thread_client_column::THREAD_CLIENT_COLUMN_SNOOZE_WAKE_0_FIELDS, extra: Extra::Strip }), ("\"pr\"", Shape::Object { fields: &crate::shapes::thread_client_column::THREAD_CLIENT_COLUMN_SNOOZE_WAKE_1_FIELDS, extra: Extra::Strip })] }) },
-    Field { key: "snoozeWoke", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Tagged { key: "on", options: &[("\"time\"", Shape::Object { fields: &crate::shapes::thread_client_column::THREAD_CLIENT_COLUMN_SNOOZE_WOKE_0_FIELDS, extra: Extra::Strip }), ("\"needs_you\"", Shape::Object { fields: &crate::shapes::thread_client_column::THREAD_CLIENT_COLUMN_SNOOZE_WOKE_1_FIELDS, extra: Extra::Strip }), ("\"pr\"", Shape::Object { fields: &crate::shapes::thread_client_column_2::THREAD_CLIENT_COLUMN_SNOOZE_WOKE_2_FIELDS, extra: Extra::Strip })] }) },
-    Field { key: "deletedAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "activityAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "autoSettleAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "autoSettle", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settleWhenDone", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "prSettled", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "prSettledKey", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "activitySeq", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "hasSentMessage", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "details", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details::THREAD_DETAILS_FIELDS, extra: Extra::Strip } },
-    Field { key: "live", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_2::THREAD_CLIENT_COLUMN_LIVE_FIELDS, extra: Extra::Strip } },
-    Field { key: "movedFrom", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::thread_client_column_2::THREAD_CLIENT_COLUMN_MOVED_FROM_FIELDS, extra: Extra::Strip }) },
-    Field { key: "host", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "hostKey", presence: Presence::Optional, shape: Shape::Copy },
+pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_FIELDS: [Field; 23] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"thread.updated\""]) },
+    Field { key: "workspaceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "backend", presence: Presence::Optional, shape: Shape::Enum(&["\"acp\"", "\"cursor-sdk\""]) },
+    Field { key: "capabilities", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip } },
+    Field { key: "permission", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_134::SERVER_MESSAGE_158_THREADS_VALUE_PERMISSION_FIELDS, extra: Extra::Strip } },
+    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "titleSource", presence: Presence::Optional, shape: Shape::Enum(&["\"provisional\"", "\"provider\"", "\"generated\"", "\"person\"", "\"agent\""]) },
+    Field { key: "provider", presence: Presence::Optional, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
+    Field { key: "lineage", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_LINEAGE_FIELDS, extra: Extra::Strip } },
+    Field { key: "delegatedBy", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "delegatedFrom", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_DELEGATED_FROM_FIELDS, extra: Extra::Strip } },
+    Field { key: "startedBy", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "startedByClient", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_STARTED_BY_CLIENT_FIELDS, extra: Extra::Strip } },
+    Field { key: "treeRootId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "queuedLaunch", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_QUEUED_LAUNCH_FIELDS, extra: Extra::Strip }) },
+    Field { key: "execution", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_94::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_11_SELECTION_FIELDS, extra: Extra::Strip } },
+    Field { key: "switch", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_SWITCH_FIELDS, extra: Extra::Strip } },
+    Field { key: "effectiveCapabilities", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip } },
+    Field { key: "acpSupport", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_ACP_SUPPORT_FIELDS, extra: Extra::Strip } },
+    Field { key: "acp", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_ACP_FIELDS, extra: Extra::Strip } },
+    Field { key: "status", presence: Presence::Optional, shape: Shape::Custom(&crate::custom::THREAD_STATUS) },
+    Field { key: "archivedAt", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true })) },
+    Field { key: "goal", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_134::SERVER_MESSAGE_158_THREADS_VALUE_GOAL_FIELDS, extra: Extra::Strip }) },
 ];
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_1_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_ACP_FIELDS: [Field; 3] = [
+    Field {
+        key: "acpAgentId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "installationId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "instanceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_3_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"agent.created\""]),
     },
     Field {
-        key: "thread",
+        key: "agent",
         presence: Presence::Required,
         shape: Shape::Object {
-            fields: &crate::shapes::server_message_144::SERVER_MESSAGE_165_VIEW_0_THREAD_FIELDS,
+            fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_FIELDS,
             extra: Extra::Strip,
         },
     },
+];
+
+pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_4_FIELDS: [Field; 4] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"agent.status\""]) },
+    Field { key: "agentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "status", presence: Presence::Required, shape: Shape::Tagged { key: "state", options: &[("\"starting\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_0_FIELDS, extra: Extra::Strip }), ("\"working\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_1_FIELDS, extra: Extra::Strip }), ("\"blocked\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_2_FIELDS, extra: Extra::Strip }), ("\"idle\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_3_FIELDS, extra: Extra::Strip }), ("\"interrupted\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_4_FIELDS, extra: Extra::Strip }), ("\"failed\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_5_FIELDS, extra: Extra::Strip }), ("\"unresponsive\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_6_FIELDS, extra: Extra::Strip })] } },
+    Field { key: "completionRelevant", presence: Presence::Optional, shape: Shape::Bool },
 ];

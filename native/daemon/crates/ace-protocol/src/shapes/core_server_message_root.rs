@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part core_server_message_root.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub static CORE_SERVER_MESSAGE: Shape = Shape::Tagged {
     key: "type",
@@ -13,168 +13,168 @@ pub static CORE_SERVER_MESSAGE: Shape = Shape::Tagged {
         (
             "\"starting\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_133::SERVER_MESSAGE_156_FIELDS,
+                fields: &crate::shapes::server_message_132::SERVER_MESSAGE_156_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"provider.capabilities\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_133::SERVER_MESSAGE_157_FIELDS,
+                fields: &crate::shapes::server_message_132::SERVER_MESSAGE_157_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"threads.patch\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_133::SERVER_MESSAGE_158_FIELDS,
+                fields: &crate::shapes::server_message_132::SERVER_MESSAGE_158_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"entities.page.part\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_137::SERVER_MESSAGE_159_FIELDS,
+                fields: &crate::shapes::server_message_136::SERVER_MESSAGE_159_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"subscription.ready\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_137::SERVER_MESSAGE_160_FIELDS,
+                fields: &crate::shapes::server_message_136::SERVER_MESSAGE_160_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"snapshot.part\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_137::SERVER_MESSAGE_161_FIELDS,
+                fields: &crate::shapes::server_message_136::SERVER_MESSAGE_161_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"entities.page\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_FIELDS,
+                fields: &crate::shapes::server_message_136::SERVER_MESSAGE_162_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"welcome\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_142::SERVER_MESSAGE_163_FIELDS,
+                fields: &crate::shapes::server_message_141::SERVER_MESSAGE_163_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"hello.confirmed\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_142::SERVER_MESSAGE_164_FIELDS,
+                fields: &crate::shapes::server_message_141::SERVER_MESSAGE_164_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"snapshot\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_143::SERVER_MESSAGE_165_FIELDS,
+                fields: &crate::shapes::server_message_142::SERVER_MESSAGE_165_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"events\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_145::SERVER_MESSAGE_166_FIELDS,
+                fields: &crate::shapes::server_message_144::SERVER_MESSAGE_166_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"progress\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_150::SERVER_MESSAGE_167_FIELDS,
+                fields: &crate::shapes::server_message_149::SERVER_MESSAGE_167_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"commandResult\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_150::SERVER_MESSAGE_168_FIELDS,
+                fields: &crate::shapes::server_message_149::SERVER_MESSAGE_168_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"error\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_169_FIELDS,
+                fields: &crate::shapes::server_message_151::SERVER_MESSAGE_169_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"output.data\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_170_FIELDS,
+                fields: &crate::shapes::server_message_151::SERVER_MESSAGE_170_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"interaction.data\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_171_FIELDS,
+                fields: &crate::shapes::server_message_151::SERVER_MESSAGE_171_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"items.page\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_172_FIELDS,
+                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_172_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"command.status\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_173_FIELDS,
+                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_173_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"pong\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_174_FIELDS,
+                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_174_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.owner.release.result\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_175_FIELDS,
+                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_175_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.owner.enroll.result\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_176_FIELDS,
+                fields: &crate::shapes::server_message_152::SERVER_MESSAGE_176_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.owner.enroll.confirm.result\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_154::SERVER_MESSAGE_177_FIELDS,
+                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_177_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.standing.result\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_154::SERVER_MESSAGE_178_FIELDS,
+                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_178_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.grant.refresh.result\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_154::SERVER_MESSAGE_179_FIELDS,
+                fields: &crate::shapes::server_message_153::SERVER_MESSAGE_179_FIELDS,
                 extra: Extra::Strip,
             },
         ),

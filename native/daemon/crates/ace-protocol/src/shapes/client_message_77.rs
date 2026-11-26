@@ -5,13 +5,19 @@
 #![allow(unused_imports)]
 
 // Part client_message_77.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_12_FIELDS: [Field; 6] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -24,22 +30,32 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_12_FIELDS: [Field; 6] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"screenshot\""]),
     },
     Field {
         key: "fullPage",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "ref",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "sizes",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Enum(&["\"phone\"", "\"tablet\"", "\"desktop\""]),
+            min: Some(1),
+            max: Some(3),
+        },
     },
 ];
 
@@ -47,7 +63,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_13_FIELDS: [Field; 5] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -60,17 +82,23 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_13_FIELDS: [Field; 5] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"evaluate\""]),
     },
     Field {
         key: "expression",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "mode",
         presence: Presence::Default("\"unrestricted\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"read-only\"", "\"unrestricted\""]),
     },
 ];
 
@@ -78,7 +106,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_14_FIELDS: [Field; 10] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -91,42 +125,72 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_14_FIELDS: [Field; 10] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"wait_for\""]),
     },
     Field {
         key: "ref",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"visible\"", "\"hidden\""]),
     },
     Field {
         key: "url",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "text",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "networkIdle",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "timeMs",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(60000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "timeout",
         presence: Presence::Default("10000"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(120000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -134,7 +198,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_15_FIELDS: [Field; 8] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -147,32 +217,56 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_15_FIELDS: [Field; 8] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"logs\""]),
     },
     Field {
         key: "kind",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"console\"", "\"network\""]),
     },
     Field {
         key: "level",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "url",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "status",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(599.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("100"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(200.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -180,7 +274,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_16_FIELDS: [Field; 7] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -193,26 +293,44 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_16_FIELDS: [Field; 7] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"resize\""]),
     },
     Field {
         key: "width",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "height",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "touch",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "devicePixelRatio",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(4.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
 ];

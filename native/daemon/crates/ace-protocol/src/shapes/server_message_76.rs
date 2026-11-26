@@ -5,213 +5,323 @@
 #![allow(unused_imports)]
 
 // Part server_message_76.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_LIGHT_SYNTAX_FIELDS: [Field; 7] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_FIELDS: [Field; 5] = [
     Field {
-        key: "kw",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "sources",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(200),
+                pattern: Some(
+                    "^assets\\/[A-Za-z0-9._/-]*\\.(?:[mM][pP]4|[mM]4[vV]|[mM][oO][vV]|[wW][eE][bB][mM])$",
+                ),
+                format: None,
+                trim: false,
+            }),
+            min: Some(1),
+            max: Some(3),
+        },
     },
     Field {
-        key: "fn",
+        key: "poster",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: Some("^assets\\/[A-Za-z0-9._/-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "str",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "fit",
+        presence: Presence::Default("\"cover\""),
+        shape: Shape::Enum(&["\"cover\"", "\"contain\""]),
     },
     Field {
-        key: "num",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "audio",
+        presence: Presence::Default("{\"muted\":false,\"volume\":0.6}"),
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_AUDIO_FIELDS,
+            extra: Extra::Strip,
+        },
     },
     Field {
-        key: "type",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "com",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "punc",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "palette",
+        presence: Presence::Default("{\"accent\":true,\"tint\":0.12}"),
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_PALETTE_FIELDS,
+            extra: Extra::Strip,
+        },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_LIGHT_GLASS_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_AUDIO_FIELDS: [Field; 2] = [
     Field {
-        key: "blur",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "muted",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
     },
     Field {
-        key: "saturate",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_FIELDS: [Field; 3] = [
-    Field {
-        key: "ui",
-        presence: Presence::Optional,
-        shape: Shape::OneOf(&[
-            Shape::Object {
-                fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_0_FIELDS,
-                extra: Extra::Strip,
-            },
-            Shape::Object {
-                fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_1_FIELDS,
-                extra: Extra::Strip,
-            },
-        ]),
-    },
-    Field {
-        key: "prose",
-        presence: Presence::Optional,
-        shape: Shape::OneOf(&[
-            Shape::Object {
-                fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_0_FIELDS,
-                extra: Extra::Strip,
-            },
-            Shape::Object {
-                fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_1_FIELDS,
-                extra: Extra::Strip,
-            },
-        ]),
-    },
-    Field {
-        key: "mono",
-        presence: Presence::Optional,
-        shape: Shape::OneOf(&[
-            Shape::Object {
-                fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_0_FIELDS,
-                extra: Extra::Strip,
-            },
-            Shape::Object {
-                fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_1_FIELDS,
-                extra: Extra::Strip,
-            },
-        ]),
+        key: "volume",
+        presence: Presence::Default("0.6"),
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_0_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_PALETTE_FIELDS: [Field; 2] = [
     Field {
-        key: "asset",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "accent",
+        presence: Presence::Default("true"),
+        shape: Shape::Bool,
     },
     Field {
-        key: "family",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_1_FIELDS: [Field; 1] =
-    [Field {
-        key: "system",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    }];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_SHAPE_FIELDS: [Field; 3] = [
-    Field {
-        key: "radius",
-        presence: Presence::Default("1"),
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "border",
-        presence: Presence::Default("1"),
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "density",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "tint",
+        presence: Presence::Default("0.12"),
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(0.25),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_MOTION_FIELDS: [Field; 1] = [Field {
-    key: "speed",
-    presence: Presence::Default("1"),
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_THUMBNAIL_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_FIELDS: [Field; 9] = [
     Field {
         key: "light",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_LIGHT_FIELDS,
+            extra: Extra::Strip,
+        },
     },
     Field {
         key: "dark",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_LIGHT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "fontFamily",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "fontSize",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(9.0),
+            min_inclusive: true,
+            max: Some(24.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "lineHeight",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(2.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "letterSpacing",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-1.0),
+            min_inclusive: true,
+            max: Some(4.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "cursorStyle",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"block\"", "\"bar\"", "\"underline\""]),
+    },
+    Field {
+        key: "cursorBlink",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "reveal",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_LAYOUT_FIELDS: [Field; 8] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_LIGHT_FIELDS: [Field; 6] = [
     Field {
-        key: "sidebar",
-        presence: Presence::Default("\"left\""),
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "rail",
-        presence: Presence::Default("\"shown\""),
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "sidebarWidth",
+        key: "background",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "transcriptWidth",
+        key: "foreground",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "composer",
-        presence: Presence::Default("\"docked\""),
-        shape: Shape::Copy,
+        key: "cursor",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "header",
-        presence: Presence::Default("\"bar\""),
-        shape: Shape::Copy,
+        key: "cursorAccent",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "messages",
-        presence: Presence::Default("\"bubbles\""),
-        shape: Shape::Copy,
+        key: "selection",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "toolRows",
-        presence: Presence::Default("\"compact\""),
-        shape: Shape::Copy,
+        key: "ansi",
+        presence: Presence::Optional,
+        shape: Shape::Record(&Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
+            format: None,
+            trim: false,
+        })),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_ORNAMENTS_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_REGIONS_VALUE_FIELDS: [Field; 4] = [
     Field {
-        key: "slot",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "background",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2000),
+            pattern: Some("^[^{};]*$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "asset",
+        key: "border",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2000),
+            pattern: Some("^[^{};]*$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "shadow",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2000),
+            pattern: Some("^[^{};]*$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "backdropFilter",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2000),
+            pattern: Some("^[^{};]*$"),
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_2_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"validate\""]),
+    },
+    Field {
+        key: "summary",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_73::SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_3_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"remove\""]),
+    },
+    Field {
+        key: "removed",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
 ];

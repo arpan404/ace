@@ -5,194 +5,384 @@
 #![allow(unused_imports)]
 
 // Part server_message_25.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_26_RESULT_5_FIELDS: [Field; 1] = [Field {
-    key: "kind",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_26_RESULT_6_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS: [Field; 4] = [
     Field {
-        key: "kind",
+        key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "devices",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_23::SERVER_MESSAGE_23_RESULT_0_DEVICE_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "selfId",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_26_RESULT_7_FIELDS: [Field; 3] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "master",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "devices",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_26_RESULT_7_DEVICES_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_26_RESULT_7_DEVICES_FIELDS: [Field; 3] = [
-    Field {
-        key: "deviceId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "grants",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_26_RESULT_7_DEVICES_GRANTS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "chosen",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_26_RESULT_7_DEVICES_GRANTS_FIELDS: [Field; 5] = [
-    Field {
-        key: "agents",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "browser",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "devices",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "screen",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "commands",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_26_RESULT_8_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_26_RESULT_8_STATUS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_FIELDS: [Field; 8] = [
-    Field {
-        key: "enabled",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "transport",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "listenOverride",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "relayOverride",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&["\"off\"", "\"on\"", "\"waiting\"", "\"failed\""]),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
     },
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "relay",
+        key: "warning",
         presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_26_RESULT_8_STATUS_RELAY_FIELDS,
-            extra: Extra::Strip,
-        },
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "account",
+        key: "address",
         presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_22::SERVER_MESSAGE_22_RESULT_0_STATUS_FIELDS,
-            extra: Extra::Strip,
-        },
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_26_RESULT_9_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"scoped\""]),
     },
     Field {
-        key: "networks",
-        presence: Presence::Optional,
+        key: "device",
+        presence: Presence::Required,
         shape: Shape::Object {
-            fields: &SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_FIELDS,
+            fields: &crate::shapes::server_message_22::SERVER_MESSAGE_23_RESULT_0_DEVICE_FIELDS,
             extra: Extra::Strip,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_RELAY_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_26_RESULT_10_FIELDS: [Field; 2] = [
     Field {
-        key: "url",
+        key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"revoked\""]),
     },
     Field {
-        key: "fingerprint",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hostId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "count",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_FIELDS: [Field; 4] = [
-    Field { key: "lan", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_26::SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS, extra: Extra::Strip } },
-    Field { key: "tailscale", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_26::SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS, extra: Extra::Strip } },
-    Field { key: "relay", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_26::SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS, extra: Extra::Strip } },
-    Field { key: "account", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_26::SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS, extra: Extra::Strip } },
+pub(crate) static SERVER_MESSAGE_27_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"outside.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "result",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "kind",
+            options: &[
+                (
+                    "\"grants\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_27_RESULT_0_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"revoked\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_27_RESULT_1_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"updated\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_27_RESULT_2_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"watching\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_26::SERVER_MESSAGE_27_RESULT_3_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"screenStopped\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_26::SERVER_MESSAGE_27_RESULT_4_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"decided\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_26::SERVER_MESSAGE_27_RESULT_5_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"endpoints\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_26::SERVER_MESSAGE_27_RESULT_6_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+            ],
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_27_RESULT_0_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"grants\""]),
+    },
+    Field {
+        key: "grants",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(20000),
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9_-]{1,128}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "clientKind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"cli\"", "\"cimd\"", "\"dcr\"", "\"spade\""]),
+    },
+    Field {
+        key: "clientId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "domain",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(253),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "scopes",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Enum(&[
+                "\"threads:read\"",
+                "\"threads:start\"",
+                "\"threads:message\"",
+                "\"threads:stop\"",
+                "\"browser\"",
+                "\"computer\"",
+                "\"spade-contracts\"",
+            ]),
+            min: Some(1),
+            max: Some(7),
+        },
+    },
+    Field {
+        key: "projects",
+        presence: Presence::Required,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&["\"all\""]),
+            Shape::Array {
+                item: &Shape::Str(&StrBounds {
+                    min: Some(1),
+                    max: None,
+                    pattern: None,
+                    format: None,
+                    trim: false,
+                }),
+                min: Some(1),
+                max: Some(256),
+            },
+        ]),
+    },
+    Field {
+        key: "createdAt",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "expiresAt",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        })),
+    },
+    Field {
+        key: "lastUsedAt",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        })),
+    },
+    Field {
+        key: "revokedAt",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        })),
+    },
+    Field {
+        key: "approvedBy",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "started",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: None,
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(256),
+        },
+    },
+    Field {
+        key: "messaged",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: None,
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(256),
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_27_RESULT_1_FIELDS: [Field; 1] = [Field {
+    key: "kind",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"revoked\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_27_RESULT_2_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"updated\""]),
+    },
+    Field {
+        key: "grant",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_26::SERVER_MESSAGE_27_RESULT_2_GRANT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
 ];

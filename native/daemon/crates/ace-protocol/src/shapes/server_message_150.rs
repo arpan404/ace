@@ -5,112 +5,312 @@
 #![allow(unused_imports)]
 
 // Part server_message_150.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_21_FIELDS: [Field; 6] = [
+pub(crate) static SERVER_MESSAGE_168_INBOX_ACTION_FIELDS: [Field; 4] = [
     Field {
-        key: "type",
+        key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "agentId",
+        key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"succeeded\"", "\"failed\"", "\"uncertain\""]),
     },
     Field {
-        key: "usedTokens",
+        key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"read\"", "\"done\"", "\"unsubscribe\"", "\"read-all\""]),
     },
     Field {
-        key: "windowTokens",
+        key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "sessionId",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "model",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_23_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_168_INSPECTION_FIELDS: [Field; 6] = [
     Field {
-        key: "type",
+        key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "workspaceId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "defaultIcon",
+        presence: Presence::Optional,
+        shape: Shape::Nullable(&Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(4096),
+                pattern: Some(
+                    "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+                ),
+                format: None,
+                trim: false,
+            }),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(131072),
+                pattern: Some(
+                    "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+                ),
+                format: None,
+                trim: false,
+            }),
+        ])),
     },
     Field {
-        key: "change",
+        key: "git",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_107::SERVER_MESSAGE_92_CHANGE_FIELDS,
+        shape: Shape::Nullable(&Shape::Object {
+            fields: &crate::shapes::server_message_64::SERVER_MESSAGE_53_RESULT_2_GIT_FIELDS,
             extra: Extra::Strip,
+        }),
+    },
+    Field {
+        key: "gitUnavailable",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"git_quarantined\""]),
+    },
+    Field {
+        key: "suggestedRepoRoot",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "marker",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_64::SERVER_MESSAGE_53_RESULT_2_MARKER_FIELDS,
+            extra: Extra::Reject,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_167_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_168_ALIVE_FIELDS: [Field; 3] = [
     Field {
-        key: "type",
+        key: "agentsRunning",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
-        key: "subscriptionId",
+        key: "terminalsOpen",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
-        key: "afterSeq",
+        key: "operationsRunning",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "throughSeq",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_168_FIELDS: [Field; 28] = [
-    Field { key: "issue", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_ISSUES_FIELDS, extra: Extra::Strip } },
-    Field { key: "issueAction", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_45::SERVER_MESSAGE_52_RESULT_0_DATA_4_ACTIONS_FIELDS, extra: Extra::Strip } },
-    Field { key: "inboxAction", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_151::SERVER_MESSAGE_168_INBOX_ACTION_FIELDS, extra: Extra::Strip } },
-    Field { key: "publication", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_68::SERVER_MESSAGE_55_RESULT_1_PUBLICATION_FIELDS, extra: Extra::Strip } },
-    Field { key: "workspace", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_14_WORKSPACES_FIELDS, extra: Extra::Strip } },
-    Field { key: "inspection", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_151::SERVER_MESSAGE_168_INSPECTION_FIELDS, extra: Extra::Strip } },
-    Field { key: "threadId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "commandId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "ok", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "forkThreadId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "health", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_97::SERVER_MESSAGE_69_HEALTH_FIELDS, extra: Extra::Strip } },
-    Field { key: "error", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "alive", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_151::SERVER_MESSAGE_168_ALIVE_FIELDS, extra: Extra::Strip } },
-    Field { key: "code", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "title", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "detail", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "review", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_151::SERVER_MESSAGE_168_REVIEW_FIELDS, extra: Extra::Strip } },
-    Field { key: "pr", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details::THREAD_DETAILS_PULL_REQUEST_WORKSPACE_REF_FIELDS, extra: Extra::Strip } },
-    Field { key: "prStatus", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_54::SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_STATUS_FIELDS, extra: Extra::Strip } },
-    Field { key: "forgeLifecycle", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_152::SERVER_MESSAGE_168_FORGE_LIFECYCLE_FIELDS, extra: Extra::Strip } },
-    Field { key: "stackOperation", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_49::SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS, extra: Extra::Strip } },
-    Field { key: "editor", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_152::SERVER_MESSAGE_168_EDITOR_FIELDS, extra: Extra::Strip } },
-    Field { key: "terminalId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "locksCleared", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "commit", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "remoteHead", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "prExisting", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
+pub(crate) static SERVER_MESSAGE_168_REVIEW_FIELDS: [Field; 8] = [
+    Field {
+        key: "session",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_168_REVIEW_SESSION_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "comment",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_168_REVIEW_COMMENT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "reply",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_151::SERVER_MESSAGE_168_REVIEW_REPLY_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "sessions",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_168_REVIEW_SESSION_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(20),
+        },
+    },
+    Field {
+        key: "comments",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_168_REVIEW_COMMENT_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(20),
+        },
+    },
+    Field {
+        key: "replies",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &crate::shapes::server_message_151::SERVER_MESSAGE_168_REVIEW_REPLY_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(20),
+        },
+    },
+    Field {
+        key: "nextCursor",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "intentId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_168_REVIEW_SESSION_FIELDS: [Field; 4] = [
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(128), pattern: None, format: None, trim: false }) },
+    Field { key: "source", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_78_SOURCE_FIELDS, extra: Extra::Strip } },
+    Field { key: "status", presence: Presence::Required, shape: Shape::Enum(&["\"open\"", "\"changes-requested\"", "\"approved\""]) },
+    Field { key: "createdAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+];
+
+pub(crate) static SERVER_MESSAGE_168_REVIEW_COMMENT_FIELDS: [Field; 7] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "sessionId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "anchor",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_168_REVIEW_COMMENT_ANCHOR_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "originalAnchor",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_168_REVIEW_COMMENT_ANCHOR_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "text",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "suggestion",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "resolved",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_168_REVIEW_COMMENT_ANCHOR_FIELDS: [Field; 4] = [
+    Field { key: "position", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_79_POSITION_FIELDS, extra: Extra::Strip } },
+    Field { key: "revision", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"working-tree\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_78_SOURCE_FROM_0_FIELDS, extra: Extra::Strip }), ("\"commit\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_78_SOURCE_FROM_1_FIELDS, extra: Extra::Strip }), ("\"checkpoint\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_78_SOURCE_FROM_2_FIELDS, extra: Extra::Strip })] } },
+    Field { key: "fingerprint", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_79_EXPECTED_FINGERPRINT_FIELDS, extra: Extra::Strip } },
+    Field { key: "state", presence: Presence::Required, shape: Shape::Enum(&["\"active\"", "\"outdated\"", "\"addressed-pending-review\""]) },
 ];

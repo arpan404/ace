@@ -5,13 +5,13 @@
 #![allow(unused_imports)]
 
 // Part client_message_98.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_1_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"draft.save\""]),
     },
     Field {
         key: "draft",
@@ -27,12 +27,24 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_1_DRAFT_FIELDS: [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(60000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "anchor",
@@ -56,32 +68,56 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_1_DRAFT_ANCHOR_FI
     Field {
         key: "commit",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "line",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "side",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"LEFT\"", "\"RIGHT\""]),
     },
     Field {
         key: "startLine",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "startSide",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"LEFT\"", "\"RIGHT\""]),
     },
 ];
 
@@ -89,12 +125,28 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_1_DRAFT_OUTDATED_
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "code",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(2000),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(12),
+        },
     },
 ];
 
@@ -102,12 +154,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_2_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"draft.delete\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -115,12 +173,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_3_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"drafts.move\""]),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -128,17 +192,29 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_4_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"draft.file\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -146,27 +222,49 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_5_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"submit\""]),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "event",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"COMMENT\"", "\"APPROVE\"", "\"REQUEST_CHANGES\""]),
     },
     Field {
         key: "body",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(60000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "draftIds",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(100),
+        },
     },
 ];
 
@@ -174,12 +272,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_6_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"conversation\""]),
     },
     Field {
         key: "body",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(60000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -187,12 +291,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_7_FIELDS: [Field;
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"line.comment\""]),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "anchor",
@@ -205,6 +315,12 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_7_FIELDS: [Field;
     Field {
         key: "body",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(60000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

@@ -5,23 +5,29 @@
 #![allow(unused_imports)]
 
 // Part server_message_4.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static SERVER_MESSAGE_6_FIELDS: [Field; 5] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"machineUpdate.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "update",
@@ -34,7 +40,23 @@ pub(crate) static SERVER_MESSAGE_6_FIELDS: [Field; 5] = [
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&[
+                "\"forbidden\"",
+                "\"blocked\"",
+                "\"stale\"",
+                "\"confirm\"",
+                "\"unavailable\"",
+                "\"invalid\"",
+            ]),
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
     },
 ];
 
@@ -42,47 +64,119 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "platform",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(32),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "arch",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(32),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "install",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&["\"desktop\"", "\"standalone\"", "\"source\""]),
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
     },
     Field {
         key: "line",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"stable\"", "\"beta\""]),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&[
+                "\"none\"",
+                "\"checking\"",
+                "\"available\"",
+                "\"waiting\"",
+                "\"downloading\"",
+                "\"ready\"",
+                "\"installing\"",
+                "\"updated\"",
+                "\"failed\"",
+            ]),
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
     },
     Field {
         key: "available",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
         key: "releaseUrl",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(400),
+            pattern: None,
+            format: Some("url"),
+            trim: false,
+        })),
     },
     Field {
         key: "blocked",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::OneOf(&[
+            Shape::Enum(&[
+                "\"release-page\"",
+                "\"app-closed\"",
+                "\"source\"",
+                "\"unknown\"",
+            ]),
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ])),
     },
     Field {
         key: "ask",
@@ -95,17 +189,35 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
     Field {
         key: "busy",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "percent",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100.0),
+            max_inclusive: true,
+            integral: false,
+        })),
     },
     Field {
         key: "error",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2000),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
         key: "last",
@@ -118,7 +230,13 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
     Field {
         key: "checkedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        })),
     },
 ];
 
@@ -126,22 +244,49 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_ASK_FIELDS: [Field; 4] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "mode",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&["\"idle\"", "\"now\""]),
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
     },
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "requestedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -149,27 +294,51 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_LAST_FIELDS: [Field; 5] = [
     Field {
         key: "from",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "to",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "error",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2000),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -177,7 +346,7 @@ pub(crate) static SERVER_MESSAGE_7_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"machineUpdate.changed\""]),
     },
     Field {
         key: "update",
@@ -193,12 +362,18 @@ pub(crate) static SERVER_MESSAGE_8_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"user_browser.settings.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "result",
@@ -229,7 +404,7 @@ pub(crate) static SERVER_MESSAGE_8_RESULT_0_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"status\""]),
     },
     Field {
         key: "status",

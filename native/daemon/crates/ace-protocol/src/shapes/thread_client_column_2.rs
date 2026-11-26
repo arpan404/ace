@@ -5,28 +5,49 @@
 #![allow(unused_imports)]
 
 // Part thread_client_column_2.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WOKE_2_FIELDS: [Field; 4] = [
     Field {
         key: "on",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pr\""]),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "number",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "change",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"merged\"",
+            "\"closed\"",
+            "\"reopened\"",
+            "\"checks_passed\"",
+            "\"checks_failed\"",
+            "\"pushed\"",
+            "\"updated\"",
+            "\"unlinked\"",
+        ]),
     },
 ];
 
@@ -34,12 +55,24 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_FIELDS: [Field; 19] = [
     Field {
         key: "rootRunId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
         key: "workingSince",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "turnStart",
@@ -52,86 +85,177 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_FIELDS: [Field; 19] = [
     Field {
         key: "waitingSince",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "compactingSince",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "model",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "account",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "options",
         presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(1024),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            Shape::Num(&NumBounds {
+                min: None,
+                min_inclusive: false,
+                max: None,
+                max_inclusive: false,
+                integral: false,
+            }),
+            Shape::Bool,
+            Shape::Null,
+        ])),
     },
     Field {
         key: "subagentCount",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "runningSubagentCount",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "backgroundTaskCount",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "watching",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &THREAD_CLIENT_COLUMN_LIVE_WATCHING_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &THREAD_CLIENT_COLUMN_LIVE_WATCHING_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(8),
+        },
     },
     Field {
         key: "watchingCount",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "asking",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &THREAD_CLIENT_COLUMN_LIVE_ASKING_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &THREAD_CLIENT_COLUMN_LIVE_ASKING_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(8),
+        },
     },
     Field {
         key: "askingThreads",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &THREAD_CLIENT_COLUMN_LIVE_ASKING_THREADS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &THREAD_CLIENT_COLUMN_LIVE_ASKING_THREADS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(8),
+        },
     },
     Field {
         key: "waitingOn",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "step",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"tests\""]),
     },
     Field {
         key: "contextMeter",
@@ -147,12 +271,24 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_TURN_START_FIELDS: [Field; 2] = [
     Field {
         key: "turn",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -160,12 +296,24 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_WATCHING_FIELDS: [Field; 2] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "title",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -173,12 +321,24 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_ASKING_FIELDS: [Field; 2] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -186,12 +346,24 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_ASKING_THREADS_FIELDS: [Field; 2] = 
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -199,17 +371,35 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_CONTEXT_METER_FIELDS: [Field; 3] = [
     Field {
         key: "used",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        })),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -217,7 +407,13 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_FIELDS: [Field; 2] = [
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "links",

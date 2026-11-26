@@ -5,106 +5,360 @@
 #![allow(unused_imports)]
 
 // Part server_message_31.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_FIELDS: [Field; 32] = [
-    Field { key: "provider", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "readiness", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "installHint", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "installCommand", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "latestVersion", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "versionCheckedAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "updateAvailable", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "runtime", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "installed", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "enabled", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "path", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "version", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "versionCheck", presence: Presence::Optional, shape: Shape::Tagged { key: "status", options: &[("\"ok\"", Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_0_FIELDS, extra: Extra::Strip }), ("\"too_old\"", Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_1_FIELDS, extra: Extra::Strip }), ("\"unreadable\"", Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_2_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "auth", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "authMethod", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "apiKey", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_API_KEY_FIELDS, extra: Extra::Strip } },
-    Field { key: "accountLabel", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "authDetail", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "authEvidence", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "modelsAvailable", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "loginHint", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "actionId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "state", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "error", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "checkedAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "nativeTools", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::server_message_32::SERVER_MESSAGE_34_RESULT_0_PROVIDERS_NATIVE_TOOLS_FIELDS, extra: Extra::Strip }) },
-    Field { key: "toolSource", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_32::SERVER_MESSAGE_34_RESULT_0_PROVIDERS_TOOL_SOURCE_FIELDS, extra: Extra::Strip } },
-    Field { key: "stale", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "refreshing", presence: Presence::Required, shape: Shape::Copy },
-];
-
-pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_0_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_NATIVE_TOOLS_FIELDS: [Field; 4] = [
     Field {
-        key: "status",
+        key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "installed",
+        key: "label",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "required",
+        key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_1_FIELDS: [Field; 3] = [
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "installed",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "required",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_2_FIELDS: [Field; 2] = [
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "required",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_API_KEY_FIELDS: [Field; 3] = [
-    Field {
-        key: "supported",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Catch {
+            inner: &Shape::Enum(&["\"ready\"", "\"unavailable\"", "\"unknown\""]),
+            fallback: "\"unknown\"",
+        },
     },
     Field {
         key: "reason",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_TOOL_SOURCE_FIELDS: [Field; 3] = [
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "upstreams",
+        key: "usable",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "reason",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_34_RESULT_1_FIELDS: [Field; 2] = [
+    Field {
+        key: "ok",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["false"]),
+    },
+    Field {
+        key: "error",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"forbidden\"", "\"unavailable\"", "\"busy\""]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_35_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"provider.login.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "result",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "ok",
+            options: &[
+                (
+                    "true",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_35_RESULT_0_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "false",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_32::SERVER_MESSAGE_35_RESULT_1_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+            ],
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_35_RESULT_0_FIELDS: [Field; 2] = [
+    Field {
+        key: "ok",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "progress",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_35_RESULT_0_PROGRESS_FIELDS,
+            extra: Extra::Reject,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_35_RESULT_0_PROGRESS_FIELDS: [Field; 17] = [
+    Field {
+        key: "session",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "provider",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
+    },
+    Field {
+        key: "instance",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "action",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"login\"", "\"logout\""]),
+    },
+    Field {
+        key: "method",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"login\"", "\"api_key\""]),
+    },
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"starting\"",
+            "\"awaiting_browser\"",
+            "\"awaiting_code_entry\"",
+            "\"awaiting_input\"",
+            "\"awaiting_api_key\"",
+            "\"verifying\"",
+            "\"succeeded\"",
+            "\"failed\"",
+            "\"cancelled\"",
+        ]),
+    },
+    Field {
+        key: "expiresAt",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "sequence",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Optional,
+        shape: Shape::All(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(8192),
+                pattern: None,
+                format: Some("url"),
+                trim: false,
+            }),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: None,
+                pattern: Some("^(?!.*\\s)https:\\/\\/\\S+$"),
+                format: None,
+                trim: false,
+            }),
+        ]),
+    },
+    Field {
+        key: "userCode",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Z0-9]{4,5}-[A-Z0-9]{4,5}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "prompt",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "choices",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_35_RESULT_0_PROGRESS_CHOICES_FIELDS,
+                extra: Extra::Reject,
+            },
+            min: None,
+            max: Some(512),
+        },
+    },
+    Field {
+        key: "message",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "codeEntry",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "returnUrlEntry",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "hint",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "manual",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_32::SERVER_MESSAGE_35_RESULT_0_PROGRESS_MANUAL_FIELDS,
+            extra: Extra::Reject,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_35_RESULT_0_PROGRESS_CHOICES_FIELDS: [Field; 3] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-z0-9][a-z0-9._-]{0,63}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "label",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "note",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"sign_in_again\""]),
     },
 ];

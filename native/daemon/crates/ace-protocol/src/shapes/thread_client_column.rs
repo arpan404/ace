@@ -5,54 +5,58 @@
 #![allow(unused_imports)]
 
 // Part thread_client_column.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_CLIENT_COLUMN_FIELDS: [Field; 24] = [
-    Field { key: "pinned", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "pinOrder", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "listOrder", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "unread", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "readAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settledAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settledReason", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settledOverQueue", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "snoozedUntil", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "pinned", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "pinOrder", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: None, min_inclusive: false, max: None, max_inclusive: false, integral: false }) },
+    Field { key: "listOrder", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: None, min_inclusive: false, max: None, max_inclusive: false, integral: false }) },
+    Field { key: "unread", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "readAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "settledAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "settledReason", presence: Presence::Optional, shape: Shape::Enum(&["\"manual\"", "\"inactivity\"", "\"pr_merged\"", "\"pr_closed\""]) },
+    Field { key: "settledOverQueue", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "snoozedUntil", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
     Field { key: "snoozeWake", presence: Presence::Optional, shape: Shape::Tagged { key: "on", options: &[("\"needs_you\"", Shape::Object { fields: &THREAD_CLIENT_COLUMN_SNOOZE_WAKE_0_FIELDS, extra: Extra::Strip }), ("\"pr\"", Shape::Object { fields: &THREAD_CLIENT_COLUMN_SNOOZE_WAKE_1_FIELDS, extra: Extra::Strip })] } },
     Field { key: "snoozeWoke", presence: Presence::Optional, shape: Shape::Tagged { key: "on", options: &[("\"time\"", Shape::Object { fields: &THREAD_CLIENT_COLUMN_SNOOZE_WOKE_0_FIELDS, extra: Extra::Strip }), ("\"needs_you\"", Shape::Object { fields: &THREAD_CLIENT_COLUMN_SNOOZE_WOKE_1_FIELDS, extra: Extra::Strip }), ("\"pr\"", Shape::Object { fields: &crate::shapes::thread_client_column_2::THREAD_CLIENT_COLUMN_SNOOZE_WOKE_2_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "deletedAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "activityAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "autoSettleAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "autoSettle", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settleWhenDone", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "prSettled", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "prSettledKey", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "activitySeq", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "hasSentMessage", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "deletedAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "activityAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "autoSettleAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "autoSettle", presence: Presence::Optional, shape: Shape::Enum(&["false"]) },
+    Field { key: "settleWhenDone", presence: Presence::Optional, shape: Shape::Enum(&["true"]) },
+    Field { key: "prSettled", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "prSettledKey", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(131072), pattern: None, format: None, trim: false }) },
+    Field { key: "activitySeq", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "hasSentMessage", presence: Presence::Optional, shape: Shape::Bool },
     Field { key: "live", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_2::THREAD_CLIENT_COLUMN_LIVE_FIELDS, extra: Extra::Strip } },
     Field { key: "movedFrom", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_2::THREAD_CLIENT_COLUMN_MOVED_FROM_FIELDS, extra: Extra::Strip } },
-    Field { key: "host", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "hostKey", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "host", presence: Presence::Optional, shape: Shape::Enum(&["\"spade\"", "\"spade-bot\""]) },
+    Field { key: "hostKey", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(128), pattern: None, format: None, trim: false }) },
 ];
 
 pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WAKE_0_FIELDS: [Field; 1] = [Field {
     key: "on",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"needs_you\""]),
 }];
 
 pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WAKE_1_FIELDS: [Field; 2] = [
     Field {
         key: "on",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pr\""]),
     },
     Field {
         key: "prs",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &THREAD_CLIENT_COLUMN_SNOOZE_WAKE_1_PRS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &THREAD_CLIENT_COLUMN_SNOOZE_WAKE_1_PRS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(100),
+        },
     },
 ];
 
@@ -60,27 +64,45 @@ pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WAKE_1_PRS_FIELDS: [Field; 5] = [
     Field {
         key: "pr",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"open\"", "\"draft\"", "\"merged\"", "\"closed\""]),
     },
     Field {
         key: "updatedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "head",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "checks",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pending\"", "\"passed\"", "\"failed\""]),
     },
 ];
 
@@ -88,12 +110,18 @@ pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WOKE_0_FIELDS: [Field; 2] = [
     Field {
         key: "on",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"time\""]),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -101,17 +129,23 @@ pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WOKE_1_FIELDS: [Field; 3] = [
     Field {
         key: "on",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"needs_you\""]),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "outcome",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"finished\"", "\"failed\"", "\"asking\"", "\"limited\""]),
     },
 ];
 

@@ -5,132 +5,238 @@
 #![allow(unused_imports)]
 
 // Part server_message_139.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_1_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_MCP_SERVER_FIELDS: [Field; 2] = [
     Field {
-        key: "collection",
+        key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "entries",
+        key: "source",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_13_RUNS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_FIELDS: [Field; 2] = [
-    Field {
-        key: "collection",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "entries",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_FIELDS: [Field; 3] = [
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"question\""]) },
+    Field { key: "questions", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_FIELDS, extra: Extra::Strip }, min: None, max: None } },
+    Field { key: "target", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_138::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_TARGET_FIELDS, extra: Extra::Strip } },
 ];
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_FIELDS: [Field; 15] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "threadId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "agentId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "toolCallId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "blocking", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "request", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"approval\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_FIELDS, extra: Extra::Strip }), ("\"question\"", Shape::Object { fields: &crate::shapes::server_message_140::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_FIELDS, extra: Extra::Strip }), ("\"plan_review\"", Shape::Object { fields: &crate::shapes::server_message_140::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_2_FIELDS, extra: Extra::Strip }), ("\"elicitation\"", Shape::Object { fields: &crate::shapes::server_message_140::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_3_FIELDS, extra: Extra::Strip }), ("\"browser_help\"", Shape::Object { fields: &crate::shapes::server_message_140::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_4_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "state", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "expirationReason", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "resolution", presence: Presence::Optional, shape: Shape::Tagged { key: "kind", options: &[("\"approval\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_0_FIELDS, extra: Extra::Strip }), ("\"question\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_1_FIELDS, extra: Extra::Strip }), ("\"plan_review\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_2_FIELDS, extra: Extra::Strip }), ("\"elicitation\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_3_FIELDS, extra: Extra::Strip }), ("\"browser_help\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_4_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "resolvedBy", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "autoReviewed", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "createdAt", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "closedAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "raw", presence: Presence::Default("[]"), shape: Shape::Array(&Shape::OneOf(&[Shape::Object { fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS, extra: Extra::Strip }, Shape::Object { fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS, extra: Extra::Strip }])) },
-    Field { key: "truncated", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_141::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_TRUNCATED_FIELDS, extra: Extra::Strip } },
-];
-
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_FIELDS: [Field; 9] = [
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "target", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_TARGET_FIELDS, extra: Extra::Strip } },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "description", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "options", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_OPTIONS_FIELDS, extra: Extra::Strip }) },
-    Field { key: "defaultToNo", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "suppressAlwaysAllowRule", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "mcpServer", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_140::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_MCP_SERVER_FIELDS, extra: Extra::Keep } },
-    Field { key: "permissionUpdates", presence: Presence::Optional, shape: Shape::Copy },
-];
-
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_TARGET_FIELDS: [Field; 9] = [
-    Field {
-        key: "tool",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "origin",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "description",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "riskClass",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "command",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "cwd",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "paths",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "access",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "input",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_OPTIONS_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_FIELDS: [Field; 7] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "header",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "text",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "options",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_OPTIONS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
+    },
+    Field {
+        key: "multiSelect",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "allowOther",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "secret",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_OPTIONS_FIELDS: [Field;
+    3] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "label",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
+    Field {
+        key: "description",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_2_FIELDS: [Field; 6] = [
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"plan_review\""]) },
+    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "summary", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "markdown", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "planPath", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "todos", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_13::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS, extra: Extra::Strip }, min: None, max: None } },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_3_FIELDS: [Field; 9] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"elicitation\""]),
     },
+    Field {
+        key: "server",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "message",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "schema",
+        presence: Presence::Optional,
+        shape: Shape::Any,
+    },
+    Field {
+        key: "mode",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"form\"", "\"url\""]),
+    },
+    Field {
+        key: "nativeId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "title",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "description",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_4_FIELDS: [Field; 7] = [
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"browser_help\""]) },
+    Field { key: "target", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_138::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_TARGET_FIELDS, extra: Extra::Strip } },
+    Field { key: "tabId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "reason", presence: Presence::Required, shape: Shape::Enum(&["\"login\"", "\"captcha\"", "\"two_factor\"", "\"dialog\"", "\"other\""]) },
+    Field { key: "message", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1000), pattern: None, format: None, trim: false }) },
+    Field { key: "url", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(8192), pattern: None, format: None, trim: false }) },
+    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
 ];

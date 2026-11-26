@@ -5,227 +5,355 @@
 #![allow(unused_imports)]
 
 // Part server_message_104.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_FIELDS: [Field; 10] = [
+pub(crate) static SERVER_MESSAGE_82_RESULT_ROWS_TOTALS_FIELDS: [Field; 19] = [
     Field {
-        key: "auth",
+        key: "inputTokens",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "cursorSdkAuth",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_CURSOR_SDK_AUTH_FIELDS,
-            extra: Extra::Reject,
-        },
-    },
-    Field {
-        key: "observedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "billingMode",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "plan",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "resetCredits",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_RESET_CREDITS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "usageNotice",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_USAGE_NOTICE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "windows",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_WINDOWS_VALUE_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
         }),
     },
     Field {
-        key: "blockers",
-        presence: Presence::Default("{}"),
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_BLOCKERS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "usage",
+        key: "outputTokens",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_USAGE_FIELDS,
-            extra: Extra::Strip,
-        },
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_CURSOR_SDK_AUTH_FIELDS: [Field; 4] = [
     Field {
-        key: "status",
+        key: "cachedInputTokens",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
-        key: "source",
+        key: "reasoningTokens",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
-        key: "email",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "expiresAt",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_RESET_CREDITS_FIELDS: [Field; 2] = [
-    Field {
-        key: "available",
+        key: "cacheWriteTokens",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
-        key: "nextExpiresAt",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_USAGE_NOTICE_FIELDS: [Field; 3] = [
-    Field {
-        key: "reason",
+        key: "cacheWrite1hTokens",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
-        key: "message",
+        key: "providerReportedUsd",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
     },
     Field {
-        key: "observedAt",
+        key: "estimatedUsd",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_WINDOWS_VALUE_FIELDS: [Field; 8] = [
     Field {
-        key: "usedPercent",
+        key: "equivalentApiUsd",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        })),
     },
-    Field {
-        key: "resetsAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "remainingPercent",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "windowDurationMins",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "source",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "limitName",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "observedAt",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "advisory",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_BLOCKERS_FIELDS: [Field; 3] = [
     Field {
         key: "overflow",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
     },
     Field {
-        key: "limitError",
+        key: "unpricedTokens",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "subscriptionTokens",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "unknownBillingTokens",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "apiInputUsd",
         presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "apiCacheReadUsd",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "apiCacheWriteUsd",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "apiOutputUsd",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "apiReasoningUsd",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "cacheSavingsUsd",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_82_RESULT_BURN_FIELDS: [Field; 8] = [
+    Field {
+        key: "windowId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "unit",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"tokens\"", "\"usd\""]),
+    },
+    Field {
+        key: "observed",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "overflow",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "complete",
+        presence: Presence::Default("true"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "perHour",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "remaining",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        })),
+    },
+    Field {
+        key: "exhaustionAt",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        })),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_82_RESULT_FILLING_FIELDS: [Field; 2] = [
+    Field {
+        key: "through",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "head",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_83_FIELDS: [Field; 2] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"usage.limits_changed\""]),
+    },
+    Field {
+        key: "account",
+        presence: Presence::Required,
         shape: Shape::Object {
-            fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_WINDOWS_VALUE_FIELDS,
+            fields: &crate::shapes::server_message_102::SERVER_MESSAGE_82_RESULT_ACCOUNTS_FIELDS,
             extra: Extra::Strip,
         },
     },
-    Field {
-        key: "homeUnavailable",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
 ];
 
-pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_USAGE_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_84_FIELDS: [Field; 3] = [
     Field {
-        key: "inputTokens",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "outputTokens",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "costUsd",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_ROWS_FIELDS: [Field; 2] = [
-    Field {
-        key: "dimensions",
+        key: "type",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Enum(&["\"usage.session_totals.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "totals",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_105::SERVER_MESSAGE_82_RESULT_ROWS_TOTALS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &crate::shapes::server_message_105::SERVER_MESSAGE_84_TOTALS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
         },
     },
 ];

@@ -5,23 +5,29 @@
 #![allow(unused_imports)]
 
 // Part client_message_51.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_10_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"commands\""]),
     },
     Field {
         key: "tool",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^command_[a-z_]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "args",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Any),
     },
 ];
 
@@ -29,12 +35,22 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_11_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"command.jobs\""]),
     },
     Field {
         key: "jobIds",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: None,
+                pattern: Some("^job-[a-z0-9-]{1,64}$"),
+                format: None,
+                trim: false,
+            }),
+            min: Some(1),
+            max: Some(16),
+        },
     },
 ];
 
@@ -42,17 +58,17 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_12_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"spade\""]),
     },
     Field {
         key: "request",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Any),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_FIELDS: [Field; 2] = [
-    Field { key: "op", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"parcel\""]) },
     Field { key: "parcel", presence: Presence::Required, shape: Shape::Tagged { key: "action", options: &[("\"offer\"", Shape::Object { fields: &CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_0_FIELDS, extra: Extra::Reject }), ("\"chunk\"", Shape::Object { fields: &CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_1_FIELDS, extra: Extra::Reject }), ("\"commit\"", Shape::Object { fields: &CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_2_FIELDS, extra: Extra::Reject }), ("\"cancel\"", Shape::Object { fields: &CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_3_FIELDS, extra: Extra::Reject }), ("\"outbox\"", Shape::Object { fields: &CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_4_FIELDS, extra: Extra::Reject }), ("\"read\"", Shape::Object { fields: &CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_5_FIELDS, extra: Extra::Reject }), ("\"ack\"", Shape::Object { fields: &crate::shapes::client_message_52::CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_6_FIELDS, extra: Extra::Reject })] } },
 ];
 
@@ -60,12 +76,18 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_0_FIELDS: [Field; 3] 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"offer\""]),
     },
     Field {
         key: "to",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "parcel",
@@ -81,32 +103,68 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_0_PARCEL_FIELDS: [Fie
     Field {
         key: "parcelId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^pcl-[a-f0-9-]{36}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "size",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1073741824.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "note",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "fromTitle",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -114,22 +172,40 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_1_FIELDS: [Field; 4] 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"chunk\""]),
     },
     Field {
         key: "parcelId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^pcl-[a-f0-9-]{36}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1073741824.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "data",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(262144),
+            pattern: Some("^[A-Za-z0-9+/]*={0,2}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -137,12 +213,18 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_2_FIELDS: [Field; 2] 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"commit\""]),
     },
     Field {
         key: "parcelId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^pcl-[a-f0-9-]{36}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -150,40 +232,64 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_3_FIELDS: [Field; 2] 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cancel\""]),
     },
     Field {
         key: "parcelId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^pcl-[a-f0-9-]{36}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_4_FIELDS: [Field; 1] = [Field {
     key: "action",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"outbox\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_13_PARCEL_5_FIELDS: [Field; 4] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"read\""]),
     },
     Field {
         key: "parcelId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^pcl-[a-f0-9-]{36}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "offset",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1073741824.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "length",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(196608.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
 ];

@@ -5,28 +5,40 @@
 #![allow(unused_imports)]
 
 // Part browser_backend_client_message.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static BROWSER_BACKEND_CLIENT_MESSAGE_0_FIELDS: [Field; 5] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.backend.register\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "credential",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["1"]),
     },
     Field {
         key: "capabilities",
@@ -42,51 +54,51 @@ pub(crate) static BROWSER_BACKEND_CLIENT_MESSAGE_0_CAPABILITIES_FIELDS: [Field; 
     Field {
         key: "cdp",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "targets",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "permissions",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "downloads",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "humanInput",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "video",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
 ];
 
 pub(crate) static BROWSER_BACKEND_CLIENT_MESSAGE_1_FIELDS: [Field; 1] = [Field {
     key: "type",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"browser.backend.resumed\""]),
 }];
 
 pub(crate) static BROWSER_BACKEND_CLIENT_MESSAGE_2_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.backend.drawable\""]),
     },
     Field {
         key: "drawable",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -94,32 +106,56 @@ pub(crate) static BROWSER_BACKEND_CLIENT_MESSAGE_3_FIELDS: [Field; 6] = [
     Field {
         key: "backendId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.backend.response\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "result",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -127,26 +163,44 @@ pub(crate) static BROWSER_BACKEND_CLIENT_MESSAGE_4_FIELDS: [Field; 5] = [
     Field {
         key: "backendId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.backend.event\""]),
     },
     Field {
         key: "method",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "params",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
 ];

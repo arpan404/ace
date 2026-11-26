@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_14.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_55_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"activity.reads\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,33 +30,53 @@ pub(crate) static CLIENT_MESSAGE_56_FIELDS: [Field; 5] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"activity.markRead\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "read",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_56_READ_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_56_READ_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(500),
+        },
     },
     Field {
         key: "unread",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_56_READ_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_56_READ_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(500),
+        },
     },
     Field {
         key: "allBefore",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(8640000000000000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -58,12 +84,24 @@ pub(crate) static CLIENT_MESSAGE_56_READ_FIELDS: [Field; 2] = [
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "at",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(8640000000000000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -71,12 +109,18 @@ pub(crate) static CLIENT_MESSAGE_57_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"verify.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "op",
@@ -121,12 +165,18 @@ pub(crate) static CLIENT_MESSAGE_57_OP_0_FIELDS: [Field; 2] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"list\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -134,12 +184,18 @@ pub(crate) static CLIENT_MESSAGE_57_OP_1_FIELDS: [Field; 2] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"log\""]),
     },
     Field {
         key: "runId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -147,12 +203,18 @@ pub(crate) static CLIENT_MESSAGE_57_OP_2_FIELDS: [Field; 3] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"start\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "target",
@@ -183,7 +245,7 @@ pub(crate) static CLIENT_MESSAGE_57_OP_2_TARGET_0_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"check\""]),
     },
     Field {
         key: "pr",
@@ -208,12 +270,24 @@ pub(crate) static CLIENT_MESSAGE_57_OP_2_TARGET_0_PR_FIELDS: [Field; 3] = [
     Field {
         key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "title",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -221,20 +295,24 @@ pub(crate) static CLIENT_MESSAGE_57_OP_2_TARGET_1_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"merge\""]),
     },
     Field {
         key: "prs",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_57_OP_2_TARGET_0_PR_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_57_OP_2_TARGET_0_PR_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(10),
+        },
     },
     Field {
         key: "method",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"merge\"", "\"squash\"", "\"rebase\""]),
     },
 ];
 
@@ -242,11 +320,17 @@ pub(crate) static CLIENT_MESSAGE_57_OP_3_FIELDS: [Field; 2] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cancel\""]),
     },
     Field {
         key: "runId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

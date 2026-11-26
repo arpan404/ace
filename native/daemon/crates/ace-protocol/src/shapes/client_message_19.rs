@@ -5,69 +5,122 @@
 #![allow(unused_imports)]
 
 // Part client_message_19.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_15_QUERY_FIELDS: [Field; 11] = [
     Field {
         key: "state",
         presence: Presence::Default("\"open\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"open\"",
+            "\"draft\"",
+            "\"closed\"",
+            "\"merged\"",
+            "\"active\"",
+            "\"all\"",
+        ]),
     },
     Field {
         key: "ci",
         presence: Presence::Default("\"any\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"any\"", "\"failure\"", "\"success\"", "\"pending\""]),
     },
     Field {
         key: "search",
         presence: Presence::Default("\"\""),
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "author",
         presence: Presence::Default("\"\""),
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(100),
+            pattern: Some("^(@me|[\\w.-]*)$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "reviewer",
         presence: Presence::Default("\"\""),
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(100),
+            pattern: Some("^(@me|[\\w.-]*)$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "assignee",
         presence: Presence::Default("\"\""),
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(100),
+            pattern: Some("^(@me|[\\w.-]*)$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "labels",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(100),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(20),
+        },
     },
     Field {
         key: "review",
         presence: Presence::Default("\"any\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"any\"",
+            "\"approved\"",
+            "\"changes_requested\"",
+            "\"required\"",
+            "\"none\"",
+        ]),
     },
     Field {
         key: "sort",
         presence: Presence::Default("\"updated\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"created\"", "\"updated\"", "\"comments\""]),
     },
     Field {
         key: "order",
         presence: Presence::Default("\"desc\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"asc\"", "\"desc\""]),
     },
     Field {
         key: "page",
         presence: Presence::Default("1"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(40.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_16_FIELDS: [Field; 3] = [
-    Field { key: "op", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.open-work\""]) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
 ];
 
@@ -75,12 +128,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_17_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"forge.repository\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -88,18 +147,24 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_18_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"forge.repositories\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_FIELDS: [Field; 4] = [
-    Field { key: "op", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.group-counts\""]) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
     Field { key: "grouping", presence: Presence::Required, shape: Shape::Tagged { key: "by", options: &[("\"readiness\"", Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_19_GROUPING_0_FIELDS, extra: Extra::Strip }), ("\"pr-people\"", Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_19_GROUPING_1_FIELDS, extra: Extra::Strip }), ("\"issue-people\"", Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_19_GROUPING_2_FIELDS, extra: Extra::Strip })] } },
 ];
@@ -108,7 +173,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_GROUPING_0_FIELDS: [Field; 2] =
     Field {
         key: "by",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"readiness\""]),
     },
     Field {
         key: "query",
@@ -124,7 +189,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_GROUPING_1_FIELDS: [Field; 2] =
     Field {
         key: "by",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pr-people\""]),
     },
     Field {
         key: "query",
@@ -140,7 +205,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_GROUPING_2_FIELDS: [Field; 2] =
     Field {
         key: "by",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"issue-people\""]),
     },
     Field {
         key: "query",
@@ -153,8 +218,8 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_GROUPING_2_FIELDS: [Field; 2] =
 ];
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_20_FIELDS: [Field; 4] = [
-    Field { key: "op", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.pr.detail\""]) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
-    Field { key: "number", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "number", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
 ];

@@ -5,13 +5,19 @@
 #![allow(unused_imports)]
 
 // Part client_message_81.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_FIELDS: [Field; 5] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -24,12 +30,12 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_FIELDS: [Field; 5] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"annotate\""]),
     },
     Field {
         key: "operation",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"command\""]),
     },
     Field {
         key: "command",
@@ -95,17 +101,23 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_0_FIELDS: [Field; 5] =
     Field {
         key: "theme",
         presence: Presence::Default("\"dark\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"light\"", "\"dark\""]),
     },
     Field {
         key: "nextNumber",
         presence: Presence::Default("1"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(99.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "markersHidden",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "bar",
@@ -119,7 +131,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_0_FIELDS: [Field; 5] =
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"configure\""]),
     },
 ];
 
@@ -127,12 +139,18 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_1_FIELDS: [Field; 2] =
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"edit\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -140,34 +158,44 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_2_FIELDS: [Field; 2] =
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"remove\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_3_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"clear\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_4_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"renumber\""]),
     },
     Field {
         key: "numbers",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_4_NUMBERS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_4_NUMBERS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(20),
+        },
     },
 ];
 
@@ -175,12 +203,24 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_4_NUMBERS_FIELDS: [Fie
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "number",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(99.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -188,16 +228,22 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_5_FIELDS: [Field; 2] =
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"toast\""]),
     },
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_FIELDS: [Field; 2] = [
-    Field { key: "op", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "annotations", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::client_message_82::CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_FIELDS, extra: Extra::Keep }) },
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"restore\""]) },
+    Field { key: "annotations", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_82::CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_FIELDS, extra: Extra::Keep }, min: None, max: Some(20) } },
 ];

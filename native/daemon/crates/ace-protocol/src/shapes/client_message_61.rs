@@ -5,23 +5,36 @@
 #![allow(unused_imports)]
 
 // Part client_message_61.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_129_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.accounts.list\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"antigravity\"",
+        ]),
     },
 ];
 
@@ -29,37 +42,67 @@ pub(crate) static CLIENT_MESSAGE_130_FIELDS: [Field; 8] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.accounts.add\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"antigravity\"",
+        ]),
     },
     Field {
         key: "label",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: Some("\\S"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "shortLabel",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "method",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"login\"", "\"api_key\""]),
     },
     Field {
         key: "upstream",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"openai\"",
+            "\"anthropic\"",
+            "\"openrouter\"",
+            "\"opencode\"",
+        ]),
     },
     Field {
         key: "signIn",
@@ -100,47 +143,96 @@ pub(crate) static CLIENT_MESSAGE_131_FIELDS: [Field; 9] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.accounts.rename\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"antigravity\"",
+        ]),
     },
     Field {
         key: "instanceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "label",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: Some("\\S"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "shortLabel",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "badgeUsesInitial",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "badgeColor",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Enum(&[
+            "\"neutral\"",
+            "\"blue\"",
+            "\"green\"",
+            "\"amber\"",
+            "\"rose\"",
+            "\"violet\"",
+        ])),
     },
     Field {
         key: "badgeIcon",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Enum(&[
+            "\"briefcase\"",
+            "\"house\"",
+            "\"flask\"",
+            "\"rocket\"",
+            "\"moon\"",
+            "\"wrench\"",
+            "\"code\"",
+            "\"star\"",
+            "\"heart\"",
+            "\"lightning\"",
+        ])),
     },
 ];
 
@@ -148,22 +240,41 @@ pub(crate) static CLIENT_MESSAGE_132_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.accounts.setDefault\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"antigravity\"",
+        ]),
     },
     Field {
         key: "instanceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -171,32 +282,51 @@ pub(crate) static CLIENT_MESSAGE_133_FIELDS: [Field; 6] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.accounts.remove\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"antigravity\"",
+        ]),
     },
     Field {
         key: "instanceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "confirm",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "deleteHome",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -204,32 +334,56 @@ pub(crate) static CLIENT_MESSAGE_134_FIELDS: [Field; 7] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.accounts.reauth\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"antigravity\"",
+        ]),
     },
     Field {
         key: "instanceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "method",
         presence: Presence::Default("\"login\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"login\"", "\"api_key\""]),
     },
     Field {
         key: "upstream",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"openai\"",
+            "\"anthropic\"",
+            "\"openrouter\"",
+            "\"opencode\"",
+        ]),
     },
     Field {
         key: "signIn",

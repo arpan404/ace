@@ -5,34 +5,46 @@
 #![allow(unused_imports)]
 
 // Part client_message_32.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_FIELDS: [Field; 2] = [
-    Field { key: "op", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"publish\""]) },
     Field { key: "request", presence: Presence::Required, shape: Shape::Tagged { key: "action", options: &[("\"me\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_0_FIELDS, extra: Extra::Reject }), ("\"entry\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_1_FIELDS, extra: Extra::Reject }), ("\"createProfile\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_FIELDS, extra: Extra::Reject }), ("\"editProfile\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_3_FIELDS, extra: Extra::Reject }), ("\"changeHandle\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_4_FIELDS, extra: Extra::Reject }), ("\"setAvatar\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_5_FIELDS, extra: Extra::Reject }), ("\"setPins\"", Shape::Object { fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_FIELDS, extra: Extra::Reject }), ("\"draftCreate\"", Shape::Object { fields: &crate::shapes::client_message_33::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_FIELDS, extra: Extra::Reject }), ("\"draftCheck\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_8_FIELDS, extra: Extra::Reject }), ("\"draftRead\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_9_FIELDS, extra: Extra::Reject }), ("\"draftUpdate\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_10_FIELDS, extra: Extra::Reject }), ("\"draftDelete\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_11_FIELDS, extra: Extra::Reject }), ("\"draftPublish\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_12_FIELDS, extra: Extra::Reject }), ("\"listing\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_13_FIELDS, extra: Extra::Reject }), ("\"preview\"", Shape::Object { fields: &crate::shapes::client_message_34::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_14_FIELDS, extra: Extra::Reject }), ("\"changelog\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_15_FIELDS, extra: Extra::Reject }), ("\"latest\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_16_FIELDS, extra: Extra::Reject }), ("\"deprecate\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_17_FIELDS, extra: Extra::Reject }), ("\"withdraw\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_18_FIELDS, extra: Extra::Reject }), ("\"deleteEntry\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_19_FIELDS, extra: Extra::Reject }), ("\"registry\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_20_FIELDS, extra: Extra::Reject }), ("\"registryWithdraw\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_21_FIELDS, extra: Extra::Reject }), ("\"visibility\"", Shape::Object { fields: &crate::shapes::client_message_35::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_22_FIELDS, extra: Extra::Reject }), ("\"archive\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_23_FIELDS, extra: Extra::Reject }), ("\"transfer\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_24_FIELDS, extra: Extra::Reject }), ("\"transferAnswer\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_25_FIELDS, extra: Extra::Reject }), ("\"signals\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_26_FIELDS, extra: Extra::Reject }), ("\"verification\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_27_FIELDS, extra: Extra::Reject }), ("\"applyVerification\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_28_FIELDS, extra: Extra::Reject }), ("\"checkVerification\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_29_FIELDS, extra: Extra::Reject }), ("\"appeal\"", Shape::Object { fields: &crate::shapes::client_message_36::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_30_FIELDS, extra: Extra::Reject })] } },
 ];
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_0_FIELDS: [Field; 1] = [Field {
     key: "action",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"me\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_1_FIELDS: [Field; 3] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"entry\""]),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"suit\"",
+            "\"spade-skill\"",
+            "\"spade-plugin\"",
+            "\"spade-bot\"",
+            "\"ace-plugin\"",
+        ]),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -40,7 +52,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_FIELDS: [Field; 2] = 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"createProfile\""]),
     },
     Field {
         key: "profile",
@@ -56,25 +68,47 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_FIELDS: [Fiel
     Field {
         key: "handle",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "displayName",
         presence: Presence::Required,
-        shape: Shape::Trim,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(60),
+            pattern: None,
+            format: None,
+            trim: true,
+        }),
     },
     Field {
         key: "bio",
         presence: Presence::Default("\"\""),
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(500),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "links",
         presence: Presence::Default("[]"),
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS,
-            extra: Extra::Reject,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS,
+                extra: Extra::Reject,
+            },
+            min: None,
+            max: Some(5),
+        },
     },
 ];
 
@@ -82,12 +116,24 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS:
     Field {
         key: "label",
         presence: Presence::Required,
-        shape: Shape::Trim,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(40),
+            pattern: None,
+            format: None,
+            trim: true,
+        }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: Some("^https:\\/\\/[^\\s/?#@]+(?:[/?#][^\\s]*)?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -95,7 +141,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_3_FIELDS: [Field; 2] = 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"editProfile\""]),
     },
     Field {
         key: "profile",
@@ -111,20 +157,36 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_3_PROFILE_FIELDS: [Fiel
     Field {
         key: "displayName",
         presence: Presence::Optional,
-        shape: Shape::Trim,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(60),
+            pattern: None,
+            format: None,
+            trim: true,
+        }),
     },
     Field {
         key: "bio",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(500),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "links",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS,
-            extra: Extra::Reject,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS,
+                extra: Extra::Reject,
+            },
+            min: None,
+            max: Some(5),
+        },
     },
 ];
 
@@ -132,12 +194,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_4_FIELDS: [Field; 2] = 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"changeHandle\""]),
     },
     Field {
         key: "handle",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -145,12 +213,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_5_FIELDS: [Field; 2] = 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"setAvatar\""]),
     },
     Field {
         key: "image",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1400000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -158,15 +232,19 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_FIELDS: [Field; 2] = 
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"setPins\""]),
     },
     Field {
         key: "entries",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_ENTRIES_FIELDS,
-            extra: Extra::Reject,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_ENTRIES_FIELDS,
+                extra: Extra::Reject,
+            },
+            min: None,
+            max: Some(6),
+        },
     },
 ];
 
@@ -174,11 +252,23 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_ENTRIES_FIELDS: [Fiel
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"suit\"",
+            "\"spade-skill\"",
+            "\"spade-plugin\"",
+            "\"spade-bot\"",
+            "\"ace-plugin\"",
+        ]),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];

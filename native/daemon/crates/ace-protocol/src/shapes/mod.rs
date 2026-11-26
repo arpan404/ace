@@ -6,7 +6,7 @@
 
 // Split by root so no file outgrows the source limit.
 // What Zod's parse keeps, in schema order, with the defaults it inserts.
-// Depth 16: the deepest Shape nesting, which bounds the walk; the walk follows
+// Depth 17: the deepest Shape nesting, which bounds the walk; the walk follows
 // this table, never the value.
 
 mod thread_client_column;
@@ -138,6 +138,7 @@ mod client_message_97;
 mod client_message_98;
 mod client_message_99;
 mod client_message_lazy;
+mod known_thread_status;
 mod server_message;
 mod server_message_10;
 mod server_message_100;
@@ -199,7 +200,6 @@ mod server_message_150;
 mod server_message_151;
 mod server_message_152;
 mod server_message_153;
-mod server_message_154;
 mod server_message_16;
 mod server_message_17;
 mod server_message_18;
@@ -296,6 +296,8 @@ mod thread_provider_metadata_2;
 mod user_browser_extension_message;
 mod user_browser_extension_message_2;
 pub use client_message_lazy::CLIENT_MESSAGE_77_VALUE;
+mod known_thread_status_root;
+pub use known_thread_status_root::KNOWN_THREAD_STATUS;
 mod client_message_root;
 pub use client_message_root::CLIENT_MESSAGE;
 mod browser_backend_client_message_root;

@@ -5,61 +5,61 @@
 #![allow(unused_imports)]
 
 // Part thread_provider_metadata.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_PROVIDER_METADATA_FIELDS: [Field; 5] = [
-    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
     Field { key: "effectiveCapabilities", presence: Presence::Optional, shape: Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip } },
     Field { key: "acpSupport", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_ACP_SUPPORT_FIELDS, extra: Extra::Strip } },
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field; 27] = [
     Field { key: "permissions", presence: Presence::Optional, shape: Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FIELDS, extra: Extra::Strip } },
-    Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "approvals", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "steeringMode", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "forkMode", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "childControls", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "childFidelity", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "steer", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "steerTiming", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "launchOptions", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "interruptCascades", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "resume", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "fork", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "forkSubagents", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "sessionOptions", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "forkPoints", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "forkTranscript", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "subagentTranscripts", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "backgroundTaskControl", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "goals", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "backgroundVisibility", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "planMode", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "tokenUsage", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "imageInput", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
+    Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(4) } },
+    Field { key: "approvals", presence: Presence::Optional, shape: Shape::Enum(&["\"interactive\"", "\"sandbox-only\"", "\"none\""]) },
+    Field { key: "steeringMode", presence: Presence::Optional, shape: Shape::Enum(&["\"native\"", "\"interrupt-restart\"", "\"queue\""]) },
+    Field { key: "forkMode", presence: Presence::Optional, shape: Shape::Enum(&["\"native\"", "\"context-handoff\"", "\"none\""]) },
+    Field { key: "childControls", presence: Presence::Optional, shape: Shape::Enum(&["\"native\"", "\"read-only\""]) },
+    Field { key: "childFidelity", presence: Presence::Optional, shape: Shape::Enum(&["\"full\"", "\"summary\"", "\"placeholder\""]) },
+    Field { key: "steer", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "steerTiming", presence: Presence::Optional, shape: Shape::Enum(&["\"immediate\"", "\"after_tool\""]) },
+    Field { key: "launchOptions", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Enum(&["\"effort\"", "\"serviceTier\""]), min: None, max: Some(2) } },
+    Field { key: "interruptCascades", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "resume", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "fork", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "forkSubagents", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "sessionOptions", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "forkPoints", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Enum(&["\"turn\"", "\"item\"", "\"end\""]), min: None, max: Some(2) } },
+    Field { key: "forkTranscript", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "subagentTranscripts", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "backgroundTaskControl", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "goals", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "backgroundVisibility", presence: Presence::Required, shape: Shape::Enum(&["\"full\"", "\"partial\"", "\"none\""]) },
+    Field { key: "planMode", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "tokenUsage", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "imageInput", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "attachmentInput", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ATTACHMENT_INPUT_FIELDS, extra: Extra::Strip } },
-    Field { key: "rewindFiles", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "rewindFiles", presence: Presence::Required, shape: Shape::Bool },
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FIELDS: [Field; 5] = [
-    Field { key: "modes", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "nativeAutoReview", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "toolGate", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "guarantees", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GUARANTEES_FIELDS, extra: Extra::Strip }) },
+    Field { key: "modes", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }), min: None, max: Some(256) } },
+    Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
+    Field { key: "nativeAutoReview", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "toolGate", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "guarantees", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GUARANTEES_FIELDS, extra: Extra::Strip }, min: None, max: Some(4) } },
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS: [Field; 6] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "label", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "description", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "risk", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "presentation", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "default", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "label", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(2048), pattern: None, format: None, trim: false }) },
+    Field { key: "risk", presence: Presence::Required, shape: Shape::Enum(&["\"low\"", "\"medium\"", "\"high\""]) },
+    Field { key: "presentation", presence: Presence::Optional, shape: Shape::Enum(&["\"full-access\""]) },
+    Field { key: "default", presence: Presence::Optional, shape: Shape::Bool },
 ];
 
 pub static THREAD_PROVIDER_METADATA: Shape = Shape::Object {

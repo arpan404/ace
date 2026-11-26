@@ -5,166 +5,297 @@
 #![allow(unused_imports)]
 
 // Part server_message_13.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_FIELDS: [Field; 12] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "agentId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "status", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "detail", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"shell\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_0_FIELDS, extra: Extra::Strip }), ("\"file.read\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_1_FIELDS, extra: Extra::Strip }), ("\"file.edit\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_FIELDS, extra: Extra::Strip }), ("\"file.write\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_FIELDS, extra: Extra::Strip }), ("\"file.delete\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_FIELDS, extra: Extra::Strip }), ("\"file.move\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_FIELDS, extra: Extra::Strip }), ("\"search\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_3_FIELDS, extra: Extra::Strip }), ("\"web.search\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_4_FIELDS, extra: Extra::Strip }), ("\"web.fetch\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_5_FIELDS, extra: Extra::Strip }), ("\"mcp\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_6_FIELDS, extra: Extra::Strip }), ("\"agent.spawn\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_7_FIELDS, extra: Extra::Strip }), ("\"agent.message\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_8_FIELDS, extra: Extra::Strip }), ("\"todo\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_FIELDS, extra: Extra::Strip }), ("\"plan\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_10_FIELDS, extra: Extra::Strip }), ("\"ask_user\"", Shape::Object { fields: &crate::shapes::server_message_14::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_11_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::server_message_15::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_12_FIELDS, extra: Extra::Strip }), ("\"browser\"", Shape::Object { fields: &crate::shapes::server_message_15::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_13_FIELDS, extra: Extra::Strip }), ("\"notebook\"", Shape::Object { fields: &crate::shapes::server_message_15::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_13_FIELDS, extra: Extra::Strip }), ("\"custom\"", Shape::Object { fields: &crate::shapes::server_message_15::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_13_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "backgroundTaskId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "error", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "result", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_15::SERVER_MESSAGE_12_ITEMS_6_CALL_RESULT_FIELDS, extra: Extra::Strip } },
-    Field { key: "startedAt", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "endedAt", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "raw", presence: Presence::Required, shape: Shape::Array(&Shape::OneOf(&[Shape::Object { fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS, extra: Extra::Strip }, Shape::Object { fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS, extra: Extra::Strip }])) },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_0_FIELDS: [Field; 7] = [
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_3_FIELDS: [Field; 5] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"search\""]),
     },
     Field {
-        key: "command",
+        key: "query",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "rawCommand",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "description",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "cwd",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "exitCode",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "output",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_0_OUTPUT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_0_OUTPUT_FIELDS: [Field; 4] = [
-    Field {
-        key: "streamId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "bytes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "tail",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "truncated",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_1_FIELDS: [Field; 3] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "range",
         presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_1_RANGE_FIELDS,
-            extra: Extra::Strip,
-        },
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "matches",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "scope",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"tools\""]),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_1_RANGE_FIELDS: [Field; 2] = [
-    Field {
-        key: "start",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "end",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_4_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"web.search\""]),
     },
     Field {
-        key: "changes",
+        key: "query",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_CHANGES_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_2_CHANGES_FIELDS: [Field; 6] = [
-    Field {
-        key: "path",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_5_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"web.fetch\""]),
     },
     Field {
-        key: "movePath",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "diff",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "oldText",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "newText",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_6_FIELDS: [Field; 4] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"mcp\""]),
+    },
+    Field {
+        key: "server",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "tool",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "arguments",
+        presence: Presence::Optional,
+        shape: Shape::Any,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_7_FIELDS: [Field; 5] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"agent.spawn\""]),
+    },
+    Field {
+        key: "description",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "prompt",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "agentType",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "childAgentId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_8_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"agent.message\""]),
+    },
+    Field {
+        key: "targetAgentId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "message",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"todo\""]),
+    },
+    Field {
+        key: "todos",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS: [Field; 3] = [
+    Field {
+        key: "id",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "content",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"pending\"",
+            "\"in_progress\"",
+            "\"completed\"",
+            "\"cancelled\"",
+        ]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_10_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"plan\""]),
+    },
+    Field {
+        key: "markdown",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "todos",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_11_FIELDS: [Field; 1] = [Field {
+    key: "kind",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"ask_user\""]),
+}];

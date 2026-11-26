@@ -67,6 +67,14 @@ fn request(kind: &str, line: &str) -> Result<String, WireError> {
             let decoded = decode_server(text)?;
             Ok(encode_server(&decoded.value)?)
         }
+        ("encode-body", "client") => {
+            let decoded = decode_client(text)?;
+            Ok(ace_wire::encode_client_body(&decoded.message)?)
+        }
+        ("encode-body", "server") => {
+            let decoded = decode_server(text)?;
+            Ok(ace_wire::encode_server_body(&decoded.message)?)
+        }
         (op, kind) => {
             return Err(WireError::Body(format!("unknown op {op} for {kind}")));
         }

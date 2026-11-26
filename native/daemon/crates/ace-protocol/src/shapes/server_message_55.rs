@@ -5,212 +5,309 @@
 #![allow(unused_imports)]
 
 // Part server_message_55.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_STATUS_COMMENTS_FIELDS: [Field; 11] = [
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_21_COMMITS_FIELDS: [Field; 9] = [
     Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        key: "raw",
+        presence: Presence::Optional,
+        shape: Shape::Any,
     },
     Field {
-        key: "id",
+        key: "sha",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "body",
+        key: "message",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "author",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "authorAvatarUrl",
         presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "file",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "line",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "updatedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "createdAt",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "replyTo",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reviewState",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_STATUS_REVIEW_THREADS_FIELDS: [Field;
-    13] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "resolved",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "outdated",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "file",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "line",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "side",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "startLine",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "startSide",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hunk",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "originalLine",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "originalStartLine",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "originalCommit",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "comments",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_STATUS_COMMENTS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_FILES_FIELDS: [Field; 4] = [
-    Field {
-        key: "path",
-        presence: Presence::Required,
-        shape: Shape::Copy,
     },
     Field {
         key: "additions",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "deletions",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_20_VALUE_RELATED_THREADS_FIELDS: [Field; 3] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "title",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "archived",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_21_FIELDS: [Field; 6] = [
-    Field {
-        key: "resource",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "commits",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields:
-                &crate::shapes::server_message_56::SERVER_MESSAGE_52_RESULT_0_DATA_21_COMMITS_FIELDS,
-            extra: Extra::Strip,
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
         }),
     },
     Field {
-        key: "before",
+        key: "deletions",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
-        key: "alongside",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "date",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
     Field {
-        key: "total",
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_22_FIELDS: [Field; 2] = [
+    Field {
+        key: "resource",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"prFiles\""]),
+    },
+    Field {
+        key: "value",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FIELDS: [Field; 8] = [
+    Field {
+        key: "ref",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::thread_details::THREAD_DETAILS_PULL_REQUEST_WORKSPACE_REF_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "baseSha",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "headSha",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "commit",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "since",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "files",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FILES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(25),
+        },
+    },
+    Field {
+        key: "nextPage",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "truncated",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FILES_FIELDS: [Field; 8] = [
+    Field {
+        key: "raw",
+        presence: Presence::Optional,
+        shape: Shape::Any,
+    },
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "previousPath",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "additions",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "deletions",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "patch",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(262144),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "truncated",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_23_FIELDS: [Field; 2] = [
+    Field {
+        key: "resource",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"prCheck\""]),
+    },
+    Field {
+        key: "value",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_FIELDS: [Field; 11] = [
+    Field { key: "id", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "status", presence: Presence::Required, shape: Shape::Enum(&["\"pending\"", "\"success\"", "\"failure\"", "\"cancelled\"", "\"unknown\""]) },
+    Field { key: "conclusion", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false })) },
+    Field { key: "url", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false })) },
+    Field { key: "output", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_56::SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_OUTPUT_FIELDS, extra: Extra::Strip } },
+    Field { key: "workflow", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_56::SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_WORKFLOW_FIELDS, extra: Extra::Strip }) },
+    Field { key: "log", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_37::SERVER_MESSAGE_47_LOG_FIELDS, extra: Extra::Strip }) },
+    Field { key: "logUnavailable", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "annotations", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_56::SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_ANNOTATIONS_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
+    Field { key: "annotationsTruncated", presence: Presence::Required, shape: Shape::Bool },
 ];

@@ -5,23 +5,35 @@
 #![allow(unused_imports)]
 
 // Part client_message_50.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"respond\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "interactionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "resolution",
@@ -73,17 +85,29 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_0_FIELDS: [Field; 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"approval\""]),
     },
     Field {
         key: "optionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "message",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -91,22 +115,38 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_1_FIELDS: [Field; 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"question\""]),
     },
     Field {
         key: "answers",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: None,
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: None,
+        }),
     },
     Field {
         key: "dismissed",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "feedback",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -114,17 +154,23 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_2_FIELDS: [Field; 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"plan_review\""]),
     },
     Field {
         key: "decision",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"approve\"", "\"reject\"", "\"cancel\""]),
     },
     Field {
         key: "feedback",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -132,17 +178,17 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_3_FIELDS: [Field; 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"elicitation\""]),
     },
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"accept\"", "\"decline\"", "\"cancel\""]),
     },
     Field {
         key: "content",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
 ];
 
@@ -150,12 +196,12 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_4_FIELDS: [Field; 
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser_help\""]),
     },
     Field {
         key: "outcome",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"done\"", "\"skipped\""]),
     },
 ];
 
@@ -163,12 +209,12 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_6_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.session\""]),
     },
     Field {
         key: "capability",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser\"", "\"devices\"", "\"screen\"", "\"commands\""]),
     },
 ];
 
@@ -176,17 +222,23 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_7_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser\""]),
     },
     Field {
         key: "tool",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^browser_[a-z_]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "args",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Any),
     },
 ];
 
@@ -194,17 +246,23 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_8_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"devices\""]),
     },
     Field {
         key: "tool",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^sim_[a-z_]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "args",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Any),
     },
 ];
 
@@ -212,16 +270,22 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_9_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"screen\""]),
     },
     Field {
         key: "tool",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^screen_[a-z_]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "args",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Copy),
+        shape: Shape::Record(&Shape::Any),
     },
 ];

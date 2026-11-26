@@ -5,163 +5,76 @@
 #![allow(unused_imports)]
 
 // Part server_message_121.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_130_STATE_AGENT_POINTER_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_132_MEDIA_POSTER_FIELDS: [Field; 3] = [
     Field {
-        key: "x",
+        key: "width",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "y",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "at",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_130_STATE_ACCELERATION_FIELDS: [Field; 3] = [
-    Field {
-        key: "steps",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_130_STATE_ACCELERATION_STEPS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(8192.0),
+            max_inclusive: true,
+            integral: true,
         }),
     },
     Field {
-        key: "degraded",
+        key: "height",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(8192.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
-        key: "reason",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "jpeg",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_130_STATE_ACCELERATION_STEPS_FIELDS: [Field; 5] = [
-    Field {
-        key: "step",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "backend",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hardware",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "readbacks",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "uploads",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_130_STATE_VIDEO_FIELDS: [Field; 2] = [
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_131_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_133_FIELDS: [Field; 7] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "sessionId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "undelivered",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_131_UNDELIVERED_FIELDS: [Field; 2] = [
-    Field {
-        key: "code",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_132_FIELDS: [Field; 9] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"devices.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "data",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
     Field {
         key: "error",
         presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "errorCode",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "holder",
-        presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &SERVER_MESSAGE_132_HOLDER_FIELDS,
+            fields: &SERVER_MESSAGE_133_ERROR_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -169,7 +82,7 @@ pub(crate) static SERVER_MESSAGE_132_FIELDS: [Field; 9] = [
         key: "media",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &SERVER_MESSAGE_132_MEDIA_FIELDS,
+            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_132_MEDIA_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -177,37 +90,251 @@ pub(crate) static SERVER_MESSAGE_132_FIELDS: [Field; 9] = [
         key: "undelivered",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
+            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
             extra: Extra::Strip,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_132_HOLDER_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_133_ERROR_FIELDS: [Field; 5] = [
     Field {
-        key: "sessionId",
+        key: "code",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"sdk_missing\"",
+            "\"tool_missing\"",
+            "\"not_supported\"",
+            "\"foreground_required\"",
+            "\"not_found\"",
+            "\"not_booted\"",
+            "\"permission_denied\"",
+            "\"busy\"",
+            "\"timeout\"",
+            "\"command_failed\"",
+            "\"invalid_data\"",
+            "\"lease_required\"",
+            "\"stale_ref\"",
+            "\"limit\"",
+            "\"person_busy\"",
+        ]),
     },
     Field {
-        key: "owner",
+        key: "message",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "hint",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "permission",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"screenRecording\"", "\"accessibility\""]),
+    },
+    Field {
+        key: "platform",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"ios\"", "\"android\""]),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_132_MEDIA_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_134_FIELDS: [Field; 2] = [
     Field {
-        key: "connection",
+        key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"devices.state\""]),
     },
     Field {
-        key: "poster",
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_134_STATE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_134_STATE_FIELDS: [Field; 23] = [
+    Field {
+        key: "device",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_134_STATE_DEVICE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "enabled",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "lifecycle",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"idle\"",
+            "\"starting\"",
+            "\"live\"",
+            "\"stopping\"",
+            "\"failed\"",
+        ]),
+    },
+    Field {
+        key: "booting",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "cleanupRequired",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "recordingNotice",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "recording",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "streamId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "touch",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"multi\"", "\"pointer\"", "\"gestures\""]),
+    },
+    Field {
+        key: "framed",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "controller",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"none\"", "\"human\"", "\"agent\""]),
+    },
+    Field {
+        key: "ownedHere",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "holder",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_132_MEDIA_POSTER_FIELDS,
+            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_134_STATE_HOLDER_FIELDS,
             extra: Extra::Strip,
         },
+    },
+    Field {
+        key: "leaseExpiresAt",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "error",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_133_ERROR_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "activity",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_134_STATE_ACTIVITY_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "posture",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"closed\"", "\"partiallyOpen\"", "\"open\""]),
+    },
+    Field {
+        key: "sharing",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"cowork\"", "\"exclusive\""]),
+    },
+    Field {
+        key: "acceleration",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_ACCELERATION_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "video",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_VIDEO_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "agentPointer",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_AGENT_POINTER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "personActive",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
     },
 ];

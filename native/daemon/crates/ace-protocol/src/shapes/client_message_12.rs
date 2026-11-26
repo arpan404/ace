@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_12.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_46_OPERATION_3_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"link\""]),
     },
     Field {
         key: "port",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(65535.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -24,12 +30,18 @@ pub(crate) static CLIENT_MESSAGE_47_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"automation.put\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "automation",
@@ -42,39 +54,45 @@ pub(crate) static CLIENT_MESSAGE_47_FIELDS: [Field; 4] = [
     Field {
         key: "expectedRevision",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        })),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_FIELDS: [Field; 15] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "enabled", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "workspace", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "provider", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "access", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "model", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "effort", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "instance", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "prompt", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "worktree", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "enabled", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "workspace", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
+    Field { key: "access", presence: Presence::Optional, shape: Shape::Enum(&["\"read-only\"", "\"ask\"", "\"auto-review\"", "\"full-access\""]) },
+    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "effort", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }) },
+    Field { key: "instance", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "prompt", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(262144), pattern: None, format: None, trim: false }) },
+    Field { key: "worktree", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "trigger", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"manual\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_0_FIELDS, extra: Extra::Strip }), ("\"schedule\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_1_FIELDS, extra: Extra::Strip }), ("\"github\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_3_FIELDS, extra: Extra::Strip }), ("\"webhook\"", Shape::Object { fields: &crate::shapes::client_message_13::CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_4_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "missedRun", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "concurrency", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "jitterMs", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "missedRun", presence: Presence::Required, shape: Shape::Enum(&["\"skip\"", "\"run_once\""]) },
+    Field { key: "concurrency", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(1.0), min_inclusive: true, max: Some(32.0), max_inclusive: true, integral: true }) },
+    Field { key: "jitterMs", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: Some(3600000.0), max_inclusive: true, integral: true }) },
 ];
 
 pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_0_FIELDS: [Field; 1] = [Field {
     key: "kind",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"manual\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_1_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"schedule\""]),
     },
     Field {
         key: "schedule",
@@ -90,22 +108,40 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_1_SCHEDULE_FIELDS: [Field
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"rrule\"", "\"cron\""]),
     },
     Field {
         key: "expression",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "timezone",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "startAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(8640000000000000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -113,32 +149,61 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_2_FIELDS: [Field; 6] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"github\""]),
     },
     Field {
         key: "repository",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "event",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"pr_changed\"",
+            "\"ci_failed\"",
+            "\"review_comment\"",
+            "\"issue_labelled\"",
+        ]),
     },
     Field {
         key: "label",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "pullRequest",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "pollIntervalMs",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(60000.0),
+            min_inclusive: true,
+            max: Some(86400000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -146,11 +211,21 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_3_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"file\""]),
     },
     Field {
         key: "paths",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: Some(1),
+            max: Some(100),
+        },
     },
 ];

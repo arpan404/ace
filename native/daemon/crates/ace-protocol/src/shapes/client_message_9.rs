@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_9.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_29_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"lockedUse.repair\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,12 +30,18 @@ pub(crate) static CLIENT_MESSAGE_30_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"transfers.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "operation",
@@ -66,19 +78,25 @@ pub(crate) static CLIENT_MESSAGE_30_FIELDS: [Field; 3] = [
 pub(crate) static CLIENT_MESSAGE_30_OPERATION_0_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"list\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_30_OPERATION_1_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cancel\""]),
     },
     Field {
         key: "transferId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -86,12 +104,18 @@ pub(crate) static CLIENT_MESSAGE_30_OPERATION_2_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"carryOnHere\""]),
     },
     Field {
         key: "transferId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -99,17 +123,23 @@ pub(crate) static CLIENT_MESSAGE_31_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"providers.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "operation",
         presence: Presence::Default("\"list\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"list\"", "\"refresh\"", "\"readiness\""]),
     },
 ];
 
@@ -117,32 +147,57 @@ pub(crate) static CLIENT_MESSAGE_32_FIELDS: [Field; 7] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.login.start\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "instance",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "method",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"login\"", "\"api_key\""]),
     },
     Field {
         key: "upstream",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"openai\"",
+            "\"anthropic\"",
+            "\"openrouter\"",
+            "\"opencode\"",
+        ]),
     },
     Field {
         key: "signIn",
@@ -179,24 +234,36 @@ pub(crate) static CLIENT_MESSAGE_32_FIELDS: [Field; 7] = [
 pub(crate) static CLIENT_MESSAGE_32_SIGN_IN_0_FIELDS: [Field; 1] = [Field {
     key: "method",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"google\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_32_SIGN_IN_1_FIELDS: [Field; 3] = [
     Field {
         key: "method",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"enterprise\""]),
     },
     Field {
         key: "project",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(6),
+            max: Some(100),
+            pattern: Some("^(?:[a-z0-9][a-z0-9.-]{0,61}[a-z0-9]:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "location",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(2),
+            max: Some(63),
+            pattern: Some("^[a-z][a-z0-9-]*[a-z0-9]$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -204,17 +271,29 @@ pub(crate) static CLIENT_MESSAGE_32_SIGN_IN_2_FIELDS: [Field; 3] = [
     Field {
         key: "method",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"agent_platform\""]),
     },
     Field {
         key: "project",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(6),
+            max: Some(100),
+            pattern: Some("^(?:[a-z0-9][a-z0-9.-]{0,61}[a-z0-9]:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "location",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(2),
+            max: Some(63),
+            pattern: Some("^[a-z][a-z0-9-]*[a-z0-9]$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -222,21 +301,39 @@ pub(crate) static CLIENT_MESSAGE_33_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.login.apiKey\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "session",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "apiKey",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(8192),
+            pattern: Some("^[^\\s\\x00-\\x1f\\x7f]+$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];

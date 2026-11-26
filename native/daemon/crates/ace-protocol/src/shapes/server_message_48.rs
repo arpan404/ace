@@ -5,206 +5,318 @@
 #![allow(unused_imports)]
 
 // Part server_message_48.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_FIELDS: [Field; 2] = [
-    Field {
-        key: "resource",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "value",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_FIELDS: [Field; 5] = [
+    Field { key: "stack", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_FIELDS, extra: Extra::Strip }) },
+    Field { key: "local", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_LOCAL_FIELDS, extra: Extra::Strip }) },
+    Field { key: "localUnavailable", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false })) },
+    Field { key: "operation", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS, extra: Extra::Strip }) },
+    Field { key: "movedLayers", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_49::SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_MOVED_LAYERS_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
 ];
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_FIELDS: [Field; 17] = [
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_FIELDS: [Field; 6] = [
     Field {
-        key: "headSha",
+        key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "mergeState",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reviewDecision",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "checksState",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "autoMerge",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_AUTO_MERGE_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "queue",
+        key: "number",
         presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_QUEUE_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
         }),
     },
     Field {
-        key: "rules",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "deployments",
-        presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_DEPLOYMENTS_FIELDS,
-            extra: Extra::Strip,
+        key: "trunk",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "methods",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "canEnable",
+        key: "layers",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "canDisable",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "canDequeue",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "blockers",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "writeState",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "commitMessages",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_COMMIT_MESSAGES_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(100),
         },
+    },
+    Field {
+        key: "canMerge",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
     Field {
         key: "raw",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Any,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_AUTO_MERGE_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_FIELDS: [Field; 14] = [
     Field {
-        key: "method",
+        key: "number",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "actor",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "enabledAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_QUEUE_FIELDS: [Field; 5] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "position",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
-        key: "enqueuedAt",
+        key: "title",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "estimatedTimeToMerge",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_DEPLOYMENTS_FIELDS: [Field; 3] = [
-    Field {
-        key: "environment",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_COMMIT_MESSAGES_FIELDS: [Field; 2] = [
-    Field { key: "merge", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_30_COMMIT_FIELDS, extra: Extra::Strip } },
-    Field { key: "squash", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_30_COMMIT_FIELDS, extra: Extra::Strip } },
-];
-
-pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_FIELDS: [Field; 2] = [
-    Field {
-        key: "resource",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: Some("url"),
+            trim: false,
+        }),
     },
     Field {
-        key: "value",
+        key: "headSha",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_49::SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "branch",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "baseBranch",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "mergeState",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "reviewDecision",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "checksState",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "requiredChecks",
+        presence: Presence::Default("[]"),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields:
+                    &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_REQUIRED_CHECKS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
         },
+    },
+    Field {
+        key: "checksTruncated",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "queueState",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_REQUIRED_CHECKS_FIELDS:
+    [Field; 2] = [
+    Field {
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_LOCAL_FIELDS: [Field; 4] = [
+    Field { key: "trunk", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "currentBranch", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "raw", presence: Presence::Optional, shape: Shape::Any },
+    Field { key: "branches", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_65_EXPECTED_LOCAL_BRANCHES_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
+];
+
+pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS: [Field; 6] = [
+    Field {
+        key: "action",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"merge\"",
+            "\"rebase\"",
+            "\"continue\"",
+            "\"abort\"",
+            "\"push\"",
+            "\"sync\"",
+        ]),
+    },
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"pending\"",
+            "\"merged\"",
+            "\"enqueued\"",
+            "\"failed\"",
+            "\"uncertain\"",
+            "\"conflict\"",
+            "\"push_partial\"",
+            "\"rebased\"",
+            "\"aborted\"",
+        ]),
+    },
+    Field {
+        key: "raw",
+        presence: Presence::Optional,
+        shape: Shape::Any,
+    },
+    Field {
+        key: "uuid",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: Some("uuid"),
+            trim: false,
+        }),
+    },
+    Field {
+        key: "stage",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"rebase\"", "\"push\"", "\"sync\""]),
+    },
+    Field {
+        key: "message",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

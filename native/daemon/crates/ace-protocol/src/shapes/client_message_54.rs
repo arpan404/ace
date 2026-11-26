@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_54.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_FIELDS: [Field; 2] = [
     Field {
@@ -19,7 +19,13 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_FIE
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -28,12 +34,24 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_CIT
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "itemId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -41,27 +59,39 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_HISTORY_FIEL
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"items.page\""]),
     },
     Field {
         key: "tool",
         presence: Presence::Default("\"handoff_read\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"handoff_read\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "before",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["50"]),
     },
 ];
 
@@ -69,17 +99,35 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_IGNORED_FIELDS: [Field; 3] 
     Field {
         key: "bytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(21474836480.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "files",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -87,12 +135,24 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_FINAL_FIELDS: [Field; 2] = 
     Field {
         key: "bytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(21474836480.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -100,12 +160,24 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_FIELDS: [Field; 6] = [
     Field {
         key: "epoch",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "sourceThreadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "left",
@@ -134,7 +206,13 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_FIELDS: [Field; 6] = [
     Field {
         key: "unsupported",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -142,22 +220,58 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_LEFT_FIELDS: [Field; 4
     Field {
         key: "shells",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(32),
+        },
     },
     Field {
         key: "children",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(32),
+        },
     },
     Field {
         key: "remoteChildren",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(32),
+        },
     },
     Field {
         key: "queued",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -165,12 +279,24 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_BULK_FIELDS: [Field; 3
     Field {
         key: "branch",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "head",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "changes",
@@ -186,12 +312,24 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_BULK_CHANGES_FIELDS: [
     Field {
         key: "ref",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "commit",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{40,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -199,21 +337,51 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_SESSION_FIELDS: [Field
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "nativeSessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "sourceCwd",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "files",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(1024),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(512),
+        },
     },
 ];

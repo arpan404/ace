@@ -5,33 +5,57 @@
 #![allow(unused_imports)]
 
 // Part client_message_66.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_15_SETTINGS_FIELDS: [Field; 5] = [
     Field {
         key: "codec",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"jpeg\"", "\"h264\""]),
     },
     Field {
         key: "maxWidth",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(64.0),
+            min_inclusive: true,
+            max: Some(3840.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "maxHeight",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(64.0),
+            min_inclusive: true,
+            max: Some(3840.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "fps",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(60.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "bitrate",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(128000.0),
+            min_inclusive: true,
+            max: Some(20000000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -39,12 +63,18 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_16_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"unsubscribe\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -52,12 +82,18 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_17_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"record.start\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -65,41 +101,65 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_18_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"record.stop\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_19_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"capabilities\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_144_OPERATION_20_FIELDS: [Field; 4] = [
     Field {
         key: "maxDepth",
         presence: Presence::Default("8"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(16.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "maxNodes",
         presence: Presence::Default("128"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(512.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"ui.tree\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -125,17 +185,29 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_21_FIELDS: [Field; 4] = [
     Field {
         key: "limit",
         presence: Presence::Default("16"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(64.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"ui.find\""]),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[\\w-]{1,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -143,17 +215,35 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_21_QUERY_0_FIELDS: [Field; 3] = [
     Field {
         key: "role",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "text",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -161,17 +251,35 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_21_QUERY_1_FIELDS: [Field; 3] = [
     Field {
         key: "role",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "text",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -179,16 +287,34 @@ pub(crate) static CLIENT_MESSAGE_144_OPERATION_21_QUERY_2_FIELDS: [Field; 3] = [
     Field {
         key: "role",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(512),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

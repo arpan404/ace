@@ -5,28 +5,28 @@
 #![allow(unused_imports)]
 
 // Part thread_details.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_DETAILS_FIELDS: [Field; 25] = [
     Field { key: "pullRequestWorkspace", presence: Presence::Optional, shape: Shape::Object { fields: &THREAD_DETAILS_PULL_REQUEST_WORKSPACE_FIELDS, extra: Extra::Strip } },
-    Field { key: "linkedIssues", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_ISSUES_FIELDS, extra: Extra::Strip }) },
+    Field { key: "linkedIssues", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_ISSUES_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
     Field { key: "worktreeCreation", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_2::THREAD_DETAILS_WORKTREE_CREATION_FIELDS, extra: Extra::Strip } },
     Field { key: "workspaceChange", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_2::THREAD_DETAILS_WORKSPACE_CHANGE_FIELDS, extra: Extra::Strip } },
-    Field { key: "worktreeMissing", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "worktreeMissing", presence: Presence::Optional, shape: Shape::Bool },
     Field { key: "checkoutMissing", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_2::THREAD_DETAILS_CHECKOUT_MISSING_FIELDS, extra: Extra::Strip } },
     Field { key: "worktreeSetup", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_2::THREAD_DETAILS_WORKTREE_SETUP_FIELDS, extra: Extra::Strip } },
     Field { key: "workspace", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_3::THREAD_DETAILS_WORKSPACE_FIELDS, extra: Extra::Strip } },
-    Field { key: "mode", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "worktree", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "branch", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "head", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "ahead", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "behind", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "upstream", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "baseBranch", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "mode", presence: Presence::Optional, shape: Shape::Enum(&["\"local\"", "\"worktree\""]) },
+    Field { key: "worktree", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "branch", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false })) },
+    Field { key: "head", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{40,64}$"), format: None, trim: false })) },
+    Field { key: "ahead", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "behind", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "upstream", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false })) },
+    Field { key: "baseBranch", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
     Field { key: "base", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_3::THREAD_DETAILS_BASE_FIELDS, extra: Extra::Strip } },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
-    Field { key: "linkedPrs", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS, extra: Extra::Strip }) },
+    Field { key: "linkedPrs", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
     Field { key: "linkedPr", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PR_FIELDS, extra: Extra::Strip }) },
     Field { key: "continuedOn", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_3::THREAD_DETAILS_CONTINUED_ON_FIELDS, extra: Extra::Strip } },
     Field { key: "continuedFrom", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_details_3::THREAD_DETAILS_CONTINUED_ON_FIELDS, extra: Extra::Strip } },
@@ -37,18 +37,18 @@ pub(crate) static THREAD_DETAILS_FIELDS: [Field; 25] = [
 
 pub(crate) static THREAD_DETAILS_PULL_REQUEST_WORKSPACE_FIELDS: [Field; 8] = [
     Field { key: "ref", presence: Presence::Required, shape: Shape::Object { fields: &THREAD_DETAILS_PULL_REQUEST_WORKSPACE_REF_FIELDS, extra: Extra::Strip } },
-    Field { key: "headSha", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "baseSha", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "headBranch", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "baseBranch", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{40,64}$"), format: None, trim: false }) },
+    Field { key: "baseSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{40,64}$"), format: None, trim: false }) },
+    Field { key: "headBranch", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "baseBranch", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
     Field { key: "headRepository", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }) },
-    Field { key: "context", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "contextTruncated", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "context", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "contextTruncated", presence: Presence::Required, shape: Shape::Bool },
 ];
 
 pub(crate) static THREAD_DETAILS_PULL_REQUEST_WORKSPACE_REF_FIELDS: [Field; 2] = [
     Field { key: "repository", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
-    Field { key: "number", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "number", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
 ];
 
 pub static THREAD_DETAILS: Shape = Shape::Object {

@@ -5,23 +5,35 @@
 #![allow(unused_imports)]
 
 // Part client_message_86.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_170_FIELDS: [Field; 5] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.input\""]),
     },
     Field {
         key: "input",
@@ -78,7 +90,13 @@ pub(crate) static CLIENT_MESSAGE_170_FIELDS: [Field; 5] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -86,42 +104,72 @@ pub(crate) static CLIENT_MESSAGE_170_INPUT_0_FIELDS: [Field; 8] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"mouse\""]),
     },
     Field {
         key: "event",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"mouseMoved\"", "\"mousePressed\"", "\"mouseReleased\""]),
     },
     Field {
         key: "x",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "y",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "button",
         presence: Presence::Default("\"left\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"none\"", "\"left\"", "\"middle\"", "\"right\""]),
     },
     Field {
         key: "buttons",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(7.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "clickCount",
         presence: Presence::Default("1"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(3.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "modifiers",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(15.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -129,32 +177,56 @@ pub(crate) static CLIENT_MESSAGE_170_INPUT_1_FIELDS: [Field; 6] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"key\""]),
     },
     Field {
         key: "event",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"keyDown\"", "\"keyUp\"", "\"char\""]),
     },
     Field {
         key: "key",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "code",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "text",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "modifiers",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(15.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -162,32 +234,62 @@ pub(crate) static CLIENT_MESSAGE_170_INPUT_2_FIELDS: [Field; 6] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"scroll\""]),
     },
     Field {
         key: "x",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "y",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "deltaX",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "deltaY",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "modifiers",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(15.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -195,20 +297,29 @@ pub(crate) static CLIENT_MESSAGE_170_INPUT_3_FIELDS: [Field; 3] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"touch\""]),
     },
     Field {
         key: "event",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"touchStart\"",
+            "\"touchMove\"",
+            "\"touchEnd\"",
+            "\"touchCancel\"",
+        ]),
     },
     Field {
         key: "points",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_170_INPUT_3_POINTS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_170_INPUT_3_POINTS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(10),
+        },
     },
 ];
 
@@ -216,17 +327,35 @@ pub(crate) static CLIENT_MESSAGE_170_INPUT_3_POINTS_FIELDS: [Field; 3] = [
     Field {
         key: "x",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "y",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -234,21 +363,39 @@ pub(crate) static CLIENT_MESSAGE_170_INPUT_4_FIELDS: [Field; 4] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"ime\""]),
     },
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "selectionStart",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "selectionEnd",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];

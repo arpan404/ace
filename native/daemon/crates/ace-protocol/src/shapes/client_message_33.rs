@@ -5,28 +5,46 @@
 #![allow(unused_imports)]
 
 // Part client_message_33.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_FIELDS: [Field; 7] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"draftCreate\""]),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"suit\"",
+            "\"spade-skill\"",
+            "\"spade-plugin\"",
+            "\"spade-bot\"",
+            "\"ace-plugin\"",
+        ]),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: Some("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "source",
@@ -89,7 +107,13 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_FIELDS: [Field; 7] = 
     Field {
         key: "changelog",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "checked",
@@ -105,12 +129,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_0_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"folder\""]),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -118,12 +148,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_1_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"archive\""]),
     },
     Field {
         key: "archive",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8000000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -131,12 +167,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_2_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"suit\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(48),
+            pattern: Some("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -144,12 +186,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_3_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"spade-bot\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: Some("^[A-Za-z0-9_-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -157,12 +205,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_4_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"spade-skill\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: Some("^[A-Za-z0-9_-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -170,12 +224,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_5_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"ace-skill\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^skl_[a-f0-9]{40}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -183,12 +243,18 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_SOURCE_6_FIELDS: [Fie
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"plugin\""]),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -196,17 +262,43 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_CHECKED_FIELDS: [Fiel
     Field {
         key: "hash",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "binaries",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(512),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(1024),
+        },
     },
     Field {
         key: "accepted",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(2000),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(500),
+        },
     },
     Field {
         key: "recipe",
@@ -222,15 +314,25 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_CHECKED_RECIPE_FIELDS
     Field {
         key: "task",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4000),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "routines",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_CHECKED_RECIPE_ROUTINES_FIELDS,
-            extra: Extra::Reject,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_CHECKED_RECIPE_ROUTINES_FIELDS,
+                extra: Extra::Reject,
+            },
+            min: None,
+            max: Some(32),
+        },
     },
 ];
 
@@ -239,16 +341,34 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_7_CHECKED_RECIPE_ROUTIN
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Trim,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(120),
+            pattern: None,
+            format: None,
+            trim: true,
+        }),
     },
     Field {
         key: "instruction",
         presence: Presence::Required,
-        shape: Shape::Trim,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4000),
+            pattern: None,
+            format: None,
+            trim: true,
+        }),
     },
     Field {
         key: "schedule",
         presence: Presence::Required,
-        shape: Shape::Trim,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: true,
+        }),
     },
 ];

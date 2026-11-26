@@ -5,18 +5,30 @@
 #![allow(unused_imports)]
 
 // Part client_message_91.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_188_SCOPE_0_WINDOW_RESUME_FIELDS: [Field; 2] = [
     Field {
         key: "revision",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "epoch",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,12 +36,18 @@ pub(crate) static CLIENT_MESSAGE_188_SCOPE_1_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"thread\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -37,12 +55,24 @@ pub(crate) static CLIENT_MESSAGE_188_TAIL_FIELDS: [Field; 2] = [
     Field {
         key: "items",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(200.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "bytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1024.0),
+            min_inclusive: true,
+            max: Some(1048576.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -50,12 +80,18 @@ pub(crate) static CLIENT_MESSAGE_189_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"unsubscribe\""]),
     },
     Field {
         key: "subscriptionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -63,7 +99,7 @@ pub(crate) static CLIENT_MESSAGE_190_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"command\""]),
     },
     Field {
         key: "command",
@@ -76,8 +112,8 @@ pub(crate) static CLIENT_MESSAGE_190_FIELDS: [Field; 2] = [
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_FIELDS: [Field; 3] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "deviceId", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "deviceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
     Field { key: "payload", presence: Presence::Required, shape: Shape::Tagged { key: "type", options: &[("\"queue.resend\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_0_FIELDS, extra: Extra::Strip }), ("\"thread.prepare\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_1_FIELDS, extra: Extra::Strip }), ("\"thread.markRead\"", Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_2_FIELDS, extra: Extra::Strip }), ("\"thread.permission.set\"", Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_3_FIELDS, extra: Extra::Strip }), ("\"queue.edit\"", Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_FIELDS, extra: Extra::Strip }), ("\"queue.move\"", Shape::Object { fields: &crate::shapes::client_message_93::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_5_FIELDS, extra: Extra::Strip }), ("\"queue.remove\"", Shape::Object { fields: &crate::shapes::client_message_93::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_6_FIELDS, extra: Extra::Strip }), ("\"queue.pause\"", Shape::Object { fields: &crate::shapes::client_message_93::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_7_FIELDS, extra: Extra::Strip }), ("\"queue.resume\"", Shape::Object { fields: &crate::shapes::client_message_93::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_8_FIELDS, extra: Extra::Strip }), ("\"thread.resume\"", Shape::Object { fields: &crate::shapes::client_message_94::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_9_FIELDS, extra: Extra::Strip }), ("\"thread.limit\"", Shape::Object { fields: &crate::shapes::client_message_94::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_10_FIELDS, extra: Extra::Strip }), ("\"thread.fork\"", Shape::Object { fields: &crate::shapes::client_message_94::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_11_FIELDS, extra: Extra::Strip }), ("\"thread.merge\"", Shape::Object { fields: &crate::shapes::client_message_94::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_12_FIELDS, extra: Extra::Strip }), ("\"thread.switch\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_13_FIELDS, extra: Extra::Strip }), ("\"diagnostics.health\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_14_FIELDS, extra: Extra::Strip }), ("\"thread.rename\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_15_FIELDS, extra: Extra::Strip }), ("\"thread.title.regenerate\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_16_FIELDS, extra: Extra::Strip }), ("\"thread.unarchive\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_17_FIELDS, extra: Extra::Strip }), ("\"thread.delete\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_18_FIELDS, extra: Extra::Strip }), ("\"thread.pin\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_19_FIELDS, extra: Extra::Strip }), ("\"thread.read\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_20_FIELDS, extra: Extra::Strip }), ("\"thread.settle\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_21_FIELDS, extra: Extra::Strip }), ("\"thread.unsettle\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_22_FIELDS, extra: Extra::Strip }), ("\"thread.autoSettle\"", Shape::Object { fields: &crate::shapes::client_message_95::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_23_FIELDS, extra: Extra::Strip }), ("\"thread.snooze\"", Shape::Object { fields: &crate::shapes::client_message_96::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_24_FIELDS, extra: Extra::Strip }), ("\"thread.place\"", Shape::Object { fields: &crate::shapes::client_message_96::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_25_FIELDS, extra: Extra::Strip }), ("\"forge.pr.worktree\"", Shape::Object { fields: &crate::shapes::client_message_96::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_26_FIELDS, extra: Extra::Strip }), ("\"forge.hosted.lifecycle\"", Shape::Object { fields: &crate::shapes::client_message_96::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_27_FIELDS, extra: Extra::Strip }), ("\"forge.hosted.review\"", Shape::Object { fields: &crate::shapes::client_message_97::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_FIELDS, extra: Extra::Strip }), ("\"forge.hosted.checks\"", Shape::Object { fields: &crate::shapes::client_message_100::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_29_FIELDS, extra: Extra::Strip }), ("\"forge.hosted.merge\"", Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_30_FIELDS, extra: Extra::Strip }), ("\"forge.hosted.merge-state\"", Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_31_FIELDS, extra: Extra::Strip }), ("\"forge.hosted.pr.create\"", Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_32_FIELDS, extra: Extra::Strip }), ("\"thread.move\"", Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_33_FIELDS, extra: Extra::Strip }), ("\"thread.workspace.set\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_34_FIELDS, extra: Extra::Strip }), ("\"thread.workspace.clear\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_35_FIELDS, extra: Extra::Strip }), ("\"thread.workspace.setup\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_36_FIELDS, extra: Extra::Strip }), ("\"workspace.script.run\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_37_FIELDS, extra: Extra::Strip }), ("\"workspace.editor.open\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_38_FIELDS, extra: Extra::Strip }), ("\"git.lock.clear\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_39_FIELDS, extra: Extra::Strip }), ("\"git.conflicts\"", Shape::Object { fields: &crate::shapes::client_message_102::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_40_FIELDS, extra: Extra::Strip }), ("\"git.commit\"", Shape::Object { fields: &crate::shapes::client_message_103::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_41_FIELDS, extra: Extra::Strip }), ("\"git.stage\"", Shape::Object { fields: &crate::shapes::client_message_103::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_42_FIELDS, extra: Extra::Strip }), ("\"git.unstage\"", Shape::Object { fields: &crate::shapes::client_message_103::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_43_FIELDS, extra: Extra::Strip }), ("\"git.fetch\"", Shape::Object { fields: &crate::shapes::client_message_103::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_44_FIELDS, extra: Extra::Strip }), ("\"git.push\"", Shape::Object { fields: &crate::shapes::client_message_103::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_45_FIELDS, extra: Extra::Strip }), ("\"workspace.publish\"", Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_46_FIELDS, extra: Extra::Strip }), ("\"workspace.add\"", Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_47_FIELDS, extra: Extra::Strip }), ("\"workspace.root.add\"", Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_48_FIELDS, extra: Extra::Strip }), ("\"workspace.root.remove\"", Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_49_FIELDS, extra: Extra::Strip }), ("\"workspace.create\"", Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_50_FIELDS, extra: Extra::Strip }), ("\"workspace.clone\"", Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_51_FIELDS, extra: Extra::Strip }), ("\"workspace.update\"", Shape::Object { fields: &crate::shapes::client_message_105::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_FIELDS, extra: Extra::Strip }), ("\"workspace.rename\"", Shape::Object { fields: &crate::shapes::client_message_105::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_53_FIELDS, extra: Extra::Strip }), ("\"workspace.repositories.set\"", Shape::Object { fields: &crate::shapes::client_message_105::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_FIELDS, extra: Extra::Strip }), ("\"workspace.identity.link\"", Shape::Object { fields: &crate::shapes::client_message_105::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_55_FIELDS, extra: Extra::Strip }), ("\"workspace.identity.marker.write\"", Shape::Object { fields: &crate::shapes::client_message_105::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_56_FIELDS, extra: Extra::Strip }), ("\"workspace.identity.unlink\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_57_FIELDS, extra: Extra::Strip }), ("\"workspace.identity.merge\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_58_FIELDS, extra: Extra::Strip }), ("\"workspace.git.lock.clear\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_59_FIELDS, extra: Extra::Strip }), ("\"workspace.chat.create\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_60_FIELDS, extra: Extra::Strip }), ("\"workspace.remove\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_61_FIELDS, extra: Extra::Strip }), ("\"workspace.transfer\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_62_FIELDS, extra: Extra::Strip }), ("\"thread.continueOn\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_63_FIELDS, extra: Extra::Strip }), ("\"forge.pr.merge-state.change\"", Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_FIELDS, extra: Extra::Strip }), ("\"forge.pr.stack.change\"", Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_65_FIELDS, extra: Extra::Strip }), ("\"forge.pr.status\"", Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_66_FIELDS, extra: Extra::Strip }), ("\"forge.pr.create\"", Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_67_FIELDS, extra: Extra::Strip }), ("\"forge.pr.link\"", Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_68_FIELDS, extra: Extra::Strip }), ("\"forge.pr.unlink\"", Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_69_FIELDS, extra: Extra::Strip }), ("\"forge.comment.reply\"", Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_70_FIELDS, extra: Extra::Strip }), ("\"forge.review.request\"", Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_71_FIELDS, extra: Extra::Strip }), ("\"forge.pr.merge\"", Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_72_FIELDS, extra: Extra::Strip }), ("\"forge.pr.auto-merge\"", Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_73_FIELDS, extra: Extra::Strip }), ("\"forge.issue.write\"", Shape::Object { fields: &crate::shapes::client_message_109::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_FIELDS, extra: Extra::Strip }), ("\"forge.issue.reconcile\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_75_FIELDS, extra: Extra::Strip }), ("\"forge.issue.link\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_76_FIELDS, extra: Extra::Strip }), ("\"forge.inbox.write\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_77_FIELDS, extra: Extra::Strip }), ("\"review.open\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_78_FIELDS, extra: Extra::Strip }), ("\"review.comment\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_79_FIELDS, extra: Extra::Strip }), ("\"review.reply\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_80_FIELDS, extra: Extra::Strip }), ("\"review.resolve\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_81_FIELDS, extra: Extra::Strip }), ("\"review.applySuggestion\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_82_FIELDS, extra: Extra::Strip }), ("\"review.sendToAgent\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_83_FIELDS, extra: Extra::Strip }), ("\"review.askReviewer\"", Shape::Object { fields: &crate::shapes::client_message_111::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_84_FIELDS, extra: Extra::Strip }), ("\"review.refresh\"", Shape::Object { fields: &crate::shapes::client_message_112::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_85_FIELDS, extra: Extra::Strip }), ("\"review.status\"", Shape::Object { fields: &crate::shapes::client_message_112::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_86_FIELDS, extra: Extra::Strip }), ("\"review.list\"", Shape::Object { fields: &crate::shapes::client_message_112::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_87_FIELDS, extra: Extra::Strip }), ("\"orchestration.create\"", Shape::Object { fields: &crate::shapes::client_message_112::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_88_FIELDS, extra: Extra::Strip }), ("\"orchestration.cancel\"", Shape::Object { fields: &crate::shapes::client_message_113::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_89_FIELDS, extra: Extra::Strip }), ("\"orchestration.pick\"", Shape::Object { fields: &crate::shapes::client_message_113::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_90_FIELDS, extra: Extra::Strip }), ("\"thread.create\"", Shape::Object { fields: &crate::shapes::client_message_113::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_FIELDS, extra: Extra::Strip }), ("\"thread.send\"", Shape::Object { fields: &crate::shapes::client_message_114::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_92_FIELDS, extra: Extra::Strip }), ("\"thread.address\"", Shape::Object { fields: &crate::shapes::client_message_114::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_FIELDS, extra: Extra::Strip }), ("\"thread.interrupt\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_94_FIELDS, extra: Extra::Strip }), ("\"thread.archive\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_95_FIELDS, extra: Extra::Strip }), ("\"thread.model.set\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_96_FIELDS, extra: Extra::Strip }), ("\"thread.mode.set\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_97_FIELDS, extra: Extra::Strip }), ("\"thread.goal.set\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_98_FIELDS, extra: Extra::Strip }), ("\"thread.goal.clear\"", Shape::Object { fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_99_FIELDS, extra: Extra::Strip }), ("\"interaction.resolve\"", Shape::Object { fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_100_FIELDS, extra: Extra::Strip }), ("\"background_task.stop\"", Shape::Object { fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_101_FIELDS, extra: Extra::Strip })] } },
 ];
 
@@ -85,43 +121,61 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_0_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"queue.resend\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "messageId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expectedRevision",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_1_FIELDS: [Field; 19] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"thread.prepare\""]) },
     Field { key: "pullRequest", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_1_PULL_REQUEST_FIELDS, extra: Extra::Strip } },
-    Field { key: "handoffFrom", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "mode", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "baseBranch", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "handoffFrom", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "mode", presence: Presence::Optional, shape: Shape::Enum(&["\"local\"", "\"worktree\""]) },
+    Field { key: "baseBranch", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(1024), pattern: None, format: None, trim: false }) },
     Field { key: "base", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_2::CLIENT_MESSAGE_0_OPERATION_7_REQUEST_WORKSPACE_1_BASE_FIELDS, extra: Extra::Strip } },
-    Field { key: "threadId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "provider", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "access", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "model", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "accountId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "effort", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
+    Field { key: "access", presence: Presence::Optional, shape: Shape::OneOf(&[Shape::Enum(&["\"inherit\""]), Shape::Enum(&["\"read-only\"", "\"ask\"", "\"auto-review\"", "\"full-access\""])]) },
+    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "accountId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "effort", presence: Presence::Optional, shape: Shape::OneOf(&[Shape::Enum(&["\"inherit\""]), Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false })]) },
     Field { key: "options", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_1_OPTIONS_FIELDS, extra: Extra::Reject } },
-    Field { key: "titleSource", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "titleSource", presence: Presence::Optional, shape: Shape::Enum(&["\"person\"", "\"agent\""]) },
 ];

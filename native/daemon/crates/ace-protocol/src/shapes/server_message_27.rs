@@ -5,196 +5,455 @@
 #![allow(unused_imports)]
 
 // Part server_message_27.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_27_RESULT_2_GRANT_FIELDS: [Field; 12] = [
+pub(crate) static SERVER_MESSAGE_28_SCREEN_FIELDS: [Field; 3] = [
     Field {
-        key: "id",
+        key: "grantId",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "clientKind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "clientId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-zA-Z0-9_-]{1,128}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "domain",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "scopes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "projects",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "createdAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "expiresAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "lastUsedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "revokedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "approvedBy",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_27_RESULT_3_FIELDS: [Field; 1] = [Field {
-    key: "kind",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_27_RESULT_4_FIELDS: [Field; 1] = [Field {
-    key: "kind",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_27_RESULT_5_FIELDS: [Field; 1] = [Field {
-    key: "kind",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_27_RESULT_6_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "endpoints",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_27_RESULT_6_ENDPOINTS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_27_RESULT_6_ENDPOINTS_FIELDS: [Field; 4] = [
     Field {
-        key: "path",
+        key: "apps",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "url",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "on",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "problem",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(16),
+        },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_28_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_29_FIELDS: [Field; 5] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"lockedUse.status\""]),
     },
     Field {
-        key: "access",
+        key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_28_ACCESS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "screen",
+        key: "subscriptionId",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_28::SERVER_MESSAGE_28_SCREEN_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "revision",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "state",
+            options: &[
+                (
+                    "\"off\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_0_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"installing\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_1_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"on\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_2_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"needsApproval\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_3_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"installFailed\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_4_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"driftRepairNeeded\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_5_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+            ],
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_29_STATUS_0_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"off\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_29_STATUS_1_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"installing\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_29_STATUS_2_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"on\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_29_STATUS_3_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"needsApproval\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_29_STATUS_4_FIELDS: [Field; 3] = [
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"installFailed\""]),
+    },
+    Field {
+        key: "reason",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "unavailable",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_29_STATUS_5_FIELDS: [Field; 2] = [
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"driftRepairNeeded\""]),
+    },
+    Field {
+        key: "reason",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_28_ACCESS_FIELDS: [Field; 9] = [
+pub(crate) static SERVER_MESSAGE_30_FIELDS: [Field; 4] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"lockedUse.changed\""]),
+    },
+    Field {
+        key: "subscriptionId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "revision",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "state",
+            options: &[
+                (
+                    "\"off\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_0_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"installing\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_1_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"on\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_2_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"needsApproval\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_3_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"installFailed\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_4_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"driftRepairNeeded\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_5_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+            ],
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_31_FIELDS: [Field; 7] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"lockedUse.result\""]),
+    },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "clientName",
+        key: "ok",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
-        key: "domain",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "scopes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "matchCode",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "expiresAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "redirectHost",
+        key: "revision",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
-        key: "redirectKind",
+        key: "status",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Tagged {
+            key: "state",
+            options: &[
+                (
+                    "\"off\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_0_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"installing\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_1_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"on\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_2_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"needsApproval\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_3_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"installFailed\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_4_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+                (
+                    "\"driftRepairNeeded\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_29_STATUS_5_FIELDS,
+                        extra: Extra::Keep,
+                    },
+                ),
+            ],
+        },
     },
     Field {
-        key: "grantId",
+        key: "code",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&["\"forbidden\"", "\"busy\"", "\"unavailable\"", "\"failed\""]),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(64),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
+    },
+    Field {
+        key: "reason",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_32_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"transfers.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "result",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "kind",
+            options: &[
+                (
+                    "\"list\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_28::SERVER_MESSAGE_32_RESULT_0_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"cancelled\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_29::SERVER_MESSAGE_32_RESULT_1_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"carriedOnHere\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_29::SERVER_MESSAGE_32_RESULT_2_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"error\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_29::SERVER_MESSAGE_32_RESULT_3_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+            ],
+        },
     },
 ];

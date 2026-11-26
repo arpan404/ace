@@ -5,66 +5,72 @@
 #![allow(unused_imports)]
 
 // Part client_message_69.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_3_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"inventory.watch\""]),
     },
     Field {
         key: "watching",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_4_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"permissions\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_5_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"permissions.request\""]),
     },
     Field {
         key: "permission",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"screenRecording\"", "\"accessibility\""]),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_6_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"tools.install\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_7_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"chrome\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "format",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"svg\"", "\"png\""]),
     },
     Field {
         key: "posture",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"closed\"", "\"partiallyOpen\"", "\"open\""]),
     },
 ];
 
@@ -72,12 +78,18 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_8_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"boot\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -85,12 +97,18 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_9_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"shutdown\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -98,17 +116,29 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_10_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"install\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -116,17 +146,29 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_11_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"open_app\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "appId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -134,17 +176,29 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_12_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"open_url\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -152,12 +206,18 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_13_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"configure\""]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "settings",
@@ -170,7 +230,7 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_13_FIELDS: [Field; 3] = [
 ];
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_13_SETTINGS_FIELDS: [Field; 3] = [
-    Field { key: "appearance", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "appearance", presence: Presence::Optional, shape: Shape::Enum(&["\"light\"", "\"dark\""]) },
     Field { key: "location", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_70::CLIENT_MESSAGE_146_OPERATION_13_SETTINGS_LOCATION_FIELDS, extra: Extra::Strip } },
-    Field { key: "locale", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "locale", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-zA-Z]{2,8}(?:[-_][a-zA-Z0-9]{2,8}){0,2}$"), format: None, trim: false }) },
 ];

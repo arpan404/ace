@@ -5,197 +5,254 @@
 #![allow(unused_imports)]
 
 // Part server_message_73.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_9_FIELDS: [Field; 4] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "installs", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::server_message_70::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_INSTALL_FIELDS, extra: Extra::Reject }) },
-    Field { key: "reviews", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &SERVER_MESSAGE_62_RESPONSE_9_REVIEWS_FIELDS, extra: Extra::Reject }) },
-    Field { key: "availability", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::server_message_71::SERVER_MESSAGE_62_RESPONSE_3_AVAILABILITY_FIELDS, extra: Extra::Strip }) },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_9_REVIEWS_FIELDS: [Field; 7] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "version",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "commit",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hash",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "executionCount",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "unsupportedCount",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_10_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_63_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"suitResult\""]),
     },
     Field {
-        key: "name",
+        key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_11_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "plugins",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_62_RESPONSE_11_PLUGINS_FIELDS,
-            extra: Extra::Reject,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(80),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_11_PLUGINS_FIELDS: [Field; 3] = [
     Field {
-        key: "name",
+        key: "response",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "description",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "version",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_12_FIELDS: [Field; 2] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "origins",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_62_RESPONSE_12_ORIGINS_FIELDS,
-            extra: Extra::Reject,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_12_ORIGINS_FIELDS: [Field; 3] = [
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "repository",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_13_FIELDS: [Field; 4] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "review",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_62_RESPONSE_9_REVIEWS_FIELDS,
-            extra: Extra::Reject,
-        },
-    },
-    Field {
-        key: "entries",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Tagged {
-            key: "type",
+        shape: Shape::Tagged {
+            key: "op",
             options: &[
                 (
-                    "\"execution\"",
+                    "\"list\"",
                     Shape::Object {
-                        fields: &SERVER_MESSAGE_62_RESPONSE_13_ENTRIES_0_FIELDS,
-                        extra: Extra::Reject,
+                        fields: &SERVER_MESSAGE_63_RESPONSE_0_FIELDS,
+                        extra: Extra::Strip,
                     },
                 ),
                 (
-                    "\"diagnostic\"",
+                    "\"read\"",
                     Shape::Object {
-                        fields: &SERVER_MESSAGE_62_RESPONSE_13_ENTRIES_1_FIELDS,
-                        extra: Extra::Reject,
+                        fields: &SERVER_MESSAGE_63_RESPONSE_1_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"validate\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_76::SERVER_MESSAGE_63_RESPONSE_2_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"remove\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_76::SERVER_MESSAGE_63_RESPONSE_3_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"error\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_77::SERVER_MESSAGE_63_RESPONSE_4_FIELDS,
+                        extra: Extra::Strip,
                     },
                 ),
             ],
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_0_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"list\""]),
+    },
+    Field {
+        key: "suits",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS: [Field; 7] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(48),
+            pattern: Some("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "nextOffset",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "description",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "schemes",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Enum(&["\"light\"", "\"dark\""]),
+            min: None,
+            max: None,
+        },
+    },
+    Field {
+        key: "scene",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "contentHash",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "problems",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &crate::shapes::client_message_28::CLIENT_MESSAGE_69_REPORT_PROBLEMS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_13_ENTRIES_0_FIELDS: [Field; 2] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "execution", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"hook\"", Shape::Object { fields: &crate::shapes::server_message_71::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_EXECUTIONS_0_FIELDS, extra: Extra::Reject }), ("\"stdio\"", Shape::Object { fields: &crate::shapes::server_message_71::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_EXECUTIONS_1_FIELDS, extra: Extra::Reject }), ("\"remote\"", Shape::Object { fields: &crate::shapes::server_message_71::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_EXECUTIONS_2_FIELDS, extra: Extra::Reject })] } },
-];
-
-pub(crate) static SERVER_MESSAGE_62_RESPONSE_13_ENTRIES_1_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_FIELDS: [Field; 2] = [
     Field {
-        key: "type",
+        key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"read\""]),
     },
     Field {
-        key: "message",
+        key: "suit",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_63_RESPONSE_1_SUIT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_FIELDS: [Field; 7] = [
+    Field {
+        key: "summary",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "manifest",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_74::SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FIELDS,
+            extra: Extra::Keep,
+        },
+    },
+    Field {
+        key: "sceneUrl",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "sceneUrls",
+        presence: Presence::Default("{}"),
+        shape: Shape::Record(&Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "assets",
+        presence: Presence::Required,
+        shape: Shape::Record(&Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "css",
+        presence: Presence::Default("null"),
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
+    },
+    Field {
+        key: "ornaments",
+        presence: Presence::Default("{}"),
+        shape: Shape::Record(&Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        })),
     },
 ];

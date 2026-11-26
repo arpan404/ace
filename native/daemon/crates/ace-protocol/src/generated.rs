@@ -388,7 +388,7 @@ pub enum AgentItem {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         run_id: ::std::option::Option<Schema665>,
-        status: ThreadStatus,
+        status: crate::thread_status::ThreadStatus,
         title: ::std::string::String,
         #[serde(rename = "updatedAt")]
         updated_at: Schema53,
@@ -613,6 +613,91 @@ pub enum AgentItem {
         tokens_before: ::std::option::Option<i64>,
     },
 }
+#[doc = "`AgentItemCompaction`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemCompaction {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub summary: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "tokensAfter",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub tokens_after: ::std::option::Option<i64>,
+    #[serde(
+        rename = "tokensBefore",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub tokens_before: ::std::option::Option<i64>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+#[doc = "`AgentItemDelegationSettled`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemDelegationSettled {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    pub delivery: AgentItemDelegationSettledDelivery,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub origin: ::std::string::String,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    pub results: ::std::vec::Vec<Schema677>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 #[doc = "`AgentItemDelegationSettledDelivery`"]
 #[derive(
     :: serde :: Deserialize,
@@ -663,6 +748,63 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentItemDelegationSettl
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+#[doc = "`AgentItemDelegationStarted`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemDelegationStarted {
+    #[serde(
+        rename = "accountId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub account_id: ::std::option::Option<::std::string::String>,
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    #[serde(rename = "childThreadId")]
+    pub child_thread_id: ThreadId,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub generation: i64,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub machine: ::std::option::Option<Schema678>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub origin: ::std::string::String,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub outcome: ::std::option::Option<Schema677>,
+    pub phase: AgentItemDelegationStartedPhase,
+    pub provider: ProviderKind,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    pub role: ::std::string::String,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    pub status: crate::thread_status::ThreadStatus,
+    pub title: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Schema53,
 }
 #[doc = "`AgentItemDelegationStartedPhase`"]
 #[derive(
@@ -722,6 +864,42 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentItemDelegationStart
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+#[doc = "`AgentItemHtml`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemHtml {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+    pub visualization: AgentItemHtmlVisualization,
 }
 #[doc = "`AgentItemHtmlVisualization`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -786,6 +964,42 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentItemHtmlVisualizati
         value.parse()
     }
 }
+#[doc = "`AgentItemImage`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemImage {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    pub image: AgentItemImageImage,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 #[doc = "`AgentItemImageImage`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct AgentItemImageImage {
@@ -793,6 +1007,60 @@ pub struct AgentItemImageImage {
     pub attachment: Schema672,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub caption: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`AgentItemMessage`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemMessage {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub attachments: ::std::vec::Vec<Schema672>,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "mergedContext",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub merged_context: ::std::option::Option<AgentItemMessageMergedContext>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    #[serde(
+        rename = "notAnswered",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub not_answered: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub origin: ::std::option::Option<MessageOrigin>,
+    pub parts: ::std::vec::Vec<ContentPart>,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    pub role: AgentItemMessageRole,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub speaker: ::std::option::Option<AgentItemMessageSpeaker>,
+    pub synthetic: bool,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`AgentItemMessageMergedContext`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -877,11 +1145,79 @@ pub struct AgentItemMessageSpeakerClub {
     pub id: Schema592,
     pub name: Schema593,
 }
+#[doc = "`AgentItemNotice`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemNotice {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub asked: ::std::option::Option<AgentItemNoticeAsked>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub code: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "commandId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub command_id: ::std::option::Option<Schema27>,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub detail: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub details: ::std::option::Option<Schema693>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub diagnostic: ::std::option::Option<bool>,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "interactionId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub interaction_id: ::std::option::Option<Schema255>,
+    pub level: AgentItemNoticeLevel,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub measurement: ::std::option::Option<Schema684>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Schema223>,
+    pub text: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub title: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "toolCallId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub tool_call_id: ::std::option::Option<Schema38>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 #[doc = "`AgentItemNoticeAsked`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct AgentItemNoticeAsked {
     pub about: ::std::string::String,
-    pub devices: ::std::vec::Vec<Schema472>,
+    pub devices: ::std::vec::Vec<Schema470Device>,
     pub share: Schema599,
     pub shares: ::std::vec::Vec<Schema695>,
     pub to: ::std::vec::Vec<Schema694>,
@@ -942,6 +1278,82 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentItemNoticeLevel {
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+#[doc = "`AgentItemReasoning`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemReasoning {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    pub raw: ::std::vec::Vec<Schema673>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Schema223>,
+    pub summary: bool,
+    pub text: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+#[doc = "`AgentItemToolCall`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct AgentItemToolCall {
+    #[serde(rename = "agentId")]
+    pub agent_id: Schema252,
+    pub call: AgentItemToolCallCall,
+    pub complete: Schema669,
+    #[serde(rename = "createdAt")]
+    pub created_at: Schema53,
+    #[serde(
+        rename = "executionSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub execution_source: ::std::option::Option<Schema667>,
+    pub id: Schema38,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub inherited: ::std::option::Option<Schema670>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub measurement: ::std::option::Option<Schema684>,
+    #[serde(
+        rename = "nativeId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_id: ::std::option::Option<Schema666>,
+    #[serde(
+        rename = "rawOmitted",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub raw_omitted: ::std::option::Option<bool>,
+    #[serde(
+        rename = "runId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<Schema665>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`AgentItemToolCallCall`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -2864,7 +3276,7 @@ pub struct ClientBrowserExecute {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum ClientBrowserExecuteCommand {
-    Variant0 {
+    Branch0 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2874,7 +3286,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant1 {
+    Branch1 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2884,7 +3296,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant2 {
+    Branch2 {
         action: ::std::string::String,
         direction: ClientMessageBrowserExecuteCommandBranch2Direction,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2895,7 +3307,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant3 {
+    Branch3 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2907,7 +3319,7 @@ pub enum ClientBrowserExecuteCommand {
         tab_id: ::std::option::Option<Schema372>,
         text: ::std::string::String,
     },
-    Variant4 {
+    Branch4 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2922,7 +3334,7 @@ pub enum ClientBrowserExecuteCommand {
         #[serde(rename = "waitUntil")]
         wait_until: Schema375,
     },
-    Variant5 {
+    Branch5 {
         action: ::std::string::String,
         button: ClientMessageBrowserExecuteCommandBranch5Button,
         #[serde(rename = "clickCount")]
@@ -2945,7 +3357,7 @@ pub enum ClientBrowserExecuteCommand {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         y: ::std::option::Option<Schema377>,
     },
-    Variant6 {
+    Branch6 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2958,7 +3370,7 @@ pub enum ClientBrowserExecuteCommand {
         tab_id: ::std::option::Option<Schema372>,
         text: Schema381,
     },
-    Variant7 {
+    Branch7 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2971,7 +3383,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant8 {
+    Branch8 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2983,7 +3395,7 @@ pub enum ClientBrowserExecuteCommand {
         x: Schema385,
         y: Schema385,
     },
-    Variant9 {
+    Branch9 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -2997,7 +3409,7 @@ pub enum ClientBrowserExecuteCommand {
         #[serde(rename = "toRef")]
         to_ref: Schema380,
     },
-    Variant10 {
+    Branch10 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3013,7 +3425,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant11 {
+    Branch11 {
         action: ::std::string::String,
         #[doc = "How many levels below the page (or ref) to read. Omitted: every level."]
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3035,7 +3447,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant12 {
+    Branch12 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3054,7 +3466,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant13 {
+    Branch13 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3067,7 +3479,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant14 {
+    Branch14 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3101,7 +3513,7 @@ pub enum ClientBrowserExecuteCommand {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         url: ::std::option::Option<Schema396>,
     },
-    Variant15 {
+    Branch15 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3120,7 +3532,7 @@ pub enum ClientBrowserExecuteCommand {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         url: ::std::option::Option<::std::string::String>,
     },
-    Variant16 {
+    Branch16 {
         action: ::std::string::String,
         #[serde(
             rename = "devicePixelRatio",
@@ -3139,7 +3551,7 @@ pub enum ClientBrowserExecuteCommand {
         touch: ::std::option::Option<bool>,
         width: Schema400,
     },
-    Variant17 {
+    Branch17 {
         action: ::std::string::String,
         #[serde(rename = "colorScheme")]
         color_scheme: ClientMessageBrowserExecuteCommandBranch17ColorScheme,
@@ -3163,7 +3575,7 @@ pub enum ClientBrowserExecuteCommand {
         user_agent: ::std::option::Option<Schema401>,
         width: Schema400,
     },
-    Variant18 {
+    Branch18 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3180,7 +3592,7 @@ pub enum ClientBrowserExecuteCommand {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         url: ::std::option::Option<::std::string::String>,
     },
-    Variant19 {
+    Branch19 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3191,7 +3603,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant20 {
+    Branch20 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3203,7 +3615,7 @@ pub enum ClientBrowserExecuteCommand {
         tab_id: ::std::option::Option<Schema372>,
         timeout: Schema374,
     },
-    Variant21 {
+    Branch21 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3216,7 +3628,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant22 {
+    Branch22 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3227,7 +3639,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant23 {
+    Branch23 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3240,7 +3652,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant24 {
+    Branch24 {
         accept: bool,
         action: ::std::string::String,
         #[serde(rename = "dialogId")]
@@ -3258,7 +3670,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant25 {
+    Branch25 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3270,7 +3682,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant26 {
+    Branch26 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3283,7 +3695,7 @@ pub enum ClientBrowserExecuteCommand {
         tab_id: ::std::option::Option<Schema372>,
         values: ::std::vec::Vec<Schema404>,
     },
-    Variant27 {
+    Branch27 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3295,7 +3707,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant28 {
+    Branch28 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3307,7 +3719,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant29 {
+    Branch29 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3319,7 +3731,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant30 {
+    Branch30 {
         action: ::std::string::String,
         #[doc = "Match the whole name exactly."]
         exact: Schema406,
@@ -3337,7 +3749,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant31 {
+    Branch31 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3349,7 +3761,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant32 {
+    Branch32 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3359,7 +3771,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant33 {
+    Branch33 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3369,8 +3781,42 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant34(ClientBrowserExecuteCommandVariant34),
-    Variant35 {
+    Branch34 {
+        action: ::std::string::String,
+        config: ClientMessageBrowserExecuteCommandBranch34Config,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        expect: ::std::option::Option<Schema373>,
+        operation: ::std::string::String,
+        #[serde(
+            rename = "tabId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        tab_id: ::std::option::Option<Schema372>,
+    },
+    Branch35 {
+        action: ::std::string::String,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        expect: ::std::option::Option<Schema373>,
+        operation: ::std::string::String,
+        #[serde(
+            rename = "tabId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        tab_id: ::std::option::Option<Schema372>,
+    },
+    Branch36 {
+        action: ::std::string::String,
+        command: ClientMessageBrowserExecuteCommandBranch36Command,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        expect: ::std::option::Option<Schema373>,
+        operation: ::std::string::String,
+        #[serde(
+            rename = "tabId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        tab_id: ::std::option::Option<Schema372>,
+    },
+    Branch37 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3381,7 +3827,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant36 {
+    Branch38 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3391,7 +3837,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant37 {
+    Branch39 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3401,7 +3847,7 @@ pub enum ClientBrowserExecuteCommand {
         )]
         tab_id: ::std::option::Option<Schema372>,
     },
-    Variant38 {
+    Branch40 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3413,7 +3859,7 @@ pub enum ClientBrowserExecuteCommand {
         x: f64,
         y: f64,
     },
-    Variant39 {
+    Branch41 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3424,7 +3870,7 @@ pub enum ClientBrowserExecuteCommand {
         tab_id: ::std::option::Option<Schema372>,
         url: ::std::string::String,
     },
-    Variant40 {
+    Branch42 {
         action: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         expect: ::std::option::Option<Schema373>,
@@ -3433,55 +3879,7 @@ pub enum ClientBrowserExecuteCommand {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         tab_id: ::std::option::Option<Schema372>,
-        target: ClientMessageBrowserExecuteCommandBranch40Target,
-    },
-}
-impl ::std::convert::From<ClientBrowserExecuteCommandVariant34> for ClientBrowserExecuteCommand {
-    fn from(value: ClientBrowserExecuteCommandVariant34) -> Self {
-        Self::Variant34(value)
-    }
-}
-#[doc = "`ClientBrowserExecuteCommandVariant34`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "operation")]
-pub enum ClientBrowserExecuteCommandVariant34 {
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch0"]
-    #[serde(rename = "start")]
-    Start {
-        action: ::std::string::String,
-        config: ClientMessageBrowserExecuteCommandBranch34Branch0Config,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        expect: ::std::option::Option<Schema373>,
-        #[serde(
-            rename = "tabId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        tab_id: ::std::option::Option<Schema372>,
-    },
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch1"]
-    #[serde(rename = "stop")]
-    Stop {
-        action: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        expect: ::std::option::Option<Schema373>,
-        #[serde(
-            rename = "tabId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        tab_id: ::std::option::Option<Schema372>,
-    },
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2"]
-    #[serde(rename = "command")]
-    Command {
-        action: ::std::string::String,
-        command: ClientMessageBrowserExecuteCommandBranch34Branch2Command,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        expect: ::std::option::Option<Schema373>,
-        #[serde(
-            rename = "tabId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        tab_id: ::std::option::Option<Schema372>,
+        target: ClientMessageBrowserExecuteCommandBranch42Target,
     },
 }
 #[doc = "`ClientBrowserFilesChoose`"]
@@ -4794,7 +5192,7 @@ pub enum ClientFleetRequestOperation {
             rename = "ttlMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        ttl_ms: ::std::option::Option<ClientMessageFleetRequestOperationBranch3TtlMs>,
+        ttl_ms: ::std::option::Option<f64>,
     },
     #[serde(rename = "pairings")]
     Pairings,
@@ -5438,1287 +5836,129 @@ pub enum ClientMarketplaceRequestOperation {
 }
 #[doc = "`ClientMcpAdd`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpAdd {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpAdd {
+    pub name: Schema225,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    pub server: Schema226,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpDisable`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpDisable {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpDisable {
+    pub name: Schema228,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpEnable`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpEnable {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpEnable {
+    pub name: Schema228,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpProviderAdd`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpProviderAdd {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpProviderAdd {
+    pub name: Schema225,
+    pub provider: ProviderKind,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema230,
+    pub server: Schema226,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpProviderDisable`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpProviderDisable {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpProviderDisable {
+    pub name: Schema228,
+    pub provider: ProviderKind,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema230,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpProviderEnable`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpProviderEnable {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpProviderEnable {
+    pub name: Schema228,
+    pub provider: ProviderKind,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema230,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpProviderReconnect`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpProviderReconnect {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpProviderReconnect {
+    pub name: Schema228,
+    pub provider: ProviderKind,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema230,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpProviderSources`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpProviderSources {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpProviderSources {
+    pub provider: ProviderKind,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema230,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpReconnect`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpReconnect {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpReconnect {
+    pub name: Schema228,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpReplace`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpReplace {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpReplace {
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    pub servers: ::ace_json::Map,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpSources`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpSources {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpSources {
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMcpStatus`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientMcpStatus {
-    #[doc = "ClientMessageBranch86McpStatus"]
-    #[serde(rename = "mcp.status")]
-    McpStatus {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpSources"]
-    #[serde(rename = "mcp.sources")]
-    McpSources {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpAdd"]
-    #[serde(rename = "mcp.add")]
-    McpAdd {
-        name: Schema225,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        server: Schema226,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReplace"]
-    #[serde(rename = "mcp.replace")]
-    McpReplace {
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        servers: ::ace_json::Map,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpReconnect"]
-    #[serde(rename = "mcp.reconnect")]
-    McpReconnect {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpEnable"]
-    #[serde(rename = "mcp.enable")]
-    McpEnable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpDisable"]
-    #[serde(rename = "mcp.disable")]
-    McpDisable {
-        name: Schema228,
-        #[serde(rename = "requestId")]
-        request_id: Schema224,
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-    },
-    #[doc = "ClientMessageBranch86McpProviderSources"]
-    #[serde(rename = "mcp.provider.sources")]
-    McpProviderSources {
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderAdd"]
-    #[serde(rename = "mcp.provider.add")]
-    McpProviderAdd {
-        name: Schema225,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-        server: Schema226,
-    },
-    #[doc = "ClientMessageBranch86McpProviderReconnect"]
-    #[serde(rename = "mcp.provider.reconnect")]
-    McpProviderReconnect {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderEnable"]
-    #[serde(rename = "mcp.provider.enable")]
-    McpProviderEnable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
-    #[doc = "ClientMessageBranch86McpProviderDisable"]
-    #[serde(rename = "mcp.provider.disable")]
-    McpProviderDisable {
-        name: Schema228,
-        provider: ProviderKind,
-        #[serde(rename = "requestId")]
-        request_id: Schema230,
-    },
+pub struct ClientMcpStatus {
+    #[serde(rename = "requestId")]
+    pub request_id: Schema224,
+    #[serde(rename = "threadId")]
+    pub thread_id: ThreadId,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientMediaConnect`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -6827,63 +6067,6 @@ impl ::std::convert::TryFrom<&str> for ClientMessageAutomationWebhookAction {
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for ClientMessageAutomationWebhookAction {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`ClientMessageBranch60RegistryInstallPlanRuntime`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum ClientMessageBranch60RegistryInstallPlanRuntime {
-    #[serde(rename = "binary")]
-    Binary,
-    #[serde(rename = "npm")]
-    Npm,
-    #[serde(rename = "uv")]
-    Uv,
-}
-impl ::std::fmt::Display for ClientMessageBranch60RegistryInstallPlanRuntime {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Binary => f.write_str("binary"),
-            Self::Npm => f.write_str("npm"),
-            Self::Uv => f.write_str("uv"),
-        }
-    }
-}
-impl ::std::str::FromStr for ClientMessageBranch60RegistryInstallPlanRuntime {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "binary" => Ok(Self::Binary),
-            "npm" => Ok(Self::Npm),
-            "uv" => Ok(Self::Uv),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ClientMessageBranch60RegistryInstallPlanRuntime {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for ClientMessageBranch60RegistryInstallPlanRuntime
-{
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
@@ -7306,9 +6489,9 @@ impl ::std::convert::TryFrom<::std::string::String>
         value.parse()
     }
 }
-#[doc = "`ClientMessageBrowserExecuteCommandBranch34Branch0Config`"]
+#[doc = "`ClientMessageBrowserExecuteCommandBranch34Config`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct ClientMessageBrowserExecuteCommandBranch34Branch0Config {
+pub struct ClientMessageBrowserExecuteCommandBranch34Config {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub bar: ::std::option::Option<Schema411>,
     #[serde(
@@ -7320,9 +6503,9 @@ pub struct ClientMessageBrowserExecuteCommandBranch34Branch0Config {
     pub next_number: Schema409,
     pub theme: Schema408,
 }
-impl ::std::default::Default for ClientMessageBrowserExecuteCommandBranch34Branch0Config {
+impl ::std::default::Default for ClientMessageBrowserExecuteCommandBranch34Config {
     fn default() -> Self {
-        ClientMessageBrowserExecuteCommandBranch34Branch0Config {
+        ClientMessageBrowserExecuteCommandBranch34Config {
             bar: Default::default(),
             markers_hidden: Default::default(),
             next_number: Schema409(::std::num::NonZeroU64::new(1).unwrap()),
@@ -7330,11 +6513,11 @@ impl ::std::default::Default for ClientMessageBrowserExecuteCommandBranch34Branc
         }
     }
 }
-#[doc = "`ClientMessageBrowserExecuteCommandBranch34Branch2Command`"]
+#[doc = "`ClientMessageBrowserExecuteCommandBranch36Command`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(tag = "op")]
-pub enum ClientMessageBrowserExecuteCommandBranch34Branch2Command {
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2CommandBranch0"]
+pub enum ClientMessageBrowserExecuteCommandBranch36Command {
+    #[doc = "ClientMessageBrowserExecuteCommandBranch36CommandBranch0"]
     #[serde(rename = "configure")]
     Configure {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7348,37 +6531,37 @@ pub enum ClientMessageBrowserExecuteCommandBranch34Branch2Command {
         next_number: Schema409,
         theme: Schema408,
     },
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2CommandBranch1"]
+    #[doc = "ClientMessageBrowserExecuteCommandBranch36CommandBranch1"]
     #[serde(rename = "edit")]
     Edit { id: Schema413 },
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2CommandBranch2"]
+    #[doc = "ClientMessageBrowserExecuteCommandBranch36CommandBranch2"]
     #[serde(rename = "remove")]
     Remove { id: Schema413 },
     #[serde(rename = "clear")]
     Clear,
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2CommandBranch4"]
+    #[doc = "ClientMessageBrowserExecuteCommandBranch36CommandBranch4"]
     #[serde(rename = "renumber")]
     Renumber { numbers: ::std::vec::Vec<Schema414> },
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2CommandBranch5"]
+    #[doc = "ClientMessageBrowserExecuteCommandBranch36CommandBranch5"]
     #[serde(rename = "toast")]
     Toast { text: ::std::string::String },
-    #[doc = "ClientMessageBrowserExecuteCommandBranch34Branch2CommandBranch6"]
+    #[doc = "ClientMessageBrowserExecuteCommandBranch36CommandBranch6"]
     #[serde(rename = "restore")]
     Restore {
         annotations: ::std::vec::Vec<Schema415>,
     },
 }
-#[doc = "`ClientMessageBrowserExecuteCommandBranch40Target`"]
+#[doc = "`ClientMessageBrowserExecuteCommandBranch42Target`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(tag = "kind", content = "id")]
-pub enum ClientMessageBrowserExecuteCommandBranch40Target {
+pub enum ClientMessageBrowserExecuteCommandBranch42Target {
     #[serde(rename = "page")]
     Page,
-    #[doc = "ClientMessageBrowserExecuteCommandBranch40TargetBranch1"]
+    #[doc = "ClientMessageBrowserExecuteCommandBranch42TargetBranch1"]
     #[serde(rename = "annotation")]
     Annotation(Schema413),
 }
-impl ::std::convert::From<Schema413> for ClientMessageBrowserExecuteCommandBranch40Target {
+impl ::std::convert::From<Schema413> for ClientMessageBrowserExecuteCommandBranch42Target {
     fn from(value: Schema413) -> Self {
         Self::Annotation(value)
     }
@@ -8512,57 +7695,6 @@ impl ::std::convert::TryFrom<::std::string::String>
 impl ::std::default::Default for ClientMessageFilesRequestOperationBranch2Case {
     fn default() -> Self {
         ClientMessageFilesRequestOperationBranch2Case::Smart
-    }
-}
-#[doc = "`ClientMessageFleetRequestOperationBranch3TtlMs`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ClientMessageFleetRequestOperationBranch3TtlMs {
-    Variant0(f64),
-    Variant1(f64),
-    Variant2(f64),
-    Variant3(f64),
-}
-impl ::std::fmt::Display for ClientMessageFleetRequestOperationBranch3TtlMs {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Variant0(x) => x.fmt(f),
-            Self::Variant1(x) => x.fmt(f),
-            Self::Variant2(x) => x.fmt(f),
-            Self::Variant3(x) => x.fmt(f),
-        }
-    }
-}
-impl ::std::str::FromStr for ClientMessageFleetRequestOperationBranch3TtlMs {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if let Ok(v) = value.parse() {
-            Ok(Self::Variant0(v))
-        } else if let Ok(v) = value.parse() {
-            Ok(Self::Variant1(v))
-        } else if let Ok(v) = value.parse() {
-            Ok(Self::Variant2(v))
-        } else if let Ok(v) = value.parse() {
-            Ok(Self::Variant3(v))
-        } else {
-            Err("string conversion failed for all variants".into())
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ClientMessageFleetRequestOperationBranch3TtlMs {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for ClientMessageFleetRequestOperationBranch3TtlMs
-{
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
     }
 }
 #[doc = "`ClientMessageFleetRequestOperationBranch8Scope`"]
@@ -10564,6 +9696,61 @@ impl ::std::convert::TryFrom<::std::string::String> for ClientMessageProvidersRe
 impl ::std::default::Default for ClientMessageProvidersRequestOperation {
     fn default() -> Self {
         ClientMessageProvidersRequestOperation::List
+    }
+}
+#[doc = "`ClientMessageRegistryInstallPlanRuntime`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ClientMessageRegistryInstallPlanRuntime {
+    #[serde(rename = "binary")]
+    Binary,
+    #[serde(rename = "npm")]
+    Npm,
+    #[serde(rename = "uv")]
+    Uv,
+}
+impl ::std::fmt::Display for ClientMessageRegistryInstallPlanRuntime {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Binary => f.write_str("binary"),
+            Self::Npm => f.write_str("npm"),
+            Self::Uv => f.write_str("uv"),
+        }
+    }
+}
+impl ::std::str::FromStr for ClientMessageRegistryInstallPlanRuntime {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "binary" => Ok(Self::Binary),
+            "npm" => Ok(Self::Npm),
+            "uv" => Ok(Self::Uv),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ClientMessageRegistryInstallPlanRuntime {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ClientMessageRegistryInstallPlanRuntime {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 #[doc = "`ClientMessageRepositoriesRequestOperationBranch0Input`"]
@@ -12627,647 +11814,104 @@ pub struct ClientQueueGet {
 }
 #[doc = "`ClientRegistryApproveUpdate`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryApproveUpdate {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryApproveUpdate {
+    #[serde(rename = "acpAgentId")]
+    pub acp_agent_id: Schema8,
+    #[serde(
+        rename = "bridgeDigest",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub bridge_digest: ::std::option::Option<Schema107>,
+    #[serde(rename = "executableDigest")]
+    pub executable_digest: Schema107,
+    pub generation: i64,
+    #[serde(rename = "installationId")]
+    pub installation_id: Schema8,
+    #[serde(rename = "instanceId")]
+    pub instance_id: Schema8,
+    #[serde(
+        rename = "previousBridgeDigest",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub previous_bridge_digest: ::std::option::Option<Schema107>,
+    #[serde(rename = "previousExecutableDigest")]
+    pub previous_executable_digest: Schema107,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientRegistryBind`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryBind {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryBind {
+    #[serde(rename = "acpAgentId")]
+    pub acp_agent_id: Schema8,
+    pub args: ::std::vec::Vec<Schema106>,
+    pub command: ::std::string::String,
+    #[serde(rename = "installationId")]
+    pub installation_id: Schema8,
+    #[serde(rename = "instanceId")]
+    pub instance_id: Schema8,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+    #[serde(
+        rename = "underlyingCommand",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub underlying_command: ::std::option::Option<::std::string::String>,
+    pub version: Schema8,
 }
 #[doc = "`ClientRegistryInstallCancel`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryInstallCancel {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryInstallCancel {
+    #[serde(rename = "intentId")]
+    pub intent_id: Schema8,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientRegistryInstallIntent`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryInstallIntent {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryInstallIntent {
+    pub digest: Schema107,
+    #[serde(rename = "intentId")]
+    pub intent_id: Schema8,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientRegistryInstallPlan`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryInstallPlan {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryInstallPlan {
+    #[serde(rename = "acpAgentId")]
+    pub acp_agent_id: Schema8,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    pub runtime: ClientMessageRegistryInstallPlanRuntime,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientRegistryList`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryList {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryList {
+    pub limit: ::std::num::NonZeroU64,
+    pub offset: i64,
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientRegistryRefresh`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "type")]
-pub enum ClientRegistryRefresh {
-    #[doc = "ClientMessageBranch60RegistryList"]
-    #[serde(rename = "registry.list")]
-    RegistryList {
-        limit: ::std::num::NonZeroU64,
-        offset: i64,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryRefresh"]
-    #[serde(rename = "registry.refresh")]
-    RegistryRefresh {
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryBind"]
-    #[serde(rename = "registry.bind")]
-    RegistryBind {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        args: ::std::vec::Vec<Schema106>,
-        command: ::std::string::String,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        #[serde(
-            rename = "underlyingCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        underlying_command: ::std::option::Option<::std::string::String>,
-        version: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallPlan"]
-    #[serde(rename = "registry.install-plan")]
-    RegistryInstallPlan {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-        runtime: ClientMessageBranch60RegistryInstallPlanRuntime,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallIntent"]
-    #[serde(rename = "registry.install-intent")]
-    RegistryInstallIntent {
-        digest: Schema107,
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryInstallCancel"]
-    #[serde(rename = "registry.install-cancel")]
-    RegistryInstallCancel {
-        #[serde(rename = "intentId")]
-        intent_id: Schema8,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
-    #[doc = "ClientMessageBranch60RegistryApproveUpdate"]
-    #[serde(rename = "registry.approve-update")]
-    RegistryApproveUpdate {
-        #[serde(rename = "acpAgentId")]
-        acp_agent_id: Schema8,
-        #[serde(
-            rename = "bridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "executableDigest")]
-        executable_digest: Schema107,
-        generation: i64,
-        #[serde(rename = "installationId")]
-        installation_id: Schema8,
-        #[serde(rename = "instanceId")]
-        instance_id: Schema8,
-        #[serde(
-            rename = "previousBridgeDigest",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        previous_bridge_digest: ::std::option::Option<Schema107>,
-        #[serde(rename = "previousExecutableDigest")]
-        previous_executable_digest: Schema107,
-        #[serde(rename = "requestId")]
-        request_id: Schema8,
-    },
+pub struct ClientRegistryRefresh {
+    #[serde(rename = "requestId")]
+    pub request_id: Schema8,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
 }
 #[doc = "`ClientRepositoriesRequest`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -15834,7 +14478,7 @@ pub enum CommandPayload {
     },
     ThreadAddress {
         about: ::std::string::String,
-        devices: ::std::vec::Vec<Schema472>,
+        devices: ::std::vec::Vec<Schema470Device>,
         files: ::std::vec::Vec<Schema600>,
         #[serde(
             rename = "followUp",
@@ -18021,7 +16665,7 @@ pub enum EventPayload {
         )]
         started_by_client: ::std::option::Option<Schema1246>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        status: ::std::option::Option<ThreadStatus>,
+        status: ::std::option::Option<crate::thread_status::ThreadStatus>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         switch: ::std::option::Option<Schema1249>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -19614,16 +18258,16 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema1002From {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(tag = "kind")]
 pub enum Schema1002Source {
-    #[doc = "Schema1002SourceBranch0"]
+    #[doc = "Schema176Branch3"]
     #[serde(rename = "spade-bot")]
     SpadeBot { id: Schema178 },
-    #[doc = "Schema1002SourceBranch1"]
+    #[doc = "Schema176Branch4"]
     #[serde(rename = "spade-skill")]
     SpadeSkill { id: Schema178 },
-    #[doc = "Schema1002SourceBranch2"]
+    #[doc = "Schema176Branch5"]
     #[serde(rename = "ace-skill")]
     AceSkill { id: Schema181 },
-    #[doc = "Schema1002SourceBranch3"]
+    #[doc = "Schema176Branch6"]
     #[serde(rename = "plugin")]
     Plugin { name: Schema145 },
 }
@@ -23105,12 +21749,45 @@ impl ::std::str::FromStr for Schema1066 {
     }
 }
 #[doc = "`Schema1067`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema1067 {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema306>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<::std::string::String>,
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(transparent)]
+pub struct Schema1067(pub ::std::string::String);
+impl ::std::ops::Deref for Schema1067 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema1067> for ::std::string::String {
+    fn from(value: Schema1067) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::string::String> for Schema1067 {
+    fn from(value: ::std::string::String) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema1067 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema1067 {
+    type Err = ::std::convert::Infallible;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.to_string()))
+    }
 }
 #[doc = "`Schema1068`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -24346,38 +23023,23 @@ pub struct Schema1085 {
 #[doc = "`Schema1086`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(transparent)]
-pub struct Schema1086(pub [Schema1086Item; 2usize]);
+pub struct Schema1086(pub [::ace_json::Value; 2usize]);
 impl ::std::ops::Deref for Schema1086 {
-    type Target = [Schema1086Item; 2usize];
-    fn deref(&self) -> &[Schema1086Item; 2usize] {
+    type Target = [::ace_json::Value; 2usize];
+    fn deref(&self) -> &[::ace_json::Value; 2usize] {
         &self.0
     }
 }
-impl ::std::convert::From<Schema1086> for [Schema1086Item; 2usize] {
+impl ::std::convert::From<Schema1086> for [::ace_json::Value; 2usize] {
     fn from(value: Schema1086) -> Self {
         value.0
     }
 }
-impl ::std::convert::From<[Schema1086Item; 2usize]> for Schema1086 {
-    fn from(value: [Schema1086Item; 2usize]) -> Self {
+impl ::std::convert::From<[::ace_json::Value; 2usize]> for Schema1086 {
+    fn from(value: [::ace_json::Value; 2usize]) -> Self {
         Self(value)
     }
 }
-#[doc = "`Schema1086Item`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-#[serde(deny_unknown_fields)]
-pub enum Schema1086Item {}
 #[doc = "`Schema1087`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema1087 {
@@ -24450,23 +23112,78 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema1087Namespace {
     }
 }
 #[doc = "`Schema1087Provider`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
 pub enum Schema1087Provider {
-    ProviderKind(ProviderKind),
-    String(::std::string::String),
+    #[serde(rename = "claude")]
+    Claude,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "opencode")]
+    Opencode,
+    #[serde(rename = "cursor")]
+    Cursor,
+    #[serde(rename = "antigravity")]
+    Antigravity,
+    #[serde(rename = "acp")]
+    Acp,
+    #[serde(rename = "pi")]
+    Pi,
+    #[serde(rename = "any")]
+    Any,
 }
 impl ::std::fmt::Display for Schema1087Provider {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::ProviderKind(x) => x.fmt(f),
-            Self::String(x) => x.fmt(f),
+        match *self {
+            Self::Claude => f.write_str("claude"),
+            Self::Codex => f.write_str("codex"),
+            Self::Opencode => f.write_str("opencode"),
+            Self::Cursor => f.write_str("cursor"),
+            Self::Antigravity => f.write_str("antigravity"),
+            Self::Acp => f.write_str("acp"),
+            Self::Pi => f.write_str("pi"),
+            Self::Any => f.write_str("any"),
         }
     }
 }
-impl ::std::convert::From<ProviderKind> for Schema1087Provider {
-    fn from(value: ProviderKind) -> Self {
-        Self::ProviderKind(value)
+impl ::std::str::FromStr for Schema1087Provider {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            "opencode" => Ok(Self::Opencode),
+            "cursor" => Ok(Self::Cursor),
+            "antigravity" => Ok(Self::Antigravity),
+            "acp" => Ok(Self::Acp),
+            "pi" => Ok(Self::Pi),
+            "any" => Ok(Self::Any),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema1087Provider {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema1087Provider {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 #[doc = "`Schema1087Scope`"]
@@ -24690,23 +23407,78 @@ pub struct Schema1093Source {
     pub scope: Schema1093SourceScope,
 }
 #[doc = "`Schema1093SourceProvider`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
 pub enum Schema1093SourceProvider {
-    ProviderKind(ProviderKind),
-    String(::std::string::String),
+    #[serde(rename = "claude")]
+    Claude,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "opencode")]
+    Opencode,
+    #[serde(rename = "cursor")]
+    Cursor,
+    #[serde(rename = "antigravity")]
+    Antigravity,
+    #[serde(rename = "acp")]
+    Acp,
+    #[serde(rename = "pi")]
+    Pi,
+    #[serde(rename = "ace")]
+    Ace,
 }
 impl ::std::fmt::Display for Schema1093SourceProvider {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::ProviderKind(x) => x.fmt(f),
-            Self::String(x) => x.fmt(f),
+        match *self {
+            Self::Claude => f.write_str("claude"),
+            Self::Codex => f.write_str("codex"),
+            Self::Opencode => f.write_str("opencode"),
+            Self::Cursor => f.write_str("cursor"),
+            Self::Antigravity => f.write_str("antigravity"),
+            Self::Acp => f.write_str("acp"),
+            Self::Pi => f.write_str("pi"),
+            Self::Ace => f.write_str("ace"),
         }
     }
 }
-impl ::std::convert::From<ProviderKind> for Schema1093SourceProvider {
-    fn from(value: ProviderKind) -> Self {
-        Self::ProviderKind(value)
+impl ::std::str::FromStr for Schema1093SourceProvider {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            "opencode" => Ok(Self::Opencode),
+            "cursor" => Ok(Self::Cursor),
+            "antigravity" => Ok(Self::Antigravity),
+            "acp" => Ok(Self::Acp),
+            "pi" => Ok(Self::Pi),
+            "ace" => Ok(Self::Ace),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema1093SourceProvider {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema1093SourceProvider {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 #[doc = "`Schema1093SourceScope`"]
@@ -25819,7 +24591,7 @@ pub struct Schema1110 {
     pub provider: ProviderKind,
     pub score: f64,
     pub snippet: Schema705,
-    pub status: Schema1110Status,
+    pub status: ::std::string::String,
     #[serde(rename = "statusSeq")]
     pub status_seq: i64,
     #[serde(rename = "threadId")]
@@ -25829,14 +24601,6 @@ pub struct Schema1110 {
     pub title: Schema705,
     #[serde(rename = "workspaceId")]
     pub workspace_id: Schema1,
-}
-#[doc = "`Schema1110Status`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema1110Status {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema323>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema1111>,
 }
 #[doc = "`Schema1111`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -28943,70 +27707,7 @@ pub struct Schema1162 {
     pub name: Schema427,
     pub parameters: ::ace_json::Map,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub speed: ::std::option::Option<Schema1162Speed>,
-}
-#[doc = "`Schema1162Speed`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema1162Speed {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema1162SpeedBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema427>,
-}
-#[doc = "`Schema1162SpeedBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema1162SpeedBranch0 {
-    #[serde(rename = "standard")]
-    Standard,
-    #[serde(rename = "fast")]
-    Fast,
-    #[serde(rename = "ultrafast")]
-    Ultrafast,
-}
-impl ::std::fmt::Display for Schema1162SpeedBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Standard => f.write_str("standard"),
-            Self::Fast => f.write_str("fast"),
-            Self::Ultrafast => f.write_str("ultrafast"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema1162SpeedBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "standard" => Ok(Self::Standard),
-            "fast" => Ok(Self::Fast),
-            "ultrafast" => Ok(Self::Ultrafast),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema1162SpeedBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema1162SpeedBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
+    pub speed: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`Schema1163`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -32689,7 +31390,7 @@ pub struct Schema1215 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub started_by_client: ::std::option::Option<Schema1246>,
-    pub status: ThreadStatus,
+    pub status: crate::thread_status::ThreadStatus,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub switch: ::std::option::Option<Schema1249>,
     pub title: ::std::string::String,
@@ -36727,12 +35428,45 @@ impl ::std::str::FromStr for Schema139 {
     }
 }
 #[doc = "`Schema14`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema14 {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<::std::string::String>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema15>,
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(transparent)]
+pub struct Schema14(pub ::std::string::String);
+impl ::std::ops::Deref for Schema14 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema14> for ::std::string::String {
+    fn from(value: Schema14) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::string::String> for Schema14 {
+    fn from(value: ::std::string::String) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema14 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema14 {
+    type Err = ::std::convert::Infallible;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.to_string()))
+    }
 }
 #[doc = "`Schema140`"]
 #[derive(
@@ -38302,11 +37036,29 @@ pub enum Schema176 {
     #[serde(rename = "plugin")]
     Plugin { name: Schema145 },
 }
-#[doc = "`Schema177`"]
+#[doc = "`Schema176Branch3`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema177 {
+pub struct Schema176Branch3 {
     pub id: Schema178,
     pub kind: ::std::string::String,
+}
+#[doc = "`Schema176Branch4`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Schema176Branch4 {
+    pub id: Schema178,
+    pub kind: ::std::string::String,
+}
+#[doc = "`Schema176Branch5`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Schema176Branch5 {
+    pub id: Schema181,
+    pub kind: ::std::string::String,
+}
+#[doc = "`Schema176Branch6`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Schema176Branch6 {
+    pub kind: ::std::string::String,
+    pub name: Schema145,
 }
 #[doc = "`Schema178`"]
 #[derive(
@@ -38349,12 +37101,6 @@ impl ::std::str::FromStr for Schema178 {
         Ok(Self(value.to_string()))
     }
 }
-#[doc = "`Schema179`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema179 {
-    pub id: Schema178,
-    pub kind: ::std::string::String,
-}
 #[doc = "`Schema18`"]
 #[derive(
     :: serde :: Deserialize,
@@ -38396,12 +37142,6 @@ impl ::std::str::FromStr for Schema18 {
         Ok(Self(value.to_string()))
     }
 }
-#[doc = "`Schema180`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema180 {
-    pub id: Schema181,
-    pub kind: ::std::string::String,
-}
 #[doc = "`Schema181`"]
 #[derive(
     :: serde :: Deserialize,
@@ -38442,12 +37182,6 @@ impl ::std::str::FromStr for Schema181 {
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.to_string()))
     }
-}
-#[doc = "`Schema182`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema182 {
-    pub kind: ::std::string::String,
-    pub name: Schema145,
 }
 #[doc = "`Schema183`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -39486,14 +38220,6 @@ impl ::std::str::FromStr for Schema205 {
     }
 }
 #[doc = "`Schema206`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema206 {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema207>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema206Branch1>,
-}
-#[doc = "`Schema206Branch1`"]
 #[derive(
     :: serde :: Deserialize,
     :: serde :: Serialize,
@@ -39506,7 +38232,173 @@ pub struct Schema206 {
     PartialEq,
     PartialOrd,
 )]
-pub enum Schema206Branch1 {
+pub enum Schema206 {
+    #[serde(rename = "storage.retention")]
+    StorageRetention,
+    #[serde(rename = "storage.scheduledCleanup")]
+    StorageScheduledCleanup,
+    #[serde(rename = "storage.worktreeRetentionDays")]
+    StorageWorktreeRetentionDays,
+    #[serde(rename = "storage.backupWorktrees")]
+    StorageBackupWorktrees,
+    #[serde(rename = "storage.retentionDays")]
+    StorageRetentionDays,
+    #[serde(rename = "logs.maxBytes")]
+    LogsMaxBytes,
+    #[serde(rename = "sourceControl.preferences")]
+    SourceControlPreferences,
+    #[serde(rename = "providers.configuration")]
+    ProvidersConfiguration,
+    #[serde(rename = "host.displayName")]
+    HostDisplayName,
+    #[serde(rename = "host.icon")]
+    HostIcon,
+    #[serde(rename = "projects.roots")]
+    ProjectsRoots,
+    #[serde(rename = "threads.followUpBehavior")]
+    ThreadsFollowUpBehavior,
+    #[serde(rename = "threads.forkOnSwitch")]
+    ThreadsForkOnSwitch,
+    #[serde(rename = "threads.limitPolicy")]
+    ThreadsLimitPolicy,
+    #[serde(rename = "providers.default")]
+    ProvidersDefault,
+    #[serde(rename = "providers.coder.provider")]
+    ProvidersCoderProvider,
+    #[serde(rename = "providers.coder.model")]
+    ProvidersCoderModel,
+    #[serde(rename = "providers.coder.tier")]
+    ProvidersCoderTier,
+    #[serde(rename = "providers.coder.reasoningEffort")]
+    ProvidersCoderReasoningEffort,
+    #[serde(rename = "providers.reviewer.provider")]
+    ProvidersReviewerProvider,
+    #[serde(rename = "providers.reviewer.model")]
+    ProvidersReviewerModel,
+    #[serde(rename = "providers.reviewer.tier")]
+    ProvidersReviewerTier,
+    #[serde(rename = "providers.reviewer.reasoningEffort")]
+    ProvidersReviewerReasoningEffort,
+    #[serde(rename = "providers.planner.provider")]
+    ProvidersPlannerProvider,
+    #[serde(rename = "providers.planner.model")]
+    ProvidersPlannerModel,
+    #[serde(rename = "providers.planner.tier")]
+    ProvidersPlannerTier,
+    #[serde(rename = "providers.planner.reasoningEffort")]
+    ProvidersPlannerReasoningEffort,
+    #[serde(rename = "providers.verifier.provider")]
+    ProvidersVerifierProvider,
+    #[serde(rename = "providers.verifier.model")]
+    ProvidersVerifierModel,
+    #[serde(rename = "providers.verifier.tier")]
+    ProvidersVerifierTier,
+    #[serde(rename = "providers.verifier.reasoningEffort")]
+    ProvidersVerifierReasoningEffort,
+    #[serde(rename = "providers.codex.toolSource")]
+    ProvidersCodexToolSource,
+    #[serde(rename = "providers.claude.chrome")]
+    ProvidersClaudeChrome,
+    #[serde(rename = "browser.backend")]
+    BrowserBackend,
+    #[serde(rename = "browser.backendLoss")]
+    BrowserBackendLoss,
+    #[serde(rename = "browser.profile")]
+    BrowserProfile,
+    #[serde(rename = "browser.profileScope")]
+    BrowserProfileScope,
+    #[serde(rename = "browser.downloadDir")]
+    BrowserDownloadDir,
+    #[serde(rename = "browser.downloadDefault")]
+    BrowserDownloadDefault,
+    #[serde(rename = "browser.userChrome.storageReads")]
+    BrowserUserChromeStorageReads,
+    #[serde(rename = "computer.blockedApps")]
+    ComputerBlockedApps,
+    #[serde(rename = "computer.lockedUse")]
+    ComputerLockedUse,
+    #[serde(rename = "spade.enabled")]
+    SpadeEnabled,
+    #[serde(rename = "beta.spade")]
+    BetaSpade,
+    #[serde(rename = "beta.marketplace")]
+    BetaMarketplace,
+    #[serde(rename = "market.askBeforeAgentPublish")]
+    MarketAskBeforeAgentPublish,
+    #[serde(rename = "devices.emulatorWindow")]
+    DevicesEmulatorWindow,
+    #[serde(rename = "devices.enabled")]
+    DevicesEnabled,
+    #[serde(rename = "access.defaultMode")]
+    AccessDefaultMode,
+    #[serde(rename = "access.nativeModes")]
+    AccessNativeModes,
+    #[serde(rename = "threads.useWorktree")]
+    ThreadsUseWorktree,
+    #[serde(rename = "worktree.preparationTimeoutMs")]
+    WorktreePreparationTimeoutMs,
+    #[serde(rename = "threads.autoSettleAfter")]
+    ThreadsAutoSettleAfter,
+    #[serde(rename = "threads.unresponsiveAfter")]
+    ThreadsUnresponsiveAfter,
+    #[serde(rename = "threads.settleOnMerge")]
+    ThreadsSettleOnMerge,
+    #[serde(rename = "threads.settleOnClose")]
+    ThreadsSettleOnClose,
+    #[serde(rename = "threads.sortBy")]
+    ThreadsSortBy,
+    #[serde(rename = "threads.keepSettledFor")]
+    ThreadsKeepSettledFor,
+    #[serde(rename = "remote.enabled")]
+    RemoteEnabled,
+    #[serde(rename = "remote.transport")]
+    RemoteTransport,
+    #[serde(rename = "remote.lan")]
+    RemoteLan,
+    #[serde(rename = "remote.tailscale")]
+    RemoteTailscale,
+    #[serde(rename = "remote.relay")]
+    RemoteRelay,
+    #[serde(rename = "remote.agentAccess")]
+    RemoteAgentAccess,
+    #[serde(rename = "remote.agentTransfers")]
+    RemoteAgentTransfers,
+    #[serde(rename = "remote.transferIgnoredFiles")]
+    RemoteTransferIgnoredFiles,
+    #[serde(rename = "remote.hostedPairingLink")]
+    RemoteHostedPairingLink,
+    #[serde(rename = "remote.machineLocalhost")]
+    RemoteMachineLocalhost,
+    #[serde(rename = "remote.relayMcp")]
+    RemoteRelayMcp,
+    #[serde(rename = "remote.relayWebhooks")]
+    RemoteRelayWebhooks,
+    #[serde(rename = "remote.tailscaleWebhooks")]
+    RemoteTailscaleWebhooks,
+    #[serde(rename = "remote.publicUrlWebhooks")]
+    RemotePublicUrlWebhooks,
+    #[serde(rename = "remote.tailscaleMcp")]
+    RemoteTailscaleMcp,
+    #[serde(rename = "remote.mcpPublicUrl")]
+    RemoteMcpPublicUrl,
+    #[serde(rename = "remote.relayUrl")]
+    RemoteRelayUrl,
+    #[serde(rename = "notifications.remotePush")]
+    NotificationsRemotePush,
+    #[serde(rename = "notifications.pushGatewayUrl")]
+    NotificationsPushGatewayUrl,
+    #[serde(rename = "automations.enabled")]
+    AutomationsEnabled,
+    #[serde(rename = "agents.maxRunningChildren")]
+    AgentsMaxRunningChildren,
+    #[serde(rename = "generation.model")]
+    GenerationModel,
+    #[serde(rename = "generation.autoDraftCommits")]
+    GenerationAutoDraftCommits,
+    #[serde(rename = "clients.theme")]
+    ClientsTheme,
+    #[serde(rename = "clients.keybindings")]
+    ClientsKeybindings,
     #[serde(rename = "media.encode")]
     MediaEncode,
     #[serde(rename = "media.delivery")]
@@ -39516,9 +38408,98 @@ pub enum Schema206Branch1 {
     #[serde(rename = "media.stills")]
     MediaStills,
 }
-impl ::std::fmt::Display for Schema206Branch1 {
+impl ::std::fmt::Display for Schema206 {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
+            Self::StorageRetention => f.write_str("storage.retention"),
+            Self::StorageScheduledCleanup => f.write_str("storage.scheduledCleanup"),
+            Self::StorageWorktreeRetentionDays => f.write_str("storage.worktreeRetentionDays"),
+            Self::StorageBackupWorktrees => f.write_str("storage.backupWorktrees"),
+            Self::StorageRetentionDays => f.write_str("storage.retentionDays"),
+            Self::LogsMaxBytes => f.write_str("logs.maxBytes"),
+            Self::SourceControlPreferences => f.write_str("sourceControl.preferences"),
+            Self::ProvidersConfiguration => f.write_str("providers.configuration"),
+            Self::HostDisplayName => f.write_str("host.displayName"),
+            Self::HostIcon => f.write_str("host.icon"),
+            Self::ProjectsRoots => f.write_str("projects.roots"),
+            Self::ThreadsFollowUpBehavior => f.write_str("threads.followUpBehavior"),
+            Self::ThreadsForkOnSwitch => f.write_str("threads.forkOnSwitch"),
+            Self::ThreadsLimitPolicy => f.write_str("threads.limitPolicy"),
+            Self::ProvidersDefault => f.write_str("providers.default"),
+            Self::ProvidersCoderProvider => f.write_str("providers.coder.provider"),
+            Self::ProvidersCoderModel => f.write_str("providers.coder.model"),
+            Self::ProvidersCoderTier => f.write_str("providers.coder.tier"),
+            Self::ProvidersCoderReasoningEffort => f.write_str("providers.coder.reasoningEffort"),
+            Self::ProvidersReviewerProvider => f.write_str("providers.reviewer.provider"),
+            Self::ProvidersReviewerModel => f.write_str("providers.reviewer.model"),
+            Self::ProvidersReviewerTier => f.write_str("providers.reviewer.tier"),
+            Self::ProvidersReviewerReasoningEffort => {
+                f.write_str("providers.reviewer.reasoningEffort")
+            }
+            Self::ProvidersPlannerProvider => f.write_str("providers.planner.provider"),
+            Self::ProvidersPlannerModel => f.write_str("providers.planner.model"),
+            Self::ProvidersPlannerTier => f.write_str("providers.planner.tier"),
+            Self::ProvidersPlannerReasoningEffort => {
+                f.write_str("providers.planner.reasoningEffort")
+            }
+            Self::ProvidersVerifierProvider => f.write_str("providers.verifier.provider"),
+            Self::ProvidersVerifierModel => f.write_str("providers.verifier.model"),
+            Self::ProvidersVerifierTier => f.write_str("providers.verifier.tier"),
+            Self::ProvidersVerifierReasoningEffort => {
+                f.write_str("providers.verifier.reasoningEffort")
+            }
+            Self::ProvidersCodexToolSource => f.write_str("providers.codex.toolSource"),
+            Self::ProvidersClaudeChrome => f.write_str("providers.claude.chrome"),
+            Self::BrowserBackend => f.write_str("browser.backend"),
+            Self::BrowserBackendLoss => f.write_str("browser.backendLoss"),
+            Self::BrowserProfile => f.write_str("browser.profile"),
+            Self::BrowserProfileScope => f.write_str("browser.profileScope"),
+            Self::BrowserDownloadDir => f.write_str("browser.downloadDir"),
+            Self::BrowserDownloadDefault => f.write_str("browser.downloadDefault"),
+            Self::BrowserUserChromeStorageReads => f.write_str("browser.userChrome.storageReads"),
+            Self::ComputerBlockedApps => f.write_str("computer.blockedApps"),
+            Self::ComputerLockedUse => f.write_str("computer.lockedUse"),
+            Self::SpadeEnabled => f.write_str("spade.enabled"),
+            Self::BetaSpade => f.write_str("beta.spade"),
+            Self::BetaMarketplace => f.write_str("beta.marketplace"),
+            Self::MarketAskBeforeAgentPublish => f.write_str("market.askBeforeAgentPublish"),
+            Self::DevicesEmulatorWindow => f.write_str("devices.emulatorWindow"),
+            Self::DevicesEnabled => f.write_str("devices.enabled"),
+            Self::AccessDefaultMode => f.write_str("access.defaultMode"),
+            Self::AccessNativeModes => f.write_str("access.nativeModes"),
+            Self::ThreadsUseWorktree => f.write_str("threads.useWorktree"),
+            Self::WorktreePreparationTimeoutMs => f.write_str("worktree.preparationTimeoutMs"),
+            Self::ThreadsAutoSettleAfter => f.write_str("threads.autoSettleAfter"),
+            Self::ThreadsUnresponsiveAfter => f.write_str("threads.unresponsiveAfter"),
+            Self::ThreadsSettleOnMerge => f.write_str("threads.settleOnMerge"),
+            Self::ThreadsSettleOnClose => f.write_str("threads.settleOnClose"),
+            Self::ThreadsSortBy => f.write_str("threads.sortBy"),
+            Self::ThreadsKeepSettledFor => f.write_str("threads.keepSettledFor"),
+            Self::RemoteEnabled => f.write_str("remote.enabled"),
+            Self::RemoteTransport => f.write_str("remote.transport"),
+            Self::RemoteLan => f.write_str("remote.lan"),
+            Self::RemoteTailscale => f.write_str("remote.tailscale"),
+            Self::RemoteRelay => f.write_str("remote.relay"),
+            Self::RemoteAgentAccess => f.write_str("remote.agentAccess"),
+            Self::RemoteAgentTransfers => f.write_str("remote.agentTransfers"),
+            Self::RemoteTransferIgnoredFiles => f.write_str("remote.transferIgnoredFiles"),
+            Self::RemoteHostedPairingLink => f.write_str("remote.hostedPairingLink"),
+            Self::RemoteMachineLocalhost => f.write_str("remote.machineLocalhost"),
+            Self::RemoteRelayMcp => f.write_str("remote.relayMcp"),
+            Self::RemoteRelayWebhooks => f.write_str("remote.relayWebhooks"),
+            Self::RemoteTailscaleWebhooks => f.write_str("remote.tailscaleWebhooks"),
+            Self::RemotePublicUrlWebhooks => f.write_str("remote.publicUrlWebhooks"),
+            Self::RemoteTailscaleMcp => f.write_str("remote.tailscaleMcp"),
+            Self::RemoteMcpPublicUrl => f.write_str("remote.mcpPublicUrl"),
+            Self::RemoteRelayUrl => f.write_str("remote.relayUrl"),
+            Self::NotificationsRemotePush => f.write_str("notifications.remotePush"),
+            Self::NotificationsPushGatewayUrl => f.write_str("notifications.pushGatewayUrl"),
+            Self::AutomationsEnabled => f.write_str("automations.enabled"),
+            Self::AgentsMaxRunningChildren => f.write_str("agents.maxRunningChildren"),
+            Self::GenerationModel => f.write_str("generation.model"),
+            Self::GenerationAutoDraftCommits => f.write_str("generation.autoDraftCommits"),
+            Self::ClientsTheme => f.write_str("clients.theme"),
+            Self::ClientsKeybindings => f.write_str("clients.keybindings"),
             Self::MediaEncode => f.write_str("media.encode"),
             Self::MediaDelivery => f.write_str("media.delivery"),
             Self::MediaRecordings => f.write_str("media.recordings"),
@@ -39526,10 +38507,93 @@ impl ::std::fmt::Display for Schema206Branch1 {
         }
     }
 }
-impl ::std::str::FromStr for Schema206Branch1 {
+impl ::std::str::FromStr for Schema206 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
+            "storage.retention" => Ok(Self::StorageRetention),
+            "storage.scheduledCleanup" => Ok(Self::StorageScheduledCleanup),
+            "storage.worktreeRetentionDays" => Ok(Self::StorageWorktreeRetentionDays),
+            "storage.backupWorktrees" => Ok(Self::StorageBackupWorktrees),
+            "storage.retentionDays" => Ok(Self::StorageRetentionDays),
+            "logs.maxBytes" => Ok(Self::LogsMaxBytes),
+            "sourceControl.preferences" => Ok(Self::SourceControlPreferences),
+            "providers.configuration" => Ok(Self::ProvidersConfiguration),
+            "host.displayName" => Ok(Self::HostDisplayName),
+            "host.icon" => Ok(Self::HostIcon),
+            "projects.roots" => Ok(Self::ProjectsRoots),
+            "threads.followUpBehavior" => Ok(Self::ThreadsFollowUpBehavior),
+            "threads.forkOnSwitch" => Ok(Self::ThreadsForkOnSwitch),
+            "threads.limitPolicy" => Ok(Self::ThreadsLimitPolicy),
+            "providers.default" => Ok(Self::ProvidersDefault),
+            "providers.coder.provider" => Ok(Self::ProvidersCoderProvider),
+            "providers.coder.model" => Ok(Self::ProvidersCoderModel),
+            "providers.coder.tier" => Ok(Self::ProvidersCoderTier),
+            "providers.coder.reasoningEffort" => Ok(Self::ProvidersCoderReasoningEffort),
+            "providers.reviewer.provider" => Ok(Self::ProvidersReviewerProvider),
+            "providers.reviewer.model" => Ok(Self::ProvidersReviewerModel),
+            "providers.reviewer.tier" => Ok(Self::ProvidersReviewerTier),
+            "providers.reviewer.reasoningEffort" => Ok(Self::ProvidersReviewerReasoningEffort),
+            "providers.planner.provider" => Ok(Self::ProvidersPlannerProvider),
+            "providers.planner.model" => Ok(Self::ProvidersPlannerModel),
+            "providers.planner.tier" => Ok(Self::ProvidersPlannerTier),
+            "providers.planner.reasoningEffort" => Ok(Self::ProvidersPlannerReasoningEffort),
+            "providers.verifier.provider" => Ok(Self::ProvidersVerifierProvider),
+            "providers.verifier.model" => Ok(Self::ProvidersVerifierModel),
+            "providers.verifier.tier" => Ok(Self::ProvidersVerifierTier),
+            "providers.verifier.reasoningEffort" => Ok(Self::ProvidersVerifierReasoningEffort),
+            "providers.codex.toolSource" => Ok(Self::ProvidersCodexToolSource),
+            "providers.claude.chrome" => Ok(Self::ProvidersClaudeChrome),
+            "browser.backend" => Ok(Self::BrowserBackend),
+            "browser.backendLoss" => Ok(Self::BrowserBackendLoss),
+            "browser.profile" => Ok(Self::BrowserProfile),
+            "browser.profileScope" => Ok(Self::BrowserProfileScope),
+            "browser.downloadDir" => Ok(Self::BrowserDownloadDir),
+            "browser.downloadDefault" => Ok(Self::BrowserDownloadDefault),
+            "browser.userChrome.storageReads" => Ok(Self::BrowserUserChromeStorageReads),
+            "computer.blockedApps" => Ok(Self::ComputerBlockedApps),
+            "computer.lockedUse" => Ok(Self::ComputerLockedUse),
+            "spade.enabled" => Ok(Self::SpadeEnabled),
+            "beta.spade" => Ok(Self::BetaSpade),
+            "beta.marketplace" => Ok(Self::BetaMarketplace),
+            "market.askBeforeAgentPublish" => Ok(Self::MarketAskBeforeAgentPublish),
+            "devices.emulatorWindow" => Ok(Self::DevicesEmulatorWindow),
+            "devices.enabled" => Ok(Self::DevicesEnabled),
+            "access.defaultMode" => Ok(Self::AccessDefaultMode),
+            "access.nativeModes" => Ok(Self::AccessNativeModes),
+            "threads.useWorktree" => Ok(Self::ThreadsUseWorktree),
+            "worktree.preparationTimeoutMs" => Ok(Self::WorktreePreparationTimeoutMs),
+            "threads.autoSettleAfter" => Ok(Self::ThreadsAutoSettleAfter),
+            "threads.unresponsiveAfter" => Ok(Self::ThreadsUnresponsiveAfter),
+            "threads.settleOnMerge" => Ok(Self::ThreadsSettleOnMerge),
+            "threads.settleOnClose" => Ok(Self::ThreadsSettleOnClose),
+            "threads.sortBy" => Ok(Self::ThreadsSortBy),
+            "threads.keepSettledFor" => Ok(Self::ThreadsKeepSettledFor),
+            "remote.enabled" => Ok(Self::RemoteEnabled),
+            "remote.transport" => Ok(Self::RemoteTransport),
+            "remote.lan" => Ok(Self::RemoteLan),
+            "remote.tailscale" => Ok(Self::RemoteTailscale),
+            "remote.relay" => Ok(Self::RemoteRelay),
+            "remote.agentAccess" => Ok(Self::RemoteAgentAccess),
+            "remote.agentTransfers" => Ok(Self::RemoteAgentTransfers),
+            "remote.transferIgnoredFiles" => Ok(Self::RemoteTransferIgnoredFiles),
+            "remote.hostedPairingLink" => Ok(Self::RemoteHostedPairingLink),
+            "remote.machineLocalhost" => Ok(Self::RemoteMachineLocalhost),
+            "remote.relayMcp" => Ok(Self::RemoteRelayMcp),
+            "remote.relayWebhooks" => Ok(Self::RemoteRelayWebhooks),
+            "remote.tailscaleWebhooks" => Ok(Self::RemoteTailscaleWebhooks),
+            "remote.publicUrlWebhooks" => Ok(Self::RemotePublicUrlWebhooks),
+            "remote.tailscaleMcp" => Ok(Self::RemoteTailscaleMcp),
+            "remote.mcpPublicUrl" => Ok(Self::RemoteMcpPublicUrl),
+            "remote.relayUrl" => Ok(Self::RemoteRelayUrl),
+            "notifications.remotePush" => Ok(Self::NotificationsRemotePush),
+            "notifications.pushGatewayUrl" => Ok(Self::NotificationsPushGatewayUrl),
+            "automations.enabled" => Ok(Self::AutomationsEnabled),
+            "agents.maxRunningChildren" => Ok(Self::AgentsMaxRunningChildren),
+            "generation.model" => Ok(Self::GenerationModel),
+            "generation.autoDraftCommits" => Ok(Self::GenerationAutoDraftCommits),
+            "clients.theme" => Ok(Self::ClientsTheme),
+            "clients.keybindings" => Ok(Self::ClientsKeybindings),
             "media.encode" => Ok(Self::MediaEncode),
             "media.delivery" => Ok(Self::MediaDelivery),
             "media.recordings" => Ok(Self::MediaRecordings),
@@ -39538,13 +38602,13 @@ impl ::std::str::FromStr for Schema206Branch1 {
         }
     }
 }
-impl ::std::convert::TryFrom<&str> for Schema206Branch1 {
+impl ::std::convert::TryFrom<&str> for Schema206 {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<::std::string::String> for Schema206Branch1 {
+impl ::std::convert::TryFrom<::std::string::String> for Schema206 {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
@@ -45732,7 +44796,7 @@ pub struct Schema336Branch0 {
         rename = "effectiveType",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub effective_type: ::std::option::Option<Schema336Branch0EffectiveType>,
+    pub effective_type: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub expensive: ::std::option::Option<Schema342>,
     #[serde(
@@ -45753,14 +44817,6 @@ pub struct Schema336Branch0DownlinkKbps {
     pub subtype_0: ::std::option::Option<Schema338>,
     #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
     pub subtype_1: ::std::option::Option<Schema339>,
-}
-#[doc = "`Schema336Branch0EffectiveType`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema336Branch0EffectiveType {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<::std::string::String>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema337>,
 }
 #[doc = "`Schema336Branch0RttMs`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
@@ -45914,12 +44970,47 @@ impl ::std::convert::From<::ace_json::Value> for Schema341 {
     }
 }
 #[doc = "`Schema342`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema342 {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<bool>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema343>,
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema342(pub bool);
+impl ::std::ops::Deref for Schema342 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema342> for bool {
+    fn from(value: Schema342) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema342 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema342 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema342 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema342 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema342 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
 }
 #[doc = "`Schema343`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -50955,7 +50046,7 @@ pub struct Schema459Branch0 {
     )]
     pub alive_ms: ::std::option::Option<i64>,
     pub attempt: i64,
-    pub cause: Schema459Branch0Cause,
+    pub cause: ::std::string::String,
     pub code: i64,
     #[serde(
         rename = "downMs",
@@ -50964,85 +50055,6 @@ pub struct Schema459Branch0 {
     pub down_ms: ::std::option::Option<i64>,
     #[serde(rename = "wasReady")]
     pub was_ready: bool,
-}
-#[doc = "`Schema459Branch0Cause`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema459Branch0Cause {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema459Branch0CauseBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema460>,
-}
-#[doc = "`Schema459Branch0CauseBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema459Branch0CauseBranch0 {
-    #[serde(rename = "emsgsize")]
-    Emsgsize,
-    #[serde(rename = "receive_failed")]
-    ReceiveFailed,
-    #[serde(rename = "send_failed")]
-    SendFailed,
-    #[serde(rename = "handshake_timeout")]
-    HandshakeTimeout,
-    #[serde(rename = "heartbeat")]
-    Heartbeat,
-    #[serde(rename = "peer_closed")]
-    PeerClosed,
-    #[serde(rename = "other")]
-    Other,
-}
-impl ::std::fmt::Display for Schema459Branch0CauseBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Emsgsize => f.write_str("emsgsize"),
-            Self::ReceiveFailed => f.write_str("receive_failed"),
-            Self::SendFailed => f.write_str("send_failed"),
-            Self::HandshakeTimeout => f.write_str("handshake_timeout"),
-            Self::Heartbeat => f.write_str("heartbeat"),
-            Self::PeerClosed => f.write_str("peer_closed"),
-            Self::Other => f.write_str("other"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema459Branch0CauseBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "emsgsize" => Ok(Self::Emsgsize),
-            "receive_failed" => Ok(Self::ReceiveFailed),
-            "send_failed" => Ok(Self::SendFailed),
-            "handshake_timeout" => Ok(Self::HandshakeTimeout),
-            "heartbeat" => Ok(Self::Heartbeat),
-            "peer_closed" => Ok(Self::PeerClosed),
-            "other" => Ok(Self::Other),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema459Branch0CauseBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema459Branch0CauseBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
 }
 #[doc = "`Schema46`"]
 #[derive(
@@ -51402,6 +50414,21 @@ pub enum Schema470 {
         url: ::std::string::String,
     },
 }
+#[doc = "`Schema470Device`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct Schema470Device {
+    pub id: ::std::string::String,
+    pub kind: Schema470DeviceKind,
+    pub machine: Schema470DeviceMachine,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<::std::string::String>,
+    pub name: ::std::string::String,
+    pub online: bool,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub os: ::std::option::Option<::std::string::String>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 #[doc = "`Schema470DeviceKind`"]
 #[derive(
     :: serde :: Deserialize,
@@ -51524,103 +50551,6 @@ impl ::std::str::FromStr for Schema471 {
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.to_string()))
     }
-}
-#[doc = "`Schema472`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema472 {
-    pub id: ::std::string::String,
-    pub kind: Schema472Kind,
-    pub machine: Schema472Machine,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub model: ::std::option::Option<::std::string::String>,
-    pub name: ::std::string::String,
-    pub online: bool,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub os: ::std::option::Option<::std::string::String>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema472Kind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema472Kind {
-    #[serde(rename = "laptop")]
-    Laptop,
-    #[serde(rename = "desktop")]
-    Desktop,
-    #[serde(rename = "server")]
-    Server,
-    #[serde(rename = "phone")]
-    Phone,
-    #[serde(rename = "tablet")]
-    Tablet,
-    #[serde(rename = "browser")]
-    Browser,
-    #[serde(rename = "simulator")]
-    Simulator,
-    #[serde(rename = "emulator")]
-    Emulator,
-}
-impl ::std::fmt::Display for Schema472Kind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Laptop => f.write_str("laptop"),
-            Self::Desktop => f.write_str("desktop"),
-            Self::Server => f.write_str("server"),
-            Self::Phone => f.write_str("phone"),
-            Self::Tablet => f.write_str("tablet"),
-            Self::Browser => f.write_str("browser"),
-            Self::Simulator => f.write_str("simulator"),
-            Self::Emulator => f.write_str("emulator"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema472Kind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "laptop" => Ok(Self::Laptop),
-            "desktop" => Ok(Self::Desktop),
-            "server" => Ok(Self::Server),
-            "phone" => Ok(Self::Phone),
-            "tablet" => Ok(Self::Tablet),
-            "browser" => Ok(Self::Browser),
-            "simulator" => Ok(Self::Simulator),
-            "emulator" => Ok(Self::Emulator),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema472Kind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema472Kind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema472Machine`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema472Machine {
-    pub here: bool,
-    pub id: ::std::string::String,
-    pub name: ::std::string::String,
 }
 #[doc = "`Schema473`"]
 #[derive(
@@ -52555,23 +51485,66 @@ impl ::std::str::FromStr for Schema499 {
     }
 }
 #[doc = "`Schema5`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
 pub enum Schema5 {
-    String(::std::string::String),
-    AccessMode(AccessMode),
+    #[serde(rename = "inherit")]
+    Inherit,
+    #[serde(rename = "read-only")]
+    ReadOnly,
+    #[serde(rename = "ask")]
+    Ask,
+    #[serde(rename = "auto-review")]
+    AutoReview,
+    #[serde(rename = "full-access")]
+    FullAccess,
 }
 impl ::std::fmt::Display for Schema5 {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::String(x) => x.fmt(f),
-            Self::AccessMode(x) => x.fmt(f),
+        match *self {
+            Self::Inherit => f.write_str("inherit"),
+            Self::ReadOnly => f.write_str("read-only"),
+            Self::Ask => f.write_str("ask"),
+            Self::AutoReview => f.write_str("auto-review"),
+            Self::FullAccess => f.write_str("full-access"),
         }
     }
 }
-impl ::std::convert::From<AccessMode> for Schema5 {
-    fn from(value: AccessMode) -> Self {
-        Self::AccessMode(value)
+impl ::std::str::FromStr for Schema5 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "inherit" => Ok(Self::Inherit),
+            "read-only" => Ok(Self::ReadOnly),
+            "ask" => Ok(Self::Ask),
+            "auto-review" => Ok(Self::AutoReview),
+            "full-access" => Ok(Self::FullAccess),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema5 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema5 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 #[doc = "`Schema50`"]
@@ -53838,12 +52811,45 @@ impl ::std::str::FromStr for Schema527 {
     }
 }
 #[doc = "`Schema528`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema528 {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<::std::string::String>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<::std::string::String>,
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(transparent)]
+pub struct Schema528(pub ::std::string::String);
+impl ::std::ops::Deref for Schema528 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema528> for ::std::string::String {
+    fn from(value: Schema528) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::string::String> for Schema528 {
+    fn from(value: ::std::string::String) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema528 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema528 {
+    type Err = ::std::convert::Infallible;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.to_string()))
+    }
 }
 #[doc = "`Schema529`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
@@ -57695,46 +56701,44 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema619 {
 }
 #[doc = "`Schema62`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum Schema62 {
-    Variant0(f64),
-    Variant1(f64),
-    Variant2(f64),
+#[serde(transparent)]
+pub struct Schema62(pub f64);
+impl ::std::ops::Deref for Schema62 {
+    type Target = f64;
+    fn deref(&self) -> &f64 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema62> for f64 {
+    fn from(value: Schema62) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<f64> for Schema62 {
+    fn from(value: f64) -> Self {
+        Self(value)
+    }
 }
 impl ::std::fmt::Display for Schema62 {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Variant0(x) => x.fmt(f),
-            Self::Variant1(x) => x.fmt(f),
-            Self::Variant2(x) => x.fmt(f),
-        }
+        self.0.fmt(f)
     }
 }
 impl ::std::str::FromStr for Schema62 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if let Ok(v) = value.parse() {
-            Ok(Self::Variant0(v))
-        } else if let Ok(v) = value.parse() {
-            Ok(Self::Variant1(v))
-        } else if let Ok(v) = value.parse() {
-            Ok(Self::Variant2(v))
-        } else {
-            Err("string conversion failed for all variants".into())
-        }
+    type Err = <f64 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
     }
 }
 impl ::std::convert::TryFrom<&str> for Schema62 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+    type Error = <f64 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
         value.parse()
     }
 }
-impl ::std::convert::TryFrom<::std::string::String> for Schema62 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+impl ::std::convert::TryFrom<String> for Schema62 {
+    type Error = <f64 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
         value.parse()
     }
 }
@@ -57889,7 +56893,7 @@ pub struct Schema623 {
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub available: ::std::option::Option<Schema26>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub blocked: ::std::option::Option<Schema623Blocked>,
+    pub blocked: ::std::option::Option<::std::string::String>,
     pub busy: i64,
     #[serde(
         rename = "checkedAt",
@@ -57898,7 +56902,7 @@ pub struct Schema623 {
     pub checked_at: ::std::option::Option<Schema625>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub error: ::std::option::Option<::std::string::String>,
-    pub install: Schema623Install,
+    pub install: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub last: ::std::option::Option<Schema623LastBranch0>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -57911,206 +56915,17 @@ pub struct Schema623 {
         deserialize_with = "::std::option::Option::deserialize"
     )]
     pub release_url: ::std::option::Option<::std::string::String>,
-    pub state: Schema623State,
+    pub state: ::std::string::String,
     pub version: Schema26,
 }
 #[doc = "`Schema623AskBranch0`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema623AskBranch0 {
     pub id: ::std::string::String,
-    pub mode: Schema623AskBranch0Mode,
+    pub mode: ::std::string::String,
     #[serde(rename = "requestedAt")]
     pub requested_at: Schema625,
     pub version: Schema26,
-}
-#[doc = "`Schema623AskBranch0Mode`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema623AskBranch0Mode {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema623AskBranch0ModeBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema624>,
-}
-#[doc = "`Schema623AskBranch0ModeBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema623AskBranch0ModeBranch0 {
-    #[serde(rename = "idle")]
-    Idle,
-    #[serde(rename = "now")]
-    Now,
-}
-impl ::std::fmt::Display for Schema623AskBranch0ModeBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Idle => f.write_str("idle"),
-            Self::Now => f.write_str("now"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema623AskBranch0ModeBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "idle" => Ok(Self::Idle),
-            "now" => Ok(Self::Now),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema623AskBranch0ModeBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema623AskBranch0ModeBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema623Blocked`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema623Blocked {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema623BlockedBranch0Branch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema624>,
-}
-#[doc = "`Schema623BlockedBranch0Branch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema623BlockedBranch0Branch0 {
-    #[serde(rename = "release-page")]
-    ReleasePage,
-    #[serde(rename = "app-closed")]
-    AppClosed,
-    #[serde(rename = "source")]
-    Source,
-    #[serde(rename = "unknown")]
-    Unknown,
-}
-impl ::std::fmt::Display for Schema623BlockedBranch0Branch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::ReleasePage => f.write_str("release-page"),
-            Self::AppClosed => f.write_str("app-closed"),
-            Self::Source => f.write_str("source"),
-            Self::Unknown => f.write_str("unknown"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema623BlockedBranch0Branch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "release-page" => Ok(Self::ReleasePage),
-            "app-closed" => Ok(Self::AppClosed),
-            "source" => Ok(Self::Source),
-            "unknown" => Ok(Self::Unknown),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema623BlockedBranch0Branch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema623BlockedBranch0Branch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema623Install`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema623Install {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema623InstallBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema624>,
-}
-#[doc = "`Schema623InstallBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema623InstallBranch0 {
-    #[serde(rename = "desktop")]
-    Desktop,
-    #[serde(rename = "standalone")]
-    Standalone,
-    #[serde(rename = "source")]
-    Source,
-}
-impl ::std::fmt::Display for Schema623InstallBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Desktop => f.write_str("desktop"),
-            Self::Standalone => f.write_str("standalone"),
-            Self::Source => f.write_str("source"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema623InstallBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "desktop" => Ok(Self::Desktop),
-            "standalone" => Ok(Self::Standalone),
-            "source" => Ok(Self::Source),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema623InstallBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema623InstallBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
 }
 #[doc = "`Schema623LastBranch0`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -58166,93 +56981,6 @@ impl ::std::convert::TryFrom<&str> for Schema623Line {
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Schema623Line {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema623State`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema623State {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema623StateBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema624>,
-}
-#[doc = "`Schema623StateBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema623StateBranch0 {
-    #[serde(rename = "none")]
-    None,
-    #[serde(rename = "checking")]
-    Checking,
-    #[serde(rename = "available")]
-    Available,
-    #[serde(rename = "waiting")]
-    Waiting,
-    #[serde(rename = "downloading")]
-    Downloading,
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "installing")]
-    Installing,
-    #[serde(rename = "updated")]
-    Updated,
-    #[serde(rename = "failed")]
-    Failed,
-}
-impl ::std::fmt::Display for Schema623StateBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::None => f.write_str("none"),
-            Self::Checking => f.write_str("checking"),
-            Self::Available => f.write_str("available"),
-            Self::Waiting => f.write_str("waiting"),
-            Self::Downloading => f.write_str("downloading"),
-            Self::Ready => f.write_str("ready"),
-            Self::Installing => f.write_str("installing"),
-            Self::Updated => f.write_str("updated"),
-            Self::Failed => f.write_str("failed"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema623StateBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "none" => Ok(Self::None),
-            "checking" => Ok(Self::Checking),
-            "available" => Ok(Self::Available),
-            "waiting" => Ok(Self::Waiting),
-            "downloading" => Ok(Self::Downloading),
-            "ready" => Ok(Self::Ready),
-            "installing" => Ok(Self::Installing),
-            "updated" => Ok(Self::Updated),
-            "failed" => Ok(Self::Failed),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema623StateBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema623StateBranch0 {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
@@ -59273,7 +58001,7 @@ pub struct Schema646 {
     pub start_seq: Schema32,
     #[serde(rename = "startedAt")]
     pub started_at: Schema53,
-    pub status: ThreadStatus,
+    pub status: crate::thread_status::ThreadStatus,
     pub subagents: ::std::vec::Vec<Schema659>,
     #[serde(rename = "subagentsTruncated")]
     pub subagents_truncated: bool,
@@ -59830,7 +58558,7 @@ pub struct Schema659 {
     pub name: ::std::option::Option<Schema654>,
     #[serde(rename = "startedAt")]
     pub started_at: Schema53,
-    pub status: ThreadStatus,
+    pub status: crate::thread_status::ThreadStatus,
     #[serde(
         rename = "threadId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -59963,7 +58691,7 @@ impl ::std::convert::From<::std::vec::Vec<Schema663>> for Schema662 {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub enum Schema663 {
-    #[doc = "Schema663Html"]
+    #[doc = "AgentItemHtml"]
     #[serde(rename = "html")]
     Html {
         #[serde(rename = "agentId")]
@@ -59995,9 +58723,9 @@ pub enum Schema663 {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         run_id: ::std::option::Option<Schema665>,
-        visualization: Schema663HtmlVisualization,
+        visualization: AgentItemHtmlVisualization,
     },
-    #[doc = "Schema663Image"]
+    #[doc = "AgentItemImage"]
     #[serde(rename = "image")]
     Image {
         #[serde(rename = "agentId")]
@@ -60011,7 +58739,7 @@ pub enum Schema663 {
         )]
         execution_source: ::std::option::Option<Schema667>,
         id: Schema38,
-        image: Schema663ImageImage,
+        image: AgentItemImageImage,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         inherited: ::std::option::Option<Schema670>,
         #[serde(
@@ -60031,7 +58759,7 @@ pub enum Schema663 {
         )]
         run_id: ::std::option::Option<Schema665>,
     },
-    #[doc = "Schema663Message"]
+    #[doc = "AgentItemMessage"]
     #[serde(rename = "message")]
     Message {
         #[serde(rename = "agentId")]
@@ -60053,7 +58781,7 @@ pub enum Schema663 {
             rename = "mergedContext",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        merged_context: ::std::option::Option<Schema663MessageMergedContext>,
+        merged_context: ::std::option::Option<AgentItemMessageMergedContext>,
         #[serde(
             rename = "nativeId",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -60073,17 +58801,17 @@ pub enum Schema663 {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         raw_omitted: ::std::option::Option<bool>,
-        role: Schema663MessageRole,
+        role: AgentItemMessageRole,
         #[serde(
             rename = "runId",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         run_id: ::std::option::Option<Schema665>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        speaker: ::std::option::Option<Schema663MessageSpeaker>,
+        speaker: ::std::option::Option<AgentItemMessageSpeaker>,
         synthetic: bool,
     },
-    #[doc = "Schema663DelegationStarted"]
+    #[doc = "AgentItemDelegationStarted"]
     #[serde(rename = "delegation.started")]
     DelegationStarted {
         #[serde(
@@ -60119,7 +58847,7 @@ pub enum Schema663 {
         origin: ::std::string::String,
         #[serde(deserialize_with = "::std::option::Option::deserialize")]
         outcome: ::std::option::Option<Schema677>,
-        phase: Schema663DelegationStartedPhase,
+        phase: AgentItemDelegationStartedPhase,
         provider: ProviderKind,
         raw: ::std::vec::Vec<Schema673>,
         #[serde(
@@ -60133,12 +58861,12 @@ pub enum Schema663 {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         run_id: ::std::option::Option<Schema665>,
-        status: ThreadStatus,
+        status: crate::thread_status::ThreadStatus,
         title: ::std::string::String,
         #[serde(rename = "updatedAt")]
         updated_at: Schema53,
     },
-    #[doc = "Schema663DelegationSettled"]
+    #[doc = "AgentItemDelegationSettled"]
     #[serde(rename = "delegation.settled")]
     DelegationSettled {
         #[serde(rename = "agentId")]
@@ -60146,7 +58874,7 @@ pub enum Schema663 {
         complete: Schema669,
         #[serde(rename = "createdAt")]
         created_at: Schema53,
-        delivery: Schema663DelegationSettledDelivery,
+        delivery: AgentItemDelegationSettledDelivery,
         #[serde(
             rename = "executionSource",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -60174,7 +58902,7 @@ pub enum Schema663 {
         )]
         run_id: ::std::option::Option<Schema665>,
     },
-    #[doc = "Schema663Reasoning"]
+    #[doc = "AgentItemReasoning"]
     #[serde(rename = "reasoning")]
     Reasoning {
         #[serde(rename = "agentId")]
@@ -60211,12 +58939,12 @@ pub enum Schema663 {
         summary: bool,
         text: ::std::string::String,
     },
-    #[doc = "Schema663ToolCall"]
+    #[doc = "AgentItemToolCall"]
     #[serde(rename = "tool_call")]
     ToolCall {
         #[serde(rename = "agentId")]
         agent_id: Schema252,
-        call: Schema663ToolCallCall,
+        call: AgentItemToolCallCall,
         complete: Schema669,
         #[serde(rename = "createdAt")]
         created_at: Schema53,
@@ -60246,13 +58974,13 @@ pub enum Schema663 {
         )]
         run_id: ::std::option::Option<Schema665>,
     },
-    #[doc = "Schema663Notice"]
+    #[doc = "AgentItemNotice"]
     #[serde(rename = "notice")]
     Notice {
         #[serde(rename = "agentId")]
         agent_id: Schema252,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        asked: ::std::option::Option<Schema663NoticeAsked>,
+        asked: ::std::option::Option<AgentItemNoticeAsked>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         code: ::std::option::Option<::std::string::String>,
         #[serde(
@@ -60282,7 +59010,7 @@ pub enum Schema663 {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         interaction_id: ::std::option::Option<Schema255>,
-        level: Schema663NoticeLevel,
+        level: AgentItemNoticeLevel,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         measurement: ::std::option::Option<Schema684>,
         #[serde(
@@ -60312,7 +59040,7 @@ pub enum Schema663 {
         )]
         tool_call_id: ::std::option::Option<Schema38>,
     },
-    #[doc = "Schema663Compaction"]
+    #[doc = "AgentItemCompaction"]
     #[serde(rename = "compaction")]
     Compaction {
         #[serde(rename = "agentId")]
@@ -60536,1118 +59264,6 @@ impl ::std::convert::TryFrom<&str> for Schema663ArtifactSource {
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for Schema663ArtifactSource {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663DelegationSettledDelivery`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663DelegationSettledDelivery {
-    #[serde(rename = "tool")]
-    Tool,
-    #[serde(rename = "ace-input")]
-    AceInput,
-}
-impl ::std::fmt::Display for Schema663DelegationSettledDelivery {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Tool => f.write_str("tool"),
-            Self::AceInput => f.write_str("ace-input"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663DelegationSettledDelivery {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "tool" => Ok(Self::Tool),
-            "ace-input" => Ok(Self::AceInput),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663DelegationSettledDelivery {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663DelegationSettledDelivery {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663DelegationStartedPhase`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663DelegationStartedPhase {
-    #[serde(rename = "created")]
-    Created,
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "cancelling")]
-    Cancelling,
-    #[serde(rename = "settled")]
-    Settled,
-}
-impl ::std::fmt::Display for Schema663DelegationStartedPhase {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Created => f.write_str("created"),
-            Self::Running => f.write_str("running"),
-            Self::Cancelling => f.write_str("cancelling"),
-            Self::Settled => f.write_str("settled"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663DelegationStartedPhase {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "created" => Ok(Self::Created),
-            "running" => Ok(Self::Running),
-            "cancelling" => Ok(Self::Cancelling),
-            "settled" => Ok(Self::Settled),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663DelegationStartedPhase {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663DelegationStartedPhase {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663HtmlVisualization`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663HtmlVisualization {
-    pub document: Schema672,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub height: ::std::option::Option<i64>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub kit: ::std::option::Option<::std::num::NonZeroU64>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub mode: ::std::option::Option<Schema663HtmlVisualizationMode>,
-    pub title: ::std::string::String,
-}
-#[doc = "`Schema663HtmlVisualizationMode`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663HtmlVisualizationMode {
-    #[serde(rename = "interactive")]
-    Interactive,
-    #[serde(rename = "static")]
-    Static,
-}
-impl ::std::fmt::Display for Schema663HtmlVisualizationMode {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Interactive => f.write_str("interactive"),
-            Self::Static => f.write_str("static"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663HtmlVisualizationMode {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "interactive" => Ok(Self::Interactive),
-            "static" => Ok(Self::Static),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663HtmlVisualizationMode {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663HtmlVisualizationMode {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ImageImage`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ImageImage {
-    pub alt: ::std::string::String,
-    pub attachment: Schema672,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub caption: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema663MessageMergedContext`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663MessageMergedContext {
-    pub citations: ::std::vec::Vec<Schema270>,
-    #[serde(rename = "patchApplied")]
-    pub patch_applied: bool,
-    #[serde(rename = "sourceThreadId")]
-    pub source_thread_id: ThreadId,
-    pub summary: Schema3,
-}
-#[doc = "`Schema663MessageRole`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663MessageRole {
-    #[serde(rename = "user")]
-    User,
-    #[serde(rename = "assistant")]
-    Assistant,
-}
-impl ::std::fmt::Display for Schema663MessageRole {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::User => f.write_str("user"),
-            Self::Assistant => f.write_str("assistant"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663MessageRole {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "user" => Ok(Self::User),
-            "assistant" => Ok(Self::Assistant),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663MessageRole {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663MessageRole {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663MessageSpeaker`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663MessageSpeaker {
-    pub about: ::std::string::String,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub ask: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub avatar: ::std::option::Option<Schema594>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub club: ::std::option::Option<Schema663MessageSpeakerClub>,
-    pub id: Schema592,
-    pub kind: ::std::string::String,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub machine: ::std::option::Option<Schema597>,
-    pub name: Schema593,
-}
-#[doc = "`Schema663MessageSpeakerClub`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663MessageSpeakerClub {
-    pub id: Schema592,
-    pub name: Schema593,
-}
-#[doc = "`Schema663NoticeAsked`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663NoticeAsked {
-    pub about: ::std::string::String,
-    pub devices: ::std::vec::Vec<Schema472>,
-    pub share: Schema599,
-    pub shares: ::std::vec::Vec<Schema695>,
-    pub to: ::std::vec::Vec<Schema694>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub words: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema663NoticeLevel`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663NoticeLevel {
-    #[serde(rename = "info")]
-    Info,
-    #[serde(rename = "warning")]
-    Warning,
-    #[serde(rename = "error")]
-    Error,
-}
-impl ::std::fmt::Display for Schema663NoticeLevel {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Info => f.write_str("info"),
-            Self::Warning => f.write_str("warning"),
-            Self::Error => f.write_str("error"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663NoticeLevel {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "info" => Ok(Self::Info),
-            "warning" => Ok(Self::Warning),
-            "error" => Ok(Self::Error),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663NoticeLevel {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663NoticeLevel {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ToolCallCall`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCall {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    #[serde(
-        rename = "backgroundTaskId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub background_task_id: ::std::option::Option<Schema602>,
-    pub detail: Schema663ToolCallCallDetail,
-    #[serde(
-        rename = "endedAt",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub ended_at: ::std::option::Option<Schema53>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub error: ::std::option::Option<::std::string::String>,
-    pub id: Schema38,
-    pub kind: Schema656,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub result: ::std::option::Option<Schema663ToolCallCallResult>,
-    #[serde(rename = "startedAt")]
-    pub started_at: Schema53,
-    pub status: Schema663ToolCallCallStatus,
-    pub title: ::std::string::String,
-}
-#[doc = "`Schema663ToolCallCallDetail`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "kind")]
-pub enum Schema663ToolCallCallDetail {
-    #[doc = "Schema663ToolCallCallDetailBranch0"]
-    #[serde(rename = "shell")]
-    Shell {
-        command: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        cwd: ::std::option::Option<::std::string::String>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        description: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "exitCode",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        exit_code: ::std::option::Option<i64>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        output: ::std::option::Option<Schema663ToolCallCallDetailBranch0Output>,
-        #[serde(
-            rename = "rawCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        raw_command: ::std::option::Option<::std::string::String>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch1"]
-    #[serde(rename = "file.read")]
-    FileRead {
-        path: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        range: ::std::option::Option<Schema663ToolCallCallDetailBranch1Range>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch2"]
-    #[serde(rename = "file.edit")]
-    FileEdit {
-        changes: ::std::vec::Vec<Schema663ToolCallCallDetailBranch2ChangesItem>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch3"]
-    #[serde(rename = "file.write")]
-    FileWrite {
-        changes: ::std::vec::Vec<Schema663ToolCallCallDetailBranch3ChangesItem>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch4"]
-    #[serde(rename = "file.delete")]
-    FileDelete {
-        changes: ::std::vec::Vec<Schema663ToolCallCallDetailBranch4ChangesItem>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch5"]
-    #[serde(rename = "file.move")]
-    FileMove {
-        changes: ::std::vec::Vec<Schema663ToolCallCallDetailBranch5ChangesItem>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch6"]
-    #[serde(rename = "search")]
-    Search {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        matches: ::std::option::Option<i64>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        path: ::std::option::Option<::std::string::String>,
-        query: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        scope: ::std::option::Option<::std::string::String>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch7"]
-    #[serde(rename = "web.search")]
-    WebSearch { query: ::std::string::String },
-    #[doc = "Schema663ToolCallCallDetailBranch8"]
-    #[serde(rename = "web.fetch")]
-    WebFetch { url: ::std::string::String },
-    #[doc = "Schema663ToolCallCallDetailBranch9"]
-    #[serde(rename = "mcp")]
-    Mcp {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        arguments: ::std::option::Option<::ace_json::Value>,
-        server: ::std::string::String,
-        tool: ::std::string::String,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch10"]
-    #[serde(rename = "agent.spawn")]
-    AgentSpawn {
-        #[serde(
-            rename = "agentType",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        agent_type: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "childAgentId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        child_agent_id: ::std::option::Option<Schema252>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        description: ::std::option::Option<::std::string::String>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        prompt: ::std::option::Option<::std::string::String>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch11"]
-    #[serde(rename = "agent.message")]
-    AgentMessage {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        message: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "targetAgentId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        target_agent_id: ::std::option::Option<Schema252>,
-    },
-    #[doc = "Schema663ToolCallCallDetailBranch12"]
-    #[serde(rename = "todo")]
-    Todo { todos: ::std::vec::Vec<Schema682> },
-    #[doc = "Schema663ToolCallCallDetailBranch13"]
-    #[serde(rename = "plan")]
-    Plan {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        markdown: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        todos: ::std::vec::Vec<Schema682>,
-    },
-    #[serde(rename = "ask_user")]
-    AskUser,
-    #[doc = "Schema663ToolCallCallDetailBranch15"]
-    #[serde(rename = "image")]
-    Image {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        attachment: ::std::option::Option<Schema672>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        path: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "sourcePath",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        source_path: ::std::option::Option<::std::string::String>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        unavailable: ::std::option::Option<::std::string::String>,
-    },
-    #[serde(rename = "browser")]
-    Browser,
-    #[serde(rename = "notebook")]
-    Notebook,
-    #[serde(rename = "custom")]
-    Custom,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch0Output`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallDetailBranch0Output {
-    pub bytes: i64,
-    #[serde(rename = "streamId")]
-    pub stream_id: ::std::string::String,
-    pub tail: ::std::string::String,
-    pub truncated: bool,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch1Range`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallDetailBranch1Range {
-    pub end: i64,
-    pub start: i64,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch2ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallDetailBranch2ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema663ToolCallCallDetailBranch2ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch2ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663ToolCallCallDetailBranch2ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema663ToolCallCallDetailBranch2ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663ToolCallCallDetailBranch2ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663ToolCallCallDetailBranch2ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for Schema663ToolCallCallDetailBranch2ChangesItemKind
-{
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ToolCallCallDetailBranch3ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallDetailBranch3ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema663ToolCallCallDetailBranch3ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch3ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663ToolCallCallDetailBranch3ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema663ToolCallCallDetailBranch3ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663ToolCallCallDetailBranch3ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663ToolCallCallDetailBranch3ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for Schema663ToolCallCallDetailBranch3ChangesItemKind
-{
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ToolCallCallDetailBranch4ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallDetailBranch4ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema663ToolCallCallDetailBranch4ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch4ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663ToolCallCallDetailBranch4ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema663ToolCallCallDetailBranch4ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663ToolCallCallDetailBranch4ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663ToolCallCallDetailBranch4ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for Schema663ToolCallCallDetailBranch4ChangesItemKind
-{
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ToolCallCallDetailBranch5ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallDetailBranch5ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema663ToolCallCallDetailBranch5ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema663ToolCallCallDetailBranch5ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663ToolCallCallDetailBranch5ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema663ToolCallCallDetailBranch5ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663ToolCallCallDetailBranch5ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663ToolCallCallDetailBranch5ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for Schema663ToolCallCallDetailBranch5ChangesItemKind
-{
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ToolCallCallResult`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallResult {
-    pub content: ::std::vec::Vec<Schema683>,
-    #[serde(rename = "durationMs")]
-    pub duration_ms: f64,
-    #[serde(rename = "isError")]
-    pub is_error: bool,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub mode: ::std::option::Option<Schema663ToolCallCallResultMode>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub scale: ::std::option::Option<f64>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub size: ::std::option::Option<Schema663ToolCallCallResultSize>,
-    #[serde(
-        rename = "structuredContent",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub structured_content: ::std::option::Option<::ace_json::Value>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub target: ::std::option::Option<Schema663ToolCallCallResultTarget>,
-}
-#[doc = "`Schema663ToolCallCallResultMode`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663ToolCallCallResultMode {
-    #[serde(rename = "background")]
-    Background,
-    #[serde(rename = "foreground")]
-    Foreground,
-}
-impl ::std::fmt::Display for Schema663ToolCallCallResultMode {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Background => f.write_str("background"),
-            Self::Foreground => f.write_str("foreground"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663ToolCallCallResultMode {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "background" => Ok(Self::Background),
-            "foreground" => Ok(Self::Foreground),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663ToolCallCallResultMode {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663ToolCallCallResultMode {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema663ToolCallCallResultSize`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallResultSize {
-    pub height: ::std::num::NonZeroU64,
-    pub width: ::std::num::NonZeroU64,
-}
-#[doc = "`Schema663ToolCallCallResultTarget`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema663ToolCallCallResultTarget {
-    #[serde(rename = "bundleId")]
-    pub bundle_id: ::std::string::String,
-    #[serde(rename = "displayName")]
-    pub display_name: ::std::string::String,
-    #[serde(
-        rename = "windowId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub window_id: ::std::option::Option<i64>,
-}
-#[doc = "`Schema663ToolCallCallStatus`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema663ToolCallCallStatus {
-    #[serde(rename = "pending")]
-    Pending,
-    #[serde(rename = "awaiting_approval")]
-    AwaitingApproval,
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "succeeded")]
-    Succeeded,
-    #[serde(rename = "failed")]
-    Failed,
-    #[serde(rename = "declined")]
-    Declined,
-    #[serde(rename = "cancelled")]
-    Cancelled,
-}
-impl ::std::fmt::Display for Schema663ToolCallCallStatus {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Pending => f.write_str("pending"),
-            Self::AwaitingApproval => f.write_str("awaiting_approval"),
-            Self::Running => f.write_str("running"),
-            Self::Succeeded => f.write_str("succeeded"),
-            Self::Failed => f.write_str("failed"),
-            Self::Declined => f.write_str("declined"),
-            Self::Cancelled => f.write_str("cancelled"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema663ToolCallCallStatus {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "pending" => Ok(Self::Pending),
-            "awaiting_approval" => Ok(Self::AwaitingApproval),
-            "running" => Ok(Self::Running),
-            "succeeded" => Ok(Self::Succeeded),
-            "failed" => Ok(Self::Failed),
-            "declined" => Ok(Self::Declined),
-            "cancelled" => Ok(Self::Cancelled),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema663ToolCallCallStatus {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema663ToolCallCallStatus {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema664`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema664 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-    pub visualization: Schema664Visualization,
-}
-#[doc = "`Schema664Visualization`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema664Visualization {
-    pub document: Schema672,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub height: ::std::option::Option<i64>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub kit: ::std::option::Option<::std::num::NonZeroU64>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub mode: ::std::option::Option<Schema664VisualizationMode>,
-    pub title: ::std::string::String,
-}
-#[doc = "`Schema664VisualizationMode`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema664VisualizationMode {
-    #[serde(rename = "interactive")]
-    Interactive,
-    #[serde(rename = "static")]
-    Static,
-}
-impl ::std::fmt::Display for Schema664VisualizationMode {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Interactive => f.write_str("interactive"),
-            Self::Static => f.write_str("static"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema664VisualizationMode {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "interactive" => Ok(Self::Interactive),
-            "static" => Ok(Self::Static),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema664VisualizationMode {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema664VisualizationMode {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,
@@ -62055,303 +59671,6 @@ pub enum Schema673 {
         type_: ::std::string::String,
     },
 }
-#[doc = "`Schema674`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema674 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    pub image: Schema674Image,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema674Image`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema674Image {
-    pub alt: ::std::string::String,
-    pub attachment: Schema672,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub caption: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema675`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema675 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub attachments: ::std::vec::Vec<Schema672>,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "mergedContext",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub merged_context: ::std::option::Option<Schema675MergedContext>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    #[serde(
-        rename = "notAnswered",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub not_answered: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub origin: ::std::option::Option<MessageOrigin>,
-    pub parts: ::std::vec::Vec<ContentPart>,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    pub role: Schema675Role,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub speaker: ::std::option::Option<Schema675Speaker>,
-    pub synthetic: bool,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema675MergedContext`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema675MergedContext {
-    pub citations: ::std::vec::Vec<Schema270>,
-    #[serde(rename = "patchApplied")]
-    pub patch_applied: bool,
-    #[serde(rename = "sourceThreadId")]
-    pub source_thread_id: ThreadId,
-    pub summary: Schema3,
-}
-#[doc = "`Schema675Role`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema675Role {
-    #[serde(rename = "user")]
-    User,
-    #[serde(rename = "assistant")]
-    Assistant,
-}
-impl ::std::fmt::Display for Schema675Role {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::User => f.write_str("user"),
-            Self::Assistant => f.write_str("assistant"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema675Role {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "user" => Ok(Self::User),
-            "assistant" => Ok(Self::Assistant),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema675Role {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema675Role {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema675Speaker`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema675Speaker {
-    pub about: ::std::string::String,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub ask: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub avatar: ::std::option::Option<Schema594>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub club: ::std::option::Option<Schema675SpeakerClub>,
-    pub id: Schema592,
-    pub kind: ::std::string::String,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub machine: ::std::option::Option<Schema597>,
-    pub name: Schema593,
-}
-#[doc = "`Schema675SpeakerClub`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema675SpeakerClub {
-    pub id: Schema592,
-    pub name: Schema593,
-}
-#[doc = "`Schema676`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema676 {
-    #[serde(
-        rename = "accountId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub account_id: ::std::option::Option<::std::string::String>,
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    #[serde(rename = "childThreadId")]
-    pub child_thread_id: ThreadId,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub generation: i64,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub machine: ::std::option::Option<Schema678>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub model: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub origin: ::std::string::String,
-    #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub outcome: ::std::option::Option<Schema677>,
-    pub phase: Schema676Phase,
-    pub provider: ProviderKind,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    pub role: ::std::string::String,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    pub status: ThreadStatus,
-    pub title: ::std::string::String,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: Schema53,
-}
-#[doc = "`Schema676Phase`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema676Phase {
-    #[serde(rename = "created")]
-    Created,
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "cancelling")]
-    Cancelling,
-    #[serde(rename = "settled")]
-    Settled,
-}
-impl ::std::fmt::Display for Schema676Phase {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Created => f.write_str("created"),
-            Self::Running => f.write_str("running"),
-            Self::Cancelling => f.write_str("cancelling"),
-            Self::Settled => f.write_str("settled"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema676Phase {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "created" => Ok(Self::Created),
-            "running" => Ok(Self::Running),
-            "cancelling" => Ok(Self::Cancelling),
-            "settled" => Ok(Self::Settled),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema676Phase {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema676Phase {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 #[doc = "`Schema677`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema677 {
@@ -62505,95 +59824,6 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema678Contact {
         value.parse()
     }
 }
-#[doc = "`Schema679`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema679 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    pub delivery: Schema679Delivery,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub origin: ::std::string::String,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    pub results: ::std::vec::Vec<Schema677>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema679Delivery`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema679Delivery {
-    #[serde(rename = "tool")]
-    Tool,
-    #[serde(rename = "ace-input")]
-    AceInput,
-}
-impl ::std::fmt::Display for Schema679Delivery {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Tool => f.write_str("tool"),
-            Self::AceInput => f.write_str("ace-input"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema679Delivery {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "tool" => Ok(Self::Tool),
-            "ace-input" => Ok(Self::AceInput),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema679Delivery {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema679Delivery {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 #[doc = "`Schema68`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(untagged)]
@@ -62604,757 +59834,6 @@ pub enum Schema68 {
 impl ::std::convert::From<::std::vec::Vec<Schema1>> for Schema68 {
     fn from(value: ::std::vec::Vec<Schema1>) -> Self {
         Self::Array(value)
-    }
-}
-#[doc = "`Schema680`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema680 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub source: ::std::option::Option<Schema223>,
-    pub summary: bool,
-    pub text: ::std::string::String,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema681`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    pub call: Schema681Call,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub measurement: ::std::option::Option<Schema684>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema681Call`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681Call {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    #[serde(
-        rename = "backgroundTaskId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub background_task_id: ::std::option::Option<Schema602>,
-    pub detail: Schema681CallDetail,
-    #[serde(
-        rename = "endedAt",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub ended_at: ::std::option::Option<Schema53>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub error: ::std::option::Option<::std::string::String>,
-    pub id: Schema38,
-    pub kind: Schema656,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub result: ::std::option::Option<Schema681CallResult>,
-    #[serde(rename = "startedAt")]
-    pub started_at: Schema53,
-    pub status: Schema681CallStatus,
-    pub title: ::std::string::String,
-}
-#[doc = "`Schema681CallDetail`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "kind")]
-pub enum Schema681CallDetail {
-    #[doc = "Schema681CallDetailBranch0"]
-    #[serde(rename = "shell")]
-    Shell {
-        command: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        cwd: ::std::option::Option<::std::string::String>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        description: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "exitCode",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        exit_code: ::std::option::Option<i64>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        output: ::std::option::Option<Schema681CallDetailBranch0Output>,
-        #[serde(
-            rename = "rawCommand",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        raw_command: ::std::option::Option<::std::string::String>,
-    },
-    #[doc = "Schema681CallDetailBranch1"]
-    #[serde(rename = "file.read")]
-    FileRead {
-        path: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        range: ::std::option::Option<Schema681CallDetailBranch1Range>,
-    },
-    #[doc = "Schema681CallDetailBranch2"]
-    #[serde(rename = "file.edit")]
-    FileEdit {
-        changes: ::std::vec::Vec<Schema681CallDetailBranch2ChangesItem>,
-    },
-    #[doc = "Schema681CallDetailBranch3"]
-    #[serde(rename = "file.write")]
-    FileWrite {
-        changes: ::std::vec::Vec<Schema681CallDetailBranch3ChangesItem>,
-    },
-    #[doc = "Schema681CallDetailBranch4"]
-    #[serde(rename = "file.delete")]
-    FileDelete {
-        changes: ::std::vec::Vec<Schema681CallDetailBranch4ChangesItem>,
-    },
-    #[doc = "Schema681CallDetailBranch5"]
-    #[serde(rename = "file.move")]
-    FileMove {
-        changes: ::std::vec::Vec<Schema681CallDetailBranch5ChangesItem>,
-    },
-    #[doc = "Schema681CallDetailBranch6"]
-    #[serde(rename = "search")]
-    Search {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        matches: ::std::option::Option<i64>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        path: ::std::option::Option<::std::string::String>,
-        query: ::std::string::String,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        scope: ::std::option::Option<::std::string::String>,
-    },
-    #[doc = "Schema681CallDetailBranch7"]
-    #[serde(rename = "web.search")]
-    WebSearch { query: ::std::string::String },
-    #[doc = "Schema681CallDetailBranch8"]
-    #[serde(rename = "web.fetch")]
-    WebFetch { url: ::std::string::String },
-    #[doc = "Schema681CallDetailBranch9"]
-    #[serde(rename = "mcp")]
-    Mcp {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        arguments: ::std::option::Option<::ace_json::Value>,
-        server: ::std::string::String,
-        tool: ::std::string::String,
-    },
-    #[doc = "Schema681CallDetailBranch10"]
-    #[serde(rename = "agent.spawn")]
-    AgentSpawn {
-        #[serde(
-            rename = "agentType",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        agent_type: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "childAgentId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        child_agent_id: ::std::option::Option<Schema252>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        description: ::std::option::Option<::std::string::String>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        prompt: ::std::option::Option<::std::string::String>,
-    },
-    #[doc = "Schema681CallDetailBranch11"]
-    #[serde(rename = "agent.message")]
-    AgentMessage {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        message: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "targetAgentId",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        target_agent_id: ::std::option::Option<Schema252>,
-    },
-    #[doc = "Schema681CallDetailBranch12"]
-    #[serde(rename = "todo")]
-    Todo { todos: ::std::vec::Vec<Schema682> },
-    #[doc = "Schema681CallDetailBranch13"]
-    #[serde(rename = "plan")]
-    Plan {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        markdown: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        todos: ::std::vec::Vec<Schema682>,
-    },
-    #[serde(rename = "ask_user")]
-    AskUser,
-    #[doc = "Schema681CallDetailBranch15"]
-    #[serde(rename = "image")]
-    Image {
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        attachment: ::std::option::Option<Schema672>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        path: ::std::option::Option<::std::string::String>,
-        #[serde(
-            rename = "sourcePath",
-            skip_serializing_if = "::std::option::Option::is_none"
-        )]
-        source_path: ::std::option::Option<::std::string::String>,
-        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        unavailable: ::std::option::Option<::std::string::String>,
-    },
-    #[serde(rename = "browser")]
-    Browser,
-    #[serde(rename = "notebook")]
-    Notebook,
-    #[serde(rename = "custom")]
-    Custom,
-}
-#[doc = "`Schema681CallDetailBranch0Output`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallDetailBranch0Output {
-    pub bytes: i64,
-    #[serde(rename = "streamId")]
-    pub stream_id: ::std::string::String,
-    pub tail: ::std::string::String,
-    pub truncated: bool,
-}
-#[doc = "`Schema681CallDetailBranch1Range`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallDetailBranch1Range {
-    pub end: i64,
-    pub start: i64,
-}
-#[doc = "`Schema681CallDetailBranch2ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallDetailBranch2ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema681CallDetailBranch2ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema681CallDetailBranch2ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema681CallDetailBranch2ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema681CallDetailBranch2ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema681CallDetailBranch2ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema681CallDetailBranch2ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema681CallDetailBranch2ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema681CallDetailBranch3ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallDetailBranch3ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema681CallDetailBranch3ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema681CallDetailBranch3ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema681CallDetailBranch3ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema681CallDetailBranch3ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema681CallDetailBranch3ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema681CallDetailBranch3ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema681CallDetailBranch3ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema681CallDetailBranch4ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallDetailBranch4ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema681CallDetailBranch4ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema681CallDetailBranch4ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema681CallDetailBranch4ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema681CallDetailBranch4ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema681CallDetailBranch4ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema681CallDetailBranch4ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema681CallDetailBranch4ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema681CallDetailBranch5ChangesItem`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallDetailBranch5ChangesItem {
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diff: ::std::option::Option<::std::string::String>,
-    pub kind: Schema681CallDetailBranch5ChangesItemKind,
-    #[serde(
-        rename = "movePath",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub move_path: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "newText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub new_text: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "oldText",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub old_text: ::std::option::Option<::std::string::String>,
-    pub path: ::std::string::String,
-}
-#[doc = "`Schema681CallDetailBranch5ChangesItemKind`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema681CallDetailBranch5ChangesItemKind {
-    #[serde(rename = "add")]
-    Add,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "move")]
-    Move,
-}
-impl ::std::fmt::Display for Schema681CallDetailBranch5ChangesItemKind {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Add => f.write_str("add"),
-            Self::Update => f.write_str("update"),
-            Self::Delete => f.write_str("delete"),
-            Self::Move => f.write_str("move"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema681CallDetailBranch5ChangesItemKind {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "add" => Ok(Self::Add),
-            "update" => Ok(Self::Update),
-            "delete" => Ok(Self::Delete),
-            "move" => Ok(Self::Move),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema681CallDetailBranch5ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema681CallDetailBranch5ChangesItemKind {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema681CallResult`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallResult {
-    pub content: ::std::vec::Vec<Schema683>,
-    #[serde(rename = "durationMs")]
-    pub duration_ms: f64,
-    #[serde(rename = "isError")]
-    pub is_error: bool,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub mode: ::std::option::Option<Schema681CallResultMode>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub scale: ::std::option::Option<f64>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub size: ::std::option::Option<Schema681CallResultSize>,
-    #[serde(
-        rename = "structuredContent",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub structured_content: ::std::option::Option<::ace_json::Value>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub target: ::std::option::Option<Schema681CallResultTarget>,
-}
-#[doc = "`Schema681CallResultMode`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema681CallResultMode {
-    #[serde(rename = "background")]
-    Background,
-    #[serde(rename = "foreground")]
-    Foreground,
-}
-impl ::std::fmt::Display for Schema681CallResultMode {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Background => f.write_str("background"),
-            Self::Foreground => f.write_str("foreground"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema681CallResultMode {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "background" => Ok(Self::Background),
-            "foreground" => Ok(Self::Foreground),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema681CallResultMode {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema681CallResultMode {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`Schema681CallResultSize`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallResultSize {
-    pub height: ::std::num::NonZeroU64,
-    pub width: ::std::num::NonZeroU64,
-}
-#[doc = "`Schema681CallResultTarget`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema681CallResultTarget {
-    #[serde(rename = "bundleId")]
-    pub bundle_id: ::std::string::String,
-    #[serde(rename = "displayName")]
-    pub display_name: ::std::string::String,
-    #[serde(
-        rename = "windowId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub window_id: ::std::option::Option<i64>,
-}
-#[doc = "`Schema681CallStatus`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema681CallStatus {
-    #[serde(rename = "pending")]
-    Pending,
-    #[serde(rename = "awaiting_approval")]
-    AwaitingApproval,
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "succeeded")]
-    Succeeded,
-    #[serde(rename = "failed")]
-    Failed,
-    #[serde(rename = "declined")]
-    Declined,
-    #[serde(rename = "cancelled")]
-    Cancelled,
-}
-impl ::std::fmt::Display for Schema681CallStatus {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Pending => f.write_str("pending"),
-            Self::AwaitingApproval => f.write_str("awaiting_approval"),
-            Self::Running => f.write_str("running"),
-            Self::Succeeded => f.write_str("succeeded"),
-            Self::Failed => f.write_str("failed"),
-            Self::Declined => f.write_str("declined"),
-            Self::Cancelled => f.write_str("cancelled"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema681CallStatus {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "pending" => Ok(Self::Pending),
-            "awaiting_approval" => Ok(Self::AwaitingApproval),
-            "running" => Ok(Self::Running),
-            "succeeded" => Ok(Self::Succeeded),
-            "failed" => Ok(Self::Failed),
-            "declined" => Ok(Self::Declined),
-            "cancelled" => Ok(Self::Cancelled),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema681CallStatus {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema681CallStatus {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
     }
 }
 #[doc = "`Schema682`"]
@@ -63926,140 +60405,6 @@ pub struct Schema691 {
     pub median: Schema685,
     pub worst: Schema685,
 }
-#[doc = "`Schema692`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema692 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub asked: ::std::option::Option<Schema692Asked>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub code: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "commandId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub command_id: ::std::option::Option<Schema27>,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub detail: ::std::option::Option<::std::string::String>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub details: ::std::option::Option<Schema693>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub diagnostic: ::std::option::Option<bool>,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "interactionId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub interaction_id: ::std::option::Option<Schema255>,
-    pub level: Schema692Level,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub measurement: ::std::option::Option<Schema684>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub source: ::std::option::Option<Schema223>,
-    pub text: ::std::string::String,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub title: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "toolCallId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub tool_call_id: ::std::option::Option<Schema38>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
-}
-#[doc = "`Schema692Asked`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema692Asked {
-    pub about: ::std::string::String,
-    pub devices: ::std::vec::Vec<Schema472>,
-    pub share: Schema599,
-    pub shares: ::std::vec::Vec<Schema695>,
-    pub to: ::std::vec::Vec<Schema694>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub words: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema692Level`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema692Level {
-    #[serde(rename = "info")]
-    Info,
-    #[serde(rename = "warning")]
-    Warning,
-    #[serde(rename = "error")]
-    Error,
-}
-impl ::std::fmt::Display for Schema692Level {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Info => f.write_str("info"),
-            Self::Warning => f.write_str("warning"),
-            Self::Error => f.write_str("error"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema692Level {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "info" => Ok(Self::Info),
-            "warning" => Ok(Self::Warning),
-            "error" => Ok(Self::Error),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema692Level {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema692Level {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 #[doc = "`Schema693`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema693 {
@@ -64195,53 +60540,6 @@ impl ::std::str::FromStr for Schema695 {
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.to_string()))
     }
-}
-#[doc = "`Schema696`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Schema696 {
-    #[serde(rename = "agentId")]
-    pub agent_id: Schema252,
-    pub complete: Schema669,
-    #[serde(rename = "createdAt")]
-    pub created_at: Schema53,
-    #[serde(
-        rename = "executionSource",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub execution_source: ::std::option::Option<Schema667>,
-    pub id: Schema38,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub inherited: ::std::option::Option<Schema670>,
-    #[serde(
-        rename = "nativeId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub native_id: ::std::option::Option<Schema666>,
-    pub raw: ::std::vec::Vec<Schema673>,
-    #[serde(
-        rename = "rawOmitted",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub raw_omitted: ::std::option::Option<bool>,
-    #[serde(
-        rename = "runId",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub run_id: ::std::option::Option<Schema665>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub summary: ::std::option::Option<::std::string::String>,
-    #[serde(
-        rename = "tokensAfter",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub tokens_after: ::std::option::Option<i64>,
-    #[serde(
-        rename = "tokensBefore",
-        skip_serializing_if = "::std::option::Option::is_none"
-    )]
-    pub tokens_before: ::std::option::Option<i64>,
-    #[serde(rename = "type")]
-    pub type_: ::std::string::String,
 }
 #[doc = "`Schema697`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -65327,76 +61625,9 @@ pub struct Schema718 {
     pub address: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub error: ::std::option::Option<::std::string::String>,
-    pub state: Schema718State,
+    pub state: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub warning: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema718State`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema718State {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema718StateBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema718StateBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema718StateBranch0 {
-    #[serde(rename = "off")]
-    Off,
-    #[serde(rename = "on")]
-    On,
-    #[serde(rename = "waiting")]
-    Waiting,
-    #[serde(rename = "failed")]
-    Failed,
-}
-impl ::std::fmt::Display for Schema718StateBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Off => f.write_str("off"),
-            Self::On => f.write_str("on"),
-            Self::Waiting => f.write_str("waiting"),
-            Self::Failed => f.write_str("failed"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema718StateBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "off" => Ok(Self::Off),
-            "on" => Ok(Self::On),
-            "waiting" => Ok(Self::Waiting),
-            "failed" => Ok(Self::Failed),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema718StateBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema718StateBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
 }
 #[doc = "`Schema719`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -67046,70 +63277,7 @@ pub struct Schema743 {
     pub label: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub reason: ::std::option::Option<::std::string::String>,
-    pub state: Schema743State,
-}
-#[doc = "`Schema743State`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema743State {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema743StateBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema744>,
-}
-#[doc = "`Schema743StateBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema743StateBranch0 {
-    #[serde(rename = "ready")]
-    Ready,
-    #[serde(rename = "unavailable")]
-    Unavailable,
-    #[serde(rename = "unknown")]
-    Unknown,
-}
-impl ::std::fmt::Display for Schema743StateBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Ready => f.write_str("ready"),
-            Self::Unavailable => f.write_str("unavailable"),
-            Self::Unknown => f.write_str("unknown"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema743StateBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "ready" => Ok(Self::Ready),
-            "unavailable" => Ok(Self::Unavailable),
-            "unknown" => Ok(Self::Unknown),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema743StateBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema743StateBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
+    pub state: ::std::string::String,
 }
 #[doc = "`Schema744`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -67987,69 +64155,10 @@ pub struct Schema756 {
     )]
     pub icon_url: ::std::option::Option<::std::string::String>,
     pub port: Schema85,
-    pub source: Schema756Source,
+    pub source: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub title: ::std::option::Option<::std::string::String>,
     pub url: ::std::string::String,
-}
-#[doc = "`Schema756Source`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema756Source {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<Schema756SourceBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<::std::string::String>,
-}
-#[doc = "`Schema756SourceBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum Schema756SourceBranch0 {
-    #[serde(rename = "listener")]
-    Listener,
-    #[serde(rename = "terminal")]
-    Terminal,
-}
-impl ::std::fmt::Display for Schema756SourceBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Listener => f.write_str("listener"),
-            Self::Terminal => f.write_str("terminal"),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema756SourceBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "listener" => Ok(Self::Listener),
-            "terminal" => Ok(Self::Terminal),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema756SourceBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema756SourceBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
 }
 #[doc = "`Schema757`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -76926,12 +73035,45 @@ pub struct Schema906 {
     pub host: Schema140,
 }
 #[doc = "`Schema907`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct Schema907 {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<::std::string::String>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<::std::string::String>,
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(transparent)]
+pub struct Schema907(pub ::std::string::String);
+impl ::std::ops::Deref for Schema907 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema907> for ::std::string::String {
+    fn from(value: Schema907) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::string::String> for Schema907 {
+    fn from(value: ::std::string::String) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema907 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema907 {
+    type Err = ::std::convert::Infallible;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.to_string()))
+    }
 }
 #[doc = "`Schema908`"]
 #[derive(
@@ -79205,23 +75347,74 @@ pub struct Schema963 {
     pub text: ::std::string::String,
 }
 #[doc = "`Schema963Kind`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
 pub enum Schema963Kind {
-    Schema964(Schema964),
-    String(::std::string::String),
+    #[serde(rename = "secret")]
+    Secret,
+    #[serde(rename = "home-path")]
+    HomePath,
+    #[serde(rename = "email")]
+    Email,
+    #[serde(rename = "phone")]
+    Phone,
+    #[serde(rename = "private-url")]
+    PrivateUrl,
+    #[serde(rename = "own-name")]
+    OwnName,
+    #[serde(rename = "hidden-text")]
+    HiddenText,
 }
 impl ::std::fmt::Display for Schema963Kind {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Schema964(x) => x.fmt(f),
-            Self::String(x) => x.fmt(f),
+        match *self {
+            Self::Secret => f.write_str("secret"),
+            Self::HomePath => f.write_str("home-path"),
+            Self::Email => f.write_str("email"),
+            Self::Phone => f.write_str("phone"),
+            Self::PrivateUrl => f.write_str("private-url"),
+            Self::OwnName => f.write_str("own-name"),
+            Self::HiddenText => f.write_str("hidden-text"),
         }
     }
 }
-impl ::std::convert::From<Schema964> for Schema963Kind {
-    fn from(value: Schema964) -> Self {
-        Self::Schema964(value)
+impl ::std::str::FromStr for Schema963Kind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "secret" => Ok(Self::Secret),
+            "home-path" => Ok(Self::HomePath),
+            "email" => Ok(Self::Email),
+            "phone" => Ok(Self::Phone),
+            "private-url" => Ok(Self::PrivateUrl),
+            "own-name" => Ok(Self::OwnName),
+            "hidden-text" => Ok(Self::HiddenText),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema963Kind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema963Kind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 #[doc = "`Schema964`"]
@@ -79329,7 +75522,7 @@ pub struct Schema965 {
     pub triggers: ::std::vec::Vec<Schema975>,
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub uses: ::std::vec::Vec<Schema974>,
-    pub version: Schema965Version,
+    pub version: f64,
 }
 #[doc = "`Schema965Model`"]
 #[derive(
@@ -79414,47 +75607,6 @@ pub struct Schema965Requires {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema965Style {
     pub accent: ::std::string::String,
-}
-#[doc = "`Schema965Version`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum Schema965Version {
-    Variant0(f64),
-    Variant1(f64),
-}
-impl ::std::fmt::Display for Schema965Version {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Variant0(x) => x.fmt(f),
-            Self::Variant1(x) => x.fmt(f),
-        }
-    }
-}
-impl ::std::str::FromStr for Schema965Version {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if let Ok(v) = value.parse() {
-            Ok(Self::Variant0(v))
-        } else if let Ok(v) = value.parse() {
-            Ok(Self::Variant1(v))
-        } else {
-            Err("string conversion failed for all variants".into())
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for Schema965Version {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for Schema965Version {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
 }
 #[doc = "`Schema966`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -82036,7 +78188,6 @@ pub struct ServerHelloConfirmed {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(tag = "status")]
 pub enum ServerHistoryContinue {
-    #[doc = "ServerMessageBranch80HistoryContinue"]
     #[serde(rename = "continued")]
     Continued {
         #[serde(rename = "instanceId")]
@@ -82053,7 +78204,6 @@ pub enum ServerHistoryContinue {
         #[serde(rename = "type")]
         type_: ::std::string::String,
     },
-    #[doc = "ServerMessageBranch80HistoryContinue"]
     #[serde(rename = "unsupported")]
     Unsupported {
         reason: ::std::string::String,
@@ -82070,7 +78220,6 @@ pub enum ServerHistoryContinue {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(tag = "status")]
 pub enum ServerHistoryImport {
-    #[doc = "ServerMessageBranch77HistoryImport"]
     #[serde(rename = "imported")]
     Imported {
         #[serde(
@@ -82083,7 +78232,6 @@ pub enum ServerHistoryImport {
         #[serde(rename = "type")]
         type_: ::std::string::String,
     },
-    #[doc = "ServerMessageBranch77HistoryImport"]
     #[serde(rename = "unsupported")]
     Unsupported {
         reason: ::std::string::String,
@@ -82265,7 +78413,7 @@ pub struct ServerLockedUseChanged {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerLockedUseResult {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub code: ::std::option::Option<ServerLockedUseResultCode>,
+    pub code: ::std::option::Option<::std::string::String>,
     pub ok: bool,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub reason: ::std::option::Option<Schema734>,
@@ -82277,14 +78425,6 @@ pub struct ServerLockedUseResult {
     pub status: ::std::option::Option<Schema733>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
-}
-#[doc = "`ServerLockedUseResultCode`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct ServerLockedUseResultCode {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<ServerMessageLockedUseResultCodeBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`ServerLockedUseStatus`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -82341,7 +78481,7 @@ pub struct ServerMachineUpdateChanged {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerMachineUpdateResult {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub error: ::std::option::Option<ServerMachineUpdateResultError>,
+    pub error: ::std::option::Option<::std::string::String>,
     pub ok: bool,
     #[serde(rename = "requestId")]
     pub request_id: ::std::string::String,
@@ -82349,14 +78489,6 @@ pub struct ServerMachineUpdateResult {
     pub type_: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub update: ::std::option::Option<Schema623>,
-}
-#[doc = "`ServerMachineUpdateResultError`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct ServerMachineUpdateResultError {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<ServerMessageMachineUpdateResultErrorBranch0>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema624>,
 }
 #[doc = "`ServerMachinesResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -84915,65 +81047,6 @@ pub struct ServerMessageHostIdentityResultIdentity {
     pub platform: ::std::option::Option<::std::string::String>,
     pub version: ::std::string::String,
 }
-#[doc = "`ServerMessageLockedUseResultCodeBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum ServerMessageLockedUseResultCodeBranch0 {
-    #[serde(rename = "forbidden")]
-    Forbidden,
-    #[serde(rename = "busy")]
-    Busy,
-    #[serde(rename = "unavailable")]
-    Unavailable,
-    #[serde(rename = "failed")]
-    Failed,
-}
-impl ::std::fmt::Display for ServerMessageLockedUseResultCodeBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Forbidden => f.write_str("forbidden"),
-            Self::Busy => f.write_str("busy"),
-            Self::Unavailable => f.write_str("unavailable"),
-            Self::Failed => f.write_str("failed"),
-        }
-    }
-}
-impl ::std::str::FromStr for ServerMessageLockedUseResultCodeBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "forbidden" => Ok(Self::Forbidden),
-            "busy" => Ok(Self::Busy),
-            "unavailable" => Ok(Self::Unavailable),
-            "failed" => Ok(Self::Failed),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ServerMessageLockedUseResultCodeBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String> for ServerMessageLockedUseResultCodeBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
 #[doc = "`ServerMessageMachineCodeResultResultBranch1Error`"]
 #[derive(
     :: serde :: Deserialize,
@@ -85023,75 +81096,6 @@ impl ::std::convert::TryFrom<&str> for ServerMessageMachineCodeResultResultBranc
 }
 impl ::std::convert::TryFrom<::std::string::String>
     for ServerMessageMachineCodeResultResultBranch1Error
-{
-    type Error = self::error::ConversionError;
-    fn try_from(
-        value: ::std::string::String,
-    ) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-#[doc = "`ServerMessageMachineUpdateResultErrorBranch0`"]
-#[derive(
-    :: serde :: Deserialize,
-    :: serde :: Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum ServerMessageMachineUpdateResultErrorBranch0 {
-    #[serde(rename = "forbidden")]
-    Forbidden,
-    #[serde(rename = "blocked")]
-    Blocked,
-    #[serde(rename = "stale")]
-    Stale,
-    #[serde(rename = "confirm")]
-    Confirm,
-    #[serde(rename = "unavailable")]
-    Unavailable,
-    #[serde(rename = "invalid")]
-    Invalid,
-}
-impl ::std::fmt::Display for ServerMessageMachineUpdateResultErrorBranch0 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Forbidden => f.write_str("forbidden"),
-            Self::Blocked => f.write_str("blocked"),
-            Self::Stale => f.write_str("stale"),
-            Self::Confirm => f.write_str("confirm"),
-            Self::Unavailable => f.write_str("unavailable"),
-            Self::Invalid => f.write_str("invalid"),
-        }
-    }
-}
-impl ::std::str::FromStr for ServerMessageMachineUpdateResultErrorBranch0 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "forbidden" => Ok(Self::Forbidden),
-            "blocked" => Ok(Self::Blocked),
-            "stale" => Ok(Self::Stale),
-            "confirm" => Ok(Self::Confirm),
-            "unavailable" => Ok(Self::Unavailable),
-            "invalid" => Ok(Self::Invalid),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ServerMessageMachineUpdateResultErrorBranch0 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl ::std::convert::TryFrom<::std::string::String>
-    for ServerMessageMachineUpdateResultErrorBranch0
 {
     type Error = self::error::ConversionError;
     fn try_from(
@@ -92149,7 +88153,7 @@ pub struct ServerThreadCatchUp {
     #[serde(rename = "requestId")]
     pub request_id: Schema29,
     pub seq: Schema32,
-    pub status: ThreadStatus,
+    pub status: crate::thread_status::ThreadStatus,
     #[serde(rename = "threadId")]
     pub thread_id: ThreadId,
     #[serde(rename = "turnsCompleted")]
@@ -92730,14 +88734,6 @@ impl ::std::str::FromStr for ThreadId {
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.to_string()))
     }
-}
-#[doc = "`ThreadStatus`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
-pub struct ThreadStatus {
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_0: ::std::option::Option<KnownThreadStatus>,
-    #[serde(flatten, skip_serializing_if = "::std::option::Option::is_none")]
-    pub subtype_1: ::std::option::Option<Schema653>,
 }
 #[doc = "`UserBrowserExtensionMessageUserBrowserEventEventBranch2Reason`"]
 #[derive(

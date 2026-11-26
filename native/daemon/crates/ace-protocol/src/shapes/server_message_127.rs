@@ -5,191 +5,298 @@
 #![allow(unused_imports)]
 
 // Part server_message_127.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "agentId",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_TABS_POINTER_FIELDS: [Field; 3] = [
-    Field {
-        key: "x",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "y",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_144_FRAME_FIELDS: [Field; 6] = [
     Field {
         key: "sequence",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_TABS_EMULATION_FIELDS: [Field; 7] = [
+    Field {
+        key: "timestamp",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "data",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4194304),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
     Field {
         key: "width",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "height",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
-        key: "deviceScaleFactor",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "mobile",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "touch",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "userAgent",
+        key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "by",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_142_STATE_DOWNLOADS_FIELDS: [Field; 8] = [
+pub(crate) static SERVER_MESSAGE_145_FIELDS: [Field; 3] = [
     Field {
-        key: "downloadId",
+        key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.annotation\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "event",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_145_EVENT_FIELDS,
+            extra: Extra::Keep,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_145_EVENT_FIELDS: [Field; 1] = [Field {
+    key: "kind",
+    presence: Presence::Required,
+    shape: Shape::Str(&StrBounds {
+        min: Some(1),
+        max: Some(64),
+        pattern: None,
+        format: None,
+        trim: false,
+    }),
+}];
+
+pub(crate) static SERVER_MESSAGE_146_FIELDS: [Field; 4] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.page\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "tabId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "filename",
+        key: "page",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "bytes",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "mimeType",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "flags",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "path",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_ANNOTATION_FIELDS: [Field; 1] = [Field {
-    key: "owner",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_RECORDING_FIELDS: [Field; 1] = [Field {
-    key: "by",
-    presence: Presence::Required,
-    shape: Shape::Object {
-        fields: &SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS,
-        extra: Extra::Strip,
-    },
-}];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_VIDEO_FIELDS: [Field; 3] = [
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "attempts",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_143_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "undelivered",
-        presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::server_message_121::SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
+            fields: &SERVER_MESSAGE_146_PAGE_FIELDS,
             extra: Extra::Strip,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_144_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_146_PAGE_FIELDS: [Field; 4] = [
     Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "frame",
-        presence: Presence::Required,
+        key: "focus",
+        presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::server_message_128::SERVER_MESSAGE_144_FRAME_FIELDS,
+            fields: &SERVER_MESSAGE_146_PAGE_FOCUS_FIELDS,
             extra: Extra::Strip,
         },
     },
+    Field {
+        key: "picker",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_146_PAGE_PICKER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "cursor",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(32),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "tooltip",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_128::SERVER_MESSAGE_146_PAGE_TOOLTIP_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_146_PAGE_FOCUS_FIELDS: [Field; 5] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(32),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "rect",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_146_PAGE_FOCUS_RECT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "caret",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_146_PAGE_FOCUS_RECT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "inputMode",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(32),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "enterKeyHint",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(32),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_146_PAGE_FOCUS_RECT_FIELDS: [Field; 4] = [
+    Field {
+        key: "x",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "y",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(-100000.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "width",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "height",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(100000.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_146_PAGE_PICKER_FIELDS: [Field; 8] = [
+    Field { key: "pickerId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"select\"", "\"date\"", "\"time\"", "\"datetime-local\"", "\"month\"", "\"week\"", "\"color\""]) },
+    Field { key: "rect", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_146_PAGE_FOCUS_RECT_FIELDS, extra: Extra::Strip } },
+    Field { key: "value", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "options", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_128::SERVER_MESSAGE_146_PAGE_PICKER_OPTIONS_FIELDS, extra: Extra::Strip }, min: None, max: Some(1000) } },
+    Field { key: "min", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(64), pattern: None, format: None, trim: false }) },
+    Field { key: "max", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(64), pattern: None, format: None, trim: false }) },
+    Field { key: "step", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(64), pattern: None, format: None, trim: false }) },
 ];

@@ -5,28 +5,59 @@
 #![allow(unused_imports)]
 
 // Part client_message_105.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_FIELDS: [Field; 7] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.update\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: Some("^[^/\\\\\\x00-\\x1f]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "icon",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(4096),
+                pattern: Some(
+                    "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+                ),
+                format: None,
+                trim: false,
+            }),
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(131072),
+                pattern: Some(
+                    "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+                ),
+                format: None,
+                trim: false,
+            }),
+        ])),
     },
     Field {
         key: "badge",
@@ -47,10 +78,14 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_FIELDS: [Field; 7] = [
     Field {
         key: "notes",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_NOTES_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_NOTES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(50),
+        },
     },
 ];
 
@@ -58,12 +93,38 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_BADGE_FIELDS: [Field; 2]
     Field {
         key: "color",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"neutral\"",
+            "\"blue\"",
+            "\"green\"",
+            "\"amber\"",
+            "\"rose\"",
+            "\"violet\"",
+        ]),
     },
     Field {
         key: "glyph",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"code\"",
+            "\"terminal\"",
+            "\"globe\"",
+            "\"database\"",
+            "\"cloud\"",
+            "\"robot\"",
+            "\"rocket\"",
+            "\"flask\"",
+            "\"book\"",
+            "\"cube\"",
+            "\"game\"",
+            "\"mobile\"",
+            "\"palette\"",
+            "\"gear\"",
+            "\"lightning\"",
+            "\"leaf\"",
+            "\"star\"",
+            "\"heart\"",
+        ]),
     },
 ];
 
@@ -71,37 +132,68 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_DEFAULTS_FIELDS: [Field;
     Field {
         key: "provider",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "model",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "worktree",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "access",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"read-only\"",
+            "\"ask\"",
+            "\"auto-review\"",
+            "\"full-access\"",
+        ]),
     },
     Field {
         key: "baseBranch",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "browserProfileScope",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"global\"", "\"project\"", "\"thread\""]),
     },
     Field {
         key: "checkCommand",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -109,12 +201,24 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_52_NOTES_FIELDS: [Field; 2]
     Field {
         key: "id",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -122,17 +226,29 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_53_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.rename\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: Some("^[^/\\\\\\x00-\\x1f]+$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -140,12 +256,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.repositories.set\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "repositories",
@@ -166,8 +288,8 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_FIELDS: [Field; 4] = [
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_REPOSITORIES_FIELDS: [Field; 3] = [
-    Field { key: "added", presence: Presence::Default("[]"), shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }) },
-    Field { key: "hidden", presence: Presence::Default("[]"), shape: Shape::Array(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }) },
+    Field { key: "added", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }, min: None, max: Some(32) } },
+    Field { key: "hidden", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
     Field { key: "primary", presence: Presence::Default("null"), shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }) },
 ];
 
@@ -175,22 +297,34 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_55_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.identity.link\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "identityId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "viaMarker",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
 ];
 
@@ -198,16 +332,22 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_56_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"workspace.identity.marker.write\""]),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "replace",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
 ];

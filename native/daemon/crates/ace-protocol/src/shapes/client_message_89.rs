@@ -5,23 +5,29 @@
 #![allow(unused_imports)]
 
 // Part client_message_89.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_180_DEVICE_2_FIELDS: [Field; 3] = [
     Field {
         key: "channel",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"apns\""]),
     },
     Field {
         key: "platform",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"phone\""]),
     },
     Field {
         key: "token",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -29,32 +35,50 @@ pub(crate) static CLIENT_MESSAGE_180_DEVICE_3_FIELDS: [Field; 6] = [
     Field {
         key: "channel",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"push\""]),
     },
     Field {
         key: "platform",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"phone\""]),
     },
     Field {
         key: "token",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-fA-F0-9]{16,400}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "environment",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"sandbox\"", "\"production\""]),
     },
     Field {
         key: "p256dh",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Za-z0-9_-]{87}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "auth",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Za-z0-9_-]{22}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -62,17 +86,23 @@ pub(crate) static CLIENT_MESSAGE_180_DEVICE_4_FIELDS: [Field; 3] = [
     Field {
         key: "channel",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"fcm\""]),
     },
     Field {
         key: "platform",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"phone\""]),
     },
     Field {
         key: "token",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -80,12 +110,18 @@ pub(crate) static CLIENT_MESSAGE_181_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"notification.unregister\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -93,12 +129,18 @@ pub(crate) static CLIENT_MESSAGE_182_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"notification.config\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -106,7 +148,7 @@ pub(crate) static CLIENT_MESSAGE_183_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"notification.preferences\""]),
     },
     Field {
         key: "preferences",
@@ -130,12 +172,12 @@ pub(crate) static CLIENT_MESSAGE_183_PREFERENCES_FIELDS: [Field; 3] = [
     Field {
         key: "includePreview",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "agentSays",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -143,17 +185,35 @@ pub(crate) static CLIENT_MESSAGE_183_PREFERENCES_QUIET_HOURS_FIELDS: [Field; 3] 
     Field {
         key: "timeZone",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(100),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "startMinute",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1439.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "endMinute",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(1439.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -161,17 +221,38 @@ pub(crate) static CLIENT_MESSAGE_184_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"notification.snooze\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::All(&[
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: None,
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(200),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+        ]),
     },
     Field {
         key: "until",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -179,21 +260,33 @@ pub(crate) static CLIENT_MESSAGE_185_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"notification.feed\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "afterCursor",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "checkpoint",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
 ];

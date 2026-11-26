@@ -5,211 +5,210 @@
 #![allow(unused_imports)]
 
 // Part server_message_123.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_134_STATE_DEVICE_FIELDS: [Field; 7] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "platform",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "runtime",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "serial",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "model",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_134_STATE_HOLDER_FIELDS: [Field; 2] = [
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "agentId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_134_STATE_ACTIVITY_FIELDS: [Field; 7] = [
-    Field {
-        key: "sequence",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "point",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_134_STATE_ACTIVITY_POINT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "to",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_134_STATE_ACTIVITY_TO_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "label",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "key",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_134_STATE_ACTIVITY_POINT_FIELDS: [Field; 2] = [
-    Field {
-        key: "x",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "y",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_134_STATE_ACTIVITY_TO_FIELDS: [Field; 2] = [
-    Field {
-        key: "x",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "y",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_135_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_139_FIELDS: [Field; 7] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.backend.lost\""]),
     },
     Field {
-        key: "deviceId",
+        key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "backend",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"embedded\""]),
+    },
+    Field {
+        key: "recovery",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"pause\"", "\"headless\""]),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "pageStateLost",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "reason",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_140_FIELDS: [Field; 5] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.download.progress\""]),
+    },
+    Field {
+        key: "version",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "phase",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"downloading\"",
+            "\"verifying\"",
+            "\"extracting\"",
+            "\"ready\"",
+        ]),
+    },
+    Field {
+        key: "received",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "total",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_141_FIELDS: [Field; 8] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "ok",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "result",
+        presence: Presence::Optional,
+        shape: Shape::Any,
+    },
+    Field {
+        key: "error",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "blocked",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_141_BLOCKED_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "media",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_132_MEDIA_FIELDS,
+            extra: Extra::Strip,
+        },
     },
     Field {
         key: "undelivered",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::server_message_121::SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
+            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
             extra: Extra::Strip,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_136_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_141_BLOCKED_FIELDS: [Field; 2] = [
     Field {
-        key: "type",
+        key: "origin",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "enabled",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_137_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "devices",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_134_STATE_DEVICE_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "issues",
-        presence: Presence::Default("[]"),
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_133_ERROR_FIELDS,
-            extra: Extra::Strip,
-        }),
+        key: "reason",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"approval_required\"", "\"timeout\"", "\"invalid_origin\""]),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_138_FIELDS: [Field; 5] = [
+pub(crate) static SERVER_MESSAGE_142_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.state\""]),
     },
     Field {
-        key: "deviceId",
+        key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "sequence",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "lines",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "dropped",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_124::SERVER_MESSAGE_142_STATE_FIELDS,
+            extra: Extra::Strip,
+        },
     },
 ];

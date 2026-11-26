@@ -5,28 +5,48 @@
 #![allow(unused_imports)]
 
 // Part client_message_10.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_34_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.logout\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "instance",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -34,17 +54,29 @@ pub(crate) static CLIENT_MESSAGE_35_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.login.terminal\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "session",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -52,17 +84,29 @@ pub(crate) static CLIENT_MESSAGE_36_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.login.poll\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "session",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -70,17 +114,29 @@ pub(crate) static CLIENT_MESSAGE_37_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.login.cancel\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "session",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -88,17 +144,29 @@ pub(crate) static CLIENT_MESSAGE_38_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.login.input\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "session",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "input",
@@ -131,62 +199,107 @@ pub(crate) static CLIENT_MESSAGE_38_FIELDS: [Field; 4] = [
 pub(crate) static CLIENT_MESSAGE_38_INPUT_0_FIELDS: [Field; 1] = [Field {
     key: "confirm",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["true"]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_38_INPUT_1_FIELDS: [Field; 1] = [Field {
     key: "value",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"enter\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_38_INPUT_2_FIELDS: [Field; 1] = [Field {
     key: "choice",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Str(&StrBounds {
+        min: None,
+        max: None,
+        pattern: Some("^[a-z0-9][a-z0-9._-]{0,63}$"),
+        format: None,
+        trim: false,
+    }),
 }];
 
 pub(crate) static CLIENT_MESSAGE_38_INPUT_3_FIELDS: [Field; 1] = [Field {
     key: "code",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Str(&StrBounds {
+        min: Some(3),
+        max: Some(4096),
+        pattern: Some("^[A-Za-z0-9_-]+#[A-Za-z0-9_-]+$"),
+        format: None,
+        trim: false,
+    }),
 }];
 
 pub(crate) static CLIENT_MESSAGE_38_INPUT_4_FIELDS: [Field; 1] = [Field {
     key: "returnUrl",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Str(&StrBounds {
+        min: Some(18),
+        max: Some(8192),
+        pattern: Some("^http:\\/\\/(?:127\\.0\\.0\\.1|localhost):\\d{1,5}\\/[^\\s#]*\\?[^\\s#]+$"),
+        format: None,
+        trim: false,
+    }),
 }];
 
 pub(crate) static CLIENT_MESSAGE_39_FIELDS: [Field; 6] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"provider.install.plan\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "agent",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"gemini\"",
+            "\"qwen-code\"",
+            "\"claude-acp\"",
+            "\"codex-acp\"",
+            "\"goose\"",
+            "\"auggie\"",
+        ]),
     },
     Field {
         key: "acpAgentId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: Some("^official:[a-z0-9-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "action",
         presence: Presence::Default("\"install\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"install\"", "\"update\"", "\"uninstall\""]),
     },
 ];

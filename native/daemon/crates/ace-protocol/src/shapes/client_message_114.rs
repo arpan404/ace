@@ -5,18 +5,30 @@
 #![allow(unused_imports)]
 
 // Part client_message_114.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_ORIGIN_CLIENT_FIELDS: [Field; 2] = [
     Field {
         key: "grantId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,12 +36,26 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_ORIGIN_FROM_FIELDS: [Fie
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "model",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -37,12 +63,26 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_ORIGIN_TO_FIELDS: [Field
     Field {
         key: "provider",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
     },
     Field {
         key: "model",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -50,12 +90,24 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_ORIGIN_VIA_FIELDS: [Fiel
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "title",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -63,44 +115,50 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_OPTIONS_1_FIELDS: [Field
     Field {
         key: "serviceTier",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"default\"", "\"priority\"", "\"flex\""]),
     },
     Field {
         key: "effort",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_92_FIELDS: [Field; 10] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "model", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "options", presence: Presence::Optional, shape: Shape::Record(&Shape::Copy) },
-    Field { key: "trigger", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"thread.send\""]) },
+    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "options", presence: Presence::Optional, shape: Shape::Record(&Shape::OneOf(&[Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }), Shape::Num(&NumBounds { min: None, min_inclusive: false, max: None, max_inclusive: false, integral: false }), Shape::Bool, Shape::Null])) },
+    Field { key: "trigger", presence: Presence::Optional, shape: Shape::Enum(&["\"user\"", "\"restart\"", "\"limit_resume\"", "\"spawn\"", "\"parent_agent\"", "\"background_completion\"", "\"subagent_result\"", "\"goal\"", "\"queue\"", "\"schedule\"", "\"unknown\""]) },
     Field { key: "origin", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_113::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_91_ORIGIN_FIELDS, extra: Extra::Strip } },
-    Field { key: "threadId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "input", presence: Presence::Required, shape: Shape::Array(&Shape::Tagged { key: "type", options: &[("\"mention\"", Shape::Object { fields: &crate::shapes::client_message_41::CLIENT_MESSAGE_85_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_3_FIELDS, extra: Extra::Strip })] }) },
+    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "input", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "type", options: &[("\"mention\"", Shape::Object { fields: &crate::shapes::client_message_41::CLIENT_MESSAGE_85_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_3_FIELDS, extra: Extra::Strip })] }, min: Some(1), max: None } },
     Field { key: "context", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_FIELDS, extra: Extra::Strip } },
-    Field { key: "delivery", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "runId", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "delivery", presence: Presence::Optional, shape: Shape::Enum(&["\"steer\"", "\"queue\""]) },
+    Field { key: "runId", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false })) },
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_FIELDS: [Field; 9] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "threadId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "about", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "input", presence: Presence::Required, shape: Shape::Array(&Shape::Tagged { key: "type", options: &[("\"mention\"", Shape::Object { fields: &crate::shapes::client_message_41::CLIENT_MESSAGE_85_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_3_FIELDS, extra: Extra::Strip })] }) },
-    Field { key: "to", presence: Presence::Required, shape: Shape::Array(&Shape::Tagged { key: "kind", options: &[("\"bot\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_0_FIELDS, extra: Extra::Strip }), ("\"club\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_1_FIELDS, extra: Extra::Strip }), ("\"agent\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_2_FIELDS, extra: Extra::Strip })] }) },
-    Field { key: "devices", presence: Presence::Default("[]"), shape: Shape::Array(&Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_FIELDS, extra: Extra::Reject }) },
-    Field { key: "share", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "files", presence: Presence::Default("[]"), shape: Shape::Copy },
-    Field { key: "followUp", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"thread.address\""]) },
+    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "about", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "input", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "type", options: &[("\"mention\"", Shape::Object { fields: &crate::shapes::client_message_41::CLIENT_MESSAGE_85_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_3_FIELDS, extra: Extra::Strip })] }, min: Some(1), max: Some(64) } },
+    Field { key: "to", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "kind", options: &[("\"bot\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_0_FIELDS, extra: Extra::Strip }), ("\"club\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_1_FIELDS, extra: Extra::Strip }), ("\"agent\"", Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_2_FIELDS, extra: Extra::Strip })] }, min: None, max: Some(8) } },
+    Field { key: "devices", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_FIELDS, extra: Extra::Reject }, min: None, max: Some(8) } },
+    Field { key: "share", presence: Presence::Required, shape: Shape::Enum(&["\"thread\"", "\"message\""]) },
+    Field { key: "files", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }), min: None, max: Some(16) } },
+    Field { key: "followUp", presence: Presence::Optional, shape: Shape::Enum(&["true"]) },
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_0_FIELDS: [Field; 5] = [
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "id", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "name", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "avatar", presence: Presence::Optional, shape: Shape::Record(&Shape::Copy) },
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"bot\""]) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(128), pattern: None, format: None, trim: false }) },
+    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(120), pattern: None, format: None, trim: false }) },
+    Field { key: "avatar", presence: Presence::Optional, shape: Shape::Record(&Shape::OneOf(&[Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }), Shape::Num(&NumBounds { min: None, min_inclusive: false, max: None, max_inclusive: false, integral: false }), Shape::Bool, Shape::Null])) },
     Field { key: "machine", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_115::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_93_TO_0_MACHINE_FIELDS, extra: Extra::Strip } },
 ];

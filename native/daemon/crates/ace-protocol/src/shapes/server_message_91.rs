@@ -5,237 +5,197 @@
 #![allow(unused_imports)]
 
 // Part server_message_91.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_67_RESULT_9_CATEGORIES_FIELDS: [Field; 3] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "title",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "entries",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_10_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_67_RESULT_11_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"review\""]),
     },
     Field {
-        key: "entry",
+        key: "review",
         presence: Presence::Required,
         shape: Shape::Object {
-            fields: &SERVER_MESSAGE_67_RESULT_10_ENTRY_FIELDS,
+            fields: &SERVER_MESSAGE_67_RESULT_11_REVIEW_FIELDS,
             extra: Extra::Reject,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_67_RESULT_10_ENTRY_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_67_RESULT_11_REVIEW_FIELDS: [Field; 20] = [
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-zA-Z0-9-]{1,80}$"), format: None, trim: false }) },
+    Field { key: "source", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"), format: None, trim: false }) },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"suit\"", "\"spade-skill\"", "\"spade-plugin\"", "\"spade-bot\"", "\"ace-plugin\""]) },
+    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"), format: None, trim: false }) },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(120), pattern: None, format: None, trim: false }) },
+    Field { key: "version", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(64), pattern: None, format: None, trim: false }) },
+    Field { key: "hash", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{64}$"), format: None, trim: false }) },
+    Field { key: "publisher", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_78::SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_PUBLISHER_FIELDS, extra: Extra::Reject } },
+    Field { key: "from", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(2048), pattern: None, format: None, trim: false }) },
+    Field { key: "signed", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "reviewed", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "byAce", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "updates", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(64), pattern: None, format: None, trim: false }) },
+    Field { key: "body", presence: Presence::Required, shape: Shape::Tagged { key: "type", options: &[("\"suit\"", Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_0_FIELDS, extra: Extra::Reject }), ("\"spade-skill\"", Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_1_FIELDS, extra: Extra::Reject }), ("\"spade-plugin\"", Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_2_FIELDS, extra: Extra::Reject }), ("\"spade-bot\"", Shape::Object { fields: &crate::shapes::server_message_92::SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_3_FIELDS, extra: Extra::Reject })] } },
+    Field { key: "blocked", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(500), pattern: None, format: None, trim: false }) },
+    Field { key: "scan", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_81::SERVER_MESSAGE_67_RESULT_3_ANSWER_0_ME_DRAFTS_SCAN_1_REPORT_FIELDS, extra: Extra::Reject } },
+    Field { key: "deprecated", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(500), pattern: None, format: None, trim: false }) },
+    Field { key: "unlisted", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "expiresAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "items", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+];
+
+pub(crate) static SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_0_FIELDS: [Field; 6] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"suit\""]) },
+    Field { key: "passes", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "problems", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_81::SERVER_MESSAGE_67_RESULT_3_ANSWER_0_ME_DRAFTS_PROBLEMS_FIELDS, extra: Extra::Reject }, min: None, max: Some(200) } },
+    Field { key: "scenes", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: None, max: Some(40), pattern: None, format: None, trim: false }), min: None, max: Some(8) } },
+    Field { key: "fonts", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: None, max: Some(120), pattern: None, format: None, trim: false }), min: None, max: Some(16) } },
+    Field { key: "files", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+];
+
+pub(crate) static SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_1_FIELDS: [Field; 9] = [
     Field {
-        key: "summary",
+        key: "type",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_79::SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS,
-            extra: Extra::Reject,
-        },
+        shape: Shape::Enum(&["\"spade-skill\""]),
+    },
+    Field {
+        key: "skillName",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "description",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "versions",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_67_RESULT_10_ENTRY_VERSIONS_FIELDS,
-            extra: Extra::Reject,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "installed",
+        key: "files",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "flagged",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "license",
         presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_67_RESULT_10_ENTRY_INSTALLED_FIELDS,
-            extra: Extra::Reject,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "compatibility",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(500),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "allowedTools",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(120),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
+        },
+    },
+    Field {
+        key: "unused",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(120),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(64),
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_67_RESULT_10_ENTRY_VERSIONS_FIELDS: [Field; 8] = [
-    Field {
-        key: "version",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hash",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "size",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "published",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "downloads",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "withdrawn",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "deprecated",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "changelog",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_10_ENTRY_INSTALLED_FIELDS: [Field; 18] = [
-    Field {
-        key: "source",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
+pub(crate) static SERVER_MESSAGE_67_RESULT_11_REVIEW_BODY_2_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"spade-plugin\""]),
     },
     Field {
-        key: "name",
+        key: "pluginName",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "title",
+        key: "executions",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
-        key: "version",
+        key: "unsupported",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hash",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "acceptedAt",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "deprecated",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "update",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "target",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "botsApproved",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "linked",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "previous",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_67_RESULT_10_ENTRY_INSTALLED_PREVIOUS_FIELDS,
-            extra: Extra::Reject,
-        },
-    },
-    Field {
-        key: "held",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_67_RESULT_10_ENTRY_INSTALLED_HELD_FIELDS,
-            extra: Extra::Reject,
-        },
-    },
-    Field {
-        key: "registry",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "updatesStopped",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_10_ENTRY_INSTALLED_PREVIOUS_FIELDS: [Field; 3] = [
-    Field {
-        key: "version",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "hash",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "registry",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_10_ENTRY_INSTALLED_HELD_FIELDS: [Field; 1] = [Field {
-    key: "version",
-    presence: Presence::Required,
-    shape: Shape::Copy,
-}];

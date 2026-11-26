@@ -5,96 +5,426 @@
 #![allow(unused_imports)]
 
 // Part server_message_16.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_FIELDS: [Field; 22] = [
-    Field { key: "source", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "target", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"window\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_0_FIELDS, extra: Extra::Strip }), ("\"browser-tab\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_1_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "action", presence: Presence::Optional, shape: Shape::OneOf(&[Shape::Tagged { key: "kind", options: &[("\"pointer.move\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"pointer.click\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"pointer.drag\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"key.press\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_3_FIELDS, extra: Extra::Strip }), ("\"text.type\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_4_FIELDS, extra: Extra::Strip }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_5_FIELDS, extra: Extra::Strip }), ("\"text.paste\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_6_FIELDS, extra: Extra::Strip }), ("\"pointer.down\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_7_FIELDS, extra: Extra::Strip }), ("\"pointer.up\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_8_FIELDS, extra: Extra::Strip }), ("\"pointer.cancel\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_9_FIELDS, extra: Extra::Strip })] }, Shape::Tagged { key: "action", options: &[("\"click\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_0_FIELDS, extra: Extra::Reject }), ("\"type\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_1_FIELDS, extra: Extra::Reject }), ("\"press\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_2_FIELDS, extra: Extra::Reject }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_3_FIELDS, extra: Extra::Reject }), ("\"drag\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_4_FIELDS, extra: Extra::Reject })] }]) },
-    Field { key: "refreshHz", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "windowMs", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "latencyMs", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "settleMs", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "frames", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "effectiveFps", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "droppedFrames", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "hitches", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_HITCHES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "hitchRatioMsPerS", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "hitchTimeMs", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "longTasks", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_HITCHES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "layoutShift", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "verdict", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "confidence", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "hostLoad", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "captureOverheadPct", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "notes", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "repeat", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_FIELDS, extra: Extra::Strip } },
-    Field { key: "filmstrip", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip } },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_0_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_FIELDS: [Field; 13] = [
     Field {
-        key: "kind",
+        key: "refreshHz",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
     },
     Field {
-        key: "bundleId",
+        key: "windowMs",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
     },
     Field {
-        key: "windowId",
+        key: "frames",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_1_FIELDS: [Field; 3] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
     },
     Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "tabId",
+        key: "latencyMs",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "settleMs",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "effectiveFps",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "droppedFrames",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "hitchRatioMsPerS",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "layoutShift",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "hostLoad",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "captureOverheadPct",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "longTaskMs",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "hitchMs",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS,
+            extra: Extra::Strip,
+        },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_HITCHES_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_REFRESH_HZ_FIELDS: [Field;
+    2] = [
     Field {
-        key: "atMs",
+        key: "median",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
     },
     Field {
-        key: "durationMs",
+        key: "worst",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_FIELDS: [Field; 2] = [
-    Field { key: "runs", presence: Presence::Required, shape: Shape::Array(&Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_RUNS_FIELDS, extra: Extra::Strip }) },
-    Field { key: "metrics", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_17::SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_FIELDS, extra: Extra::Strip } },
-];
-
-pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_RUNS_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
     Field {
-        key: "verdict",
+        key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "confidence",
+        key: "agentId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "runId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "createdAt",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "nativeId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "executionSource",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_7::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "complete",
+        presence: Presence::Default("true"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "inherited",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_INHERITED_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "rawOmitted",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"notice\""]),
+    },
+    Field {
+        key: "level",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"info\"", "\"warning\"", "\"error\""]),
+    },
+    Field {
+        key: "commandId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "interactionId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "code",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "diagnostic",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "title",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "detail",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "details",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_12_ITEMS_7_DETAILS_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "toolCallId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "measurement",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_15::SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "asked",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_17::SERVER_MESSAGE_12_ITEMS_7_ASKED_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "text",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "source",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_SOURCE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "raw",
+        presence: Presence::Default("[]"),
+        shape: Shape::Array {
+            item: &Shape::OneOf(&[
+                Shape::Object {
+                    fields:
+                        &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS,
+                    extra: Extra::Strip,
+                },
+                Shape::Object {
+                    fields:
+                        &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS,
+                    extra: Extra::Strip,
+                },
+            ]),
+            min: None,
+            max: None,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_7_DETAILS_FIELDS: [Field; 5] = [
+    Field {
+        key: "code",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "provider",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
+    },
+    Field {
+        key: "title",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "detail",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "model",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

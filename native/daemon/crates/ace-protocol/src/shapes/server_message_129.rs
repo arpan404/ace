@@ -5,118 +5,131 @@
 #![allow(unused_imports)]
 
 // Part server_message_129.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_146_PAGE_PICKER_OPTIONS_FIELDS: [Field; 4] = [
+pub(crate) static SERVER_MESSAGE_149_RESULT_0_MODELS_FIELDS: [Field; 39] = [
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "displayName", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "detail", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "family", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "version", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "tier", presence: Presence::Optional, shape: Shape::Enum(&["\"current\"", "\"legacy\""]) },
+    Field { key: "sortKey", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "source", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_149_RESULT_0_MODELS_SOURCE_FIELDS, extra: Extra::Strip } },
+    Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
+    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "instance", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "nativeProviderId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "nativeModelId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "resolvedModelId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "modelConfigId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "selectorMethod", presence: Presence::Optional, shape: Shape::Enum(&["\"session/set_config_option\"", "\"session/set_model\""]) },
+    Field { key: "contextWindow", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "efforts", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_149_RESULT_0_MODELS_EFFORTS_FIELDS, extra: Extra::Strip }, min: None, max: Some(32) } },
+    Field { key: "defaultEffort", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "thinkingToggle", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "serviceTiers", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_130::SERVER_MESSAGE_149_RESULT_0_MODELS_SERVICE_TIERS_FIELDS, extra: Extra::Strip }, min: None, max: Some(32) } },
+    Field { key: "defaultTier", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "inputModalities", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }), min: None, max: Some(16) } },
+    Field { key: "isDefault", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "defaultSource", presence: Presence::Optional, shape: Shape::Enum(&["\"built-in\"", "\"user\""]) },
+    Field { key: "aliases", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }), min: None, max: Some(32) } },
+    Field { key: "group", presence: Presence::Optional, shape: Shape::Enum(&["\"current\"", "\"legacy\""]) },
+    Field { key: "hidden", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "favourite", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "custom", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "providerEnabled", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "visibilityReason", presence: Presence::Optional, shape: Shape::Enum(&["\"provider_disabled\"", "\"group_hidden\"", "\"model_hidden\"", "\"deprecated\"", "\"not_favourite\"", "\"provider_hidden\""]) },
+    Field { key: "legacy", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "deprecated", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "isNew", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "free", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "raw", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_130::SERVER_MESSAGE_149_RESULT_0_MODELS_RAW_FIELDS, extra: Extra::Strip } },
+];
+
+pub(crate) static SERVER_MESSAGE_149_RESULT_0_MODELS_SOURCE_FIELDS: [Field; 5] = [
     Field {
-        key: "value",
+        key: "requiresAuth",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "service",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"opencode_go\"", "\"opencode_zen\""]),
+    },
+    Field {
+        key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"local\"",
+            "\"subscription\"",
+            "\"api_key\"",
+            "\"account\"",
+            "\"other\"",
+        ]),
+    },
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "label",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "disabled",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "group",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_146_PAGE_TOOLTIP_FIELDS: [Field; 3] = [
-    Field {
-        key: "text",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "x",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "y",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_147_FIELDS: [Field; 2] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "threads",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_148_FIELDS: [Field; 2] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "threads",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_148_THREADS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_148_THREADS_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_149_RESULT_0_MODELS_EFFORTS_FIELDS: [Field; 3] = [
     Field {
-        key: "threadId",
+        key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "apps",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_149_FIELDS: [Field; 3] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "requestId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "result", presence: Presence::Required, shape: Shape::OneOf(&[Shape::Object { fields: &SERVER_MESSAGE_149_RESULT_0_FIELDS, extra: Extra::Strip }, Shape::Tagged { key: "ok", options: &[("true", Shape::Object { fields: &crate::shapes::server_message_131::SERVER_MESSAGE_149_RESULT_1_0_FIELDS, extra: Extra::Strip }), ("false", Shape::Object { fields: &crate::shapes::server_message_132::SERVER_MESSAGE_149_RESULT_1_1_FIELDS, extra: Extra::Strip })] }]) },
-];
-
-pub(crate) static SERVER_MESSAGE_149_RESULT_0_FIELDS: [Field; 3] = [
-    Field {
-        key: "models",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_130::SERVER_MESSAGE_149_RESULT_0_MODELS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
     },
     Field {
-        key: "instances",
+        key: "level",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields:
-                &crate::shapes::server_message_131::SERVER_MESSAGE_149_RESULT_0_INSTANCES_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Nullable(&Shape::Enum(&[
+            "\"off\"",
+            "\"minimal\"",
+            "\"low\"",
+            "\"medium\"",
+            "\"high\"",
+            "\"xhigh\"",
+            "\"max\"",
+            "\"ultra\"",
+        ])),
     },
     Field {
-        key: "nextOffset",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        key: "label",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part thread_client_column_3.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_FIELDS: [Field; 4] = [
     Field {
@@ -19,10 +19,14 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_FIELDS: [Field; 4] = [
     Field {
         key: "linkedPrs",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
+        },
     },
     Field {
         key: "linkedPr",
@@ -35,10 +39,14 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_FIELDS: [Field; 4] = [
     Field {
         key: "linkedIssues",
         presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_ISSUES_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_ISSUES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
+        },
     },
 ];
 
@@ -46,22 +54,48 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS: [Fiel
     Field {
         key: "forge",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"github\"",
+            "\"gitlab\"",
+            "\"gitbucket\"",
+            "\"bitbucket\"",
+            "\"gitea\"",
+            "\"forgejo\"",
+            "\"origin\"",
+        ]),
     },
     Field {
         key: "host",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(253),
+            pattern: Some("^[a-zA-Z0-9.-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "owner",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(512),
+            pattern: Some("^[\\w.-]+(?:\\/[\\w.-]+)*$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(100),
+            pattern: Some("^[\\w.-]+$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -69,7 +103,13 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS: [Fiel
     Field {
         key: "number",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "repo",
@@ -82,42 +122,66 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS: [Fiel
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: Some("url"),
+            trim: false,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"open\"", "\"draft\"", "\"merged\"", "\"closed\""]),
     },
     Field {
         key: "title",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "updatedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "head",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "checks",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pending\"", "\"passed\"", "\"failed\""]),
     },
     Field {
         key: "unverified",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "deleted",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -125,22 +189,34 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PR_FIELDS: [Field
     Field {
         key: "number",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"open\"", "\"closed\"", "\"merged\""]),
     },
     Field {
         key: "draft",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "url",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: Some("url"),
+            trim: false,
+        }),
     },
 ];
 
@@ -156,6 +232,12 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_ISSUES_FIELDS: [F
     Field {
         key: "number",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];

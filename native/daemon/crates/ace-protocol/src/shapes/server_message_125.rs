@@ -5,41 +5,390 @@
 #![allow(unused_imports)]
 
 // Part server_message_125.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_142_STATE_FIELDS: [Field; 21] = [
-    Field { key: "threadId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "url", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "closed", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "backend", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "status", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "reason", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "pageStateLost", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "loading", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "loadError", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "permissionDenied", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_142_STATE_PERMISSION_DENIED_FIELDS, extra: Extra::Strip } },
-    Field { key: "blocked", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_124::SERVER_MESSAGE_141_BLOCKED_FIELDS, extra: Extra::Strip } },
-    Field { key: "activeTabId", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "tabs", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_FIELDS, extra: Extra::Strip }) },
-    Field { key: "downloads", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::server_message_127::SERVER_MESSAGE_142_STATE_DOWNLOADS_FIELDS, extra: Extra::Strip }) },
-    Field { key: "pending_dialog", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_PENDING_DIALOG_FIELDS, extra: Extra::Strip } },
-    Field { key: "annotation", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_127::SERVER_MESSAGE_142_STATE_ANNOTATION_FIELDS, extra: Extra::Strip } },
-    Field { key: "recording", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_127::SERVER_MESSAGE_142_STATE_RECORDING_FIELDS, extra: Extra::Strip } },
-    Field { key: "recordingNotice", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "features", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "video", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_127::SERVER_MESSAGE_142_STATE_VIDEO_FIELDS, extra: Extra::Strip } },
-    Field { key: "acceleration", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_121::SERVER_MESSAGE_130_STATE_ACCELERATION_FIELDS, extra: Extra::Strip } },
+pub(crate) static SERVER_MESSAGE_142_STATE_TABS_FIELDS: [Field; 27] = [
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "title",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "pending_dialog",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_142_STATE_TABS_PENDING_DIALOG_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "pending_auth",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_142_STATE_TABS_PENDING_AUTH_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "certificate_error",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_142_STATE_TABS_CERTIFICATE_ERROR_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "file_chooser",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_142_STATE_TABS_FILE_CHOOSER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "openedBy",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "drivenBy",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "label",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "private",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "inUse",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "pointer",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_POINTER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "agentPointer",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_AGENT_POINTER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "personActive",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "lifecycle",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"live\"", "\"frozen\"", "\"discarded\"", "\"crashed\""]),
+    },
+    Field {
+        key: "kept",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "pageStateLost",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "loading",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "canGoBack",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "canGoForward",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "favicon",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "zoom",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.25),
+            min_inclusive: true,
+            max: Some(5.0),
+            max_inclusive: true,
+            integral: false,
+        }),
+    },
+    Field {
+        key: "emulation",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_126::SERVER_MESSAGE_142_STATE_TABS_EMULATION_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "audible",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "muted",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "playing",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
 ];
 
-pub(crate) static SERVER_MESSAGE_142_STATE_PERMISSION_DENIED_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_142_STATE_TABS_PENDING_DIALOG_FIELDS: [Field; 6] = [
     Field {
-        key: "permission",
+        key: "dialogId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"alert\"", "\"confirm\"", "\"prompt\"", "\"beforeunload\""]),
+    },
+    Field {
+        key: "message",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "defaultPrompt",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_142_STATE_TABS_PENDING_AUTH_FIELDS: [Field; 5] = [
+    Field {
+        key: "authId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "origin",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "realm",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "scheme",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_142_STATE_TABS_CERTIFICATE_ERROR_FIELDS: [Field; 2] = [
+    Field {
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "error",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_142_STATE_TABS_FILE_CHOOSER_FIELDS: [Field; 3] = [
+    Field {
+        key: "chooserId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "multiple",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
 ];

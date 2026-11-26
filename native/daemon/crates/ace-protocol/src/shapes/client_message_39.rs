@@ -5,38 +5,62 @@
 #![allow(unused_imports)]
 
 // Part client_message_39.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_75_OPERATION_12_FIELDS: [Field; 6] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"attachment.read\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "variant",
         presence: Presence::Default("\"original\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"original\"", "\"thumbnail\""]),
     },
     Field {
         key: "offset",
         presence: Presence::Default("0"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("65536"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(65536.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -44,17 +68,29 @@ pub(crate) static CLIENT_MESSAGE_75_OPERATION_13_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"attachment.release\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -62,20 +98,30 @@ pub(crate) static CLIENT_MESSAGE_75_OPERATION_14_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"mention.resolve\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "mentions",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_75_OPERATION_14_MENTIONS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_75_OPERATION_14_MENTIONS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(64),
+        },
     },
 ];
 
@@ -83,7 +129,13 @@ pub(crate) static CLIENT_MESSAGE_75_OPERATION_14_MENTIONS_FIELDS: [Field; 2] = [
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "lines",
@@ -99,12 +151,24 @@ pub(crate) static CLIENT_MESSAGE_75_OPERATION_14_MENTIONS_LINES_FIELDS: [Field; 
     Field {
         key: "start",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "end",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -112,22 +176,40 @@ pub(crate) static CLIENT_MESSAGE_75_OPERATION_15_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"mention.complete\""]),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "query",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "limit",
         presence: Presence::Default("20"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(50.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -135,17 +217,115 @@ pub(crate) static CLIENT_MESSAGE_76_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"settings.get\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "key",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Enum(&[
+                "\"storage.retention\"",
+                "\"storage.scheduledCleanup\"",
+                "\"storage.worktreeRetentionDays\"",
+                "\"storage.backupWorktrees\"",
+                "\"storage.retentionDays\"",
+                "\"logs.maxBytes\"",
+                "\"sourceControl.preferences\"",
+                "\"providers.configuration\"",
+                "\"host.displayName\"",
+                "\"host.icon\"",
+                "\"projects.roots\"",
+                "\"threads.followUpBehavior\"",
+                "\"threads.forkOnSwitch\"",
+                "\"threads.limitPolicy\"",
+                "\"providers.default\"",
+                "\"providers.coder.provider\"",
+                "\"providers.coder.model\"",
+                "\"providers.coder.tier\"",
+                "\"providers.coder.reasoningEffort\"",
+                "\"providers.reviewer.provider\"",
+                "\"providers.reviewer.model\"",
+                "\"providers.reviewer.tier\"",
+                "\"providers.reviewer.reasoningEffort\"",
+                "\"providers.planner.provider\"",
+                "\"providers.planner.model\"",
+                "\"providers.planner.tier\"",
+                "\"providers.planner.reasoningEffort\"",
+                "\"providers.verifier.provider\"",
+                "\"providers.verifier.model\"",
+                "\"providers.verifier.tier\"",
+                "\"providers.verifier.reasoningEffort\"",
+                "\"providers.codex.toolSource\"",
+                "\"providers.claude.chrome\"",
+                "\"browser.backend\"",
+                "\"browser.backendLoss\"",
+                "\"browser.profile\"",
+                "\"browser.profileScope\"",
+                "\"browser.downloadDir\"",
+                "\"browser.downloadDefault\"",
+                "\"browser.userChrome.storageReads\"",
+                "\"computer.blockedApps\"",
+                "\"computer.lockedUse\"",
+                "\"spade.enabled\"",
+                "\"beta.spade\"",
+                "\"beta.marketplace\"",
+                "\"market.askBeforeAgentPublish\"",
+                "\"devices.emulatorWindow\"",
+                "\"devices.enabled\"",
+                "\"access.defaultMode\"",
+                "\"access.nativeModes\"",
+                "\"threads.useWorktree\"",
+                "\"worktree.preparationTimeoutMs\"",
+                "\"threads.autoSettleAfter\"",
+                "\"threads.unresponsiveAfter\"",
+                "\"threads.settleOnMerge\"",
+                "\"threads.settleOnClose\"",
+                "\"threads.sortBy\"",
+                "\"threads.keepSettledFor\"",
+                "\"remote.enabled\"",
+                "\"remote.transport\"",
+                "\"remote.lan\"",
+                "\"remote.tailscale\"",
+                "\"remote.relay\"",
+                "\"remote.agentAccess\"",
+                "\"remote.agentTransfers\"",
+                "\"remote.transferIgnoredFiles\"",
+                "\"remote.hostedPairingLink\"",
+                "\"remote.machineLocalhost\"",
+                "\"remote.relayMcp\"",
+                "\"remote.relayWebhooks\"",
+                "\"remote.tailscaleWebhooks\"",
+                "\"remote.publicUrlWebhooks\"",
+                "\"remote.tailscaleMcp\"",
+                "\"remote.mcpPublicUrl\"",
+                "\"remote.relayUrl\"",
+                "\"notifications.remotePush\"",
+                "\"notifications.pushGatewayUrl\"",
+                "\"automations.enabled\"",
+                "\"agents.maxRunningChildren\"",
+                "\"generation.model\"",
+                "\"generation.autoDraftCommits\"",
+                "\"clients.theme\"",
+                "\"clients.keybindings\"",
+            ]),
+            Shape::Enum(&[
+                "\"media.encode\"",
+                "\"media.delivery\"",
+                "\"media.recordings\"",
+                "\"media.stills\"",
+            ]),
+        ]),
     },
     Field {
         key: "scope",
@@ -161,12 +341,24 @@ pub(crate) static CLIENT_MESSAGE_76_SCOPE_FIELDS: [Field; 2] = [
     Field {
         key: "workspaceId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -174,17 +366,29 @@ pub(crate) static CLIENT_MESSAGE_77_FIELDS: [Field; 5] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"settings.set\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "key",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "value",
@@ -226,5 +430,5 @@ pub(crate) static CLIENT_MESSAGE_77_FIELDS: [Field; 5] = [
 pub(crate) static CLIENT_MESSAGE_77_LAYER_0_FIELDS: [Field; 1] = [Field {
     key: "kind",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"global\""]),
 }];

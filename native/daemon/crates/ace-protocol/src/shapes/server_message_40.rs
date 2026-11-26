@@ -5,200 +5,525 @@
 #![allow(unused_imports)]
 
 // Part server_message_40.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
-pub(crate) static SERVER_MESSAGE_51_RESULT_0_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_PACKAGE_MANAGER_FIELDS: [Field; 3] = [
     Field {
-        key: "ok",
+        key: "command",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(4096),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "reason",
+        key: "package",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "integrity",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_51_RESULT_1_FIELDS: [Field; 14] = [
+pub(crate) static SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_APPROVALS_FIELDS: [Field; 8] = [
     Field {
-        key: "ok",
+        key: "approvedAt",
         presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "agents",
-        presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
         }),
     },
     Field {
-        key: "installations",
+        key: "previousVersion",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_FIELDS,
-            extra: Extra::Strip,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
         }),
-    },
-    Field {
-        key: "updates",
-        presence: Presence::Optional,
-        shape: Shape::Array(&Shape::Object {
-            fields: &crate::shapes::server_message_41::SERVER_MESSAGE_51_RESULT_1_UPDATES_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "stale",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "refreshing",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "activeInstall",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_41::SERVER_MESSAGE_51_RESULT_1_ACTIVE_INSTALL_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "error",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "source",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "digest",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "fetchedAt",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "schemaVersion",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "release",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "nextOffset",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS: [Field; 16] = [
-    Field {
-        key: "acpAgentId",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Copy,
     },
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "description",
+        key: "previousExecutableDigest",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "source",
+        key: "executableDigest",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "authors",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "availability",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "coverage",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "auth",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "loginHint",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "visibility",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "isolation",
-        presence: Presence::Required,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "icon",
+        key: "previousBridgeDigest",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "runtimes",
+        key: "bridgeDigest",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
-        key: "homepage",
+        key: "generation",
         presence: Presence::Optional,
-        shape: Shape::Copy,
-    },
-    Field {
-        key: "license",
-        presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_FIELDS: [Field; 11] = [
-    Field { key: "acpAgentId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "installationId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "instanceId", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "version", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "profileRevision", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "source", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "evidence", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "packageManager", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_41::SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_PACKAGE_MANAGER_FIELDS, extra: Extra::Strip } },
-    Field { key: "approvals", presence: Presence::Optional, shape: Shape::Array(&Shape::Object { fields: &crate::shapes::server_message_41::SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_APPROVALS_FIELDS, extra: Extra::Strip }) },
-    Field { key: "approvalGeneration", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "versionSource", presence: Presence::Optional, shape: Shape::Copy },
+pub(crate) static SERVER_MESSAGE_51_RESULT_1_UPDATES_FIELDS: [Field; 10] = [
+    Field {
+        key: "acpAgentId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "installationId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "instanceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "changed",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Enum(&["\"agent\"", "\"native_cli\""]),
+            min: Some(1),
+            max: Some(2),
+        },
+    },
+    Field {
+        key: "executableDigest",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "bridgeDigest",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "previousExecutableDigest",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "previousBridgeDigest",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "generation",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "observedAt",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_51_RESULT_1_ACTIVE_INSTALL_FIELDS: [Field; 4] = [
+    Field {
+        key: "intentId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "digest",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "phase",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"preparing\"",
+            "\"download\"",
+            "\"extract\"",
+            "\"package_manager\"",
+            "\"persist\"",
+        ]),
+    },
+    Field {
+        key: "receivedBytes",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(134217728.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_51_RESULT_2_FIELDS: [Field; 2] = [
+    Field { key: "ok", presence: Presence::Required, shape: Shape::Enum(&["true"]) },
+    Field { key: "plan", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_33::SERVER_MESSAGE_37_RESULT_0_PLAN_REGISTRY_PLAN_FIELDS, extra: Extra::Strip } },
+];
+
+pub(crate) static SERVER_MESSAGE_51_RESULT_3_FIELDS: [Field; 3] = [
+    Field {
+        key: "ok",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "installation",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_39::SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "durability",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"uncertain\""]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_51_RESULT_4_FIELDS: [Field; 2] = [
+    Field {
+        key: "ok",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "cancelled",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_52_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"workspace.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "result",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "kind",
+            options: &[
+                (
+                    "\"forge\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_41::SERVER_MESSAGE_52_RESULT_0_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"scripts\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_58::SERVER_MESSAGE_52_RESULT_1_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"editors\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_58::SERVER_MESSAGE_52_RESULT_2_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"opened\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_58::SERVER_MESSAGE_52_RESULT_3_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"branches\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_58::SERVER_MESSAGE_52_RESULT_4_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"origin\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_59::SERVER_MESSAGE_52_RESULT_5_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"match\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_59::SERVER_MESSAGE_52_RESULT_6_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"checkout\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_59::SERVER_MESSAGE_52_RESULT_7_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"identitySuggestions\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_59::SERVER_MESSAGE_52_RESULT_8_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"details\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_59::SERVER_MESSAGE_52_RESULT_9_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"pr\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_59::SERVER_MESSAGE_52_RESULT_10_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"gitStatus\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_60::SERVER_MESSAGE_52_RESULT_11_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"gitDiff\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_60::SERVER_MESSAGE_52_RESULT_12_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"runs\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_60::SERVER_MESSAGE_52_RESULT_13_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"workspaces\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_61::SERVER_MESSAGE_52_RESULT_14_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"draftContext\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_15_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"draft\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_16_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"draftCancelled\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_17_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"gitLog\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_62::SERVER_MESSAGE_52_RESULT_18_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"gitConflicts\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_63::SERVER_MESSAGE_52_RESULT_19_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+                (
+                    "\"error\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_64::SERVER_MESSAGE_52_RESULT_20_FIELDS,
+                        extra: Extra::Strip,
+                    },
+                ),
+            ],
+        },
+    },
 ];

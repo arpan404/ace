@@ -5,33 +5,51 @@
 #![allow(unused_imports)]
 
 // Part client_message_84.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_161_FIELDS: [Field; 10] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.subscribe\""]),
     },
     Field {
         key: "subscriberId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "binaryFrames",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "viewport",
@@ -60,12 +78,12 @@ pub(crate) static CLIENT_MESSAGE_161_FIELDS: [Field; 10] = [
     Field {
         key: "mediaClient",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "deliveryStatus",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
 ];
 
@@ -73,7 +91,7 @@ pub(crate) static CLIENT_MESSAGE_161_VIEWPORT_FIELDS: [Field; 8] = [
     Field {
         key: "nativeShown",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "cursor",
@@ -86,43 +104,53 @@ pub(crate) static CLIENT_MESSAGE_161_VIEWPORT_FIELDS: [Field; 8] = [
     Field {
         key: "audio",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "paused",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "link",
         presence: Presence::Optional,
-        shape: Shape::OneOf(&[
-            Shape::Object {
-                fields:
-                    &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_14_LINK_0_FIELDS,
-                extra: Extra::Strip,
-            },
-            Shape::Object {
-                fields:
-                    &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_14_LINK_0_FIELDS,
-                extra: Extra::Strip,
-            },
-        ]),
+        shape: Shape::Option(&Shape::Object {
+            fields: &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_14_LINK_FIELDS,
+            extra: Extra::Strip,
+        }),
     },
     Field {
         key: "width",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "height",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "devicePixelRatio",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(4.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
 ];
 
@@ -130,36 +158,70 @@ pub(crate) static CLIENT_MESSAGE_161_VIEWPORT_CURSOR_FIELDS: [Field; 2] = [
     Field {
         key: "fill",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "outline",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^#[0-9a-fA-F]{6}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_161_VIDEO_FIELDS: [Field; 1] = [Field {
     key: "codecs",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Array {
+        item: &Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: Some("^[A-Za-z0-9.]+$"),
+            format: None,
+            trim: false,
+        }),
+        min: Some(1),
+        max: Some(8),
+    },
 }];
 
 pub(crate) static CLIENT_MESSAGE_162_FIELDS: [Field; 4] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.capture\""]),
     },
     Field {
         key: "viewport",
@@ -175,22 +237,40 @@ pub(crate) static CLIENT_MESSAGE_163_FIELDS: [Field; 4] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.unsubscribe\""]),
     },
     Field {
         key: "subscriberId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -198,31 +278,49 @@ pub(crate) static CLIENT_MESSAGE_164_FIELDS: [Field; 6] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"browser.ack\""]),
     },
     Field {
         key: "sequence",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "video",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "keyframe",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
 ];

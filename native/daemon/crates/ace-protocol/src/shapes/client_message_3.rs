@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_3.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_1_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"storage.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "operation",
@@ -75,12 +81,12 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_0_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"storage.usage\""]),
     },
     Field {
         key: "force",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -88,12 +94,23 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_1_FIELDS: [Field; 4] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cleanup.plan\""]),
     },
     Field {
         key: "kinds",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Enum(&[
+                "\"threads\"",
+                "\"attachments\"",
+                "\"artifacts\"",
+                "\"logs\"",
+                "\"worktrees\"",
+                "\"caches\"",
+            ]),
+            min: Some(1),
+            max: Some(6),
+        },
     },
     Field {
         key: "retention",
@@ -106,7 +123,17 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_1_FIELDS: [Field; 4] = [
     Field {
         key: "forceItems",
         presence: Presence::Default("[]"),
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(256),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(256),
+        },
     },
 ];
 
@@ -114,42 +141,78 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_1_RETENTION_FIELDS: [Field; 8] = [
     Field {
         key: "threads",
         presence: Presence::Default("90"),
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(36500.0),
+            max_inclusive: true,
+            integral: true,
+        })),
     },
     Field {
         key: "attachments",
         presence: Presence::Default("30"),
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(36500.0),
+            max_inclusive: true,
+            integral: true,
+        })),
     },
     Field {
         key: "artifacts",
         presence: Presence::Default("30"),
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(36500.0),
+            max_inclusive: true,
+            integral: true,
+        })),
     },
     Field {
         key: "logs",
         presence: Presence::Default("14"),
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(36500.0),
+            max_inclusive: true,
+            integral: true,
+        })),
     },
     Field {
         key: "worktrees",
         presence: Presence::Default("30"),
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(36500.0),
+            max_inclusive: true,
+            integral: true,
+        })),
     },
     Field {
         key: "caches",
         presence: Presence::Default("7"),
-        shape: Shape::Copy,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(36500.0),
+            max_inclusive: true,
+            integral: true,
+        })),
     },
     Field {
         key: "idleThreads",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "worktreeMode",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"archived\"", "\"settled\"", "\"all_settled\""]),
     },
 ];
 
@@ -157,17 +220,29 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_2_FIELDS: [Field; 3] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cleanup.apply\""]),
     },
     Field {
         key: "planId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "revision",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[a-f0-9]{64}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -175,31 +250,43 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_3_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cleanup.status\""]),
     },
     Field {
         key: "planId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_1_OPERATION_4_FIELDS: [Field; 1] = [Field {
     key: "op",
     presence: Presence::Required,
-    shape: Shape::Copy,
+    shape: Shape::Enum(&["\"cleanup.compact\""]),
 }];
 
 pub(crate) static CLIENT_MESSAGE_1_OPERATION_5_FIELDS: [Field; 2] = [
     Field {
         key: "op",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"cleanup.compactAbandon\""]),
     },
     Field {
         key: "compactionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -207,17 +294,23 @@ pub(crate) static CLIENT_MESSAGE_2_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"admission.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "operation",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"status\"", "\"pause\"", "\"resume\""]),
     },
 ];
 
@@ -225,11 +318,17 @@ pub(crate) static CLIENT_MESSAGE_3_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"appUpdate.request\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

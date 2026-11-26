@@ -5,18 +5,24 @@
 #![allow(unused_imports)]
 
 // Part client_message_90.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_186_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"notification.ack\""]),
     },
     Field {
         key: "id",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -24,52 +30,103 @@ pub(crate) static CLIENT_MESSAGE_187_FIELDS: [Field; 17] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"hello\""]),
     },
     Field {
         key: "channel",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"files\"",
+            "\"devices\"",
+            "\"browser\"",
+            "\"screen\"",
+            "\"provider_auth\"",
+            "\"media\"",
+            "\"machine\"",
+            "\"tunnel\"",
+        ]),
     },
     Field {
         key: "mediaTicket",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Za-z0-9_-]{43}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "protocolVersion",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["1"]),
     },
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "token",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "ticket",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "grant",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "machineCode",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(4),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "installId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Za-z0-9-]{8,64}$"),
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "link",
@@ -82,41 +139,75 @@ pub(crate) static CLIENT_MESSAGE_187_FIELDS: [Field; 17] = [
     Field {
         key: "compression",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(32),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(8),
+        },
     },
     Field {
         key: "flowControl",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(32),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(8),
+        },
     },
     Field {
         key: "trims",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(32),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(16),
+        },
     },
     Field {
         key: "framing",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: None,
+                max: Some(32),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(8),
+        },
     },
     Field {
         key: "nextTicket",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["true"]),
     },
     Field {
         key: "lastClose",
         presence: Presence::Optional,
-        shape: Shape::OneOf(&[
-            Shape::Object {
-                fields: &CLIENT_MESSAGE_187_LAST_CLOSE_0_FIELDS,
-                extra: Extra::Strip,
-            },
-            Shape::Object {
-                fields: &CLIENT_MESSAGE_187_LAST_CLOSE_0_FIELDS,
-                extra: Extra::Strip,
-            },
-        ]),
+        shape: Shape::Option(&Shape::Object {
+            fields: &CLIENT_MESSAGE_187_LAST_CLOSE_FIELDS,
+            extra: Extra::Strip,
+        }),
     },
 ];
 
@@ -124,45 +215,92 @@ pub(crate) static CLIENT_MESSAGE_187_LINK_FIELDS: [Field; 2] = [
     Field {
         key: "deviceId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "proof",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: Some("^[A-Za-z0-9_-]{43}$"),
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
-pub(crate) static CLIENT_MESSAGE_187_LAST_CLOSE_0_FIELDS: [Field; 6] = [
+pub(crate) static CLIENT_MESSAGE_187_LAST_CLOSE_FIELDS: [Field; 6] = [
     Field {
         key: "code",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(4999.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "cause",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Catch {
+            inner: &Shape::Enum(&[
+                "\"emsgsize\"",
+                "\"receive_failed\"",
+                "\"send_failed\"",
+                "\"handshake_timeout\"",
+                "\"heartbeat\"",
+                "\"peer_closed\"",
+                "\"other\"",
+            ]),
+            fallback: "\"other\"",
+        },
     },
     Field {
         key: "wasReady",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "aliveMs",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "downMs",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
     Field {
         key: "attempt",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
     },
 ];
 
@@ -170,12 +308,18 @@ pub(crate) static CLIENT_MESSAGE_188_FIELDS: [Field; 6] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"subscribe\""]),
     },
     Field {
         key: "subscriptionId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "scope",
@@ -204,12 +348,18 @@ pub(crate) static CLIENT_MESSAGE_188_FIELDS: [Field; 6] = [
     Field {
         key: "paced",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "afterSeq",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "tail",
@@ -225,7 +375,7 @@ pub(crate) static CLIENT_MESSAGE_188_SCOPE_0_FIELDS: [Field; 2] = [
     Field {
         key: "kind",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"threads\""]),
     },
     Field {
         key: "window",
@@ -241,17 +391,29 @@ pub(crate) static CLIENT_MESSAGE_188_SCOPE_0_WINDOW_FIELDS: [Field; 4] = [
     Field {
         key: "limit",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(20.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "project",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "archived",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "resume",

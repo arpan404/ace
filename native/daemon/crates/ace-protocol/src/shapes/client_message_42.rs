@@ -5,23 +5,35 @@
 #![allow(unused_imports)]
 
 // Part client_message_42.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_85_INPUT_0_INVOCATION_5_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"tool\""]),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "server",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -29,12 +41,18 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_0_INVOCATION_6_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"prompt\""]),
     },
     Field {
         key: "commandId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "parameters",
@@ -50,17 +68,33 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_0_INVOCATION_6_PARAMETERS_VALUE_FIELDS
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"string\"", "\"number\"", "\"boolean\""]),
     },
     Field {
         key: "required",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "default",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                min: None,
+                max: Some(16384),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            Shape::Num(&NumBounds {
+                min: None,
+                min_inclusive: false,
+                max: None,
+                max_inclusive: false,
+                integral: false,
+            }),
+            Shape::Bool,
+        ]),
     },
 ];
 
@@ -68,12 +102,18 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_0_INVOCATION_7_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"action\""]),
     },
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(128),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -81,12 +121,18 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_0_INVOCATION_8_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"unavailable\""]),
     },
     Field {
         key: "reason",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(2048),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -94,12 +140,18 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_1_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"text\""]),
     },
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "source",
@@ -115,22 +167,40 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_1_SOURCE_FIELDS: [Field; 4] = [
     Field {
         key: "streamId",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "bytes",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "encoding",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"utf-16le\""]),
     },
     Field {
         key: "offset",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -138,25 +208,37 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_2_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"image\""]),
     },
     Field {
         key: "mimeType",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_85_INPUT_3_FIELDS: [Field; 5] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "path", presence: Presence::Required, shape: Shape::Copy },
-    Field { key: "mimeType", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "name", presence: Presence::Optional, shape: Shape::Copy },
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"file\""]) },
+    Field { key: "path", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "mimeType", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "name", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(255), pattern: None, format: None, trim: false }) },
     Field { key: "content", presence: Presence::Optional, shape: Shape::Tagged { key: "encoding", options: &[("\"base64\"", Shape::Object { fields: &CLIENT_MESSAGE_85_INPUT_3_CONTENT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_43::CLIENT_MESSAGE_85_INPUT_3_CONTENT_1_FIELDS, extra: Extra::Strip })] } },
 ];
 
@@ -164,11 +246,17 @@ pub(crate) static CLIENT_MESSAGE_85_INPUT_3_CONTENT_0_FIELDS: [Field; 2] = [
     Field {
         key: "encoding",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"base64\""]),
     },
     Field {
         key: "data",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(46137344),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];

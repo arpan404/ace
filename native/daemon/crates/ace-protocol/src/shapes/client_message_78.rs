@@ -5,13 +5,19 @@
 #![allow(unused_imports)]
 
 // Part client_message_78.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_17_FIELDS: [Field; 10] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -24,42 +30,66 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_17_FIELDS: [Field; 10] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"emulate\""]),
     },
     Field {
         key: "width",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "height",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(100.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
     Field {
         key: "deviceScaleFactor",
         presence: Presence::Default("1"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.5),
+            min_inclusive: true,
+            max: Some(4.0),
+            max_inclusive: true,
+            integral: false,
+        }),
     },
     Field {
         key: "mobile",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "touch",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "colorScheme",
         presence: Presence::Default("\"light\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"light\"", "\"dark\"", "\"no-preference\""]),
     },
     Field {
         key: "userAgent",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(1024),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -67,7 +97,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_18_FIELDS: [Field; 7] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -80,27 +116,45 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_18_FIELDS: [Field; 7] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"tabs\""]),
     },
     Field {
         key: "operation",
         presence: Presence::Default("\"list\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&[
+            "\"list\"",
+            "\"open\"",
+            "\"select\"",
+            "\"close\"",
+            "\"keep\"",
+        ]),
     },
     Field {
         key: "url",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(8192),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "label",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(64),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "keep",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -108,7 +162,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_19_FIELDS: [Field; 4] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -121,15 +181,19 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_19_FIELDS: [Field; 4] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"fill_form\""]),
     },
     Field {
         key: "fields",
         presence: Presence::Required,
-        shape: Shape::Array(&Shape::Object {
-            fields: &CLIENT_MESSAGE_160_COMMAND_19_FIELDS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_160_COMMAND_19_FIELDS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(64),
+        },
     },
 ];
 
@@ -137,12 +201,24 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_19_FIELDS_FIELDS: [Field; 2] = [
     Field {
         key: "ref",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "value",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: None,
+            max: Some(65536),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
 ];
 
@@ -150,7 +226,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_20_FIELDS: [Field; 5] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -163,17 +245,23 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_20_FIELDS: [Field; 5] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"downloads\""]),
     },
     Field {
         key: "operation",
         presence: Presence::Default("\"list\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"list\"", "\"wait\""]),
     },
     Field {
         key: "timeout",
         presence: Presence::Default("10000"),
-        shape: Shape::Copy,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(120000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];
 
@@ -181,7 +269,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_21_FIELDS: [Field; 5] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -194,17 +288,17 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_21_FIELDS: [Field; 5] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"pdf\""]),
     },
     Field {
         key: "landscape",
         presence: Presence::Default("false"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
     Field {
         key: "printBackground",
         presence: Presence::Default("true"),
-        shape: Shape::Copy,
+        shape: Shape::Bool,
     },
 ];
 
@@ -212,7 +306,13 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_22_FIELDS: [Field; 4] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
-        shape: Shape::Copy,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(256),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
     },
     Field {
         key: "expect",
@@ -225,11 +325,11 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_22_FIELDS: [Field; 4] = [
     Field {
         key: "action",
         presence: Presence::Required,
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"extensions\""]),
     },
     Field {
         key: "operation",
         presence: Presence::Default("\"list\""),
-        shape: Shape::Copy,
+        shape: Shape::Enum(&["\"list\""]),
     },
 ];

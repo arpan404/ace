@@ -5,6 +5,6 @@
 #![allow(unused_imports)]
 
 // Part user_browser_extension_message_root.
-use crate::shape::{Extra, Field, Presence, Shape};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
 pub static USER_BROWSER_EXTENSION_MESSAGE: Shape = Shape::OneOf(&[Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_0_FIELDS, extra: Extra::Strip }, Shape::OneOf(&[Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_1_0_FIELDS, extra: Extra::Strip }, Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_1_1_FIELDS, extra: Extra::Strip }]), Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_2_FIELDS, extra: Extra::Strip }]);
