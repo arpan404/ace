@@ -38,6 +38,15 @@ execFileSync("bun", ["scripts/generate-transport-routes.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+// The stored-row vectors (T4a): generated from `stored-decode.ts` and compared here, so a
+// TypeScript change to the lenient decode fails the check instead of leaving Rust green on a
+// stale fixture. Regenerate with the generator named in the failure.
+for (const generator of ["crates/ace-store/vectors/make-stored-vectors.ts"]) {
+  execFileSync("bun", [generator, "--check"], {
+    cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
+    stdio: "inherit",
+  });
+}
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),
