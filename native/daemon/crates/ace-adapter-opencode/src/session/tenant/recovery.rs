@@ -13,6 +13,7 @@ use ace_json::Value;
 use indexmap::IndexMap;
 use std::sync::atomic::Ordering;
 
+use super::super::ancestry::ProbeHost;
 use super::super::history::{Failure, Read as HistoryRead, Step as HistoryStep};
 use super::super::http::{Owner, Reply};
 use super::super::ownership::Info;
@@ -165,15 +166,32 @@ impl OpenCodeTenant {
 
     /// `prepareReplay`'s tail: the positive snapshots, then the probes.
     fn finish_prepare(&self, id: u64) {
-        for snapshot in self.lock_evidence().positive() {
+        let positive = self.lock_evidence().positive();
+        for snapshot in positive {
             if let Err(error) = self.emit(FrameDirection::Recv, snapshot.channel, &snapshot.data) {
                 return self.settle_failure(id, error.0);
             }
         }
-        match self.lock_ancestry().reconciled(self) {
+        match self.reconcile_probes() {
             Ok(()) => self.settle(id, Ok("null")),
             Err(message) => self.settle_failure(id, message),
         }
+    }
+
+    /// `ancestry.reconciled`: each owned probe's events replay and every
+    /// looked-up probe leaves. The order is collected under the probe lock and
+    /// delivered without it, because a replay re-enters `owns` → `prove`.
+    fn reconcile_probes(&self) -> Result<(), String> {
+        // The guard must end here: a `for` over the call would keep it alive
+        // through every delivery, which is the deadlock this avoids.
+        let order = self.lock_ancestry().reconcile_order(self);
+        for entry in order {
+            for (data, watermark) in entry.events {
+                <Self as ProbeHost>::receive(self, &data, watermark)?;
+            }
+            self.lock_ancestry().finish(&entry.id, self);
+        }
+        Ok(())
     }
 
     /// A settle that carries the pass's own failure.

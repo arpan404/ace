@@ -107,7 +107,9 @@ impl OpenCodeTenant {
         if self.lock_ancestry().needs_recovery(probed) || self.recovering() {
             return self.lookup_failed(probed);
         }
-        for (data, watermark) in self.lock_ancestry().events(probed) {
+        // The guard ends before the replay: `receive` re-enters `prove`.
+        let events = self.lock_ancestry().events(probed);
+        for (data, watermark) in events {
             if <Self as ProbeHost>::receive(self, &data, watermark).is_err() {
                 return self.lookup_failed(probed);
             }

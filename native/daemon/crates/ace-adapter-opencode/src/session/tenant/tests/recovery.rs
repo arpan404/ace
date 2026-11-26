@@ -8,7 +8,7 @@ use ace_adapter_api::bridge::{EventQueue, SessionEvent};
 use ace_json::{Value, json};
 
 use super::super::recovery::RECOVERY_FAILED;
-use super::{drain, frames, ready};
+use super::{drain, event, frames, located, ready, snapshot};
 use crate::session::tenant::OpenCodeTenant;
 
 /// One `http` port, as the facade sees it.
@@ -207,5 +207,79 @@ fn a_reply_after_close_is_dropped() {
     assert!(
         drain(&queue).is_empty(),
         "a closed tenant publishes nothing for a reply"
+    );
+}
+
+#[test]
+fn a_receipt_for_a_child_moved_before_the_replay_does_not_hang() {
+    use crate::session::ownership::parse_info;
+    use std::sync::Arc;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (tenant, queue) = ready();
+    tenant.set_watermark(3);
+    tenant
+        .receive_value(
+            &located(
+                event(
+                    "future.receipt",
+                    json!({ "sessionID": "child", "delta": "x" }),
+                ),
+                "/work",
+            ),
+            5,
+        )
+        .expect("held");
+    // The chain cannot prove the child, so the probe waits for a pass.
+    tenant.reply(0, false, r#"{"message":"gone","status":404}"#);
+    drain(&queue);
+
+    // The walk admits the child, and it moves before the replay.
+    let child = snapshot("child", "root", "/work", "p1");
+    tenant
+        .lock_ownership()
+        .admit(&parse_info(&child).expect("info"), "root")
+        .expect("admitted");
+    let moved = snapshot("child", "root", "/elsewhere", "p1");
+    tenant
+        .lock_ownership()
+        .verify(&parse_info(&moved).expect("info"))
+        .expect("moved");
+
+    // The evidence the pass would have staged, so the replay comes next.
+    for channel in ["snapshot.active", "snapshot.interactions"] {
+        tenant
+            .lock_evidence()
+            .stage(
+                channel,
+                &json!({ "sessionID": "child", "running": false }),
+                "child",
+                1,
+            )
+            .expect("in budget");
+    }
+    drain(&queue);
+
+    // The replay delivers the held receipt with the probe lock released. With
+    // the lock held, the receipt's re-entry into `prove` would never return.
+    let tenant = Arc::new(tenant);
+    let worker = Arc::clone(&tenant);
+    let drained = queue.clone();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        worker.prepare_replay(7);
+        tx.send(drain(&drained)).ok();
+    });
+    let events = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the replay must not hold the ancestry lock across a delivery");
+    assert_eq!(settled(&events), vec![(7, Ok(String::from("null")))]);
+    assert!(
+        !frames(&events).iter().any(|(dir, channel, text)| {
+            *dir == FrameDirection::Recv && channel == "sse" && text.contains("future.receipt")
+        }),
+        "the moved child's old receipt is not accepted: {:?}",
+        frames(&events)
     );
 }

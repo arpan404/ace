@@ -277,10 +277,15 @@ fn a_session_moved_refetch_is_one_get_until_it_is_answered() {
 #[test]
 fn a_moved_reply_whose_snapshot_cannot_be_framed_asks_for_a_pass() {
     let (tenant, queue) = ready();
-    tenant
-        .receive_value(&event("session.moved", json!({ "sessionID": "root" })), 1)
-        .expect("moved");
-    drain(&queue);
+    let moved = event("session.moved", json!({ "sessionID": "root" }));
+    tenant.receive_value(&moved, 1).expect("moved");
+    assert_eq!(
+        ports(&drain(&queue)),
+        vec![(
+            "http",
+            r#"{"id":0,"op":"session.get","params":{"sessionID":"root"}}"#.to_owned()
+        )]
+    );
 
     // The snapshot verifies, but its frame is past the payload bound, so the
     // location it named was never recorded.
@@ -288,7 +293,7 @@ fn a_moved_reply_whose_snapshot_cannot_be_framed_asks_for_a_pass() {
     if let Value::Object(map) = &mut body {
         map.insert("title".to_owned(), json!("a".repeat(1024 * 1024)));
     }
-    tenant.moved_reply("root", true, &body);
+    tenant.reply(0, true, &ace_json::to_string(&body));
     let events = drain(&queue);
     assert_eq!(
         ports(&events)
@@ -306,13 +311,11 @@ fn a_moved_reply_whose_snapshot_cannot_be_framed_asks_for_a_pass() {
     );
 
     // The move id was released: a later move asks again.
-    tenant
-        .receive_value(&event("session.moved", json!({ "sessionID": "root" })), 2)
-        .expect("moved again");
+    tenant.receive_value(&moved, 2).expect("moved again");
     assert_eq!(
         ports(&drain(&queue))
             .into_iter()
-            .filter(|(name, _)| *name == "session.moved")
+            .filter(|(name, _)| *name == "http")
             .count(),
         1
     );
