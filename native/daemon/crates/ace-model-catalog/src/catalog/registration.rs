@@ -332,6 +332,7 @@ impl Catalog {
                     state.invalidating = Some(crate::catalog::Flight {
                         done: done.clone(),
                         token: 0,
+                        generation: state.generation,
                     });
                 }
             });

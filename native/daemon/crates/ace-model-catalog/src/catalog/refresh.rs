@@ -54,7 +54,7 @@ impl Catalog {
     pub(crate) async fn refresh_state(&self, id: &str, cause: RefreshCause) -> InstanceStatus {
         match self.start_flight(id, cause) {
             FlightStart::Started(flight) => {
-                self.run_flight(id, cause, flight.token).await;
+                self.run_flight(id, cause, flight).await;
             }
             FlightStart::Running(flight) => flight.done.wait().await,
             FlightStart::Skipped => {}
@@ -99,14 +99,20 @@ impl Catalog {
         status
     }
 
+    /// Whether `id` still holds the registration this work started under.
+    fn owns_generation(&self, id: &str, generation: u64) -> bool {
+        self.with_inner(|inner| owns(inner, id, generation))
+    }
+
     /// Installs a flight for `id`, or reports the one already running.
     fn start_flight(&self, id: &str, cause: RefreshCause) -> FlightStart {
-        let token = {
+        let flight = {
             let mut inner = lock(&self.inner);
             let now = self.now();
             let Some(state) = inner.states.get(id) else {
                 return FlightStart::Skipped;
             };
+            let generation = state.generation;
             if let Some(flight) = state.flight.clone() {
                 return FlightStart::Running(flight);
             }
@@ -160,6 +166,7 @@ impl Catalog {
             let flight = Flight {
                 done: crate::signals::Gate::new(),
                 token,
+                generation,
             };
             if let Some(state) = inner.states.get_mut(id) {
                 state.probe_revision = Some(revision);
@@ -167,51 +174,49 @@ impl Catalog {
                 state.flight = Some(flight.clone());
                 state.flight_token = Some(token);
             }
-            token
+            flight
         };
         if let Some(config) = self.registered(id) {
             self.notify_config(&config);
         }
-        FlightStart::Started(Flight {
-            done: {
-                let inner = lock(&self.inner);
-                inner
-                    .states
-                    .get(id)
-                    .and_then(|state| state.flight.clone())
-                    .map(|flight| flight.done)
-                    .unwrap_or_default()
-            },
-            token,
-        })
+        FlightStart::Started(flight)
     }
 
     /// One flight's body. Every write re-checks that this row and revision are current.
-    async fn run_flight(&self, id: &str, _cause: RefreshCause, token: u64) {
-        let _permit = self.limiter.acquire().await;
-        let gate = self
-            .with_inner(|inner| inner.states.get(id).and_then(|state| state.flight.clone()))
-            .map(|flight| flight.done)
-            .unwrap_or_default();
+    async fn run_flight(&self, id: &str, _cause: RefreshCause, flight: Flight) {
         let _guard = FlightGuard {
             catalog: self.clone(),
             id: id.to_owned(),
-            token,
-            gate,
+            token: flight.token,
+            gate: flight.done.clone(),
         };
+        // The registration this flight belongs to may be gone before it takes its slot.
+        if !self.owns_generation(id, flight.generation) {
+            return;
+        }
+        // A removal, a new login or a settings change aborts the row: a flight still
+        // queued behind another row's discovery leaves the queue instead of holding
+        // its remover or invalidator until that other discovery ends.
+        let Some(signal) = self.with_inner(|inner| inner.states.get(id)?.abort.clone()) else {
+            return;
+        };
+        let _permit = match futures::future::select(
+            Box::pin(self.limiter.acquire()),
+            Box::pin(signal.wait()),
+        )
+        .await
+        {
+            futures::future::Either::Left((permit, _)) => permit,
+            futures::future::Either::Right(((), _acquire)) => return,
+        };
+        // Or while it waited in the queue.
+        if !self.owns_generation(id, flight.generation) {
+            return;
+        }
         let Some(config) = self.registered(id) else {
             return;
         };
         let revision = self.revision(&config);
-        let signal = self.with_inner(|inner| {
-            let state = inner.states.get(id)?;
-            state.abort.clone()
-        });
-        let Some(signal) = signal else {
-            return;
-        };
-        let token_generation =
-            self.with_inner(|inner| inner.states.get(id).map(|state| state.generation));
         // A replacement refresh waits for the pending invalidation's delete.
         if let Some(invalidating) = self.with_inner(|inner| {
             inner
@@ -256,15 +261,10 @@ impl Catalog {
             && let Err(error) = admit().await
         {
             // An admission result for a superseded registration acts on nothing.
-            if token_generation
-                .is_some_and(|token| self.with_inner(|inner| !owns(inner, id, token)))
-            {
+            if !self.owns_generation(id, flight.generation) {
                 return;
             }
             let current = self.with_inner(|inner| {
-                if token_generation.is_some_and(|token| !owns(inner, id, token)) {
-                    return false;
-                }
                 let Some(state) = inner.states.get_mut(id) else {
                     return false;
                 };

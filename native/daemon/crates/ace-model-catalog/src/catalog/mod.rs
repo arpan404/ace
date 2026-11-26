@@ -419,6 +419,8 @@ impl std::fmt::Debug for CatalogOptions {
 pub(crate) struct Flight {
     pub done: crate::signals::Gate,
     pub token: u64,
+    /// The registration the flight was installed for.
+    pub generation: u64,
 }
 
 pub(crate) struct State {

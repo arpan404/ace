@@ -209,6 +209,18 @@ fn poll_once<F: std::future::Future>(future: std::pin::Pin<&mut F>) -> std::task
     future.poll(&mut context)
 }
 
+/// Drives `future` and the spawned tasks until it settles; fails rather than hang.
+fn settle<F: std::future::Future>(future: F, spawn: &TestSpawn, what: &str) -> F::Output {
+    let mut future = Box::pin(future);
+    for _ in 0..100 {
+        if let std::task::Poll::Ready(output) = poll_once(future.as_mut()) {
+            return output;
+        }
+        spawn.drain();
+    }
+    panic!("{what} still waits after every spawned task settled");
+}
+
 fn listed(catalog: &Catalog) -> ModelListResult {
     catalog
         .list(ModelFilter::default(), 0, 100)
@@ -244,6 +256,15 @@ fn fixture(
     storage: SharedStorage,
     discover: Arc<FakeDiscover>,
 ) -> Fixture {
+    fixture_with_concurrency(instances, storage, discover, super::DEFAULT_CONCURRENCY)
+}
+
+fn fixture_with_concurrency(
+    instances: Vec<ModelInstance>,
+    storage: SharedStorage,
+    discover: Arc<FakeDiscover>,
+    concurrency: usize,
+) -> Fixture {
     let clock = TestClock::new(1_000.0);
     let deadlines = TestDeadlines::new();
     let spawn = TestSpawn::new();
@@ -257,6 +278,7 @@ fn fixture(
     options.instances = instances;
     options.timeout_ms = 1_000.0;
     options.retry_ms = 30_000.0;
+    options.concurrency = concurrency;
     let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
     Fixture {
         catalog,
@@ -571,6 +593,103 @@ fn a_removal_waits_out_a_refresh_whose_row_was_replaced() {
     let (_, removed) = futures::executor::block_on(async move { futures::join!(flight, removing) });
     removed.unwrap_or_else(|error| panic!("{error}"));
     assert!(!catalog.has_instance("account"));
+}
+
+#[test]
+fn a_removal_never_waits_on_a_flight_queued_behind_another_rows_discovery() {
+    let held_row = instance(ProviderKind::Codex, "held");
+    let account = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let release = gate.clone();
+    let discover = FakeDiscover::new(move |request, _signal| {
+        let release = release.clone();
+        Box::pin(async move {
+            if request.instance.id == "held" {
+                release.wait().await;
+            }
+            Ok(models(&request.instance, &["row-one"]))
+        })
+    });
+    let fixture = fixture_with_concurrency(
+        vec![held_row, account],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+        1,
+    );
+    let catalog = fixture.catalog.clone();
+    // One slot only: "held" takes it and waits on the gate.
+    let mut holder = Box::pin(catalog.refresh_state("held", RefreshCause::Background));
+    assert!(
+        poll_once(holder.as_mut()).is_pending(),
+        "the only discovery slot is taken"
+    );
+    // "account" queues its flight behind the held discovery.
+    let _ = catalog.list(ModelFilter::instance("account"), 0, 100);
+    assert_eq!(fixture.spawn.drain(), 1, "the row's flight is queued");
+    assert_eq!(fixture.discover.calls(), 1);
+    let removed = settle(
+        catalog.remove_instance("account"),
+        &fixture.spawn,
+        "the remover",
+    );
+    removed.unwrap_or_else(|error| panic!("{error}"));
+    assert!(!catalog.has_instance("account"));
+    assert_eq!(
+        fixture.discover.calls(),
+        1,
+        "the removed row's queued flight never launched discovery"
+    );
+    gate.open();
+    let _ = futures::executor::block_on(holder);
+}
+
+#[test]
+fn an_invalidation_never_waits_on_a_flight_queued_behind_another_rows_discovery() {
+    let held_row = instance(ProviderKind::Codex, "held");
+    let account = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let release = gate.clone();
+    let discover = FakeDiscover::new(move |request, _signal| {
+        let release = release.clone();
+        Box::pin(async move {
+            if request.instance.id == "held" {
+                release.wait().await;
+            }
+            Ok(models(&request.instance, &["row-one"]))
+        })
+    });
+    let fixture = fixture_with_concurrency(
+        vec![held_row, account],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+        1,
+    );
+    let catalog = fixture.catalog.clone();
+    let mut holder = Box::pin(catalog.refresh_state("held", RefreshCause::Background));
+    assert!(
+        poll_once(holder.as_mut()).is_pending(),
+        "the only discovery slot is taken"
+    );
+    let _ = catalog.list(ModelFilter::instance("account"), 0, 100);
+    assert_eq!(fixture.spawn.drain(), 1, "the row's flight is queued");
+    assert_eq!(fixture.discover.calls(), 1);
+    let invalidated = settle(
+        catalog.invalidate(ModelFilter::instance("account")),
+        &fixture.spawn,
+        "the invalidator",
+    );
+    invalidated.unwrap_or_else(|error| panic!("{error}"));
+    assert!(catalog.has_instance("account"));
+    assert!(
+        listed(&catalog)
+            .models
+            .iter()
+            .all(|model| model.instance.0 != "account"),
+        "the invalidated row's queued flight never wrote choices"
+    );
+    assert_eq!(fixture.discover.calls(), 1);
+    gate.open();
+    let _ = futures::executor::block_on(holder);
 }
 
 #[test]

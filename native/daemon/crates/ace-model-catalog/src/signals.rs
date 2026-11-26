@@ -136,7 +136,7 @@ impl Future for GateWait {
 
 struct LimiterState {
     active: usize,
-    waiters: VecDeque<futures::channel::oneshot::Sender<()>>,
+    waiters: VecDeque<Gate>,
 }
 
 /// At most `max` discoveries at once; the rest wait their turn.
@@ -148,6 +148,36 @@ pub struct Limiter {
 
 pub struct Permit {
     limiter: Limiter,
+}
+
+/// A queued acquisition. Dropped while waiting, it leaves the queue, so an aborted
+/// flight never keeps a slot it will not use.
+struct PendingAcquire {
+    limiter: Limiter,
+    gate: Option<Gate>,
+}
+
+fn release(state: &mut LimiterState) {
+    match state.waiters.pop_front() {
+        Some(next) => next.open(),
+        None => state.active -= 1,
+    }
+}
+
+impl Drop for PendingAcquire {
+    fn drop(&mut self) {
+        let Some(gate) = self.gate.take() else {
+            return;
+        };
+        let mut state = lock(&self.limiter.state);
+        match state.waiters.iter().position(|waiter| waiter.same(&gate)) {
+            Some(index) => {
+                state.waiters.remove(index);
+            }
+            // The slot was already handed over before this acquisition was dropped.
+            None => release(&mut state),
+        }
+    }
 }
 
 impl Limiter {
@@ -162,19 +192,26 @@ impl Limiter {
     }
 
     pub async fn acquire(&self) -> Permit {
-        let receiver = {
+        let mut pending = PendingAcquire {
+            limiter: self.clone(),
+            gate: None,
+        };
+        let gate = {
             let mut state = lock(&self.state);
             if state.active < self.max {
                 state.active += 1;
                 None
             } else {
-                let (sender, receiver) = futures::channel::oneshot::channel();
-                state.waiters.push_back(sender);
-                Some(receiver)
+                let gate = Gate::new();
+                state.waiters.push_back(gate.clone());
+                Some(gate)
             }
         };
-        if let Some(receiver) = receiver {
-            let _ = receiver.await;
+        if let Some(gate) = gate {
+            pending.gate = Some(gate.clone());
+            gate.wait().await;
+            // The slot is ours; dropping `pending` must not release it.
+            pending.gate = None;
         }
         Permit {
             limiter: self.clone(),
@@ -184,15 +221,7 @@ impl Limiter {
 
 impl Drop for Permit {
     fn drop(&mut self) {
-        let next = {
-            let mut state = lock(&self.limiter.state);
-            state.waiters.pop_front()
-        };
-        if let Some(next) = next {
-            let _ = next.send(());
-        } else {
-            lock(&self.limiter.state).active -= 1;
-        }
+        release(&mut lock(&self.limiter.state));
     }
 }
 
