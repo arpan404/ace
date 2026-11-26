@@ -9,6 +9,8 @@
 //! - [`raw_trim`] is `rawShownOnly`/`omitRaw`: the item events whose raw payloads a client
 //!   only shows.
 
+pub mod command_lanes;
+pub mod command_status;
 pub mod encode;
 pub mod event;
 mod js;
@@ -18,6 +20,8 @@ pub mod sidebar;
 pub mod subscription;
 pub mod wire_trim;
 
+pub use command_lanes::{CommandLanes, LaneRun, command_lane, settled_within};
+pub use command_status::{CommandState, CommandStatusState, command_state};
 pub use encode::{EVENT_FRAME_BYTES, EventShape, EventsMessage, WHOLE_EVENTS, WireEncoder};
 pub use event::{DeliveryEvent, EventEncodings, short_delta_json};
 pub use older_status::{older_status, older_statuses};
