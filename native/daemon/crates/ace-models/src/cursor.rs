@@ -374,13 +374,18 @@ pub fn normalize_cursor_sdk(
         // Effort is a parameter, or folded into the variants; either way the picker
         // reads it as effort. On/off values switch thinking and are not effort.
         let key = effort_key(&model.metadata, variants.as_deref().unwrap_or_default());
-        let values: Vec<String> = match (&model.metadata.parameters, &key) {
-            (Some(parameters), Some(key)) => parameters
-                .iter()
-                .find(|parameter| &parameter.id == key)
-                .map(|parameter| parameter.values.clone())
-                .unwrap_or_default(),
-            _ => variants
+        // The declared parameter wins only when one was found: declarations without an
+        // effort key must not hide the effort folded into the variants.
+        let declared = key.as_ref().and_then(|key| {
+            model
+                .metadata
+                .parameters
+                .as_ref()
+                .and_then(|parameters| parameters.iter().find(|parameter| &parameter.id == key))
+        });
+        let values: Vec<String> = match declared {
+            Some(parameter) => parameter.values.clone(),
+            None => variants
                 .as_ref()
                 .map(|variants| {
                     variants
@@ -705,6 +710,42 @@ mod tests {
                 })
             }));
         }
+    }
+
+    #[test]
+    fn declared_parameters_without_an_effort_key_still_read_effort_from_variants() {
+        // normalize.ts branches on a declared effort parameter, not on `parameters`
+        // existing: a context declaration must not hide the variants' effort.
+        let payload = json!([{
+            "id": "grok-4.7",
+            "parameters": [{ "id": "context", "values": [{ "value": "500k" }] }],
+            "variants": [{
+                "displayName": "High",
+                "isDefault": true,
+                "params": [{ "id": "effort", "value": "high" }]
+            }]
+        }]);
+        let rows = normalize(payload).unwrap_or_default();
+        let first = row(&rows[0]);
+        assert_eq!(
+            first["efforts"],
+            json!([{ "id": "high", "level": "high", "label": "High" }])
+        );
+        assert_eq!(first["defaultEffort"], "high");
+        // The same rule decides the thinking toggle: on/off values from variants.
+        let payload = json!([{
+            "id": "m",
+            "parameters": [{ "id": "context", "values": [{ "value": "500k" }] }],
+            "variants": [{
+                "displayName": "Thinking",
+                "isDefault": true,
+                "params": [{ "id": "reasoning", "value": "true" }]
+            }]
+        }]);
+        let rows = normalize(payload).unwrap_or_default();
+        let toggle = row(&rows[0]);
+        assert_eq!(toggle["thinkingToggle"], true);
+        assert_eq!(toggle["efforts"], json!([]));
     }
 
     #[test]
