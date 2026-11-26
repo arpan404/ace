@@ -34,23 +34,6 @@ const OPERATIONAL_ENV = new Set([
   // How the daemon listens ("local", "lan", "tailscale"): redacting it garbled fix-it text
   // such as "Run `sudo tailscale set --operator=$USER`" into "Run `sudo <ENV> set ...`".
   "ACE_LISTEN",
-  // The native-backend switches: their values are backend names ("native",
-  // "codex"), never identity. A switch on must not redact the provider's own
-  // name out of diagnostic evidence.
-  "ACE_STORE",
-  "ACE_SUPERVISOR",
-  "ACE_SESSIONS",
-  "ACE_TRANSLATORS",
-  "ACE_ENGINE",
-  "ACE_CORE",
-  "ACE_GIT",
-  "ACE_STORE_WRITER",
-  "ACE_STORE_ADDON",
-  "ACE_SUPERVISOR_ADDON",
-  "ACE_SESSIONS_ADDON",
-  "ACE_TRANSLATORS_ADDON",
-  "ACE_NATIVE_CROSS",
-  "ACE_DEVICE_PLATFORM",
 ]);
 function sensitiveEnvironment(ctx: RedactionContext): Array<[string, string]> {
   return Object.entries(ctx.env ?? {}).filter(

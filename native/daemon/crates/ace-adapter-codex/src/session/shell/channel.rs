@@ -109,10 +109,17 @@ impl SessionChannel {
 
     /// The terminal barrier: every event before it is already on the queue.
     pub fn finish_drained(&self) {
+        let mut events = Vec::new();
+        self.finish_drained_into(&mut events);
+        self.publish(events);
+    }
+
+    /// `Drained`, once, appended to the events its input already decided.
+    fn finish_drained_into(&self, events: &mut Vec<SessionEvent>) {
         if self.drained.swap(true, Ordering::SeqCst) {
             return;
         }
-        self.publish(vec![SessionEvent::Drained]);
+        events.push(SessionEvent::Drained);
     }
 
     pub fn set_now(&self, now: f64) {
@@ -169,6 +176,18 @@ impl SessionChannel {
         operation: u64,
         result: Result<Value, crate::session::frames::Failure>,
     ) {
+        let mut events = Vec::new();
+        self.settle_operation_into(operation, result, &mut events);
+        self.publish(events);
+    }
+
+    /// The settlement, appended to the events its input already decided.
+    fn settle_operation_into(
+        &self,
+        operation: u64,
+        result: Result<Value, crate::session::frames::Failure>,
+        events: &mut Vec<SessionEvent>,
+    ) {
         let event = match result {
             Ok(value) => SessionEvent::Settle {
                 id: operation,
@@ -182,7 +201,7 @@ impl SessionChannel {
                 }),
             },
         };
-        self.publish(vec![event]);
+        events.push(event);
     }
 
     /// A facade request's id: one host id space, so no two promises collide.
@@ -889,7 +908,7 @@ impl SessionChannel {
 
     /// Every read that finished settles its open: the root is no longer being
     /// read, or it never started because a read already held it.
-    fn settle_finished_reads(&self) {
+    fn settle_finished_reads_into(&self, events: &mut Vec<SessionEvent>) {
         loop {
             let waiting = {
                 let mut core = self.core();
@@ -908,7 +927,7 @@ impl SessionChannel {
                 std::mem::take(&mut core.read_operations)
             };
             for operation in waiting {
-                self.settle_operation(operation, Ok(Value::Null));
+                self.settle_operation_into(operation, Ok(Value::Null), events);
             }
         }
     }
@@ -968,25 +987,42 @@ impl SessionChannel {
         self.apply(effects);
     }
 
-    /// Every effect one input decided, carried in order.
+    /// Every effect one input decided, carried in order, and handed to the
+    /// queue in one step: nothing another input publishes can land between
+    /// two of them (ADR 0223 §7 rule 3).
     fn apply(&self, effects: Vec<Effect>) {
+        let mut events = Vec::new();
+        self.apply_into(effects, &mut events);
+        self.publish(events);
+    }
+
+    /// Hands the effects decided so far to the queue before this input talks
+    /// to the host again: a callback that input provokes must not publish
+    /// ahead of the frames it already decided.
+    fn flush_events(&self, events: &mut Vec<SessionEvent>) {
+        if !events.is_empty() {
+            self.publish(std::mem::take(events));
+        }
+    }
+
+    fn apply_into(&self, effects: Vec<Effect>, events: &mut Vec<SessionEvent>) {
         for effect in effects {
             match effect {
-                Effect::Frame { dir, channel, text } => self.publish(vec![SessionEvent::Frame {
+                Effect::Frame { dir, channel, text } => events.push(SessionEvent::Frame {
                     seq: 0,
                     dir,
                     channel: channel.to_owned(),
                     text,
-                }]),
+                }),
                 Effect::Callback { name, json } => {
-                    self.publish(vec![SessionEvent::Callback { name, json }])
+                    events.push(SessionEvent::Callback { name, json });
                 }
-                Effect::Settle { id, result } => self.settle_result(id, result),
+                Effect::Settle { id, result } => self.settle_result_into(id, result, events),
                 Effect::ArmTimer { key, ms } => {
-                    self.publish(vec![SessionEvent::ArmTimer { key, ms }])
+                    events.push(SessionEvent::ArmTimer { key, ms });
                 }
                 Effect::CancelTimer { key } => {
-                    self.publish(vec![SessionEvent::CancelTimer { key }])
+                    events.push(SessionEvent::CancelTimer { key });
                 }
                 Effect::Exited {
                     deliberate,
@@ -995,23 +1031,24 @@ impl SessionChannel {
                     let mut result = Map::new();
                     result.insert("deliberate", Value::Bool(deliberate));
                     result.insert("message", Value::from(message));
-                    self.publish(vec![SessionEvent::Callback {
+                    events.push(SessionEvent::Callback {
                         name: "onExit",
                         json: Value::Array(ace_json::Array::from(vec![Value::Object(result)]))
                             .to_json(),
-                    }]);
+                    });
                 }
                 Effect::Closed(result) => {
                     let operation = self.core().close_operation.take();
                     if let Some(operation) = operation {
                         match result {
                             Ok(()) => {
-                                self.settle_operation(operation, Ok(Value::Null));
-                                self.finish_drained();
+                                self.settle_operation_into(operation, Ok(Value::Null), events);
+                                self.finish_drained_into(events);
                             }
-                            Err(message) => self.settle_operation(
+                            Err(message) => self.settle_operation_into(
                                 operation,
                                 Err(crate::session::frames::Failure::failed(message)),
+                                events,
                             ),
                         }
                     }
@@ -1021,7 +1058,7 @@ impl SessionChannel {
                         let mut core = self.core();
                         core.session.cleanup()
                     };
-                    self.apply(effects);
+                    self.apply_into(effects, events);
                 }
                 Effect::Request {
                     call,
@@ -1030,6 +1067,7 @@ impl SessionChannel {
                     timeout_ms,
                 } => {
                     let id = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
+                    self.flush_events(events);
                     let owner = self.owner_for(call);
                     if let Ok(mut owners) = self.shared.owners.lock() {
                         owners.insert(id, owner);
@@ -1051,7 +1089,7 @@ impl SessionChannel {
                             let mut core = self.core();
                             core.session.settled(call, Err(&message))
                         };
-                        self.apply(effects);
+                        self.apply_into(effects, events);
                     }
                 }
                 Effect::ReadHistory { call, thread } => {
@@ -1061,7 +1099,7 @@ impl SessionChannel {
                         core.jobs.histories.insert(call, HistoryJob { read });
                         effects
                     };
-                    self.apply(effects);
+                    self.apply_into(effects, events);
                 }
                 Effect::WakeCatalog { wake, catalog } => {
                     let effects = {
@@ -1082,14 +1120,22 @@ impl SessionChannel {
                             None => Vec::new(),
                         }
                     };
-                    self.apply(effects);
+                    self.apply_into(effects, events);
                 }
-                Effect::Answer { id, result } => self.shared.host.answer(&id, &result),
+                Effect::Answer { id, result } => {
+                    self.flush_events(events);
+                    self.shared.host.answer(&id, &result);
+                }
                 Effect::AnswerError { id, message } => {
+                    self.flush_events(events);
                     self.shared.host.answer_error(&id, INTERNAL_ERROR, &message)
                 }
-                Effect::LaunchOptions { id, thread } => self.launch(id, &thread),
+                Effect::LaunchOptions { id, thread } => {
+                    self.flush_events(events);
+                    self.launch_into(id, &thread, events);
+                }
                 Effect::Retire { reason } => {
+                    self.flush_events(events);
                     if let Ok(mut slot) = self.shared.retire_channel.lock()
                         && slot.is_none()
                     {
@@ -1098,6 +1144,7 @@ impl SessionChannel {
                     self.shared.host.retire(reason)
                 }
                 Effect::StopWork { reason } => {
+                    self.flush_events(events);
                     let operation = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
                     let _ = reason;
                     let effects = {
@@ -1105,9 +1152,10 @@ impl SessionChannel {
                         core.work_operation = Some(operation);
                         core.session.interrupt(operation, Some("root"), true)
                     };
-                    self.apply(effects);
+                    self.apply_into(effects, events);
                 }
                 Effect::Detach { reason, message } => {
+                    self.flush_events(events);
                     self.shared
                         .host
                         .detach_passive(self.tenant, reason, &message)
@@ -1115,7 +1163,7 @@ impl SessionChannel {
                 Effect::FailTransport => {}
             }
         }
-        self.settle_finished_reads();
+        self.settle_finished_reads_into(events);
     }
 
     /// Which machine asked for one session-local call: a history page, tool
@@ -1163,7 +1211,12 @@ impl SessionChannel {
         }
     }
 
-    fn settle_result(&self, id: u64, result: Result<Value, crate::session::frames::Failure>) {
+    fn settle_result_into(
+        &self,
+        id: u64,
+        result: Result<Value, crate::session::frames::Failure>,
+        events: &mut Vec<SessionEvent>,
+    ) {
         let work = {
             let mut core = self.core();
             if core.work_operation == Some(id) {
@@ -1174,7 +1227,7 @@ impl SessionChannel {
             }
         };
         if !work {
-            self.settle_operation(id, result);
+            self.settle_operation_into(id, result, events);
             return;
         }
         let outcome = result.map(|_| ()).map_err(|failure| failure.message);
@@ -1182,10 +1235,10 @@ impl SessionChannel {
             let mut core = self.core();
             core.session.lifetime.work_stopped(outcome)
         };
-        self.apply(effects);
+        self.apply_into(effects, events);
     }
 
-    fn launch(&self, operation: u64, thread: &str) {
+    fn launch_into(&self, operation: u64, thread: &str, events: &mut Vec<SessionEvent>) {
         let (mode, applied, port) = {
             let core = self.core();
             (
@@ -1195,13 +1248,13 @@ impl SessionChannel {
             )
         };
         if port {
-            self.publish_port(
-                "launch",
-                format!(
+            events.push(SessionEvent::Port {
+                name: "launch",
+                json: format!(
                     "{{\"operation\":{operation},\"thread\":{}}}",
                     Value::from(thread.to_owned()).to_json()
                 ),
-            );
+            });
             return;
         }
         if mode.is_none() && applied.is_some() {
@@ -1215,7 +1268,7 @@ impl SessionChannel {
             core.session
                 .launch_ready(operation, Ok(Launch { mode, options }))
         };
-        self.apply(effects);
+        self.apply_into(effects, events);
     }
 
     /// The context's permission mode could not be read: the start fails.

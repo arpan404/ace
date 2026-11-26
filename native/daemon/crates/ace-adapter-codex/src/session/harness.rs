@@ -390,8 +390,14 @@ impl OutputConsumer for GateConsumer {
 }
 
 impl GateRun {
-    /// Spawns a probe writing both streams, with the gate in front of them.
+    /// Spawns a probe writing both streams, with a fresh gate in front.
     pub fn start(root: Scratch) -> GateRun {
+        GateRun::start_on(root, HostGate::new())
+    }
+
+    /// The same probe, answering `gate`: a session's own host gate, so its
+    /// pause reaches the pumps the test measures.
+    pub fn start_on(root: Scratch, gate: HostGate) -> GateRun {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -403,7 +409,6 @@ impl GateRun {
             "const line = `${'x'.repeat(262144)}\\n`;\nfor (let i = 0; i < 30; i++) {\n  process.stdout.write(line);\n  process.stderr.write(line);\n  await Bun.sleep(20);\n}\n",
         )
         .expect("the probe writes");
-        let gate = HostGate::new();
         let seen: Arc<Mutex<Vec<(OutputStream, usize)>>> = Arc::new(Mutex::new(Vec::new()));
         let consumer = Arc::new(GateConsumer {
             gate: gate.clone(),

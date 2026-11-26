@@ -582,7 +582,12 @@ mod tests {
     /// must retire on it.
     #[test]
     fn an_idle_timer_reaches_a_host_with_no_tenant() {
-        let host = Host::new(HostConfig::shared(initialize(), 600_000.0));
+        // The shared app-server's idle time is the TypeScript pool's ten
+        // minutes (`host-pool.ts:11`); the pool's own scheduler takes it from
+        // here once no tenant is left to carry the bridge timer.
+        let idle = crate::session::pool::DEFAULT_HOST_IDLE_MS;
+        assert_eq!(idle, 600_000.0);
+        let host = Host::new(HostConfig::shared(initialize(), idle));
         let shared = SharedHost::new(1, "bench".to_owned(), host);
         let fired = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&fired);
@@ -591,10 +596,11 @@ mod tests {
             recorded.lock().expect("fired").push(json);
             target.timer("host:idle");
         }));
-        shared.timer("host:idle", 600_000.0);
+        shared.timer("host:idle", idle);
         let lines = fired.lock().expect("fired");
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("\"host\":1"), "{}", lines[0]);
+        assert!(lines[0].contains("\"ms\":600000"), "{}", lines[0]);
         assert!(!shared.host.available(), "the host did not retire");
     }
 }
