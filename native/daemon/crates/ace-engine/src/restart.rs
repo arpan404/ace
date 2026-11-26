@@ -10,11 +10,12 @@
 use ace_core::entity_model::InteractionRequest;
 use ace_core::state::ThreadState;
 use ace_core::status::is_settled;
+use ace_json::Value as Json;
 use ace_store::{Value, stmt_cache};
 use std::sync::Arc;
 
-use crate::EngineError;
 use crate::repository::residency::{cell_int, cell_text};
+use crate::{Core, EngineError, State};
 
 /// `maxRestartResumes` (`restart-resume.ts:11`): automatic continuations in a row before the
 /// interrupted turn is left to the person.
@@ -157,6 +158,62 @@ pub fn interrupted_notice(
     );
     fact.insert("draft", ace_json::Value::Object(draft));
     ace_json::Value::Object(fact)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Whether startup may continue it (`restart-eligibility.ts`)
+// ---------------------------------------------------------------------------------------------
+
+/// `continuesNatively` (`restart-eligibility.ts:11`): the thread has a native session to continue
+/// and its provider is not known to refuse resuming one. A failure to answer reads as yes; a
+/// resume refused then leaves the thread held with the failure shown.
+pub fn continues_natively(
+    core: &Core,
+    state: &mut State,
+    thread: &str,
+) -> Result<bool, EngineError> {
+    let Some(snapshot) = state.repo.state(&core.store, thread)? else {
+        return Ok(false);
+    };
+    let carried = state.transition_get(&core.store, thread)?;
+    let native = crate::sessions::metadata::session(&core.store, thread)
+        .ok()
+        .and_then(|session| session.native_session_id);
+    if native.is_none() && carried.fork.is_none() && carried.handoff.is_none() {
+        return Ok(false);
+    }
+    let provider = {
+        let borrowed = snapshot.try_borrow().map_err(|_| EngineError::Reentrant)?;
+        borrowed.state.config.provider.clone()
+    };
+    if provider == "acp" || !state.registry.has(&provider) {
+        return Ok(true);
+    }
+    let backend = state.backend(&core.store, thread)?;
+    Ok(state
+        .registry
+        .get(&provider, backend.as_deref())
+        .ok()
+        .and_then(|entry| entry.capabilities.get("resume").and_then(Json::as_bool))
+        .unwrap_or(true))
+}
+
+/// `heldInterrupted` (`restart-eligibility.ts:20`): interrupted and held until someone acts — a
+/// restart or provider exit ace won't continue by itself, or input a crash left uncertain. No
+/// provider session is live and no resume is in flight.
+pub fn held_interrupted(
+    core: &Core,
+    state: &mut State,
+    thread: &str,
+    live: bool,
+) -> Result<bool, EngineError> {
+    if live || state.repo.state(&core.store, thread)?.is_none() {
+        return Ok(false);
+    }
+    let queue = crate::queue::store::get(&core.store, thread)?;
+    Ok(queue.paused
+        && matches!(queue.reason.as_deref(), Some("restart") | Some("uncertain"))
+        && !crate::intents::store::recovering(core.store.conn(), thread)?)
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -291,7 +291,7 @@ fn first_pass_in(
                 archived: row.as_ref().is_some_and(|row| row.archived),
                 waiting_on_person: false,
                 uncertain: false,
-                can_continue: continues_natively(core, state, thread)?,
+                can_continue: crate::restart::continues_natively(core, state, thread)?,
                 streak: crate::restart::streak(core.store.conn(), thread)?,
             },
         );
@@ -346,36 +346,6 @@ fn first_pass_in(
         apply(core, state, thread, &facts, now)?;
     }
     Ok(())
-}
-
-/// `continuesNatively` (`restart-eligibility.ts:11`): the thread has a native session to continue
-/// and its provider is not known to refuse resuming one. A failure to answer reads as yes; a
-/// resume refused then leaves the thread held with the failure shown.
-fn continues_natively(core: &Core, state: &mut State, thread: &str) -> Result<bool, EngineError> {
-    let Some(snapshot) = state.repo.state(&core.store, thread)? else {
-        return Ok(false);
-    };
-    let carried = state.transition_get(&core.store, thread)?;
-    let native = crate::sessions::metadata::session(&core.store, thread)
-        .ok()
-        .and_then(|session| session.native_session_id);
-    if native.is_none() && carried.fork.is_none() && carried.handoff.is_none() {
-        return Ok(false);
-    }
-    let provider = {
-        let borrowed = snapshot.try_borrow().map_err(|_| EngineError::Reentrant)?;
-        borrowed.state.config.provider.clone()
-    };
-    if provider == "acp" || !state.registry.has(&provider) {
-        return Ok(true);
-    }
-    let backend = state.backend(&core.store, thread)?;
-    Ok(state
-        .registry
-        .get(&provider, backend.as_deref())
-        .ok()
-        .and_then(|entry| entry.capabilities.get("resume").and_then(Value::as_bool))
-        .unwrap_or(true))
 }
 
 /// The open tasks' step for one thread (`restart.ts:229`).

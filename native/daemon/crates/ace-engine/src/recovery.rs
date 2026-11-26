@@ -16,6 +16,7 @@ pub mod deadline;
 pub mod imported;
 pub mod observe;
 pub mod provider_recovery;
+pub mod provider_return;
 pub mod session_bound;
 pub mod startup;
 pub mod threads;
@@ -162,12 +163,6 @@ pub fn handle(
 /// `repo.recovery.pruneIdle()` (`provider-recovery.ts:354`): the idle sweep's bounded batch.
 pub fn prune_idle(core: &Core) -> Result<(), EngineError> {
     provider_recovery::sweep(core)
-}
-
-/// `recovery.prepare(thread)` and startup's per-thread recovery (`restart.ts:40`-`:413`).
-pub fn recover_thread(_state: &mut State, thread: &ThreadId) -> Result<(), EngineError> {
-    let _ = thread;
-    Err(EngineError::not_ported("restart recovery", "E5.8"))
 }
 
 /// `recovery.close()` (`recovery.ts:841`): no deadline is armed and no policy load starts.
