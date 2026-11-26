@@ -6,7 +6,7 @@
 //! `serve_sim::ToolsInstalled`; this module owns the bounds the TypeScript's
 //! schemas put on both, which the internal process message must still keep.
 
-use crate::platform::serve_sim::{Artifact, InstallRequest, ServeSimCommand};
+use crate::platform::serve_sim::{Artifact, InstallRequest, ServeSimCommand, ToolsInstalled};
 
 /// An artifact name's cap (`device-tools-wire.ts:5`).
 pub const MAX_ARTIFACT_NAME: usize = 214;
@@ -90,6 +90,18 @@ pub fn check_request(request: &InstallRequest) -> Result<(), Issue> {
     if let Some(artifacts) = &request.artifacts {
         check_artifact("serveSim.name", &artifacts.serve_sim)?;
         check_artifact("ws.name", &artifacts.ws)?;
+    }
+    Ok(())
+}
+
+/// `ToolsReply`: a serve-sim command when there is one, and a scrcpy path that is
+/// not blank.
+pub fn check_installed(installed: &ToolsInstalled) -> Result<(), Issue> {
+    if let Some(command) = &installed.serve_sim {
+        check_command(command)?;
+    }
+    if installed.scrcpy.as_deref() == Some("") {
+        return Err(empty("scrcpy"));
     }
     Ok(())
 }

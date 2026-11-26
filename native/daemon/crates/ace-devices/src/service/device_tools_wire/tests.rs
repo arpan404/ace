@@ -4,7 +4,9 @@
 //! `device-tools.process` (b) is the install's own proof; these cases cover the
 //! schema bounds the internal message must keep.
 
-use super::{MAX_ARGS, MAX_ARTIFACT_NAME, check_artifact, check_command, check_request};
+use super::{
+    MAX_ARGS, MAX_ARTIFACT_NAME, check_artifact, check_command, check_installed, check_request,
+};
 use crate::platform::serve_sim::{Artifact, InstallRequest, ServeSimCommand, artifacts};
 
 fn artifact() -> Artifact {
@@ -120,4 +122,31 @@ fn a_reply_names_a_command_and_at_most_eight_arguments() {
         check_command(&bad).expect_err("many").field,
         "serveSim.args"
     );
+}
+
+#[test]
+fn a_reply_that_names_a_scrcpy_path_must_name_a_real_one() {
+    let installed = crate::platform::serve_sim::ToolsInstalled {
+        serve_sim: None,
+        scrcpy: Some(String::from("/home/ace/.ace/tools/scrcpy-server-v3.3.1")),
+    };
+    check_installed(&installed).expect("a real path");
+
+    let empty = crate::platform::serve_sim::ToolsInstalled {
+        serve_sim: None,
+        scrcpy: Some(String::new()),
+    };
+    assert_eq!(check_installed(&empty).expect_err("empty").field, "scrcpy");
+}
+
+#[tokio::test]
+async fn the_install_entry_refuses_a_request_its_schema_rejects() {
+    // The entry point checks the request before it reads the catalog, the network
+    // or the filesystem.
+    let mut bad = request();
+    bad.node = String::new();
+    let refused = crate::platform::serve_sim::install(bad)
+        .await
+        .expect_err("refused");
+    assert!(matches!(refused, crate::platform::Error::Invalid(_)));
 }
