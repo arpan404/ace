@@ -202,6 +202,12 @@ impl Core {
         self.inputs
     }
 
+    /// `silence.forWorkspace(workspaceId)`'s default (`silence.ts:56`): five minutes unless the
+    /// engine was given `options.silenceMs`. A workspace's cached override is E5.6's resolver.
+    pub fn silence_ms(&self) -> f64 {
+        self.inputs.silence_ms.unwrap_or(300_000.0)
+    }
+
     /// The readiness future both `flush` and `close` await, shared and cloned per caller.
     pub fn ready_future(&self) -> Option<ReadyFuture> {
         self.ready.borrow().clone()
@@ -251,6 +257,18 @@ impl Core {
         if !self.store.after_commit(token) {
             self.after.release(&[token]);
         }
+    }
+
+    /// Releases every deferred the shell's stack has not released yet. The shell releases them
+    /// at its commit; a test shell that models the stack's order calls this instead.
+    pub fn release_after_commit(&self) {
+        let tokens = self.after.tokens();
+        self.after.release(&tokens);
+    }
+
+    /// Drops deferreds a rolled-back frame held, as the shell's stack does.
+    pub fn discard_after_commit(&self, tokens: &[u64]) {
+        self.after.discard(tokens);
     }
 
     /// The probe's close step (E5.1 step 12).

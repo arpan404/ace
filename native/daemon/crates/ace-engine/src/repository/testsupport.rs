@@ -64,6 +64,111 @@ pub(crate) fn header(thread: &str) -> String {
     HEADER.replace("\"threadId\":\"t\"", &format!("\"threadId\":\"{thread}\""))
 }
 
+/// One agent in a stored snapshot: its state key, its record's id, its parent's key and the run
+/// it is in.
+pub(crate) struct StoredAgent<'a> {
+    pub key: &'a str,
+    pub id: &'a str,
+    pub parent: Option<&'a str>,
+    pub run: Option<&'a str>,
+}
+
+/// The same header after a turn began: the root record under `rootKey`, its active run and that
+/// run's history. This is the shape a real thread's snapshot has once a run started.
+pub(crate) fn header_with_root_run(thread: &str, run: &str, run_state: &str) -> String {
+    header_with_agents(
+        thread,
+        &[StoredAgent {
+            key: "root",
+            id: "root",
+            parent: None,
+            run: Some(run),
+        }],
+        &[(run, run_state)],
+    )
+}
+
+/// The same header with the agents and runs a test needs, keyed as the fold stores them.
+pub(crate) fn header_with_agents(
+    thread: &str,
+    agents: &[StoredAgent<'_>],
+    runs: &[(&str, &str)],
+) -> String {
+    let mut records = Vec::new();
+    for agent in agents {
+        let parent = agent
+            .parent
+            .map(|parent| format!(r#","parentKey":"{parent}""#))
+            .unwrap_or_default();
+        let active = agent
+            .run
+            .map(|run| format!(r#","activeRun":"{run}""#))
+            .unwrap_or_default();
+        records.push(format!(
+            r#""{}":{{"agent":{{"id":"{}","threadId":"{thread}","origin":"{origin}","native":{{"provider":"codex"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"working","activity":"thinking"}},"createdAt":1}},"activity":"thinking","lastSignalAt":2{parent}{active}}}"#,
+            agent.key,
+            agent.id,
+            origin = if agent.parent.is_none() { "root" } else { "child" }
+        ));
+    }
+    let agent_records = format!(r#""agents":{{{}}}"#, records.join(","));
+    let runs = runs
+        .iter()
+        .map(|(run, state)| {
+            format!(
+                r#""{run}":{{"id":"{run}","threadId":"{thread}","agentId":"root","trigger":"person","state":"{state}","startedAt":1}}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let runs = format!(r#""runs":{{{runs}}}"#);
+    let keys = agents
+        .iter()
+        .map(|agent| format!(r#""{}":"{}""#, agent.id, agent.key))
+        .collect::<Vec<_>>()
+        .join(",");
+    header(thread)
+        .replace(
+            &format!(r#""threadId":"{thread}","config""#),
+            &format!(r#""threadId":"{thread}","rootKey":"root","config""#),
+        )
+        .replace(r#""agents":{}"#, &agent_records)
+        .replace(r#""runs":{}"#, &runs)
+        .replace(
+            r#""agentKeysById":{}"#,
+            &format!(r#""agentKeysById":{{{keys}}}"#),
+        )
+}
+
+/// A `ModelResolution` as the models port answers it (`packages/protocol/src/models.ts:200`):
+/// `model` is the whole `CatalogModel` row, never its id.
+pub(crate) fn model_resolution(native_model_id: &str, native_provider_id: Option<&str>) -> String {
+    let mut row = ace_json::Map::new();
+    row.insert(
+        "id",
+        ace_json::Value::from(format!("row-{native_model_id}")),
+    );
+    row.insert("displayName", ace_json::Value::from(native_model_id));
+    row.insert("provider", ace_json::Value::from("codex"));
+    row.insert("instance", ace_json::Value::from("codex-cli-default"));
+    if let Some(provider) = native_provider_id {
+        row.insert("nativeProviderId", ace_json::Value::from(provider));
+    }
+    row.insert("nativeModelId", ace_json::Value::from(native_model_id));
+    row.insert("efforts", ace_json::Value::Array(Vec::new().into()));
+    row.insert("serviceTiers", ace_json::Value::Array(Vec::new().into()));
+    row.insert("inputModalities", ace_json::Value::Array(Vec::new().into()));
+    row.insert("isDefault", ace_json::Value::Bool(true));
+    row.insert("hidden", ace_json::Value::Bool(false));
+    row.insert("deprecated", ace_json::Value::Bool(false));
+    let mut resolution = ace_json::Map::new();
+    resolution.insert("ok", ace_json::Value::Bool(true));
+    resolution.insert("model", ace_json::Value::Object(row));
+    resolution.insert("stale", ace_json::Value::Bool(false));
+    resolution.insert("reason", ace_json::Value::from("role"));
+    ace_json::to_string(&ace_json::Value::Object(resolution))
+}
+
 /// A message item with one text part, in the stored shape.
 pub(crate) fn message(id: &str, thread: &str, text: &str) -> ace_core::items::Item {
     ace_json::from_value(
@@ -105,6 +210,26 @@ pub(crate) struct Shell {
     admits_answer: Cell<Option<bool>>,
     admits_calls: Cell<u32>,
     admits_throw_from: Cell<Option<u32>>,
+    /// The thread rows `getThread` answers, by id: a receipt's own read.
+    threads: RefCell<std::collections::HashMap<String, String>>,
+    /// Every event batch the store's writer was given.
+    written: RefCell<Vec<(String, String, f64)>>,
+    /// `onNamingPrompt` calls, as `(thread, parts)`.
+    naming: RefCell<Vec<(String, String)>>,
+    /// How many event writes the writer was given, and the one that fails.
+    writes: Cell<u32>,
+    fail_write_at: Cell<Option<u32>>,
+    /// Whether `after_commit` joins the open frame's token (the stack's own behaviour).
+    holds_after_commit: Cell<bool>,
+    /// The model catalog's answers: `(resolve, list)`, when one is configured.
+    models: RefCell<Option<(String, String)>>,
+    /// `options.machine`, as JSON, when the test's daemon has one.
+    machine: RefCell<Option<String>>,
+    /// `onModelUnavailable` calls, as `(provider, model)`.
+    unavailable: RefCell<Vec<(String, String)>>,
+    /// The tokens each frame joined, by the depth that joined them, and the ones a rollback dropped.
+    tokens: RefCell<Vec<(u32, u64)>>,
+    dropped: RefCell<Vec<u64>>,
 }
 
 impl Shell {
@@ -174,6 +299,78 @@ impl Shell {
         self.admits_calls.get()
     }
 
+    /// The row `getThread` answers for `id`.
+    pub fn set_thread(&self, id: &str, row: String) {
+        self.threads.borrow_mut().insert(id.to_owned(), row);
+    }
+
+    /// The naming prompts the engine asked for, as `(thread, parts)`.
+    pub fn naming(&self) -> Vec<(String, String)> {
+        self.naming.borrow().clone()
+    }
+
+    /// The event write at `nth` (1-based) fails, as a store error would.
+    pub fn fail_write_at(&self, nth: u32) {
+        self.fail_write_at.set(Some(nth));
+    }
+
+    /// The shell's stack joins deferred work to the open frame, released by `release_after_commit`.
+    pub fn hold_after_commit(&self) {
+        self.holds_after_commit.set(true);
+    }
+
+    /// Configures a model catalog: its `resolve` and `list` answers.
+    pub fn answer_models(&self, resolve: &str, list: &str) {
+        *self.models.borrow_mut() = Some((resolve.to_owned(), list.to_owned()));
+    }
+
+    /// `options.machine`, as the binding passes it (JSON).
+    pub fn answer_machine(&self, machine: &str) {
+        *self.machine.borrow_mut() = Some(machine.to_owned());
+    }
+
+    /// The models the catalog refused, as `(provider, model)`.
+    pub fn unavailable(&self) -> Vec<(String, String)> {
+        self.unavailable.borrow().clone()
+    }
+
+    /// Every event payload written for one thread, in order.
+    pub fn events(&self, thread: &str) -> Vec<ace_json::Value> {
+        let mut events = Vec::new();
+        for (id, payloads, _) in self.written.borrow().iter() {
+            if id != thread {
+                continue;
+            }
+            if let Ok(ace_json::Value::Array(items)) = ace_json::parse(payloads) {
+                events.extend(items.into_vec());
+            }
+        }
+        events
+    }
+
+    /// The tokens a rolled-back frame dropped: the stack discards them, never releases them.
+    pub fn dropped(&self) -> Vec<u64> {
+        self.dropped.borrow().clone()
+    }
+
+    /// The event types written for one thread, in order.
+    pub fn written_types(&self, thread: &str) -> Vec<String> {
+        let mut kinds = Vec::new();
+        for (id, payloads, _) in self.written.borrow().iter() {
+            if id != thread {
+                continue;
+            }
+            if let Ok(ace_json::Value::Array(items)) = ace_json::parse(payloads) {
+                for item in items.iter() {
+                    if let Some(kind) = item.get("type").and_then(ace_json::Value::as_str) {
+                        kinds.push(kind.to_owned());
+                    }
+                }
+            }
+        }
+        kinds
+    }
+
     fn make(conn: &Arc<Connection>, fail_open: bool) -> (EngineStore, std::rc::Rc<Shell>) {
         let shell = std::rc::Rc::new(Shell {
             conn: Arc::clone(conn),
@@ -192,6 +389,17 @@ impl Shell {
             admits_answer: Cell::new(None),
             admits_calls: Cell::new(0),
             admits_throw_from: Cell::new(None),
+            threads: RefCell::new(std::collections::HashMap::new()),
+            written: RefCell::new(Vec::new()),
+            naming: RefCell::new(Vec::new()),
+            writes: Cell::new(0),
+            fail_write_at: Cell::new(None),
+            holds_after_commit: Cell::new(false),
+            tokens: RefCell::new(Vec::new()),
+            dropped: RefCell::new(Vec::new()),
+            models: RefCell::new(None),
+            machine: RefCell::new(None),
+            unavailable: RefCell::new(Vec::new()),
         });
         let store = EngineStore {
             ports: shell.clone(),
@@ -231,7 +439,10 @@ impl Ports for Shell {
         self.set_timer(ms)
     }
     fn thread_id(&self) -> String {
-        "t".to_owned()
+        // `options.threadId`, else the shell's UUIDv7: distinct per allocation, as it is live.
+        let next = self.ids.get() + 1;
+        self.ids.set(next);
+        format!("thread-{next}")
     }
     fn command_id(&self) -> String {
         "command".to_owned()
@@ -300,6 +511,16 @@ impl Ports for Shell {
         self.depth.set(depth);
         match threw {
             Some(message) => {
+                // The frame's deferreds die with it.
+                let frame = depth + 1;
+                let mut tokens = self.tokens.borrow_mut();
+                let (dropped, kept): (Vec<_>, Vec<_>) =
+                    tokens.drain(..).partition(|(joined, _)| *joined >= frame);
+                *tokens = kept;
+                let mut dropped_tokens = self.dropped.borrow_mut();
+                dropped_tokens.extend(dropped.into_iter().map(|(_, token)| token));
+                drop(tokens);
+                drop(dropped_tokens);
                 let rollback = if depth == 0 {
                     "ROLLBACK".to_owned()
                 } else {
@@ -324,16 +545,96 @@ impl Ports for Shell {
     fn append_events(&self, _json: &str) -> Result<(), PortError> {
         Ok(())
     }
-    fn get_thread(&self, _thread: &str) -> Result<Option<String>, PortError> {
-        // The shell's thread row is not what a repository case reads; no row is the answer a
-        // store with no such thread gives.
-        Ok(None)
+    fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
+        // The row a receipt reads: a repository case seeds none, so it reads no row.
+        Ok(self.threads.borrow().get(thread).cloned())
     }
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
     fn finish_close(&self) {}
-    fn write_events(&self, _thread: &str, _payloads: &str, _at: f64) -> Result<(), PortError> {
+    fn write_events(&self, thread: &str, payloads: &str, at: f64) -> Result<(), PortError> {
+        let count = self.writes.get() + 1;
+        self.writes.set(count);
+        if self.fail_write_at.get() == Some(count) {
+            return Err(PortError::Threw("store write failed".to_owned()));
+        }
+        self.written
+            .borrow_mut()
+            .push((thread.to_owned(), payloads.to_owned(), at));
+        // The store's writer projects a created thread's row; the tables that reference
+        // `threads` need it before anything else about the thread is written.
+        if let Ok(ace_json::Value::Array(events)) = ace_json::parse(payloads) {
+            for event in events.iter() {
+                if event.get("type").and_then(ace_json::Value::as_str) != Some("thread.created") {
+                    continue;
+                }
+                let Some(thread) = event.get("thread") else {
+                    continue;
+                };
+                let field = |key: &str| {
+                    thread
+                        .get(key)
+                        .and_then(ace_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                let status = thread
+                    .get("status")
+                    .map(ace_json::to_string)
+                    .unwrap_or_else(|| "{\"state\":\"new\"}".to_owned());
+                let at = thread
+                    .get("createdAt")
+                    .and_then(ace_json::Value::as_f64)
+                    .unwrap_or(at) as i64;
+                let _ = self.conn.exec(&format!(
+                    "INSERT OR REPLACE INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ({}, {}, {}, {}, {}, {at}, {at})",
+                    sql_text(&field("id")),
+                    sql_text(&field("workspaceId")),
+                    sql_text(&field("title")),
+                    sql_text(&field("provider")),
+                    sql_text(&status)
+                ));
+            }
+        }
         Ok(())
+    }
+
+    fn has_models(&self) -> bool {
+        self.models.borrow().is_some()
+    }
+
+    fn models_resolve(&self, _json: &str) -> Result<String, PortError> {
+        self.models
+            .borrow()
+            .as_ref()
+            .map(|(resolve, _)| resolve.clone())
+            .ok_or(PortError::Unbound("models"))
+    }
+
+    fn models_list(&self, _json: &str) -> Result<String, PortError> {
+        self.models
+            .borrow()
+            .as_ref()
+            .map(|(_, list)| list.clone())
+            .ok_or(PortError::Unbound("models"))
+    }
+
+    fn on_model_unavailable(&self, provider: &str, model: &str, _instance: Option<&str>) {
+        self.unavailable
+            .borrow_mut()
+            .push((provider.to_owned(), model.to_owned()));
+    }
+
+    fn on_naming_prompt(&self, thread: &str, json: &str) {
+        self.naming
+            .borrow_mut()
+            .push((thread.to_owned(), json.to_owned()));
+    }
+    fn machine(&self) -> Result<String, PortError> {
+        self.machine
+            .borrow()
+            .clone()
+            .ok_or(PortError::Unbound("machine"))
     }
     fn head_seq(&self) -> Result<f64, PortError> {
         Ok(self.seq.get())
@@ -373,8 +674,12 @@ impl EngineStack for Shell {
     fn is_open(&self) -> bool {
         self.depth.get() > 0
     }
-    fn after_commit(&self, _token: u64) -> bool {
-        false
+    fn after_commit(&self, token: u64) -> bool {
+        if !(self.holds_after_commit.get() && self.depth.get() > 0) {
+            return false;
+        }
+        self.tokens.borrow_mut().push((self.depth.get(), token));
+        true
     }
     fn detach(&self) -> Vec<u64> {
         Vec::new()

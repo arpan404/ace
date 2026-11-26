@@ -37,6 +37,9 @@ pub enum EngineError {
     /// The engine's record paths' own errors, and the store's message text.
     #[error("{0}")]
     Records(String),
+    /// A model selection the person named and the catalog cannot resolve (`models.ts:75`).
+    #[error("model_unavailable")]
+    ModelUnavailable,
     #[error("Missing engine state")]
     MissingState,
     /// A home this build cannot read (E5.3's version checks, `schema-version.ts:24`).

@@ -177,6 +177,27 @@ pub trait Ports {
     fn models(&self) -> Result<PortObject, PortError> {
         Err(PortError::Unbound("models"))
     }
+    /// Whether `options.models` was given: a catalog is always constructed when it is
+    /// (`index.ts:193`), and without one `select` is the default sentinel rule (E5.4e).
+    fn has_models(&self) -> bool {
+        false
+    }
+    /// `options.models.resolve(spec)`: JSON in, JSON out (`models.ts:84`-`:104`).
+    fn models_resolve(&self, _json: &str) -> Result<String, PortError> {
+        Err(PortError::Unbound("models.resolve"))
+    }
+    /// `options.models.list(options)`.
+    fn models_list(&self, _json: &str) -> Result<String, PortError> {
+        Err(PortError::Unbound("models.list"))
+    }
+    /// `options.models.updatePermissionModes(instance, modes)`.
+    fn models_update_permission_modes(
+        &self,
+        _instance: &str,
+        _json: &str,
+    ) -> Result<(), PortError> {
+        Err(PortError::Unbound("models.updatePermissionModes"))
+    }
     /// `options.mcp` (E5.6).
     fn mcp(&self, _thread: &str, _agent: &str, _json: &str) -> Result<PortObject, PortError> {
         Err(PortError::Unbound("mcp"))

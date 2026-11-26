@@ -36,7 +36,7 @@ pub fn add(
     thread: &str,
     resolution_id: Option<&str>,
     generation: Option<i64>,
-) -> Result<(), EngineError> {
+) -> Result<i64, EngineError> {
     let command_id = command
         .get("id")
         .and_then(Json::as_str)
@@ -85,7 +85,8 @@ pub fn add(
             generation.map_or(ace_store::Value::Null, ace_store::Value::Integer),
         ],
     )?;
-    queue::messages::track(conn, id, thread, command)
+    queue::messages::track(conn, id, thread, command)?;
+    Ok(id)
 }
 
 /// `claim` (`:379`): the intent becomes `running`, or none when it already moved.

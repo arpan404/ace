@@ -10,12 +10,8 @@ use ace_json::Value;
 
 use super::guest::{guest_refusal, host_refusal};
 use super::{command_id, error, payload, payload_type};
+use crate::rules::{MAX_MESSAGE_BYTES, MAX_PARTS};
 use crate::{Core, EngineError, State};
-
-/// The largest message a send may carry (`maxMessageBytes`).
-const MAX_MESSAGE_BYTES: usize = 256 * 1024;
-/// The most parts one message may carry.
-const MAX_PARTS: usize = 64;
 
 /// The payload types the receipt knows; anything else is `not_implemented`.
 const HANDLED: [&str; 11] = [
@@ -230,5 +226,5 @@ pub fn handle(
     if !HANDLED.contains(&kind) {
         return Ok(Some(error(&id, "not_implemented")));
     }
-    Err(EngineError::not_ported("thread commands", "E5.4e"))
+    super::receipt::handle(core, state, command).map(Some)
 }

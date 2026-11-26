@@ -69,6 +69,21 @@ impl AfterCommit {
         token
     }
 
+    /// Every token still holding deferreds, in token order: the shell's stack released none.
+    pub fn tokens(&self) -> Vec<u64> {
+        let mut tokens: Vec<u64> = self.entries.borrow().keys().copied().collect();
+        tokens.sort_unstable();
+        tokens
+    }
+
+    /// Drops each token's deferreds without running them: a rolled-back frame's work.
+    pub fn discard(&self, tokens: &[u64]) {
+        let mut entries = self.entries.borrow_mut();
+        for token in tokens {
+            entries.remove(token);
+        }
+    }
+
     /// Releases each token's deferreds in token order: wakes and spawns are producer moves only.
     /// The map is emptied of the token before anything it held runs: a decision that re-enters
     /// (an `onError` that creates an actor inside `Store.atomic`) defers into the same map.
