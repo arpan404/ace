@@ -13,6 +13,7 @@ pub mod recurrence;
 pub mod scheduler;
 pub mod service;
 pub mod store;
+mod store_schema;
 pub mod webhook_body;
 pub mod webhook_secret_box;
 pub mod webhook_signature;

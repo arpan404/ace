@@ -85,6 +85,33 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 | A3   | `ace-automations/src/workspace.rs`                                                    | `ace-daemon-node/src/automations/workspace.rs`  | the switch line in `apps/daemon/src/automation-workspace.ts:55` | `ACE_AUTOMATION_WORKSPACE=native` |
 | A4   | `ace-automations/src/tools.rs`                                                        | `ace-daemon-node/src/tools/automations.rs`      | the family line in agent-control's automation tools             | `ACE_NATIVE_TOOLS=automations`    |
 
+## Where A1, A2 and A3 end (for the Rust daemon's wiring)
+
+Owned by **A1** (`ace-automations`): recurrence, `zonedCalendar` and grammar (ADR 0226's
+amendment moves them here); the definition store (`automation_jobs`, `_state`, `_revisions`,
+poll/trigger errors, run history and cancellations); webhook keys, secret box, signatures, body
+variables and delivery receipts; the scheduler's one timer, jitter, COUNT cursor, missed-run and
+late-run rules; admission, queueing and promotion; `automation.list`/`inbox`/`handle`
+envelopes; prompt rendering and every UTF-16 text bound; GitHub polling **decisions** (baseline,
+ETags, page snapshots, revision checks, event delivery) over an injected `gh` client, with the
+fake processes for tests. A1 leaves three things to its host: arm the one timer from the delay
+A1 returns, run `gh` through `ace-supervisor`, and call `backfill_finished_at` from idle in
+bounded batches.
+
+Owned by **A2** (`ace-engine/src/automation_runs/`, needs the Rust engine): launching a run's
+thread and sending its message, recovery without a second send, the 5 s monitor and its tree
+facts, every rule that decides whether a run's whole tree is working, waiting on a person,
+uncertain, succeeded or failed, run records, the stop plan and its retries, delivering a durable
+cancellation to a running thread, outcome recovery, launch settings/titles, the organization
+host refusal, and Cursor automation sessions. A1 only hands A2 `Execute`, `Recover` and
+`Interrupt` actions and settles runs when A2 reports their outcome.
+
+Owned by **A3** (`ace-automations/src/workspace.rs`, needs the files tool's Rust backend): the
+filesystem watcher itself, path memory per trigger, holding events while a baseline is read, the
+reconciliation bound, and durable event keys. A1 owns what happens after delivery: a file
+trigger's health, replacement failures keeping the old watcher, readiness by revision, and
+admission of the delivered event.
+
 ## A1: the scheduler (needs E2, `ACE_STORE=native`)
 
 `AutomationService` and `AutomationStore` become facades over one native handle per store; the

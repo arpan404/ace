@@ -1263,3 +1263,46 @@ fn the_clock_drives_finished_and_started_times() {
     let runs = service.inbox(50, None, None, None).expect("inbox").0;
     assert_eq!(iv(&runs[0], "finishedAt"), Some(START + 7000));
 }
+
+// store.ts:92 migration and ADR 0170: a TS-shaped row with no finish column yet is backfilled
+// from its body in bounded batches after open, never as history-sized work inside open.
+#[test]
+fn backfills_finished_at_from_ts_shaped_run_bodies_in_bounded_batches() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    service
+        .trigger("triage", "old-0", variables("issues"), "manual", None)
+        .expect("run");
+    let (id, _) = execute(&service.take_actions()[0]);
+    h.clock.0.set(START);
+    service
+        .complete(&id, "succeeded", Some("thread"), Some("done"))
+        .expect("finish");
+    service.take_actions();
+    drop(service);
+
+    // The store as a build older than the column left it, and as TS sees it: the body has
+    // finishedAt while the column is null.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("UPDATE automation_runs SET finished_at=NULL")
+        .expect("old row");
+    raw.close().expect("close");
+
+    let store = h.reopen();
+    assert_eq!(store.backfill_finished_at(1).expect("batch"), 1);
+    assert_eq!(store.backfill_finished_at(1).expect("done"), 0);
+    let (runs, _) = store.inbox(50, None, None, Some(START)).expect("inbox");
+    assert!(
+        runs.is_empty(),
+        "settled runs leave the finishedAfter range"
+    );
+    assert_eq!(store.inbox(50, None, None, None).expect("inbox").0.len(), 1);
+}
