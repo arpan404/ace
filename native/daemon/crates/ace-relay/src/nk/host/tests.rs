@@ -18,7 +18,7 @@ use crate::nk::tests_support::ManualClock;
 struct Account {
     admits: AtomicUsize,
     cached: Mutex<bool>,
-    now: Arc<ManualClock>,
+    still: std::sync::atomic::AtomicBool,
 }
 
 impl NkAccount for Account {
@@ -28,7 +28,7 @@ impl NkAccount for Account {
             AccountAdmission {
                 admitted: true,
                 account: Some("user_a".to_owned()),
-                expires_at: Some(self.now.now() + 300_000),
+                expires_at: Some(1_300_000),
             }
         } else {
             AccountAdmission {
@@ -40,7 +40,7 @@ impl NkAccount for Account {
     }
 
     fn still_admitted(&self, _device_id: &str, _account: &str) -> bool {
-        true
+        self.still.load(Ordering::SeqCst)
     }
 }
 
@@ -48,7 +48,8 @@ struct Fixture {
     clock: Arc<ManualClock>,
     auth: ace_auth::RemoteAuth,
     admission: NkAdmission,
-    account: Account,
+    account: Arc<Account>,
+    account_trait: Arc<dyn NkAccount>,
     _home: tempfile::TempDir,
 }
 
@@ -72,15 +73,17 @@ fn setup() -> Fixture {
         ),
     );
     let admission = NkAdmission::new(clock.clone(), NK_LIMITS);
+    let account = Arc::new(Account {
+        admits: AtomicUsize::new(0),
+        cached: Mutex::new(true),
+        still: std::sync::atomic::AtomicBool::new(true),
+    });
     Fixture {
         clock,
         auth,
         admission,
-        account: Account {
-            admits: AtomicUsize::new(0),
-            cached: Mutex::new(true),
-            now: Arc::clone(&ManualClock::new()),
-        },
+        account: Arc::clone(&account),
+        account_trait: account,
         _home: home,
     }
 }
@@ -102,24 +105,25 @@ fn ephemeral(n: u8) -> [u8; 32] {
 #[test]
 fn a_flood_of_valid_grant_first_messages_opens_two_sessions_and_checks_four_grants() {
     let mut f = setup();
-    let mut accepted = 0;
+    // The admissions are held, as the relay holds each channel: a dropped one releases at once.
+    let mut accepted = Vec::new();
     for n in 0..40_u8 {
         let mut host = NkHost {
             admission: &f.admission,
             epoch: "relay-key".to_owned(),
             auth: &mut f.auth,
-            account: Some(&f.account),
+            account: Some(f.account_trait.clone()),
         };
         if !host.arrive() {
             break;
         }
-        if host.admit(&early("phone"), &ephemeral(n), || {}).is_some() {
-            accepted += 1;
+        if let Some(entry) = host.admit(&early("phone"), &ephemeral(n), || {}) {
+            accepted.push(entry);
         }
     }
     // The device's rate (burst 4) stops the flood before its grant is checked; 2 sessions open.
     assert_eq!(f.account.admits.load(Ordering::SeqCst), 4);
-    assert_eq!(accepted, 2);
+    assert_eq!(accepted.len(), 2);
     assert_eq!(f.admission.held().sessions, 2);
 }
 
@@ -132,7 +136,7 @@ fn a_flood_across_devices_holds_thirty_two_and_the_deadline_closes_the_unconfirm
             admission: &f.admission,
             epoch: "relay-key".to_owned(),
             auth: &mut f.auth,
-            account: Some(&f.account),
+            account: Some(f.account_trait.clone()),
         };
         if !host.arrive() {
             break;
@@ -159,7 +163,7 @@ fn a_flood_across_devices_holds_thirty_two_and_the_deadline_closes_the_unconfirm
         admission: &f.admission,
         epoch: "relay-key".to_owned(),
         auth: &mut f.auth,
-        account: Some(&f.account),
+        account: Some(f.account_trait.clone()),
     };
     assert!(
         host.admit(&early("device-new"), &ephemeral(200), || {})
@@ -174,7 +178,7 @@ fn the_daemon_decrypts_at_most_its_burst_of_first_messages_before_any_credential
         admission: &f.admission,
         epoch: "relay-key".to_owned(),
         auth: &mut { f.auth },
-        account: Some(&f.account),
+        account: Some(f.account_trait.clone()),
     };
     let mut arrived = 0;
     for _ in 0..100 {
@@ -193,7 +197,7 @@ fn a_grant_whose_key_is_not_cached_is_refused_at_once_without_a_session() {
         admission: &f.admission,
         epoch: "relay-key".to_owned(),
         auth: &mut f.auth,
-        account: Some(&f.account),
+        account: Some(f.account_trait.clone()),
     };
     assert!(host.admit(&early("phone"), &ephemeral(1), || {}).is_none());
     assert_eq!(f.admission.held().sessions, 0);
@@ -208,7 +212,7 @@ fn an_admission_the_relay_abandons_gives_its_session_back_at_once() {
         admission: &f.admission,
         epoch: "relay-key".to_owned(),
         auth: &mut f.auth,
-        account: Some(&f.account),
+        account: Some(f.account_trait.clone()),
     };
     let accepted = host
         .admit(&early("phone"), &ephemeral(1), || {})
@@ -300,4 +304,67 @@ fn a_ticket_asked_for_with_another_relay_key_opens_nothing() {
         account: None,
     };
     assert!(host.admit(&payload, &ephemeral(1), || {}).is_none());
+}
+
+#[test]
+fn the_first_message_plaintext_is_wiped_after_it_is_admitted() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: None,
+    };
+    let mut payload = zeroize::Zeroizing::new(
+        "{\"type\":\"hello.early\",\"protocolVersion\":1,\"deviceId\":\"phone\",\
+         \"grant\":\"grant\"}"
+            .as_bytes()
+            .to_vec(),
+    );
+    let accepted = host.admit_bytes(&mut payload, &ephemeral(1), || {});
+    assert!(accepted.is_none(), "no account backend is configured");
+    assert!(
+        payload.iter().all(|byte| *byte == 0),
+        "the plaintext is wiped"
+    );
+}
+
+#[test]
+fn an_account_device_that_loses_access_says_so_and_its_session_ends_at_the_deadline() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let accepted = host
+        .admit(&early("phone"), &ephemeral(1), || {})
+        .expect("an admission");
+    assert!(accepted.is_still_admitted());
+    // The account backend revokes the device (or its grant lapses): the channel's own check
+    // is the one that answers.
+    f.account.still.store(false, Ordering::SeqCst);
+    assert!(!accepted.is_still_admitted());
+}
+
+#[test]
+fn a_confirmation_after_the_deadline_ran_does_not_run_the_device_effects() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let mut accepted = host
+        .admit(&early("phone"), &ephemeral(1), || {})
+        .expect("an admission");
+    f.clock.advance(5_000);
+    assert!(accepted.session.closed());
+    assert!(
+        accepted
+            .confirm(&mut f.auth, "{\"type\":\"hello.confirm\"}")
+            .is_none()
+    );
 }

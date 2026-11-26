@@ -6,6 +6,8 @@
 //! only. The session is unconfirmed until the client's `hello.confirm`; only then does the device
 //! count as seen, its install fold and its link hold.
 
+use std::sync::Arc;
+
 use ace_auth::RemoteAuth;
 use ace_auth::devices::{Device, Member, PairedDevice, Scope, SessionActor};
 use ace_json::Value;
@@ -46,11 +48,26 @@ impl NkAccepted {
         self.session.close();
     }
 
+    /// Whether the account device still holds access (nothing to check for a paired ticket).
+    pub fn is_still_admitted(&self) -> bool {
+        self.still_admitted
+            .as_ref()
+            .is_none_or(|still_admitted| still_admitted())
+    }
+
     /// The confirmation, as the channel's first message; the device's effects run only now.
     /// `None` refuses the confirmation, and the caller closes the channel.
     pub fn confirm(&mut self, auth: &mut RemoteAuth, raw: &str) -> Option<HelloConfirm> {
+        // The deadline may already have closed the session and its channel: no device effect may
+        // run then (`host.ts:95`, `:107`-`:111`).
+        if self.session.closed() {
+            return None;
+        }
         let parsed = ace_json::parse(raw).ok()?;
-        let confirm = HelloConfirm::parse(&parsed)?;
+        let confirm = HelloConfirm::parse(&parsed).or_else(|| {
+            self.session.close();
+            None
+        })?;
         // A link proof and a machine code go with a grant only, as in a hello.
         if self.paired.is_some() && (confirm.link.is_some() || confirm.machine_code.is_some()) {
             self.session.close();
@@ -83,13 +100,29 @@ pub struct NkHost<'a> {
     /// The host key epoch tickets are bound to: the daemon's relay host id.
     pub epoch: String,
     pub auth: &'a mut RemoteAuth,
-    pub account: Option<&'a dyn NkAccount>,
+    pub account: Option<Arc<dyn NkAccount>>,
 }
 
 impl NkHost<'_> {
     /// Step 1: may this first message be decrypted at all (`arrive`)?
     pub fn arrive(&self) -> bool {
         self.admission.arrive()
+    }
+
+    /// Admit the plaintext an NK handshake returned, parsing it here and wiping the buffer before
+    /// this returns (the TypeScript wipes the first message's payload the same way,
+    /// `apps/relay/src/nk-stream.ts:98`).
+    pub fn admit_bytes(
+        &mut self,
+        payload: &mut zeroize::Zeroizing<Vec<u8>>,
+        ephemeral: &[u8],
+        expire: impl FnOnce() + Send + 'static,
+    ) -> Option<NkAccepted> {
+        use zeroize::Zeroize;
+        let parsed = ace_json::parse(std::str::from_utf8(payload).ok()?);
+        payload.zeroize();
+        let value = parsed.ok()?;
+        self.admit(&value, ephemeral, expire)
     }
 
     /// Parse and admit a first message, or `None`. `expire` runs if the client doesn't confirm in
@@ -144,16 +177,21 @@ impl NkHost<'_> {
                 grant_expires_at: None,
             });
         }
-        let machine = self.account?;
+        let machine = Arc::clone(self.account.as_ref()?);
         let grant = early.grant.as_deref()?;
         let verdict = machine.admit_device_cached(grant, &early.device_id);
         if !verdict.admitted {
             return None;
         }
         let account = verdict.account?;
-        // The shell asks `NkAccount::still_admitted` itself (it owns the account backend); the
-        // host records the account so a socket can hold its grant (ADR 0111).
-        let still_admitted: Box<dyn Fn() -> bool + Send + Sync> = Box::new(|| true);
+        // The channel's access is exactly the account's own check (`host.ts:81`, consumed by
+        // `files-relay.ts:370`): a revoked device, a lapsed grant or a left organization answers
+        // false and its channel is closed.
+        let still_admitted: Box<dyn Fn() -> bool + Send + Sync> = {
+            let device_id = early.device_id.clone();
+            let account = account.clone();
+            Box::new(move || machine.still_admitted(&device_id, &account))
+        };
         let actor = account_device_actor(&early.device_id, self.auth.now(), None);
         Some(Credential {
             actor,
