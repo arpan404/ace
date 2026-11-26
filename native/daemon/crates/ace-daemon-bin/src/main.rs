@@ -12,6 +12,7 @@ mod endpoint;
 mod exit_codes;
 mod home;
 mod http;
+mod identity;
 mod ids;
 mod lock;
 mod log;
@@ -19,6 +20,7 @@ mod receipt;
 mod run_marker;
 mod session;
 mod store;
+mod tailscale;
 #[cfg(test)]
 mod test_support;
 mod token;

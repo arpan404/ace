@@ -48,25 +48,81 @@ impl TlsIdentity {
             .map_err(|_| {
                 TransportError::Identity("the private key is not one aws-lc-rs can sign with")
             })?;
-        let certified = CertifiedKey::new(chain, signing);
-        certified.keys_match().map_err(|error| match error {
-            // A key that is not the certificate's is refused here, not on the
-            // first handshake.
-            rustls::Error::InconsistentKeys(_) => {
-                TransportError::Identity("the private key does not match the certificate")
-            }
-            // webpki reads X.509 v3 only; an identity it cannot check is
-            // refused rather than served unverified.
-            rustls::Error::InvalidCertificate(_) => {
-                TransportError::Identity("the certificate is not a usable X.509 certificate")
-            }
-            _ => TransportError::Identity("the certificate and key could not be checked"),
-        })?;
-        Ok(Self(Arc::new(certified)))
+        // The key must be the leaf's, compared as SubjectPublicKeyInfo DER.
+        // `CertifiedKey::keys_match` would do this through webpki, which refuses
+        // an X.509 v1 certificate; LibreSSL (macOS's /usr/bin/openssl) writes v1
+        // for `req -x509`, and the TypeScript daemon's home can hold one. The
+        // comparison is the same bytes either way: the SPKI rustls signs with,
+        // and the SPKI inside the leaf.
+        let leaf = chain.first().ok_or(TransportError::Identity(
+            "the certificate PEM holds no certificate",
+        ))?;
+        let certificate_key = spki_der(leaf.as_ref()).ok_or(TransportError::Identity(
+            "the certificate has no readable public key",
+        ))?;
+        let signing_key = signing.public_key().ok_or(TransportError::Identity(
+            "the private key has no public part",
+        ))?;
+        if signing_key.as_ref() != certificate_key {
+            return Err(TransportError::Identity(
+                "the private key does not match the certificate",
+            ));
+        }
+        Ok(Self(Arc::new(CertifiedKey::new(chain, signing))))
     }
 
     /// The chain and key, for the resolver and the tests.
     pub(crate) fn key(&self) -> Arc<CertifiedKey> {
         Arc::clone(&self.0)
     }
+}
+
+/// The SubjectPublicKeyInfo, as the whole DER element, from a DER certificate.
+fn spki_der(certificate: &[u8]) -> Option<&[u8]> {
+    let (tag, value, _) = tlv(certificate)?;
+    if tag != 0x30 {
+        return None;
+    }
+    let (tag, tbs, _) = tlv(value)?;
+    if tag != 0x30 {
+        return None;
+    }
+    let mut rest = tbs;
+    let (tag, _, after) = tlv(rest)?;
+    if tag == 0xa0 {
+        rest = after;
+    }
+    // serial, signature, issuer, validity and subject come before the key.
+    for _ in 0..5 {
+        let (_, _, after) = tlv(rest)?;
+        rest = after;
+    }
+    let (tag, _, after) = tlv(rest)?;
+    if tag != 0x30 {
+        return None;
+    }
+    Some(&rest[..rest.len() - after.len()])
+}
+
+/// One DER element: its tag, its value and what follows it.
+fn tlv(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let (&tag, rest) = input.split_first()?;
+    let (&first, after_first) = rest.split_first()?;
+    let (length, body) = if first < 0x80 {
+        (usize::from(first), after_first)
+    } else {
+        let count = usize::from(first & 0x7f);
+        if count == 0 || count > 4 || after_first.len() < count {
+            return None;
+        }
+        let mut length = 0_usize;
+        for byte in &after_first[..count] {
+            length = length.checked_mul(256)?.checked_add(usize::from(*byte))?;
+        }
+        (length, &after_first[count..])
+    };
+    if body.len() < length {
+        return None;
+    }
+    Some((tag, &body[..length], &body[length..]))
 }

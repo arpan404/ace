@@ -186,6 +186,29 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
     }
 
+    /// `local-token.test.ts`: "prints the token from the daemon's own home,
+    /// without the trailing newline": a home the Bun daemon wrote has one, and
+    /// this reader must accept it.
+    #[test]
+    #[ignore = "the fix uses ace-auth's read_local_token, wired with the T2 merge"]
+    fn a_token_file_with_a_trailing_newline_or_bom_loads() {
+        let token = "ab".repeat(32);
+        for written in [
+            format!("{token}\n"),
+            format!("\u{feff}{token}\n"),
+            format!("  {token}  \r\n"),
+        ] {
+            let home = TempDir::new("ace-token-bun");
+            let _ = std::fs::write(home.path().join("daemon-token"), &written);
+            let loaded = load(home.path());
+            assert_eq!(
+                loaded.ok().map(|token| token.token),
+                Some(token.clone()),
+                "{written:?}"
+            );
+        }
+    }
+
     /// `local-token.test.ts`: "a damaged token file is reported, never printed".
     #[test]
     fn a_damaged_token_file_is_refused_and_kept() {

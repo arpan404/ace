@@ -83,6 +83,7 @@ impl UpgradeAdmission for Admission {
 /// Who receives a socket whose `101` reached the wire.
 struct Sink {
     live: Arc<Live>,
+    auth: Arc<dyn session::Authenticator>,
 }
 
 impl SocketSink for Sink {
@@ -95,9 +96,12 @@ impl SocketSink for Sink {
     ) {
         let live = Arc::clone(&self.live);
         let closed = Arc::clone(&live);
+        let signed_in = Arc::clone(&live);
         let handle = session::start(
             stream,
             deflate,
+            Arc::clone(&self.auth),
+            Arc::new(move || signed_in.authenticated(reservation)),
             Arc::new(move || closed.closed(reservation)),
         );
         live.opened(reservation, handle);
@@ -124,33 +128,48 @@ impl std::fmt::Display for TransportError {
 
 impl std::error::Error for TransportError {}
 
-/// A remote identity as the home keeps it: the PEM the TypeScript generated.
-#[derive(Debug, Clone)]
-pub struct RemoteIdentity {
-    pub cert_pem: Vec<u8>,
-    pub key_pem: Vec<u8>,
+/// A remote listener to start, decided by `wiring::remote_plan`.
+pub struct RemotePlan {
+    pub listen: Listen,
+    /// The home whose `tls/` holds the pinned identity.
+    pub home: std::path::PathBuf,
+    pub identity: crate::identity::Identity,
+    /// The host clients use, which is not always the address the listener binds.
+    pub advertised: String,
     pub port: u16,
+    /// Tailscale only: the MagicDNS name whose certificate is fetched.
+    pub tailnet: Option<String>,
+}
+
+/// What a started remote listener publishes to the launcher.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteInfo {
+    /// `wss://<host>:<port>`.
+    pub url: String,
+    /// The pinned certificate's public-key SHA-256.
+    pub fingerprint: String,
 }
 
 /// Everything this process bound, and the only way to close it in order.
 pub struct Transport {
     pub port: u16,
-    pub remote: Option<SocketAddr>,
+    pub remote: Option<RemoteInfo>,
     live: Arc<Live>,
     loopback: Option<LoopbackListener>,
     remote_listener: Option<RemoteListener>,
+    tailscale_task: Option<tokio::task::JoinHandle<()>>,
     http: Option<HttpServer>,
     log: Arc<Log>,
 }
 
 impl Transport {
-    /// Bind the in-process HTTP server, the loopback listener and, when asked and
-    /// possible, the LAN listener.
+    /// Bind the in-process HTTP server, the loopback listener and, when planned,
+    /// the LAN or Tailscale listener.
     pub async fn bind(
         config: HttpConfig,
         port: u16,
-        listen: Listen,
-        identity: Option<RemoteIdentity>,
+        plan: Option<RemotePlan>,
+        authenticator: Arc<dyn session::Authenticator>,
         log: Arc<Log>,
     ) -> Result<Self, TransportError> {
         let secret = Arc::new(HopSecret::generate().map_err(TransportError::Loopback)?);
@@ -164,12 +183,13 @@ impl Transport {
         let admission: Arc<dyn UpgradeAdmission> = Arc::new(Admission {
             live: Arc::clone(&live),
             kind: Kind::Local,
-            allowed_origins: allowed_origins.clone(),
+            allowed_origins,
         });
         let upgrades = Arc::new(WebSocketUpgrades::new(
             admission,
             Arc::new(Sink {
                 live: Arc::clone(&live),
+                auth: Arc::clone(&authenticator),
             }),
         ));
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -179,18 +199,33 @@ impl Transport {
         let bound = loopback.local_addr();
         let mut remote = None;
         let mut remote_listener = None;
-        if listen == Listen::Local {
-            // Remote access is off: nothing else binds.
-        } else if let Some(identity) = identity {
-            match bind_remote(&live, http.addr, identity).await {
-                Ok((listener, addr)) => {
-                    remote = Some(addr);
-                    remote_listener = Some(listener);
+        let mut tailscale_task = None;
+        if let Some(plan) = plan {
+            match bind_remote(&live, http.addr, &plan, authenticator).await {
+                Ok((listener, tailnet)) => {
+                    if let Some((resolver, name)) = tailnet {
+                        tailscale_task = Some(crate::tailscale::spawn_refresh(
+                            resolver,
+                            name,
+                            std::path::PathBuf::from(&plan.home),
+                            Arc::clone(&log),
+                        ));
+                    }
+                    let url = format!(
+                        "wss://{}:{}",
+                        url_host(&plan.advertised),
+                        listener.local_addr().port()
+                    );
                     log.log(
                         "info",
                         "Remote listener started",
-                        serde_json::json!({"url": format!("https://{addr}")}),
+                        serde_json::json!({"url": url}),
                     );
+                    remote = Some(RemoteInfo {
+                        url,
+                        fingerprint: plan.identity.fingerprint.clone(),
+                    });
+                    remote_listener = Some(listener);
                 }
                 Err(error) => {
                     log.log(
@@ -200,12 +235,6 @@ impl Transport {
                     );
                 }
             }
-        } else {
-            log.log(
-                "warn",
-                "Remote listener did not start",
-                serde_json::json!({"error": "the home holds no tls/cert.pem and tls/key.pem"}),
-            );
         }
         Ok(Self {
             port: bound.port(),
@@ -213,6 +242,7 @@ impl Transport {
             live,
             loopback: Some(loopback),
             remote_listener,
+            tailscale_task,
             http: Some(http),
             log,
         })
@@ -231,6 +261,9 @@ impl Transport {
     /// Stop accepting, close every socket, and then stop the in-process server.
     /// `deadline` bounds the sockets' goodbyes.
     pub async fn close(mut self, deadline: Duration) {
+        if let Some(task) = self.tailscale_task.take() {
+            task.abort();
+        }
         if let Some(listener) = self.loopback.take() {
             listener.close(deadline).await;
         }
@@ -246,14 +279,22 @@ impl Transport {
     }
 }
 
-/// The LAN listener: TLS with the home's pinned identity, deflate negotiated.
+/// The LAN or Tailscale listener: TLS with the home's pinned identity, deflate
+/// negotiated. Tailscale also gets the resolver whose certificate is refreshed.
 async fn bind_remote(
     live: &Arc<Live>,
     internal: SocketAddr,
-    identity: RemoteIdentity,
-) -> Result<(RemoteListener, SocketAddr), TransportError> {
+    plan: &RemotePlan,
+    authenticator: Arc<dyn session::Authenticator>,
+) -> Result<
+    (
+        RemoteListener,
+        Option<(Arc<ace_transport::SniResolver>, String)>,
+    ),
+    TransportError,
+> {
     let provider = process_provider().map_err(TransportError::Loopback)?;
-    let tls = TlsIdentity::from_pem(&identity.cert_pem, &identity.key_pem)
+    let tls = TlsIdentity::from_pem(&plan.identity.cert_pem, &plan.identity.key_pem)
         .map_err(|error| TransportError::Identity(error.to_string()))?;
     let secret = Arc::new(HopSecret::generate().map_err(TransportError::Loopback)?);
     let target = ProxyTarget::new(internal, secret).map_err(TransportError::Loopback)?;
@@ -266,19 +307,40 @@ async fn bind_remote(
         admission,
         Arc::new(Sink {
             live: Arc::clone(live),
+            auth: authenticator,
         }),
     ));
-    let addr = SocketAddr::from(([0, 0, 0, 0], identity.port));
-    let listener = RemoteListener::bind(
-        addr,
-        provider,
-        tls,
-        ConnectionLimits::remote_static(),
-        target,
-        upgrades,
-    )
-    .await
-    .map_err(TransportError::Loopback)?;
-    let bound = listener.local_addr();
-    Ok((listener, bound))
+    let (addr, limits) = match plan.listen {
+        Listen::Tailscale => {
+            let address: std::net::IpAddr = plan
+                .advertised
+                .parse()
+                .map_err(|_| TransportError::Identity("not a Tailscale address".to_owned()))?;
+            (
+                SocketAddr::new(address, plan.port),
+                ConnectionLimits::remote_sni(ace_transport::SniLimits::default()),
+            )
+        }
+        _ => (
+            SocketAddr::from(([0, 0, 0, 0], plan.port)),
+            ConnectionLimits::remote_static(),
+        ),
+    };
+    let listener = RemoteListener::bind(addr, provider, tls, limits, target, upgrades)
+        .await
+        .map_err(TransportError::Loopback)?;
+    let tailnet = plan
+        .tailnet
+        .as_ref()
+        .map(|name| (listener.resolver_handle(), name.clone()));
+    Ok((listener, tailnet))
+}
+
+/// A URL host: an IPv6 literal is bracketed, as `urlHost` does.
+pub fn url_host(host: &str) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    }
 }

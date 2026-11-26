@@ -23,9 +23,9 @@ mod signals;
 mod wiring;
 
 use self::signals::{Signals, StopReason, wait_for_stop};
-use self::wiring::{address_in_use, fields_value, print_started, remote_identity};
+use self::wiring::{address_in_use, fields_value, print_started, remote_plan};
 
-use crate::config::{Config, Listen};
+use crate::config::Config;
 use crate::exit_codes::ExitCode;
 use crate::home;
 use crate::http::HttpConfig;
@@ -33,6 +33,7 @@ use crate::lock::{Lock, LockError};
 use crate::log::Log;
 use crate::receipt::{Admission, State};
 use crate::run_marker::Run;
+use crate::session;
 use crate::store::Store;
 use crate::token;
 use crate::transport::Transport;
@@ -169,13 +170,17 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         }
     };
     let began = std::time::Instant::now();
-    let store = match Store::open_while_busy(&data_dir, |attempt, delay, error| {
-        log.log(
-            "warn",
-            "The event store is busy; opening it again shortly",
-            serde_json::json!({"attempt": attempt, "delayMs": delay, "error": error.to_string()}),
-        );
-    })
+    let store = match crate::store::open_while_busy(
+        || Store::open(&data_dir),
+        &crate::store::BUSY_DELAYS_MS,
+        |attempt, delay, error| {
+            log.log(
+                "warn",
+                "The event store is busy; opening it again shortly",
+                serde_json::json!({"attempt": attempt, "delayMs": delay, "error": error.to_string()}),
+            );
+        },
+    )
     .await
     {
         Ok(store) => store,
@@ -225,20 +230,22 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
             });
         }),
     };
-    let identity = remote_identity(&data_dir, config.listen, config.remote_port);
-    if config.listen != Listen::Local && identity.is_none() {
-        log.log(
-            "warn",
-            "Remote access is configured without a TLS identity",
-            serde_json::json!({"listen": match config.listen {
-                Listen::Local => "local",
-                Listen::Lan => "lan",
-                Listen::Tailscale => "tailscale",
-            }}),
-        );
-    }
+    let plan = match remote_plan(&config).await {
+        Ok(plan) => plan,
+        Err(error) => {
+            // Listening never waits for remote access: a listener that cannot
+            // start is said and the daemon keeps its loopback listener.
+            log.log(
+                "warn",
+                "Remote access is configured but cannot start",
+                serde_json::json!({"error": error}),
+            );
+            None
+        }
+    };
+    let authenticator: Arc<dyn session::Authenticator> = Arc::new(session::RefusingAuthenticator);
     let transport =
-        match Transport::bind(http, config.port, config.listen, identity, Arc::clone(&log)).await {
+        match Transport::bind(http, config.port, plan, authenticator, Arc::clone(&log)).await {
             Ok(transport) => transport,
             Err(error) => {
                 log.log(

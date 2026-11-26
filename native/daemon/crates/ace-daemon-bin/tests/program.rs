@@ -52,6 +52,12 @@ impl Home {
     /// Start the binary with this home, no inherited environment and no provider
     /// CLI on PATH. `json` prints `serve --json`'s object.
     fn start(&self, json: bool) -> Daemon {
+        self.start_with(json, &[])
+    }
+
+    /// The same, with extra environment pairs (and the system PATH after the stub
+    /// directory, for OpenSSL).
+    fn start_with(&self, json: bool, extra: &[(&str, &str)]) -> Daemon {
         let mut command = Command::new(env!("CARGO_BIN_EXE_ace-daemon"));
         if json {
             command.args(["serve", "--json"]);
@@ -65,18 +71,36 @@ impl Home {
             .env("ACE_PORT", "0")
             .env("ACE_LISTEN", "local")
             .env("ACE_LOG_LEVEL", "info")
-            .env("PATH", &self.stub_path)
-            .current_dir(&self.root)
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", self.stub_path.display()),
+            )
+            .current_dir(&self.root);
+        for (name, value) in extra {
+            command.env(name, value);
+        }
+        command
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(self.output_file("stdout"))
+            .stderr(self.output_file("stderr"));
         let child = command.spawn();
         match child {
             Ok(child) => Daemon {
                 child: Some(child),
                 output: String::new(),
+                root: self.root.clone(),
             },
             Err(error) => panic!("the daemon binary starts: {error}"),
+        }
+    }
+
+    /// A file the child writes to, so a test reads its output without waiting
+    /// for the process to exit.
+    fn output_file(&self, name: &str) -> Stdio {
+        let path = self.root.join(format!("{name}.log"));
+        match std::fs::File::create(&path) {
+            Ok(file) => Stdio::from(file),
+            Err(error) => panic!("{name} log: {error}"),
         }
     }
 
@@ -98,8 +122,10 @@ impl Drop for Home {
 /// The running child; killed if a test panics before it stops.
 struct Daemon {
     child: Option<Child>,
-    /// What the child wrote, read once it exited (a test's diagnostics).
+    /// What the child wrote, read so far (a test's diagnostics).
     output: String,
+    /// Where its output files live.
+    root: PathBuf,
 }
 
 impl Daemon {
@@ -157,23 +183,25 @@ impl Daemon {
         panic!("the daemon did not exit in time");
     }
 
-    /// Read what the child wrote, once its pipes reach their end.
+    /// Read what the child has written so far, without waiting for its exit.
     fn capture(&mut self) {
-        if let Some(child) = &mut self.child {
-            let stdout = child.stdout.take();
-            let stderr = child.stderr.take();
-            if let Some(mut stdout) = stdout {
-                let _ = stdout.read_to_string(&mut self.output);
-            }
-            if let Some(mut stderr) = stderr {
-                let _ = stderr.read_to_string(&mut self.output);
-            }
+        let mut text = String::new();
+        for name in ["stdout.log", "stderr.log"] {
+            text.push_str(&std::fs::read_to_string(self.root.join(name)).unwrap_or_default());
         }
+        self.output = text;
     }
 
     fn output(&mut self) -> String {
         self.capture();
         self.output.clone()
+    }
+
+    /// The `serve --json` object the child printed before its first newline.
+    fn started(&mut self) -> serde_json::Value {
+        let output = self.output();
+        let first = output.lines().next().unwrap_or_default().to_owned();
+        serde_json::from_str(&first).unwrap_or(serde_json::Value::Null)
     }
 }
 
@@ -329,4 +357,39 @@ fn a_killed_daemon_leaves_the_lock_free_for_the_next_start() {
     let status = next.terminate();
     let output = next.output();
     assert_eq!(status.code(), Some(0), "status {status:?}: {output}");
+}
+
+/// A fresh home asked for LAN remote access makes its pinned identity with
+/// OpenSSL, starts the TLS listener, and publishes the URL and fingerprint the
+/// launcher reads (`tls-identity.process.test.ts`, `network.test.ts`).
+#[test]
+fn a_lan_start_makes_its_identity_and_publishes_the_fingerprint() {
+    let home = Home::new("lan");
+    let mut daemon = home.start_with(true, &[("ACE_LISTEN", "lan"), ("ACE_REMOTE_PORT", "0")]);
+    let _endpoint = daemon.ready(&home);
+    let started = daemon.started();
+    let remote = started.get("remoteUrl").and_then(serde_json::Value::as_str);
+    let fingerprint = started
+        .get("fingerprint")
+        .and_then(serde_json::Value::as_str);
+    let Some(remote) = remote else {
+        panic!("a LAN start publishes a remote URL: {started}");
+    };
+    assert!(remote.starts_with("wss://"), "{remote}");
+    assert!(
+        fingerprint.is_some_and(|value| value.len() == 64),
+        "the pinned fingerprint is published: {started}"
+    );
+    assert!(home.ace_home.join("tls/cert.pem").exists());
+    assert!(home.ace_home.join("tls/key.pem").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(home.ace_home.join("tls/key.pem"))
+            .map(|meta| meta.permissions().mode())
+            .unwrap_or(0);
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0), "{}", daemon.output());
 }

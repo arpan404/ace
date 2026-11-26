@@ -4,35 +4,67 @@
 
 use std::path::Path;
 
-use crate::config::Listen;
-use crate::transport::{RemoteIdentity, Transport};
+use crate::transport::{RemoteInfo, RemotePlan, Transport};
 
 use super::Output;
 
-/// The remote identity the home holds: `tls/cert.pem` and `tls/key.pem`.
-pub(super) fn remote_identity(
-    data_dir: &Path,
-    listen: Listen,
-    port: u16,
-) -> Option<RemoteIdentity> {
-    if listen != Listen::Lan {
-        // Tailscale's certificate and 100.x address are a separate listener the
-        // relay work brings; LAN is the static one this slice serves.
-        return None;
+/// The remote listener this start should run, or none for local only.
+///
+/// LAN binds every interface and advertises the configured host or the machine's
+/// LAN address; Tailscale binds its 100.x address and advertises it until the
+/// ts.net certificate is served. `loadIdentity` makes the pinned identity on a
+/// fresh home, as TypeScript does, so LAN works with no prior setup.
+pub(super) async fn remote_plan(
+    config: &crate::config::Config,
+) -> Result<Option<RemotePlan>, String> {
+    use crate::config::Listen;
+    if config.listen == Listen::Local {
+        return Ok(None);
     }
-    let directory = data_dir.join("tls");
-    let cert_pem = std::fs::read(directory.join("cert.pem")).ok()?;
-    let key_pem = std::fs::read(directory.join("key.pem")).ok()?;
-    Some(RemoteIdentity {
-        cert_pem,
-        key_pem,
-        port,
-    })
+    let identity = crate::identity::load(&config.data_dir)
+        .await
+        .map_err(|error| error.to_string())?;
+    let (advertised, tailnet) = match config.listen {
+        Listen::Lan => {
+            let host = config
+                .advertise_host
+                .clone()
+                .filter(|host| !host.is_empty())
+                .or_else(lan_address)
+                .ok_or_else(|| {
+                    "No LAN address found. Set ACE_ADVERTISE_HOST to the host's LAN address."
+                        .to_owned()
+                })?;
+            (host, None)
+        }
+        Listen::Tailscale => {
+            let status = crate::tailscale::status().await?;
+            (status.address.to_string(), status.name)
+        }
+        Listen::Local => return Ok(None),
+    };
+    Ok(Some(RemotePlan {
+        listen: config.listen,
+        home: config.data_dir.clone(),
+        identity,
+        advertised,
+        port: config.remote_port,
+        tailnet,
+    }))
+}
+
+/// The machine's LAN address, as the kernel would pick it for an outbound
+/// connection: no packet is sent and no interface list is read.
+fn lan_address() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:9").ok()?;
+    let address = socket.local_addr().ok()?.ip();
+    (!address.is_unspecified()).then(|| address.to_string())
 }
 
 /// `startedJson` and `startedText`: the bytes the launcher and the CLI read.
 pub(super) fn print_started(transport: &Transport, token_path: &Path, output: Output) {
-    let remote = transport.remote.map(|addr| format!("https://{addr}"));
+    let remote: Option<&RemoteInfo> = transport.remote.as_ref();
     let text = match output {
         Output::Json => {
             let mut object = format!(
@@ -40,24 +72,30 @@ pub(super) fn print_started(transport: &Transport, token_path: &Path, output: Ou
                 serde_json::Value::String(transport.url()),
                 serde_json::Value::String(token_path.display().to_string())
             );
-            if let Some(remote) = &remote {
+            if let Some(remote) = remote {
                 object.push_str(&format!(
-                    ",\"remoteUrl\":{}",
-                    serde_json::Value::String(remote.clone())
+                    ",\"remoteUrl\":{},\"fingerprint\":{}",
+                    serde_json::Value::String(remote.url.clone()),
+                    serde_json::Value::String(remote.fingerprint.clone())
                 ));
             }
             object.push('}');
             object
         }
-        Output::Text => format!(
-            "ace daemon: {}\nToken file: {}{}",
-            transport.url(),
-            token_path.display(),
-            remote
-                .as_ref()
-                .map(|remote| format!("\nRemote: {remote}"))
-                .unwrap_or_default()
-        ),
+        Output::Text => match remote {
+            Some(remote) => format!(
+                "ace daemon: {}\nToken file: {}\nRemote: {}\nPublic-key SHA-256: {}",
+                transport.url(),
+                token_path.display(),
+                remote.url,
+                remote.fingerprint
+            ),
+            None => format!(
+                "ace daemon: {}\nToken file: {}",
+                transport.url(),
+                token_path.display()
+            ),
+        },
     };
     println!("{text}");
 }

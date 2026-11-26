@@ -105,6 +105,8 @@ pub struct Config {
     pub remote_port: u16,
     pub listen: Listen,
     pub web_origins: Vec<String>,
+    /// `ACE_ADVERTISE_HOST`: the host pairing links name, when set.
+    pub advertise_host: Option<String>,
     pub log_level: LogLevel,
     pub safe_mode: bool,
     /// `ACE_VERSION`, or `development` for a build run without one.
@@ -230,6 +232,7 @@ pub fn read(env: &Env, home: &Path) -> Result<Config, ConfigError> {
         remote_port,
         listen,
         web_origins,
+        advertise_host: env.get("ACE_ADVERTISE_HOST").map(str::to_owned),
         log_level,
         safe_mode,
         ace_client: ace_client_name(&version),

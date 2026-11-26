@@ -38,6 +38,8 @@ struct Open {
     handle: SocketHandle,
     kind: Kind,
     address: IpAddr,
+    /// Its pre-authentication slot was released when its hello authenticated.
+    authenticated: bool,
 }
 
 /// What all this process's listeners share: the cap, the pre-authentication
@@ -128,6 +130,7 @@ impl Live {
                     handle,
                     kind: held.kind,
                     address: held.address,
+                    authenticated: false,
                 },
             );
         }
@@ -136,8 +139,26 @@ impl Live {
     pub(super) fn closed(&self, id: u64) {
         if let Some(open) = locked(&self.sockets).remove(&id) {
             self.open.fetch_sub(1, Ordering::Relaxed);
-            self.debit_pending(open.kind, open.address);
+            // An authenticated socket left the pre-authentication budget then.
+            if !open.authenticated {
+                self.debit_pending(open.kind, open.address);
+            }
             self.quiet.notify_one();
+        }
+    }
+
+    /// The socket's hello authenticated: release its pre-authentication slot and
+    /// keep it live (`PreAuthAdmission.track`). Idempotent, so a retried hello
+    /// cannot debit the budget twice.
+    pub(super) fn authenticated(&self, id: u64) {
+        let mut sockets = locked(&self.sockets);
+        if let Some(open) = sockets.get_mut(&id)
+            && !open.authenticated
+        {
+            open.authenticated = true;
+            let (kind, address) = (open.kind, open.address);
+            drop(sockets);
+            self.debit_pending(kind, address);
         }
     }
 
@@ -185,4 +206,92 @@ impl Live {
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn address() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    }
+
+    /// `socket-admission.ts`: an unauthenticated socket holds a slot until it
+    /// authenticates, then the slot is free while the socket stays live; closing
+    /// an authenticated socket does not debit the budget a second time.
+    #[tokio::test]
+    async fn authenticating_releases_the_slots_and_closing_an_authenticated_one_does_not() {
+        let live = Live::new();
+        let mut held = Vec::new();
+        for _ in 0..LOCAL_PRE_AUTH {
+            match live.reserve(Kind::Local, address()) {
+                Some(id) => held.push(id),
+                None => panic!("the budget admits {LOCAL_PRE_AUTH} unauthenticated sockets"),
+            }
+        }
+        assert!(
+            live.reserve(Kind::Local, address()).is_none(),
+            "the budget is full"
+        );
+        // Opening keeps the slot; authenticating releases it.
+        let first = held[0];
+        let (handle, _events) = ace_transport::socket::open(Box::new(NoopIo), None, None);
+        live.opened(first, handle);
+        live.authenticated(first);
+        let freed = live.reserve(Kind::Local, address());
+        assert!(
+            freed.is_some(),
+            "an authenticated socket leaves the pre-auth budget"
+        );
+        // Closing it must not debit again: the pending count is the 128 held minus
+        // the one that authenticated, plus the one just reserved.
+        live.closed(first);
+        // 128 held - 1 authenticated + the one just reserved.
+        assert_eq!(live.local_pending.load(Ordering::Acquire), LOCAL_PRE_AUTH);
+        if let Some(freed) = freed {
+            live.release(freed);
+        }
+        for id in held.iter().skip(1) {
+            live.release(*id);
+        }
+        assert_eq!(live.local_pending.load(Ordering::Acquire), 0);
+    }
+
+    /// The socket's I/O, which these cases never touch.
+    struct NoopIo;
+
+    impl tokio::io::AsyncRead for NoopIo {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+            _buffer: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    impl tokio::io::AsyncWrite for NoopIo {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+            _buffer: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+    }
 }
