@@ -28,6 +28,7 @@ import { sessionsAddonPath } from "@ace/provider-kit/native-switches";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { Limits } from "./contracts.ts";
 import { fatalDetail, isNoiseLine } from "./host-fatal.ts";
+import { refusedByHost } from "./host-refusal.ts";
 import { cursorCapabilitiesForSandbox } from "./policy.ts";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import type { CursorSessionOptions } from "./session.ts";
@@ -76,6 +77,50 @@ function addon(): NativeSessionsAddon {
   return loaded;
 }
 
+/** What `requestFailure` needs from the session's diagnostics (`host.ts:207`-`:244`). */
+export interface RequestFailureState {
+  errorMessage?: string | undefined;
+  metadataFailureCode?: DiscoveryFailureCode | undefined;
+  metadataFailureDetail?: string | undefined;
+  /** The process's exit, read only once its signal aborted (`host.ts:213`). */
+  exit?: { code: number | null | undefined; reason: string } | undefined;
+}
+
+/**
+ * `CursorHost.request`'s catch (`host.ts:215`-`:241`), unchanged: the discovery code the error
+ * carries or the metadata's, the "ended with code ..." reason for a closed pipe, and the
+ * `refused` mark `refusedByHost` reads. The facade calls it only for a settlement that is not
+ * already the bridge's `InputRejected` or `SteerTargetLost`.
+ */
+export function requestFailure(method: string, error: unknown, state: RequestFailureState): Error {
+  const code = discoveryFailureCode(
+    error,
+    state.metadataFailureCode ??
+      (state.exit?.reason === "spawn-error" || state.exit?.code === 78
+        ? "not_configured"
+        : "discovery_failed"),
+  );
+  const suppliedReason = discoveryFailureReason(error);
+  const reason = /^(?:process (?:exited|closed)|JSON-RPC closed|closed|EOF|write EPIPE)$/i.test(
+    suppliedReason,
+  )
+    ? `Cursor SDK host ended with code ${state.exit?.code ?? "none"} (${state.exit?.reason ?? "request rejected"}). ${state.metadataFailureDetail ?? suppliedReason}`.slice(
+        0,
+        2048,
+      )
+    : suppliedReason;
+  return Object.assign(
+    new Error(
+      `${["open", "send", "cancel"].includes(method) && state.errorMessage ? state.errorMessage + " " : ""}Cursor SDK ${method} failed; delivery may be uncertain. Inspect history before resending.`,
+    ),
+    {
+      code,
+      ...(method === "models" && code === "discovery_failed" ? { detail: reason } : {}),
+      ...(refusedByHost(error) ? { refused: true } : {}),
+    },
+  );
+}
+
 /** A refusal the binding threw: its message is the code and text as JSON (`session_cursor.rs`). */
 function refusal(error: unknown): Error | undefined {
   const message = error instanceof Error ? error.message : String(error);
@@ -113,6 +158,7 @@ export async function openNativeCursorSession(
   let fatalMessage: string | undefined;
   let stopReason: string | undefined;
   let metadataFailureDetail: string | undefined;
+  let metadataFailureCode: DiscoveryFailureCode | undefined;
   const stopCause = () => fatalMessage ?? stopReason;
   const failureMessage = () => stopCause() ?? errorMessage;
 
@@ -126,6 +172,7 @@ export async function openNativeCursorSession(
     if (fatal) fatalMessage ??= safeCursorErrorMessage(fatal, redaction);
     else if (!isNoiseLine(line)) errorMessage = safeCursorErrorMessage(line, redaction);
     const code = discoveryFailureCode({ message: line });
+    if (code !== "discovery_failed") metadataFailureCode = code;
     if (
       line.trim() &&
       !/^(?:\s*at\s|node:internal\/|Node\.js\sv)/.test(line) &&
@@ -250,7 +297,18 @@ export async function openNativeCursorSession(
   }
   void proc.exited.then(() => undefined).catch(() => undefined);
 
-  const request = (id: number) => bridge.expect(id);
+  /** One command's settlement, mapped as `CursorHost.request`'s catch maps it. */
+  const request = (id: number, method: string): Promise<unknown> =>
+    bridge.expect(id).catch(async (error: unknown) => {
+      if (error instanceof InputRejected || error instanceof SteerTargetLost) throw error;
+      const exit = proc?.signal.aborted ? await proc.exited : undefined;
+      throw requestFailure(method, error, {
+        errorMessage,
+        metadataFailureCode,
+        metadataFailureDetail,
+        exit: exit === undefined ? undefined : { code: exit.code ?? null, reason: exit.reason },
+      });
+    });
   const openId = ++nextId;
   handle.open(
     openId,
@@ -273,14 +331,14 @@ export async function openNativeCursorSession(
     }),
     options.recoverySnapshot ? JSON.stringify(options.recoverySnapshot) : undefined,
   );
-  const reply = (await request(openId)) as { nativeSessionId: string };
+  const reply = (await request(openId, "open")) as { nativeSessionId: string };
 
   let closing: Promise<void> | undefined;
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {
     closing ??= (async () => {
       const id = ++nextId;
       handle.close(id, reason);
-      await request(id);
+      await request(id, "close");
     })();
     return closing;
   };
@@ -330,7 +388,7 @@ export async function openNativeCursorSession(
         throw refusal(error) ?? error;
       }
       try {
-        await request(id);
+        await request(id, "send");
       } catch (error) {
         if (steerLost && kept !== undefined) throw kept;
         throw error;
@@ -349,7 +407,7 @@ export async function openNativeCursorSession(
       } catch (error) {
         throw refusal(error) ?? error;
       }
-      await request(id);
+      await request(id, "cancel");
     },
     resolve() {
       return Promise.reject(
