@@ -79,8 +79,10 @@ fn interaction_summaries_match_the_typescripts_bytes() {
             ace_json::to_string(field(case, "wiredEvent")),
             "{name} / wireEvent"
         );
+        let view = field(case, "view");
+        let wired_view = wire_thread_view(view).unwrap_or_else(|| view.clone());
         assert_eq!(
-            ace_json::to_string(&wire_thread_view(field(case, "view").clone())),
+            ace_json::to_string(&wired_view),
             ace_json::to_string(field(case, "wiredView")),
             "{name} / wireThreadView"
         );

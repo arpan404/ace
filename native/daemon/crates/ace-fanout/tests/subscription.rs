@@ -614,3 +614,39 @@ fn an_incomplete_byte_limited_replay_never_skips_a_committed_event() {
         other => panic!("unexpected frame: {other:?}"),
     }
 }
+
+/// The snapshot a replay falls back to is wired too: an oversized interaction in it arrives as
+/// its summary (`snapshot_at`), not only a first open's snapshot.
+#[test]
+fn the_replay_fallback_snapshot_carries_interaction_summaries() {
+    let mem = Mem::new(10);
+    let interaction = format!(
+        r#"{{"id":"i","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{}"}}}}}}"#,
+        "x".repeat(200_000)
+    );
+    *mem.view.borrow_mut() = parse(&format!(
+        r#"{{"kind":"thread","seq":10,"thread":{{"id":"t","workspaceId":"w","title":"t","provider":"codex","status":{{"state":"new"}},"createdAt":1,"updatedAt":1}},"agents":{{}},"agentChildren":{{}},"runs":{{}},"items":{{}},"itemOrder":[],"itemsBefore":null,"interactions":{{"i":{interaction}}},"backgroundTasks":{{}},"usage":{{}},"contextMeters":{{}},"usageSnapshots":{{}}}}"#
+    ));
+    // More events than a replay may carry: the subscription never reads them and snapshots.
+    mem.count.set(Some(5_001));
+    let mut subscription = Subscription::new(
+        JsString::from("s"),
+        Scope::Thread("t".to_owned()),
+        Some(0),
+        options(),
+    );
+    let frames = subscription.start(&mem, 0).expect("start");
+    let SubscriptionFrame::Snapshot { view, .. } = &frames[0] else {
+        panic!("a snapshot");
+    };
+    let Some(Value::Object(interactions)) = view.get("interactions") else {
+        panic!("interactions");
+    };
+    let Some(Value::Object(interaction)) = interactions.get("i") else {
+        panic!("interaction");
+    };
+    assert!(
+        interaction.contains_key("truncated"),
+        "the fallback snapshot carries the summary"
+    );
+}

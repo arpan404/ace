@@ -496,12 +496,11 @@ pub fn wire_event(event: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
-/// `view` as clients get it: a copy whose too-large requests are summaries, else `view` itself.
-pub fn wire_thread_view(mut view: Value) -> Value {
-    let Some(interactions) = field(&view, "interactions").and_then(object) else {
-        return view;
-    };
-    // Weigh first: an unchanged view is returned without copying its interactions.
+/// `view` as clients get it: a copy whose too-large requests are summaries, else `None` (the
+/// caller keeps `view`, as `wireThreadView` returns it). Weighing comes first, so a view with
+/// nothing to summarize copies no interaction.
+pub fn wire_thread_view(view: &Value) -> Option<Value> {
+    let interactions = field(view, "interactions").and_then(object)?;
     let mut summarized: Vec<Option<Value>> = Vec::with_capacity(interactions.len());
     let mut changed = false;
     for interaction in interactions.values() {
@@ -510,16 +509,15 @@ pub fn wire_thread_view(mut view: Value) -> Value {
         summarized.push(sent);
     }
     if !changed {
-        return view;
+        return None;
     }
     let mut rebuilt = Map::with_capacity(interactions.len());
     for ((id, interaction), sent) in interactions.iter().zip(summarized) {
         rebuilt.insert(id.clone(), sent.unwrap_or_else(|| interaction.clone()));
     }
-    if let Some(view) = object_mut(&mut view) {
-        view.insert("interactions", Value::Object(rebuilt));
-    }
-    view
+    let mut wired = object(view)?.clone();
+    wired.insert("interactions", Value::Object(rebuilt));
+    Some(Value::Object(wired))
 }
 
 #[cfg(test)]
@@ -615,22 +613,19 @@ mod tests {
         let view = parse(&format!(
             r#"{{"kind":"thread","seq":1,"items":{{}},"interactions":{{"a":{{"id":"a","request":{{"kind":"approval","title":"t","options":[]}}}},"b":{{"id":"b","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{schema}"}}}}}}}}}}"#
         ));
-        let wired = wire_thread_view(view.clone());
+        let wired = wire_thread_view(&view).expect("wired");
         let interactions = field(&wired, "interactions")
             .and_then(object)
             .expect("interactions");
         assert!(field(interactions.get("b").expect("b"), "truncated").is_some());
         assert_eq!(field(interactions.get("a").expect("a"), "truncated"), None);
-        assert_eq!(
-            ace_json::to_string(&wire_thread_view(view.clone())),
-            ace_json::to_string(&wired)
-        );
+        assert!(wire_thread_view(&view).is_some());
         let whole = parse(
             r#"{"kind":"thread","seq":1,"items":{},"interactions":{"a":{"id":"a","request":{"kind":"question","questions":[]}}}}"#,
         );
-        assert_eq!(
-            ace_json::to_string(&wire_thread_view(whole.clone())),
-            ace_json::to_string(&whole)
+        assert!(
+            wire_thread_view(&whole).is_none(),
+            "an unchanged view is not copied"
         );
     }
 }

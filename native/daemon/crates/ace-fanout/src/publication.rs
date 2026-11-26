@@ -142,7 +142,7 @@ mod tests {
         event_on(seq, "t")
     }
 
-    /// A batch as a thread route heard it: thread, head and the sequencess it carried.
+    /// A batch as a thread route heard it: thread, head and the sequences it carried.
     type Heard = (String, u64, Vec<f64>);
 
     fn event_on(seq: u64, thread: &str) -> DeliveryEvent {

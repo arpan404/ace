@@ -536,7 +536,7 @@ impl Subscription {
                 } else {
                     None
                 };
-                wire_thread_view(store.snapshot_thread(thread, tail))
+                wired_view(store.snapshot_thread(thread, tail))
             }
             None => store.list_threads(),
         }
@@ -546,7 +546,7 @@ impl Subscription {
     /// the replay's head.
     fn snapshot_at(&self, store: &dyn SubscriptionStore, head: u64) -> SubscriptionFrame {
         let view = match self.scope.thread() {
-            Some(thread) => wire_thread_view(store.snapshot_thread(thread, None)),
+            Some(thread) => wired_view(store.snapshot_thread(thread, None)),
             None => store.list_threads(),
         };
         SubscriptionFrame::Snapshot {
@@ -692,6 +692,11 @@ fn replay_frames(
             }
         })
         .collect()
+}
+
+/// `wireThreadView(view)`: the view clients get, or the view itself when nothing is summarized.
+fn wired_view(view: Value) -> Value {
+    wire_thread_view(&view).unwrap_or(view)
 }
 
 /// `{ ...view, seq: head }`: a snapshot's cursor is its view's cursor.

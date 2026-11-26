@@ -70,6 +70,8 @@ struct Mem {
     scopes: RefCell<Vec<SidebarWindow>>,
     /// Heads to answer before the default 10, so a second read can differ.
     heads: RefCell<std::collections::VecDeque<u64>>,
+    /// A chat thread the page carries only when the read asks for every chat (ADR 0099).
+    chat_row: Option<Value>,
 }
 
 impl Mem {
@@ -79,6 +81,7 @@ impl Mem {
             revision: Cell::new(Some(1)),
             scopes: RefCell::new(Vec::new()),
             heads: RefCell::new(std::collections::VecDeque::new()),
+            chat_row: None,
         }
     }
 }
@@ -91,7 +94,13 @@ impl SidebarStore for Mem {
         _reuse: Option<PageReuse<'_>>,
     ) -> SidebarPage {
         self.scopes.borrow_mut().push(scope.clone());
-        let rows = self.rows.borrow().clone();
+        let mut rows = self.rows.borrow().clone();
+        // The store's own rule: a project window carries chats only when asked to.
+        if scope.with_chats
+            && let Some(chat) = &self.chat_row
+        {
+            rows.push(chat.clone());
+        }
         SidebarPage {
             window: window_of(&rows),
             threads: rows,
@@ -387,15 +396,24 @@ fn a_paced_window_says_it_is_ready_after_its_snapshot_with_a_fresh_head() {
 }
 
 /// The daemon reads every window with every chat, whatever flag the shell passes (ADR 0099), on
-/// the first read and on a live re-read alike.
+/// the first read and on a live re-read alike: the rows the store returns prove it.
 #[test]
 fn a_window_reads_every_chat_whatever_arrived() {
-    let mem = Mem::new(vec![entry("a", "w", false)]);
-    let placement = Places::new("token:activity:0", places(&["a"], "inbox"));
+    let mut mem = Mem::new(vec![entry("a", "w", false)]);
+    mem.chat_row = Some(entry("chat", "w2", false));
+    let placement = Places::new("token:activity:0", places(&["a", "chat"], "inbox"));
     let mut scope = window(20);
     scope.with_chats = false;
     let mut sidebar = SidebarSubscription::new(JsString::from("s"), scope, false);
-    sidebar.start(&mem, &placement, None);
+    let frames = sidebar.start(&mem, &placement, None);
+    let Some(Value::Object(threads)) = snapshot_view(&frames).get("threads") else {
+        panic!("threads");
+    };
+    assert!(threads.contains_key("a"));
+    assert!(
+        threads.contains_key("chat"),
+        "the project window carries its chat"
+    );
     sidebar.chat_membership_changed("w", &mem, &placement, None);
     let scopes = mem.scopes.borrow();
     assert_eq!(scopes.len(), 2);
