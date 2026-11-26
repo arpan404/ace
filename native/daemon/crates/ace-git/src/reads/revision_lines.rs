@@ -46,8 +46,8 @@ pub async fn read_revision_lines(
     let path = path_schema(path).ok_or_else(|| invalid(format!("Invalid review path: {path}")))?;
     let ReviewRevision::Commit(reference) = revision;
     let sha = crate::reads::diff::resolve_commit(port, root, reference).await?;
-    // `captureBytes: 0` + `consume`: the blob is decoded and windowed as it arrives, never held
-    // whole. The default port hands the bytes over in one piece; the wiring streams them.
+    // `captureBytes: 0` + `consume`: the blob is decoded and windowed as it arrives, and the
+    // port holds none of it (a sequence split across chunks is carried, not replaced).
     let state = std::sync::Mutex::new((
         LineWindow::new(start, end, REVIEW_MAX_CHARS),
         Utf8StreamDecoder::default(),
@@ -58,9 +58,9 @@ pub async fn read_revision_lines(
             window.append(&decoder.write(chunk));
         }
     };
-    let _streamed = checked_streaming(
+    checked_streaming(
         port,
-        Command::new(root, &["cat-file", "blob", &format!("{sha}:{path}")]),
+        Command::new(root, &["cat-file", "blob", &format!("{sha}:{path}")]).with_capture_bytes(0),
         &consume,
     )
     .await?;
@@ -86,6 +86,8 @@ pub async fn read_revision_lines(
 mod tests {
     use super::*;
     use crate::core::credentials::test_support::Fixture;
+    use crate::core::spawn::BoxFuture;
+    use crate::reads::CommandOutput;
     use crate::reads::test_support::ProcessCommands;
 
     #[tokio::test]
@@ -149,21 +151,118 @@ mod tests {
         assert_eq!(error.code, GitErrorCode::InvalidRef);
     }
 
+    /// A streamed read: the port hands the blob over one byte at a time, as a pipe may.
+    struct ByteAtATime {
+        content: Vec<u8>,
+    }
+
+    impl CommandPort for ByteAtATime {
+        fn run(&self, _command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                // `resolveCommit` asks for the revision's commit before the blob.
+                Ok(CommandOutput {
+                    stdout: format!("{SHA}\n").into_bytes(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                    truncated: false,
+                    stopped: None,
+                })
+            })
+        }
+
+        fn run_streaming<'a>(
+            &'a self,
+            _command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                for byte in &self.content {
+                    consume(std::slice::from_ref(byte));
+                }
+                Ok(CommandOutput {
+                    stdout: Vec::new(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                    truncated: false,
+                    stopped: None,
+                })
+            })
+        }
+    }
+
+    const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    // `StringDecoder` carries an incomplete sequence into the next chunk: a streamed read whose
+    // chunks split an emoji still windows the character, not two replacements.
     #[tokio::test]
-    async fn an_emoji_split_across_streamed_chunks_stays_intact_in_the_window() {
-        let fixture = Fixture::new("g3c-chunk-emoji");
-        let repo = fixture.repository("repo");
-        fixture.git(&repo, &["config", "user.email", "t@example.invalid"]);
-        fixture.git(&repo, &["config", "user.name", "T"]);
-        std::fs::write(repo.join("e.txt"), format!("{}\n", "\u{1F600}")).expect("file");
-        fixture.git(&repo, &["add", "e.txt"]);
-        fixture.git(&repo, &["commit", "--quiet", "-m", "emoji"]);
-        let port = ProcessCommands { fixture: &fixture };
+    async fn a_character_split_across_streamed_chunks_is_not_corrupted() {
+        let port = ByteAtATime {
+            content: "\u{1F600}\u{1F600} ok\n".as_bytes().to_vec(),
+        };
         let revision = ReviewRevision::Commit("HEAD".to_owned());
-        let lines = read_revision_lines(&port, &repo.to_string_lossy(), &revision, "e.txt", 1, 1)
+        let lines = read_revision_lines(&port, "/repo", &revision, "file.txt", 1, 1)
             .await
             .expect("lines");
-        assert_eq!(lines.lines, vec!["\u{1F600}".to_owned()]);
+        assert_eq!(lines.lines, vec!["\u{1F600}\u{1F600} ok".to_owned()]);
+    }
+
+    /// A port whose whole-capture path refuses a blob: the core fails a metadata capture past
+    /// its bound ("Git metadata exceeded 64 MiB") rather than hand the caller a whole file.
+    struct CaptureRefused {
+        content: Vec<u8>,
+    }
+
+    impl CommandPort for CaptureRefused {
+        fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                if command.args.first().is_some_and(|arg| arg == "rev-parse") {
+                    return Ok(CommandOutput {
+                        stdout: format!("{SHA}\n").into_bytes(),
+                        stderr: String::new(),
+                        exit_code: 0,
+                        truncated: false,
+                        stopped: None,
+                    });
+                }
+                Err(GitError::new(
+                    GitErrorCode::OutputTooLarge,
+                    "Git metadata exceeded 64 MiB",
+                ))
+            })
+        }
+
+        fn run_streaming<'a>(
+            &'a self,
+            _command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                for chunk in self.content.chunks(8 * 1024) {
+                    consume(chunk);
+                }
+                Ok(CommandOutput {
+                    stdout: Vec::new(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                    truncated: false,
+                    stopped: None,
+                })
+            })
+        }
+    }
+
+    // `captureBytes: 0` + `consume`: the read never asks the port for the blob, so a capture
+    // bound can't refuse it and the window is read from the stream.
+    #[tokio::test]
+    async fn a_window_is_read_from_a_blob_that_a_whole_capture_refuses() {
+        let port = CaptureRefused {
+            content: b"first\nsecond\n".to_vec(),
+        };
+        let revision = ReviewRevision::Commit("HEAD".to_owned());
+        let lines = read_revision_lines(&port, "/repo", &revision, "file.txt", 2, 2)
+            .await
+            .expect("streamed lines");
+        assert_eq!(lines.lines, vec!["second".to_owned()]);
     }
 
     #[tokio::test]
@@ -172,11 +271,12 @@ mod tests {
         let repo = fixture.repository("repo");
         fixture.git(&repo, &["config", "user.email", "t@example.invalid"]);
         fixture.git(&repo, &["config", "user.name", "T"]);
+        // Larger than any metadata capture: only a streamed read sees the tail.
         let mut content = String::new();
-        for index in 0..500 {
+        for index in 0..40_000 {
             content.push_str(&format!("line {index}\n"));
         }
-        content.push_str("tail\n");
+        content.push_str("tail \u{1F600}\n");
         std::fs::write(repo.join("big.txt"), content).expect("big");
         fixture.git(&repo, &["add", "big.txt"]);
         fixture.git(&repo, &["commit", "--quiet", "-m", "big"]);
@@ -187,12 +287,12 @@ mod tests {
             &repo.to_string_lossy(),
             &revision,
             "big.txt",
-            501,
-            501,
+            40_001,
+            40_001,
         )
         .await
         .expect("tail");
-        assert_eq!(lines.lines, vec!["tail".to_owned()]);
+        assert_eq!(lines.lines, vec!["tail \u{1F600}".to_owned()]);
         assert!(lines.at_eof);
     }
 

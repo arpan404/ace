@@ -444,6 +444,14 @@ mod budget_tests {
     }
 
     impl crate::reads::CommandPort for BudgetLog<'_> {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            self.inner.run_streaming(command, consume)
+        }
+
         fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
             if command.args.iter().any(|arg| arg == "log") {
                 let body = self.body.clone();

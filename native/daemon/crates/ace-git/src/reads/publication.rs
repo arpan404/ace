@@ -878,6 +878,18 @@ mod scan_order_tests {
     }
 
     impl CommandPort for TreeThenBlob {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = self.run(command).await?;
+                consume(&output.stdout);
+                Ok(output)
+            })
+        }
+
         fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
             Box::pin(async move {
                 let output = |stdout: Vec<u8>| CommandOutput {

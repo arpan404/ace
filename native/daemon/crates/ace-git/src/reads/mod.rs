@@ -124,20 +124,15 @@ pub struct CommandOutput {
 pub trait CommandPort: Send + Sync {
     fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>>;
 
-    /// Runs `command` feeding stdout to `consume` as it arrives, so a caller never has to hold
-    /// the whole output. The default runs the command whole and hands over its bytes; a wiring
-    /// that streams (the supervisor) overrides it.
+    /// Runs `command` feeding stdout to `consume` as it arrives, holding none of it: the caller
+    /// asked for `captureBytes: 0` (`cli.ts`), so `CommandOutput.stdout` comes back empty and a
+    /// capture bound never applies. Every port streams; there is no whole-capture fallback, since
+    /// capturing is what such a read refuses.
     fn run_streaming<'a>(
         &'a self,
         command: Command,
         consume: &'a (dyn Fn(&[u8]) + Send + Sync),
-    ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
-        Box::pin(async move {
-            let output = self.run(command).await?;
-            consume(&output.stdout);
-            Ok(output)
-        })
-    }
+    ) -> BoxFuture<'a, Result<CommandOutput, GitError>>;
 }
 
 /// A read whose failure is an error: the command's stderr is the message (`GitCli.call`).
@@ -194,11 +189,60 @@ pub(crate) mod test_support {
             consume: &'a (dyn Fn(&[u8]) + Send + Sync),
         ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
             Box::pin(async move {
-                let output = self.run(command).await?;
-                for chunk in output.stdout.chunks(3) {
-                    consume(chunk);
+                use std::io::{Read, Write};
+                let pairs: Vec<(&str, &str)> = command
+                    .env
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str()))
+                    .collect();
+                let mut child = self
+                    .fixture
+                    .command(Path::new(&command.cwd), &pairs)
+                    .args(&command.args)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .map_err(|error| {
+                        GitError::new(
+                            crate::core::error::GitErrorCode::GitMissing,
+                            error.to_string(),
+                        )
+                    })?;
+                if let Some(input) = command.input {
+                    if let Some(stdin) = child.stdin.as_mut() {
+                        let _ = stdin.write_all(&input);
+                    }
                 }
-                Ok(output)
+                drop(child.stdin.take());
+                let mut stdout = child.stdout.take().ok_or_else(|| {
+                    GitError::new(crate::core::error::GitErrorCode::GitMissing, "no stdout")
+                })?;
+                let mut buffer = vec![0u8; 8 * 1024];
+                loop {
+                    let read = stdout
+                        .read(&mut buffer)
+                        .map_err(|error| GitError::from_io(&error))?;
+                    if read == 0 {
+                        break;
+                    }
+                    consume(&buffer[..read]);
+                }
+                drop(stdout);
+                let output = child.wait_with_output().map_err(|error| {
+                    GitError::new(
+                        crate::core::error::GitErrorCode::GitMissing,
+                        error.to_string(),
+                    )
+                })?;
+                Ok(CommandOutput {
+                    // `captureBytes: 0`: the caller holds nothing of the stream.
+                    stdout: Vec::new(),
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                    exit_code: output.status.code().unwrap_or(-1),
+                    truncated: false,
+                    stopped: None,
+                })
             })
         }
 
