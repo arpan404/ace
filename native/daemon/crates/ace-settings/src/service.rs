@@ -515,6 +515,15 @@ impl SettingsService {
         for (key, value) in entries {
             checked.push((key.clone(), validate_value(key, value)?));
         }
+        // A setting the daemon handles on its own (host identity, remote access, canonical
+        // folders) is never part of a batch, as `apps/daemon/src/settings.ts:179` refuses.
+        if let Some(key) = entries
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .find(|key| crate::batch::set_on_its_own(key))
+        {
+            return Err(crate::batch::on_its_own(key));
+        }
         let file = Self::file(service, layer)?;
         let result = file.borrow_mut().set_many(&checked);
         Self::drain(service);
@@ -913,6 +922,22 @@ mod tests {
             .map_err(|error| error.message),
             Err("Running Spade is a global setting".into())
         );
+    }
+
+    #[test]
+    fn a_batch_never_mixes_a_setting_the_daemon_handles_itself() {
+        let io = Arc::new(MemoryIo::default());
+        let service = service(io.clone());
+        let entries = vec![
+            ("remote.enabled".to_owned(), json!(false)),
+            ("threads.sortBy".to_owned(), json!("manual")),
+        ];
+        assert_eq!(
+            SettingsService::set_many(&service, &entries, &Layer::Global)
+                .map_err(|error| error.message),
+            Err("Set remote.enabled on its own, not with others".into())
+        );
+        assert_eq!(MemoryIo::count(&io.writes), 0, "the batch wrote nothing");
     }
 
     #[test]

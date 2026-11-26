@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! What a `settings.setMany` batch may contain and where a setting may live
-//! (`batch.ts`, and the layer rules from `service.ts`).
+//! What a `settings.setMany` batch may contain (`batch.ts` and the daemon's rule). The
+//! shape and placement rules are [`crate::layers::check_batch`]'s; a setting the daemon
+//! handles on its own never joins a batch.
+
+pub use crate::layers::Layer;
+use crate::validation::{SettingsCode, SettingsError};
 
 /// Settings the daemon handles on their own when written: a batch never includes them.
 pub fn set_on_its_own(key: &str) -> bool {
@@ -10,58 +14,30 @@ pub fn set_on_its_own(key: &str) -> bool {
         || key.starts_with("remote.")
 }
 
-/// A settings layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Layer {
-    Global,
-    Workspace,
-    Thread,
-}
-
-/// Whether `key` may be written on `layer`, with the TypeScript's own refusal.
-pub fn placement(key: &str, layer: Layer) -> Result<(), &'static str> {
-    let layer = match layer {
-        Layer::Global => crate::layers::Layer::Global,
-        Layer::Workspace => crate::layers::Layer::Workspace {
-            workspace: std::path::PathBuf::from("/workspace"),
-        },
-        Layer::Thread => crate::layers::Layer::Thread {
-            thread: "thread".to_owned(),
-        },
-    };
-    crate::layers::placement(key, &layer).map_err(|error| match error.message.as_str() {
-        "Roles are a global setting" => "Roles are a global setting",
-        "Project folders are a global user setting" => "Project folders are a global user setting",
-        "Provider configuration is a global user setting" => {
-            "Provider configuration is a global user setting"
-        }
-        "The downloads folder is a global daemon setting" => {
-            "The downloads folder is a global daemon setting"
-        }
-        "Apps agents can't use is a global setting" => "Apps agents can't use is a global setting",
-        "Running Spade is a global setting" => "Running Spade is a global setting",
-        "Beta features are a global setting" => "Beta features are a global setting",
-        "Working while this Mac is locked is a global setting" => {
-            "Working while this Mac is locked is a global setting"
-        }
-        "Generation settings belong to the daemon" => "Generation settings belong to the daemon",
-        _ => "Settings cannot live on this layer",
-    })
-}
-
-/// A batch failure: a setting on a layer that cannot hold it, or a rejected value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A batch failure: a whole-batch rule, or a rejected value.
+#[derive(Debug, Clone, PartialEq)]
 pub enum BatchError<E> {
-    Placement(&'static str),
+    /// A batch shape, key or placement refusal.
+    Settings(SettingsError),
+    /// A value the setting will not take.
     Validation(E),
-    Limit(&'static str),
 }
 
-/// Applies a whole batch or nothing: 1 to 32 unique keys, every entry placed and
-/// validated first, then one `commit` with all entries, so subscribers see one change.
+impl<E> BatchError<E> {
+    /// The message a caller shows.
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Settings(error) => &error.message,
+            Self::Validation(_) => "Invalid value",
+        }
+    }
+}
+
+/// Applies a whole batch or nothing: every entry placed and validated first, then one
+/// `commit` with all entries, so subscribers see one change.
 pub fn apply_batch<K, V, E>(
     entries: &[(K, V)],
-    layer: Layer,
+    layer: &Layer,
     mut validate: impl FnMut(&K, &V) -> Result<(), E>,
     commit: impl FnOnce(&[(K, V)]),
 ) -> Result<(), BatchError<E>>
@@ -69,18 +45,8 @@ where
     K: AsRef<str>,
     V: Clone,
 {
-    if entries.is_empty() || entries.len() > 32 {
-        return Err(BatchError::Limit("Set between 1 and 32 settings at once"));
-    }
-    let mut seen = Vec::new();
-    for (key, _) in entries {
-        let key = key.as_ref();
-        if seen.contains(&key) {
-            return Err(BatchError::Limit("Each setting can be set once per change"));
-        }
-        seen.push(key);
-        placement(key, layer).map_err(BatchError::Placement)?;
-    }
+    let keys: Vec<&str> = entries.iter().map(|(key, _)| key.as_ref()).collect();
+    crate::layers::check_batch(keys, layer).map_err(BatchError::Settings)?;
     for (key, value) in entries {
         validate(key, value).map_err(BatchError::Validation)?;
     }
@@ -88,12 +54,20 @@ where
     Ok(())
 }
 
+/// The daemon's refusal for a batch that mixes a setting it handles itself.
+pub fn on_its_own(key: &str) -> SettingsError {
+    SettingsError::new(
+        SettingsCode::Validation,
+        &format!("Set {key} on its own, not with others"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    //! Ports `packages/settings/src/set-many.test.ts`: "a batch with one value the
-    //! setting won't take writes none of it" and "a batch on a layer one of its
-    //! settings can't live on writes none of it" (the atomicity rule, at the crate's
-    //! boundary).
+    //! Ports `packages/settings/src/set-many.test.ts` and `apps/daemon/src/settings.ts:179`:
+    //! "a batch with one value the setting won't take writes none of it", "a batch on a layer
+    //! one of its settings can't live on writes none of it", and a setting the daemon
+    //! handles itself never joins a batch.
 
     use super::*;
 
@@ -107,7 +81,7 @@ mod tests {
         let mut store = std::collections::BTreeMap::new();
         let result = apply_batch(
             &entries,
-            Layer::Global,
+            &Layer::Global,
             |_, value| {
                 if *value == "enormous" {
                     Err("Invalid value")
@@ -127,15 +101,35 @@ mod tests {
 
     #[test]
     fn a_batch_on_a_layer_one_of_its_settings_cannot_live_on_writes_none_of_it() {
-        assert_eq!(
-            placement("providers.coder.provider", Layer::Workspace),
-            Err("Roles are a global setting")
+        let result = apply_batch(
+            &[("providers.coder.provider", "claude")],
+            &Layer::Workspace {
+                workspace: std::path::PathBuf::from("/workspace"),
+            },
+            |_, _| Ok::<(), ()>(()),
+            |_| panic!("nothing commits"),
         );
-        assert!(placement("providers.coder.provider", Layer::Global).is_ok());
         assert_eq!(
-            placement("projects.roots", Layer::Thread),
-            Err("Project folders are a global user setting")
+            result.map_err(|error| error.message().to_owned()),
+            Err("Roles are a global setting".into())
         );
+    }
+
+    #[test]
+    fn a_duplicate_key_is_a_validation_refusal_as_a_single_write_would_be() {
+        let result = apply_batch(
+            &[("threads.sortBy", "manual"), ("threads.sortBy", "created")],
+            &Layer::Global,
+            |_, _| Ok::<(), ()>(()),
+            |_| panic!("nothing commits"),
+        );
+        match result {
+            Err(BatchError::Settings(error)) => {
+                assert_eq!(error.code, SettingsCode::Validation);
+                assert_eq!(error.message, "Each setting can be set once per change");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -149,5 +143,9 @@ mod tests {
             assert!(set_on_its_own(key), "{key}");
         }
         assert!(!set_on_its_own("threads.followUpBehavior"));
+        assert_eq!(
+            on_its_own("remote.enabled").message,
+            "Set remote.enabled on its own, not with others"
+        );
     }
 }
