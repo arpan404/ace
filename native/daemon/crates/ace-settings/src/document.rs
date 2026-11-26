@@ -122,29 +122,29 @@ fn remote_networks(settings: &Map<String, Value>) -> Option<((bool, bool, bool),
     Some((transport_networks("lan", relay_url), false))
 }
 
-/// SDK-specific Cursor preferences win a collision with a retired CLI default.
+/// SDK-specific Cursor preferences win a collision with a retired CLI default. Only Cursor
+/// rows are rewritten: another provider's executable path stays exactly as stored.
 fn cursor_configuration(rows: &Value) -> Value {
     let Some(rows) = rows.as_array() else {
         return rows.clone();
     };
-    let mut next: Vec<Value> = Vec::new();
+    let mut next: Vec<Value> = Vec::with_capacity(rows.len());
     for value in rows {
         let Some(row) = value.as_object() else {
             next.push(value.clone());
             continue;
         };
-        let provider = row.get("provider").and_then(Value::as_str);
+        if row.get("provider").and_then(Value::as_str) != Some("cursor") {
+            next.push(value.clone());
+            continue;
+        }
         let instance = row.get("instance").and_then(Value::as_str);
-        let collapsed = provider == Some("cursor") && instance == Some("cursor-cli-default");
-        let target = if provider == Some("cursor") {
-            match instance {
-                Some("cursor-cli-default") => Some(CURSOR_DEFAULT_INSTANCE_ID.to_owned()),
-                other => other.map(str::to_owned),
-            }
-        } else {
-            instance.map(str::to_owned)
+        let migrated = instance == Some("cursor-cli-default");
+        let target = match instance {
+            Some("cursor-cli-default") => Some(CURSOR_DEFAULT_INSTANCE_ID.to_owned()),
+            other => other.map(str::to_owned),
         };
-        if collapsed
+        if migrated
             && target.as_ref().is_some_and(|target| {
                 rows.iter().any(|other| {
                     let other = other.as_object();
@@ -168,14 +168,12 @@ fn cursor_configuration(rows: &Value) -> Value {
             }
             kept.insert(name.clone(), field.clone());
         }
-        if provider == Some("cursor") {
-            match target {
-                Some(target) => {
-                    kept.insert("instance".to_owned(), Value::String(target));
-                }
-                None => {
-                    kept.remove("instance");
-                }
+        match target {
+            Some(target) => {
+                kept.insert("instance".to_owned(), Value::String(target));
+            }
+            None => {
+                kept.remove("instance");
             }
         }
         next.push(Value::Object(kept));
@@ -284,8 +282,11 @@ impl DecodedDocument {
                 ));
             }
             if let Some(configuration) = settings.get("providers.configuration") {
-                let next = cursor_configuration(configuration);
-                if &next != configuration {
+                // The TypeScript migrates the rows its schema already parsed and stripped, so
+                // an unknown field alone is not a change.
+                let parsed = validate_value("providers.configuration", configuration)?;
+                let next = cursor_configuration(&parsed);
+                if next != parsed {
                     let next_document = set_setting(&scanned, "providers.configuration", &next)?;
                     text = next_document.text;
                     migrated = true;
@@ -591,6 +592,59 @@ mod tests {
         assert_eq!(rows[0]["instance"], CURSOR_DEFAULT_INSTANCE_ID);
         assert!(rows[0].get("binaryPath").is_none());
         assert!(document.migrated);
+    }
+
+    #[test]
+    fn a_cursor_migration_leaves_other_providers_rows_untouched() {
+        let text = json!({
+            "version": 2,
+            "settings": {
+                "providers.configuration": [
+                    { "provider": "codex", "binaryPath": "/opt/codex" },
+                    { "provider": "cursor", "instance": "cursor-cli-default", "binaryPath": "/opt/cursor" }
+                ]
+            }
+        })
+        .to_string();
+        let document = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        assert!(document.migrated, "the Cursor row migrated");
+        let rows = document
+            .get("providers.configuration")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rows[0]["provider"], "codex");
+        assert_eq!(rows[0]["binaryPath"], "/opt/codex");
+        assert_eq!(rows[1]["instance"], CURSOR_DEFAULT_INSTANCE_ID);
+        assert!(rows[1].get("binaryPath").is_none());
+        assert!(
+            document
+                .to_text()
+                .unwrap_or_default()
+                .contains("\"binaryPath\": \"/opt/codex\"")
+                || document
+                    .to_text()
+                    .unwrap_or_default()
+                    .contains("\"binaryPath\":\"/opt/codex\"")
+        );
+
+        // A file with no Cursor row needs no migration at all.
+        let text = json!({
+            "version": 2,
+            "settings": {
+                "providers.configuration": [{ "provider": "codex", "binaryPath": "/opt/codex" }]
+            }
+        })
+        .to_string();
+        let document = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        assert!(!document.migrated);
+        assert_eq!(
+            document
+                .get("providers.configuration")
+                .and_then(Value::as_array)
+                .map(|rows| rows[0].clone()),
+            Some(json!({ "provider": "codex", "binaryPath": "/opt/codex" }))
+        );
     }
 
     #[test]
