@@ -19,6 +19,7 @@ pub use ace_adapter_api::{SessionExit, SessionFrame, SessionObserver};
 #[derive(Debug, Default)]
 pub struct Sessions;
 
+pub mod background_ports;
 pub mod compact;
 pub mod env;
 pub mod errors;
