@@ -9,7 +9,19 @@
 use serde::Serialize;
 
 use crate::core::error::{GitError, GitErrorCode};
+use crate::core::reviewer::{ecma_trim, js_whitespace};
 use crate::reads::{Command, CommandPort, checked, text_output};
+
+fn starts_with_ignore_ascii_case(haystack: &str, prefix: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let pre = prefix.as_bytes();
+    hay.len() >= pre.len() && hay[..pre.len()].eq_ignore_ascii_case(pre)
+}
+
+fn strip_url_query_fragment(path: &str) -> &str {
+    let path = path.split('?').next().unwrap_or(path);
+    path.split('#').next().unwrap_or(path)
+}
 
 /// Keys of network remotes outside the public forges carry this version, so an older daemon's
 /// unversioned key never equals one of these.
@@ -205,11 +217,16 @@ fn local_path(path: &str, base: &str) -> String {
 
 /// The path a `file://` URL names, percent-decoded; one that won't decode stays as written.
 fn file_url_path(value: &str) -> String {
-    let rest = &value[7..];
+    let rest = value
+        .as_bytes()
+        .get(7..)
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .unwrap_or("");
     let (authority, path) = match rest.find('/') {
         Some(index) => (&rest[..index], &rest[index..]),
         None => (rest, ""),
     };
+    let path = strip_url_query_fragment(path);
     let path = percent_decode(path).unwrap_or_else(|| path.to_owned());
     if path.len() >= 3 && is_drive(&path[1..]) {
         return path[1..].to_owned();
@@ -242,7 +259,7 @@ fn percent_decode(text: &str) -> Option<String> {
 /// One key for every spelling of the same repository.
 pub fn normalize_remote_url(url: &str, base: &str) -> String {
     let value = url.trim();
-    if value.len() >= 7 && value[..7].eq_ignore_ascii_case("file://") {
+    if starts_with_ignore_ascii_case(value, "file://") {
         return local_path(&file_url_path(value), base);
     }
     if let Some((scheme, authority, path)) = scheme_of(value) {
@@ -318,14 +335,14 @@ pub fn assert_pr_base(reference: &str, branch: &str, remote: Option<&str>) -> Re
 /// `ref: refs/heads/main<TAB>HEAD` from `ls-remote --symref`.
 pub fn symref_head(output: &str) -> Option<String> {
     for line in output.split('\n') {
-        let line = line.trim();
+        let line = ecma_trim(line);
         let Some(rest) = line.strip_prefix("ref: refs/heads/") else {
             continue;
         };
         let Some((name, tail)) = rest.split_once('\t') else {
             continue;
         };
-        if name.is_empty() || name.contains(char::is_whitespace) || tail != "HEAD" {
+        if name.is_empty() || name.chars().any(js_whitespace) || tail != "HEAD" {
             continue;
         }
         return Some(name.to_owned());
@@ -340,7 +357,7 @@ pub async fn remote_default_branch(
     remote: &str,
     timeout_ms: u64,
 ) -> Result<Option<String>, GitError> {
-    if timeout_ms == 0 {
+    if timeout_ms == 0 || timeout_ms > 2_147_483_647 {
         return Ok(None);
     }
     let names = checked(port, Command::new(root, &["remote"])).await?;
@@ -370,7 +387,7 @@ pub async fn remote_default_branch(
             return Ok(Some(short.to_owned()));
         }
     }
-    let result = checked(
+    let result = match checked(
         port,
         Command::new(
             root,
@@ -381,8 +398,13 @@ pub async fn remote_default_branch(
         .stopping_after(timeout_ms)
         .with_env(&[("GIT_TERMINAL_PROMPT", "0"), ("GCM_INTERACTIVE", "never")]),
     )
-    .await?;
-    Ok(if result.exit_code == 0 {
+    .await
+    {
+        Ok(result) => result,
+        Err(error) if error.code != GitErrorCode::GitClosed => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    Ok(if result.exit_code == 0 && result.stopped.is_none() {
         symref_head(&String::from_utf8_lossy(&result.stdout))
     } else {
         None
@@ -535,6 +557,25 @@ mod tests {
     }
 
     #[test]
+    fn a_local_path_with_a_leading_emoji_does_not_panic_and_file_urls_ignore_queries() {
+        let emoji_repo = format!("../\u{1F600}-repo");
+        let _ = normalize_remote_url(&emoji_repo, "/base");
+        assert_eq!(
+            normalize_remote_url("file:///tmp/repo?x=1#frag", "/"),
+            "/tmp/repo"
+        );
+    }
+
+    #[test]
+    fn a_symref_head_branch_may_contain_ecmascript_non_separator_characters() {
+        let branch = format!("br\u{0085}anch");
+        assert_eq!(
+            symref_head(&format!("ref: refs/heads/{branch}\tHEAD\n")),
+            Some(branch)
+        );
+    }
+
+    #[test]
     fn local_paths_resolve_against_the_checkout_and_local_keys_are_told_from_network_ones() {
         assert_eq!(
             normalize_remote_url("../app.git", "/repos/ace"),
@@ -589,6 +630,85 @@ mod tests {
         );
         assert_eq!(symref_head("abc\tHEAD\n"), None);
         assert_eq!(symref_head("ref: refs/heads/with space\tHEAD\n"), None);
+    }
+
+    #[tokio::test]
+    async fn a_timeout_refused_or_capped_query_returns_unknown_and_git_closed_propagates() {
+        use crate::core::spawn::BoxFuture;
+        use crate::reads::{Command, CommandOutput, CommandPort};
+
+        struct MockPort {
+            error: Option<GitError>,
+        }
+        impl CommandPort for MockPort {
+            fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+                Box::pin(async move {
+                    if command.args.first().is_some_and(|arg| arg == "remote") {
+                        Ok(CommandOutput {
+                            stdout: b"origin\n".to_vec(),
+                            stderr: String::new(),
+                            exit_code: 0,
+                            truncated: false,
+                            stopped: None,
+                        })
+                    } else if command
+                        .args
+                        .first()
+                        .is_some_and(|arg| arg == "symbolic-ref")
+                    {
+                        Ok(CommandOutput {
+                            stdout: Vec::new(),
+                            stderr: String::new(),
+                            exit_code: 1,
+                            truncated: false,
+                            stopped: None,
+                        })
+                    } else if let Some(error) = &self.error {
+                        Err(error.clone())
+                    } else {
+                        Ok(CommandOutput {
+                            stdout: Vec::new(),
+                            stderr: String::new(),
+                            exit_code: 128,
+                            truncated: false,
+                            stopped: None,
+                        })
+                    }
+                })
+            }
+        }
+        let port = MockPort {
+            error: Some(GitError::new(GitErrorCode::GitTimeout, "timeout")),
+        };
+        assert_eq!(
+            remote_default_branch(&port, "/repo", "origin", 1_000)
+                .await
+                .expect("timeout"),
+            None
+        );
+        let port = MockPort {
+            error: Some(GitError::new(GitErrorCode::GitClosed, "closed")),
+        };
+        assert_eq!(
+            remote_default_branch(&port, "/repo", "origin", 1_000)
+                .await
+                .expect_err("closed")
+                .code,
+            GitErrorCode::GitClosed
+        );
+        assert_eq!(
+            remote_default_branch(&MockPort { error: None }, "/repo", "origin", 3_000_000_000)
+                .await
+                .expect("capped"),
+            None
+        );
+        let port = MockPort { error: None };
+        assert_eq!(
+            remote_default_branch(&port, "/repo", "origin", 1_000)
+                .await
+                .expect("refused"),
+            None
+        );
     }
 
     #[tokio::test]
