@@ -219,6 +219,10 @@ mod tests {
     }
 
     impl Runner for Stub {
+        fn credential_environment(&self) -> Option<ace_redaction::EnvironmentMatcher> {
+            None
+        }
+
         fn run<'a>(
             &'a self,
             request: CommandRequest,

@@ -158,9 +158,8 @@ pub struct CommandResult {
 pub trait Runner: Send + Sync {
     /// The request's exact credential values, when the runner is the person's CLI; a test or
     /// a substitution answers nothing. `GhApi` masks every page and header with them.
-    fn credential_environment(&self) -> Option<EnvironmentMatcher> {
-        None
-    }
+    /// Required, so a wrapper cannot silently turn masking off.
+    fn credential_environment(&self) -> Option<EnvironmentMatcher>;
 
     /// Runs one request, or fails with the category the caller publishes.
     fn run<'a>(
@@ -278,9 +277,14 @@ fn set(env: &mut Vec<(String, String)>, name: &str, value: &str) {
 /// The credential-bearing environment values a CLI can echo as a bare value (ADR 0224 §8a):
 /// only names `@ace/redaction` calls secret, so `PATH`/`HOME` never become patterns.
 pub fn credential_environment(env: &[(String, String)]) -> EnvironmentMatcher {
+    // `value.length >= 4 || isSecretKey(name)` (`index.ts:59`): a short value is only worth
+    // masking when its name says it is a credential.
     let values: Vec<&str> = env
         .iter()
-        .filter(|(name, value)| !value.is_empty() && ace_redaction::is_secret_key(name))
+        .filter(|(name, value)| {
+            !value.is_empty()
+                && (ace_json::utf16_len(value) >= 4 || ace_redaction::is_secret_key(name))
+        })
         .map(|(_, value)| value.as_str())
         .collect();
     EnvironmentMatcher::new(&values)
@@ -803,14 +807,20 @@ mod tests {
     }
 
     #[test]
-    fn only_secret_environment_names_become_patterns() {
+    fn every_configured_value_of_four_units_or_a_secret_name_becomes_a_pattern() {
+        // `value.length >= 4 || isSecretKey(name)` (`index.ts:59`).
         let matcher = credential_environment(&[
             ("PATH".to_owned(), "/usr/bin".to_owned()),
             ("GH_TOKEN".to_owned(), "opaque-gh-token".to_owned()),
             ("HOME".to_owned(), "/Users/person".to_owned()),
+            ("SHORT".to_owned(), "abc".to_owned()),
+            ("XYZ".to_owned(), "ab".to_owned()),
         ]);
-        assert_eq!(matcher.values().len(), 1);
-        assert!(!matcher.is_empty());
+        assert_eq!(
+            matcher.values().len(),
+            3,
+            "PATH, GH_TOKEN and HOME; short values need a secret name"
+        );
     }
 
     #[test]

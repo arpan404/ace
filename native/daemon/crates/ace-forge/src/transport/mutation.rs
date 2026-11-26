@@ -29,10 +29,14 @@ pub fn is_forge_mutation(request: &CommandRequest) -> bool {
     if args.first().is_none_or(|arg| arg != "api") {
         return false;
     }
-    let method = match args.iter().position(|arg| arg == "--method") {
-        Some(index) => args.get(index + 1).map(String::as_str),
-        None if request.input.is_none() => Some("GET"),
-        None => Some("POST"),
+    let method = if let Some(index) = args.iter().position(|arg| arg == "--method" || arg == "-X") {
+        args.get(index + 1).map(String::as_str)
+    } else if let Some(method) = args.iter().find_map(|arg| arg.strip_prefix("--method=")) {
+        Some(method)
+    } else if request.input.is_none() {
+        Some("GET")
+    } else {
+        Some("POST")
     };
     if matches!(method, Some("GET" | "HEAD")) {
         return false;
@@ -121,18 +125,19 @@ fn graphql_operations(document: &str) -> Vec<(Option<String>, bool)> {
                     index += 1;
                     continue;
                 }
-                let named = document
-                    .get(after..)
-                    .and_then(|rest| rest.split_whitespace().next())
-                    .filter(|word| {
-                        !word.is_empty()
-                            && word
-                                .chars()
-                                .next()
-                                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-                            && *word != "{"
-                    });
-                operations.push((named.map(str::to_owned), is_query));
+                // GraphQL's `Name`: letters, digits and `_`, after whitespace and commas
+                // (so `query Foo($id:ID!)` is named `Foo`, not the whole signature).
+                let named = document.get(after..).and_then(|rest| {
+                    let name: String = rest
+                        .trim_start_matches([' ', '\t', '\r', '\n', ','])
+                        .chars()
+                        .take_while(|character| {
+                            character.is_ascii_alphanumeric() || *character == '_'
+                        })
+                        .collect();
+                    (!name.is_empty()).then_some(name)
+                });
+                operations.push((named, is_query));
                 index = after;
                 continue;
             }
@@ -287,6 +292,21 @@ mod tests {
         ] {
             assert!(is_forge_mutation(&request), "{:?}", request.args);
         }
+    }
+
+    #[test]
+    fn a_compact_named_query_with_a_signature_is_a_read() {
+        let request = api(
+            &["api", "graphql", "--method", "POST"],
+            Some(
+                r#"{"query":"query Foo($id:ID!){repository(id:$id){name}}","operationName":"Foo"}"#,
+            ),
+        );
+        assert!(
+            super::selected_is_query("query Foo($id:ID!){repository(id:$id){name}}", Some("Foo")),
+            "the parser names the operation"
+        );
+        assert!(!is_forge_mutation(&request));
     }
 
     #[test]

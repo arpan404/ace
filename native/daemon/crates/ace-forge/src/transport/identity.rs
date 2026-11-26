@@ -228,6 +228,10 @@ impl<'a> Pinned<'a> {
 }
 
 impl Runner for Pinned<'_> {
+    fn credential_environment(&self) -> Option<ace_redaction::EnvironmentMatcher> {
+        self.runner.credential_environment()
+    }
+
     fn run<'a>(
         &'a self,
         request: CommandRequest,
@@ -261,6 +265,10 @@ mod tests {
     }
 
     impl Runner for Stub {
+        fn credential_environment(&self) -> Option<ace_redaction::EnvironmentMatcher> {
+            None
+        }
+
         fn run<'a>(
             &'a self,
             request: CommandRequest,
@@ -495,6 +503,54 @@ mod tests {
             );
             assert_eq!(stub.seen.lock().expect("seen").len(), 1, "the probe only");
         });
+    }
+
+    #[test]
+    fn a_pinned_supervised_runner_still_supplies_the_childs_credentials() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let token = "opaque-gh-token-value";
+        let path = std::env::temp_dir().join(format!("forge-pinned-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            "#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\nETag: \"%s\"\\r\\n\\r\\n{\"login\":\"octo\",\"note\":\"%s\"}' \"$GH_TOKEN\" \"$GH_TOKEN\"\n",
+        )
+        .expect("script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        runtime().block_on(async {
+            let runner = crate::transport::command::SupervisedRunner::new(
+                tokio::runtime::Handle::current(),
+                crate::transport::command::RunnerOptions {
+                    env: vec![(String::from("GH_TOKEN"), token.to_owned())],
+                    ..crate::transport::command::RunnerOptions::default()
+                },
+            )
+            .expect("runner");
+            // The wrapper must forward the runner's credential values to `GhApi`.
+            let pinned = Pinned::new(
+                &runner,
+                "github.com",
+                "octo",
+                std::sync::Arc::new(|| 0.0),
+                Some(0.0),
+            )
+            .pins(Box::new(|_| false));
+            let api = crate::transport::http::GhApi::new(
+                &pinned,
+                "github.com",
+                std::sync::Arc::new(|| 0.0),
+            )
+            .command(path.to_string_lossy().into_owned());
+            let page = api
+                .request("user", None, None, None, Default::default())
+                .await
+                .expect("a page");
+            let text = ace_json::ser::to_string(&page.body).expect("serializes");
+            assert!(!text.contains(token), "{text}");
+            assert!(text.contains("[REDACTED]"), "{text}");
+            assert_eq!(page.header("etag"), None);
+        });
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

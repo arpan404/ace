@@ -635,6 +635,14 @@ fn parse_link_url(url: &str) -> Option<(String, String, String)> {
     Some((authority.to_owned(), pathname.to_owned(), search.to_owned()))
 }
 
+/// Forge's own key policy (`redact.ts:21`): token, authorization, password or secret.
+fn forge_secret_key(key: &str) -> bool {
+    static SECRET: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)token|authorization|password|secret").expect("compiles")
+    });
+    SECRET.is_match(key)
+}
+
 /// `value` with every configured value masked in its strings, depth-first.
 fn mask_environment_value(value: &Value, environment: &ace_redaction::EnvironmentMatcher) -> Value {
     match value {
@@ -647,11 +655,18 @@ fn mask_environment_value(value: &Value, environment: &ace_redaction::Environmen
         ),
         Value::Object(fields) => {
             let mut result = Map::new();
+            let mut suffixes: HashMap<String, usize> = HashMap::new();
             for (key, entry) in fields.iter() {
-                result.insert(
-                    super::redact::redact_js(key, Some(environment)),
-                    mask_environment_value(entry, environment),
-                );
+                let redacted_key = super::redact::redact_js(key, Some(environment));
+                let base = redacted_key.as_str().to_owned();
+                let mut safe = base.clone();
+                let mut suffix = *suffixes.get(&base).unwrap_or(&1);
+                while result.get(safe.as_str()).is_some() {
+                    safe = format!("{base}#{suffix}");
+                    suffix += 1;
+                }
+                suffixes.insert(base, suffix);
+                result.insert(safe, mask_environment_value(entry, environment));
             }
             Value::Object(result)
         }
@@ -734,7 +749,7 @@ fn safe_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
         let keep = match name.as_str() {
             "etag" => printable && !value.is_empty() && value.len() <= 512,
             "link" => true,
-            "last-modified" => printable && value.len() <= 128,
+            "last-modified" => printable && !value.is_empty() && value.len() <= 128,
             "x-poll-interval" => {
                 !value.is_empty() && value.len() <= 5 && value.bytes().all(|b| b.is_ascii_digit())
             }
@@ -1108,7 +1123,7 @@ pub fn redact_data(value: &Value) -> Value {
                     suffix += 1;
                 }
                 suffixes.insert(redacted_key, suffix);
-                let value = if ace_redaction::is_secret_key(key.as_str()) {
+                let value = if forge_secret_key(key.as_str()) {
                     Value::from("[REDACTED]")
                 } else {
                     redact_data(entry)
@@ -1141,6 +1156,10 @@ mod tests {
     }
 
     impl Runner for Stub {
+        fn credential_environment(&self) -> Option<ace_redaction::EnvironmentMatcher> {
+            None
+        }
+
         fn run<'a>(
             &'a self,
             request: CommandRequest,
@@ -1442,6 +1461,10 @@ mod tests {
         }
 
         impl Runner for Lost {
+            fn credential_environment(&self) -> Option<ace_redaction::EnvironmentMatcher> {
+                None
+            }
+
             fn run<'a>(
                 &'a self,
                 request: CommandRequest,
