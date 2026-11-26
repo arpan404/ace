@@ -39,6 +39,8 @@ dependencies = [
  "ace-adapter-api",
  "ace-json",
  "ace-supervisor",
+ "agent-stream-json",
+ "indexmap",
  "serde",
  "thiserror",
 ]
