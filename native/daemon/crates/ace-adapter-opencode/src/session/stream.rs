@@ -233,7 +233,7 @@ impl Framer {
             if !data.is_empty() {
                 match ace_json::parse(&data) {
                     Ok(value) => events.push(value),
-                    Err(_) => return Err(StreamError::MalformedResponse),
+                    Err(error) => return Err(StreamError::MalformedResponse(error.to_string())),
                 }
             }
         }
@@ -361,14 +361,29 @@ impl EventStream {
             scratch,
             ends,
         } = self;
-        let mut start = 0;
-        for &stop in ends.iter() {
-            // A piece over the event bound is never decoded, as the TypeScript
-            // throws inside the elider's callback before it enqueues it.
-            bounded.count(&scratch[start..stop])?;
+        // Where the first piece's steps end: the only ones a read can have
+        // taken before the rest were queued.
+        let mut read_end = steps.len();
+        let mut begin = 0;
+        for (index, &stop) in ends.iter().enumerate() {
+            // The bound throws inside the transform: the SDK enqueues a chunk's
+            // pieces in one task, so a pending read took the first, the rest
+            // wait, and the stream error drops the waiters.
+            if let Err(error) = bounded.count(&scratch[begin..stop]) {
+                if index > 0 {
+                    steps.truncate(read_end);
+                }
+                return Err(error);
+            }
             steps.push(Step::Activity);
-            frame(framer, &scratch[start..stop], false, steps)?;
-            start = stop;
+            // A framer failure is the consumer's own throw after the piece was
+            // read: what it already yielded stands.
+            let result = frame(framer, &scratch[begin..stop], false, steps);
+            begin = stop;
+            result?;
+            if index == 0 {
+                read_end = steps.len();
+            }
         }
         Ok(())
     }

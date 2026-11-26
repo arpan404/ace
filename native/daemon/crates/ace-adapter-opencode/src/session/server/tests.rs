@@ -191,7 +191,10 @@ fn the_connections_start_and_the_end_flush_count_as_activity() {
     let b = Arc::new(Fake::tracing());
     server.subscribe(b.clone()).expect("tenant");
     server.chunk(b"data: \"ab");
-    assert_eq!(server.end().failed, Some(StreamError::MalformedResponse));
+    assert_eq!(
+        server.end().failed.map(|error| error.code()),
+        Some(Some("MalformedResponse"))
+    );
     assert_eq!(b.trace(), notes(2));
 }
 
@@ -482,7 +485,10 @@ fn a_malformed_block_fails_the_stream_after_earlier_events() {
     let a = Arc::new(Fake::session("a"));
     server.subscribe(a.clone()).expect("tenant");
     let outcome = server.chunk(format!("{}data: nope\n\n", delta("a", "one")).as_bytes());
-    assert_eq!(outcome.failed, Some(StreamError::MalformedResponse));
+    assert_eq!(
+        outcome.failed.map(|error| error.code()),
+        Some(Some("MalformedResponse"))
+    );
     assert_eq!(a.calls().len(), 1);
 }
 
@@ -505,5 +511,8 @@ fn a_connected_stream_that_fails_is_marked_established() {
     server.chunk(event("c", "server.connected", json!({})).as_bytes());
     let outcome = server.chunk(b"data: nope\n\n");
     assert!(outcome.established, "the facade reconnects, never fails");
-    assert_eq!(outcome.failed, Some(StreamError::MalformedResponse));
+    assert_eq!(
+        outcome.failed.map(|error| error.code()),
+        Some(Some("MalformedResponse"))
+    );
 }
