@@ -29,6 +29,7 @@ pub mod history;
 pub mod machine_handoff;
 pub mod metadata;
 pub mod readiness;
+pub mod receipt;
 pub mod remembered;
 pub mod state;
 pub mod store_handoff;

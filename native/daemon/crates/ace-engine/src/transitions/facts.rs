@@ -59,6 +59,28 @@ pub fn transition_selection(
     }))
 }
 
+impl State {
+    /// `ThreadTransitions.input` (`transitions.ts:407`): the waiting handoff, rendered, then the
+    /// carried context, as the input a session open puts in front of the next message.
+    pub fn transition_input(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+    ) -> Result<Vec<String>, EngineError> {
+        let metadata = self.transition_get(store, id)?;
+        let mut input = Vec::new();
+        if let Some(handoff) = metadata
+            .handoff
+            .as_ref()
+            .and_then(crate::transitions::handoff::PortableHandoff::from_value)
+        {
+            input.push(crate::transitions::handoff::render_handoff(&handoff));
+        }
+        input.extend(metadata.context);
+        Ok(input)
+    }
+}
+
 impl MoveFacts for State {
     /// `forkReplaySource`: only a native fork that marks its turns inherited names its source.
     fn fork_replay_source(&mut self, thread: &str) -> Result<Option<Value>, EngineError> {

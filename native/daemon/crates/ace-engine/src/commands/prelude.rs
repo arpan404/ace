@@ -201,7 +201,11 @@ pub fn handle(
         return Ok(Some(result));
     }
     if matches!(kind, "thread.switch" | "thread.merge" | "thread.fork") {
-        return Err(EngineError::not_ported("a thread transition", "E5.9"));
+        if let Some(result) = crate::transitions::receipt::accept(core, state, command)? {
+            return Ok(Some(result));
+        }
+        // A fork's receipt creates the new thread, which is E5.4e's create seam.
+        return Err(EngineError::not_ported("a thread fork", "E5.4e"));
     }
     if matches!(kind, "thread.permission.set" | "thread.mode.set") {
         return Err(EngineError::not_ported("an access change", "E5.7"));

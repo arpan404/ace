@@ -901,7 +901,7 @@ pub fn boundary(
                 && run.agent_id == root.agent.id
                 && native_session.is_some()
                 && native_session == session
-                && quiescent(store, state, id)?;
+                && thread_quiescent(store, state, id)?;
             let native = run
                 .native_id
                 .as_ref()
@@ -1020,7 +1020,11 @@ fn item_source(item: &mut Item) -> Option<Value> {
     }
 }
 
-fn quiescent(store: &EngineStore, state: &mut State, id: &str) -> Result<bool, EngineError> {
+pub(crate) fn thread_quiescent(
+    store: &EngineStore,
+    state: &mut State,
+    id: &str,
+) -> Result<bool, EngineError> {
     let snapshot = state.repo.require_state(store, id)?;
     let view = snapshot.borrow_mut().quiescence_view()?;
     let ready = readiness::agents_ready(store.conn(), id)?;

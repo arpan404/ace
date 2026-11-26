@@ -132,6 +132,11 @@ impl Shell {
         self.generation.set(self.generation.get() + 1.0);
     }
 
+    /// The head sequence `headSeq` answers, so a case can read history through a cutoff.
+    pub fn head(&self, seq: f64) {
+        self.seq.set(seq);
+    }
+
     /// Fires one armed timer, as the clock would.
     pub fn fire(&self, key: u64) {
         let mut timers = self.timers.borrow_mut();
