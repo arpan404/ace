@@ -137,6 +137,18 @@ fn a_reply_that_names_a_scrcpy_path_must_name_a_real_one() {
         scrcpy: Some(String::new()),
     };
     assert_eq!(check_installed(&empty).expect_err("empty").field, "scrcpy");
+
+    let too_many_args = crate::platform::serve_sim::ToolsInstalled {
+        serve_sim: Some(ServeSimCommand {
+            command: String::from("node"),
+            args: vec![String::from("x"); MAX_ARGS + 1],
+        }),
+        scrcpy: None,
+    };
+    assert_eq!(
+        check_installed(&too_many_args).expect_err("args").field,
+        "serveSim.args"
+    );
 }
 
 #[tokio::test]
