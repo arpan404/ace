@@ -31,23 +31,12 @@ pub const PIN_FAILED: &str = "TLS pin failed";
 pub struct Pin([u8; 32]);
 
 impl Pin {
-    /// Parse the 64 lowercase hex characters a pairing link carries.
+    /// Parse the 64 lowercase hex characters a pairing link carries. The rule is `ace-keys`',
+    /// the same one the client's `valid_fingerprint` applies before a handshake.
     pub fn parse(fingerprint: &str) -> Result<Self, TransportError> {
-        if fingerprint.len() != 64
-            || !fingerprint
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
-            return Err(TransportError::Identity("Invalid public-key fingerprint"));
-        }
-        let mut bytes = [0u8; 32];
-        for (index, pair) in fingerprint.as_bytes().chunks_exact(2).enumerate() {
-            let text = std::str::from_utf8(pair)
-                .map_err(|_| TransportError::Identity("Invalid public-key fingerprint"))?;
-            bytes[index] = u8::from_str_radix(text, 16)
-                .map_err(|_| TransportError::Identity("Invalid public-key fingerprint"))?;
-        }
-        Ok(Self(bytes))
+        ace_keys::parse_fingerprint(fingerprint)
+            .map(Self)
+            .ok_or(TransportError::Identity("Invalid public-key fingerprint"))
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {

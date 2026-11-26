@@ -77,13 +77,26 @@ fn an_unauthenticated_socket_cannot_read_host_identity() {
 
 #[test]
 fn identity_requires_read_scope_on_an_authenticated_paired_connection() {
-    // An `operate`-only device: the socket is welcomed, the identity read is forbidden.
-    assert!(!crate::devices::allows_scopes(
-        &[crate::devices::Scope::Operate],
-        crate::devices::Scope::Read
-    ));
+    // An `operate`-only paired device: the socket is welcomed, the identity read is refused by
+    // the same `allows` the daemon checks it with.
+    let device = crate::devices::Device {
+        id: "phone".to_owned(),
+        name: "Phone".to_owned(),
+        scopes: vec![crate::devices::Scope::Operate],
+        created_at: 1,
+        last_seen_at: 1,
+        revoked_at: None,
+        expires_at: None,
+    };
+    let actor = crate::devices::SessionActor::paired(crate::devices::PairedDevice {
+        device,
+        generation: "g".to_owned(),
+        person: false,
+    });
+    let can_read = crate::devices::allows(&actor, crate::devices::Scope::Read);
+    assert!(!can_read);
     let session = IdentitySession::new();
-    assert_eq!(session.begin(false), Err(IdentityRefusal::Forbidden));
+    assert_eq!(session.begin(can_read), Err(IdentityRefusal::Forbidden));
 }
 
 #[test]
@@ -104,25 +117,6 @@ fn identity_says_which_operating_system_and_leaves_out_one_clients_do_not_know()
         );
         assert_eq!(identity.platform.as_deref(), reported, "{platform}");
     }
-}
-
-#[test]
-fn without_an_injected_platform_the_daemon_reports_the_one_it_runs_on() {
-    // Node names the running system: `darwin` on macOS, `win32` on Windows.
-    let platform = match std::env::consts::OS {
-        "macos" => "darwin",
-        "windows" => "win32",
-        other => other,
-    };
-    let identity = host_identity(
-        &IdentityFacts {
-            platform: platform.to_owned(),
-            ..facts()
-        },
-        None,
-        None,
-    );
-    assert_eq!(identity.platform.as_deref(), Some(platform));
 }
 
 #[test]

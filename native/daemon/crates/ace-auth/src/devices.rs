@@ -14,10 +14,13 @@ use crate::error::Result;
 
 pub mod create;
 pub mod links;
+
 pub mod registry;
 pub mod revoke;
 pub mod row;
 pub mod store;
+#[cfg(test)]
+pub(crate) mod tests_support;
 
 pub(crate) use row::{COLUMNS, Row, decode, integer, opt_integer, opt_text, scopes_json, text};
 
@@ -301,34 +304,8 @@ impl Devices {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use std::sync::{Arc, Mutex};
-
-    use crate::CredentialRuntime;
-    use crate::devices::{Devices, Scope, allows_scopes};
-
-    fn devices() -> (Devices, tempfile::TempDir) {
-        let directory = tempfile::tempdir().unwrap();
-        let counter = Arc::new(Mutex::new(0_u64));
-        let entropy = Arc::new(Mutex::new(0_u64));
-        let runtime = CredentialRuntime::new(
-            move || {
-                let mut id = counter.lock().unwrap();
-                *id += 1;
-                format!("device-{id}")
-            },
-            move |size| {
-                let mut seed = entropy.lock().unwrap();
-                *seed += 1;
-                let mut bytes = vec![7_u8; size];
-                let width = size.min(8);
-                bytes[..width].copy_from_slice(&seed.to_be_bytes()[8 - width..]);
-                bytes
-            },
-        );
-        let path = directory.path().join("events.sqlite");
-        let devices = Devices::open(path.to_str().unwrap(), runtime).unwrap();
-        (devices, directory)
-    }
+    use crate::devices::tests_support::devices;
+    use crate::devices::{Scope, allows_scopes};
 
     #[test]
     fn allows_follows_the_scope_rules_and_refuses_a_spade_only_socket() {

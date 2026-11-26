@@ -130,11 +130,11 @@ fn consumption_and_expiry_release_all_pending_capacity_while_preserving_later_ti
 }
 
 #[test]
-fn many_devices_holding_rate_windows_do_not_refuse_a_new_devices_first_ticket() {
-    // Ten thousand devices may each hold a 60-second rate window while only a handful of
-    // tickets are outstanding; the documented cap is on outstanding tickets, so the next
-    // device's first redemption must be allowed. The same case at a test's scale: three
-    // devices used their windows, no ticket is live, and a fourth device asks.
+fn a_rate_map_at_the_global_cap_refuses_a_new_devices_first_ticket() {
+    // `ticket-pool.ts:41`-`:45`: a minute in which `global` distinct devices already hold rate
+    // windows refuses a fresh device's first ticket with the rate refusal (429), even though no
+    // ticket is outstanding. The same case at a test's scale: three devices used their windows,
+    // every ticket is spent, and a fourth device asks.
     let mut pool = TicketPool::new(limits(3, 3, 5));
     for device in ["a", "b", "c"] {
         let key = format!("{device}-1");
@@ -143,13 +143,18 @@ fn many_devices_holding_rate_windows_do_not_refuse_a_new_devices_first_ticket() 
         pool.consume(&key, 1_000, None).expect("spent");
     }
     assert_eq!(pool.len(), 0);
-    assert_eq!(pool.rate_windows(1_000), 3);
-    pool.issue("d-1", "d", "g", 1_000, "")
-        .expect("a first redemption is not the rate map's size limit");
+    assert_eq!(
+        pool.issue("d-1", "d", "g", 1_000, ""),
+        Err(IssueError::RateLimitExceeded)
+    );
+    // The next minute starts a fresh map: expired windows are dropped by `evict` and the device
+    // is tracked again.
+    pool.issue("d-1", "d", "g", 61_000, "")
+        .expect("a fresh minute admits the device");
 }
 
 #[test]
-fn an_expired_rate_window_does_not_count_and_the_map_forgets_it() {
+fn a_device_s_minute_resets_sixty_seconds_after_its_first_issue() {
     let mut pool = TicketPool::new(limits(10, 10, 2));
     let first = pool.issue("a-1", "a", "g", 1_000, "").unwrap();
     pool.consume("a-1", 1_000, None).expect("spent");
@@ -158,9 +163,6 @@ fn an_expired_rate_window_does_not_count_and_the_map_forgets_it() {
         pool.issue("a-3", "a", "g", 1_000, ""),
         Err(IssueError::RateLimitExceeded)
     );
-    // Sixty seconds later the window is gone, and asking about it drops it rather than
-    // leaving it to count against the next minute.
-    assert_eq!(pool.rate_windows(61_000), 0);
     pool.issue("a-3", "a", "g", 61_000, "")
         .expect("a fresh minute starts a fresh window");
     assert_eq!(first.expires_at, 61_000);

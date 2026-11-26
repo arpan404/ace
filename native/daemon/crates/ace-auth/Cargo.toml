@@ -16,6 +16,8 @@ workspace = true
 # ace-store: pairings, devices and their credential generations go through the daemon's one
 # SQLite connection, on the same tables and rows the TypeScript writes.
 ace-store = { path = "../ace-store" }
+# ace-keys: the one 64-hex fingerprint rule, shared with the transport's pinned verifier.
+ace-keys = { path = "../ace-keys" }
 # ace-json: the hello is client JSON (`JSON.parse` semantics) and a stored `scopes` cell is
 # JSON read back the way JavaScript reads it.
 ace-json = { path = "../ace-json" }

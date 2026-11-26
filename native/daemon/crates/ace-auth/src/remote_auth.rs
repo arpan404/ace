@@ -140,13 +140,32 @@ impl RemoteAuth {
         self.devices.authenticate(token, self.now()).ok().flatten()
     }
 
-    /// A single-use pairing code. Callers check the creator may grant `granted` first.
+    /// Hear a device's revocation; at most 32 subscribers (`remote-auth.ts:293`). Its id is what
+    /// [`RemoteAuth::off_revoke`] takes.
     pub fn on_revoke(&self, listener: Listener) -> std::result::Result<u64, String> {
         self.subscribe(&self.revoked, listener, "Device revocation")
     }
 
+    /// Stop hearing revocations. The TypeScript returns this unsubscribe from `onRevoke`; a caller
+    /// that subscribes per socket must keep it, or the 32-listener cap eventually refuses every
+    /// new socket and a revoked device's sockets stop being closed.
+    pub fn off_revoke(&self, id: u64) {
+        self.unsubscribe(&self.revoked, id);
+    }
+
+    /// Hear a credential replacement; at most 32 subscribers (`remote-auth.ts:304`).
     pub fn on_credential_replaced(&self, listener: Listener) -> std::result::Result<u64, String> {
         self.subscribe(&self.replaced, listener, "Device replacement")
+    }
+
+    pub fn off_credential_replaced(&self, id: u64) {
+        self.unsubscribe(&self.replaced, id);
+    }
+
+    fn unsubscribe(&self, list: &Mutex<Vec<(u64, Listener)>>, id: u64) {
+        list.lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|(each, _)| *each != id);
     }
 
     fn subscribe(
@@ -204,9 +223,41 @@ mod tests {
 
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+    use std::sync::{Arc, Mutex};
+
     use crate::devices::Scope;
     use crate::pairing::PairingTerms;
     use crate::remote_auth::support::Home;
+
+    #[test]
+    fn a_listener_that_unsubscribes_hears_no_revocation_and_frees_its_slot() {
+        let home = Home::new();
+        let mut auth = home.memory();
+        let paired =
+            crate::remote_auth::support::pair_with(&mut auth, &[Scope::Read], "Phone", None, None);
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&heard);
+        let id = auth
+            .on_revoke(Arc::new(move |device: &str| {
+                recorder.lock().unwrap().push(device.to_owned())
+            }))
+            .unwrap();
+        auth.off_revoke(id);
+        auth.revoke(&paired.device.id).unwrap();
+        assert!(heard.lock().unwrap().is_empty());
+        // The cap is 32 listeners; removing one makes room again.
+        let noop: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|_: &str| {});
+        let mut ids = Vec::new();
+        for _ in 0..32 {
+            ids.push(auth.on_revoke(Arc::clone(&noop)).unwrap());
+        }
+        assert!(auth.on_revoke(Arc::clone(&noop)).is_err());
+        auth.off_revoke(ids[0]);
+        assert!(auth.on_revoke(Arc::clone(&noop)).is_ok());
+        // A credential replacement unsubscribes the same way.
+        let replaced = auth.on_credential_replaced(Arc::new(|_: &str| {})).unwrap();
+        auth.off_credential_replaced(replaced);
+    }
 
     #[test]
     fn a_fabricated_token_authenticates_nothing_and_redemption_ignores_scope_injection() {

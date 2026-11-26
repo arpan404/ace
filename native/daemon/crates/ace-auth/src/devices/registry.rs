@@ -168,35 +168,9 @@ impl Devices {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use std::sync::{Arc, Mutex};
-
-    use crate::CredentialRuntime;
     use crate::devices::row::generation_of;
-    use crate::devices::{Devices, Scope, active_device, hash};
-
-    fn devices() -> (Devices, tempfile::TempDir) {
-        let directory = tempfile::tempdir().unwrap();
-        let counter = Arc::new(Mutex::new(0_u64));
-        let entropy = Arc::new(Mutex::new(0_u64));
-        let runtime = CredentialRuntime::new(
-            move || {
-                let mut id = counter.lock().unwrap();
-                *id += 1;
-                format!("device-{id}")
-            },
-            move |size| {
-                let mut seed = entropy.lock().unwrap();
-                *seed += 1;
-                let mut bytes = vec![7_u8; size];
-                let width = size.min(8);
-                bytes[..width].copy_from_slice(&seed.to_be_bytes()[8 - width..]);
-                bytes
-            },
-        );
-        let path = directory.path().join("events.sqlite");
-        let devices = Devices::open(path.to_str().unwrap(), runtime).unwrap();
-        (devices, directory)
-    }
+    use crate::devices::tests_support::devices;
+    use crate::devices::{Scope, active_device, hash};
 
     #[test]
     fn a_credential_generation_names_the_token_and_a_rekey_ends_the_old_one() {

@@ -125,19 +125,18 @@ impl TicketPool {
         if self.owned.get(device_id).map_or(0, HashSet::len) >= self.limits.per_device {
             return Err(IssueError::DeviceQuotaExceeded);
         }
-        // The three caps are the documented ones (`ticket-pool.ts:8`-`:12`, behaviour.md §6):
-        // outstanding tickets in all (checked above), outstanding per device, and issued per
-        // device per minute. This check is the minute's, and only the minute's: the TypeScript
-        // also refused a device's *first* ticket once `rates.size` reached `global`, which is
-        // the rate map's size rather than the cap on outstanding tickets, so a minute in which
-        // enough other devices had asked refused a fresh device. Live tickets are the cap
-        // (review P1), and the map is bounded by the devices that asked in the last minute.
-        self.evict_rates(now);
-        let mut rate = self.rates.get(device_id).copied().unwrap_or(Rate {
+        // The three caps, exactly as `ticket-pool.ts:37`-`:45` applies them: outstanding tickets
+        // in all, per device, and this device's minute. The last clause is the TypeScript's own:
+        // a device's first ticket in a minute is refused once the rate map itself has reached
+        // `global` windows, so the map can't grow past that cap.
+        let existing = self.rates.get(device_id).copied();
+        let mut rate = existing.unwrap_or(Rate {
             count: 0,
             resets_at: now + TICKET_TTL_MS,
         });
-        if rate.count >= self.limits.per_minute {
+        if rate.count >= self.limits.per_minute
+            || (existing.is_none() && self.rates.len() >= self.limits.global)
+        {
             return Err(IssueError::RateLimitExceeded);
         }
         rate.count += 1;
@@ -201,21 +200,8 @@ impl TicketPool {
         self.tickets.len()
     }
 
-    /// The live per-minute windows at `now`. An expired window is dropped as it is asked about,
-    /// so it never counts against a later minute.
-    pub fn rate_windows(&mut self, now: i64) -> usize {
-        self.evict_rates(now);
-        self.rates.len()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.tickets.is_empty()
-    }
-
-    /// Drop the per-minute windows that ran out. Called before every rate check as well as by
-    /// `evict`, so a window is never counted in a minute it did not issue in.
-    fn evict_rates(&mut self, now: i64) {
-        self.rates.retain(|_, rate| rate.resets_at > now);
     }
 
     fn evict(&mut self, now: i64) {

@@ -216,6 +216,23 @@ fn a_lapsed_standing_stops_the_socket_speaking_and_closes_what_it_held() {
 }
 
 #[test]
+fn a_broadcast_naming_no_thread_is_dropped_on_an_org_host_and_passes_on_a_person_s_machine() {
+    let personal = policy(None, Arc::new(Mutex::new(SocketFacts::default())));
+    assert!(personal.fan_out_thread(None));
+    let proven = member("bo", "member");
+    let facts = Arc::new(Mutex::new(SocketFacts {
+        admitted: Some(proven.clone()),
+        proven: Some(proven),
+        ..Default::default()
+    }));
+    let org = policy(Some(ORG), facts);
+    // `socket-wiring.ts:96`-`:102`: only a placeable thread's message is sent.
+    assert!(!org.fan_out_thread(None));
+    assert!(org.fan_out_thread(Some("t_shared")));
+    assert!(!org.fan_out_thread(Some("t_mine")));
+}
+
+#[test]
 fn a_refusal_is_a_forbidden_answer_that_a_client_can_match_to_its_request() {
     let facts = Arc::new(Mutex::new(SocketFacts::default()));
     let policy = policy(Some(ORG), facts);

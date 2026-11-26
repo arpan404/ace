@@ -71,6 +71,8 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = [
 # and a TLS identity's key PEM is held only in a `Zeroizing` buffer while it is
 # parsed.
 zeroize = { version = "1" }
+# ace-keys: the one 64-hex fingerprint rule, shared with the daemon's client rules.
+ace-keys = { path = "../ace-keys" }
 # sha2: a pinned certificate's fingerprint is the SHA-256 of its SubjectPublicKeyInfo, the
 # value `tls-identity.ts:6`-`:9` hands a pairing link.
 sha2 = { version = "0.11" }

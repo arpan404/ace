@@ -49,6 +49,7 @@ pub fn access_failure(status: u16, body: &str) -> ClientError {
         value
             .get("error")
             .and_then(|error| error.as_str())
+            .filter(|detail| !detail.is_empty())
             .map(str::to_owned)
     });
     match detail {
@@ -258,6 +259,10 @@ mod tests {
         assert_eq!(access_failure(429, "not json").code, "offline");
         assert_eq!(access_failure(500, "").code, "offline");
         assert_eq!(access_failure(400, "{\"error\":\"\"}").code, "daemon");
+        assert_eq!(
+            access_failure(401, "{\"error\":\"\"}"),
+            ClientError::new("auth", "HTTP 401")
+        );
         // A detail is cut at 512 UTF-16 units: 256 emoji, not 128.
         let detail = format!("{{\"error\":\"{}\"}}", "😀".repeat(300));
         let failure = access_failure(401, &detail);
