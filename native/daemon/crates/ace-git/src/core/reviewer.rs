@@ -43,6 +43,37 @@ pub(crate) fn js_whitespace(character: char) -> bool {
     )
 }
 
+/// Trim ECMAScript whitespace from both ends, as `String.prototype.trim` does.
+pub(crate) fn ecma_trim(value: &str) -> &str {
+    ecma_trim_end(ecma_trim_start(value))
+}
+
+pub(crate) fn ecma_trim_start(value: &str) -> &str {
+    let mut start = 0usize;
+    let mut chars = value.chars();
+    while let Some(character) = chars.next() {
+        if js_whitespace(character) {
+            start += character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    &value[start..]
+}
+
+pub(crate) fn ecma_trim_end(value: &str) -> &str {
+    let mut end = value.len();
+    while end > 0 {
+        let character = value[..end].chars().last().expect("char");
+        if js_whitespace(character) {
+            end -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    &value[..end]
+}
+
 /// The paths a configured hook command names: every word holding a `/`, quotes removed, read
 /// against the working tree root (where Git runs hooks). A bare program name on PATH names none.
 pub fn hook_command_paths(command: &str, top: &str) -> Vec<String> {

@@ -7,6 +7,7 @@
 
 use crate::core::decode::path_schema;
 use crate::core::error::{GitError, GitErrorCode};
+use crate::core::utf8_stream::Utf8StreamDecoder;
 use crate::reads::line_window::{LineWindow, RevisionLines};
 use crate::reads::{Command, CommandPort, checked_streaming};
 
@@ -47,21 +48,31 @@ pub async fn read_revision_lines(
     let sha = crate::reads::diff::resolve_commit(port, root, reference).await?;
     // `captureBytes: 0` + `consume`: the blob is decoded and windowed as it arrives, never held
     // whole. The default port hands the bytes over in one piece; the wiring streams them.
-    let window = std::sync::Mutex::new(LineWindow::new(start, end, REVIEW_MAX_CHARS));
+    let state = std::sync::Mutex::new((
+        LineWindow::new(start, end, REVIEW_MAX_CHARS),
+        Utf8StreamDecoder::default(),
+    ));
     let consume = |chunk: &[u8]| {
-        if let Ok(mut window) = window.lock() {
-            window.append(&String::from_utf8_lossy(chunk));
+        if let Ok(mut locked) = state.lock() {
+            let (window, decoder) = &mut *locked;
+            window.append(&decoder.write(chunk));
         }
     };
-    checked_streaming(
+    let _streamed = checked_streaming(
         port,
         Command::new(root, &["cat-file", "blob", &format!("{sha}:{path}")]),
         &consume,
     )
     .await?;
-    window
+    if let Ok(mut locked) = state.lock() {
+        let (window, decoder) = &mut *locked;
+        window.append(&decoder.end());
+        drop(locked);
+    }
+    state
         .into_inner()
         .unwrap_or_else(|poison| poison.into_inner())
+        .0
         .finish()
         .ok_or_else(|| {
             GitError::new(
@@ -136,6 +147,53 @@ mod tests {
             .await
             .expect_err("revision");
         assert_eq!(error.code, GitErrorCode::InvalidRef);
+    }
+
+    #[tokio::test]
+    async fn an_emoji_split_across_streamed_chunks_stays_intact_in_the_window() {
+        let fixture = Fixture::new("g3c-chunk-emoji");
+        let repo = fixture.repository("repo");
+        fixture.git(&repo, &["config", "user.email", "t@example.invalid"]);
+        fixture.git(&repo, &["config", "user.name", "T"]);
+        std::fs::write(repo.join("e.txt"), format!("{}\n", "\u{1F600}")).expect("file");
+        fixture.git(&repo, &["add", "e.txt"]);
+        fixture.git(&repo, &["commit", "--quiet", "-m", "emoji"]);
+        let port = ProcessCommands { fixture: &fixture };
+        let revision = ReviewRevision::Commit("HEAD".to_owned());
+        let lines = read_revision_lines(&port, &repo.to_string_lossy(), &revision, "e.txt", 1, 1)
+            .await
+            .expect("lines");
+        assert_eq!(lines.lines, vec!["\u{1F600}".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn a_small_window_at_the_end_of_a_large_blob_reads_correctly() {
+        let fixture = Fixture::new("g3c-large-blob");
+        let repo = fixture.repository("repo");
+        fixture.git(&repo, &["config", "user.email", "t@example.invalid"]);
+        fixture.git(&repo, &["config", "user.name", "T"]);
+        let mut content = String::new();
+        for index in 0..500 {
+            content.push_str(&format!("line {index}\n"));
+        }
+        content.push_str("tail\n");
+        std::fs::write(repo.join("big.txt"), content).expect("big");
+        fixture.git(&repo, &["add", "big.txt"]);
+        fixture.git(&repo, &["commit", "--quiet", "-m", "big"]);
+        let port = ProcessCommands { fixture: &fixture };
+        let revision = ReviewRevision::Commit("HEAD".to_owned());
+        let lines = read_revision_lines(
+            &port,
+            &repo.to_string_lossy(),
+            &revision,
+            "big.txt",
+            501,
+            501,
+        )
+        .await
+        .expect("tail");
+        assert_eq!(lines.lines, vec!["tail".to_owned()]);
+        assert!(lines.at_eof);
     }
 
     #[tokio::test]

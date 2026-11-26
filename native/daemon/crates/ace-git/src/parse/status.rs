@@ -57,8 +57,7 @@ fn sub_ok(value: &str) -> bool {
         ['N', '.', '.', '.'] => true,
         ['S', commit, modified, untracked] => {
             matches!(commit, '.' | 'C')
-                && matches!(commit, '.' | 'M')
-                && matches!(modified, '.' | 'U')
+                && matches!(modified, '.' | 'M')
                 && matches!(untracked, '.' | 'U')
         }
         _ => false,
@@ -416,6 +415,29 @@ mod tests {
             parsed.status.staged[0].old_path.as_deref(),
             Some("old name")
         );
+    }
+
+    #[test]
+    fn invalid_submodule_flags_are_malformed_and_dirty_and_moved_ones_are_not() {
+        let ordinary = ordinary_record();
+        rejects(&format!(
+            "{HEADERS}{} file\0",
+            ordinary.replace("N...", "S.U.")
+        ));
+        let dirty = parse_status(
+            format!("{HEADERS}{} dirty-sub\0", ordinary.replace("N...", "S.M.")).as_bytes(),
+        )
+        .expect("dirty submodule");
+        assert_eq!(dirty.status.staged[0].submodule, "S.M.");
+        let moved = parse_status(
+            format!(
+                "{HEADERS}{} moved-sub.txt\0",
+                ordinary.replace("N...", "SCM.")
+            )
+            .as_bytes(),
+        )
+        .expect("moved submodule");
+        assert_eq!(moved.status.staged[0].submodule, "SCM.");
     }
 
     #[test]

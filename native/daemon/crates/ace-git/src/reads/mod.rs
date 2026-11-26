@@ -188,6 +188,20 @@ pub(crate) mod test_support {
     }
 
     impl CommandPort for ProcessCommands<'_> {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = self.run(command).await?;
+                for chunk in output.stdout.chunks(3) {
+                    consume(chunk);
+                }
+                Ok(output)
+            })
+        }
+
         fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
             Box::pin(async move {
                 let pairs: Vec<(&str, &str)> = command

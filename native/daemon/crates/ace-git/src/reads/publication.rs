@@ -337,15 +337,25 @@ pub async fn scan_publication(
     let mut batch: Vec<ScanObject> = Vec::new();
     let mut batch_bytes = 0u64;
     for phase_yaml in [false, true] {
-        let phase_ids = if phase_yaml {
-            yaml_ids.clone()
-        } else {
-            ids.clone()
-        };
         let mut position = 0usize;
-        while position < phase_ids.len() {
-            let group = &phase_ids[position..phase_ids.len().min(position + 512)];
-            position += group.len();
+        while position
+            < if phase_yaml {
+                yaml_ids.len()
+            } else {
+                ids.len()
+            }
+        {
+            let end = if phase_yaml {
+                yaml_ids.len().min(position + 512)
+            } else {
+                ids.len().min(position + 512)
+            };
+            let group: Vec<String> = if phase_yaml {
+                yaml_ids[position..end].to_vec()
+            } else {
+                ids[position..end].to_vec()
+            };
+            position = end;
             let mut input = group.join("\n");
             input.push('\n');
             let headers = scanner
@@ -857,7 +867,7 @@ mod scan_order_tests {
         }
 
         fn tree() -> Vec<u8> {
-            let mut tree = b"100644 secret.txt\0".to_vec();
+            let mut tree = b"100644 data.txt\0".to_vec();
             tree.extend(Self::hex(BLOB));
             tree
         }

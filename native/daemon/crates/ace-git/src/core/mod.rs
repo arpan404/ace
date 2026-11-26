@@ -29,4 +29,5 @@ pub mod spawn;
 pub mod teardown;
 pub mod temp_index;
 pub mod transport;
+pub mod utf8_stream;
 pub mod wake;

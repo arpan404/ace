@@ -164,7 +164,10 @@ fn read_hunk(all: &[&str], start: usize) -> Option<(ConflictSegment, usize)> {
             phase = "base";
             found.push((*line).to_owned());
             sections.push(String::new());
-        } else if phase != "theirs" && marker(line, '=') && line[7..].trim().is_empty() {
+        } else if phase != "theirs"
+            && marker(line, '=')
+            && crate::core::reviewer::ecma_trim_end(&line[7..]).is_empty()
+        {
             if phase == "ours" {
                 found.push(String::new());
             }
