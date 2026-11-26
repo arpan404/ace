@@ -8,7 +8,7 @@
 use super::{Goal, SettingGoal, Step, is_busy, next_step};
 
 fn goal(enabled: bool, save: bool) -> Goal {
-    Goal { enabled, save }
+    Goal::new(0, enabled, save)
 }
 
 #[test]
@@ -41,36 +41,37 @@ fn a_busy_failure_retries_and_another_is_logged() {
 #[test]
 fn devices_echoing_what_is_being_applied_is_not_a_new_choice() {
     let mut setting = SettingGoal::new();
-    setting.want(goal(true, false));
+    setting.want(true, false);
     setting.begin_applying(true);
     assert_eq!(setting.devices_changed(true), None, "our own change");
-    assert_eq!(setting.current(), Some(goal(true, false)));
+    assert_eq!(
+        setting.current().map(|goal| (goal.enabled, goal.save)),
+        Some((true, false))
+    );
 
     setting.applied();
     // A person's change afterwards is a new choice, and it has to be saved.
-    assert_eq!(setting.devices_changed(false), Some(goal(false, true)));
-    assert_eq!(setting.current(), Some(goal(false, true)));
+    let chosen = setting.devices_changed(false).expect("a new choice");
+    assert_eq!((chosen.enabled, chosen.save), (false, true));
+    assert_eq!(setting.current().map(|goal| goal.id()), Some(chosen.id()));
 }
 
 #[test]
 fn the_newest_choice_replaces_the_one_in_flight() {
     let mut setting = SettingGoal::new();
-    let first = goal(false, false);
-    setting.want(first);
+    let first = setting.want(false, false);
     // A quick on-then-off while the first is still running.
-    let second = goal(true, false);
-    setting.want(second);
-    assert_eq!(setting.current(), Some(second));
+    let second = setting.want(true, false);
+    assert_eq!(setting.current().map(|goal| goal.id()), Some(second.id()));
     // The first's tail does not end the loop: a newer choice is in force.
     assert!(setting.settle(first, Step::Devices, false));
-    assert_eq!(setting.current(), Some(second));
+    assert_eq!(setting.current().map(|goal| goal.id()), Some(second.id()));
 }
 
 #[test]
 fn a_settled_choice_ends_the_loop_and_a_failure_ends_its_own_goal() {
     let mut setting = SettingGoal::new();
-    let target = goal(true, false);
-    setting.want(target);
+    let target = setting.want(true, false);
     // Devices now match: the loop goes round once more, finds nothing to do, and
     // ends with the goal met.
     assert!(setting.settle(target, Step::Devices, true));
@@ -78,12 +79,27 @@ fn a_settled_choice_ends_the_loop_and_a_failure_ends_its_own_goal() {
     assert_eq!(setting.current(), None);
 
     // A save step always finishes its goal once it ran.
-    setting.want(goal(true, true));
-    assert!(!setting.settle(goal(true, true), Step::Save, true));
+    let saving = setting.want(true, true);
+    assert!(!setting.settle(saving, Step::Save, true));
 
     // A failure ends only the goal it belonged to.
-    let target = goal(false, false);
-    setting.want(target);
+    let target = setting.want(false, false);
     setting.failed(target);
     assert_eq!(setting.current(), None);
+}
+
+#[test]
+fn a_newer_choice_with_the_same_value_still_keeps_the_loop_going() {
+    // The TypeScript compares goals by identity, so a second choice that looks
+    // the same is still a newer one: the older tail must not end the loop.
+    let mut setting = SettingGoal::new();
+    let first = setting.want(true, false);
+    let second = setting.want(true, false);
+    assert_ne!(first.id(), second.id(), "each choice is its own");
+    assert!(
+        setting.settle(first, Step::Devices, true),
+        "a newer choice is in force"
+    );
+    assert_eq!(setting.current().map(|goal| goal.id()), Some(second.id()));
+    assert!(!setting.settle(second, Step::Done, true));
 }

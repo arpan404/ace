@@ -8,11 +8,23 @@
 //! service and the settings store); these are the decisions it makes.
 
 /// The newest on/off choice, and whether it still has to be saved (it came from
-/// devices).
+/// devices). The id is the choice's identity: the TypeScript compares goals by
+/// object identity, so a newer choice that looks the same is still a newer one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Goal {
+    id: u64,
     pub enabled: bool,
     pub save: bool,
+}
+
+impl Goal {
+    pub fn new(id: u64, enabled: bool, save: bool) -> Self {
+        Self { id, enabled, save }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
 }
 
 /// What to do next to bring devices and the saved setting to the goal.
@@ -42,6 +54,7 @@ pub fn is_busy(code: Option<&str>) -> bool {
 pub struct SettingGoal {
     goal: Option<Goal>,
     applying: Option<bool>,
+    next: u64,
 }
 
 impl SettingGoal {
@@ -49,9 +62,13 @@ impl SettingGoal {
         Self::default()
     }
 
-    /// `want`: a newer choice replaces whatever the loop was working toward.
-    pub fn want(&mut self, goal: Goal) {
+    /// `want`: a newer choice replaces whatever the loop was working toward. Each
+    /// call is its own choice, even when it names the same state.
+    pub fn want(&mut self, enabled: bool, save: bool) -> Goal {
+        self.next = self.next.saturating_add(1);
+        let goal = Goal::new(self.next, enabled, save);
         self.goal = Some(goal);
+        goal
     }
 
     pub fn current(&self) -> Option<Goal> {
@@ -73,18 +90,13 @@ impl SettingGoal {
         if self.applying == Some(enabled) {
             return None;
         }
-        let goal = Goal {
-            enabled,
-            save: true,
-        };
-        self.want(goal);
-        Some(goal)
+        Some(self.want(enabled, true))
     }
 
     /// The loop's tail after a step. A newer choice keeps it going, and devices
     /// that now match need no further work; `true` means it carries on.
     pub fn settle(&mut self, target: Goal, step: Step, devices_on: bool) -> bool {
-        if self.goal != Some(target) {
+        if self.goal.map(|goal| goal.id()) != Some(target.id()) {
             return true;
         }
         if step == Step::Devices && devices_on == target.enabled {
@@ -96,7 +108,7 @@ impl SettingGoal {
 
     /// A failure that is not busy: logged, and the goal it belonged to is over.
     pub fn failed(&mut self, target: Goal) {
-        if self.goal == Some(target) {
+        if self.goal.map(|goal| goal.id()) == Some(target.id()) {
             self.goal = None;
         }
     }
