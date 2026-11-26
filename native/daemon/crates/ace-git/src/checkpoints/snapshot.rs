@@ -140,6 +140,19 @@ pub async fn with_snapshot_index<'a, T>(
     operation(env, seeded).await
 }
 
+/// The capture for a caller that owns nothing below the root: each nested root is snapshotted
+/// directly, because the caller holds every lease the hierarchy needs (or holds none).
+pub struct DirectCapture<'a> {
+    pub port: &'a dyn CommandPort,
+    pub context: &'a SnapshotContext,
+}
+
+impl Capture for DirectCapture<'_> {
+    fn capture<'a>(&'a self, root: &'a str) -> BoxFuture<'a, Result<String, GitError>> {
+        Box::pin(async move { snapshot(self.port, self.context, root, None, self).await })
+    }
+}
+
 /// `snapshot`: the checkout's tree, nested repositories flattened into it.
 pub async fn snapshot(
     port: &dyn CommandPort,
