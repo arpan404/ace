@@ -16,7 +16,7 @@ use crate::tickets::{TicketLimits, TicketPool, default_ticket_limits};
 use crate::token::valid_token;
 
 /// A pairing link as `pairing` issues it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PairingTicket {
     pub id: String,
     pub code: String,
@@ -24,24 +24,62 @@ pub struct PairingTicket {
 }
 
 /// A redeemed link's answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RedeemedDevice {
     pub device: Device,
     pub token: String,
 }
 
 /// A ticket as `ticket` issues it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HandedTicket {
     pub ticket: String,
     pub expires_at: i64,
 }
 
 /// The ticket a welcome hands over, with its lifetime (`welcome.ticket`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HandedOver {
     pub ticket: String,
     pub ttl_ms: i64,
+}
+
+impl std::fmt::Debug for PairingTicket {
+    /// The code is a live credential: Debug names its presence, never its value.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PairingTicket")
+            .field("id", &self.id)
+            .field("code", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RedeemedDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RedeemedDevice")
+            .field("device", &self.device)
+            .field("token", &"<redacted>")
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for HandedTicket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandedTicket")
+            .field("ticket", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for HandedOver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandedOver")
+            .field("ticket", &"<redacted>")
+            .field("ttl_ms", &self.ttl_ms)
+            .finish()
+    }
 }
 
 type Listener = Arc<dyn Fn(&str) + Send + Sync>;
@@ -196,6 +234,15 @@ impl RemoteAuth {
             .collect()
     }
 
+    /// Tell every subscriber about `id`. One subscriber's panic cannot preserve another's
+    /// authority: the listeners after it still run, and the caller still finishes
+    /// (`devices.ts:410`-`:417`).
+    fn notify(&self, list: &Mutex<Vec<(u64, Listener)>>, id: &str) {
+        for listener in self.listeners(list) {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(id)));
+        }
+    }
+
     pub fn require_admin(&self, device: Option<&SessionActor>) -> Result<()> {
         match device {
             Some(device) if allows(device, Scope::Admin) => Ok(()),
@@ -254,9 +301,121 @@ mod tests {
         assert!(auth.on_revoke(Arc::clone(&noop)).is_err());
         auth.off_revoke(ids[0]);
         assert!(auth.on_revoke(Arc::clone(&noop)).is_ok());
-        // A credential replacement unsubscribes the same way.
-        let replaced = auth.on_credential_replaced(Arc::new(|_: &str| {})).unwrap();
+        // A credential replacement unsubscribes the same way: the listener hears the old
+        // credential's replacement, and nothing after it leaves.
+        let tablet = crate::remote_auth::support::pair_with(
+            &mut auth,
+            &[Scope::Read],
+            "Tablet",
+            Some("install-1"),
+            None,
+        );
+        let replaced_heard = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&replaced_heard);
+        let replaced = auth
+            .on_credential_replaced(Arc::new(move |device: &str| {
+                recorder.lock().unwrap().push(device.to_owned())
+            }))
+            .unwrap();
+        // Pairing the same install again replaces its one record's credential.
+        crate::remote_auth::support::pair_with(
+            &mut auth,
+            &[Scope::Read],
+            "Tablet",
+            Some("install-1"),
+            None,
+        );
+        assert_eq!(
+            *replaced_heard.lock().unwrap(),
+            vec![tablet.device.id.clone()]
+        );
         auth.off_credential_replaced(replaced);
+        crate::remote_auth::support::pair_with(
+            &mut auth,
+            &[Scope::Read],
+            "Tablet",
+            Some("install-1"),
+            None,
+        );
+        assert_eq!(
+            replaced_heard.lock().unwrap().len(),
+            1,
+            "an unsubscribed listener hears nothing"
+        );
+        // Its slot is free too: the replacement list takes its 32 again.
+        for _ in 0..32 {
+            auth.on_credential_replaced(Arc::clone(&noop)).unwrap();
+        }
+        assert!(auth.on_credential_replaced(Arc::clone(&noop)).is_err());
+    }
+
+    #[test]
+    fn a_panicking_revocation_listener_cannot_keep_another_from_closing_its_sessions() {
+        // One subscriber's own bug cannot preserve another's authority (`devices.ts:410`-`:417`):
+        // the listeners after it still run, and the revoke still returns.
+        let home = Home::new();
+        let mut auth = home.memory();
+        let paired =
+            crate::remote_auth::support::pair_with(&mut auth, &[Scope::Read], "Phone", None, None);
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&heard);
+        auth.on_revoke(Arc::new(|_: &str| panic!("one subscriber's own bug")))
+            .unwrap();
+        auth.on_revoke(Arc::new(move |device: &str| {
+            recorder.lock().unwrap().push(device.to_owned())
+        }))
+        .unwrap();
+        assert!(auth.revoke(&paired.device.id).unwrap());
+        assert_eq!(*heard.lock().unwrap(), vec![paired.device.id.clone()]);
+    }
+
+    #[test]
+    fn a_panicking_replacement_listener_cannot_keep_another_from_closing_its_sessions() {
+        let home = Home::new();
+        let mut auth = home.memory();
+        let first = crate::remote_auth::support::pair_with(
+            &mut auth,
+            &[Scope::Read],
+            "Phone",
+            Some("install-1"),
+            None,
+        );
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&heard);
+        auth.on_credential_replaced(Arc::new(|_: &str| panic!("one subscriber's own bug")))
+            .unwrap();
+        auth.on_credential_replaced(Arc::new(move |device: &str| {
+            recorder.lock().unwrap().push(device.to_owned())
+        }))
+        .unwrap();
+        crate::remote_auth::support::pair_with(
+            &mut auth,
+            &[Scope::Read],
+            "Phone",
+            Some("install-1"),
+            None,
+        );
+        assert_eq!(*heard.lock().unwrap(), vec![first.device.id.clone()]);
+    }
+
+    #[test]
+    fn debug_never_prints_a_code_a_token_or_a_ticket() {
+        let home = Home::new();
+        let mut auth = home.memory();
+        let issued = auth
+            .pairing(&[Scope::Read], &PairingTerms::default())
+            .unwrap();
+        assert!(!format!("{issued:?}").contains(&issued.code));
+        let redeemed = auth.redeem(&issued.code, "Phone", None, None).unwrap();
+        assert!(!format!("{redeemed:?}").contains(&redeemed.token));
+        let paired = auth.device_bearer(&redeemed.token).unwrap();
+        let handed = auth.ticket(&paired, "epoch").unwrap();
+        assert!(!format!("{handed:?}").contains(&handed.ticket));
+        let over = crate::remote_auth::HandedOver {
+            ticket: "a-live-ticket".to_owned(),
+            ttl_ms: 60_000,
+        };
+        assert!(!format!("{over:?}").contains("a-live-ticket"));
     }
 
     #[test]

@@ -72,9 +72,7 @@ impl RemoteAuth {
         let revoked = self.devices.revoke_install(id, self.now())?;
         for each in &revoked {
             self.tickets.revoke(each);
-            for listener in self.listeners(&self.revoked) {
-                listener(each);
-            }
+            self.notify(&self.revoked, each);
         }
         Ok(!revoked.is_empty())
     }

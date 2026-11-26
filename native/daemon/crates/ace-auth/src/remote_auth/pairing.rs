@@ -102,9 +102,7 @@ impl RemoteAuth {
         // The install's record got a new credential and scopes: what the old one opened ends.
         if let Some(held) = held {
             self.tickets.revoke(&held);
-            for listener in self.listeners(&self.replaced) {
-                listener(&held);
-            }
+            self.notify(&self.replaced, &held);
         }
         Ok(RedeemedDevice { device, token })
     }

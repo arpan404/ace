@@ -7,6 +7,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use ace_core::expiry_map::ExpiryMap;
+
 /// The three caps (`ticket-pool.ts:3`–`:12`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TicketLimits {
@@ -76,7 +78,6 @@ pub struct TicketBinding<'a> {
 struct Ticket {
     device_id: String,
     generation: String,
-    expires_at: i64,
     epoch: String,
 }
 
@@ -87,21 +88,36 @@ struct Rate {
 }
 
 /// The pool (`ticket-pool.ts:15`–`:88`). Keys are SHA-256 hashes; the plain ticket never enters.
-#[derive(Debug, Clone)]
+/// Tickets and rate windows live in the expiry heap `ticket-pool.ts` uses, so a lookup evicts only
+/// entries that are due: a miss with `n` live entries costs `log n`, never a walk of every one
+/// (`expiry-map.ts:40`–`:42`).
 pub struct TicketPool {
     limits: TicketLimits,
-    tickets: HashMap<String, Ticket>,
+    tickets: ExpiryMap<Ticket>,
     owned: HashMap<String, HashSet<String>>,
-    rates: HashMap<String, Rate>,
+    rates: ExpiryMap<Rate>,
+}
+
+impl std::fmt::Debug for TicketPool {
+    /// Outstanding counts only; no hash of a ticket is a credential, but a pool's size is what a
+    /// test or a diagnostic wants, and the entries stay private.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TicketPool")
+            .field("limits", &self.limits)
+            .field("tickets", &self.tickets.len())
+            .field("rates", &self.rates.len())
+            .field("devices", &self.owned.len())
+            .finish()
+    }
 }
 
 impl TicketPool {
     pub fn new(limits: TicketLimits) -> Self {
         Self {
             limits,
-            tickets: HashMap::new(),
+            tickets: ExpiryMap::new(),
             owned: HashMap::new(),
-            rates: HashMap::new(),
+            rates: ExpiryMap::new(),
         }
     }
 
@@ -140,16 +156,16 @@ impl TicketPool {
             return Err(IssueError::RateLimitExceeded);
         }
         rate.count += 1;
-        self.rates.insert(device_id.to_owned(), rate);
+        self.rates.set(device_id.to_owned(), rate, rate.resets_at);
         let expires_at = now + TICKET_TTL_MS;
-        self.tickets.insert(
+        self.tickets.set(
             key.to_owned(),
             Ticket {
                 device_id: device_id.to_owned(),
                 generation: generation.to_owned(),
-                expires_at,
                 epoch: epoch.to_owned(),
             },
+            expires_at,
         );
         self.owned
             .entry(device_id.to_owned())
@@ -176,7 +192,7 @@ impl TicketPool {
                 return None;
             }
         }
-        let ticket = self.tickets.remove(key)?;
+        let ticket = self.tickets.delete(key)?;
         self.disown(&ticket.device_id, key);
         Some(TicketRef {
             device_id: ticket.device_id,
@@ -189,10 +205,10 @@ impl TicketPool {
     pub fn revoke(&mut self, device_id: &str) {
         if let Some(keys) = self.owned.remove(device_id) {
             for key in keys {
-                self.tickets.remove(&key);
+                self.tickets.delete(&key);
             }
         }
-        self.rates.remove(device_id);
+        self.rates.delete(device_id);
     }
 
     /// How many tickets are outstanding now, for a cap check and for tests.
@@ -204,19 +220,13 @@ impl TicketPool {
         self.tickets.is_empty()
     }
 
+    /// Drop what is due at `now`. The heaps stop at the first unexpired entry, so this visits only
+    /// entries that actually ended (`expiry-map.ts:40`–`:42`).
     fn evict(&mut self, now: i64) {
-        let expired: Vec<String> = self
-            .tickets
-            .iter()
-            .filter(|(_, ticket)| ticket.expires_at <= now)
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in expired {
-            if let Some(ticket) = self.tickets.remove(&key) {
-                self.disown(&ticket.device_id, &key);
-            }
+        for (key, ticket) in self.tickets.expire(now) {
+            self.disown(&ticket.device_id, &key);
         }
-        self.rates.retain(|_, rate| rate.resets_at > now);
+        self.rates.expire(now);
     }
 
     fn disown(&mut self, device_id: &str, key: &str) {

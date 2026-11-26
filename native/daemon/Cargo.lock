@@ -102,6 +102,7 @@ dependencies = [
 name = "ace-auth"
 version = "0.1.0"
 dependencies = [
+ "ace-core",
  "ace-json",
  "ace-keys",
  "ace-store",

@@ -208,3 +208,34 @@ fn a_ticket_bound_to_another_epoch_or_device_is_left_as_it_was() {
     assert_eq!(spent.epoch, "relay-a");
     assert_eq!(pool.len(), 0);
 }
+
+#[test]
+fn a_miss_does_not_walk_every_live_ticket_and_rate_window() {
+    // `expiry-map.ts:40`-`:42`: the expiry heap stops at the first unexpired entry, so an
+    // unauthenticated hello's miss costs the heap's logarithm rather than an inspection of every
+    // outstanding ticket and rate window. Before the heap, twenty thousand live tickets and
+    // twenty thousand misses meant four hundred million comparisons and string hashes; with it
+    // they are a few thousand heap operations. The budget is wide enough for a slow machine and
+    // far below the scan, so it fails if a lookup starts walking the map again.
+    let mut pool = TicketPool::new(limits(50_000, 32, 120));
+    for index in 0..20_000 {
+        pool.issue(
+            &format!("live-{index}"),
+            &format!("device-{index}"),
+            "g",
+            1_000,
+            "",
+        )
+        .expect("inside the caps");
+    }
+    let started = std::time::Instant::now();
+    for index in 0..20_000 {
+        assert_eq!(pool.consume(&format!("miss-{index}"), 1_000, None), None);
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "a miss took {elapsed:?} with 20,000 live tickets"
+    );
+    assert_eq!(pool.len(), 20_000);
+}

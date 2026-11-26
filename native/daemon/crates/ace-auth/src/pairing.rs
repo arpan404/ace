@@ -13,12 +13,18 @@ pub mod link;
 
 pub use codes::{MemoryPairingCodes, PairingCodeStore, SqlitePairingCodes};
 
-/// A JSON number as an integer, as `PairingRequest`'s `ttlMs` readings take them.
-fn integer_field(value: Option<&Value>) -> Option<i64> {
-    match value {
-        Some(Value::Number(number)) => number.as_f64().map(|value| value as i64),
-        _ => None,
+/// A JSON number read as the integer a `PairingRequest` TTL must be. A string, a boolean or a
+/// fraction is `None`, which `parse` turns into the schema's refusal rather than a default: zod's
+/// literal unions reject `"300000"` and `300000.5` alike (`remote.ts:34`-`:50`).
+fn integer_field(value: &Value) -> Option<i64> {
+    let Value::Number(number) = value else {
+        return None;
+    };
+    let number = number.as_f64()?;
+    if !number.is_finite() || number.fract() != 0.0 {
+        return None;
     }
+    Some(number as i64)
 }
 pub use link::pairing_link_url;
 
@@ -117,15 +123,17 @@ impl PairingRequest {
             }
             Some(_) => return None,
         };
-        let ttl_ms = match integer_field(object.get("ttlMs")) {
+        let ttl_ms = match object.get("ttlMs") {
             None => None,
-            Some(value) if LINK_TTLS.contains(&value) => Some(value),
-            Some(_) => return None,
+            Some(value) => match integer_field(value) {
+                Some(ttl) if LINK_TTLS.contains(&ttl) => Some(ttl),
+                _ => return None,
+            },
         };
         let device_ttl_ms = match object.get("deviceTtlMs") {
             None | Some(Value::Null) => None,
-            other => match integer_field(other) {
-                Some(value) if DEVICE_TTLS.contains(&value) => Some(value),
+            Some(value) => match integer_field(value) {
+                Some(ttl) if DEVICE_TTLS.contains(&ttl) => Some(ttl),
                 _ => return None,
             },
         };
@@ -160,12 +168,25 @@ pub struct RelayRoute {
 }
 
 /// One pairing link as `POST /v1/pairings` and `fleet.request` issue it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct IssuedPairing {
     pub id: String,
     pub url: String,
     pub code: String,
     pub expires_at: i64,
+}
+
+impl std::fmt::Debug for IssuedPairing {
+    /// The code is a live credential, and the URL carries it in its fragment: Debug names only
+    /// what a log may repeat.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IssuedPairing")
+            .field("id", &self.id)
+            .field("url", &"<redacted>")
+            .field("code", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 /// The scope names a refusal quotes (`pairing-issue.ts:26`).
@@ -218,5 +239,31 @@ mod tests {
             PairingRequest::parse(&ace_json::parse(&format!("{{\"label\":\"{long}\"}}")).unwrap())
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_lifetime_must_be_one_of_the_schemas_integers_never_a_string_or_a_fraction() {
+        // `remote.ts:34`-`:50`'s literal unions: a string TTL is not 300000, and 300000.5 is not
+        // either, so `pairing-issue.ts:58` answers `400 Invalid scopes` instead of defaulting or
+        // truncating.
+        let parsed = |body: &str| PairingRequest::parse(&ace_json::parse(body).unwrap());
+        for body in [
+            "{\"ttlMs\":\"300000\"}",
+            "{\"ttlMs\":300000.5}",
+            "{\"ttlMs\":true}",
+            "{\"deviceTtlMs\":\"86400000\"}",
+            "{\"deviceTtlMs\":86400000.5}",
+        ] {
+            assert!(parsed(body).is_none(), "{body}");
+        }
+        assert_eq!(parsed("{\"ttlMs\":300000}").unwrap().ttl_ms, Some(300_000));
+        assert_eq!(
+            parsed("{\"deviceTtlMs\":86400000}").unwrap().device_ttl_ms,
+            Some(86_400_000)
+        );
+        // Omitted or null: the paired device keeps access until revoked.
+        let null = parsed("{\"deviceTtlMs\":null}").unwrap();
+        assert_eq!(null.device_ttl_ms, None);
+        assert_eq!(null.ttl_ms, None);
     }
 }
