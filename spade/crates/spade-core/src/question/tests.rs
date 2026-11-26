@@ -148,6 +148,7 @@ fn every_kind_is_taken_with_its_own_fields_and_the_old_form_is_one_text_question
             id: None,
             prompt: "Which city?".into(),
             kind: Kind::Text { placeholder: None },
+            default: None,
         }]
     );
     assert!(!ask(json!({ "question": "Later?", "wait": false })).wait);
@@ -618,4 +619,103 @@ fn a_card_left_for_later_counts_each_of_its_questions() {
         late: true,
     }));
     assert_eq!(for_later(&events), 0);
+}
+
+#[test]
+fn non_blocking_flag_and_stated_defaults_carry_on_while_blocking_stays_blocking() {
+    // Explicit `blocking: false` doesn't block even with no defaults.
+    let non_blocking = ask(json!({
+        "questions": [{ "prompt": "Any notes?", "kind": "text" }],
+        "blocking": false,
+    }));
+    assert!(!non_blocking.wait);
+    assert_eq!(asked_for_later(&non_blocking.questions), ASKED_FOR_LATER);
+
+    // Every question stating a valid default makes the call non-blocking when neither flag is set.
+    let defaulted = ask(json!({ "questions": [
+        { "prompt": "Format?", "kind": "choice", "options": ["Markdown", "HTML"], "default": "markdown" },
+        { "prompt": "Include appendix?", "kind": "confirm", "default": true },
+        { "prompt": "Max pages?", "kind": "number", "min": 1, "max": 20, "unit": "pages", "default": 5.0 },
+    ] }));
+    assert!(!defaulted.wait);
+    assert_eq!(defaulted.questions[0].default, Some(json!("Markdown")));
+    assert_eq!(defaulted.questions[1].default, Some(json!(true)));
+    assert_eq!(defaulted.questions[2].default, Some(json!(5)));
+    let reply = asked_for_later(&defaulted.questions);
+    assert!(
+        reply.contains("Carry on with your stated default"),
+        "{reply}"
+    );
+    assert!(reply.contains("Format?\nDefault: Markdown"), "{reply}");
+    assert!(reply.contains("Include appendix?\nDefault: yes"), "{reply}");
+    assert!(reply.contains("Max pages?\nDefault: 5 pages"), "{reply}");
+
+    // Legacy `question` with `default` also carries on without blocking.
+    let legacy = ask(json!({ "question": "Which branch?", "default": "main" }));
+    assert!(!legacy.wait);
+    assert_eq!(legacy.questions[0].default, Some(json!("main")));
+
+    // Partial defaults still block: Q2 has no default to proceed with.
+    let partial = ask(json!({ "questions": [
+        { "prompt": "Format?", "kind": "choice", "options": ["Markdown", "HTML"], "default": "Markdown" },
+        { "prompt": "Recipient?", "kind": "text" },
+    ] }));
+    assert!(partial.wait);
+
+    // Explicit `blocking: true` or `wait: true` stays blocking even when defaults are stated.
+    let explicit_block = ask(json!({
+        "questions": [{ "prompt": "Deploy target?", "kind": "choice", "options": ["staging", "prod"], "default": "staging" }],
+        "blocking": true,
+    }));
+    assert!(explicit_block.wait);
+    assert_eq!(explicit_block.questions[0].default, Some(json!("staging")));
+
+    // Invalid defaults and conflicting `blocking`/`wait` are refused clearly.
+    assert!(refused(json!({ "question": "Ok?", "blocking": "no" })).contains("`blocking`"));
+    assert!(
+        refused(json!({ "question": "Ok?", "blocking": false, "wait": true })).contains("not both")
+    );
+    assert!(
+        refused(json!({ "questions": [
+            { "prompt": "Pages?", "kind": "number", "min": 1, "max": 5, "default": 99 }
+        ] }))
+        .contains("`default`")
+    );
+    assert!(
+        refused(json!({ "questions": [
+            { "prompt": "Ship?", "kind": "confirm", "default": "yes" }
+        ] }))
+        .contains("`default`")
+    );
+}
+
+#[test]
+fn defaults_round_trip_and_call_result_names_them_after_restart() {
+    let args = json!({ "questions": [
+        { "prompt": "Format?", "kind": "choice", "options": ["Markdown", "HTML"], "default": "Markdown" }
+    ] });
+    let parsed = ask(args);
+    assert!(!parsed.wait);
+    let event = k(Known::QuestionAsked {
+        lane: None,
+        reply: "r1".into(),
+        call_id: "q1".into(),
+        question: parsed.summary(),
+        questions: parsed.questions.clone(),
+        later: true,
+    });
+    assert_eq!(Event::from_json(event.to_json()), event);
+    assert_eq!(event.to_json()["questions"][0]["default"], "Markdown");
+
+    let events = vec![
+        Event::user_message("Write the report"),
+        Event::reply_started("r1", "m"),
+        event,
+        k(Known::QuestionDeferred {
+            call_id: "q1".into(),
+            by_bot: true,
+        }),
+    ];
+    let result = call_result(&events, "q1").sure();
+    assert!(result.contains("Default: Markdown"), "{result}");
 }

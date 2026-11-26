@@ -169,9 +169,11 @@ export {
   type ThreadWrite,
 } from "./row-snapshots.ts";
 export {
+  deviceRetention,
   expiredSnapshots,
   snapshotRetention,
   type KeptSnapshot,
   type RetentionPolicy,
 } from "./snapshot-retention.ts";
+export { archiveMemoryBytes, type ArchiveOptions } from "./thread-archives.ts";
 export { itemFinished } from "./item-finished.ts";

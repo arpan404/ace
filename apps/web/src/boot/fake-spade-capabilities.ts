@@ -18,11 +18,13 @@ export function seedFakeCapabilities(
     id: "lark",
     name: "Linux repro",
     task: "Reproduce #2081's Linux failure and find why it times out there.",
+    model: here.newBotModel ?? "openrouter/anthropic/claude-sonnet-5.5",
   });
   const release = here.addAgent({
     id: "release",
     name: "Release notes",
     task: "Keep the release notes for the relay work.",
+    model: here.newBotModel ?? "openrouter/anthropic/claude-sonnet-5.5",
   });
 
   // Its goal and plan as Work shows them: what the goal and check lines below open.

@@ -1,7 +1,7 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { openSettingsPage, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 /*
  * Spade's screens name their parts for Suits (ADR 0150, docs/design/suit-parts.md): each bubble
@@ -101,24 +101,24 @@ test("Spade's own replies are Spade's, not a bot's", async () => {
 });
 
 test("a bot's profile names its panel, head, title, segments and face", async () => {
-  await spadeApp("/spade/garden?profile=details", seed);
+  await spadeApp("/spade/garden?profile=work", seed);
   const profile = await screen.findByRole("region", { name: "Garden's profile" });
   expect(profile.getAttribute("data-part")).toBe("right-panel");
   expect(partOf(within(profile).getByRole("button", { name: "Rename Garden" })).part).toBe(
     "page-title",
   );
-  expect(partOf(within(profile).getByRole("tab", { name: "Details" }))).toEqual({
+  expect(partOf(within(profile).getByRole("tab", { name: "Activity" }))).toEqual({
     part: "segment",
     state: "selected",
-    variant: "details",
+    variant: "activity",
   });
   await waitFor(() =>
-    expect(missing(["page-header", "page-title", "segmented", "panel-body", "avatar"])).toEqual([]),
+    expect(missing(["page-title", "segmented", "panel-body", "avatar"])).toEqual([]),
   );
 });
 
 test("a bot's activity rows say how each step went", async () => {
-  await spadeApp("/spade/garden?profile=work", (spade) => {
+  await spadeApp("/spade/garden?profile=details", (spade) => {
     seed(spade);
     const at = Date.UTC(2026, 10, 12, 9, 30);
     const entry = (seq: number, fields: Record<string, unknown>) => ({
@@ -135,6 +135,7 @@ test("a bot's activity rows say how each step went", async () => {
       entry(1, { kind: "tool", name: "web_search", summary: "a query", outcome: "ok" }),
     ]);
   });
+  await openSettingsPage("Activity and safety");
   const list = await screen.findByRole("list", { name: "Activity" });
   expect(list.getAttribute("data-part")).toBe("list");
   await waitFor(() =>

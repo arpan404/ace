@@ -35,6 +35,13 @@ const openCodeServices = [
   { id: "other", label: "Other provider" },
 ];
 
+/** Claude Code's sign-in methods, as the daemon offers them from `claude auth login --help`. */
+const claudeMethods = [
+  { id: "claudeai", label: "Claude subscription" },
+  { id: "console", label: "Anthropic Console (API usage billing)" },
+  { id: "sso", label: "Single sign-on (SSO)" },
+];
+
 /** `paste_code`: Claude Code's own flow, a browser opened here plus a fallback page's code. */
 type Scenario = "device_code" | "browser" | "choice" | "failure" | "paste_code";
 /** Claude's fallback page: it shows `code#state`, pasted back into the CLI. */
@@ -345,6 +352,12 @@ export class FakeProviderLogin {
           state: "awaiting_api_key",
           prompt: "Enter the API key for this account.",
         });
+      else if (scenario === "choice" && input.provider === "claude")
+        this.update(job, {
+          state: "awaiting_input",
+          prompt: "Choose how to sign in to Claude Code.",
+          choices: claudeMethods,
+        });
       else if (scenario === "choice")
         this.update(job, {
           state: "awaiting_input",
@@ -473,7 +486,7 @@ export class FakeProviderLogin {
             state: "awaiting_input",
             manual: { action: "open_terminal", ...steps, terminalId },
           });
-        }
+        } else this.challenge(job);
       } else this.challenge(job);
     }
     reply(job);

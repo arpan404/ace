@@ -89,7 +89,7 @@
     },
     "waitSeconds": {
       "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
-      "description": "Wait for results, as wait does. Omit to return at once."
+      "description": "Wait for results. Omit to return at once."
     }
   },
   "required": [

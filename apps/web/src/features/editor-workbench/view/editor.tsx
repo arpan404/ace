@@ -38,6 +38,10 @@ export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLay
   onNeedRoom?: ((width: number) => void) | undefined;
   /** Shared caret/status store so sibling explorer views (Outline) follow the caret without re-rendering panes. */
   statusStore?: StatusStore | undefined;
+  /** Omit tab strip, breadcrumbs and status line (clean single-file reader in a narrow panel). */
+  hideChrome?: boolean | undefined;
+  /** Extra classes on desktop chrome bars (e.g. container-query hiding). */
+  chromeClassName?: string | undefined;
 }
 
 /**
@@ -102,6 +106,8 @@ export function Editor(props: EditorProps) {
         stripLead={leadOf(group)}
         folded={folded.has(group.id)}
         statusStore={status}
+        hideChrome={props.hideChrome}
+        chromeClassName={props.chromeClassName}
       />
     );
   };
@@ -113,7 +119,7 @@ export function Editor(props: EditorProps) {
       aria-label="Editor"
       data-part="editor"
       data-stacked={shown.root === layout.root ? undefined : ""}
-      className={`flex h-full min-h-0 min-w-0 flex-col bg-background ${sceneThrough}`}
+      className={`flex h-full min-h-0 min-w-0 flex-col ${props.hideChrome ? "bg-transparent" : "bg-background"} ${sceneThrough}`}
       onKeyDown={(event) => {
         const number = groupKey(event);
         if (number === undefined) return;
@@ -145,7 +151,14 @@ export function Editor(props: EditorProps) {
           onEven={(at) => onLayoutChange(evenSplit(layout, at))}
         />
       </div>
-      <FocusedStatusLine store={status} group={focused.id} notice={props.statusNotice} />
+      {!props.hideChrome && (
+        <FocusedStatusLine
+          store={status}
+          group={focused.id}
+          notice={props.statusNotice}
+          className={props.chromeClassName}
+        />
+      )}
     </div>
   );
 }
@@ -157,8 +170,15 @@ function FocusedStatusLine(props: {
   store: StatusStore;
   group: string;
   notice: StatusNotice | undefined;
+  className?: string | undefined;
 }) {
-  return <StatusLine report={useStatusReport(props.store, props.group)} notice={props.notice} />;
+  return (
+    <StatusLine
+      report={useStatusReport(props.store, props.group)}
+      notice={props.notice}
+      className={props.className}
+    />
+  );
 }
 
 /** ⌘1–⌘9 on macOS, Ctrl+1–9 elsewhere; ⌥ is allowed too, for the web's ⌥⌘ variant. */

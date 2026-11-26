@@ -47,6 +47,10 @@ export function GroupView(props: {
   folded?: boolean;
   /** Pane status store so breadcrumbs follow the caret without re-rendering the group. */
   statusStore?: StatusStore | undefined;
+  /** Omit the tab strip and breadcrumb bar (e.g. single-file reader in a narrow panel). */
+  hideChrome?: boolean | undefined;
+  /** Extra classes on the strip and breadcrumb bars (e.g. container-query hiding). */
+  chromeClassName?: string | undefined;
 }) {
   const { group, host, actions } = props;
   const path = group.active;
@@ -91,44 +95,54 @@ export function GroupView(props: {
       data-folded={props.folded ? "" : undefined}
       // Its wrapper in the split sets its height (a folded pane's is its strip's); across, it
       // always fills.
-      className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", sceneThrough)}
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col",
+        props.hideChrome ? "bg-transparent" : "bg-background",
+        sceneThrough,
+      )}
       onFocusCapture={actions.focus}
       onPointerDownCapture={actions.focus}
     >
-      <TabStrip
-        group={group}
-        focused={props.focused}
-        buffers={host.buffers}
-        actions={actions}
-        lead={props.stripLead}
-        tabMenuItems={host.tabMenuItems}
-        threadId={host.threadId}
-      />
+      {!props.hideChrome && (
+        <TabStrip
+          group={group}
+          focused={props.focused}
+          buffers={host.buffers}
+          actions={actions}
+          lead={props.stripLead}
+          tabMenuItems={host.tabMenuItems}
+          threadId={host.threadId}
+          className={props.chromeClassName}
+        />
+      )}
       {/* Folded in a stacked accordion: the strip alone, a click away from opening. */}
       {!props.folded && (
         <>
-          <GroupBreadcrumbs
-            groupId={group.id}
-            path={path}
-            buffer={load?.kind === "ready" ? buffer : undefined}
-            textStart={textStart}
-            statusStore={props.statusStore}
-            onRevealSymbol={
-              path !== undefined && host.onRevealSymbol
-                ? (symbol) => host.onRevealSymbol?.(group.id, path, symbol)
-                : undefined
-            }
-            end={
-              path !== undefined &&
-              markdown &&
-              load?.kind === "ready" && (
-                <MarkdownChoice
-                  value={markdown}
-                  onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
-                />
-              )
-            }
-          />
+          {!props.hideChrome && (
+            <GroupBreadcrumbs
+              groupId={group.id}
+              path={path}
+              buffer={load?.kind === "ready" ? buffer : undefined}
+              textStart={textStart}
+              statusStore={props.statusStore}
+              className={props.chromeClassName}
+              onRevealSymbol={
+                path !== undefined && host.onRevealSymbol
+                  ? (symbol) => host.onRevealSymbol?.(group.id, path, symbol)
+                  : undefined
+              }
+              end={
+                path !== undefined &&
+                markdown &&
+                load?.kind === "ready" && (
+                  <MarkdownChoice
+                    value={markdown}
+                    onChange={(next) => actions.setView(path, { ...tab?.view, markdown: next })}
+                  />
+                )
+              }
+            />
+          )}
           <div
             ref={setArea}
             data-part="buffer-editor"
@@ -292,6 +306,7 @@ function GroupBreadcrumbs(props: {
   statusStore: StatusStore | undefined;
   onRevealSymbol?: ((symbol: OutlineSymbol) => void) | undefined;
   end?: ReactNode;
+  className?: string | undefined;
 }) {
   const report = useStatusReport(props.statusStore ?? inertStatusStore, props.groupId);
   const { symbols } = useFileOutline(props.buffer, report?.status.language ?? props.path);
@@ -303,6 +318,7 @@ function GroupBreadcrumbs(props: {
       caretLine={report?.status.line}
       onRevealSymbol={props.onRevealSymbol}
       end={props.end}
+      className={props.className}
     />
   );
 }

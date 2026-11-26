@@ -10,7 +10,7 @@ import {
   type ProtectionFacts,
 } from "./ownership.ts";
 import { treeProtections } from "./delegation-trees.ts";
-import { transcriptBytes, transcriptQueries } from "./transcript.ts";
+import { TranscriptReader, type TranscriptReaderOptions } from "./transcript-reader.ts";
 
 export interface StorageScan {
   candidates: OwnedStorageCandidate[];
@@ -23,33 +23,42 @@ export class StorageInventory {
   readonly files: StorageFiles;
   readonly managed: ManagedWorktrees;
   private owner: StorageOwner;
-  constructor(owner: StorageOwner) {
+  private transcripts: TranscriptReader;
+  private stopped = false;
+  constructor(owner: StorageOwner, transcripts: TranscriptReaderOptions = {}) {
     this.owner = owner;
     this.files = new StorageFiles(owner);
     this.managed = new ManagedWorktrees(owner.store, owner.root);
+    this.transcripts = new TranscriptReader(owner.root, transcripts);
   }
-  async thread(
-    id: ThreadId,
-    queries?: readonly string[],
-    going: () => boolean = () => true,
-  ): Promise<OwnedStorageCandidate | undefined> {
+  stop(): void {
+    this.stopped = true;
+    this.transcripts.stop();
+  }
+  async close(): Promise<void> {
+    this.stop();
+    let failure: unknown;
+    try {
+      await this.transcripts.closed();
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await this.files.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure !== undefined) throw failure;
+  }
+  async thread(id: ThreadId): Promise<OwnedStorageCandidate | undefined> {
     // Measure first: it yields to the loop. Ownership and protections are read after the last
     // await, so the candidate never carries protections older than its size.
-    const bytes = await this.measure(id, queries, going);
+    const [bytes] = await this.measure([id]);
     return this.threadCandidate(id, bytes, loadProtectionFacts(this.owner, [id]));
   }
-  private measure(
-    id: ThreadId,
-    queries: readonly string[] | undefined,
-    going: () => boolean,
-  ): Promise<number | undefined> {
-    const { store } = this.owner;
-    return transcriptBytes(
-      (sql) => store.statement(sql),
-      id,
-      queries ?? store.atomic((db) => transcriptQueries(db)),
-      going,
-    );
+  private measure(ids: readonly ThreadId[]): Promise<number[]> {
+    this.owner.store.flushLiveWrites();
+    return this.transcripts.read(ids);
   }
   /** Synchronous: callers read `facts` after their last await. */
   private threadCandidate(
@@ -240,8 +249,8 @@ export class StorageInventory {
   }
   /**
    * Candidates of the requested kinds only. `complete` speaks for those kinds: a checkout Git
-   * cannot inspect never makes a thread or log pass look unfinished. Thread sizes are measured
-   * one statement per macrotask, so a long history never holds the event loop for the scan.
+   * cannot inspect never makes a thread or log pass look unfinished. The usage process measures
+   * the transcripts while the daemon keeps serving requests.
    * Once `going` turns false (the daemon is stopping) the scan ends early, incomplete.
    */
   async scan(
@@ -258,28 +267,20 @@ export class StorageInventory {
         ORDER BY COALESCE(archived_at,updated_at),id LIMIT 257`)
         .all();
       if (threads.length > 256) complete = false;
-      const queries = store.atomic((db) => transcriptQueries(db));
-      const measured: [ThreadId, number | undefined][] = [];
-      let stopped = false;
-      for (const row of threads.slice(0, 256)) {
-        const id = ThreadId.parse(row.id);
-        measured.push([id, await this.measure(id, queries, going)]);
-        if (!going()) {
-          stopped = true;
-          break;
-        }
-      }
+      const ids = threads.slice(0, 256).map((row) => ThreadId.parse(row.id));
+      if (!going()) return { candidates, complete: false };
+      const sizes = await this.measure(ids).catch((error: unknown) => {
+        if (this.stopped) return [];
+        throw error;
+      });
+      if (!going() || this.stopped) return { candidates, complete: false };
       // Ownership and protections for the whole page are read once, after the last
       // measurement, so no candidate carries protections older than its size.
-      const facts = loadProtectionFacts(
-        this.owner,
-        measured.map(([id]) => id),
-      );
-      for (const [id, bytes] of measured) {
-        const candidate = this.threadCandidate(id, bytes, facts);
+      const facts = loadProtectionFacts(this.owner, ids);
+      for (const [index, id] of ids.entries()) {
+        const candidate = this.threadCandidate(id, sizes[index], facts);
         if (candidate) candidates.push(candidate);
       }
-      if (stopped) return { candidates, complete: false };
     }
     if (!going()) return { candidates, complete: false };
     if (kinds.has("attachments") && services.context) {

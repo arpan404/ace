@@ -191,8 +191,8 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   reads a `<routed>` note there. A message written in a lane's own conversation (`POST
 /v1/conversations/{lane}/messages`, `202`) steers it, or opens its next reply once it ended.
 - **Main's long work** moves to a lane by itself ([harness.md](harness.md), "Task lanes"); main
-  stores `reply_moved {reply, lane, title, asks, jobs, kept_jobs, wakes}` and the app writes
-  Spade's plain line for it. The reply's background jobs (a helper's row with them) and its
+  stores `reply_moved {reply, lane, title, asks, jobs, kept_jobs, wakes}` and the app shows the task's card
+  where it started, with no line of words for the move. The reply's background jobs (a helper's row with them) and its
   wakes move to the lane; ace's `delegate`/`wait` and contract calls stay with main, which reads
   a `<moved>` note asking it to pass their results on. A moved lane is named by the `title` role
   in the background (`lane_titled {lane, title}`), keeping the person's first line on failure.

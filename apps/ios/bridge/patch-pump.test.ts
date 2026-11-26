@@ -43,6 +43,25 @@ test("a single streaming change waits a moment so the next deltas can share its 
   expect(native.frames.map((frame) => frame.id)).toEqual(["item-2", "item-3"]);
 });
 
+test("a large inbox waits behind its reset without polling the host clock per row", async () => {
+  const queue = pump();
+  const clock = vi.spyOn(host, "now");
+  try {
+    queue.put("inbox:reset", () => ({ type: "inbox.reset" }));
+    clock.mockClear();
+    for (let index = 0; index < 1000; index++)
+      queue.put(`inbox:${index}`, () => ({ type: "inbox.row", id: String(index) }));
+    expect(clock.mock.calls.length).toBeLessThan(10);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(native.frames[0]?.type).toBe("inbox.reset");
+    expect(native.frames.slice(1).map((frame) => frame.id)).toEqual(
+      Array.from({ length: 1000 }, (_, index) => String(index)),
+    );
+  } finally {
+    clock.mockRestore();
+  }
+});
+
 test("a transcript reaches the phone while the inbox keeps changing", async () => {
   const queue = pump();
   // A busy inbox: forty rows that change again before every frame is acknowledged.

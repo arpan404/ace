@@ -296,7 +296,7 @@ struct WorkBlockView: View {
                 LogRowBox(open: expanded) {
                     Text(row.work?.label ?? "Worked")
                         .aceFont(AceDesign.TextRole.meta)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 }
             }
             .buttonStyle(.plain)

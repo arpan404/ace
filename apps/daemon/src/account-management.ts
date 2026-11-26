@@ -35,7 +35,12 @@ import {
 } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
-import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
+import {
+  createManagedHome,
+  deleteManagedHome,
+  prepareOpenCodeHome,
+  registerImplicitAccounts,
+} from "./account-homes.ts";
 import { refreshCliLimits, type CliUsageProvider, type ReadCliUsage } from "./account-limits.ts";
 import { consumeAccountReset, type ConsumeReset } from "./account-reset.ts";
 import type { AccountResetOutcome } from "@ace/protocol/accounts";
@@ -70,6 +75,8 @@ export interface AccountManagementOptions {
   accounts: AccountService;
   dataDir: string;
   env: NodeJS.ProcessEnv;
+  /** The host platform arm's folder checks follow; the daemon passes `process.platform`. */
+  platform: NodeJS.Platform;
   now(): number;
   id(): string;
   models(): ModelCatalog | undefined;
@@ -180,8 +187,16 @@ export class AccountManagement {
   }
   private async restoreManaged(instance: ProviderInstance): Promise<void> {
     this.options.signal?.throwIfAborted();
-    if (this.options.configuration?.(instance.provider, instance.id).enabled === false) return;
+    // Never repair a home whose identity hasn't been checked: a symlink swapped in must refuse.
     await assertManagedHome(this.options.dataDir, instance);
+    // A managed OpenCode home whose folders lost their owner's access cannot start its CLI.
+    if (instance.provider === "opencode" && instance.managed)
+      try {
+        await prepareOpenCodeHome(instance.homeDir, this.options.platform);
+      } catch {
+        // Startup never waits on a folder ace cannot repair; discovery reports the account.
+      }
+    if (this.options.configuration?.(instance.provider, instance.id).enabled === false) return;
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     if (instance.provider === "cursor" && !sdk) return;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
@@ -283,7 +298,13 @@ export class AccountManagement {
     shortLabel?: string,
   ): Promise<string> {
     const id = `account-${this.options.id()}`;
-    const instance = await createManagedHome(this.options.dataDir, id, provider, label);
+    const instance = await createManagedHome(
+      this.options.dataDir,
+      id,
+      provider,
+      label,
+      this.options.platform,
+    );
     try {
       await this.options.registry.registerPending({
         ...instance,
@@ -353,6 +374,7 @@ export class AccountManagement {
         id,
         request.provider,
         request.label,
+        this.options.platform,
       );
       try {
         await registry.register({
@@ -742,9 +764,19 @@ export class AccountManagement {
         cwd: instance.implicit ? this.options.dataDir : instance.homeDir,
         // Masked credentials stay unset; an empty CURSOR_API_KEY would sign Cursor out.
         ...catalogEnvironment(env),
+        // A managed OpenCode account has no service of its own; the implicit one has the person's.
+        ...(instance.provider === "opencode" && instance.managed ? { isolatedService: true } : {}),
         loginRevision: this.options.registry.get(instance.id)?.instance.loginRevision ?? "0",
       },
-      instance.implicit ? undefined : () => assertManagedHome(this.options.dataDir, instance),
+      instance.implicit
+        ? undefined
+        : async () => {
+            await assertManagedHome(this.options.dataDir, instance);
+            // Every discovery attempt starts from a usable folder: OpenCode 2.4.1 can strip a
+            // managed home's owner access while ace runs (issue #2784).
+            if (instance.provider === "opencode" && instance.managed)
+              await prepareOpenCodeHome(instance.homeDir, this.options.platform);
+          },
     );
   }
 

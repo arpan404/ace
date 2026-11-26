@@ -1,4 +1,9 @@
-import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
+import {
+  hasRunningForegroundCommand,
+  hasRunningForegroundCommandInTree,
+  type Fact,
+  type ThreadState,
+} from "@ace/core";
 import type { InputSource, ProviderSession } from "@ace/engine-api";
 import type { Capabilities } from "@ace/protocol";
 import type { IntentHeader } from "./repository.ts";
@@ -72,9 +77,10 @@ export function yieldInFlight(state: ThreadState, yielded: SteerYield | undefine
  * person's steer goes in; anything else waits for the command to end. Where the provider's
  * steer restarts the turn (Cursor, ACP), anything but a person's steer waits for the turn to end,
  * so another agent's message never stops the work. For `steerViaCancel` sessions (ACP), the
- * steering lane only cancels the running turn (`yield`); once idle, the sends lane delivers the
- * prompt so the steering lane stays free to cancel that turn on a later steer. While an interrupt
- * winds down, every steer waits for that turn to end.
+ * steering lane cancels the running turn (`yield`) only while no foreground command runs, since
+ * the agent's cancel would kill it; once idle, the sends lane delivers the prompt so the steering
+ * lane stays free to cancel that turn on a later steer. While an interrupt winds down, every steer
+ * waits for that turn to end.
  */
 export function steerRoute(
   steer: { person: boolean },
@@ -88,6 +94,9 @@ export function steerRoute(
   if (!steer.person && steerRestartsTurn(capabilities) && run !== undefined) return undefined;
   if (session.steerViaCancel) {
     if (run === undefined) return undefined;
+    // The agent's cancel would kill the running command, so the steer waits for it, the root's
+    // and its native children's alike, since one cancel stops them all.
+    if (hasRunningForegroundCommandInTree(state)) return undefined;
     return yielded?.run === run ? undefined : "yield";
   }
   if (!hasRunningForegroundCommand(state)) return "native";

@@ -1,16 +1,17 @@
 import {
   spadeForLaterWords,
-  spadeLaneLive,
+  spadeAgentTasks,
   spadeLiveSurfaces,
   spadeModelState,
   spadeSentText,
   spadeStateLine,
   spadeTaskLine,
   type SpadeQuote,
+  type SpadeTaskLine,
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { SidebarSimpleIcon, XIcon } from "@ace/icons";
+import { XIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
@@ -25,12 +26,10 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
+import { slashActions } from "./spade-slash-actions.ts";
 import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill, PillEdge, PillRow } from "./spade-pill.tsx";
-import { LanesPill } from "./lanes/lane-list.tsx";
-import { LanesContext } from "./lanes/lanes-context.ts";
-import { useMainLanes } from "./lanes/use-main-lanes.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import {
@@ -40,7 +39,7 @@ import {
   type ComputerView,
   type ProfileTab,
 } from "./computer/panel-place.ts";
-import { ProfileStripActions, SpadeProfile } from "./spade-profile.tsx";
+import { ProfileShareButton, SpadeProfile } from "./spade-profile.tsx";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
 import {
   ConversationSkeleton,
@@ -55,6 +54,7 @@ import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
 import { stopSpeaking } from "./spade-speech.ts";
+import { SpadeAttachmentActionsContext } from "./spade-attachment-actions.ts";
 import { BotVoiceContext, useBotSpeech, useSpokenReplies } from "./use-spoken-replies.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
@@ -65,7 +65,12 @@ import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
 import { panelReveal } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useBotPanels } from "./panels/panels-api.ts";
-import { spadePanelState, spadeWorkingPhrase } from "@ace/ui-core/spade-chat";
+import {
+  spadePanelState,
+  spadeWorkingPhrase,
+  type SpadeDocumentRef,
+} from "@ace/ui-core/spade-chat";
+import type { SpadeAttachmentActions } from "./spade-attachment-actions.ts";
 
 /** A package's panel (ADR 0200 §5.2) loads its sandbox the first time one opens. */
 const BotPanelView = lazy(() =>
@@ -143,8 +148,6 @@ export function Conversation(props: {
       search: botSearch(bot, to),
       replace,
     });
-  // Its tasks (ADR 0217): the pill beside its own, and the lines in its chat, open each one.
-  const lanes = useMainLanes(bot, view, (lane) => go({ task: lane }));
   /** Computer, on what it shows (and where its files are). */
   const openComputer = (shows: ComputerView, files?: FilesAt) =>
     go({
@@ -152,6 +155,20 @@ export function Conversation(props: {
       computer: shows,
       ...(files ? { files: files.folder, ...(files.file ? { file: files.file } : {}) } : {}),
     });
+  // A document opened from the chat shows in the side panel's reader (a new nonce each time).
+  const [reading, setReading] = useState<{ document: SpadeDocumentRef; nonce: number }>();
+  const attachmentActions = useMemo<SpadeAttachmentActions>(
+    () => ({
+      openDocument: (document) => {
+        setReading((last) => ({ document, nonce: (last?.nonce ?? 0) + 1 }));
+        go({ profile: "work" });
+      },
+      showInLibrary: () => go({ profile: "library" }),
+    }),
+    // `go` only reads the bot and the router; the actions follow the bot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bot.id, bot.machine.key],
+  );
   const closePanel = () => {
     writePanel(storage(), memoryKey, { ...readPanel(storage(), memoryKey), open: false });
     go({});
@@ -188,18 +205,24 @@ export function Conversation(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, props.computer, memoryKey]);
   // A task it carries on by itself: its line stays between replies, and Stop with it.
-  const task = spadeTaskLine(
+  const ownTask = spadeTaskLine(
     bot.name,
     bot.progress,
     view.status ?? bot.status,
     bot.state === "waiting",
   );
+  // Whatever works under the bot is the bot working: its line says so, in plain words, for as
+  // long as any of it runs (the roster's rolled-up count), and never lists what runs.
+  const tasksRunning = spadeAgentTasks(bot.raw) > 0;
+  const task: SpadeTaskLine | undefined =
+    ownTask ??
+    (tasksRunning && bot.state !== "waiting"
+      ? { sentence: `${bot.name} is working on it`, step: bot.status, tone: "working" }
+      : undefined);
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
   // It drives its computer only while it is at work.
   const computer = useBotComputer(bot, conversation.side, open);
-  // Its tasks run beside the chat (ADR 0217): Stop on the bot stops them too, so it shows while
-  // any hasn't ended, even with the chat itself idle.
-  const tasksRunning = lanes.lanes.some(spadeLaneLive);
+  // Stop on the bot stops what runs under it too, so it shows while any of it runs.
   const stoppable = open || tasksRunning;
   // Stopping lasts until nothing is open: the reply, its background jobs, the task's next step,
   // and its tasks.
@@ -217,7 +240,7 @@ export function Conversation(props: {
     // Stop also stops it talking, at once.
     stopSpeaking();
     setStopping(true);
-    conversation.stop().then(lanes.changed, (error: unknown) => {
+    conversation.stop().then(undefined, (error: unknown) => {
       setStopping(false);
       toast.error({ title: `Couldn't stop ${bot.name}`, description: message(error) });
     });
@@ -246,9 +269,12 @@ export function Conversation(props: {
         ),
       ),
       task: bot.task,
+      pending: bot.pending,
     }),
     [bot, props.roster],
   );
+  // Snapshot seenSeq while unread so the NEW divider stays visible after auto-marking seen.
+  const [unreadFrom] = useState(() => (bot.unseen ? bot.seenSeq : undefined));
   const live = spadeLiveSurfaces(computer.computer);
   const using = live[0];
   // Its package's panels; the one the route names opens beside the chat, one at a time.
@@ -262,16 +288,11 @@ export function Conversation(props: {
       <h1 className="sr-only">{bot.name}</h1>
       <PillEdge />
       <PillRow>
-        <ConversationPill bot={bot} onOpen={() => openProfile()} />
-        {lanes.lanes.length > 0 && (
-          <LanesPill
-            lanes={lanes.lanes}
-            avatar={bot.avatar}
-            onOpen={lanes.open}
-            onOlder={lanes.older}
-            onStop={lanes.stop}
-          />
-        )}
+        <ConversationPill
+          bot={bot}
+          open={tab !== undefined}
+          onToggle={() => (tab !== undefined ? closePanel() : openProfile())}
+        />
       </PillRow>
       <Scroller
         top="pill"
@@ -296,6 +317,7 @@ export function Conversation(props: {
             bot={chatBot}
             onReply={setReplying}
             profile={bot.kind === "main" ? undefined : bot}
+            seenSeq={unreadFrom}
             start={<ConversationStart avatar={bot.avatar} name={bot.name} task={bot.task} />}
             view={view}
             // While it uses its computer and Computer isn't showing, Watch opens it there.
@@ -379,9 +401,10 @@ export function Conversation(props: {
                 });
             }}
             onOpenWork={() => go({ profile: "work" })}
-            // A notice or the bot list opened it while a worker waits on the person.
-            revealWorkers={props.request === "workers" || bot.waitingFor === "worker"}
             onSetUpModel={setUpModel}
+            onReact={(target, emoji) =>
+              conversation.react(target, emoji).then(() => true, failed(`Couldn't react`))
+            }
             onRetry={(reply) =>
               conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))
             }
@@ -409,6 +432,16 @@ export function Conversation(props: {
         needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
         recall={(older) => spadeSentText(view.entries, older)}
+        slash={{
+          conversation: bot.conversation,
+          actions: slashActions({
+            stop: stoppable && !computer.paused ? stop : undefined,
+            model: () => void navigate({ to: "/settings/spade/models" }),
+            routines: () => go({ profile: "work" }),
+            library: () => go({ profile: "library" }),
+            computer: () => go({ profile: "computer" }),
+          }),
+        }}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
         }
@@ -462,6 +495,7 @@ export function Conversation(props: {
           onOpenActivity: () => openComputer("activity"),
         }}
         panels={{ list: panels, onOpen: showPanel }}
+        reading={reading}
         covering={covering}
         onClose={closePanel}
       />
@@ -469,7 +503,7 @@ export function Conversation(props: {
   );
 
   return (
-    <LanesContext value={lanes}>
+    <SpadeAttachmentActionsContext value={attachmentActions}>
       <BotVoiceContext value={speech.voice}>
         <ConversationScreen
           actions={
@@ -490,7 +524,7 @@ export function Conversation(props: {
                   />
                 ) : panelShown ? (
                   // The top bar's part above the profile holds its strip: Share and close.
-                  <ProfileStripActions bot={bot} onClose={closePanel} />
+                  <ProfileShareButton bot={bot} />
                 ) : (
                   <>
                     {/* Its panels, by name: the header is one way in (§5.2). */}
@@ -504,13 +538,6 @@ export function Conversation(props: {
                         {each.title}
                       </Button>
                     ))}
-                    <IconButton
-                      icon={SidebarSimpleIcon}
-                      label={`Open ${bot.name}'s profile`}
-                      tip="Profile"
-                      className="-scale-x-100"
-                      onClick={() => openProfile()}
-                    />
                   </>
                 )}
               </>
@@ -564,6 +591,6 @@ export function Conversation(props: {
           </div>
         </ConversationScreen>
       </BotVoiceContext>
-    </LanesContext>
+    </SpadeAttachmentActionsContext>
   );
 }

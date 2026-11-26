@@ -10,11 +10,13 @@ fn expected(segment: &Value) -> Segment {
     Segment {
         kind: match segment["kind"].as_str() {
             Some("doc") => Kind::Doc,
+            Some("react") => Kind::React,
             _ => Kind::Msg,
         },
         text: text("text").unwrap_or_default(),
         reply: text("reply"),
         title: text("title"),
+        to: text("to"),
         open: segment["open"].as_bool().unwrap_or(false),
     }
 }
@@ -127,6 +129,7 @@ fn relayed(text: &str) -> Event {
         })),
         from_thread,
         reply_to,
+        invoke: None,
     })
 }
 
@@ -234,6 +237,7 @@ fn from_bot(text: &str, name: &str) -> Event {
         from_group,
         from_thread,
         reply_to,
+        invoke: None,
     })
 }
 

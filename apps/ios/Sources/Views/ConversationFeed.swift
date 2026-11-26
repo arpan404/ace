@@ -15,7 +15,7 @@ struct ConversationFeed: View {
     let thread: ThreadModel
     let acceptedSend: Int
     let links: TranscriptLinks
-    /// The composer and its strip, floating over the feed's bottom edge.
+    /// The composer and either its strip or its live pills, floating over the feed.
     var barHeight: CGFloat = 0
     /// How far the keyboard lifts the composer, frame by frame; the rows following the end ride it.
     let keyboard: KeyboardRide
@@ -23,9 +23,6 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
-    /// Rows that landed since the reader left the live end, for the count on Scroll to end.
-    @Binding var unseen: Int
-    @State var newRows = TranscriptNewRows()
     /// When the row on top was written, for the pill shown while the reader scrolls.
     @State var timeMarker = TranscriptTimeMarker()
     /// Words taken back from a message that wasn't sent go into the composer.
@@ -146,21 +143,27 @@ struct ConversationFeed: View {
                     .frame(maxWidth: .infinity))
             }
         }
-        func room(_ id: String, _ height: CGFloat) -> TranscriptEntry {
-            entry(id, height) { Color.clear.frame(height: height).accessibilityHidden(true) }
+        func room(_ id: String, _ height: CGFloat, marksKeyboardLine: Bool = false) -> TranscriptEntry {
+            var room = entry(id, height) {
+                let space = Color.clear.frame(height: height).accessibilityHidden(true)
+                if marksKeyboardLine { space.keyboardDriftMark(.line) } else { space }
+            }
+            // The cell measures to whole points (`TranscriptCell`).
+            room.height = ceil(max(0, height))
+            return room
         }
         var list: [TranscriptEntry] = []
         list.append(room("room.keyboard", CGFloat(keyboardRoom.leaving)))
-        let follows = self.pinned, bar = self.barHeight, live = self.thread
-        list.append(entry(TranscriptTail.id, [follows, bar] as [AnyHashable]) {
-            TranscriptTail(thread: live, following: follows, barHeight: bar) {
+        let follows = self.pinned, live = self.thread
+        // The drawing offset supplies any keyboard motion beyond the ride's base.
+        let laidOutLift = keyboardFollow.riding ? CGFloat(keyboardFollow.base) : keyboardLift
+        let barRoom = barHeight + laidOutLift + AceDesign.Space.group
+        list.append(entry(TranscriptTail.id, [follows, barRoom] as [AnyHashable]) {
+            TranscriptTail(thread: live, following: follows, barHeight: barRoom) {
                 if !keyboardMoving && !intent.active { toEnd(proxy) }
             }
         })
-        let barRoom = barHeight + keyboardLift + AceDesign.Space.group
-        list.append(entry("room.bar", barRoom) {
-            Color.clear.frame(height: barRoom).accessibilityHidden(true).keyboardDriftMark(.line)
-        })
+        list.append(room("room.bar", barRoom, marksKeyboardLine: true))
         let model = self.model
         list.append(entry("review.ready", 0) { ReviewReadyLine(model: model) })
         if reading.thread == nil || reading.joined {
@@ -188,7 +191,6 @@ struct ConversationFeed: View {
                         .disabled(stale)
                 })
             }
-            list.append(room("spacer.before", CGFloat(extent.before)))
             if stale {
                 let cached = reading.isStale, loading = reading.loading
                 list.append(entry("history.cached", [cached, loading]) {
@@ -315,12 +317,7 @@ struct ConversationFeed: View {
             .onDisappear { disappeared() }
             // Away from the end, or reading a window apart from it: following a joined window is at
             // the end, so Scroll to end isn't offered there.
-            .onChange(of: !pinned, initial: true) { _, away in
-                updateBehind()
-                if !away { countNewRows() }
-            }
-            // New rows while the reader is away from the end are counted, never scrolled to.
-            .onChange(of: thread.screen.blockOrder) { _, _ in countNewRows() }
+            .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
             // A history window that catches up with the live end while the reader sits at its end
             // follows it again, so Scroll to end goes.
             .onChange(of: reading.joined) { _, joined in windowJoined(joined) }

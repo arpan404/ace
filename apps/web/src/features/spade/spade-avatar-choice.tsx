@@ -44,7 +44,7 @@ const reduced = () => document.documentElement.hasAttribute("data-reduce-motion"
  * The editor's live face: it follows the pointer, blinks now and then, hops when it changes,
  * and a click on one of its parts steps that part.
  */
-function LiveFace(props: { face: BotFaceModel; onStep(field: BotFaceField): void }) {
+export function LiveFace(props: { face: BotFaceModel; onStep(field: BotFaceField): void }) {
   const box = useRef<HTMLSpanElement>(null);
   const [look, setLook] = useState<{ x: number; y: number }>();
   const [cue, setCue] = useState<{ kind: "blink" | "hop"; at: number }>();
@@ -151,7 +151,7 @@ function PartRow(props: {
 }
 
 /** Picks a picture for the face, checked before it's read; `problem` says why one was refused. */
-function usePictureUpload(onChange: (value: AvatarDraft) => void) {
+export function usePictureUpload(onChange: (value: AvatarDraft) => void) {
   const file = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string>();
   const upload = (chosen: File | undefined) => {
