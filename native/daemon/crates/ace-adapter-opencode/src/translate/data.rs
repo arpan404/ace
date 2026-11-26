@@ -140,7 +140,7 @@ use crate::translate::redaction::sanitize;
 pub fn raw<'a>(typ: &'a str, evidence: &Value, name: Option<&'a str>) -> RawPayload<'a> {
     RawPayload {
         typ,
-        data: Datum::Owned(sanitize(evidence, &[]).into_owned()),
+        data: Datum::Owned(sanitize(evidence, &[] as &[&str]).into_owned()),
         name,
     }
 }

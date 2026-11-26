@@ -135,6 +135,7 @@ fn host_request(value: Value) -> Line {
 fn control_response(value: Value) -> Line {
     let response = value.get("response");
     let request_id = response.map_or_else(String::new, |response| text(response, "request_id"));
+    // Any non-success subtype settles as an error: the .d.ts union has only success and error.
     let success = response
         .and_then(|response| response.get("subtype"))
         .and_then(Value::as_str)
