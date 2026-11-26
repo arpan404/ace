@@ -1,0 +1,879 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The durable side of the scheduler, ported from `packages/automations/src/store.ts`. Both
+//! daemons open the same file through `ace-store`'s connection factory, with today's tables,
+//! columns and JSON: `automation_jobs` holds the definition and its cursor, `automation_state`
+//! the poll/schedule snapshot, `automation_revisions` the CAS counter, and the run tables the
+//! history and cancellations. Opening never rewrites history (ADR 0170).
+
+use std::cell::Cell;
+use std::sync::Arc;
+
+use ace_json::{Map, Value};
+use ace_store::{Connection, OpenOptions, Value as SqlValue};
+use serde::{Deserialize, Serialize};
+
+use crate::error::{AutomationsError, Result};
+use crate::recurrence::Schedule;
+
+/// Where a job sorts that has no due time yet.
+pub const NOT_FINISHED: i64 = i64::MAX;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Definition {
+    pub id: String,
+    pub title: String,
+    pub enabled: bool,
+    pub workspace: String,
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    pub prompt: String,
+    pub worktree: bool,
+    pub trigger: Trigger,
+    pub missed_run: String,
+    pub concurrency: i64,
+    pub jitter_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Trigger {
+    Manual,
+    Schedule {
+        schedule: Schedule,
+    },
+    Github {
+        repository: String,
+        event: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(
+            rename = "pullRequest",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        pull_request: Option<i64>,
+        #[serde(rename = "pollIntervalMs")]
+        poll_interval_ms: i64,
+    },
+    File {
+        paths: Vec<String>,
+    },
+    Webhook,
+}
+
+impl Trigger {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Trigger::Manual => "manual",
+            Trigger::Schedule { .. } => "schedule",
+            Trigger::Github { .. } => "github",
+            Trigger::File { .. } => "file",
+            Trigger::Webhook => "webhook",
+        }
+    }
+
+    pub fn schedule(&self) -> Option<&ScheduleTrigger> {
+        match self {
+            Trigger::Schedule { schedule } => Some(schedule),
+            _ => None,
+        }
+    }
+}
+
+/// A schedule trigger, so callers need not reach into the enum.
+pub type ScheduleTrigger = Schedule;
+
+impl Definition {
+    pub fn missed_run_skips(&self) -> bool {
+        self.missed_run == "skip"
+    }
+
+    pub fn schedule(&self) -> Option<&Schedule> {
+        match &self.trigger {
+            Trigger::Schedule { schedule } => Some(schedule),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerError {
+    pub message: String,
+    pub at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobMetadata {
+    pub automation: Definition,
+    pub nominal: Option<i64>,
+    pub due: Option<i64>,
+    pub revision: i64,
+    pub last_poll_error: Option<Value>,
+    pub trigger_error: Option<TriggerError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Job {
+    pub metadata: JobMetadata,
+    pub state: Value,
+}
+
+/// What one admission produced: the run record, its status, whether it was admitted now and
+/// whether the claim created the row.
+#[derive(Debug, Clone)]
+pub struct ClaimedRun {
+    pub run: Value,
+    pub status: String,
+    pub admitted: bool,
+    pub created: bool,
+}
+
+/// The fields one admission is keyed by (`store.ts:421`).
+pub struct Claim<'a> {
+    pub event_key: &'a str,
+    pub trigger: &'a str,
+    pub id: &'a str,
+    pub now: i64,
+    pub input: Option<&'a Value>,
+    pub failure: Option<&'a str>,
+    pub skip: Option<&'a str>,
+}
+
+pub struct AutomationStore {
+    conn: Arc<Connection>,
+    depth: Cell<u32>,
+}
+
+const SCHEMA: &str = "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
+      PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;
+      CREATE TABLE IF NOT EXISTS automation_jobs(id TEXT PRIMARY KEY, body TEXT NOT NULL, nominal INTEGER, due INTEGER, state TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_state(id TEXT PRIMARY KEY, state TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_runs(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, automation_id TEXT NOT NULL, event_key TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL, input TEXT, finished_at INTEGER, UNIQUE(automation_id,event_key));
+      CREATE TABLE IF NOT EXISTS automation_poll_errors(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_trigger_errors(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_revisions(id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_cancellations(run_id TEXT PRIMARY KEY, automation_id TEXT NOT NULL, reason TEXT NOT NULL, requested_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_webhooks(automation_id TEXT PRIMARY KEY, hook_id TEXT NOT NULL UNIQUE, secret TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_webhook_deliveries(automation_id TEXT NOT NULL, delivery_id TEXT NOT NULL, run_id TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(automation_id, delivery_id));";
+
+/// The indexes the TypeScript creates. They are added only with a table this build creates, so
+/// opening a large existing home never indexes or rewrites history (ADR 0170).
+const JOB_INDEXES: &str = "CREATE INDEX IF NOT EXISTS automation_due ON automation_jobs(due,id) WHERE due IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS automation_schedule_due ON automation_jobs(due,id) WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule';";
+
+const RUN_INDEXES: &str = "CREATE INDEX IF NOT EXISTS automation_history ON automation_runs(automation_id,seq);
+      CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
+      CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);
+      CREATE INDEX IF NOT EXISTS automation_unfinished ON automation_runs(seq) WHERE finished_at IS NULL;
+      CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, 9223372036854775807));";
+
+const WEBHOOK_INDEXES: &str = "CREATE INDEX IF NOT EXISTS automation_webhook_expiry ON automation_webhook_deliveries(expires);";
+
+fn number(value: i64) -> Value {
+    Value::Number(value.into())
+}
+
+fn text(value: &str) -> Value {
+    Value::String(value.into())
+}
+
+fn text_of(value: &str) -> Option<SqlValue> {
+    Some(SqlValue::Text(value.to_owned()))
+}
+
+fn int_of(value: Option<i64>) -> Option<SqlValue> {
+    Some(value.map_or(SqlValue::Null, SqlValue::Integer))
+}
+
+fn row_int(row: &[SqlValue], index: usize) -> Option<i64> {
+    match row.get(index) {
+        Some(SqlValue::Integer(value)) => Some(*value),
+        _ => None,
+    }
+}
+
+fn row_text(row: &[SqlValue], index: usize) -> Option<&str> {
+    match row.get(index) {
+        Some(SqlValue::Text(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn parse_json(text: &str) -> Result<Value> {
+    ace_json::parse(text).map_err(|error| AutomationsError::message(error.to_string()))
+}
+
+fn serialize<T: Serialize + ?Sized>(value: &T) -> Result<String> {
+    ace_json::ser::to_string(value).map_err(|error| AutomationsError::message(error.to_string()))
+}
+
+impl AutomationStore {
+    pub fn open(path: &str) -> Result<AutomationStore> {
+        let conn = Connection::open(
+            path,
+            OpenOptions {
+                read_only: false,
+                timeout_ms: 5000,
+            },
+        )?;
+        let store = AutomationStore {
+            conn,
+            depth: Cell::new(0),
+        };
+        store.ensure_schema()?;
+        Ok(store)
+    }
+
+    pub fn close(&self) -> Result<()> {
+        self.conn.close()?;
+        Ok(())
+    }
+
+    fn table_exists(&self, name: &str) -> Result<bool> {
+        Ok(!self
+            .query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                &[text_of(name)],
+            )?
+            .is_empty())
+    }
+
+    fn ensure_schema(&self) -> Result<()> {
+        let jobs_existed = self.table_exists("automation_jobs")?;
+        let runs_existed = self.table_exists("automation_runs")?;
+        let webhooks_existed = self.table_exists("automation_webhook_deliveries")?;
+        self.conn.exec(SCHEMA)?;
+        // A column added before any index reads it; the table may have been written by an older
+        // build. The ALTER is constant-time.
+        let columns = self.query("PRAGMA table_info(automation_runs)", &[])?;
+        if !columns
+            .iter()
+            .any(|column| row_text(column, 1) == Some("finished_at"))
+        {
+            self.conn
+                .exec("ALTER TABLE automation_runs ADD COLUMN finished_at INTEGER")?;
+        }
+        if !jobs_existed {
+            self.conn.exec(JOB_INDEXES)?;
+        }
+        if !runs_existed {
+            self.conn.exec(RUN_INDEXES)?;
+        }
+        if !webhooks_existed {
+            self.conn.exec(WEBHOOK_INDEXES)?;
+        }
+        // Bounded by the automation limit (1,000 jobs), never by run history.
+        self.transaction(|| {
+            self.conn.exec(
+                "INSERT OR IGNORE INTO automation_state SELECT id,state FROM automation_jobs;
+         UPDATE automation_jobs SET state='{}' WHERE state<>'{}';
+         INSERT OR IGNORE INTO automation_revisions SELECT id,1 FROM automation_jobs;",
+            )?;
+            Ok(())
+        })
+    }
+
+    fn query(&self, sql: &str, params: &[Option<SqlValue>]) -> Result<Vec<Vec<SqlValue>>> {
+        let statement = self.conn.prepare(sql)?;
+        statement.bind(params)?;
+        let mut rows = Vec::new();
+        while let Some(row) = statement.step()? {
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+
+    fn execute(&self, sql: &str, params: &[Option<SqlValue>]) -> Result<()> {
+        let statement = self.conn.prepare(sql)?;
+        statement.bind(params)?;
+        let _ = statement.step()?;
+        Ok(())
+    }
+
+    /// One commit for `operation`; a transaction opened inside it joins the outer one.
+    pub fn transaction<T>(&self, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+        if self.depth.get() > 0 {
+            return operation();
+        }
+        self.conn.exec("BEGIN IMMEDIATE")?;
+        self.depth.set(1);
+        let result = operation();
+        self.depth.set(0);
+        match result {
+            Ok(value) => {
+                self.conn.exec("COMMIT")?;
+                Ok(value)
+            }
+            Err(error) => {
+                self.conn.exec("ROLLBACK")?;
+                Err(error)
+            }
+        }
+    }
+
+    pub fn revision(&self, id: &str) -> Result<Option<i64>> {
+        Ok(self
+            .query(
+                "SELECT revision FROM automation_revisions WHERE id=?",
+                &[text_of(id)],
+            )?
+            .first()
+            .and_then(|row| row_int(row, 0)))
+    }
+
+    /// `put` (`store.ts:143`): create, update or compare-and-swap one definition and its cursor.
+    pub fn put(
+        &self,
+        automation: &Definition,
+        nominal: Option<i64>,
+        due: Option<i64>,
+        state: &Value,
+        expected_revision: Option<Option<i64>>,
+    ) -> Result<i64> {
+        let body = serialize(automation)?;
+        let snapshot = ace_json::to_string(state);
+        let revision = self.transaction(|| {
+      let stored_revision = self.revision(&automation.id)?;
+      let live = !self
+        .query(
+          "SELECT 1 AS found FROM automation_jobs WHERE id=?",
+          &[text_of(&automation.id)],
+        )?
+        .is_empty();
+      match expected_revision {
+        Some(None) if live => {
+          return Err(AutomationsError::message("Automation already exists"));
+        }
+        Some(None) => {}
+        Some(Some(expected)) => {
+          if !live {
+            return Err(AutomationsError::message("Automation is missing"));
+          }
+          if stored_revision != Some(expected) {
+            return Err(AutomationsError::message("Automation revision conflict"));
+          }
+        }
+        None => {}
+      }
+      if !live {
+        let count = self
+          .query("SELECT COUNT(*) AS n FROM automation_jobs", &[])?
+          .first()
+          .and_then(|row| row_int(row, 0))
+          .unwrap_or(0);
+        if count >= 1000 {
+          return Err(AutomationsError::message("Automation limit reached"));
+        }
+      }
+      let next = stored_revision.unwrap_or(0) + 1;
+      self.execute(
+        "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
+        &[
+          text_of(&automation.id),
+          text_of(&body),
+          int_of(nominal),
+          int_of(due),
+          text_of("{}"),
+        ],
+      )?;
+      if automation.trigger.kind() != "github" {
+        self.clear_poll_error(&automation.id)?;
+      }
+      if automation.trigger.kind() != "webhook" {
+        self.forget_webhook(&automation.id)?;
+      }
+      if automation.trigger.kind() != "file" {
+        self.clear_trigger_error(&automation.id)?;
+      }
+      self.execute(
+        "INSERT INTO automation_state VALUES(?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
+        &[text_of(&automation.id), text_of(&snapshot)],
+      )?;
+      self.execute(
+        "INSERT INTO automation_revisions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",
+        &[text_of(&automation.id), Some(SqlValue::Integer(next))],
+      )?;
+      Ok(next)
+    })?;
+        Ok(revision)
+    }
+
+    /// `remove` (`store.ts:191`): null and omitted stay idempotent; a number enforces CAS, the
+    /// tombstone included.
+    pub fn remove(&self, id: &str, expected_revision: Option<Option<i64>>) -> Result<()> {
+        self.transaction(|| {
+      let stored_revision = self.revision(id)?;
+      let live = !self
+        .query(
+          "SELECT 1 AS found FROM automation_jobs WHERE id=?",
+          &[text_of(id)],
+        )?
+        .is_empty();
+      match expected_revision {
+        Some(Some(expected)) => {
+          if stored_revision != Some(expected) {
+            return Err(AutomationsError::message("Automation revision conflict"));
+          }
+          if !live {
+            return Ok(());
+          }
+        }
+        _ => {
+          if !live {
+            return Ok(());
+          }
+        }
+      }
+      self.clear_poll_error(id)?;
+      self.clear_trigger_error(id)?;
+      self.forget_webhook(id)?;
+      self.execute("DELETE FROM automation_state WHERE id=?", &[text_of(id)])?;
+      self.execute("DELETE FROM automation_jobs WHERE id=?", &[text_of(id)])?;
+      self.execute(
+        "INSERT INTO automation_revisions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",
+        &[
+          text_of(id),
+          Some(SqlValue::Integer(stored_revision.unwrap_or(0) + 1)),
+        ],
+      )?;
+      Ok(())
+    })
+    }
+
+    /// Reads `id, nominal, body, poll error, trigger error, due, revision`, the column order
+    /// every metadata query below selects.
+    fn read_metadata(&self, row: &[SqlValue]) -> Result<JobMetadata> {
+        let body = row_text(row, 2).ok_or_else(|| AutomationsError::message("Row has no body"))?;
+        let definition: Definition = ace_json::from_value(&parse_json(body)?)?;
+        let poll = row_text(row, 3).map(parse_json).transpose()?;
+        let trigger = match row_text(row, 4) {
+            Some(text) => Some(ace_json::from_value(&parse_json(text)?)?),
+            None => None,
+        };
+        Ok(JobMetadata {
+            automation: definition,
+            nominal: row_int(row, 1),
+            due: row_int(row, 5),
+            revision: row_int(row, 6).unwrap_or(1),
+            last_poll_error: poll,
+            trigger_error: trigger,
+        })
+    }
+
+    pub fn metadata(&self, id: &str) -> Result<Option<JobMetadata>> {
+        let rows = self.query(
+      "SELECT j.id,j.nominal,j.body,e.body,t.body,j.due,coalesce(r.revision,1) FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id LEFT JOIN automation_trigger_errors t ON t.id=j.id WHERE j.id=?",
+      &[text_of(id)],
+    )?;
+        match rows.first() {
+            Some(row) => Ok(Some(self.read_metadata(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get(&self, id: &str) -> Result<Option<Job>> {
+        let Some(metadata) = self.metadata(id)? else {
+            return Ok(None);
+        };
+        Ok(Some(Job {
+            metadata,
+            state: self.read_state(id)?,
+        }))
+    }
+
+    pub fn definition(&self, id: &str) -> Result<Option<Definition>> {
+        let rows = self.query(
+            "SELECT body FROM automation_jobs WHERE id=?",
+            &[text_of(id)],
+        )?;
+        match rows.first() {
+            Some(row) => {
+                let body =
+                    row_text(row, 0).ok_or_else(|| AutomationsError::message("Row has no body"))?;
+                Ok(Some(ace_json::from_value(&parse_json(body)?)?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn read_state(&self, id: &str) -> Result<Value> {
+        let rows = self.query(
+            "SELECT state FROM automation_state WHERE id=?",
+            &[text_of(id)],
+        )?;
+        match rows.first() {
+            Some(row) => {
+                let state = row_text(row, 0)
+                    .ok_or_else(|| AutomationsError::message("Row has no state"))?;
+                parse_json(state)
+            }
+            None => Err(AutomationsError::message("Automation is missing")),
+        }
+    }
+
+    /// Every automation this build can read; one it can't is told to `unreadable` and passed
+    /// over, never taking down the rest.
+    pub fn jobs(
+        &self,
+        mut unreadable: impl FnMut(&str, &AutomationsError),
+    ) -> Result<Vec<JobMetadata>> {
+        let rows = self.query(
+      "SELECT j.id,j.nominal,j.body,e.body,t.body,j.due,coalesce(r.revision,1) FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id LEFT JOIN automation_trigger_errors t ON t.id=j.id ORDER BY j.id LIMIT 1001",
+      &[],
+    )?;
+        if rows.len() > 1000 {
+            return Err(AutomationsError::message("Automation limit exceeded"));
+        }
+        let mut jobs = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let id = row_text(row, 0).unwrap_or("").to_owned();
+            match self.read_metadata(row) {
+                Ok(job) => jobs.push(job),
+                Err(error) => unreadable(&id, &error),
+            }
+        }
+        Ok(jobs)
+    }
+
+    pub fn list(&self) -> Result<Vec<JobMetadata>> {
+        self.jobs(|_, _| {})
+    }
+
+    fn first_readable(&self, ids: &[String]) -> Result<Option<JobMetadata>> {
+        for id in ids {
+            // A row this build can't read is kept and passed over, so it never keeps the next one
+            // from its deadline.
+            if let Ok(Some(job)) = self.metadata(id) {
+                return Ok(Some(job));
+            }
+        }
+        Ok(None)
+    }
+
+    fn due_ids(&self, scheduled_only: bool) -> Result<Vec<String>> {
+        let sql = if scheduled_only {
+            "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1001"
+        } else {
+            "SELECT id FROM automation_jobs WHERE due IS NOT NULL ORDER BY due,id LIMIT 1001"
+        };
+        Ok(self
+            .query(sql, &[])?
+            .iter()
+            .filter_map(|row| row_text(row, 0).map(str::to_owned))
+            .collect())
+    }
+
+    /// The readable automation due first (`store.ts:314`).
+    pub fn next(&self, excluded: &[String]) -> Result<Option<JobMetadata>> {
+        if excluded.len() > 4 {
+            return Err(AutomationsError::message("Too many excluded polls"));
+        }
+        let all = self.due_ids(false)?;
+        let ids: Vec<String> = all
+            .into_iter()
+            .filter(|id| !excluded.contains(id))
+            .collect();
+        self.first_readable(&ids)
+    }
+
+    /// The readable due schedule first.
+    pub fn next_scheduled(&self) -> Result<Option<JobMetadata>> {
+        let ids = self.due_ids(true)?;
+        self.first_readable(&ids)
+    }
+
+    /// The earliest due deadline, readable or not, for arming one timer.
+    pub fn earliest_due(&self) -> Result<Option<i64>> {
+        Ok(self
+            .query(
+                "SELECT due FROM automation_jobs WHERE due IS NOT NULL ORDER BY due,id LIMIT 1",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row_int(row, 0)))
+    }
+
+    pub fn advance(&self, id: &str, nominal: Option<i64>, due: Option<i64>) -> Result<()> {
+        self.execute(
+            "UPDATE automation_jobs SET nominal=?,due=? WHERE id=?",
+            &[int_of(nominal), int_of(due), text_of(id)],
+        )
+    }
+
+    pub fn save_state(&self, id: &str, state: &Value) -> Result<()> {
+        self.execute(
+            "UPDATE automation_state SET state=? WHERE id=?",
+            &[text_of(&ace_json::to_string(state)), text_of(id)],
+        )
+    }
+
+    /// `savePoll` (`store.ts:340`), the name the service uses.
+    pub fn save_poll(&self, id: &str, state: &Value) -> Result<()> {
+        self.save_state(id, state)
+    }
+
+    pub fn save_poll_error(&self, id: &str, error: &Value) -> Result<()> {
+        self.execute(
+      "INSERT INTO automation_poll_errors VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+      &[text_of(id), text_of(&ace_json::to_string(error))],
+    )
+    }
+
+    pub fn clear_poll_error(&self, id: &str) -> Result<()> {
+        self.execute(
+            "DELETE FROM automation_poll_errors WHERE id=?",
+            &[text_of(id)],
+        )
+    }
+
+    pub fn save_trigger_error(&self, id: &str, error: &Value) -> Result<()> {
+        self.execute(
+      "INSERT INTO automation_trigger_errors VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+      &[text_of(id), text_of(&ace_json::to_string(error))],
+    )
+    }
+
+    pub fn clear_trigger_error(&self, id: &str) -> Result<()> {
+        self.execute(
+            "DELETE FROM automation_trigger_errors WHERE id=?",
+            &[text_of(id)],
+        )
+    }
+
+    fn forget_webhook(&self, id: &str) -> Result<()> {
+        self.execute(
+            "DELETE FROM automation_webhooks WHERE automation_id=?",
+            &[text_of(id)],
+        )?;
+        self.execute(
+            "DELETE FROM automation_webhook_deliveries WHERE automation_id=?",
+            &[text_of(id)],
+        )
+    }
+
+    /// Catalog reads need names, never prompt bodies, scheduling state or run history.
+    pub fn catalog(&self, provider: &str, workspace: &str) -> Result<Vec<(String, String)>> {
+        let rows = self.query(
+      "SELECT id, json_extract(body,'$.title') AS title, json_extract(body,'$.enabled') AS enabled, json_extract(body,'$.workspace') AS workspace, json_extract(body,'$.provider') AS provider FROM automation_jobs ORDER BY id LIMIT 1000",
+      &[],
+    )?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let id = row_text(row, 0)?;
+                let title = row_text(row, 1)?;
+                let enabled = row_int(row, 2)? == 1;
+                let row_workspace = row_text(row, 3)?;
+                let row_provider = row_text(row, 4)?;
+                (enabled && row_provider == provider && row_workspace == workspace)
+                    .then(|| (id.to_owned(), title.to_owned()))
+            })
+            .take(128)
+            .collect())
+    }
+
+    /// `claim` (`store.ts:421`): one run per event key, subject to admission.
+    pub fn claim(&self, automation: &Definition, claim: &Claim<'_>) -> Result<ClaimedRun> {
+        let existing = self.query(
+            "SELECT body FROM automation_runs WHERE automation_id=? AND event_key=?",
+            &[text_of(&automation.id), text_of(claim.event_key)],
+        )?;
+        if let Some(row) = existing.first() {
+            let body =
+                row_text(row, 0).ok_or_else(|| AutomationsError::message("Run has no body"))?;
+            let run = parse_json(body)?;
+            let status = match &run {
+                Value::Object(map) => map
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+                _ => String::new(),
+            };
+            return Ok(ClaimedRun {
+                run,
+                status,
+                admitted: false,
+                created: false,
+            });
+        }
+        let active = self.count(
+            "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id=? AND status='running'",
+            Some(&automation.id),
+        )?;
+        let total = self.count(
+            "SELECT COUNT(*) AS n FROM automation_runs WHERE status='running'",
+            None,
+        )?;
+        let waiting = self.queued(&automation.id)?;
+        let status = if claim.failure.is_some() {
+            "failed"
+        } else if claim.input.is_none() || claim.skip.is_some() {
+            "skipped"
+        } else {
+            crate::decisions::admission(active, waiting, total, claim.trigger == "file")
+        };
+        let admitted = status == "running";
+        let queued = status == "queued";
+        let mut run = Map::new();
+        run.insert("id", text(claim.id));
+        run.insert("automationId", text(&automation.id));
+        run.insert("title", text(&automation.title));
+        run.insert("eventKey", text(claim.event_key));
+        run.insert("trigger", text(claim.trigger));
+        run.insert("status", text(status));
+        run.insert("startedAt", number(claim.now));
+        if !admitted && !queued {
+            run.insert("finishedAt", number(claim.now));
+            let result = claim.failure.or(claim.skip).unwrap_or(if waiting {
+                "A run was already waiting"
+            } else {
+                "Too many automations running"
+            });
+            run.insert("result", text(result));
+        }
+        let run = Value::Object(run);
+        if claim.trigger == "file" && status == "skipped" {
+            return Ok(ClaimedRun {
+                run,
+                status: status.to_owned(),
+                admitted: false,
+                created: false,
+            });
+        }
+        self.execute(
+      "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,?,?)",
+      &[
+        text_of(claim.id),
+        text_of(&automation.id),
+        text_of(claim.event_key),
+        text_of(status),
+        text_of(&ace_json::to_string(&run)),
+        claim
+          .input
+          .map(|input| SqlValue::Text(ace_json::to_string(input))),
+        if admitted || queued {
+          Some(SqlValue::Null)
+        } else {
+          Some(SqlValue::Integer(claim.now))
+        },
+      ],
+    )?;
+        self.prune(&automation.id)?;
+        Ok(ClaimedRun {
+            run,
+            status: status.to_owned(),
+            admitted,
+            created: true,
+        })
+    }
+
+    fn count(&self, sql: &str, id: Option<&str>) -> Result<usize> {
+        let rows = match id {
+            Some(id) => self.query(sql, &[text_of(id)])?,
+            None => self.query(sql, &[])?,
+        };
+        Ok(rows
+            .first()
+            .and_then(|row| row_int(row, 0))
+            .unwrap_or(0)
+            .max(0) as usize)
+    }
+
+    /// The stored run count, for the scheduler's admission tests and future listings.
+    pub fn run_count(&self) -> Result<usize> {
+        self.count("SELECT COUNT(*) AS n FROM automation_runs", None)
+    }
+
+    pub fn running(&self, id: &str) -> Result<bool> {
+        Ok(!self
+            .query(
+                "SELECT 1 FROM automation_runs WHERE automation_id=? AND status='running' LIMIT 1",
+                &[text_of(id)],
+            )?
+            .is_empty())
+    }
+
+    pub fn queued(&self, id: &str) -> Result<bool> {
+        Ok(!self
+            .query(
+                "SELECT 1 FROM automation_runs WHERE automation_id=? AND status='queued' LIMIT 1",
+                &[text_of(id)],
+            )?
+            .is_empty())
+    }
+
+    pub fn waiting_automations(&self) -> Result<Vec<String>> {
+        Ok(
+      self
+        .query(
+          "SELECT automation_id AS aid FROM automation_runs WHERE status='queued' GROUP BY automation_id ORDER BY MIN(seq) LIMIT 1000",
+          &[],
+        )?
+        .iter()
+        .filter_map(|row| row_text(row, 0).map(str::to_owned))
+        .collect(),
+    )
+    }
+
+    /// Stop an automation's work in the transaction that pauses or deletes it (`store.ts:538`):
+    /// waiting runs are skipped and running runs get a durable cancellation.
+    pub fn halt(&self, id: &str, now: i64, reason: &str) -> Result<Vec<Value>> {
+        self.transaction(|| {
+      self.execute(
+        "INSERT OR IGNORE INTO automation_cancellations SELECT id,automation_id,?,? FROM automation_runs WHERE automation_id=? AND status='running'",
+        &[text_of(reason), Some(SqlValue::Integer(now)), text_of(id)],
+      )?;
+      self.drop_queued(id, now, reason)
+    })
+    }
+
+    /// Skip every waiting run of this automation, saying why.
+    pub fn drop_queued(&self, id: &str, now: i64, reason: &str) -> Result<Vec<Value>> {
+        let rows = self.query(
+            "SELECT id,body FROM automation_runs WHERE automation_id=? AND status='queued'",
+            &[text_of(id)],
+        )?;
+        let mut skipped = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let Some(run_id) = row_text(row, 0) else {
+                continue;
+            };
+            let Some(body) = row_text(row, 1) else {
+                continue;
+            };
+            let mut run = parse_json(body)?;
+            if let Value::Object(map) = &mut run {
+                map.insert("status", text("skipped"));
+                map.insert("finishedAt", number(now));
+                map.insert("result", text(reason));
+            }
+            self.execute(
+        "UPDATE automation_runs SET status='skipped',body=?,finished_at=? WHERE id=? AND status='queued'",
+        &[
+          text_of(&ace_json::to_string(&run)),
+          Some(SqlValue::Integer(now)),
+          text_of(run_id),
+        ],
+      )?;
+            skipped.push(run);
+        }
+        Ok(skipped)
+    }
+
+    fn prune(&self, id: &str) -> Result<()> {
+        self.execute(
+      "DELETE FROM automation_runs WHERE automation_id=? AND status NOT IN ('running','queued') AND seq NOT IN (SELECT seq FROM automation_runs WHERE automation_id=? ORDER BY seq DESC LIMIT 1000)",
+      &[text_of(id), text_of(id)],
+    )
+    }
+}

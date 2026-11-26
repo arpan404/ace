@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-automations"
+description = "The automations scheduler behind @ace/automations (ADR 0225 A1): recurrence, next-run computation, catch-up and durable scheduling"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-store: both automation files open through the store's connection factory, so one SQLite
+# library holds every file in the process and a home either backend wrote opens in the other.
+ace-store = { path = "../ace-store" }
+# ace-json: definitions, cursors and run records are stored as JavaScript's JSON, key order and
+# all, so rows written here read the same in the TypeScript daemon.
+ace-json = { path = "../ace-json" }
+# jiff: IANA zone rules for the civil calendar. Its bundled tzdb keeps the answer independent of
+# the machine's zoneinfo; the resolution algorithm is the TypeScript's own probe.
+jiff = { version = "1.0", default-features = false, features = [
+  "std",
+  "tzdb-bundle-always",
+] }
+# serde: definitions are derived structs in the protocol's field order.
+serde = { version = "1", features = ["derive"] }
+# thiserror: one typed error enum for the crate.
+thiserror = { version = "2" }
+
+[dev-dependencies]
+tempfile = "3"

@@ -99,6 +99,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-automations"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "ace-store",
+ "jiff",
+ "serde",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "ace-core"
 version = "0.1.0"
 dependencies = [
@@ -2136,6 +2148,7 @@ checksum = "c5e77cbfb9fff4798e283c2d69dff39fc2c45e7da017e5ce95b654e46ea41236"
 dependencies = [
  "jiff-core",
  "jiff-static",
+ "jiff-tzdb",
  "jiff-tzdb-platform",
  "log",
  "portable-atomic",
