@@ -260,3 +260,118 @@ fn a_lost_contact_never_ends_the_hold_and_a_child_here_is_a_summary_agent() {
         agent.external_status
     );
 }
+
+#[test]
+fn a_settled_delegation_records_its_input_its_summaries_and_the_parents_item() {
+    let (conn, engine) = parent();
+    let core = engine.core();
+    let results = vec![
+        value(
+            r#"{"threadId":"child","outcome":"completed","result":"all good","truncated":false}"#,
+        ),
+        value(&format!(
+            r#"{{"threadId":"child-2","outcome":"failed","result":"{}"}}"#,
+            "x".repeat(200)
+        )),
+    ];
+    core.with_state(|state| {
+        delegation_settled(
+            core,
+            state,
+            1_000.0,
+            &DelegationSettled {
+                parent_id: "parent",
+                parent_agent_id: "agent-root",
+                command_id: "call-1",
+                results: &results,
+                delivery: "tool",
+                text: Some("Two children came back"),
+            },
+        )
+    })
+    .unwrap()
+    .unwrap();
+    // The input the call carried is journalled as ace's own child result.
+    let journal = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT origin FROM engine_inputs WHERE thread_id='parent' AND item_key='input:call-1'",
+        Vec::new(),
+    )
+    .unwrap()
+    .expect("the journal entry");
+    let origin: Value = ace_json::parse(
+        journal
+            .get("origin")
+            .and_then(crate::repository::residency::cell_text)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        origin.get("kind").and_then(Value::as_str),
+        Some("subagent_result")
+    );
+    assert_eq!(
+        origin
+            .get("threadIds")
+            .and_then(Value::as_array)
+            .map(|ids| ids.len()),
+        Some(2)
+    );
+    // The summaries are kept with their result truncated.
+    let recorded = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT value FROM engine_ace_inputs WHERE thread_id='parent' AND command_id='call-1'",
+        Vec::new(),
+    )
+    .unwrap()
+    .expect("the ace input");
+    let value: Value = ace_json::parse(
+        recorded
+            .get("value")
+            .and_then(crate::repository::residency::cell_text)
+            .unwrap(),
+    )
+    .unwrap();
+    let results = value
+        .get("results")
+        .and_then(Value::as_array)
+        .expect("results");
+    assert_eq!(results.len(), 2);
+    assert_eq!(
+        results[1].get("truncated"),
+        Some(&Value::Bool(true)),
+        "a long result is marked truncated"
+    );
+    assert_eq!(
+        results[1]
+            .get("result")
+            .and_then(Value::as_str)
+            .map(|text| text.chars().count()),
+        Some(128)
+    );
+    // And the parent shows one settled item for the call (the items are a section row).
+    let item = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT value FROM engine_state_records WHERE thread_id='parent' AND section='items' AND key='ace-results:call-1'",
+        Vec::new(),
+    )
+    .unwrap()
+    .expect("the item");
+    let item: Value = ace_json::parse(
+        item.get("value")
+            .and_then(crate::repository::residency::cell_text)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        item.get("type").and_then(Value::as_str),
+        Some("delegation.settled")
+    );
+    assert_eq!(item.get("delivery").and_then(Value::as_str), Some("tool"));
+    assert_eq!(
+        item.get("results")
+            .and_then(Value::as_array)
+            .map(|results| results.len()),
+        Some(2)
+    );
+}

@@ -342,5 +342,163 @@ pub fn machine_child(
     Ok(())
 }
 
+/// The delegation row a parent shows for one child thread.
+pub struct DelegationRow<'a> {
+    pub parent_id: &'a str,
+    pub parent_agent_id: &'a str,
+    pub child_id: &'a str,
+    pub provider: &'a str,
+    pub model: Option<&'a str>,
+    pub instance_id: Option<&'a str>,
+    pub title: &'a str,
+    pub role: &'a str,
+    pub phase: &'a str,
+    pub generation: i64,
+    pub status: Value,
+    pub outcome: Option<Value>,
+}
+
+/// `delegationStarted`: one stable parent item follows each independently owned child thread.
+pub fn delegation_started(
+    core: &Core,
+    state: &mut State,
+    at: f64,
+    row: &DelegationRow<'_>,
+) -> Result<(), EngineError> {
+    let agent = parent_key(state, core, row.parent_id, row.parent_agent_id)?;
+    let mut draft = Map::new();
+    draft.insert("type", Value::from("delegation.started"));
+    draft.insert("origin", Value::from("ace"));
+    draft.insert("childThreadId", Value::from(row.child_id));
+    draft.insert("provider", Value::from(row.provider));
+    if let Some(model) = row.model {
+        draft.insert("model", Value::from(model));
+    }
+    if let Some(instance) = row.instance_id {
+        draft.insert("accountId", Value::from(instance));
+    }
+    draft.insert("title", Value::from(row.title));
+    draft.insert("role", Value::from(row.role));
+    draft.insert("phase", Value::from(row.phase));
+    draft.insert("status", row.status.clone());
+    draft.insert("updatedAt", Value::from(at));
+    draft.insert("generation", Value::from(row.generation));
+    draft.insert("complete", Value::Bool(row.phase == "settled"));
+    draft.insert("outcome", row.outcome.clone().unwrap_or(Value::Null));
+    let mut fact = Map::new();
+    fact.insert("type", Value::from("item.upsert"));
+    fact.insert("agent", Value::from(agent.as_str()));
+    fact.insert(
+        "item",
+        Value::from(format!("ace-delegation:{}", row.child_id).as_str()),
+    );
+    fact.insert("draft", Value::Object(draft));
+    state.apply(
+        &core.store,
+        row.parent_id,
+        &ace_json::to_string(&Value::Array(vec![Value::Object(fact)].into())),
+        at,
+        None,
+    )
+}
+
+/// The host-only result of one delegation call: its summaries, the input it carried, and the
+/// item the parent shows.
+pub struct DelegationSettled<'a> {
+    pub parent_id: &'a str,
+    pub parent_agent_id: &'a str,
+    pub command_id: &'a str,
+    pub results: &'a [Value],
+    pub delivery: &'a str,
+    pub text: Option<&'a str>,
+}
+
+/// The most characters of one result the parent keeps.
+const RESULT_PREVIEW: usize = 128;
+
+/// `delegationSettled`: host-only result attribution; ordinary wire sends cannot impersonate ace.
+pub fn delegation_settled(
+    core: &Core,
+    state: &mut State,
+    at: f64,
+    settled: &DelegationSettled<'_>,
+) -> Result<(), EngineError> {
+    let agent = parent_key(state, core, settled.parent_id, settled.parent_agent_id)?;
+    let item = format!("ace-results:{}", settled.command_id);
+    let summaries: Vec<Value> = settled
+        .results
+        .iter()
+        .map(|result| {
+            let text = result
+                .get("result")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let truncated = result.get("truncated") == Some(&Value::Bool(true))
+                || text.encode_utf16().count() > RESULT_PREVIEW;
+            let preview: String = text.chars().take(RESULT_PREVIEW).collect();
+            let mut summary = result.as_object().cloned().unwrap_or_default();
+            summary.insert("result", Value::from(preview.as_str()));
+            summary.insert("truncated", Value::Bool(truncated));
+            Value::Object(summary)
+        })
+        .collect();
+    if let Some(text) = settled.text {
+        let mut origin = Map::new();
+        origin.insert("kind", Value::from("subagent_result"));
+        origin.insert("commandId", Value::from(settled.command_id));
+        origin.insert(
+            "threadIds",
+            Value::Array(
+                settled
+                    .results
+                    .iter()
+                    .filter_map(|result| result.get("threadId").cloned())
+                    .collect(),
+            ),
+        );
+        let parts = vec![{
+            let mut part = Map::new();
+            part.insert("type", Value::from("text"));
+            part.insert("text", Value::from(text));
+            Value::Object(part)
+        }];
+        crate::inputs::journal::register(
+            core.store.conn(),
+            settled.parent_id,
+            &format!("input:{}", settled.command_id),
+            &parts,
+            &Value::Object(origin),
+        )?;
+        crate::inputs::ace::record(
+            core.store.conn(),
+            settled.parent_id,
+            settled.command_id,
+            &crate::inputs::ace::AceInput {
+                agent: agent.clone(),
+                item: item.clone(),
+                results: Value::Array(summaries.clone().into()),
+            },
+        )?;
+    }
+    let mut draft = Map::new();
+    draft.insert("type", Value::from("delegation.settled"));
+    draft.insert("origin", Value::from("ace"));
+    draft.insert("delivery", Value::from(settled.delivery));
+    draft.insert("results", Value::Array(summaries.into()));
+    draft.insert("complete", Value::Bool(true));
+    let mut fact = Map::new();
+    fact.insert("type", Value::from("item.upsert"));
+    fact.insert("agent", Value::from(agent.as_str()));
+    fact.insert("item", Value::from(item.as_str()));
+    fact.insert("draft", Value::Object(draft));
+    state.apply(
+        &core.store,
+        settled.parent_id,
+        &ace_json::to_string(&Value::Array(vec![Value::Object(fact)].into())),
+        at,
+        None,
+    )
+}
+
 #[cfg(test)]
 mod tests;

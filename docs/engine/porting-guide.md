@@ -2442,16 +2442,16 @@ Ported in `liveness/`, `settle.rs` and `delegation.rs`: `threadTree` and `resuma
 live-work reads (`liveness/live.rs`: `live`, `active`, `unfinished`); `settledHold` with
 `latestIntent`, `newDelivery` and `retireLiveIntents` (`settle.rs`); and the delegation rows
 (`delegation.rs`: `childAgentKey`, `remoteChildStatus`, `attachChild`, `updateChild`,
-`machineChild` with its `ace-machine:<id>` hold). The archive's fence is complete:
+`machineChild` with its `ace-machine:<id>` hold, `delegationStarted`, and `delegationSettled`
+with its journalled input and truncated summaries). The archive's fence is complete:
 `workChangedSince` (`commands/receipt.rs`) reads one cached statement per tree thread and merges
 them in sequence order, so a child's newer run refuses the archive like the thread's own.
 
 Waiting on E5.6 (sessions) and E5.8 (`lost-work`, `session-bound-tasks`):
 `ThreadLiveness`'s `reconcile`, `reconcileTree` and `stop`; `SettledTrees.stop`'s flights (its
-pure `settledHold` and `retireLiveIntents` are ported); `reconcileStoppedThread`; and
-`DelegationFacts.delegationStarted`/`delegationSettled`. `live`'s `sessions.isClosing` arrives as
-the caller's `closing` closure, and `unfinished` uses `ace_projection::attention::queue_attention`
-for the queue's branch.
+pure `settledHold` and `retireLiveIntents` are ported); `reconcileStoppedThread`. `live`'s `sessions.isClosing` arrives as the caller's `closing`
+closure, and `unfinished` uses `ace_projection::attention::queue_attention` for the queue's
+branch.
 
 `worktree-title.ts` stays TypeScript (git branch naming); the engine calls it through the
 `worktreeGit` port.
