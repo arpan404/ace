@@ -6,7 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use ace_automations::scheduler::{Admission, Clock, Random};
-use ace_automations::service::{Action, Ports, Service, Workspace};
+use ace_automations::service::{Action, Ports, Service, TimerPort, Workspace};
 use ace_automations::{AutomationStore, Definition, Schedule, ScheduleKind, Trigger};
 use ace_json::Value;
 
@@ -89,6 +89,37 @@ impl Workspace for TestWorkspace {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct TestTimer {
+    pub(crate) delay: Cell<Option<i64>>,
+    pub(crate) arms: Cell<usize>,
+    pub(crate) cancels: Cell<usize>,
+    pub(crate) fail_arm: Cell<bool>,
+    pub(crate) fail_cancel: Cell<bool>,
+}
+
+impl TimerPort for TestTimer {
+    fn arm(&self, delay_ms: i64) -> Result<(), String> {
+        if self.fail_arm.get() {
+            self.fail_arm.set(false);
+            return Err("database is locked".to_owned());
+        }
+        self.arms.set(self.arms.get() + 1);
+        self.delay.set(Some(delay_ms));
+        Ok(())
+    }
+
+    fn cancel(&self) -> Result<(), String> {
+        self.cancels.set(self.cancels.get() + 1);
+        self.delay.set(None);
+        if self.fail_cancel.get() {
+            self.fail_cancel.set(false);
+            return Err("timer cancellation failed".to_owned());
+        }
+        Ok(())
+    }
+}
+
 pub(crate) struct Harness {
     pub(crate) dir: tempfile::TempDir,
     pub(crate) store: AutomationStore,
@@ -96,6 +127,7 @@ pub(crate) struct Harness {
     pub(crate) random: TestRandom,
     pub(crate) admission: TestAdmission,
     pub(crate) workspace: TestWorkspace,
+    pub(crate) timer: TestTimer,
 }
 
 impl Harness {
@@ -112,6 +144,7 @@ impl Harness {
                 open: Cell::new(true),
             },
             workspace: TestWorkspace::default(),
+            timer: TestTimer::default(),
         }
     }
 
@@ -126,6 +159,7 @@ impl Harness {
                 clock: &self.clock,
                 random: &self.random,
                 admission: &self.admission,
+                timer: &self.timer,
                 workspace: Some(&self.workspace),
                 model_loading: None,
             },

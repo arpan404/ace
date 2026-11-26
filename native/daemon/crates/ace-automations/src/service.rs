@@ -39,10 +39,31 @@ pub trait Workspace {
     fn unsubscribe(&self, workspace: &str);
 }
 
+/// The one timer's host (`contracts.ts:50`). `arm` replaces any previous timer; a failure is
+/// reported and never stops durable scheduling.
+pub trait TimerPort {
+    fn arm(&self, delay_ms: i64) -> std::result::Result<(), String>;
+    fn cancel(&self) -> std::result::Result<(), String>;
+}
+
+/// A timer port for hosts and tests that drive deadlines themselves.
+pub struct NoopTimer;
+
+impl TimerPort for NoopTimer {
+    fn arm(&self, _delay_ms: i64) -> std::result::Result<(), String> {
+        Ok(())
+    }
+
+    fn cancel(&self) -> std::result::Result<(), String> {
+        Ok(())
+    }
+}
+
 pub struct Ports<'a> {
     pub clock: &'a dyn Clock,
     pub random: &'a dyn Random,
     pub admission: &'a dyn Admission,
+    pub timer: &'a dyn TimerPort,
     pub workspace: Option<&'a dyn Workspace>,
     /// Whether discovery for this automation's provider is still running.
     pub model_loading: Option<&'a dyn Fn(&Definition) -> bool>,
@@ -122,6 +143,21 @@ pub struct Service<'a> {
     published: Vec<Value>,
     actions: Vec<Action>,
     generation: u64,
+    timer: Option<TimerArm>,
+    /// Interrupt hand-offs that failed and when they are tried again, per run.
+    retries: HashMap<String, Retry>,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TimerArm {
+    delay_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Retry {
+    attempt: u32,
+    due: i64,
 }
 
 impl<'a> Service<'a> {
@@ -138,6 +174,9 @@ impl<'a> Service<'a> {
             published: Vec::new(),
             actions: Vec::new(),
             generation: 0,
+            timer: None,
+            retries: HashMap::new(),
+            errors: Vec::new(),
         }
     }
 
@@ -213,6 +252,7 @@ impl<'a> Service<'a> {
             }
         }
         self.drain_waiting();
+        self.arm();
         self.finish_start();
         Ok(())
     }
@@ -231,6 +271,8 @@ impl<'a> Service<'a> {
         let watches: Vec<Watch> = self.watches.drain().map(|(_, watch)| watch).collect();
         self.pending.clear();
         self.actions.clear();
+        self.retries.clear();
+        self.cancel_timer();
         for watch in watches {
             if let Some(workspace) = self.ports.workspace {
                 workspace.unsubscribe(&watch.workspace);
@@ -695,7 +737,110 @@ impl<'a> Service<'a> {
     }
 
     /// The host arms its one timer from [`Service::arm_delay`]; this is its re-arm point.
-    fn arm(&mut self) {}
+    /// Re-arm the one timer for the earliest of the scheduler's deadline and a failed
+    /// interrupt's retry. Arming replaces the previous timer.
+    fn arm(&mut self) {
+        if !self.lives.live() {
+            self.cancel_timer();
+            return;
+        }
+        let now = self.now();
+        let mut delay = self.arm_delay().ok().flatten();
+        for retry in self.retries.values() {
+            let retry_delay = (retry.due - now).clamp(0, crate::scheduler::MAX_TIMER_DELAY_MS);
+            delay = Some(delay.map_or(retry_delay, |current| current.min(retry_delay)));
+        }
+        match delay {
+            None => self.cancel_timer(),
+            Some(delay) => {
+                self.cancel_timer();
+                match self.ports.timer.arm(delay) {
+                    Ok(()) => {
+                        self.timer = Some(TimerArm { delay_ms: delay });
+                    }
+                    Err(error) => self.push_error(error),
+                }
+            }
+        }
+    }
+
+    fn cancel_timer(&mut self) {
+        if self.timer.take().is_none() {
+            return;
+        }
+        if let Err(error) = self.ports.timer.cancel() {
+            self.push_error(error);
+        }
+    }
+
+    fn push_error(&mut self, message: impl Into<String>) {
+        self.errors.push(message.into());
+    }
+
+    /// Errors this crate's own work reported (a timer arm or cancel the host refused). The host
+    /// logs them, as `Dependencies.onError` does; they are queued so a callback can re-enter the
+    /// lifecycle after the method that produced them has returned.
+    pub fn take_errors(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.errors)
+    }
+
+    /// The host's timer fired. A due interrupt retry is handed over again; otherwise the due
+    /// schedule takes its turn.
+    pub fn timer_fired(&mut self) -> Result<Option<Value>> {
+        self.timer = None;
+        if !self.lives.live() {
+            return Ok(None);
+        }
+        let now = self.now();
+        let due = self
+            .retries
+            .iter()
+            .filter(|(_, retry)| retry.due <= now)
+            .min_by_key(|(_, retry)| retry.due)
+            .map(|(run_id, _)| run_id.clone());
+        if let Some(target) = due {
+            self.retries.remove(&target);
+            if let Ok(cancelling) = self.store.cancelling()
+                && let Some((_, input)) = cancelling
+                    .into_iter()
+                    .find(|(run, _)| run_id(run).as_deref() == Some(target.as_str()))
+            {
+                self.actions.push(Action::Interrupt {
+                    run_id: target,
+                    input,
+                });
+            }
+            self.arm();
+            return Ok(None);
+        }
+        self.tick()
+    }
+
+    /// The executor refused an interrupt (`cancellations.ts:47`). While the cancellation stands,
+    /// try again with the TypeScript's backoff, capped at a minute.
+    pub fn interrupt_failed(&mut self, run_id: &str, message: &str) {
+        if !self.lives.live() || self.store.cancellation(run_id).ok().flatten().is_none() {
+            return;
+        }
+        let attempt = self.retries.get(run_id).map_or(0, |retry| retry.attempt);
+        let delay = 1000i64
+            .saturating_mul(2i64.saturating_pow(attempt.min(6)))
+            .min(60_000);
+        self.retries.insert(
+            run_id.to_owned(),
+            Retry {
+                attempt: attempt + 1,
+                due: self.now() + delay,
+            },
+        );
+        self.push_error(message);
+        self.arm();
+    }
+
+    /// The delay this service last armed, for a host that asks before firing.
+    pub fn armed_delay(&self) -> Option<i64> {
+        self.timer.map(|timer| timer.delay_ms)
+    }
 
     /// Poll one GitHub automation (`service.ts:703`) through the host's `gh` client: the state
     /// commits only if the definition did not change under the request, and each delivered event
@@ -788,17 +933,44 @@ impl<'a> Service<'a> {
         thread_id: Option<&str>,
         result: Option<&str>,
     ) -> Result<Option<Value>> {
+        let finished = self.finish_run(run_id, status, thread_id, result)?;
+        self.drain_waiting();
+        Ok(finished)
+    }
+
+    /// Settle a run and publish it, but leave waiting runs for the host to start after it has
+    /// acted on the notification. This is the boundary the TypeScript's synchronous `onRun`
+    /// callback has: a host can trigger another automation in the room the finished run left
+    /// before the automation's own waiting run is promoted.
+    pub fn complete_deferred(
+        &mut self,
+        run_id: &str,
+        status: &str,
+        thread_id: Option<&str>,
+        result: Option<&str>,
+    ) -> Result<Option<Value>> {
+        self.finish_run(run_id, status, thread_id, result)
+    }
+
+    fn finish_run(
+        &mut self,
+        run_id: &str,
+        status: &str,
+        thread_id: Option<&str>,
+        result: Option<&str>,
+    ) -> Result<Option<Value>> {
         if !self.lives.live() || !self.pending.contains(run_id) {
             return Ok(None);
         }
         self.pending.remove(run_id);
+        self.retries.remove(run_id);
         let finished = self
             .store
             .finish(run_id, self.now(), status, thread_id, result)?;
         if let Some(run) = &finished {
             self.publish(run);
         }
-        self.drain_waiting();
+        self.arm();
         Ok(finished)
     }
 
