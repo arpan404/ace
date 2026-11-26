@@ -232,6 +232,28 @@ fn quiescent(store: &EngineStore, state: &mut State, id: &str) -> Result<bool, E
     crate::transitions::history::thread_quiescent(store, state, id)
 }
 
+/// A fenced peer is live when its resident tree, persisted intents, or approvals say so.
+fn peer_is_live(
+    store: &EngineStore,
+    state: &mut State,
+    owner: &str,
+    moving: &str,
+) -> Result<bool, EngineError> {
+    if owner == moving || state.repo.snapshots.contains_key(owner) {
+        return Ok(!quiescent(store, state, owner)? || live_pending(store, state, owner)?);
+    }
+    Ok(live_pending(store, state, owner)?
+        || crate::intents::store::awaiting(store.conn(), owner)?.is_some()
+        || crate::intents::header::headers(store.conn(), Some(owner), None)?
+            .iter()
+            .any(|intent| {
+                matches!(
+                    intent.kind.as_str(),
+                    "thread.switch" | "thread.merge" | "thread.send" | "thread.create"
+                ) && matches!(intent.status.as_str(), "pending" | "queued" | "running")
+            }))
+}
+
 /// One status write (`workspace-change.ts:114`).
 struct StatusChange<'a> {
     command_id: &'a str,
@@ -271,7 +293,11 @@ fn status(store: &EngineStore, id: &str, change: &StatusChange<'_>) -> Result<()
             change.insert("branch", Value::from(branch));
         }
     }
-    let mut next_details = details.clone();
+    let mut next_details = if details.is_null() {
+        Value::Object(ace_json::Map::new())
+    } else {
+        details.clone()
+    };
     if let Some(object) = next_details.as_object_mut() {
         object.insert("workspaceChange", Value::Object(change));
     }
@@ -368,10 +394,7 @@ pub fn begin(
                 return Err(records("terminal_owned"));
             }
             let guarded = state.transition_guarded(store, owner)?;
-            // A peer outside the resident set has no live state to read; the moving thread
-            // always does, and its reservation was just taken.
-            let live = (owner == id || state.repo.snapshots.contains_key(owner))
-                && (!quiescent(store, state, owner)? || live_pending(store, state, owner)?);
+            let live = peer_is_live(store, state, owner, id)?;
             if guarded || live {
                 return Err(records("thread_tree_is_live"));
             }
@@ -493,10 +516,14 @@ pub fn commit(
             },
         )?;
         release_missing_hold(store, state, id, now)?;
-        release(store, command_id)
+        release(store, command_id)?;
+        ace_store::stmt_cache::run(
+            store.conn(),
+            "DELETE FROM engine_transition_guards WHERE command_id=?",
+            vec![ace_store::Value::Text(command_id.to_owned())],
+        )?;
+        Ok(())
     })?;
-    state.transition_release_guards(store, command_id)?;
-    let _ = &fence.owners;
     Ok(())
 }
 
@@ -574,7 +601,9 @@ mod tests {
         conn.exec("INSERT INTO workspace_canonical_roots VALUES ('workspace', '/w')")
             .expect("root");
         let store = Shell::store(&conn);
-        (conn, store, State::default())
+        let mut state = State::default();
+        state.transitions.rebuilt.insert("t".to_owned());
+        (conn, store, state)
     }
 
     fn reservation(root: &str) -> Reservation {
@@ -582,6 +611,27 @@ mod tests {
             roots: vec![root.to_owned()],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_never_started_threads_checkout_shows_preparing_when_details_are_absent() {
+        let mut details = if Value::Null.is_null() {
+            Value::Object(ace_json::Map::new())
+        } else {
+            Value::Null
+        };
+        let mut change = ace_json::Map::new();
+        change.insert("state", Value::from("preparing"));
+        if let Some(object) = details.as_object_mut() {
+            object.insert("workspaceChange", Value::Object(change));
+        }
+        assert_eq!(
+            details
+                .get("workspaceChange")
+                .and_then(|c| c.get("state"))
+                .and_then(Value::as_str),
+            Some("preparing")
+        );
     }
 
     // From `workspace-change.process.test.ts`: a quiet checkout is fenced before the change and

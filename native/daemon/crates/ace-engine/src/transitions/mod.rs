@@ -10,18 +10,29 @@
 //! of a switch, fork or merge itself needs E5.5's delivery and E5.6's sessions/models ports; it
 //! lands when those do, on the seams they define.
 
+use crate::EngineError;
 use crate::State;
 use crate::executor::TaskId;
 
 /// Thread transitions, workspace changes and live moves (E5.9).
 #[derive(Debug, Default)]
-pub struct Transitions;
+pub struct Transitions {
+    /// Threads whose readiness rebuild has committed this boot.
+    pub(crate) rebuilt: std::collections::HashSet<String>,
+}
 
 /// Whether transitions hold no work E5.1 must wait for (E5.9 fills this).
 pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
     true
 }
 
+/// Startup: prune stale guards and rebuild readiness blockers.
+pub fn boot(store: &crate::EngineStore, state: &mut State, now: i64) -> Result<(), EngineError> {
+    state.transition_prune_guards(store)?;
+    readiness::boot_rebuild(store, state, now)
+}
+
+pub mod dispatch;
 pub mod execute;
 pub mod facts;
 pub mod fork_replay;

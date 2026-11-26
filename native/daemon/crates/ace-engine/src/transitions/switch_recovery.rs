@@ -106,8 +106,9 @@ pub fn switch_work_context(state: &ThreadState, native: &[String]) -> Option<Str
         ));
     }
     let joined = lines.join("\n");
-    let cut: String = joined.chars().take(16_384).collect();
-    Some(cut)
+    let text = ace_json::JsString::from(joined.as_str());
+    let end = 16_384.min(text.len_utf16());
+    Some(text.slice_units(0, end).as_str().to_owned())
 }
 
 #[cfg(test)]
@@ -242,6 +243,17 @@ mod tests {
             Some(&current),
             Some(&current)
         ));
+    }
+
+    #[test]
+    fn switch_work_context_trims_on_a_utf16_code_unit_boundary_not_a_char_boundary() {
+        let base = "\u{1F600}";
+        let mut line = String::new();
+        while ace_json::JsString::from(line.as_str()).len_utf16() < 20_000 {
+            line.push_str(base);
+        }
+        let cut = switch_work_context(&state(), &[line]).expect("context");
+        assert_eq!(ace_json::JsString::from(cut.as_str()).len_utf16(), 16_384);
     }
 
     // From `usage-switch-recovery.process.test.ts`: the context names recovered native work and

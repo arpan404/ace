@@ -104,6 +104,9 @@ fn accept_merge(core: &Core, state: &mut State, command: &Value) -> Result<Value
         state.transition_guard(&core.store, source_id, id)?;
     }
     crate::intents::lifecycle::add(&core.store, command, source_id, None, None)?;
+    if let Some(engine) = core.self_rc() {
+        crate::transitions::dispatch::schedule(&engine, source_id);
+    }
     Ok(ok(id, None))
 }
 
@@ -179,6 +182,9 @@ fn accept_switch(core: &Core, state: &mut State, command: &Value) -> Result<Valu
     }
     record_switch(core, state, thread_id, &selection, core.ports.now())?;
     crate::intents::lifecycle::add(&core.store, command, thread_id, None, None)?;
+    if let Some(engine) = core.self_rc() {
+        crate::transitions::dispatch::schedule(&engine, thread_id);
+    }
     Ok(ok(id, None))
 }
 

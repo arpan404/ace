@@ -10,7 +10,8 @@
 use ace_json::Value;
 
 use crate::transitions::history;
-use crate::transitions::metadata::metadata_json;
+use crate::transitions::metadata::{admit_metadata, metadata_json};
+use crate::transitions::remembered::grant_handoff;
 use crate::{EngineError, EngineStore, State};
 
 /// `execute_merge` (`transitions.ts:72`-`:119`): the fork's summary and citations become one
@@ -70,7 +71,18 @@ pub fn merge(
         ace_json::to_string(citations)
     );
     let previous = state.transition_get(store, source)?;
-    state.handoff_grant(store, source, fork, store.head_seq()? as i64)?;
+    let marker = format!(
+        "\"sourceThreadId\":{}",
+        ace_json::to_string(&Value::from(fork))
+    );
+    if previous
+        .context
+        .iter()
+        .any(|entry| entry.contains("merged_fork_context") && entry.contains(marker.as_str()))
+    {
+        return Ok(());
+    }
+    let item_id = format!("merge:{intent_id}");
     let mut context = previous.context.clone();
     context.push(text.clone());
     let mut metadata = metadata_json(&previous);
@@ -78,8 +90,11 @@ pub fn merge(
         "context",
         Value::Array(context.into_iter().map(Value::from).collect()),
     );
+    let admitted = admit_metadata(&Value::Object(metadata.clone()))?;
+    let through = store.head_seq()? as i64;
     store.atomic(|_tx| {
-        state.transition_set(store, source, &Value::Object(metadata))?;
+        grant_handoff(store.conn(), source, fork, through)?;
+        state.transition_set(store, source, &Value::Object(metadata_json(&admitted)))?;
         let mut merged = ace_json::Map::new();
         merged.insert("sourceThreadId", Value::from(fork));
         merged.insert("summary", summary.clone());
@@ -98,7 +113,7 @@ pub fn merge(
         let mut fact = ace_json::Map::new();
         fact.insert("type", Value::from("item.upsert"));
         fact.insert("agent", Value::from("root"));
-        fact.insert("item", Value::from(format!("merge:{intent_id}").as_str()));
+        fact.insert("item", Value::from(item_id.as_str()));
         fact.insert("draft", Value::Object(draft));
         state.apply(
             store,
@@ -175,6 +190,46 @@ mod tests {
                 .and_then(crate::repository::residency::cell_text),
             Some("t2")
         );
+    }
+
+    // Re-running the same merge must not append a second context entry.
+    #[test]
+    fn retrying_the_same_merge_keeps_one_context_entry() {
+        let (_conn, store) = two_threads();
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        let citations = ace_json::json!([{ "threadId": "t2", "itemId": "own", "excerpt": "done" }]);
+        let summary = Value::from("summary");
+        merge(
+            &store,
+            &mut state,
+            "t",
+            "t2",
+            MergeRequest {
+                summary: &summary,
+                citations: &citations,
+                intent_id: 9,
+                patch_applied: false,
+                now: 5.0,
+            },
+        )
+        .expect("first");
+        merge(
+            &store,
+            &mut state,
+            "t",
+            "t2",
+            MergeRequest {
+                summary: &summary,
+                citations: &citations,
+                intent_id: 9,
+                patch_applied: false,
+                now: 6.0,
+            },
+        )
+        .expect("retry");
+        let metadata = state.transition_get(&store, "t").expect("metadata");
+        assert_eq!(metadata.context.len(), 1);
     }
 
     // The fork must still be the source's own; a re-parented lineage refuses.
