@@ -34,6 +34,8 @@ libc = { version = "0.2" }
 # unicode-normalization: NFKD before slugging a machine name, exactly as the TypeScript's
 # `normalize("NFKD")` (MIT OR Apache-2.0).
 unicode-normalization = { version = "0.1", default-features = false }
+# indexmap: checkpoint commits keep the order Git printed them in, as the TypeScript's Map does.
+indexmap = { version = "2" }
 # regex: diagnostics, stderr redaction, and config/version matching (already in workspace lockfile).
 regex = { version = "1" }
 # base64: binary stdout/stderr chunks crossing the injected-spawn port bridge (already in workspace lockfile).

@@ -19,6 +19,7 @@ pub mod failure;
 pub mod hookless;
 pub mod job;
 pub mod lease;
+pub mod objects;
 pub mod paths;
 pub mod policy;
 pub mod ports;

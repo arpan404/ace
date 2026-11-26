@@ -229,6 +229,7 @@ dependencies = [
  "ace-supervisor",
  "base64",
  "gix",
+ "indexmap",
  "libc",
  "regex",
  "serde",
