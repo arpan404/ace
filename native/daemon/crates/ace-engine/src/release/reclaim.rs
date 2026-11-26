@@ -121,13 +121,20 @@ pub fn reclaim_idle_slot(
     let Some(chosen) = choose(facts, &state.repo.retiring) else {
         return Ok(None);
     };
-    if let Some(actor) = state.actors.by_thread.get_mut(&chosen) {
+    // The marks are the caller's, applied once the whole receipt commits
+    // ([`mark`]): a receipt that throws after this choice rolls its SQL back and must leave no
+    // `idleDue` actor or `retiring` entry behind.
+    Ok(Some(chosen))
+}
+
+/// Applies a reclaim the receipt committed: the actor is `idleDue` and the retire wake runs the
+/// control worker, which closes a session whose idle release is due (closing is E5.6's).
+pub fn mark(core: &Core, state: &mut State, thread: &str) {
+    if let Some(actor) = state.actors.by_thread.get_mut(thread) {
         actor.idle_due = true;
     }
-    // The retire wake runs the thread's control worker, which closes a session whose idle
-    // release is due; closing the session itself is E5.6's.
-    core.defer(Deferred::Wake(chosen.clone(), Lane::Control));
-    Ok(Some(chosen))
+    state.repo.retiring.insert(thread.to_owned());
+    core.defer(Deferred::Wake(thread.to_owned(), Lane::Control));
 }
 
 #[cfg(test)]

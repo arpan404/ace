@@ -173,17 +173,20 @@ fn cleared_limits(state: &mut State, core: &Core, thread: &str) -> Result<Vec<Va
     Ok(facts)
 }
 
-/// The thread a `background_task.stop` names, when its task is running and stoppable.
-fn task_target(
-    core: &Core,
-    state: &mut State,
-    task_id: &str,
-) -> Result<Option<String>, EngineError> {
+/// The `background_task.stop` target: the thread that owns a task, or why it cannot stop.
+enum TaskTarget {
+    Owner(String),
+    NotFound,
+    NotStoppable,
+}
+
+/// The thread a `background_task.stop` names, resolved from its `taskId` (`handler.ts:452`).
+fn task_target(core: &Core, state: &mut State, task_id: &str) -> Result<TaskTarget, EngineError> {
     let Some(owner) = state.entity_thread(&core.store, "backgroundTasks", task_id)? else {
-        return Ok(None);
+        return Ok(TaskTarget::NotFound);
     };
     let Some(snapshot) = state.repo.state(&core.store, &owner)? else {
-        return Ok(None);
+        return Ok(TaskTarget::NotFound);
     };
     let key = state.native_entity(&core.store, &owner, "tasks", task_id)?;
     let mut borrowed = snapshot
@@ -193,9 +196,12 @@ fn task_target(
         Some(key) => borrowed.task(&key)?,
         None => None,
     }) else {
-        return Ok(None);
+        return Ok(TaskTarget::NotFound);
     };
-    Ok((task.status == "running" && task.stoppable).then_some(owner))
+    if task.status != "running" || !task.stoppable {
+        return Ok(TaskTarget::NotStoppable);
+    }
+    Ok(TaskTarget::Owner(owner))
 }
 
 /// `handler.ts:376`-`:556`: a thread command's receipt.
@@ -205,10 +211,28 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
     let p = payload(command);
     let fail = |code: &str| error(&id, code);
     if kind == "thread.create" || kind == "thread.prepare" {
-        return crate::commands::create::create(core, state, command, &Context::default());
+        return match crate::commands::create::create(core, state, command, &Context::default())? {
+            crate::commands::create::Outcome::Refused(result) => Ok(result),
+            crate::commands::create::Outcome::Prepared { result, .. } => Ok(result),
+            crate::commands::create::Outcome::Created { thread, reclaimed } => {
+                // Only a prepare returns here: a create's prompt is its first input, so it takes
+                // the admission tail (`handler.ts:374`-`:380`, `:489`-`:553`).
+                tail(core, state, command, &thread, &id, kind, reclaimed)
+            }
+        };
     }
     if kind == "interaction.resolve" {
         return Err(EngineError::not_ported("an interaction answer", "E5.7"));
+    }
+    // `background_task.stop` names a task, not a thread: its owner is resolved first
+    // (`handler.ts:452`), before any `threadId` requirement.
+    if kind == "background_task.stop" {
+        let task_id = p.get("taskId").and_then(Value::as_str).unwrap_or_default();
+        return match task_target(core, state, task_id)? {
+            TaskTarget::NotFound => Ok(fail("task_not_found")),
+            TaskTarget::NotStoppable => Ok(fail("task_not_stoppable")),
+            TaskTarget::Owner(owner) => tail(core, state, command, &owner, &id, kind, None),
+        };
     }
     let Some(thread) = p.get("threadId").and_then(Value::as_str).map(str::to_owned) else {
         return Ok(fail("not_implemented"));
@@ -232,13 +256,6 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
             at,
         )?;
         return Ok(ok(&id, None));
-    }
-    if kind == "background_task.stop" {
-        let task_id = p.get("taskId").and_then(Value::as_str).unwrap_or_default();
-        let Some(owner) = task_target(core, state, task_id)? else {
-            return Ok(fail("task_not_found"));
-        };
-        return tail(core, state, command, &owner, &id, kind);
     }
     let Some(row) = crate::commands::prelude::thread_row(core, &thread)? else {
         return Ok(fail("thread_not_found"));
@@ -282,7 +299,7 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
     {
         return Ok(refused);
     }
-    tail(core, state, command, &thread, &id, kind)
+    tail(core, state, command, &thread, &id, kind, None)
 }
 
 /// The admission tail (`handler.ts:480`-`:553`), in its order.
@@ -293,6 +310,7 @@ fn tail(
     thread: &str,
     id: &str,
     kind: &str,
+    reclaimed: Option<String>,
 ) -> Result<Value, EngineError> {
     let p = payload(command);
     let fail = |code: &str| error(id, code);
@@ -333,16 +351,20 @@ fn tail(
         crate::queue::holds::release_limit_hold(core, state, thread, now)?;
     }
     let held_send = kind == "thread.send" && crate::queue::store::get(&core.store, thread)?.paused;
+    let mut reclaimed = reclaimed;
     if !held_send && !state.repo.reserve(&core.store, thread)? {
         let freed =
             crate::release::reclaim::reclaim_idle_slot(core, state, &|_| false, &|_| false)?;
         let Some(freed) = freed else {
             return Ok(fail("engine_capacity_exceeded"));
         };
-        state.repo.retiring.insert(freed);
-        if !state.repo.reserve(&core.store, thread)? {
+        if !state
+            .repo
+            .reserve_after_reclaim(&core.store, thread, &freed)?
+        {
             return Ok(fail("engine_capacity_exceeded"));
         }
+        reclaimed = Some(freed);
     }
     let agent = p.get("agentId").and_then(Value::as_str);
     let thread_stop = kind == "thread.interrupt" && !stops_one_agent(state, core, thread, agent)?;
@@ -382,6 +404,11 @@ fn tail(
         crate::queue::holds::wake(core, &released_thread);
     }
     crate::queue::holds::wake(core, thread);
+    // The reclaim's in-memory marks are applied last, once nothing below can throw: a refusal or
+    // a failed write rolls the SQL back and must leave no `idleDue` actor or `retiring` entry.
+    if let Some(freed) = reclaimed {
+        crate::release::reclaim::mark(core, state, &freed);
+    }
     Ok(ok(id, Some(thread)))
 }
 

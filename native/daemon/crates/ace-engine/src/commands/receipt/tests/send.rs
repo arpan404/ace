@@ -157,15 +157,19 @@ fn a_receipt_that_rolls_back_never_names_its_thread() {
     let receipt = Receipt::new(LimitOverrides::default());
     receipt.shell.hold_after_commit();
     receipt.thread_row(r#"{"title":"hello","titleSource":"provisional"}"#);
-    // The first write is the accepted input's own rows; the next one (the queue's bump) fails,
-    // so the receipt rolls back after the prompt was deferred.
-    receipt.shell.fail_write_at(2);
+    // The shell holds the receipt's event writes and flushes them before the commit; the flush
+    // fails, so the receipt rolls back after the prompt was deferred.
+    receipt.shell.fail_write_at(1);
     let command = ace_json::parse(&send("c")).expect("json");
     let core = receipt.core();
     let outcome = core.store.atomic(|_tx| {
-        core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?
+        let result =
+            core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?;
+        core.store.flush_events()?;
+        result
     });
     assert!(outcome.is_err(), "the failed write rolls the receipt back");
+    receipt.shell.drop_deferred();
     // The stack drops a rolled-back frame's deferreds; nothing runs when the commit would.
     let dropped = receipt.shell.dropped();
     core.discard_after_commit(&dropped);

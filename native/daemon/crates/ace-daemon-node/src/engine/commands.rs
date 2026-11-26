@@ -32,7 +32,11 @@ impl NativeEngine {
                     "E5.4e",
                 )));
             }
-            Err(error) => return Err(engine_error(error)),
+            Err(error) => {
+                // A failed receipt's held writes die with its rollback.
+                self.ports.take_deferred_events();
+                return Err(engine_error(error));
+            }
         };
         for (thread, payloads, at) in deferred {
             core.store

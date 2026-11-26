@@ -218,6 +218,15 @@ impl JsPorts {
         self.deferred_events.borrow_mut().take().unwrap_or_default()
     }
 
+    /// The writes held back so far, leaving the deferral on for the rest of the receipt.
+    pub fn drain_deferred_events(&self) -> Vec<(String, String, f64)> {
+        self.deferred_events
+            .borrow_mut()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
     /// Any function-reference port call, for the modules that hold their own function refs.
     pub fn call_port<A, R>(&self, function: &FunctionRef<A, R>, args: A) -> Result<R, PortError>
     where

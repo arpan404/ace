@@ -3,6 +3,81 @@
 
 use super::*;
 
+/// A stored background task, as the engine wrote it into its section.
+fn stored_task(id: &str, status: &str, stoppable: bool) -> String {
+    let task = format!(
+        r#"{{"id":"{id}","agentId":"root","kind":"shell","title":"Run","status":"{status}","ambient":false,"stoppable":{stoppable},"startedAt":1}}"#
+    );
+    format!(
+        "INSERT INTO engine_state_records VALUES ('t', 'tasks', 'task-key', '{}')",
+        task.replace('\'', "''")
+    )
+}
+
+#[test]
+fn a_background_task_stop_resolves_its_owner_from_the_task_id() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    // The protocol's payload carries `taskId` and no `threadId` (`commands.ts:192`).
+    receipt.exec(
+        "INSERT INTO view_entities (thread_id, collection, id, value) \
+         VALUES ('t', 'backgroundTasks', 'task-1', '{}')",
+    );
+    receipt.exec(&stored_task("task-1", "running", true));
+    receipt.exec("INSERT INTO engine_slots VALUES ('t')");
+    let accepted = receipt.handle(
+        r#"{"id":"stop","deviceId":"device","payload":{"type":"background_task.stop","taskId":"task-1"}}"#,
+    );
+    assert_eq!(
+        accepted.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{accepted}"
+    );
+    assert_eq!(
+        accepted.get("threadId").and_then(Value::as_str),
+        Some("t"),
+        "the owner thread comes back on the receipt"
+    );
+    assert_eq!(
+        receipt.text("SELECT kind AS value FROM intents WHERE command_id='stop'"),
+        Some("background_task.stop".to_owned())
+    );
+}
+
+#[test]
+fn a_background_task_stop_distinguishes_a_missing_task_from_an_unstoppable_one() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    assert_eq!(
+        receipt.handle(
+            r#"{"id":"gone","deviceId":"device","payload":{"type":"background_task.stop","taskId":"missing"}}"#
+        ),
+        result("gone", "task_not_found")
+    );
+    receipt.exec(
+        "INSERT INTO view_entities (thread_id, collection, id, value) \
+         VALUES ('t', 'backgroundTasks', 'task-2', '{}')",
+    );
+    receipt.exec(&stored_task("task-2", "exited", true));
+    assert_eq!(
+        receipt.handle(
+            r#"{"id":"ended","deviceId":"device","payload":{"type":"background_task.stop","taskId":"task-2"}}"#
+        ),
+        result("ended", "task_not_stoppable")
+    );
+    // A running task the provider will not stop individually is the same refusal.
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.exec(
+        "INSERT INTO view_entities (thread_id, collection, id, value) \
+         VALUES ('t', 'backgroundTasks', 'task-3', '{}')",
+    );
+    receipt.exec(&stored_task("task-3", "running", false));
+    assert_eq!(
+        receipt.handle(
+            r#"{"id":"fixed","deviceId":"device","payload":{"type":"background_task.stop","taskId":"task-3"}}"#
+        ),
+        result("fixed", "task_not_stoppable")
+    );
+}
+
 #[test]
 fn an_unknown_agent_a_stale_run_and_an_unsupported_goal_refuse() {
     let receipt = Receipt::new(LimitOverrides::default());

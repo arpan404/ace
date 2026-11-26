@@ -165,28 +165,50 @@ pub fn create_engine_thread(
     Ok(())
 }
 
+/// What the create hands the receipt: a refusal, a created thread for the admission tail, or a
+/// prepared thread that runs nothing until it is sent work.
+pub enum Outcome {
+    Refused(Value),
+    Created {
+        thread: String,
+        /// The idle session whose slot this create reclaimed, marked at the commit.
+        reclaimed: Option<String>,
+    },
+    Prepared {
+        result: Value,
+        reclaimed: Option<String>,
+    },
+}
+
 pub fn create(
     core: &Core,
     state: &mut State,
     command: &Value,
     context: &Context,
-) -> Result<Value, EngineError> {
+) -> Result<Outcome, EngineError> {
     let id = command_id(command).to_owned();
     let p = payload(command);
     let kind = payload_type(command);
     if !state.commands.admissions.authorized(command, None) {
-        return Ok(error(&id, "thread_creation_in_progress"));
+        return Ok(Outcome::Refused(error(&id, "thread_creation_in_progress")));
     }
     // `validateCreation` runs first (`handler.ts:217`): every refusal it owns commits, and the
     // workspace path it canonicalises is the one the thread records.
     let workspace_id = text(p, "workspaceId").unwrap_or_default().to_owned();
     let workspace_path = state.workspace(&core.store, &workspace_id)?;
     let provider = text(p, "provider").unwrap_or_default().to_owned();
+    // A handoff that names a live source reaches the unwired `portableHandoff` read: throw there,
+    // and let validation refuse a source that does not exist (`handoff_source_not_found`).
+    if let Some(source) = text(p, "handoffFrom")
+        && crate::commands::prelude::thread_row(core, source)?.is_some()
+    {
+        return Err(EngineError::not_ported("a handoff's context", "E5.4e"));
+    }
     let (valid, backend) = {
         let facts = facts::Facts::read(core, state, p, workspace_path)?;
         let valid = match crate::commands::validation::validate_creation(command, &facts) {
             Ok(valid) => valid,
-            Err(code) => return Ok(error(&id, &code)),
+            Err(code) => return Ok(Outcome::Refused(error(&id, &code))),
         };
         facts.failure()?;
         (valid, facts.backend(&provider))
@@ -197,9 +219,6 @@ pub fn create(
     }
     if p.get("pullRequest").is_some() {
         return Err(EngineError::not_ported("a pull request's link", "E5.4e"));
-    }
-    if p.get("handoffFrom").is_some() {
-        return Err(EngineError::not_ported("a handoff's context", "E5.4e"));
     }
     let at = core.ports.now();
     let catalog = crate::models::select::PortCatalog(&*core.ports);
@@ -218,7 +237,9 @@ pub fn create(
     ) {
         Ok(model) => model,
         // The catalog refused an explicit model; `onModelUnavailable` has already been told.
-        Err(EngineError::ModelUnavailable) => return Ok(error(&id, "model_unavailable")),
+        Err(EngineError::ModelUnavailable) => {
+            return Ok(Outcome::Refused(error(&id, "model_unavailable")));
+        }
         Err(error) => return Err(error),
     };
     // `p.threadId ?? nextId()` (`handler.ts:244`): a client may let the daemon name the thread.
@@ -226,18 +247,22 @@ pub fn create(
         .map(str::to_owned)
         .unwrap_or_else(|| core.ports.thread_id());
     // A prepared thread runs nothing until it is sent work, which reserves a slot then.
+    let mut reclaimed = None;
     if kind != "thread.prepare" && !state.repo.reserve(&core.store, &thread_id)? {
         let freed =
             crate::release::reclaim::reclaim_idle_slot(core, state, &|_| false, &|_| false)?;
-        match freed {
-            Some(freed) => {
-                state.repo.retiring.insert(freed);
-                if !state.repo.reserve(&core.store, &thread_id)? {
-                    return Ok(error(&id, "engine_capacity_exceeded"));
-                }
-            }
-            None => return Ok(error(&id, "engine_capacity_exceeded")),
+        let Some(freed) = freed else {
+            return Ok(Outcome::Refused(error(&id, "engine_capacity_exceeded")));
+        };
+        // The marks wait for the commit (`release::reclaim::mark`): a refused create must not
+        // retire a session or subtract a slot no retirement will free.
+        if !state
+            .repo
+            .reserve_after_reclaim(&core.store, &thread_id, &freed)?
+        {
+            return Ok(Outcome::Refused(error(&id, "engine_capacity_exceeded")));
         }
+        reclaimed = Some(freed);
     }
     let selection = selection_json(p, model.as_deref(), valid.instance_id.as_deref());
     let instance = text(&selection, "instanceId").map(str::to_owned);
@@ -265,9 +290,15 @@ pub fn create(
     create_engine_thread(core, state, &new)?;
     if kind == "thread.prepare" {
         state.repo.release_slot(&core.store, &thread_id)?;
-        return Ok(ok(&id, Some(&thread_id)));
+        return Ok(Outcome::Prepared {
+            result: ok(&id, Some(&thread_id)),
+            reclaimed,
+        });
     }
-    Ok(ok(&id, Some(&thread_id)))
+    Ok(Outcome::Created {
+        thread: thread_id,
+        reclaimed,
+    })
 }
 
 #[cfg(test)]

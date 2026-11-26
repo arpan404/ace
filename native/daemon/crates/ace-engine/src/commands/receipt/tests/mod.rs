@@ -68,6 +68,7 @@ impl Receipt {
             shell,
             conn,
         };
+        receipt.shell.defer_events(true);
         // The fold's E5.7 collaborator is not ported yet; the seam's pass-through answers it
         // (E5.3 step 7), so a receipt that folds a queue fact can be tested now.
         receipt
@@ -119,7 +120,9 @@ impl Receipt {
         self.exec(sql)
     }
 
-    /// One receipt, inside the shell's transaction as the binding runs it.
+    /// One receipt, inside the shell's transaction as the binding runs it: the shell holds the
+    /// receipt's event writes until it returns, then flushes what is left, so a create's
+    /// `thread.created` reaches the store only when the engine asks for it (`State::save`).
     fn handle(&self, command: &str) -> Value {
         let command = ace_json::parse(command).expect("json");
         let core = self.core();
@@ -127,9 +130,18 @@ impl Receipt {
             core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?
         });
         match outcome {
-            Ok(Some(result)) => result,
+            Ok(Some(result)) => {
+                core.store
+                    .flush_events()
+                    .expect("the shell writes its held events");
+                result
+            }
             Ok(None) => panic!("the prelude claimed the command"),
-            Err(error) => panic!("the receipt threw: {error}"),
+            Err(error) => {
+                // A failed receipt drops its held writes with its rollback.
+                self.shell.drop_deferred();
+                panic!("the receipt threw: {error}")
+            }
         }
     }
 

@@ -32,6 +32,9 @@ impl State {
         store.atomic(|tx| {
             self.repo.sync(store)?;
             let mut payloads = parse_payloads(payloads_json)?;
+            let creates_thread = payloads.iter().any(|payload| {
+                payload.get("type").and_then(Value::as_str) == Some("thread.created")
+            });
             let needs_source = payloads.iter().any(|payload| {
                 matches!(
                     payload.get("type").and_then(Value::as_str),
@@ -50,6 +53,12 @@ impl State {
             let events_json = ace_json::to_string(&Value::Array(payloads.into()));
             // The store's writer owns every event row (Decision 1).
             store.write_events(id, &events_json, at)?;
+            // A create's parent `threads` row is the writer's projection of `thread.created`;
+            // `thread_state` references it. Flush that batch first so the header insert follows
+            // the row, and the later batches (the re-entrant hook) keep the shell's deferral.
+            if creates_thread {
+                store.flush_events()?;
+            }
             let header = snapshot.borrow().header()?;
             let seq = store.head_seq()? as i64;
             stmt_cache::run(

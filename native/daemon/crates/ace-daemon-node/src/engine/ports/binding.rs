@@ -129,6 +129,22 @@ impl Ports for JsPorts {
         )
     }
 
+    /// A create's `thread.created` projects the parent `threads` row the engine's own
+    /// `thread_state` and session inserts reference. The engine flushes that one batch before
+    /// them (`repository/save.rs`); the write still runs here, and every later batch keeps
+    /// waiting for the receipt to end.
+    fn flush_deferred_events(&self) -> Result<(), PortError> {
+        for (thread, payloads, at) in self.drain_deferred_events() {
+            self.call(
+                &self.write_events,
+                FnArgs {
+                    data: (thread, payloads, at),
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     fn head_seq(&self) -> Result<f64, PortError> {
         self.call(&self.head_seq, ())
     }

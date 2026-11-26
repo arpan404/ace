@@ -161,4 +161,17 @@ impl EngineStore {
             .write_events(id, payloads_json, at)
             .map_err(EngineError::Port)
     }
+
+    /// Writes event batches the shell held back, in call order, and clears them.
+    ///
+    /// The binding defers every write so its store hooks never re-enter a held `State` borrow. A
+    /// receipt that creates a thread must have its parent `threads` row first: `thread_state`,
+    /// sessions and the queue all reference it. `State::save` asks for this flush before its
+    /// header insert, so the projection keeps the store's order without the re-entrant hook
+    /// running under the receipt.
+    pub fn flush_events(&self) -> Result<(), EngineError> {
+        self.ports
+            .flush_deferred_events()
+            .map_err(EngineError::Port)
+    }
 }

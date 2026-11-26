@@ -27,6 +27,29 @@ impl Repo {
 
     /// `reserve` (`:516`), inside the store's transaction.
     pub fn reserve(&mut self, store: &EngineStore, id: &str) -> Result<bool, EngineError> {
+        self.reserve_counting(store, id, 0)
+    }
+
+    /// `reserve` after a receipt reclaimed `freed`: its slot row is still there until the
+    /// retire wake runs, so this call counts it as gone. The caller records the retirement only
+    /// once the whole receipt commits (`release::reclaim::mark`).
+    pub fn reserve_after_reclaim(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        freed: &str,
+    ) -> Result<bool, EngineError> {
+        let _ = freed;
+        self.reserve_counting(store, id, 1)
+    }
+
+    /// `reserve`, counting `pending_retire` additional threads as already retired.
+    fn reserve_counting(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        pending_retire: usize,
+    ) -> Result<bool, EngineError> {
         store.atomic(|tx| {
             if stmt_cache::get_row(tx.conn(), SLOT, vec![text(id)])?.is_some() {
                 return Ok(true);
@@ -34,16 +57,18 @@ impl Repo {
             let count = stmt_cache::get_row(tx.conn(), COUNT, vec![])?
                 .and_then(|row| row.get("count").and_then(cell_int))
                 .unwrap_or(0);
-            if count - self.retiring.len() as i64 >= self.capacity as i64 {
+            let retiring = self.retiring.len() as i64 + pending_retire as i64;
+            if count - retiring >= self.capacity as i64 {
                 // Evict before refusing: a finished thread's warm session gives up its slot.
+                // The live receipt path is `reclaim_idle_slot` and records its marks at the
+                // commit; this hook is E5.6's, and the caller that sets it records its own.
                 let freed = match &self.reclaim {
                     Some(reclaim) => reclaim(&self.retiring),
                     None => None,
                 };
-                let Some(freed) = freed else {
+                if freed.is_none() {
                     return Ok(false);
-                };
-                self.retiring.insert(freed);
+                }
             }
             stmt_cache::run(tx.conn(), TAKE, vec![text(id)])?;
             Ok(true)

@@ -98,6 +98,12 @@ pub trait Ports {
     /// The shell's `append`: the batch joins the open context's event list exactly once.
     fn append_events(&self, json: &str) -> Result<(), PortError>;
 
+    /// Writes event batches the shell held back, in call order, and clears them. A shell that
+    /// never defers answers `Ok`.
+    fn flush_deferred_events(&self) -> Result<(), PortError> {
+        Ok(())
+    }
+
     // ---- The terminal cleanup (E5.1 step 4) ----
     /// One facade promise for a batch the actor starts; `None` before the shell registers any.
     fn frame_call(&self) -> Option<u64> {

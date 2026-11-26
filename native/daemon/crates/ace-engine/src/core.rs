@@ -401,6 +401,7 @@ impl DeferredHost for Core {
     fn wake(&self, thread: &str, _lane: Lane) {
         // A released wake belongs to work admitted before admission closed, so the shutdown
         // join runs it; only `shut` stops new runnables, in the schedule function.
+        // E5.4f's sends worker starts from here; this branch has no worker yet.
         self.record_wake(thread);
     }
 
