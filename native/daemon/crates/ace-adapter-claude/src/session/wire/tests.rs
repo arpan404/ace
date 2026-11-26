@@ -23,7 +23,6 @@ fn wire_with_session(session_id: &str) -> ClaudeWire {
         session_id: session_id.to_owned(),
         root_key: "root".to_owned(),
         bearer: None,
-        hooks: Vec::new(),
         resume: false,
     })
 }
@@ -238,7 +237,7 @@ fn a_rate_limit_event_emits_the_callback_after_its_frame() {
 }
 
 #[test]
-fn notes_route_by_channel_and_unknown_channels_are_dropped() {
+fn notes_route_by_channel() {
     let mut wire = new_wire();
     let accounts =
         wire.note(r#"{"channel":"accounts","data":{"type":"rate_limit_observation_failed"}}"#);
@@ -306,8 +305,8 @@ fn a_known_and_unknown_type_keep_the_frame_set_they_have_today() {
     assert_eq!(frame(&effects[0]), (FrameDir::Recv, "wire", text.as_str()));
     assert_eq!(frame(&effects[1]), (FrameDir::Recv, "sdk", text.as_str()));
     let null_type = push_line(&mut new_wire(), r#"{"type":null,"x":1}"#);
-    assert_eq!(null_type.len(), 2);
-    assert_eq!(frame(&null_type[1]).1, "sdk");
+    assert_eq!(null_type.len(), 1, "a non-string type stops at onWire");
+    assert_eq!(frame(&null_type[0]).1, "wire");
 }
 
 #[test]
@@ -316,7 +315,6 @@ fn a_resumed_wire_starts_confirmed() {
         session_id: "session-1".to_owned(),
         root_key: "root".to_owned(),
         bearer: None,
-        hooks: Vec::new(),
         resume: true,
     });
     let parentless = r#"{"type":"user","session_id":"session-1","parent_tool_use_id":null,"message":{"role":"user","content":[]}}"#;
@@ -578,7 +576,7 @@ fn a_cancel_and_expire_answer_with_the_kind_default() {
     assert!(String::from_utf8_lossy(bytes).contains("Claude request ended."));
     assert_eq!(frame(&cancelled[2]).1, "sdk");
 
-    // A cancel seen before its request makes the late registration expire at once.
+    // A cancel seen before its request cancels the late registration at once.
     let mut late = new_wire();
     push_line(
         &mut late,
@@ -589,7 +587,14 @@ fn a_cancel_and_expire_answer_with_the_kind_default() {
         r#"{"type":"control_request","request_id":"request-5","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
     );
     assert_eq!(late_permission.len(), 4);
-    assert_eq!(frame(&late_permission[2]).1, "interaction_lifecycle");
+    assert_eq!(
+        frame(&late_permission[2]),
+        (
+            FrameDir::Recv,
+            "interaction_lifecycle",
+            r#"{"requestId":"request-5","state":"cancelled"}"#
+        )
+    );
 
     let mut expiring = new_wire();
     push_line(&mut expiring, permission);
@@ -607,7 +612,7 @@ fn a_cancel_and_expire_answer_with_the_kind_default() {
 }
 
 #[test]
-fn the_interaction_cap_and_duplicate_ids_fail_before_a_frame() {
+fn the_interaction_cap_and_duplicate_ids_answer_with_an_error() {
     let mut full = new_wire();
     for index in 0..256 {
         push_line(
@@ -622,24 +627,97 @@ fn the_interaction_cap_and_duplicate_ids_fail_before_a_frame() {
         r#"{"type":"control_request","request_id":"request-256","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
     );
     assert_eq!(over.len(), 2);
-    assert!(matches!(
-        &over[1],
-        Effect::Fatal { message } if message == "Error: Claude interaction capacity reached"
-    ));
+    let Effect::Write { wire: bytes } = &over[1] else {
+        panic!("the capacity reply is written");
+    };
+    let text = String::from_utf8_lossy(bytes);
+    assert!(text.contains("\"subtype\":\"error\""), "{text}");
+    assert!(
+        text.contains("Claude interaction capacity reached"),
+        "{text}"
+    );
 
     let mut duplicate = new_wire();
     let line = r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#;
     push_line(&mut duplicate, line);
     let again = push_line(&mut duplicate, line);
+    let Effect::Write { wire: bytes } = &again[1] else {
+        panic!("the duplicate reply is written");
+    };
+    assert!(String::from_utf8_lossy(bytes).contains("Duplicate Claude request id"));
+    // The session lives: a different id still registers.
+    let fresh = push_line(
+        &mut duplicate,
+        r#"{"type":"control_request","request_id":"request-2","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    assert_eq!(frame(&fresh[1]).1, "can_use_tool");
+}
+
+#[test]
+fn finish_expires_a_pending_interaction_once_and_writes_nothing() {
+    let mut wire = new_wire();
+    push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    let effects = wire.finish();
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Frame { channel, text, .. }
+            if *channel == "interaction_lifecycle" && text.contains("\"state\":\"expired\"")
+    )));
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Write { .. })),
+        "no default answer after the barrier"
+    );
+    assert!(matches!(effects.last(), Some(Effect::Drained)));
+    assert!(wire.peek_interaction("request-1").is_none());
+    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
+    assert!(wire.expire().is_empty());
+}
+
+#[test]
+fn nothing_answers_after_finish_or_a_fatal() {
+    let mut finished = new_wire();
+    finished.finish();
+    assert!(!finished.answer_interaction("r", "{}", "{}").0);
+    assert!(finished.answer_hook("h", "{}").is_empty());
+    assert!(finished.expire().is_empty());
+    assert!(finished.control(r#"{"subtype":"mcp_status"}"#, 1).is_err());
+
+    let mut fatal = new_wire();
+    fatal.stdout_bytes(&vec![b' '; LINE_BYTES + 1]);
+    assert!(!fatal.answer_interaction("r", "{}", "{}").0);
+    assert!(fatal.answer_hook("h", "{}").is_empty());
+    assert!(fatal.expire().is_empty());
+    assert!(fatal.control(r#"{"subtype":"mcp_status"}"#, 1).is_err());
+}
+
+#[test]
+fn a_refused_control_write_settles_its_tag_as_uncertain() {
+    let mut wire = new_wire();
+    wire.control(r#"{"subtype":"mcp_status"}"#, 9)
+        .expect("open");
+    let effects = wire.write_refused();
     assert!(matches!(
-        &again[1],
-        Effect::Fatal { message } if message == "Error: Duplicate Claude request id"
+        &effects[0],
+        Effect::Settle { id: 9, result: Err(ClaudeError::Uncertain(text)) }
+            if text == "Claude stdin closed"
     ));
+    assert!(matches!(&effects[1], Effect::Fatal { .. }));
 }
 
 #[test]
 fn hooks_frame_observations_and_wait_for_the_prompt_callback() {
     let mut wire = new_wire();
+    wire.control(
+        r#"{"subtype":"initialize","hooks":{"SubagentStart":[{"hookCallbackIds":["hook_0"]}],"UserPromptSubmit":[{"hookCallbackIds":["hook_1"]}]}}"#,
+        1,
+    )
+    .expect("the controls are open");
+    wire.stdin_written();
     let observation = push_line(
         &mut wire,
         r#"{"type":"control_request","request_id":"hook-1","request":{"subtype":"hook_callback","callback_id":"hook_0","input":{"hook_event_name":"SubagentStart","session_id":"session-1"}}}"#,

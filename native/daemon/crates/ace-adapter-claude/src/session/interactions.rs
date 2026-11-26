@@ -7,7 +7,7 @@
 use ace_json::{Map, Value};
 use agent_stream_json::HostRequest;
 use agent_stream_json::host::{self, elicitation_request, permission_options, user_dialog_request};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::session::wire::{ClaudeWire, Effect, FrameDir};
 use crate::translate::interactions::request_for;
@@ -33,7 +33,7 @@ struct Pending {
 #[derive(Default)]
 pub(crate) struct Interactions {
     pending: IndexMap<String, Pending>,
-    cancelled: Vec<String>,
+    cancelled: IndexSet<String>,
     ended: bool,
 }
 
@@ -46,19 +46,13 @@ impl Interactions {
     /// window drops it).
     fn remember_cancelled(&mut self, id: &str) {
         if self.cancelled.len() >= MAX_CANCELLED {
-            self.cancelled.remove(0);
+            self.cancelled.shift_remove_index(0);
         }
-        self.cancelled.push(id.to_owned());
+        self.cancelled.insert(id.to_owned());
     }
 
     fn take_cancelled(&mut self, id: &str) -> bool {
-        match self.cancelled.iter().position(|cancelled| cancelled == id) {
-            Some(at) => {
-                self.cancelled.remove(at);
-                true
-            }
-            None => false,
-        }
+        self.cancelled.shift_remove(id)
     }
 }
 
@@ -98,8 +92,18 @@ impl ClaudeWire {
 
     /// Close or exit: every pending interaction expires with its default answer.
     pub fn expire(&mut self) -> Vec<Effect> {
+        if self.finished || self.failed {
+            return Vec::new();
+        }
+        self.expire_pending()
+    }
+
+    /// `finish`'s own expiry, after the wire latched: lifecycle frames always, the default
+    /// answers only while stdin is open.
+    pub(crate) fn expire_pending(&mut self) -> Vec<Effect> {
         self.interactions.ended = true;
         self.interactions.cancelled.clear();
+        self.pending_hooks.clear();
         let pending = std::mem::take(&mut self.interactions.pending);
         let mut effects = Vec::new();
         for (id, pending) in pending {
@@ -124,6 +128,9 @@ impl ClaudeWire {
         result_json: &str,
         resolution_json: &str,
     ) -> (bool, Vec<Effect>) {
+        if self.finished || self.failed {
+            return (false, Vec::new());
+        }
         let Some(pending) = self.interactions.pending.shift_remove(id) else {
             return (false, Vec::new());
         };
@@ -200,11 +207,12 @@ impl ClaudeWire {
         request: Value,
         default: Value,
     ) -> Vec<Effect> {
+        // The callback is rejected, not the session (`pending-interactions.ts:128`-`:130`).
         if self.interactions.pending.len() >= MAX_PENDING {
-            return vec![self.fatal("Error: Claude interaction capacity reached".to_owned())];
+            return self.answer_envelope(host::error(id, "Claude interaction capacity reached"));
         }
         if self.interactions.pending.contains_key(id) {
-            return vec![self.fatal("Error: Duplicate Claude request id".to_owned())];
+            return self.answer_envelope(host::error(id, "Duplicate Claude request id"));
         }
         let mut effects = match self.frame(FrameDir::Recv, channel, &data) {
             Ok(effect) => vec![effect],
@@ -239,7 +247,9 @@ impl ClaudeWire {
         data.insert("requestId", Value::from(id));
         data.insert("state", Value::from(state));
         let mut effects = self.framed(FrameDir::Recv, LIFECYCLE, &Value::Object(data));
-        effects.extend(self.answer_envelope(host::success(id, pending.default)));
+        if self.input_open {
+            effects.extend(self.answer_envelope(host::success(id, pending.default)));
+        }
         effects
     }
 }
@@ -248,14 +258,12 @@ impl ClaudeWire {
 fn elicitation_interaction(native: &Value) -> Value {
     let mut map = Map::with_capacity(9);
     map.insert("kind", Value::from("elicitation"));
-    map.insert(
-        "server",
-        Value::from(text(native.get("serverName")).unwrap_or_default()),
-    );
-    map.insert(
-        "message",
-        Value::from(text(native.get("message")).unwrap_or_default()),
-    );
+    if let Some(server) = text(native.get("serverName")) {
+        map.insert("server", Value::from(server));
+    }
+    if let Some(message) = text(native.get("message")) {
+        map.insert("message", Value::from(message));
+    }
     for (from, to) in [
         ("mode", "mode"),
         ("url", "url"),
@@ -265,7 +273,10 @@ fn elicitation_interaction(native: &Value) -> Value {
             map.insert(to, Value::from(value));
         }
     }
-    if let Some(schema) = native.get("requestedSchema") {
+    if let Some(schema) = native
+        .get("requestedSchema")
+        .filter(|schema| truthy(schema))
+    {
         map.insert("schema", schema.clone());
     }
     for (from, to) in [("title", "title"), ("description", "description")] {
@@ -282,6 +293,20 @@ fn text(value: Option<&Value>) -> Option<&str> {
 
 fn non_empty(value: Option<&Value>) -> Option<&str> {
     text(value).filter(|value| !value.is_empty())
+}
+
+/// JavaScript truthiness for the optional fields the TypeScript spreads conditionally.
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => {
+            let value = number.value();
+            value != 0.0 && !value.is_nan()
+        }
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
 }
 
 /// `{behavior: "deny", message: "Claude request ended."}` (`pending-interactions.ts:154`).

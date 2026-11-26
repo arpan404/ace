@@ -61,7 +61,11 @@ pub struct ClaudeWire {
     confirmed: bool,
     pub(crate) finished: bool,
     /// A failed line was reported; every later input is ignored.
-    failed: bool,
+    pub(crate) failed: bool,
+    /// stdin is still open: only then does an expiry write its default answers.
+    pub(crate) input_open: bool,
+    /// What the last `initialize` this wire wrote declared, in order (event, callback ids).
+    pub(crate) declared_hooks: Vec<(String, Vec<String>)>,
 }
 
 impl ClaudeWire {
@@ -81,6 +85,8 @@ impl ClaudeWire {
             confirmed,
             finished: false,
             failed: false,
+            input_open: true,
+            declared_hooks: Vec::new(),
         }
     }
 
@@ -123,7 +129,8 @@ impl ClaudeWire {
     }
 
     /// A facade note: `{"channel": "<name>", "data": <value>}`. The wire captures `data` and
-    /// emits it on that note channel; an unknown channel is dropped, never fatal.
+    /// emits it on that note channel. A note is the facade's own data, so an unknown channel or
+    /// unparsable JSON is a facade bug: the debug build asserts and the release reports `Fatal`.
     pub fn note(&mut self, json: &str) -> Vec<Effect> {
         if self.finished || self.failed {
             return Vec::new();
@@ -173,8 +180,13 @@ impl ClaudeWire {
         self.tasks.cascade(spawn)
     }
 
-    /// The terminal barrier: finalize the framers, flush the drop notes, settle every pending
-    /// control (none exists before E3-claude.3), then `Drained`.
+    /// `q.close()`'s input close: no later expiry writes a default answer.
+    pub(crate) fn end_input(&mut self) {
+        self.input_open = false;
+    }
+
+    /// The terminal barrier: finalize the framers, flush the drop notes, expire every pending
+    /// interaction, settle every pending control, then `Drained`.
     pub fn finish(&mut self) -> Vec<Effect> {
         if self.finished {
             return Vec::new();
@@ -196,6 +208,11 @@ impl ClaudeWire {
         if let Some(note) = self.notes.flush() {
             effects.extend(self.stderr_note(&note));
         }
+
+        // The terminal expiry: every interaction ends once, and its default answer only while
+        // stdin is open (`session.ts:104`, `:117`).
+        self.end_input();
+        effects.extend(self.expire_pending());
 
         for tag in self.controls.drain() {
             effects.push(Effect::Settle {
@@ -284,8 +301,9 @@ impl ClaudeWire {
                 effects.extend(self.interaction_cancelled(&request_id));
                 effects.extend(self.framed(FrameDir::Recv, SDK, &value));
             }
-            // An unknown type (or none) is `recv/wire` and then `recv/sdk`: the SDK yields it
-            // to the iterator too, and the pump frames it again (seq 5-8 of the recording).
+            // A string-typed unknown is `recv/wire` and then `recv/sdk`: the SDK yields it to
+            // the iterator too, and the pump frames it again (seq 5-8). A line whose `type` is
+            // not a string stops at `onWire` (`sdk-process.ts:72`-`:75`), so it gets one frame.
             Line::Unknown { value } => match self.frame(FrameDir::Recv, WIRE, &value) {
                 Ok(Effect::Frame { text, .. }) => {
                     effects.push(Effect::Frame {
@@ -293,11 +311,13 @@ impl ClaudeWire {
                         channel: WIRE,
                         text: text.clone(),
                     });
-                    effects.push(Effect::Frame {
-                        dir: FrameDir::Recv,
-                        channel: SDK,
-                        text,
-                    });
+                    if value.get("type").and_then(Value::as_str).is_some() {
+                        effects.push(Effect::Frame {
+                            dir: FrameDir::Recv,
+                            channel: SDK,
+                            text,
+                        });
+                    }
                 }
                 Ok(effect) => effects.push(effect),
                 Err(message) => {
