@@ -495,6 +495,42 @@ mod tests {
     }
 
     #[test]
+    fn a_created_row_missing_only_its_description_is_uncertain_without_a_receipt() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = Stub::default();
+                // `description` is a required (nullable) key: its absence makes the reply
+                // unreadable, so the write is uncertain, never a published repository.
+                respond(
+                    &stub,
+                    201,
+                    String::from(
+                        r#"{"id":7,"name":"new-one","owner":{"login":"octo"},"private":false,"archived":false,"fork":false}"#,
+                    ),
+                );
+                let repositories = client(&stub);
+                let input = PublishInput {
+                    host: String::from("github.com"),
+                    account: String::from("octo"),
+                    owner: String::from("octo"),
+                    name: String::from("new-one"),
+                    description: String::new(),
+                    visibility: String::from("public"),
+                };
+                let error = repositories
+                    .create(&input, None, Default::default())
+                    .await
+                    .expect_err("uncertain");
+                assert_eq!(error.kind, Kind::OutcomeUncertain);
+                assert_eq!(error.dispatched, Some(true));
+                assert_eq!(error.receipt, None, "no repository can be published");
+            });
+    }
+
+    #[test]
     fn a_publish_refuses_a_visibility_or_description_the_schema_refuses() {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
