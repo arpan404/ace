@@ -6,4 +6,8 @@
 //! only turns bytes into catalog rows, maps efforts onto ace's scale, searches and
 //! freezes them.
 
+pub mod display_name;
 pub mod effort;
+pub mod free;
+pub mod metadata;
+pub mod raw;

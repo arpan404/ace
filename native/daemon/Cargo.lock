@@ -234,6 +234,7 @@ name = "ace-models"
 version = "0.1.0"
 dependencies = [
  "ace-protocol",
+ "regex",
  "serde",
  "serde_json",
 ]
