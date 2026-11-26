@@ -124,7 +124,7 @@ governed by its provider's permission mode, through the tools' MCP annotations).
   ref reads the tree again first, and a vanished element fails with `stale_ref` before anything
   reaches the device.
 - `sim_screenshot` reads the live view when one runs, else takes a one-off still (`simctl io
-screenshot`, or `screencap` over adb), fitted inside the frame bounds by ace-media.
+  screenshot`, or `screencap` over adb), fitted inside the frame bounds by ace-media.
 - The device how-to (`sim-guidance.ts`) rides on an agent's first `sim_start` of a device only.
 - Errors are `DeviceError` (`sdk.ts`) codes mapped to `PublicToolError` text: model-facing
   strings are contract, byte for byte.
@@ -487,3 +487,5 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
   non-object scroll too.
 - **A display with a present field of the wrong type is not a display**, as `Display`'s schema
   drops it (`platform/posture.rs`).
+
+- **PDF streams inflate to at most 64 MiB** (D3.4, `pdf_objects.rs` `MAX_INFLATED`). Node's `inflateSync` has no smaller bound and throws only near its buffer limit, so a small Flate bomb in a device art PDF could exhaust memory. The Rust reader refuses the stream past 64 MiB, and that drawing renders without it. Apple's chrome PDFs are far smaller.

@@ -219,6 +219,11 @@ pub fn stream_bytes(dict: &PdfDict) -> Option<Vec<u8>> {
 
 /// A zlib stream's bytes, or none when it is corrupt or ends before its end marker: `inflateSync`
 /// throws for both.
+/// The most a stream may inflate to. Node's `inflateSync` has no smaller bound and throws near
+/// its buffer limit; refusing here keeps a small hostile file from exhausting memory (an
+/// intended difference, `docs/devices/behaviour.md`).
+const MAX_INFLATED: usize = 64 * 1024 * 1024;
+
 fn inflate(data: &[u8]) -> Option<Vec<u8>> {
     use flate2::{Decompress, FlushDecompress, Status};
     let mut decompress = Decompress::new(true);
@@ -235,6 +240,9 @@ fn inflate(data: &[u8]) -> Option<Vec<u8>> {
             )
             .ok()?;
         let produced = (decompress.total_out() - before) as usize;
+        if out.len() + produced > MAX_INFLATED {
+            return None;
+        }
         out.extend_from_slice(&chunk[..produced]);
         match status {
             Status::StreamEnd => return Some(out),
@@ -349,6 +357,15 @@ mod tests {
             flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(contents).expect("compresses");
         encoder.finish().expect("compresses")
+    }
+
+    #[test]
+    fn a_stream_that_inflates_past_the_bound_is_refused_not_held() {
+        let within = flate(&vec![b' '; 1024]);
+        assert_eq!(inflate(&within).map(|bytes| bytes.len()), Some(1024));
+        let bomb = flate(&vec![b' '; MAX_INFLATED + 1]);
+        assert!(bomb.len() < 1024 * 1024, "a small file");
+        assert_eq!(inflate(&bomb), None);
     }
 
     fn stream_pdf(encoded: &[u8]) -> Vec<u8> {
