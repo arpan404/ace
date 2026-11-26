@@ -330,6 +330,8 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "thiserror",
+ "tungstenite",
+ "url",
  "x25519-dalek",
  "zeroize",
 ]
@@ -3877,6 +3879,9 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.10.4",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "sha1",
  "thiserror",
 ]
