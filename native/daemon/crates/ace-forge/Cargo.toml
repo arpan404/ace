@@ -23,6 +23,8 @@ ace-redaction = { path = "../ace-redaction" }
 ace-protocol = { path = "../ace-protocol" }
 # ace-store: the forge's tables (F7) live on the store's connection, one SQLite library per file (ADR 0222).
 ace-store = { path = "../ace-store" }
+# serde: the status rows serialize in the TypeScript's field order through ace-json.
+serde = { version = "1", features = ["derive"] }
 # thiserror: one typed error enum for the crate, mapped in the binding.
 thiserror = { version = "2" }
 # regex: the network-failure pattern and the admission paths (F1), each re-expressed and checked by its (a) tests.
