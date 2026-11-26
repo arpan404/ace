@@ -18,6 +18,7 @@ pub mod fingers;
 pub mod frame_encoder;
 pub mod h264;
 pub mod helper;
+pub mod host_frames;
 pub mod http;
 pub mod identity;
 pub mod jpeg;

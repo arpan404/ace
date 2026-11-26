@@ -521,6 +521,12 @@ length-size-3 refusal is unreachable and is not reproduced. The splitter keeps t
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
 
+`host_frames.rs` keeps the host encoder's decisions: the shared file `emulator-frames-<id>.rgba`
+sized to one RGBA picture of the display, the screenshot square as the box rounded and never
+below 64, the note each lit picture sends (its capture time in ms), the failure route (before
+the first picture it rejects the wait, after it the capture reports it), and the no-picture
+timeout. The gRPC stream, file handle, encoder process and timers are the shell's.
+
 `simulator_capture/mod.rs` keeps a Simulator capture's endpoint and control decisions: the JSON
 endpoint must name a UUID, a port in range and two URLs of at most 4,096 code points, the
 helper's routes must be loopback at the announced port with no credentials or fragment, the
