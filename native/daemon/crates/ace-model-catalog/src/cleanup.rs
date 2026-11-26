@@ -98,15 +98,24 @@ fn model_name(row: &CatalogModel) -> String {
     }
 }
 
+fn non_chat_pattern() -> Option<&'static regex::Regex> {
+    static PATTERN: OnceLock<Option<regex::Regex>> = OnceLock::new();
+    PATTERN
+        .get_or_init(|| {
+            regex::Regex::new(
+                r"(?i)(?:^|[-_/ ])(?:embedding?s?|rerank(?:er)?|whisper|tts|dall-e|gpt-image|sora|moderation|internal)(?:$|[-_/ ])",
+            )
+            .ok()
+        })
+        .as_ref()
+}
+
 fn usable(row: &CatalogModel) -> bool {
     let native = model_name(row);
     if is_default_selection(Some(&row.id.0)) || is_default_selection(Some(&native)) {
         return false;
     }
-    if regex::Regex::new(r"(?i)(?:^|[-_/ ])(?:embedding?s?|rerank(?:er)?|whisper|tts|dall-e|gpt-image|sora|moderation|internal)(?:$|[-_/ ])")
-        .ok()
-        .is_some_and(|pattern| pattern.is_match(&native))
-    {
+    if non_chat_pattern().is_some_and(|pattern| pattern.is_match(&native)) {
         return false;
     }
     row.input_modalities.is_empty() || row.input_modalities.iter().any(|m| m.0 == "text")
@@ -116,10 +125,24 @@ fn is_legacy(row: &CatalogModel) -> bool {
     row.legacy.as_ref().is_some_and(|legacy| legacy.0) || row.deprecated.0
 }
 
+fn gpt_sol_pattern() -> Option<&'static regex::Regex> {
+    static PATTERN: OnceLock<Option<regex::Regex>> = OnceLock::new();
+    PATTERN
+        .get_or_init(|| regex::Regex::new(r"^gpt[-.\d]+-sol(?:$|-)").ok())
+        .as_ref()
+}
+
+fn gpt_codex_pattern() -> Option<&'static regex::Regex> {
+    static PATTERN: OnceLock<Option<regex::Regex>> = OnceLock::new();
+    PATTERN
+        .get_or_init(|| regex::Regex::new(r"^gpt[-.\d]+-codex(?:$|-)").ok())
+        .as_ref()
+}
+
 fn family_rank(row: &CatalogModel) -> usize {
     let families = provider_default_rules(row.provider);
     let native = model_name(row);
-    let name = native.rsplit('/').next().unwrap_or(&native).to_lowercase();
+    let name = native.rsplit('/').next().unwrap_or(&native);
     let family = row.family.as_ref().map(|family| family.0.0.as_str());
     let index = families.iter().position(|candidate| {
         if family == Some(candidate) {
@@ -127,18 +150,13 @@ fn family_rank(row: &CatalogModel) -> usize {
         } else if family.is_some_and(|_family| candidate.starts_with("gpt")) {
             family == Some(candidate)
         } else if *candidate == "gpt-sol" {
-            static SOL: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
-            SOL.get_or_init(|| regex::Regex::new(r"^gpt[-.\d]+-sol(?:$|-)").ok())
-                .as_ref()
-                .is_some_and(|p| p.is_match(&name))
+            // The gpt regexes are case-sensitive in the TypeScript; only the plain
+            // prefix check lowercases the name.
+            gpt_sol_pattern().is_some_and(|p| p.is_match(name))
         } else if *candidate == "gpt-codex" {
-            static CODEX: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
-            CODEX
-                .get_or_init(|| regex::Regex::new(r"^gpt[-.\d]+-codex(?:$|-)").ok())
-                .as_ref()
-                .is_some_and(|p| p.is_match(&name))
+            gpt_codex_pattern().is_some_and(|p| p.is_match(name))
         } else {
-            name.starts_with(candidate)
+            name.to_lowercase().starts_with(candidate)
         }
     });
     index.unwrap_or(families.len())
@@ -215,7 +233,7 @@ pub fn compare_models(a: &CatalogModel, b: &CatalogModel) -> std::cmp::Ordering 
                     if known {
                         natural(&model_name(b), &model_name(a))
                     } else {
-                        natural(&b.id.0, &a.id.0)
+                        natural(&a.id.0, &b.id.0)
                     }
                 })
         })
@@ -379,7 +397,7 @@ pub fn clean_catalog(models: &[CatalogModel]) -> Vec<CatalogModel> {
                 .map(|k| k.0.0.clone())
                 .unwrap_or_else(|| row.id.0.clone())
         );
-        row.sort_key = decoded_text(Some(&key.chars().take(256).collect::<String>()));
+        row.sort_key = decoded_text(Some(&ace_models::text::slice_utf16(&key, 256)));
     }
     rows.sort_by(compare_models);
     rows
@@ -513,6 +531,31 @@ mod tests {
             .unwrap_or_else(|| panic!("default"));
         assert_eq!(chosen.id.0, "gpt-5.6-sol");
         assert!(user);
+    }
+
+    #[test]
+    fn an_unknown_family_ties_break_by_id_in_ascending_order() {
+        // `compareModels` reverses only the known-family branch; unknown rows compare
+        // `natural(a.id, b.id)`, so "o9-a" sorts before "o9-b" (catalog-cleanup.ts:120).
+        let mut first = row(ProviderKind::Codex, "o9-a", "o9", "0", false);
+        let mut second = row(ProviderKind::Codex, "o9-b", "o9", "0", false);
+        first.sort_key = None;
+        second.sort_key = None;
+        assert_eq!(compare_models(&first, &second), std::cmp::Ordering::Less);
+        assert_eq!(compare_models(&second, &first), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn the_gpt_regexes_are_case_sensitive_and_only_the_plain_prefix_lowercases() {
+        let mut upper = row(ProviderKind::Codex, "GPT-6-SOL", "", "0", false);
+        upper.family = None;
+        upper.native_model_id = "GPT-6-SOL".to_owned().into();
+        // Not "gpt-sol" (its regex is case-sensitive); it falls through to "gpt".
+        assert_eq!(family_rank(&upper), 2);
+        let mut lower = row(ProviderKind::Codex, "gpt-6-sol", "", "0", false);
+        lower.family = None;
+        lower.native_model_id = "gpt-6-sol".to_owned().into();
+        assert_eq!(family_rank(&lower), 0);
     }
 
     #[test]

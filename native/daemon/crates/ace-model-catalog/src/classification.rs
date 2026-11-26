@@ -43,21 +43,20 @@ fn override_class(provider: ProviderKind, id: &str) -> Option<Class> {
 /// Version parts compared as JavaScript numbers; an unreadable part makes the
 /// difference zero, as `NaN` does.
 pub fn compare_versions(a: &str, b: &str) -> i32 {
-    let left: Vec<f64> = a
-        .split('.')
-        .map(|part| part.parse().unwrap_or(f64::NAN))
-        .collect();
-    let right: Vec<f64> = b
-        .split('.')
-        .map(|part| part.parse().unwrap_or(f64::NAN))
-        .collect();
+    let number = |part: &str| -> f64 {
+        if part.is_empty() {
+            0.0
+        } else {
+            part.parse().unwrap_or(f64::NAN)
+        }
+    };
+    let left: Vec<f64> = a.split('.').map(number).collect();
+    let right: Vec<f64> = b.split('.').map(number).collect();
     for index in 0..left.len().max(right.len()) {
         let difference =
             left.get(index).copied().unwrap_or(0.0) - right.get(index).copied().unwrap_or(0.0);
-        if difference.is_nan() {
-            return 0;
-        }
-        if difference != 0.0 {
+        // `if (difference)`: a zero and a NaN difference alike are skipped.
+        if difference != 0.0 && !difference.is_nan() {
             return if difference < 0.0 { -1 } else { 1 };
         }
     }
@@ -109,9 +108,10 @@ fn class_of(
     let family = row.family.as_ref().map(|family| family.0.0.clone());
     let version = row.version.as_ref().map(|version| version.0.0.clone());
     let override_class = override_class(row.provider, &row.id.0);
-    let older = family.is_some()
+    let older = family.as_ref().is_some_and(|family| !family.is_empty())
         && version.as_ref().is_some_and(|version| {
-            compare_versions(version, newest.get(&scope_key(row)).unwrap_or(version)) < 0
+            !version.is_empty()
+                && compare_versions(version, newest.get(&scope_key(row)).unwrap_or(version)) < 0
         });
     let snapshot = dated(row.detail.as_ref().map(|detail| detail.0.0.as_str()))
         && undated.contains(&format!(
@@ -131,18 +131,45 @@ fn class_of(
     }
 }
 
+/// Right-pads with zeros to six places, as `padStart(6, "0")` does.
+fn pad_to_six(text: String) -> String {
+    if text.len() >= 6 {
+        text
+    } else {
+        format!("{}{text}", "0".repeat(6 - text.len()))
+    }
+}
+
+/// A number as `String(number)` writes it, for the version key the TypeScript builds.
+fn js_number_text(value: f64) -> String {
+    if value == 0.0 {
+        return "0".to_owned();
+    }
+    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e15 {
+        return format!("{}", value as i64);
+    }
+    format!("{value}")
+}
+
 fn version_key(version: Option<&str>) -> String {
     (0..4)
         .map(|index| {
             let part = version
                 .and_then(|version| version.split('.').nth(index))
-                .unwrap_or("0")
-                .parse::<f64>()
-                .ok()
-                .filter(|value| value.is_finite())
-                .unwrap_or(0.0);
-            let value = (999_999.0 - part).max(0.0) as u64;
-            format!("{value:0>6}")
+                .unwrap_or("0");
+            let number = if part.is_empty() {
+                0.0
+            } else {
+                part.parse::<f64>().unwrap_or(f64::NAN)
+            };
+            // `String(Math.max(0, 999999 - Number(part)))`: an unreadable part is
+            // literally "000NaN", never zero.
+            let text = if number.is_nan() {
+                "NaN".to_owned()
+            } else {
+                js_number_text((999_999.0 - number).max(0.0))
+            };
+            pad_to_six(text)
         })
         .collect::<Vec<_>>()
         .join(".")
@@ -152,22 +179,20 @@ fn version_key(version: Option<&str>) -> String {
 /// own name when it is a real name, and a custom row keeps its typed name.
 fn name_row(row: &mut CatalogModel) {
     let named = model_display_name(&row.id.0, Some(&row.display_name.0));
-    if row.custom.as_ref().is_some_and(|custom| custom.0) {
-        return;
+    // `Object.assign({}, row, modelDisplayName(...))`: only the fields the derivation
+    // actually produced replace the row's own; a custom row keeps its typed name.
+    if !row.custom.as_ref().is_some_and(|custom| custom.0) {
+        row.display_name = named.display_name.into();
     }
-    row.display_name = named.display_name.into();
-    row.detail = named
-        .detail
-        .as_deref()
-        .and_then(|detail| decoded_text(Some(detail)));
-    row.family = named
-        .family
-        .as_deref()
-        .and_then(|family| decoded_text(Some(family)));
-    row.version = named
-        .version
-        .as_deref()
-        .and_then(|version| decoded_text(Some(version)));
+    if let Some(detail) = named.detail.as_deref() {
+        row.detail = decoded_text(Some(detail));
+    }
+    if let Some(family) = named.family.as_deref() {
+        row.family = decoded_text(Some(family));
+    }
+    if let Some(version) = named.version.as_deref() {
+        row.version = decoded_text(Some(version));
+    }
 }
 
 /// A row's source when discovery reported none: the account, or the upstream route.
@@ -207,8 +232,14 @@ pub fn classify(rows: &mut [CatalogModel]) {
     let mut newest: HashMap<String, String> = HashMap::new();
     for row in rows.iter() {
         let (Some(family), Some(version)) = (
-            row.family.as_ref().map(|family| family.0.0.clone()),
-            row.version.as_ref().map(|version| version.0.0.clone()),
+            row.family
+                .as_ref()
+                .map(|family| family.0.0.clone())
+                .filter(|family| !family.is_empty()),
+            row.version
+                .as_ref()
+                .map(|version| version.0.0.clone())
+                .filter(|version| !version.is_empty()),
         ) else {
             continue;
         };
@@ -251,7 +282,7 @@ pub fn classify(rows: &mut [CatalogModel]) {
             version_key(version),
             identity_sort_key(&row.id.0)
         );
-        row.sort_key = decoded_text(Some(key.get(..256).unwrap_or(&key)));
+        row.sort_key = decoded_text(Some(&ace_models::text::slice_utf16(&key, 256)));
         if row.source.is_none() {
             row.source = Some(source_for(row).into());
         }
@@ -463,5 +494,73 @@ mod tests {
         assert_eq!(seen[0].1, "legacy");
         assert_eq!(seen[1].1, "current");
         assert_eq!(seen[2].1, "legacy");
+    }
+
+    #[test]
+    fn an_unreadable_version_part_is_skipped_not_a_stop() {
+        // `compareVersions("x.2", "1.1")`: the NaN first part is skipped, then 2 > 1.
+        assert_eq!(compare_versions("x.2", "1.1"), 1);
+        assert_eq!(compare_versions("1.1", "x.2"), -1);
+        assert_eq!(compare_versions("1.x.5", "1.2.4"), 1);
+        // `String(Math.max(0, 999999 - Number("x"))).padStart(6, "0")` is "000NaN".
+        assert_eq!(version_key(Some("x.2")), "000NaN.999997.999999.999999");
+        assert_eq!(version_key(None), "999999.999999.999999.999999");
+    }
+
+    #[test]
+    fn an_empty_family_or_version_disables_the_family_comparison() {
+        let mut rows = vec![
+            row(ProviderKind::Codex, "gpt-6", Some("gpt"), Some("6")),
+            row(ProviderKind::Codex, "gpt-5", Some("gpt"), Some("5")),
+            row(ProviderKind::Codex, "gpt", Some("gpt"), Some("")),
+        ];
+        classify(&mut rows);
+        // The empty version still gets a class and a sort key; it never makes a family.
+        assert!(rows[2].tier.is_some());
+        assert!(rows[2].sort_key.is_some());
+    }
+
+    #[test]
+    fn a_derived_name_merges_into_the_row_and_a_custom_row_keeps_its_typed_name() {
+        let mut custom = row(
+            ProviderKind::Opencode,
+            "muse-spark-1.3-contributor",
+            Some("mine"),
+            None,
+        );
+        custom.custom = Some(true.into());
+        custom.display_name = "My Spark".to_owned().into();
+        let mut named = row(ProviderKind::Codex, "gpt-6-sol", Some("keep"), None);
+        named.display_name = "GPT-6 Sol".to_owned().into();
+        let mut rows = vec![custom, named];
+        rows[0].detail = decoded_text(Some("typed detail"));
+        classify(&mut rows);
+        assert_eq!(rows[0].display_name.0, "My Spark");
+        // A derivation that does produce a family replaces the row's; absence keeps it.
+        assert_eq!(
+            rows[0].family.as_ref().map(|family| family.0.0.as_str()),
+            Some("muse-spark-contributor")
+        );
+        assert_eq!(
+            rows[1].family.as_ref().map(|family| family.0.0.as_str()),
+            Some("gpt-sol")
+        );
+    }
+
+    #[test]
+    fn a_sort_key_never_exceeds_the_labels_256_code_units() {
+        let long = format!("qwen-{}", "😀".repeat(300));
+        let mut rows = vec![row(ProviderKind::Opencode, &long, Some(&long), Some("1"))];
+        classify(&mut rows);
+        let key = rows[0]
+            .sort_key
+            .as_ref()
+            .map(|key| key.0.as_str())
+            .unwrap_or_default();
+        assert!(
+            key.encode_utf16().count() <= 256,
+            "{}",
+            key.encode_utf16().count()
+        );
     }
 }

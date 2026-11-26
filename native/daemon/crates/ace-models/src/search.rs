@@ -215,80 +215,30 @@ pub fn search_models<'a>(models: &'a [CatalogModel], query: &str) -> Vec<&'a Cat
     scored.into_iter().map(|(_, _, model)| model).collect()
 }
 
-/// `String.prototype.localeCompare` as the catalog uses it, for the sort keys
-/// `classifyCatalog` builds (lowercase families, padded digits, `:`, `-`, `.`).
+fn collator() -> Option<&'static icu_collator::CollatorBorrowed<'static>> {
+    static COLLATOR: OnceLock<Option<icu_collator::CollatorBorrowed<'static>>> = OnceLock::new();
+    COLLATOR
+        .get_or_init(|| {
+            let preferences: icu_collator::CollatorPreferences =
+                icu_locale_core::locale!("en").into();
+            icu_collator::CollatorBorrowed::try_new(
+                preferences,
+                icu_collator::options::CollatorOptions::default(),
+            )
+            .ok()
+        })
+        .as_ref()
+}
+
+/// `String.prototype.localeCompare(other, "en")`, as the catalog uses it.
 ///
-/// ICU's default collation compares letters/digits first (digits before letters,
-/// case-insensitively), then, at equal primary text, punctuation and case: end of
-/// string sorts before punctuation, punctuation before an alphanumeric, and the
-/// punctuation order is `- _ . : / + space`; lowercase sorts before uppercase. This
-/// is that order for ASCII sort keys; it does not carry ICU's accent tables.
+/// The catalog orders rows and search ties with ICU's `en` collation; this is that
+/// collation (ICU4X's compiled `en` data), not a table of punctuation ranks. When the
+/// compiled data cannot load, byte order keeps the catalog deterministic.
 pub fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
-    fn is_punctuation(character: char) -> bool {
-        !character.is_alphanumeric()
-    }
-    fn primary(character: char) -> Option<(u8, char)> {
-        if character.is_ascii_digit() {
-            Some((0, character))
-        } else if character.is_alphabetic() {
-            Some((1, character.to_lowercase().next().unwrap_or(character)))
-        } else {
-            None
-        }
-    }
-    fn punctuation_rank(character: char) -> u8 {
-        match character {
-            '-' => 1,
-            '_' => 2,
-            '.' => 3,
-            ':' => 4,
-            '/' => 5,
-            '+' => 6,
-            ' ' => 7,
-            _ => 8,
-        }
-    }
-    fn tertiary(character: Option<char>) -> u8 {
-        match character {
-            None => 0,
-            Some(character) if is_punctuation(character) => punctuation_rank(character),
-            Some(_) => 9,
-        }
-    }
-    let primary_a: Vec<char> = a.chars().filter_map(primary).map(|(_, c)| c).collect();
-    let primary_b: Vec<char> = b.chars().filter_map(primary).map(|(_, c)| c).collect();
-    // Digits before letters, then the letter/digit's lowercase value.
-    let class = |c: char| u8::from(!c.is_ascii_digit());
-    let ordered = primary_a
-        .iter()
-        .map(|c| (class(*c), *c))
-        .cmp(primary_b.iter().map(|c| (class(*c), *c)));
-    if ordered != std::cmp::Ordering::Equal {
-        return ordered;
-    }
-    let mut left = a.chars();
-    let mut right = b.chars();
-    loop {
-        match (left.next(), right.next()) {
-            (None, None) => return std::cmp::Ordering::Equal,
-            (next_a, next_b) => {
-                let weight_a = tertiary(next_a);
-                let weight_b = tertiary(next_b);
-                if weight_a != weight_b {
-                    return weight_a.cmp(&weight_b);
-                }
-                if let (Some(a), Some(b)) = (next_a, next_b)
-                    && !is_punctuation(a)
-                    && !is_punctuation(b)
-                {
-                    let case_a = a.is_uppercase();
-                    let case_b = b.is_uppercase();
-                    if case_a != case_b {
-                        return case_a.cmp(&case_b);
-                    }
-                }
-            }
-        }
+    match collator() {
+        Some(collator) => collator.compare(a, b),
+        None => a.cmp(b),
     }
 }
 
@@ -495,6 +445,34 @@ mod tests {
         for (a, b, expected) in cases {
             assert_eq!(locale_compare(a, b), expected, "{a} vs {b}");
         }
+    }
+
+    #[test]
+    fn every_printable_ascii_pair_and_the_accents_order_as_icue_en_does() {
+        // Generated with Node 26: `[...all].sort((a, b) => a.localeCompare(b, "en"))`
+        // over every printable ASCII character, `-a _a .a :a /a  a +a`, suffix
+        // variants, numeric runs, prefixes and accents. ICU's order is the fixture;
+        // the Rust collation must reproduce it, not a hand-written rank table.
+        const EXPECTED: &str = r#" \0 a\0_\0_a\0-\0-a\0,\0;\0:\0:a\0!\0?\0.\0.a\0'\0"\0(\0)\0[\0]\0{\0}\0@\0*\0/\0/a\0\\0&\0#\0%\0`\0^\0+\0+a\0<\0=\0>\0|\0~\0$\00\01\02\03\04\05\06\07\08\09\0a\0A\0å\0Å\0ä\0Ä\0a \0a_\0a_1\0a-\0a-1\0a:\0a:1\0a.\0a.1\0a+\0a01\0a02\0a1\0A1\0a10\0a2\0aa\0aA\0Aa\0AA\0æ\0Æ\0b\0B\0c\0C\0ç\0Ç\0d\0D\0dis_count\0dis-count\0discount\0e\0E\0é\0É\0f\0F\0g\0G\0h\0H\0i\0I\0í\0Í\0j\0J\0k\0K\0l\0L\0m\0M\0n\0N\0ñ\0Ñ\0o\0O\0ó\0Ó\0ø\0Ø\0œ\0Œ\0p\0P\0q\0Q\0r\0R\0s\0S\0ß\0t\0T\0u\0U\0ú\0Ú\0ü\0Ü\0v\0V\0w\0W\0x\0X\0y\0Y\0z\0Z\0ω\0Ω\0中\0日"#;
+        let expected: Vec<&str> = EXPECTED.split("\\0").collect();
+        for pair in expected.windows(2) {
+            assert_eq!(
+                locale_compare(pair[0], pair[1]),
+                std::cmp::Ordering::Less,
+                "{:?} before {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+        let mut shuffled: Vec<&str> = expected.iter().rev().copied().collect();
+        shuffled.sort_by(|a, b| locale_compare(a, b));
+        assert_eq!(shuffled, expected);
+        assert_eq!(
+            locale_compare("qwen3-coder:480b", "qwen3-coder.480b"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(locale_compare("_", "-"), std::cmp::Ordering::Less);
+        assert_eq!(locale_compare(" ", "+"), std::cmp::Ordering::Less);
     }
 
     #[test]

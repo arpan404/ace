@@ -9,5 +9,8 @@
 pub mod cache;
 pub mod classification;
 pub mod cleanup;
+pub mod cli;
+pub mod failures;
 pub mod preferences;
 pub mod resolve;
+pub mod sources;
