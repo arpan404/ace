@@ -79,17 +79,141 @@ pub struct Attached {
     pub generation: u64,
 }
 
-/// `sessions.open`: make the observer and the queue, open the provider session, then attach it to
-/// the thread's actor and drain its queue. A failed open leaves the actor as it was.
+/// A re-check of the open's invariants, run at each point the TypeScript re-asserts them after an
+/// await: the fence, closing, deletion and the thread's lifetime.
+pub type Recheck<'a> = &'a dyn Fn() -> Result<(), crate::sessions::open_session::OpenRefusal>;
+
+/// What the caller resolved before asking for the open: the thread's first-step view, the
+/// workspace port when one must be made now, the store's writability gate, and the re-check.
+pub struct OpenSteps<'a> {
+    pub view: &'a crate::sessions::open_session::OpenView,
+    pub prepare_workspace: Option<&'a dyn Fn() -> LocalBoxFuture<'static, Result<(), String>>>,
+    pub writable: Option<&'a dyn Fn() -> LocalBoxFuture<'static, ()>>,
+    pub recheck: Option<Recheck<'a>>,
+}
+
+/// Why an open did not produce a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenFailure {
+    /// One of the open's checks refused it; a fenced send stays held, the rest fail.
+    Refused(crate::sessions::open_session::OpenRefusal),
+    /// Preparing the thread's workspace failed.
+    Workspace(String),
+    /// The provider could not start its session.
+    Provider(String),
+    /// The session opened but could not be attached.
+    Attach(String),
+}
+
+/// `sessions.open`: the first checks, the workspace when it is due, the store's gate and the
+/// re-check, then the provider session, its observer queue and the actor attachment. A refused or
+/// failed open leaves no session and no open mark behind.
 pub async fn open(
     core: &Rc<Core>,
     opener: &dyn SessionOpener,
     request: OpenRequest,
-) -> Result<(), String> {
+    steps: &OpenSteps<'_>,
+) -> Result<(), OpenFailure> {
+    use crate::sessions::open_session::{OpenRefusal, OpenStep, first_step};
+    let step = first_step(steps.view).map_err(OpenFailure::Refused)?;
+    match step {
+        OpenStep::AlreadyOpen | OpenStep::InFlight => return Ok(()),
+        OpenStep::PrepareWorkspace => {
+            let Some(prepare) = steps.prepare_workspace else {
+                return Err(OpenFailure::Refused(OpenRefusal::WorkspaceUnavailable));
+            };
+            prepare().await.map_err(OpenFailure::Workspace)?;
+        }
+        OpenStep::Proceed => {}
+    }
+    if let Some(writable) = steps.writable {
+        writable().await;
+    }
+    if let Some(recheck) = steps.recheck {
+        recheck().map_err(OpenFailure::Refused)?;
+    }
+    // The open owns the thread's slot until it finishes, and a new generation fences the previous
+    // session's late frames.
+    let generation = core
+        .with_state(|state| {
+            state.begin_session_open(&request.thread_id);
+            match state.actors.by_thread.get_mut(&request.thread_id) {
+                Some(actor) => {
+                    actor.generation += 1;
+                    Ok(actor.generation)
+                }
+                None => Err(EngineError::InvalidRecord),
+            }
+        })
+        .map_err(|error| OpenFailure::Attach(error.to_string()))?
+        .map_err(|error| OpenFailure::Attach(error.to_string()))?;
     let inbox = Inbox::new();
     let observer: Arc<dyn SessionObserver> = Arc::new(QueueObserver::new(Arc::clone(&inbox)));
-    let opened = opener.open(request.clone(), observer).await?;
-    attach(core, request, opened, inbox).map_err(|error| error.to_string())
+    let opened = match opener.open(request.clone(), observer).await {
+        Ok(opened) => opened,
+        Err(error) => {
+            core.with_state(|state| state.finish_session_open(&request.thread_id))
+                .map_err(|close| OpenFailure::Attach(close.to_string()))?;
+            return Err(OpenFailure::Provider(error));
+        }
+    };
+    // After the await: the thread may have moved, closed or been retired under us. The session
+    // just opened is idle-closed rather than attached to a thread that no longer wants it.
+    let stale = core
+        .with_state(|state| {
+            state
+                .actors
+                .by_thread
+                .get(&request.thread_id)
+                .is_some_and(|actor| actor.generation != generation)
+        })
+        .unwrap_or(true);
+    let refused = match steps.recheck {
+        Some(recheck) => recheck().err(),
+        None => None,
+    };
+    if stale || refused.is_some() {
+        let _ = opened
+            .session
+            .close(ace_adapter_api::CloseReason::Idle)
+            .await;
+        core.with_state(|state| state.finish_session_open(&request.thread_id))
+            .map_err(|error| OpenFailure::Attach(error.to_string()))?;
+        return Err(OpenFailure::Refused(
+            refused.unwrap_or(OpenRefusal::Closing),
+        ));
+    }
+    let attached = attach(core, request.clone(), opened, inbox);
+    let finished = core
+        .with_state(|state| state.finish_session_open(&request.thread_id))
+        .map_err(|error| OpenFailure::Attach(error.to_string()));
+    attached.map_err(|error| OpenFailure::Attach(error.to_string()))?;
+    finished?;
+    // The first identity a session reports is durable; a different one is an identity conflict.
+    if let (Some(instance), Some(backend)) = (&request.instance_id, &request.backend) {
+        let native = core
+            .with_state(|state| {
+                state
+                    .sessions
+                    .attached
+                    .get(&request.thread_id)
+                    .map(|attached| attached.native_session_id.clone())
+            })
+            .map_err(|error| OpenFailure::Attach(error.to_string()))?;
+        if let Some(native) = native
+            && let Err(error) = crate::sessions::metadata::pin_session_identity(
+                &core.store,
+                &request.thread_id,
+                backend,
+                instance,
+                Some(&native),
+            )
+        {
+            detach(core, &request.thread_id);
+            return Err(OpenFailure::Attach(error.to_string()));
+        }
+    }
+    Ok(())
 }
 
 /// Attaches an opened session: the translator the actor's folds use, the session on the thread,

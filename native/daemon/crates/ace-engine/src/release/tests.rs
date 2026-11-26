@@ -169,6 +169,59 @@ fn a_new_thread_reclaims_an_idle_threads_slot_instead_of_being_refused() {
 }
 
 #[test]
+fn a_reserve_reclaims_through_the_installed_hooks_own_view() {
+    // slot-reclaim.ts: `reserve` asks the hook only when the slots are full; the hook reads the
+    // actors and sessions through the view, never through the state the repository already
+    // borrows.
+    let conn = home("reserve", &header("reserve"));
+    let store = Shell::store(&conn);
+    conn.exec("INSERT INTO engine_slots VALUES ('old')")
+        .expect("slot");
+    let mut repo = Repo::new(1);
+    repo.reclaim = Some(Box::new(|retiring, view| {
+        reclaim_idle_slot(view, retiring).ok().flatten()
+    }));
+    let mut state = State {
+        repo,
+        ..State::default()
+    };
+    let mut actor = Actor::new("old".to_owned(), 0, 0);
+    actor.instance = 1;
+    actor.session_attached = true;
+    actor.idle_since = Some(1_000.0);
+    state.actors.by_thread.insert("old".to_owned(), actor);
+
+    assert!(
+        state.reserve_slot(&store, "new").expect("reserve"),
+        "the full table reclaimed the warm slot instead of refusing"
+    );
+    assert!(
+        state.actors.by_thread.get("old").expect("actor").idle_due,
+        "the reclaimed thread is asked to close"
+    );
+
+    // A closing session is never reclaimed: the reserve refuses instead.
+    let conn = home("reserve-closing", &header("reserve-closing"));
+    let store = Shell::store(&conn);
+    conn.exec("INSERT INTO engine_slots VALUES ('old')")
+        .expect("slot");
+    let mut repo = Repo::new(1);
+    repo.reclaim = Some(Box::new(|retiring, view| {
+        reclaim_idle_slot(view, retiring).ok().flatten()
+    }));
+    let mut state = State {
+        repo,
+        ..State::default()
+    };
+    let mut actor = Actor::new("old".to_owned(), 0, 0);
+    actor.session_attached = true;
+    actor.idle_since = Some(1_000.0);
+    state.actors.by_thread.insert("old".to_owned(), actor);
+    state.sessions.closing.insert("old".to_owned());
+    assert!(!state.reserve_slot(&store, "new").expect("reserve"));
+}
+
+#[test]
 fn an_archived_or_settled_thread_keeps_no_provider_warm() {
     // provider-release.process.test.ts: "archiving a replied thread ends the background command
     // it left running" and "settling a done thread releases the commands it left running with
