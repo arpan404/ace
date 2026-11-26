@@ -116,6 +116,10 @@ pub(crate) struct Shell {
     fail_write_at: Cell<Option<u32>>,
     /// Whether `after_commit` joins the open frame's token (the stack's own behaviour).
     holds_after_commit: Cell<bool>,
+    /// The model catalog's answers: `(resolve, list)`, when one is configured.
+    models: RefCell<Option<(String, String)>>,
+    /// `onModelUnavailable` calls, as `(provider, model)`.
+    unavailable: RefCell<Vec<(String, String)>>,
     /// The tokens each frame joined, by the depth that joined them, and the ones a rollback dropped.
     tokens: RefCell<Vec<(u32, u64)>>,
     dropped: RefCell<Vec<u64>>,
@@ -208,6 +212,30 @@ impl Shell {
         self.holds_after_commit.set(true);
     }
 
+    /// Configures a model catalog: its `resolve` and `list` answers.
+    pub fn answer_models(&self, resolve: &str, list: &str) {
+        *self.models.borrow_mut() = Some((resolve.to_owned(), list.to_owned()));
+    }
+
+    /// The models the catalog refused, as `(provider, model)`.
+    pub fn unavailable(&self) -> Vec<(String, String)> {
+        self.unavailable.borrow().clone()
+    }
+
+    /// Every event payload written for one thread, in order.
+    pub fn events(&self, thread: &str) -> Vec<ace_json::Value> {
+        let mut events = Vec::new();
+        for (id, payloads, _) in self.written.borrow().iter() {
+            if id != thread {
+                continue;
+            }
+            if let Ok(ace_json::Value::Array(items)) = ace_json::parse(payloads) {
+                events.extend(items.into_vec());
+            }
+        }
+        events
+    }
+
     /// The tokens a rolled-back frame dropped: the stack discards them, never releases them.
     pub fn dropped(&self) -> Vec<u64> {
         self.dropped.borrow().clone()
@@ -257,6 +285,8 @@ impl Shell {
             holds_after_commit: Cell::new(false),
             tokens: RefCell::new(Vec::new()),
             dropped: RefCell::new(Vec::new()),
+            models: RefCell::new(None),
+            unavailable: RefCell::new(Vec::new()),
         });
         let store = EngineStore {
             ports: shell.clone(),
@@ -415,7 +445,68 @@ impl Ports for Shell {
         self.written
             .borrow_mut()
             .push((thread.to_owned(), payloads.to_owned(), at));
+        // The store's writer projects a created thread's row; the tables that reference
+        // `threads` need it before anything else about the thread is written.
+        if let Ok(ace_json::Value::Array(events)) = ace_json::parse(payloads) {
+            for event in events.iter() {
+                if event.get("type").and_then(ace_json::Value::as_str) != Some("thread.created") {
+                    continue;
+                }
+                let Some(thread) = event.get("thread") else {
+                    continue;
+                };
+                let field = |key: &str| {
+                    thread
+                        .get(key)
+                        .and_then(ace_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                let status = thread
+                    .get("status")
+                    .map(ace_json::to_string)
+                    .unwrap_or_else(|| "{\"state\":\"new\"}".to_owned());
+                let at = thread
+                    .get("createdAt")
+                    .and_then(ace_json::Value::as_f64)
+                    .unwrap_or(at) as i64;
+                let _ = self.conn.exec(&format!(
+                    "INSERT OR REPLACE INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ({}, {}, {}, {}, {}, {at}, {at})",
+                    sql_text(&field("id")),
+                    sql_text(&field("workspaceId")),
+                    sql_text(&field("title")),
+                    sql_text(&field("provider")),
+                    sql_text(&status)
+                ));
+            }
+        }
         Ok(())
+    }
+
+    fn has_models(&self) -> bool {
+        self.models.borrow().is_some()
+    }
+
+    fn models_resolve(&self, _json: &str) -> Result<String, PortError> {
+        self.models
+            .borrow()
+            .as_ref()
+            .map(|(resolve, _)| resolve.clone())
+            .ok_or(PortError::Unbound("models"))
+    }
+
+    fn models_list(&self, _json: &str) -> Result<String, PortError> {
+        self.models
+            .borrow()
+            .as_ref()
+            .map(|(_, list)| list.clone())
+            .ok_or(PortError::Unbound("models"))
+    }
+
+    fn on_model_unavailable(&self, provider: &str, model: &str, _instance: Option<&str>) {
+        self.unavailable
+            .borrow_mut()
+            .push((provider.to_owned(), model.to_owned()));
     }
 
     fn on_naming_prompt(&self, thread: &str, json: &str) {

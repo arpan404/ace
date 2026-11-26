@@ -212,6 +212,8 @@ fn thread_json(new: &NewThread<'_>, permission: &Value) -> Value {
     thread.insert("status", Value::Object(status));
     thread.insert("createdAt", Value::from(new.at));
     thread.insert("updatedAt", Value::from(new.at));
+    // `Thread`'s last fields: the selection the thread runs on.
+    thread.insert("execution", new.selection.clone());
     Value::Object(thread)
 }
 
@@ -328,11 +330,24 @@ pub fn create(
             None => return Ok(error(&id, "engine_capacity_exceeded")),
         }
     }
-    let selection = selection_json(p, state, &core.store, &thread_id)?;
-    let model = text(&selection, "model");
-    let instance = text(&selection, "instanceId");
+    let provider = text(p, "provider").unwrap_or_default();
+    let instance = text(p, "instanceId");
+    let catalog = crate::models::select::PortCatalog(&*core.ports);
+    let catalog = core
+        .ports
+        .has_models()
+        .then_some(&catalog as &dyn crate::models::select::Catalog);
+    let model =
+        match crate::models::select::select(catalog, provider, text(p, "model"), instance, None) {
+            Ok(model) => model,
+            // The catalog refused an explicit model; `onModelUnavailable` has already been told.
+            Err(EngineError::ModelUnavailable) => return Ok(error(&id, "model_unavailable")),
+            Err(error) => return Err(error),
+        };
+    let selection = selection_json(p, model.as_deref());
+    let instance = text(&selection, "instanceId").map(str::to_owned);
     let details = details(core, state, p, &cwd)?;
-    let live = live(p, model, instance);
+    let live = live(p, model.as_deref(), instance.as_deref());
     let new = NewThread {
         id: &thread_id,
         access: text(p, "access").filter(|access| *access != "inherit"),
@@ -361,26 +376,20 @@ pub fn create(
 }
 
 /// The thread's selection: provider, the payload's options, its account and the resolved model.
-fn selection_json(
-    p: &Value,
-    state: &State,
-    store: &crate::EngineStore,
-    id: &str,
-) -> Result<Value, EngineError> {
-    let _ = (state, store, id);
+fn selection_json(p: &Value, model: Option<&str>) -> Value {
     let mut selection = Map::new();
     selection.insert(
         "provider",
         Value::from(text(p, "provider").unwrap_or_default()),
     );
-    if let Some(model) = text(p, "model") {
+    if let Some(model) = model {
         selection.insert("model", Value::from(model));
     }
     if let Some(instance) = text(p, "instanceId") {
         selection.insert("instanceId", Value::from(instance));
     }
     selection.insert("options", options(p));
-    Ok(Value::Object(selection))
+    Value::Object(selection)
 }
 
 /// The thread's silence threshold. The engine's own default until the silence port (E5.6)

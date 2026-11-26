@@ -67,7 +67,8 @@ fn the_stored_thread_keeps_the_schemas_key_order() {
             "permission",
             "status",
             "createdAt",
-            "updatedAt"
+            "updatedAt",
+            "execution"
         ]
     );
     assert_eq!(
@@ -127,7 +128,9 @@ fn details_for(p: &Value, cwd: &str) -> Value {
 /// from `tests/fixtures/thread-created.json`. A key this build writes elsewhere breaks it.
 #[test]
 fn the_stored_thread_is_the_bytes_the_typescript_engine_writes() {
-    let selection = value(r#"{"provider":"codex","model":"gpt-5","options":{"effort":"high"}}"#);
+    let selection = value(
+        r#"{"provider":"codex","model":"gpt-5","instanceId":"acct","options":{"effort":"high"}}"#,
+    );
     let new = NewThread {
         id: "thread-1",
         access: None,
