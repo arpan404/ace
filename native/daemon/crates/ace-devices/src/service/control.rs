@@ -85,8 +85,14 @@ fn require_agent_caller(actor: &Actor) -> Result<(&str, &str), DeviceError> {
     Ok((thread_id, agent_id))
 }
 
-fn abort_stale_bind(session: &mut Session) {
-    if session.changing_binding {
+/// Clear the bind this claim started, and only that one: a newer bind — a
+/// person's, started after it — keeps its guard and its epoch, so its own
+/// cleanup is not refused `bindingDisabled` by a stale agent that landed later.
+fn abort_stale_bind(session: &mut Session, bind: &Bind) {
+    let Bind::Cleanup { epoch, .. } = bind else {
+        return;
+    };
+    if session.changing_binding && session.binding_epoch == *epoch {
         session.changing_binding = false;
     }
 }
@@ -150,6 +156,14 @@ pub fn start_bind_for_agent(
     begin_bind(session, thread_id)
 }
 
+/// A person's `controller` with a thread: the takeover it reserved and the bind
+/// that moves the device to that thread. They finish together.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadedTakeover {
+    assignment: Assignment,
+    bind: Bind,
+}
+
 /// `controller` with a thread for a person: reserve control, then supersede any
 /// agent bind and move the device to that thread.
 pub fn start_human_controller_with_thread(
@@ -157,28 +171,28 @@ pub fn start_human_controller_with_thread(
     person: &Actor,
     thread_id: &str,
     now: f64,
-) -> Result<(Assignment, Bind), DeviceError> {
+) -> Result<ThreadedTakeover, DeviceError> {
     if person.kind != ActorKind::Human {
         return Err(words::refusal(PERSON_ONLY_KEY));
     }
     let assignment = begin_assign(session, person, now)?;
     let bind = begin_bind_for_person(session, thread_id)?;
-    Ok((assignment, bind))
+    Ok(ThreadedTakeover { assignment, bind })
 }
 
 /// Finishes a person's threaded controller after bind cleanup.
 pub fn resume_human_controller_with_thread(
     session: &mut Session,
-    assignment: Assignment,
-    bind: Bind,
+    takeover: ThreadedTakeover,
     thread_id: &str,
     holder: Option<&Actor>,
     cleanup_failed: bool,
     enabled: bool,
     now: f64,
 ) -> Result<(), DeviceError> {
+    let ThreadedTakeover { assignment, bind } = takeover;
     if !control_still_current(session, &bind) {
-        abort_stale_bind(session);
+        abort_stale_bind(session, &bind);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     match bind {
@@ -191,14 +205,14 @@ pub fn resume_human_controller_with_thread(
                 }
                 Ok(Bound::Bound) => {}
                 Err(error) => {
-                    abort_stale_bind(session);
+                    abort_stale_bind(session, &bind);
                     return Err(error);
                 }
             }
         }
     }
     if !control_still_current(session, &bind) {
-        abort_stale_bind(session);
+        abort_stale_bind(session, &bind);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     finish_assign(session, assignment, holder, now)
@@ -216,7 +230,7 @@ pub fn resume_claim_for_agent(
 ) -> Result<Option<Assignment>, DeviceError> {
     let (thread_id, _) = require_agent_caller(actor)?;
     if !control_still_current(session, &bind) {
-        abort_stale_bind(session);
+        abort_stale_bind(session, &bind);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     match bind {
@@ -226,14 +240,14 @@ pub fn resume_claim_for_agent(
                 Ok(Bound::CleanupFailed) => return Ok(None),
                 Ok(Bound::Bound) => {}
                 Err(error) => {
-                    abort_stale_bind(session);
+                    abort_stale_bind(session, &bind);
                     return Err(error);
                 }
             }
         }
     }
     if !control_still_current(session, &bind) {
-        abort_stale_bind(session);
+        abort_stale_bind(session, &bind);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     agent_takeover_allowed(session, actor, now, true)?;

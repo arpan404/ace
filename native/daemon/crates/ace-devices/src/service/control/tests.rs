@@ -200,14 +200,12 @@ fn a_stale_agent_claim_after_the_person_dropped_mid_takeover_is_rejected() {
 fn a_person_with_a_thread_supersedes_an_agent_bind_before_it_can_finish() {
     let mut session = Session::new("ios:AAAA");
     let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent bind");
-    let (person_assign, person_bind) =
-        start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
-            .expect("person with thread");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("person with thread");
     assert!(session.changing_binding);
     resume_human_controller_with_thread(
         &mut session,
-        person_assign,
-        person_bind,
+        takeover,
         "t-view",
         Some(&person()),
         false,
@@ -225,13 +223,11 @@ fn a_person_with_a_thread_supersedes_an_agent_bind_before_it_can_finish() {
 fn a_person_bind_while_an_agent_bind_runs_starts_before_the_agent_bind_does() {
     let mut session = Session::new("ios:AAAA");
     let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent first");
-    let (person_assign, person_bind) =
-        start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
-            .expect("person");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("person");
     resume_human_controller_with_thread(
         &mut session,
-        person_assign,
-        person_bind,
+        takeover,
         "t-person",
         Some(&person()),
         false,
@@ -447,4 +443,37 @@ fn ace_s_own_person_only_actions_refuse_an_agent() {
     ] {
         require_person(operation, &agent()).expect(operation);
     }
+}
+
+#[test]
+fn a_stale_agent_resume_does_not_abort_a_persons_bind_in_flight() {
+    let mut session = Session::new("ios:AAAA");
+    let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent bind");
+    // The person takes control with a thread: their bind supersedes the agent's
+    // and is still cleaning up when the agent's own cleanup lands.
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("person with thread");
+    assert!(session.changing_binding, "the person's bind is running");
+
+    let refused = resume_claim_for_agent(&mut session, &agent(), agent_bind, false, true, NOW)
+        .expect_err("stale agent");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert!(
+        session.changing_binding,
+        "the person's bind keeps its guard and epoch"
+    );
+
+    // The person's bind still finishes onto their thread.
+    resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect("the person's bind finishes");
+    assert_eq!(session.thread_id.as_deref(), Some("t-view"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
 }

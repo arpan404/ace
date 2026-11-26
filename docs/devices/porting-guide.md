@@ -287,3 +287,13 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
   behaviour.md that turned out wrong (with the code that shows it), anything you kept TypeScript
   because it couldn't be reproduced exactly, and the one test you added, if any, with the
   behaviour it covers that nothing did.
+
+## Intended differences from the TypeScript
+
+- **D4, a person's takeover during an agent's bind.** TypeScript's `claimForAgent` awaits its bind
+  with `changingBinding` set, so the person's `controller` request is refused `devicesDisabled`;
+  Rust lets the person's takeover through, reserves it, and the agent's claim loses.
+- **D4, an agent resuming after a completed person's takeover.** TypeScript's `claimForAgent`
+  checks the lease only before its bind, so an agent whose bind ends after the person took and
+  finished can release the live human lease; Rust rechecks the bind's control revision after the
+  cleanup before it assigns, so the person keeps control.
