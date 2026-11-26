@@ -234,6 +234,20 @@ mod tests {
     }
 
     #[test]
+    fn a_revoked_leases_session_leaves_the_cap_at_once() {
+        let credentials = credentials(4);
+        let ending = lease(&credentials, "ending");
+        let mut sessions = LegacySessions::with_per_lease(1, 1, ids());
+        let id = sessions.open(&ending.principal).expect("session");
+        ending.end();
+        // Eagerly, not only when the id is next looked up: a full cap admits a new client.
+        sessions.forget_lease(ending.principal.lease);
+        assert!(sessions.find(&id, &ending.principal).is_none());
+        let next = lease(&credentials, "next");
+        assert!(sessions.open(&next.principal).is_some());
+    }
+
+    #[test]
     fn a_lease_ending_ends_its_sessions() {
         let credentials = credentials(3);
         let lifetime = Abort::new();

@@ -1114,6 +1114,13 @@ fn register_dispatch_tools(fixture: &Fixture, ran: &Arc<AtomicUsize>) {
     }
 }
 
+fn core_listing(mut request: HttpRequest) -> HttpRequest {
+    request
+        .headers
+        .push(("x-ace-tools".to_owned(), "core".to_owned()));
+    request
+}
+
 fn tools_call_body(name: &str, arguments: &str) -> String {
     format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"tools_call","arguments":{{"name":"{name}","arguments":{arguments}}}}}}}"#
@@ -1152,6 +1159,17 @@ async fn tools_call_validates_its_wrapper_and_never_dispatches_where_the_list_is
         });
         assert_eq!(ran.load(Ordering::SeqCst), 0, "an invalid wrapper ran a tool");
     }
+    // An endpoint that does not register the wrapper refuses it like any missing tool.
+    let bare = Fixture::new(&[], 16, 4096);
+    bare.register_echo();
+    let unregistered = bare
+        .server
+        .handle(
+            core_listing(bare.request(&tools_call_body("ace_echo", r#"{"value":"no-wrapper"}"#))),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert_eq!(code_of(&unregistered), "tool_unavailable");
     // A dispatcher's list grows, so it reaches a target it has not listed yet.
     let dispatched = fixture
         .server

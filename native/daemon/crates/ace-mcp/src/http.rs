@@ -1141,6 +1141,11 @@ fn dispatch_target(
     if crate::tool_names::bare_tool_name(name) != ACE_TOOL_DISPATCH {
         return Ok(dispatched_ace_call(name, arguments));
     }
+    // The wrapper is a registered tool like any other: an endpoint that does not offer it
+    // (M3 registers it) refuses the call before reading its arguments.
+    if !registry.has(ACE_TOOL_DISPATCH) {
+        return Err(fixed_failure("tool_unavailable"));
+    }
     let Some(object) = arguments.as_object() else {
         return Err(invalid_arguments(Some("(root)")));
     };
