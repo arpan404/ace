@@ -194,6 +194,102 @@ pub fn create_unprepared_session(
     })
 }
 
+/// `SessionMetadata.nativeSession` (`:76`): the provider's own id, its backend and the account
+/// that owns it; a `None` keeps the stored value. Returns the live-account event the caller
+/// appends when the account changed, as the TypeScript writes it in the same transaction.
+pub fn native_session(
+    store: &EngineStore,
+    id: &str,
+    native_id: Option<&str>,
+    backend_name: Option<&str>,
+    instance_id: Option<&str>,
+) -> Result<Option<Value>, EngineError> {
+    let backend = match backend_name {
+        Some(name) => Some(backend(name)?),
+        None => None,
+    };
+    store.atomic(|tx| {
+        stmt_cache::run(
+            tx.conn(),
+            NATIVE_SESSION,
+            vec![
+                native_id.map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
+                backend.map_or(Cell::Null, Cell::Text),
+                instance_id.map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
+                Cell::Text(id.to_owned()),
+            ],
+        )?;
+        Ok(())
+    })?;
+    let Some(instance_id) = instance_id else {
+        return Ok(None);
+    };
+    let Some(thread) = store.get_thread(id)? else {
+        return Ok(None);
+    };
+    let parsed =
+        ace_json::parse(&thread).map_err(|error| EngineError::Records(error.to_string()))?;
+    let live = parsed
+        .get("live")
+        .and_then(|live| live.get("account"))
+        .and_then(Value::as_str);
+    if live == Some(instance_id) {
+        return Ok(None);
+    }
+    let mut account = ace_json::Map::new();
+    if let Some(live) = parsed.get("live").cloned() {
+        account = match live {
+            Value::Object(map) => map,
+            _ => ace_json::Map::new(),
+        };
+    }
+    account.insert("account", Value::from(instance_id));
+    Ok(Some(ace_json::json!({
+        "type": "thread.client.updated",
+        "changes": {"live": Value::Object(account)},
+    })))
+}
+
+/// `SessionMetadata.pinSessionIdentity` (`:98`): the first identity a session reported is durable;
+/// a later, different one is refused instead of silently rebinding the thread.
+pub fn pin_session_identity(
+    store: &EngineStore,
+    id: &str,
+    backend_name: &str,
+    instance_id: &str,
+    native_session_id: Option<&str>,
+) -> Result<(), EngineError> {
+    let stored_backend = backend(backend_name)?;
+    store.atomic(|tx| {
+        let before = session(store, id)?;
+        let conflict = (before.backend.is_some()
+            && before.backend.as_deref() != Some(stored_backend.as_str()))
+            || (before.instance_id.is_some() && before.instance_id.as_deref() != Some(instance_id))
+            || (before.native_session_id.is_some()
+                && native_session_id.is_some()
+                && before.native_session_id.as_deref() != native_session_id);
+        if conflict {
+            return Err(EngineError::Records(
+                "Provider session identity conflicts with its durable binding".to_owned(),
+            ));
+        }
+        stmt_cache::run(
+            tx.conn(),
+            PIN_IDENTITY,
+            vec![
+                Cell::Text(stored_backend),
+                Cell::Text(instance_id.to_owned()),
+                native_session_id.map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
+                Cell::Text(id.to_owned()),
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+const NATIVE_SESSION: &str = "UPDATE engine_sessions SET native_session_id = COALESCE(?,native_session_id), backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?";
+const PIN_IDENTITY: &str = "UPDATE engine_sessions SET backend=?, instance_id=?, native_session_id=COALESCE(?,native_session_id) WHERE thread_id=?";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +350,49 @@ mod tests {
             session(&store, "t").unwrap_err().to_string(),
             "Too big: expected string to have <=256 characters"
         );
+    }
+
+    #[test]
+    fn a_pinned_identity_writes_the_binding_and_refuses_a_conflicting_one() {
+        let conn = home("pin", &header("pin"));
+        conn.exec("DELETE FROM engine_sessions").expect("clear");
+        let store = Shell::store(&conn);
+        create_session(&store, "pin", "/tmp", None, None, None, None).expect("create");
+        pin_session_identity(&store, "pin", "acp", "account", Some("native-1")).expect("pin");
+        let read = session(&store, "pin").expect("read");
+        assert_eq!(read.backend.as_deref(), Some("acp"));
+        assert_eq!(read.instance_id.as_deref(), Some("account"));
+        assert_eq!(read.native_session_id.as_deref(), Some("native-1"));
+        // The same identity again is idempotent.
+        pin_session_identity(&store, "pin", "acp", "account", Some("native-1")).expect("pin");
+        for (backend, instance, native) in [
+            ("cursor-sdk", "account", Some("native-1")),
+            ("acp", "other", Some("native-1")),
+            ("acp", "account", Some("native-2")),
+        ] {
+            assert_eq!(
+                pin_session_identity(&store, "pin", backend, instance, native)
+                    .expect_err("conflict")
+                    .to_string(),
+                "Provider session identity conflicts with its durable binding"
+            );
+        }
+    }
+
+    #[test]
+    fn a_native_session_keeps_the_binding_it_had_when_the_answer_omits_one() {
+        let conn = home("native", &header("native"));
+        conn.exec("DELETE FROM engine_sessions").expect("clear");
+        let store = Shell::store(&conn);
+        create_session(&store, "native", "/tmp", None, None, None, None).expect("create");
+        native_session(&store, "native", Some("native-1"), None, None).expect("first");
+        native_session(&store, "native", None, None, None).expect("nothing to change");
+        let read = session(&store, "native").expect("read");
+        assert_eq!(read.native_session_id.as_deref(), Some("native-1"));
+        native_session(&store, "native", Some("native-2"), Some("acp"), None).expect("update");
+        let read = session(&store, "native").expect("read");
+        assert_eq!(read.native_session_id.as_deref(), Some("native-2"));
+        assert_eq!(read.backend.as_deref(), Some("acp"));
     }
 
     #[test]
