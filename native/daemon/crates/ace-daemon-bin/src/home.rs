@@ -15,6 +15,8 @@
 //! "a symlinked data directory is refused").
 
 use std::fs::{self, DirBuilder, OpenOptions};
+
+use facts::read_facts;
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::DirBuilderExt;
@@ -23,6 +25,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 mod claim;
+mod facts;
 mod files;
 mod marker;
 mod release;
@@ -185,7 +188,7 @@ impl HomeError {
     }
 }
 
-fn io_error(action: impl Into<String>, source: io::Error) -> HomeError {
+pub(super) fn io_error(action: impl Into<String>, source: io::Error) -> HomeError {
     HomeError::Io {
         action: action.into(),
         source,
@@ -283,54 +286,6 @@ pub fn secure_data_dir(data_dir: &Path) -> Result<(), HomeError> {
         }
     }
     Ok(())
-}
-
-fn read_facts(root: &Path) -> Result<Facts, HomeError> {
-    if let Ok(metadata) = fs::symlink_metadata(root)
-        && !metadata.is_dir()
-        && !metadata.file_type().is_symlink()
-    {
-        return Err(io_error(
-            format!("Refusing ace data home {}", root.display()),
-            io::Error::other("it is not a directory"),
-        ));
-    }
-    let names = match fs::read_dir(root) {
-        Ok(entries) => {
-            let mut names = Vec::new();
-            for entry in entries {
-                let entry = entry
-                    .map_err(|error| io_error(format!("Cannot read {}", root.display()), error))?;
-                names.push(entry.file_name().to_string_lossy().into_owned());
-            }
-            names
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            // A link to nothing is still something at the path: set it aside.
-            return Ok(if fs::symlink_metadata(root).is_ok() {
-                Facts::Unversioned
-            } else {
-                Facts::Missing
-            });
-        }
-        Err(error) => return Err(io_error(format!("Cannot read {}", root.display()), error)),
-    };
-    if names.iter().all(|name| name == "features.json") {
-        return Ok(Facts::Empty);
-    }
-    if !names.iter().any(|name| name == HOME_FORMAT_FILE) {
-        return Ok(Facts::Unversioned);
-    }
-    let text = match fs::read_to_string(root.join(HOME_FORMAT_FILE)) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::IsADirectory => return Ok(Facts::Unversioned),
-        Err(error) => return Err(io_error("Cannot read the format marker", error)),
-    };
-    let truncated: String = text.chars().take(4096).collect();
-    Ok(match marker_version(&truncated) {
-        Some(version) => Facts::Versioned(version),
-        None => Facts::Unversioned,
-    })
 }
 
 /// Publishes the marker whole or not at all; a home that already has one keeps it.
