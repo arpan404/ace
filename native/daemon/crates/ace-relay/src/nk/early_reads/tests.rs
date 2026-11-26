@@ -101,7 +101,7 @@ fn subscribe(thread_id: &str, after_seq: Option<u64>) -> EarlySubscribe {
         scope: EarlyScope::Thread {
             thread_id: thread_id.to_owned(),
         },
-        paced: false,
+        paced: None,
         after_seq,
         tail: None,
     }
@@ -172,7 +172,7 @@ fn a_snapshot_and_a_sidebar_window_wait_for_confirmation() {
                 archived: None,
             },
         },
-        paced: true,
+        paced: Some(true),
         after_seq: None,
         tail: None,
     };
@@ -203,7 +203,7 @@ fn a_small_resumes_missed_events_go_early_marked_and_the_subscribe_resumes_after
     table.head = 7;
     table.events = vec![event("t", 10), event("t", 10)];
     let mut request = subscribe("t", Some(5));
-    request.paced = true;
+    request.paced = Some(true);
     let later = answer_early(
         std::slice::from_ref(&request),
         &mut EarlyReads {

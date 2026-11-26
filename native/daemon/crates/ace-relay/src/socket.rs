@@ -9,9 +9,11 @@
 use crate::error::RelayError;
 use crate::nk::admission::NkSession;
 
-/// The 1-based ready states a `ws` socket reports (`relay-socket.ts:50`).
+/// The 1-based ready states a `ws` socket reports (`relay-socket.ts:50`). The transport's own
+/// `OPEN`/`CLOSING`/`CLOSED` are the shell's; this names the same states for a relayed channel so
+/// the main-socket adapter can map one to the other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReadyState {
+pub enum RelayedState {
     Open = 1,
     Closing = 2,
     Closed = 3,
@@ -34,12 +36,16 @@ pub trait HostChannel {
     fn send_text(&mut self, text: &str, deflate: bool) -> Result<(), RelayError>;
     fn send_binary(&mut self, bytes: &[u8]) -> Result<(), RelayError>;
     fn buffered_bytes(&self) -> usize;
-    fn close(&mut self);
+    /// Ends the channel once the text already queued has been sent (a shell flushes, then
+    /// closes). A close that terminates before flushing turns a daemon's goodbye into "Peer
+    /// closed" at the client.
+    fn close_after_flush(&mut self);
 }
 
-/// What the daemon's socket handler sees.
+/// What the daemon's socket handler sees. Distinct from the transport's `RelayedEvent` (which
+/// carries its own close reasons as bytes): the main-socket adapter maps this one onto that.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SocketEvent {
+pub enum RelayedEvent {
     Message { data: Vec<u8>, binary: bool },
     Close { code: u16, reason: String },
 }
@@ -77,7 +83,7 @@ pub fn ended_by(cause: Option<&RelayError>) -> (u16, String) {
 /// A relayed main channel a socket handler can read, write and close.
 pub struct RelaySocket {
     deflate: bool,
-    state: ReadyState,
+    state: RelayedState,
     paused: bool,
     /// Before confirmation: the session whose output budget applies.
     session: Option<NkSession>,
@@ -88,13 +94,13 @@ impl RelaySocket {
     pub fn new(deflate: bool) -> Self {
         Self {
             deflate,
-            state: ReadyState::Open,
+            state: RelayedState::Open,
             paused: false,
             session: None,
         }
     }
 
-    pub fn ready_state(&self) -> ReadyState {
+    pub fn ready_state(&self) -> RelayedState {
         self.state
     }
 
@@ -107,8 +113,8 @@ impl RelaySocket {
     }
 
     /// Deliver `first` (the hello the relay host already read) as the channel's first message.
-    pub fn start(&mut self, first: &[u8]) -> SocketEvent {
-        SocketEvent::Message {
+    pub fn start(&mut self, first: &[u8]) -> RelayedEvent {
+        RelayedEvent::Message {
             data: first.to_vec(),
             binary: false,
         }
@@ -121,18 +127,18 @@ impl RelaySocket {
         &mut self,
         confirmed: bool,
         continuations: &[Vec<u8>],
-    ) -> Vec<SocketEvent> {
+    ) -> Vec<RelayedEvent> {
         self.session = None;
         if !confirmed {
-            self.state = ReadyState::Closed;
-            return vec![SocketEvent::Close {
+            self.state = RelayedState::Closed;
+            return vec![RelayedEvent::Close {
                 code: 1006,
                 reason: String::new(),
             }];
         }
         continuations
             .iter()
-            .map(|message| SocketEvent::Message {
+            .map(|message| RelayedEvent::Message {
                 data: message.clone(),
                 binary: false,
             })
@@ -144,17 +150,18 @@ impl RelaySocket {
         self.session = Some(session);
     }
 
-    /// A frame the channel received, in order; `None` while paused or no longer open.
-    pub fn receive(&mut self, frame: Frame) -> Option<SocketEvent> {
-        if self.state != ReadyState::Open || self.paused {
-            return None;
+    /// A frame the channel received, in order. While paused or no longer open the frame is handed
+    /// back, so a shell that already took it from the channel can keep it instead of losing it.
+    pub fn receive(&mut self, frame: Frame) -> Result<RelayedEvent, Frame> {
+        if self.state != RelayedState::Open || self.paused {
+            return Err(frame);
         }
-        Some(match frame {
-            Frame::Text(text) => SocketEvent::Message {
+        Ok(match frame {
+            Frame::Text(text) => RelayedEvent::Message {
                 data: text.into_bytes(),
                 binary: false,
             },
-            Frame::Binary(bytes) => SocketEvent::Message {
+            Frame::Binary(bytes) => RelayedEvent::Message {
                 data: bytes,
                 binary: true,
             },
@@ -162,10 +169,10 @@ impl RelaySocket {
     }
 
     /// The channel closed: the relay's own code and reason, or 1006 with what broke.
-    pub fn ended(&mut self, cause: Option<&RelayError>) -> SocketEvent {
-        self.state = ReadyState::Closed;
+    pub fn ended(&mut self, cause: Option<&RelayError>) -> RelayedEvent {
+        self.state = RelayedState::Closed;
         let (code, reason) = ended_by(cause);
-        SocketEvent::Close { code, reason }
+        RelayedEvent::Close { code, reason }
     }
 
     /// Text, deflated when the peer takes it and the caller hasn't opted out.
@@ -197,7 +204,7 @@ impl RelaySocket {
     /// Before confirmation at most 256 KiB goes out (ADR 0155). Anything past it ends the
     /// session, so nothing waits anywhere for a client that hasn't confirmed.
     fn budget(&mut self, size: usize, channel: &mut dyn HostChannel) -> Result<(), RelayError> {
-        if self.state != ReadyState::Open {
+        if self.state != RelayedState::Open {
             return Err(RelayError::Protocol("Relay channel closed"));
         }
         if let Some(session) = &self.session
@@ -217,12 +224,14 @@ impl RelaySocket {
         code: u16,
         reason: &str,
         channel: &mut dyn HostChannel,
-    ) -> Option<SocketEvent> {
-        if self.state != ReadyState::Open {
+    ) -> Option<RelayedEvent> {
+        if self.state != RelayedState::Open {
             return None;
         }
-        self.state = ReadyState::Closing;
-        let code = if (1000..=4999).contains(&code) {
+        self.state = RelayedState::Closing;
+        // The frame clamps a code outside the protocol's range; the handler still sees the one
+        // it asked for, as the TypeScript reports the caller's (`relay-socket.ts:187`, `:201`).
+        let frame_code = if (1000..=4999).contains(&code) {
             code
         } else {
             1000
@@ -230,22 +239,22 @@ impl RelaySocket {
         let reason = slice_utf16(reason, MAX_CLOSE_REASON);
         let mut goodbye = ace_json::Map::new();
         goodbye.insert("type", ace_json::Value::String("channel.close".into()));
-        goodbye.insert("code", ace_json::Value::from(code));
+        goodbye.insert("code", ace_json::Value::from(frame_code));
         goodbye.insert("reason", ace_json::Value::String(reason.clone().into()));
         let text = ace_json::to_string(&ace_json::Value::Object(goodbye));
         let _ = channel.send_text(&text, false);
-        channel.close();
-        self.state = ReadyState::Closed;
+        channel.close_after_flush();
+        self.state = RelayedState::Closed;
         self.session = None;
-        Some(SocketEvent::Close { code, reason })
+        Some(RelayedEvent::Close { code, reason })
     }
 
     /// Ends the channel with an abnormal 1006 and no reason.
-    pub fn terminate(&mut self, channel: &mut dyn HostChannel) -> SocketEvent {
-        channel.close();
-        self.state = ReadyState::Closed;
+    pub fn terminate(&mut self, channel: &mut dyn HostChannel) -> RelayedEvent {
+        channel.close_after_flush();
+        self.state = RelayedState::Closed;
         self.session = None;
-        SocketEvent::Close {
+        RelayedEvent::Close {
             code: 1006,
             reason: String::new(),
         }

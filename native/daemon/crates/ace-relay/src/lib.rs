@@ -20,7 +20,7 @@ pub mod wire;
 pub use channel::{
     ATTACHMENT_BACKPRESSURE, Attachment, CHUNK_BUDGET, CONTROL_BACKPRESSURE, CONTROL_BUDGET,
     ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input, chunk_room,
-    control_room, files_need_scoped, support_local_only,
+    control_room, files_routes_to_scoped, support_local_only,
 };
 pub use cipher::{CipherState, Snapshot};
 pub use error::RelayError;
@@ -51,7 +51,7 @@ pub use noise::{
 };
 pub use route::{RelayPairingRoute, RelayRoute, relay_pairing, relay_route};
 pub use socket::{
-    Frame, HostChannel, MAX_CLOSE_REASON, ReadyState, RelaySocket, SocketEvent, ended_by,
+    Frame, HostChannel, MAX_CLOSE_REASON, RelaySocket, RelayedEvent, RelayedState, ended_by,
     slice_utf16,
 };
 pub use wire::{

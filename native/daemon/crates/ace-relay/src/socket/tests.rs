@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use super::{
-    Frame, HostChannel, MAX_CLOSE_REASON, ReadyState, RelaySocket, SocketEvent, ended_by,
+    Frame, HostChannel, MAX_CLOSE_REASON, RelaySocket, RelayedEvent, RelayedState, ended_by,
     slice_utf16,
 };
 use crate::error::RelayError;
@@ -56,7 +56,7 @@ impl HostChannel for Channel {
         self.buffered
     }
 
-    fn close(&mut self) {
+    fn close_after_flush(&mut self) {
         self.closed = true;
     }
 }
@@ -72,21 +72,21 @@ fn the_hello_the_relay_read_is_the_first_message_and_order_holds() {
     let mut socket = RelaySocket::new(false);
     assert_eq!(
         socket.start(b"{\"type\":\"hello\"}"),
-        SocketEvent::Message {
+        RelayedEvent::Message {
             data: b"{\"type\":\"hello\"}".to_vec(),
             binary: false
         }
     );
     assert_eq!(
         socket.receive(Frame::Text("second".to_owned())),
-        Some(SocketEvent::Message {
+        Ok(RelayedEvent::Message {
             data: b"second".to_vec(),
             binary: false
         })
     );
     assert_eq!(
         socket.receive(Frame::Binary(vec![1, 2])),
-        Some(SocketEvent::Message {
+        Ok(RelayedEvent::Message {
             data: vec![1, 2],
             binary: true
         })
@@ -102,12 +102,12 @@ fn a_relayed_close_keeps_its_code_and_reason_and_any_other_failure_is_1006() {
     }));
     assert_eq!(
         relayed,
-        SocketEvent::Close {
+        RelayedEvent::Close {
             code: 4003,
             reason: "Peer closed".to_owned()
         }
     );
-    assert_eq!(socket.ready_state(), ReadyState::Closed);
+    assert_eq!(socket.ready_state(), RelayedState::Closed);
     // Any other failure keeps its message, cut to 123 UTF-16 units.
     let (code, reason) = ended_by(Some(&RelayError::Noise("x")));
     assert_eq!(code, 1006);
@@ -134,8 +134,9 @@ fn a_local_close_sends_channel_close_last_with_the_clamped_code_and_reason() {
     let event = socket.close(5000, "bye", &mut channel);
     assert_eq!(
         event,
-        Some(SocketEvent::Close {
-            code: 1000,
+        Some(RelayedEvent::Close {
+            // The handler sees the code it asked for; the frame carries the clamped one below.
+            code: 5000,
             reason: "bye".to_owned()
         })
     );
@@ -145,6 +146,10 @@ fn a_local_close_sends_channel_close_last_with_the_clamped_code_and_reason() {
     let (text, deflate) = channel.texts.last().unwrap();
     assert!(!deflate);
     let goodbye = ace_json::parse(text).unwrap();
+    assert_eq!(
+        goodbye.get("code").and_then(ace_json::Value::as_u64),
+        Some(1000)
+    );
     assert_eq!(
         goodbye.get("type").and_then(ace_json::Value::as_str),
         Some("channel.close")
@@ -177,13 +182,13 @@ fn terminate_is_1006_with_no_reason_and_closes_the_channel() {
     let mut channel = Channel::default();
     assert_eq!(
         socket.terminate(&mut channel),
-        SocketEvent::Close {
+        RelayedEvent::Close {
             code: 1006,
             reason: String::new()
         }
     );
     assert!(channel.closed);
-    assert_eq!(socket.ready_state(), ReadyState::Closed);
+    assert_eq!(socket.ready_state(), RelayedState::Closed);
 }
 
 #[test]
@@ -191,9 +196,11 @@ fn a_paused_reader_takes_no_frames_until_it_resumes() {
     let mut socket = RelaySocket::new(false);
     socket.pause();
     assert!(socket.is_paused());
-    assert_eq!(socket.receive(Frame::Text("held".to_owned())), None);
+    // The frame comes back rather than vanishing, so the shell can keep it.
+    let held = Frame::Text("held".to_owned());
+    assert_eq!(socket.receive(held.clone()), Err(held));
     socket.resume();
-    assert!(socket.receive(Frame::Text("taken".to_owned())).is_some());
+    assert!(socket.receive(Frame::Text("taken".to_owned())).is_ok());
 }
 
 #[test]
@@ -210,7 +217,7 @@ fn before_confirmation_output_past_256_kib_ends_the_session() {
         .unwrap_err();
     assert!(error.to_string().contains("output budget"));
     assert!(channel.closed);
-    assert_eq!(socket.ready_state(), ReadyState::Closed);
+    assert_eq!(socket.ready_state(), RelayedState::Closed);
     // Nothing more goes out.
     assert!(socket.send_text("after", true, &mut channel).is_err());
 }
@@ -246,7 +253,7 @@ fn an_unconfirmed_session_s_continuations_come_first_and_a_refusal_terminates() 
     let events = socket.after_confirmation(true, &[b"subscribe".to_vec()]);
     assert_eq!(
         events,
-        vec![SocketEvent::Message {
+        vec![RelayedEvent::Message {
             data: b"subscribe".to_vec(),
             binary: false
         }]
@@ -254,7 +261,7 @@ fn an_unconfirmed_session_s_continuations_come_first_and_a_refusal_terminates() 
     let mut socket = RelaySocket::new(false);
     assert_eq!(
         socket.after_confirmation(false, &[]),
-        vec![SocketEvent::Close {
+        vec![RelayedEvent::Close {
             code: 1006,
             reason: String::new()
         }]

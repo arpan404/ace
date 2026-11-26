@@ -21,7 +21,7 @@ pub mod subscribe;
 pub use subscribe::{EarlyScope, EarlySubscribe, Tail, Window};
 
 /// A first message's hello (`HelloEarly`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HelloEarly {
     pub device_id: String,
     /// A one-use ticket the daemon handed in its last welcome to this device.
@@ -36,7 +36,7 @@ pub struct HelloEarly {
 }
 
 /// The client's first transport message after the daemon's NK answer (`HelloConfirm`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HelloConfirm {
     pub install_id: Option<String>,
     pub link: Option<PairingLinkProof>,
@@ -45,7 +45,7 @@ pub struct HelloConfirm {
 }
 
 /// A pairing credential's proof, carried by a confirmation of the same install (ADR 0115).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PairingLinkProof {
     pub device_id: String,
     pub proof: String,
@@ -90,6 +90,38 @@ fn only_keys(object: &ace_json::Map, allowed: &[&str]) -> bool {
     object
         .iter()
         .all(|(key, _)| allowed.contains(&key.as_str()))
+}
+
+impl std::fmt::Debug for HelloEarly {
+    /// The ticket and the grant are live bearers: Debug names that they are present, never them.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HelloEarly")
+            .field("device_id", &self.device_id)
+            .field("ticket", &self.ticket.is_some())
+            .field("grant", &self.grant.is_some())
+            .field("subscribes", &self.subscribes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for HelloConfirm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HelloConfirm")
+            .field("install_id", &self.install_id.is_some())
+            .field("link", &self.link.is_some())
+            .field("next_ticket", &self.next_ticket)
+            .field("machine_code", &self.machine_code.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for PairingLinkProof {
+    /// The proof is a bearer of the paired credential's authority: only its device is named.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PairingLinkProof")
+            .field("device_id", &self.device_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl HelloEarly {
@@ -226,10 +258,9 @@ impl HelloConfirm {
         let link = match object.get("link") {
             None => None,
             Some(value) => {
+                // `PairingLinkProof` is a plain `z.object`: unknown keys are stripped, not
+                // refused, so a client that adds one still confirms.
                 let link = value.as_object()?;
-                if !only_keys(link, &["deviceId", "proof"]) {
-                    return None;
-                }
                 let device_id = string_at(link, "deviceId")?;
                 let proof = string_at(link, "proof")?;
                 if device_id.is_empty()

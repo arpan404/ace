@@ -3,9 +3,24 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use ace_json::Value;
 
 use super::{Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NoiseNk, NoiseXx, host_id};
+use crate::wire::{CONTROL_PROLOGUE, NK_STREAM_PROLOGUE, STREAM_PROLOGUE};
+
+/// A distinct deterministic static key per call; tests never draw randomness.
+fn key() -> KeyPair {
+    static NEXT: AtomicU8 = AtomicU8::new(1);
+    KeyPair::from_private([NEXT.fetch_add(1, Ordering::SeqCst); 32])
+}
+
+/// A distinct deterministic ephemeral per call.
+fn fresh() -> Ephemeral {
+    static NEXT: AtomicU8 = AtomicU8::new(101);
+    Ephemeral::Provided([NEXT.fetch_add(1, Ordering::SeqCst); 32])
+}
 
 const CACOPHONY: &str = include_str!("../../tests/fixtures/cacophony.json");
 const SNOW: &str = include_str!("../../tests/fixtures/snow.json");
@@ -54,18 +69,16 @@ fn official_noise_xx_vectors_match_every_handshake_and_transport_byte() {
     for fixture in [CACOPHONY, SNOW] {
         for vector in vectors(fixture) {
             let mut initiator = NoiseXx::initiator(
-                &KeyPair::from_private(hex(field(&vector, "init_static")).try_into().unwrap()),
-                Ephemeral::Fixed(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
+                KeyPair::from_private(hex(field(&vector, "init_static")).try_into().unwrap()),
+                Ephemeral::Provided(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
                 &hex(field(&vector, "init_prologue")),
                 None,
-            )
-            .unwrap();
+            );
             let mut responder = NoiseXx::responder(
-                &KeyPair::from_private(hex(field(&vector, "resp_static")).try_into().unwrap()),
-                Ephemeral::Fixed(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
+                KeyPair::from_private(hex(field(&vector, "resp_static")).try_into().unwrap()),
+                Ephemeral::Provided(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
                 &hex(field(&vector, "resp_prologue")),
-            )
-            .unwrap();
+            );
             let messages = messages(&vector);
             for (index, (payload, ciphertext)) in messages.iter().take(3).enumerate() {
                 let (written, read) = if index % 2 == 0 {
@@ -108,49 +121,32 @@ fn official_noise_xx_vectors_match_every_handshake_and_transport_byte() {
 
 #[test]
 fn a_pinned_fingerprint_that_does_not_match_aborts_before_the_payload() {
-    let host = KeyPair::generate().unwrap();
-    let wrong = host_id(&KeyPair::generate().unwrap().public);
-    let mut a = NoiseXx::initiator(
-        &KeyPair::generate().unwrap(),
-        Ephemeral::Fresh,
-        b"",
-        Some(&wrong),
-    )
-    .unwrap();
-    let mut b = NoiseXx::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let host = key();
+    let wrong = host_id(&key().public);
+    let mut a = NoiseXx::initiator(key(), fresh(), b"", Some(&wrong));
+    let mut b = NoiseXx::responder(host.reopen(), fresh(), b"");
     b.read_message(&a.write_message(&[]).unwrap()).unwrap();
     let error = a.read_message(&b.write_message(&[]).unwrap()).unwrap_err();
     assert!(error.to_string().contains("fingerprint"), "{error}");
     assert!(a.write_message(&[]).is_err());
     // The right pin completes.
     let pin = host.host_id();
-    let mut a = NoiseXx::initiator(
-        &KeyPair::generate().unwrap(),
-        Ephemeral::Fresh,
-        b"",
-        Some(&pin),
-    )
-    .unwrap();
-    let mut b = NoiseXx::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let mut a = NoiseXx::initiator(key(), fresh(), b"", Some(&pin));
+    let mut b = NoiseXx::responder(host.reopen(), fresh(), b"");
     b.read_message(&a.write_message(&[]).unwrap()).unwrap();
     assert_eq!(
         a.read_message(&b.write_message(&[]).unwrap()).unwrap(),
         Vec::<u8>::new()
     );
-    assert_eq!(a.remote_static(), Some(host.public.as_slice()));
+    assert_eq!(a.remote_static(), Some(&host.public));
 }
 
 #[test]
 fn the_finished_transport_carries_both_ways_and_rekeys_by_direction() {
-    let host = KeyPair::generate().unwrap();
-    let mut client = NoiseXx::initiator(
-        &KeyPair::generate().unwrap(),
-        Ephemeral::Fresh,
-        b"relay",
-        Some(&host.host_id()),
-    )
-    .unwrap();
-    let mut daemon = NoiseXx::responder(&host, Ephemeral::Fresh, b"relay").unwrap();
+    let host = key();
+    let pin = host.host_id();
+    let mut client = NoiseXx::initiator(key(), fresh(), STREAM_PROLOGUE, Some(&pin));
+    let mut daemon = NoiseXx::responder(host.reopen(), fresh(), STREAM_PROLOGUE);
     daemon
         .read_message(&client.write_message(b"hello").unwrap())
         .unwrap();
@@ -168,8 +164,8 @@ fn the_finished_transport_carries_both_ways_and_rekeys_by_direction() {
         client.receive(&daemon.send(b"down").unwrap()).unwrap(),
         b"down"
     );
-    client.rekey_send();
-    daemon.rekey_receive();
+    client.rekey_send().unwrap();
+    daemon.rekey_receive().unwrap();
     assert_eq!(
         daemon
             .receive(&client.send(b"after rekey").unwrap())
@@ -178,16 +174,15 @@ fn the_finished_transport_carries_both_ways_and_rekeys_by_direction() {
     );
     // A message sealed before the rekey doesn't open after it.
     let stale = daemon.send(b"old").unwrap();
-    client.rekey_receive();
+    client.rekey_receive().unwrap();
     assert!(client.receive(&stale).is_err());
 }
 
 #[test]
 fn tampered_and_replayed_transport_messages_are_refused_without_advancing() {
-    let host = KeyPair::generate().unwrap();
-    let mut client =
-        NoiseXx::initiator(&KeyPair::generate().unwrap(), Ephemeral::Fresh, b"", None).unwrap();
-    let mut daemon = NoiseXx::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let host = key();
+    let mut client = NoiseXx::initiator(key(), fresh(), b"", None);
+    let mut daemon = NoiseXx::responder(host.reopen(), fresh(), b"");
     daemon
         .read_message(&client.write_message(&[]).unwrap())
         .unwrap();
@@ -207,10 +202,9 @@ fn tampered_and_replayed_transport_messages_are_refused_without_advancing() {
 
 #[test]
 fn the_largest_transport_message_is_accepted_and_one_byte_more_is_refused() {
-    let host = KeyPair::generate().unwrap();
-    let mut client =
-        NoiseXx::initiator(&KeyPair::generate().unwrap(), Ephemeral::Fresh, b"", None).unwrap();
-    let mut daemon = NoiseXx::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let host = key();
+    let mut client = NoiseXx::initiator(key(), fresh(), b"", None);
+    let mut daemon = NoiseXx::responder(host.reopen(), fresh(), b"");
     daemon
         .read_message(&client.write_message(&[]).unwrap())
         .unwrap();
@@ -233,25 +227,30 @@ fn noise_nk_vectors_match_every_byte_and_its_finished_transport_interoperates() 
     for vector in vectors(NK) {
         let responder_static =
             KeyPair::from_private(hex(field(&vector, "resp_static")).try_into().unwrap());
+        let public = responder_static.public;
         let mut initiator = NoiseNk::initiator(
-            &responder_static.public,
-            Ephemeral::Fixed(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
+            &public,
+            Ephemeral::Provided(hex(field(&vector, "init_ephemeral")).try_into().unwrap()),
             &hex(field(&vector, "init_prologue")),
-        )
-        .unwrap();
+        );
         let mut responder = NoiseNk::responder(
-            &responder_static,
-            Ephemeral::Fixed(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
+            responder_static,
+            Ephemeral::Provided(hex(field(&vector, "resp_ephemeral")).try_into().unwrap()),
             &hex(field(&vector, "resp_prologue")),
-        )
-        .unwrap();
+        );
         let messages = messages(&vector);
         let first = initiator.write_message(&messages[0].0).unwrap();
         assert_eq!(as_hex(&first), as_hex(&messages[0].1));
-        assert_eq!(responder.read_message(&first).unwrap(), messages[0].0);
+        assert_eq!(
+            &*responder.read_message(&first).unwrap(),
+            messages[0].0.as_slice()
+        );
         let second = responder.write_message(&messages[1].0).unwrap();
         assert_eq!(as_hex(&second), as_hex(&messages[1].1));
-        assert_eq!(initiator.read_message(&second).unwrap(), messages[1].0);
+        assert_eq!(
+            &*initiator.read_message(&second).unwrap(),
+            messages[1].0.as_slice()
+        );
         assert_eq!(
             as_hex(responder.handshake_hash()),
             field(&vector, "handshake_hash")
@@ -281,61 +280,57 @@ fn noise_nk_vectors_match_every_byte_and_its_finished_transport_interoperates() 
 
 #[test]
 fn an_nk_first_message_bound_to_another_prologue_or_key_is_refused() {
-    let host = KeyPair::generate().unwrap();
-    let first = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"v2")
-        .unwrap()
+    let host = key();
+    let public = host.public;
+    let first = NoiseNk::initiator(&public, fresh(), NK_STREAM_PROLOGUE)
         .write_message(b"early")
         .unwrap();
-    let mut wrong_prologue = NoiseNk::responder(&host, Ephemeral::Fresh, b"v1").unwrap();
+    let mut wrong_prologue = NoiseNk::responder(host.reopen(), fresh(), STREAM_PROLOGUE);
     assert!(wrong_prologue.read_message(&first).is_err());
-    let mut wrong_key =
-        NoiseNk::responder(&KeyPair::generate().unwrap(), Ephemeral::Fresh, b"v2").unwrap();
+    let mut wrong_key = NoiseNk::responder(key(), fresh(), NK_STREAM_PROLOGUE);
     assert!(wrong_key.read_message(&first).is_err());
-    let mut right = NoiseNk::responder(&host, Ephemeral::Fresh, b"v2").unwrap();
-    assert_eq!(right.read_message(&first).unwrap(), b"early");
+    let mut right = NoiseNk::responder(host.reopen(), fresh(), NK_STREAM_PROLOGUE);
+    assert_eq!(&*right.read_message(&first).unwrap(), b"early");
 }
 
 #[test]
 fn an_nk_first_message_is_48_bytes_and_cannot_be_taken_for_an_xx_one() {
-    let host = KeyPair::generate().unwrap();
-    let first = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"")
-        .unwrap()
+    let host = key();
+    let public = host.public;
+    let first = NoiseNk::initiator(&public, fresh(), b"")
         .write_message(&[])
         .unwrap();
     assert_eq!(first.len(), NK_FIRST_MESSAGE_MINIMUM);
-    let mut xx =
-        NoiseXx::initiator(&KeyPair::generate().unwrap(), Ephemeral::Fresh, b"", None).unwrap();
+    let mut xx = NoiseXx::initiator(key(), fresh(), b"", None);
     let xx_first = xx.write_message(&[]).unwrap();
     assert_eq!(xx_first.len(), 32);
-    let mut responder = NoiseNk::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let mut responder = NoiseNk::responder(host.reopen(), fresh(), b"");
     let error = responder.read_message(&xx_first).unwrap_err();
     assert!(error.to_string().contains("Invalid Noise message size"));
 }
 
 #[test]
 fn nk_keeps_turns_bounds_sizes_and_fails_for_good() {
-    let host = KeyPair::generate().unwrap();
-    let mut initiator = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"").unwrap();
+    let host = key();
+    let public = host.public;
+    let mut initiator = NoiseNk::initiator(&public, fresh(), b"");
     assert!(initiator.read_message(&[0u8; 48]).is_err());
-    let mut responder = NoiseNk::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let mut responder = NoiseNk::responder(host.reopen(), fresh(), b"");
     assert!(responder.write_message(&[]).is_err());
     assert!(
-        NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"")
-            .unwrap()
+        NoiseNk::initiator(&public, fresh(), b"")
             .write_message(&vec![0u8; MAX_MESSAGE - 47])
             .is_err()
     );
-    let largest = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"")
-        .unwrap()
+    let largest = NoiseNk::initiator(&public, fresh(), b"")
         .write_message(&vec![0u8; MAX_MESSAGE - NK_FIRST_MESSAGE_MINIMUM])
         .unwrap();
     assert_eq!(largest.len(), MAX_MESSAGE);
-    let mut tampered = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"")
-        .unwrap()
+    let mut tampered = NoiseNk::initiator(&public, fresh(), b"")
         .write_message(&[1])
         .unwrap();
     tampered[40] ^= 1;
-    let mut reader = NoiseNk::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let mut reader = NoiseNk::responder(host.reopen(), fresh(), b"");
     assert!(reader.read_message(&tampered).is_err());
     assert!(reader.read_message(&tampered).is_err());
     assert!(reader.into_transport().is_err());
@@ -343,20 +338,30 @@ fn nk_keeps_turns_bounds_sizes_and_fails_for_good() {
 
 #[test]
 fn a_replayed_first_message_s_answer_can_only_be_read_by_the_real_client() {
-    let host = KeyPair::generate().unwrap();
-    let mut client = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"").unwrap();
+    let host = key();
+    let public = host.public;
+    let mut client = NoiseNk::initiator(&public, fresh(), b"");
     let first = client.write_message(b"hello.early").unwrap();
-    let mut replayed = NoiseNk::responder(&host, Ephemeral::Fresh, b"").unwrap();
+    let mut replayed = NoiseNk::responder(host.reopen(), fresh(), b"");
     replayed.read_message(&first).unwrap();
     let answer = replayed.write_message(&[]).unwrap();
     let mut replayed = replayed.into_transport().unwrap();
     let sealed = replayed.send(b"welcome").unwrap();
-    let mut guess = NoiseNk::initiator(&host.public, Ephemeral::Fresh, b"").unwrap();
+    let mut guess = NoiseNk::initiator(&public, fresh(), b"");
     guess.write_message(&[]).unwrap();
     assert!(guess.read_message(&answer).is_err());
     client.read_message(&answer).unwrap();
     let mut client = client.into_transport().unwrap();
     assert_eq!(client.receive(&sealed).unwrap(), b"welcome");
+}
+
+#[test]
+fn the_wire_prologues_are_what_the_handshakes_bind_to() {
+    assert_eq!(CONTROL_PROLOGUE, b"ace relay registration v1");
+    assert_eq!(STREAM_PROLOGUE, b"ace daemon relay stream v1");
+    assert_eq!(NK_STREAM_PROLOGUE, b"ace daemon relay stream v2 nk");
+    assert_eq!(crate::wire::PAIRED_MARKER, 1);
+    assert_eq!(crate::wire::NK_REFUSAL_MS, 150);
 }
 
 #[test]

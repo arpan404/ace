@@ -34,7 +34,8 @@ pub struct Tail {
 pub struct EarlySubscribe {
     pub subscription_id: String,
     pub scope: EarlyScope,
-    pub paced: bool,
+    /// Present exactly when the client sent it: the TypeScript spreads it back as it came.
+    pub paced: Option<bool>,
     pub after_seq: Option<u64>,
     pub tail: Option<Tail>,
 }
@@ -55,8 +56,8 @@ impl EarlySubscribe {
         }
         let scope = parse_scope(object.get("scope")?)?;
         let paced = match object.get("paced") {
-            None => false,
-            Some(Value::Bool(paced)) => *paced,
+            None => None,
+            Some(Value::Bool(paced)) => Some(*paced),
             Some(_) => return None,
         };
         let after_seq = match object.get("afterSeq") {
@@ -109,8 +110,8 @@ impl EarlySubscribe {
             Value::String(self.subscription_id.clone().into()),
         );
         message.insert("scope", self.scope.to_value());
-        if self.paced {
-            message.insert("paced", Value::Bool(true));
+        if let Some(paced) = self.paced {
+            message.insert("paced", Value::Bool(paced));
         }
         if let Some(after_seq) = after_seq.or(self.after_seq) {
             message.insert("afterSeq", ace_json::to_value(&after_seq));

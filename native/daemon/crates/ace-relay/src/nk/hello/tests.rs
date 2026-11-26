@@ -123,6 +123,38 @@ fn a_scope_is_strict_and_a_window_takes_only_its_limit_project_and_archived() {
 }
 
 #[test]
+fn debug_names_a_ticket_and_a_grant_by_presence_never_by_value() {
+    let ticket = format!("{}{}", "a".repeat(60), "b".repeat(4));
+    let parsed = HelloEarly::parse(&json(&hello(""))).unwrap();
+    let printed = format!("{parsed:?}");
+    assert!(!printed.contains(&ticket), "{printed}");
+    assert!(printed.contains("ticket: true"), "{printed}");
+    let grant_payload = hello("").replace(
+        &format!("\"ticket\":\"{ticket}\""),
+        "\"grant\":\"sensitive-grant\"",
+    );
+    let grant = HelloEarly::parse(&json(&grant_payload)).unwrap();
+    let printed = format!("{grant:?}");
+    assert!(!printed.contains("sensitive-grant"), "{printed}");
+    assert!(printed.contains("grant: true"), "{printed}");
+    let confirm = HelloConfirm::parse(&json(
+        "{\"type\":\"hello.confirm\",\"machineCode\":\"1234\"}",
+    ))
+    .unwrap();
+    let printed = format!("{confirm:?}");
+    assert!(!printed.contains("1234"), "{printed}");
+    assert!(printed.contains("machine_code: true"), "{printed}");
+}
+
+#[test]
+fn a_confirmation_s_link_accepts_extra_keys_as_the_protocol_s_plain_object_does() {
+    let full = "{\"type\":\"hello.confirm\",\"link\":{\"deviceId\":\"d\",\
+                \"proof\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"future\":1}}";
+    let confirm = HelloConfirm::parse(&json(full)).unwrap();
+    assert_eq!(confirm.link.unwrap().device_id, "d");
+}
+
+#[test]
 fn a_confirmation_carries_the_device_fields_and_the_allowlist() {
     assert!(HelloConfirm::parse(&json("{\"type\":\"hello.confirm\"}")).is_some());
     let full = "{\"type\":\"hello.confirm\",\"installId\":\"01936d1e-3f8a-7c2b\",\

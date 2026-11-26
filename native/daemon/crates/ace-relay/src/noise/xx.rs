@@ -1,82 +1,75 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Noise XX (`-> e; <- e, ee, s, es; -> s, se`), as the relay's streams run it, with the pinned
-//! host id checked the moment the responder's static key arrives.
+//! host id checked the moment the responder's static key arrives — before that message's payload
+//! is opened.
 
-use snow::{Builder, HandshakeState};
-
-use super::{Ephemeral, KeyPair, MAX_MESSAGE, SessionKeys, XX_PROTOCOL, host_id, params};
+use super::{Ephemeral, KeyPair, MAX_MESSAGE, SessionKeys, Symmetric, XX_PROTOCOL, host_id, split};
 use crate::error::RelayError;
 
-/// Noise XX (`-> e; <- e, ee, s, es; -> s, se`), as the relay's streams run it.
+/// The size overhead each handshake message carries: e, e+s+tags, s+tags.
+fn overhead(step: u8) -> usize {
+    match step {
+        0 => 32,
+        1 => 96,
+        _ => 64,
+    }
+}
+
+/// Noise XX, one turn at a time.
 pub struct NoiseXx {
-    state: HandshakeState,
     initiator: bool,
-    pinned: Option<String>,
     step: u8,
     failed: bool,
+    sym: Symmetric,
+    /// Own static and ephemeral keys; dropped (and wiped) when the handshake finishes or fails.
+    static_key: Option<KeyPair>,
+    ephemeral: Option<KeyPair>,
+    remote_ephemeral: Option<[u8; 32]>,
+    remote_static: Option<[u8; 32]>,
+    pinned: Option<String>,
+    transport: Option<SessionKeys>,
+    handshake_hash: [u8; 32],
 }
 
 impl NoiseXx {
     /// The client: knows the pinned host id, and checks the daemon's static key the moment it
     /// arrives.
     pub fn initiator(
-        static_key: &KeyPair,
+        static_key: KeyPair,
         ephemeral: Ephemeral,
         prologue: &[u8],
         pinned: Option<&str>,
-    ) -> Result<Self, RelayError> {
-        let fixed = match ephemeral {
-            Ephemeral::Fresh => None,
-            Ephemeral::Fixed(private) => Some(private),
-        };
-        let mut builder = Builder::new(params(XX_PROTOCOL)?)
-            .local_private_key(&static_key.private)
-            .map_err(|_| RelayError::Noise("Invalid static private key"))?;
-        if let Some(private) = &fixed {
-            builder = builder.fixed_ephemeral_key_for_testing_only(private);
-        }
-        let state = builder
-            .prologue(prologue)
-            .map_err(|_| RelayError::Noise("Noise prologue refused"))?
-            .build_initiator()
-            .map_err(|_| RelayError::Noise("Noise could not build a handshake"))?;
-        Ok(Self {
-            state,
+    ) -> Self {
+        Self {
             initiator: true,
-            pinned: pinned.map(str::to_owned),
             step: 0,
             failed: false,
-        })
+            sym: Symmetric::new(XX_PROTOCOL, prologue),
+            static_key: Some(static_key),
+            ephemeral: Some(ephemeral.key()),
+            remote_ephemeral: None,
+            remote_static: None,
+            pinned: pinned.map(str::to_owned),
+            transport: None,
+            handshake_hash: [0u8; 32],
+        }
     }
 
     /// The daemon: its static key is the identity the client pinned.
-    pub fn responder(
-        static_key: &KeyPair,
-        ephemeral: Ephemeral,
-        prologue: &[u8],
-    ) -> Result<Self, RelayError> {
-        let fixed = match ephemeral {
-            Ephemeral::Fresh => None,
-            Ephemeral::Fixed(private) => Some(private),
-        };
-        let mut builder = Builder::new(params(XX_PROTOCOL)?)
-            .local_private_key(&static_key.private)
-            .map_err(|_| RelayError::Noise("Invalid static private key"))?;
-        if let Some(private) = &fixed {
-            builder = builder.fixed_ephemeral_key_for_testing_only(private);
-        }
-        let state = builder
-            .prologue(prologue)
-            .map_err(|_| RelayError::Noise("Noise prologue refused"))?
-            .build_responder()
-            .map_err(|_| RelayError::Noise("Noise could not build a handshake"))?;
-        Ok(Self {
-            state,
+    pub fn responder(static_key: KeyPair, ephemeral: Ephemeral, prologue: &[u8]) -> Self {
+        Self {
             initiator: false,
-            pinned: None,
             step: 0,
             failed: false,
-        })
+            sym: Symmetric::new(XX_PROTOCOL, prologue),
+            static_key: Some(static_key),
+            ephemeral: Some(ephemeral.key()),
+            remote_ephemeral: None,
+            remote_static: None,
+            pinned: None,
+            transport: None,
+            handshake_hash: [0u8; 32],
+        }
     }
 
     fn check(&self, writing: bool) -> Result<(), RelayError> {
@@ -90,85 +83,162 @@ impl NoiseXx {
         Ok(())
     }
 
-    fn fail(&mut self) -> RelayError {
+    /// Ends the handshake for good, wiping what it held, and keeps the failure's own reason.
+    fn poison(&mut self) {
         self.failed = true;
-        RelayError::Noise("Handshake closed")
+        self.sym.wipe();
+        self.static_key = None;
+        self.ephemeral = None;
+    }
+
+    fn own_static(&self) -> Result<&KeyPair, RelayError> {
+        self.static_key
+            .as_ref()
+            .ok_or(RelayError::Noise("Missing static key"))
+    }
+
+    fn own_ephemeral(&self) -> Result<&KeyPair, RelayError> {
+        self.ephemeral
+            .as_ref()
+            .ok_or(RelayError::Noise("Missing ephemeral key"))
     }
 
     pub fn write_message(&mut self, payload: &[u8]) -> Result<Vec<u8>, RelayError> {
         self.check(true)?;
-        let overhead = match self.step {
-            0 => 32,
-            1 => 96,
-            _ => 64,
-        };
-        if payload.len() + overhead > MAX_MESSAGE {
+        if payload.len() + overhead(self.step) > MAX_MESSAGE {
             return Err(RelayError::Noise("Noise message too large"));
         }
-        let mut out = vec![0u8; MAX_MESSAGE];
-        match self.state.write_message(payload, &mut out) {
-            Ok(len) => {
-                out.truncate(len);
-                self.step += 1;
-                Ok(out)
+        match self.write(payload) {
+            Ok(message) => Ok(message),
+            Err(error) => {
+                self.poison();
+                Err(error)
             }
-            Err(_) => Err(self.fail()),
         }
+    }
+
+    fn write(&mut self, payload: &[u8]) -> Result<Vec<u8>, RelayError> {
+        let mut parts: Vec<u8> = Vec::new();
+        if self.step < 2 {
+            let public = self.own_ephemeral()?.public;
+            parts.extend_from_slice(&public);
+            self.sym.mix_hash(&public);
+        }
+        if self.step == 1 {
+            let ephemeral = self.own_ephemeral()?.private().to_owned();
+            let remote = self
+                .remote_ephemeral
+                .ok_or(RelayError::Noise("Missing remote key"))?;
+            self.sym.mix_key(&ephemeral, &remote)?;
+            let static_public = self.own_static()?.public;
+            parts.extend_from_slice(&self.sym.encrypt(&static_public)?);
+            let static_private = self.own_static()?.private().to_owned();
+            self.sym.mix_key(&static_private, &remote)?;
+        }
+        if self.step == 2 {
+            let static_public = self.own_static()?.public;
+            parts.extend_from_slice(&self.sym.encrypt(&static_public)?);
+            // `se`: DH(own static, the responder's ephemeral).
+            let remote = self
+                .remote_ephemeral
+                .ok_or(RelayError::Noise("Missing remote key"))?;
+            let static_private = self.own_static()?.private().to_owned();
+            self.sym.mix_key(&static_private, &remote)?;
+        }
+        parts.extend_from_slice(&self.sym.encrypt(payload)?);
+        self.step += 1;
+        if self.step == 3 {
+            self.finish()?;
+        }
+        Ok(parts)
+    }
+
+    fn finish(&mut self) -> Result<(), RelayError> {
+        self.handshake_hash = self.sym.h;
+        let keys = split(&mut self.sym, self.initiator, self.remote_static)?;
+        self.transport = Some(keys);
+        self.static_key = None;
+        self.ephemeral = None;
+        Ok(())
     }
 
     pub fn read_message(&mut self, message: &[u8]) -> Result<Vec<u8>, RelayError> {
         self.check(false)?;
-        let minimum = match self.step {
-            0 => 32,
-            1 => 96,
-            _ => 64,
-        };
+        let minimum = overhead(self.step);
         if message.len() < minimum || message.len() > MAX_MESSAGE {
+            self.failed = true;
+            self.sym.wipe();
+            self.static_key = None;
+            self.ephemeral = None;
             return Err(RelayError::Noise("Invalid Noise message size"));
         }
-        let mut out = vec![0u8; MAX_MESSAGE];
-        let payload = match self.state.read_message(message, &mut out) {
-            Ok(len) => {
-                out.truncate(len);
-                out
-            }
-            Err(_) => return Err(self.fail()),
-        };
-        // The responder's static key arrived with this message: a pin that doesn't match ends the
-        // handshake before the payload is handed to anyone.
-        if self.step == 1
-            && let Some(pinned) = &self.pinned
-        {
-            let static_key = self.state.get_remote_static().unwrap_or_default().to_vec();
-            if host_id(&static_key) != *pinned {
-                self.failed = true;
-                return Err(RelayError::Noise("Pinned fingerprint mismatch"));
+        match self.read(message) {
+            Ok(payload) => Ok(payload),
+            Err(error) => {
+                self.poison();
+                Err(error)
             }
         }
+    }
+
+    fn read(&mut self, message: &[u8]) -> Result<Vec<u8>, RelayError> {
+        let mut offset = 0;
+        if self.step < 2 {
+            let mut remote = [0u8; 32];
+            remote.copy_from_slice(&message[..32]);
+            self.remote_ephemeral = Some(remote);
+            offset = 32;
+            self.sym.mix_hash(&remote);
+        }
+        if self.step == 1 {
+            let ephemeral = self.own_ephemeral()?.private().to_owned();
+            let remote = self
+                .remote_ephemeral
+                .ok_or(RelayError::Noise("Missing remote key"))?;
+            self.sym.mix_key(&ephemeral, &remote)?;
+        }
+        if self.step > 0 {
+            let sealed = &message[offset..offset + 48];
+            offset += 48;
+            let opened = self.sym.decrypt(sealed)?;
+            let mut static_key = [0u8; 32];
+            static_key.copy_from_slice(&opened);
+            self.remote_static = Some(static_key);
+            // The pin is checked here, before the payload this same message carries is opened.
+            if let Some(pinned) = &self.pinned
+                && host_id(&static_key) != *pinned
+            {
+                return Err(RelayError::Noise("Pinned fingerprint mismatch"));
+            }
+            let ephemeral = self.own_ephemeral()?.private().to_owned();
+            self.sym.mix_key(&ephemeral, &static_key)?;
+        }
+        let payload = self.sym.decrypt(&message[offset..])?;
         self.step += 1;
-        Ok(payload)
+        if self.step == 3 {
+            self.finish()?;
+        }
+        Ok(payload.to_vec())
     }
 
     pub fn is_finished(&self) -> bool {
-        self.state.is_handshake_finished()
+        self.transport.is_some()
     }
 
-    pub fn handshake_hash(&self) -> &[u8] {
-        self.state.get_handshake_hash()
+    pub fn handshake_hash(&self) -> &[u8; 32] {
+        &self.handshake_hash
     }
 
-    pub fn remote_static(&self) -> Option<&[u8]> {
-        self.state.get_remote_static()
+    pub fn remote_static(&self) -> Option<&[u8; 32]> {
+        self.remote_static.as_ref()
     }
 
-    pub fn into_transport(self) -> Result<SessionKeys, RelayError> {
-        if self.failed || !self.state.is_handshake_finished() {
-            return Err(RelayError::Noise("Handshake incomplete"));
+    pub fn into_transport(mut self) -> Result<SessionKeys, RelayError> {
+        if self.failed {
+            return Err(RelayError::Noise("Handshake closed"));
         }
-        let transport = self
-            .state
-            .into_transport_mode()
-            .map_err(|_| RelayError::Noise("Handshake incomplete"))?;
-        Ok(SessionKeys { transport })
+        self.transport
+            .take()
+            .ok_or(RelayError::Noise("Handshake incomplete"))
     }
 }
