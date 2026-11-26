@@ -1330,3 +1330,26 @@ fn a_lease_bearer_is_redacted_before_frames_and_ends_on_close() -> TestResult {
     );
     Ok(())
 }
+
+/// A Pi that forks a detached background child, then a close: the exit listener kills the
+/// group, and close waits for confirmed emptiness rather than only the pipe drain
+/// (`process.ts:299`–`:319`).
+#[test]
+fn a_close_waits_for_a_detached_descendant_and_returns_only_when_it_is_gone() -> TestResult {
+    let harness = Harness::new("detached-close")?;
+    let session = harness.open(
+        vec![("FAKE_PI_DESCENDANT_SCRIPT".to_owned(), ignoring_script())],
+        None,
+        |_| {},
+        None,
+    )?;
+    send(&harness, &session, "spawn-detached", Delivery::Queue)?;
+    let pid = descendant_pid(&harness, &harness.observer)?;
+    assert!(alive(pid), "the detached descendant never ran");
+    harness.close(&session)?;
+    assert!(
+        !alive(pid),
+        "the detached descendant was still running when close returned"
+    );
+    Ok(())
+}

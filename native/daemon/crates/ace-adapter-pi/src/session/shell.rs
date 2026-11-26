@@ -32,6 +32,9 @@ type KillGroup = Arc<dyn Fn() + Send + Sync>;
 pub struct SessionShell {
     /// Installed once the child exists: SIGKILL to its group.
     kill: Arc<Mutex<Option<KillGroup>>>,
+    /// The leader has ended: a kill installed after this runs at once, so an exit that lands
+    /// before the child's handle is installed still tears its group down (`process.ts:299`-`:319`).
+    exited: Arc<AtomicBool>,
     /// Logged once by `held`, so a stuck group is visible without a stream of lines.
     warned: Arc<AtomicBool>,
 }
@@ -40,6 +43,7 @@ impl SessionShell {
     pub fn new() -> Self {
         Self {
             kill: Arc::new(Mutex::new(None)),
+            exited: Arc::new(AtomicBool::new(false)),
             warned: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -51,6 +55,33 @@ impl Default for SessionShell {
     }
 }
 
+impl SessionShell {
+    /// Installs the group kill. If the leader already ended, it runs now: an exit between the
+    /// spawn and this line must not leave a descendant running.
+    fn install_kill(&self, kill: KillGroup) {
+        let mut slot = self.kill.lock().unwrap_or_else(|error| error.into_inner());
+        *slot = Some(Arc::clone(&kill));
+        let exited = self.exited.load(Ordering::SeqCst);
+        drop(slot);
+        if exited {
+            kill();
+        }
+    }
+
+    /// The leader ended: SIGKILL its group, once the kill is known.
+    fn kill_on_exit(&self) {
+        self.exited.store(true, Ordering::SeqCst);
+        let kill = self
+            .kill
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Some(kill) = kill {
+            kill();
+        }
+    }
+}
+
 impl EventSink for SessionShell {
     fn output(&self, _stream: OutputStream, _bytes: Vec<u8>, delivered: Delivered) {
         // A diverted child answers each chunk through `OutputConsumer::output`.
@@ -59,7 +90,11 @@ impl EventSink for SessionShell {
 
     fn end(&self, _stream: OutputStream) {}
 
-    fn exit(&self, _exit: RawExit) {}
+    fn exit(&self, _exit: RawExit) {
+        // `killGroupOnExit` (`process.ts:303`): the leader ended, so its group goes now. The
+        // shell exists before the spawn returns, so this does not wait for the session's handle.
+        self.kill_on_exit();
+    }
 
     fn close(&self, _exit: RawExit) {}
 
@@ -159,10 +194,10 @@ impl PiChild {
             runtime,
             Some(&target),
         )?);
-        // The supervisor's hold-limit escalation kills the group through the sink it kept.
+        // The supervisor's hold-limit escalation and the exit listener kill the group through
+        // the sink it kept; installing after the spawn still covers an exit that beat us here.
         let killer = Arc::clone(&child);
-        *shell.kill.lock().unwrap_or_else(|error| error.into_inner()) =
-            Some(Arc::new(move || kill_group(&killer)));
+        shell.install_kill(Arc::new(move || kill_group(&killer)));
         Ok(PiChild { child, shell })
     }
 
@@ -206,6 +241,12 @@ impl PiChild {
         ace_supervisor::stop::kill_windows_tree(self.child.pid(), force)
     }
 
+    /// Frees the child's pipes and stdin task once the session is done (`process.ts:295`):
+    /// without it the Unix stdin task keeps the session's sink and state alive.
+    pub fn dispose(&self) {
+        self.child.dispose();
+    }
+
     /// Whether nothing of the group runs any more.
     pub fn group_gone(&self) -> bool {
         self.child.group_gone()
@@ -225,7 +266,6 @@ impl PiChild {
         grace: Duration,
         timer: &dyn Timer,
         poll_ms: f64,
-        exit: &ChildExit,
     ) -> Result<(), SupervisorError> {
         // The polite Windows stop is EOF; POSIX gets SIGTERM to the whole group.
         if cfg!(windows) {
@@ -234,10 +274,10 @@ impl PiChild {
         self.signal_held(SignalName::Term)?;
         let started = Instant::now();
         loop {
-            // A cooperative leader exits in milliseconds, and its exit listener kills what it
-            // left behind (`killGroupOnExit`). The group's own latch covers a leader already
-            // reaped before this stop began.
-            if exit.exited() || self.group_gone() {
+            // Confirmed group emptiness, not the leader's exit: a descendant the leader forked
+            // with its own pipes is torn down by the exit kill, and close may not return before
+            // it is gone (`process.ts:299`-`:319`, `killGroupOnExit`).
+            if self.group_gone() {
                 return Ok(());
             }
             let remaining = grace.saturating_sub(started.elapsed());
@@ -270,5 +310,45 @@ fn kill_group(child: &Arc<SupervisedChild>) {
     #[cfg(windows)]
     {
         let _ = ace_supervisor::stop::kill_windows_tree(child.pid(), true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // `process.ts:299`–`:319`: the group kill is installed at ownership and started from the
+    // exit listener, so an exit that lands before the session holds the child still tears the
+    // group down.
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn a_kill_installed_after_the_exit_runs_at_once() {
+        let shell = SessionShell::new();
+        // The leader ends before the spawn's caller installs the kill.
+        shell.exit(RawExit {
+            code: Some(0),
+            signal: None,
+        });
+        let killed = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&killed);
+        shell.install_kill(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!(killed.load(Ordering::SeqCst), 1, "the exit kill was lost");
+    }
+
+    #[test]
+    fn an_exit_after_the_install_kills_the_group_once() {
+        let shell = SessionShell::new();
+        let killed = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&killed);
+        shell.install_kill(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        shell.exit(RawExit {
+            code: Some(0),
+            signal: None,
+        });
+        assert_eq!(killed.load(Ordering::SeqCst), 1);
     }
 }

@@ -183,6 +183,9 @@ fn main() {
                 if message == "spawn-child" {
                     spawn_descendant();
                 }
+                if message == "spawn-detached" {
+                    spawn_descendant_detached();
+                }
                 if message == "dialogs" {
                     for (id, method, options, timeout) in [
                         ("select", "select", Some(vec!["Tabs", "Spaces"]), None),
@@ -257,6 +260,12 @@ fn main() {
                     let _ = std::io::stdout().flush();
                     std::process::exit(0);
                 }
+                if message == "spawn-detached"
+                    && std::env::var_os("FAKE_PI_SPAWN_DETACHED_THEN_EXIT").is_some()
+                {
+                    let _ = std::io::stdout().flush();
+                    std::process::exit(0);
+                }
             }
             _ => emit(
                 &mut stdout,
@@ -280,14 +289,28 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 /// A descendant that ignores SIGTERM, as an agent-started dev server can.
 fn spawn_descendant() {
+    spawn_descendant_with(false);
+}
+
+/// A descendant with its own stdio, as a `setsid` dev server has: the leader's pipes close at
+/// its exit while the descendant runs on.
+fn spawn_descendant_detached() {
+    spawn_descendant_with(true);
+}
+
+fn spawn_descendant_with(detached: bool) {
     let Ok(script) = std::env::var("FAKE_PI_DESCENDANT_SCRIPT") else {
         return;
     };
-    let Ok(child) = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(script)
-        .spawn()
-    else {
+    let mut command = std::process::Command::new("sh");
+    command.arg("-c").arg(script);
+    if detached {
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
+    let Ok(child) = command.spawn() else {
         return;
     };
     if let Ok(home) = std::env::var("FAKE_PI_HOME") {

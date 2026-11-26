@@ -266,6 +266,15 @@ impl Inner {
 
     /// The stop plan (`process.ts:358`–`:400`): hold the group, SIGTERM, poll until the group is
     /// gone, SIGKILL at the grace.
+    /// Whether nothing of the child's group runs: close waits for this, not only its pipes.
+    pub(crate) fn group_gone(&self) -> bool {
+        self.child
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .is_none_or(|child| child.group_gone())
+    }
+
     pub(crate) async fn stop_process(&self) -> Result<(), PiSessionError> {
         let child = self
             .child
@@ -276,7 +285,7 @@ impl Inner {
             return Ok(());
         };
         child
-            .stop(STOP_GRACE, self.timer.as_ref(), STOP_POLL, &self.exit)
+            .stop(STOP_GRACE, self.timer.as_ref(), STOP_POLL)
             .await
             .map_err(|error| PiSessionError::Supervisor(error.to_string()))
     }
@@ -285,7 +294,7 @@ impl Inner {
     /// close runs the plan again (`native-session.ts:358`–`:380`).
     pub(crate) async fn close(&self, deliberate: bool) -> Result<(), PiSessionError> {
         let _guard = self.close_lock.lock().await;
-        if self.closed.load(Ordering::Acquire) && self.drained.is_open() {
+        if self.closed.load(Ordering::Acquire) && self.drained.is_open() && self.group_gone() {
             return Ok(());
         }
         let previous = self.deliberate.swap(deliberate, Ordering::SeqCst);
@@ -298,9 +307,23 @@ impl Inner {
             return Err(error);
         }
         self.await_drained().await;
+        self.dispose();
         self.cancel_timers();
         self.release();
         Ok(())
+    }
+
+    /// Frees the child's pipes and stdin task (`process.ts:295`-`:298`), so a closed session
+    /// retains no sink, observer or state.
+    pub(crate) fn dispose(&self) {
+        let child = self
+            .child
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Some(child) = child {
+            child.dispose();
+        }
     }
 
     /// A close nobody awaits: its failure is noted, as `stopFailed` does.
@@ -401,6 +424,7 @@ pub(crate) fn drain(inner: Arc<Inner>) -> BoxFuture<'static, ()> {
                         inner.fatal();
                     }
                     SessionEvent::Drained => {
+                        inner.dispose();
                         inner.cancel_timers();
                         inner.release();
                         inner.drained.open();
