@@ -238,7 +238,7 @@ fn a_rate_limit_event_emits_the_callback_after_its_frame() {
 }
 
 #[test]
-fn notes_route_by_channel_and_unknown_channels_are_dropped() {
+fn notes_route_by_channel() {
     let mut wire = new_wire();
     let accounts =
         wire.note(r#"{"channel":"accounts","data":{"type":"rate_limit_observation_failed"}}"#);
@@ -306,8 +306,8 @@ fn a_known_and_unknown_type_keep_the_frame_set_they_have_today() {
     assert_eq!(frame(&effects[0]), (FrameDir::Recv, "wire", text.as_str()));
     assert_eq!(frame(&effects[1]), (FrameDir::Recv, "sdk", text.as_str()));
     let null_type = push_line(&mut new_wire(), r#"{"type":null,"x":1}"#);
-    assert_eq!(null_type.len(), 2);
-    assert_eq!(frame(&null_type[1]).1, "sdk");
+    assert_eq!(null_type.len(), 1, "a non-string type stops at onWire");
+    assert_eq!(frame(&null_type[0]).1, "wire");
 }
 
 #[test]
