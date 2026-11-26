@@ -12,6 +12,7 @@ pub mod frames;
 pub mod history;
 pub mod http;
 pub mod lookup;
+pub mod model;
 pub mod notes;
 pub mod ownership;
 pub mod recovery;
