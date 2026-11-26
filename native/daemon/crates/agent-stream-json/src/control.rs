@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Control requests this side sends and the tags waiting on their answers. Request ids are
-//! `ace-<n>` from a counter here, so ids are ours and stay unique across reconnects of a line.
+//! `ace-<n>` from a counter in each `Controls`, so ids are unique per `Controls`.
 
 use ace_json::{Map, Value};
 
@@ -119,14 +119,12 @@ impl Request {
                         Value::from(prompts.into_iter().map(Value::from).collect::<Vec<_>>()),
                     );
                 }
-                map.insert(
-                    "forwardSubagentText",
-                    Value::Bool(init.forward_subagent_text),
-                );
-                map.insert(
-                    "perTaskStopAffordance",
-                    Value::Bool(init.per_task_stop_affordance),
-                );
+                if init.forward_subagent_text {
+                    map.insert("forwardSubagentText", Value::Bool(true));
+                }
+                if init.per_task_stop_affordance {
+                    map.insert("perTaskStopAffordance", Value::Bool(true));
+                }
             }
             Request::Interrupt { cancel_queued } => {
                 map.insert("subtype", Value::from("interrupt"));
