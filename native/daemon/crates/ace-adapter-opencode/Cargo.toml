@@ -26,5 +26,3 @@ indexmap = { version = "2" }
 thiserror = { version = "2" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }
-# reqwest: OpenCode's HTTP and SSE transport, served on localhost only, so no TLS feature (the TLS root bundles would bring licences deny.toml excludes).
-reqwest = { version = "0.13", default-features = false }

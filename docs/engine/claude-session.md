@@ -216,7 +216,8 @@ until the owner decides to publish (**Q9**). Its `Cargo.toml` description and it
 ### `agent-stream-json`
 
 ```rust
-// launch.rs — argv, in this order, `--flag=value` for valued flags (the pinned forms).
+// launch.rs — argv, in the recorded order (Q2); `--flag=value` only for the pinned forms, other
+// valued flags take the value as the next argument.
 pub struct Launch {
     pub session: SessionStart,
     pub model: Option<String>,
@@ -284,6 +285,8 @@ pub struct Initialize {
     /// `(event, callback ids)` in insertion order; the ids are this side's own.
     pub hooks: Vec<(String, Vec<String>)>,
     pub append_system_prompt: Option<String>,
+    /// The isolated configuration's `"systemPrompt": [""]` (Q4); absent for the preset.
+    pub system_prompt: Option<Vec<String>>,
     pub forward_subagent_text: bool,
     pub per_task_stop_affordance: bool,
 }
@@ -363,8 +366,8 @@ pub enum ClaudeError { Refused(String), Uncertain(String), Provider(String) }
 ### How unknown messages surface
 
 - An unknown stdout `type`, or a line with none: a `recv`/`wire` frame, nothing else.
-- An unknown `control_request` subtype: a `recv`/`wire` frame. It is not answered until **Q10** is
-  settled; it is never fatal.
+- An unknown `control_request` subtype: a `recv`/`wire` frame, answered with the error reply
+  `Unsupported control request: <subtype>` (Q10); never fatal.
 - A response whose `request_id` nobody waits on: a `recv`/`wire` frame.
 - A `system` subtype the translator doesn't know: a `recv`/`sdk` frame, as the fake's
   `fake_control` is today; the translator keeps it as a raw signal (`translate/raw_facts.rs`).
