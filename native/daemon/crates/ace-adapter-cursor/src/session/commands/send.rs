@@ -103,7 +103,7 @@ pub(crate) fn send(
     let stage = if needs_cancel {
         SendStage::Cancel
     } else {
-        core.state.operation = operation_for(core, send.operation_id);
+        core.state.operation = operation_for(core, send.command_id, send.operation_id);
         core.state.segment = 0.0;
         SendStage::Send
     };
@@ -129,10 +129,14 @@ pub(crate) fn send(
     Ok(effects)
 }
 
-/// The fallback operation id (`session.ts:260`): the facade's, else `<generation>:<seq>`, and the
-/// number it takes is the one a frame would have taken next.
-fn operation_for(core: &mut CursorSessionCore, operation_id: Option<&str>) -> String {
-    match operation_id {
+/// The operation id (`session.ts:260`): `commandId ?? options.operationId?.()`, else
+/// `<generation>:<seq>`, and the number it takes is the one a frame would have taken next.
+fn operation_for(
+    core: &mut CursorSessionCore,
+    command_id: Option<&str>,
+    operation_id: Option<&str>,
+) -> String {
+    match command_id.or(operation_id) {
         Some(operation) => operation.to_owned(),
         None => {
             let seq = core.queue.reserve_seq();
