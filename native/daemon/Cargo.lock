@@ -205,6 +205,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-fanout"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+]
+
+[[package]]
 name = "ace-git"
 version = "0.1.0"
 dependencies = [

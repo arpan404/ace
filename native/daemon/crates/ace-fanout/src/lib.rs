@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Subscriptions and fan-out in Rust (ADR 0226 T3): what one connection receives, byte for
+//! byte as the TypeScript transport sends it.
+//!
+//! - [`encode`] is `WireEncoder`: an events message split into 1 MiB frames and written with
+//!   the exact envelope the TypeScript writes.
+//! - [`event`] is `EventEncodings` and the short-delta frame: each event's JSON made once,
+//!   with its trimmed form for a connection that asked for one.
+//! - [`raw_trim`] is `rawShownOnly`/`omitRaw`: the item events whose raw payloads a client
+//!   only shows.
+
+pub mod encode;
+pub mod event;
+mod js;
+pub mod raw_trim;
+
+pub use encode::{EVENT_FRAME_BYTES, EventShape, EventsMessage, WHOLE_EVENTS, WireEncoder};
+pub use event::{DeliveryEvent, EventEncodings, short_delta_json};
+pub use raw_trim::{
+    ProviderNotice, diagnostic_notice_text, history_message_identity, is_diagnostic_notice,
+    is_provider_retry_notice, is_raw_history_item, omit_raw, provider_notice, raw_shown_only,
+};
