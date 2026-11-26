@@ -721,6 +721,57 @@ fn an_unknown_explicit_model_is_model_unavailable_with_one_callback() {
 }
 
 #[test]
+fn a_created_thread_keeps_its_workspaces_kind_machine_and_capabilities() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.exec("INSERT INTO workspace_metadata (workspace_id, kind) VALUES ('workspace','repository')");
+    receipt
+        .shell
+        .answer_machine(r#"{"host":"m1","name":"Arpan's MacBook Pro"}"#);
+    let accepted = receipt.handle(&create(None));
+    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+    let created = receipt
+        .shell
+        .events("new")
+        .into_iter()
+        .find(|event| event.get("type").and_then(Value::as_str) == Some("thread.created"))
+        .expect("the create wrote its thread");
+    let thread = created.get("thread").expect("the row");
+    // The workspace's stored spelling, its metadata kind (`create-thread.ts:44`-`:49`), the
+    // adapter's capabilities and the paired machine the daemon was given.
+    assert_eq!(
+        thread
+            .get("details")
+            .and_then(|details| details.get("workspace"))
+            .and_then(|workspace| workspace.get("path"))
+            .and_then(Value::as_str),
+        Some("/tmp")
+    );
+    assert_eq!(
+        thread
+            .get("details")
+            .and_then(|details| details.get("workspace"))
+            .and_then(|workspace| workspace.get("kind"))
+            .and_then(Value::as_str),
+        Some("repository")
+    );
+    assert_eq!(
+        thread
+            .get("details")
+            .and_then(|details| details.get("machine"))
+            .and_then(|machine| machine.get("host"))
+            .and_then(Value::as_str),
+        Some("m1")
+    );
+    assert_eq!(
+        thread
+            .get("capabilities")
+            .and_then(|capabilities| capabilities.get("steer"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
 fn without_a_catalog_a_default_sentinel_is_dropped_and_an_explicit_model_kept() {
     let receipt = Receipt::new(LimitOverrides::default());
     assert_eq!(

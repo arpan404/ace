@@ -220,6 +220,8 @@ pub(crate) struct Shell {
     holds_after_commit: Cell<bool>,
     /// The model catalog's answers: `(resolve, list)`, when one is configured.
     models: RefCell<Option<(String, String)>>,
+    /// `options.machine`, as JSON, when the test's daemon has one.
+    machine: RefCell<Option<String>>,
     /// `onModelUnavailable` calls, as `(provider, model)`.
     unavailable: RefCell<Vec<(String, String)>>,
     /// The tokens each frame joined, by the depth that joined them, and the ones a rollback dropped.
@@ -319,6 +321,11 @@ impl Shell {
         *self.models.borrow_mut() = Some((resolve.to_owned(), list.to_owned()));
     }
 
+    /// `options.machine`, as the binding passes it (JSON).
+    pub fn answer_machine(&self, machine: &str) {
+        *self.machine.borrow_mut() = Some(machine.to_owned());
+    }
+
     /// The models the catalog refused, as `(provider, model)`.
     pub fn unavailable(&self) -> Vec<(String, String)> {
         self.unavailable.borrow().clone()
@@ -388,6 +395,7 @@ impl Shell {
             tokens: RefCell::new(Vec::new()),
             dropped: RefCell::new(Vec::new()),
             models: RefCell::new(None),
+            machine: RefCell::new(None),
             unavailable: RefCell::new(Vec::new()),
         });
         let store = EngineStore {
@@ -618,6 +626,12 @@ impl Ports for Shell {
         self.naming
             .borrow_mut()
             .push((thread.to_owned(), json.to_owned()));
+    }
+    fn machine(&self) -> Result<String, PortError> {
+        self.machine
+            .borrow()
+            .clone()
+            .ok_or(PortError::Unbound("machine"))
     }
     fn head_seq(&self) -> Result<f64, PortError> {
         Ok(self.seq.get())

@@ -122,6 +122,12 @@ impl CreationFacts for Facts<'_> {
         self.entry(provider).and_then(|entry| entry.backend.clone())
     }
 
+    fn capabilities(&self, provider: &str) -> Value {
+        self.entry(provider)
+            .map(|entry| entry.capabilities.clone())
+            .unwrap_or(Value::Null)
+    }
+
     fn permission_capabilities(
         &self,
         provider: &str,

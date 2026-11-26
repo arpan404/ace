@@ -165,18 +165,24 @@ fn selection_provider(selection: &Value) -> String {
     text(selection, "provider").unwrap_or_default().to_owned()
 }
 
-/// `repo.store.getWorkspace(id)?.name`.
-fn thread_name(store: &crate::EngineStore, workspace: &str) -> Option<String> {
+/// `repo.store.getWorkspace(id)`: its path, name and metadata kind (`workspace-store.ts:53`).
+fn workspace_row(store: &crate::EngineStore, workspace: &str) -> Option<(String, String, Option<String>)> {
+    const ROW: &str = "SELECT w.path AS path, w.name AS name, m.kind AS kind \
+                       FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id \
+                       WHERE w.id = ?";
     let row = ace_store::stmt_cache::get_row(
         store.conn(),
-        "SELECT name FROM workspaces WHERE id = ?",
+        ROW,
         vec![ace_store::Value::Text(workspace.to_owned())],
     )
     .ok()
     .flatten()?;
-    row.get("name")
-        .and_then(crate::repository::residency::cell_text)
-        .map(str::to_owned)
+    let cell = |key: &str| {
+        row.get(key)
+            .and_then(crate::repository::residency::cell_text)
+            .map(str::to_owned)
+    };
+    Some((cell("path")?, cell("name")?, cell("kind")))
 }
 
 /// The stored thread row, in `Thread`'s schema order (`thread.ts:92`).
@@ -223,11 +229,17 @@ fn thread_json(new: &NewThread<'_>, permission: &Value) -> Value {
 /// The create's `details`: the workspace, the mode and the checkout, in `ThreadDetails` order.
 pub fn details(core: &Core, state: &mut State, p: &Value, cwd: &str) -> Result<Value, EngineError> {
     let workspace_id = text(p, "workspaceId").unwrap_or_default();
-    let name = thread_name(&core.store, workspace_id).unwrap_or_else(|| workspace_id.to_owned());
+    let (path, name, kind) = workspace_row(&core.store, workspace_id)
+        .unwrap_or_else(|| (cwd.to_owned(), workspace_id.to_owned(), None));
     let mut workspace = Map::new();
     workspace.insert("id", Value::from(workspace_id));
     workspace.insert("name", Value::from(name.as_str()));
-    workspace.insert("path", Value::from(cwd));
+    // `project.path ?? cwd` (`create-thread.ts:44`): the workspace's stored spelling, not the
+    // canonical directory the session runs in.
+    workspace.insert("path", Value::from(path.as_str()));
+    if let Some(kind) = kind {
+        workspace.insert("kind", Value::from(kind.as_str()));
+    }
     let mode = text(p, "mode").unwrap_or("local");
     let mut out = Map::new();
     out.insert("workspace", Value::Object(workspace));
@@ -238,6 +250,13 @@ pub fn details(core: &Core, state: &mut State, p: &Value, cwd: &str) -> Result<V
     }
     if let Some(base) = base_branch_label(p) {
         out.insert("baseBranch", Value::from(base.as_str()));
+    }
+    // `...(machine ? { machine } : {})` (`handler.ts:320`): the paired machine, when the daemon
+    // was given one. The port answers JSON; an unbound port means a local thread.
+    if let Ok(machine) = core.ports.machine()
+        && let Ok(machine) = ace_json::parse(&machine)
+    {
+        out.insert("machine", machine);
     }
     let _ = state;
     Ok(Value::Object(out))
