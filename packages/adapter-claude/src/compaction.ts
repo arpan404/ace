@@ -59,6 +59,15 @@ function onlyText(data: Data): string | undefined {
 }
 
 /**
+ * Whether a user frame is ace's own `/compact` ask. Claude echoes it back as the (synthetic)
+ * prompt it consumed; the compaction's own row already says what happened, so it never becomes a
+ * message, and it is never mistaken for the summary that follows.
+ */
+export function isCompactCommand(data: Data): boolean {
+  return data["isSynthetic"] === true && onlyText(data)?.trim() === "/compact";
+}
+
+/**
  * Folds a received user frame into the compaction it summarizes, when it is that summary: the
  * main agent's synthetic turn right after a compaction, one Claude marks as a summary, or one
  * already folded and delivered again. Returns whether it did; any other frame of the main agent

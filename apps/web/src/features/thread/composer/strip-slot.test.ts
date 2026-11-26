@@ -12,6 +12,7 @@ const facts = (patch: Partial<StripFacts>): StripFacts => ({
   queue: false,
   goal: false,
   plan: false,
+  context: false,
   ...patch,
 });
 
@@ -123,4 +124,16 @@ test("a held turn shows ahead of the queue and the person's sends, but never ove
   expect(stripSlot(held, undefined)).toEqual({ shown: "held", others: ["sending", "queue"] });
   const asked = facts({ held: true, requests: ["approval-1"] });
   expect(stripSlot(asked, undefined)).toEqual({ shown: "request", others: ["held"] });
+});
+
+test("the context readout takes the slot only when nothing else has it, and is never an indicator", () => {
+  expect(stripSlot(facts({ context: true }), undefined)).toEqual({ shown: "context", others: [] });
+  expect(stripSlot(facts({ context: true, plan: true }), undefined)).toEqual({
+    shown: "plan",
+    others: [],
+  });
+  expect(stripSlot(facts({ context: true, waiting: true }), undefined)).toEqual({
+    shown: "waiting",
+    others: [],
+  });
 });
