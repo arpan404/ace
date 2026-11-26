@@ -9,49 +9,97 @@ use super::{
     android_without_video, public_failure, screenshot_note, summary, with_guidance, without_video,
 };
 use crate::error::{DeviceErrorCode, DeviceFailure};
-use ace_json::{JsString, json};
+use ace_json::{JsString, Value, json};
 
-#[test]
-fn a_start_or_stop_answers_with_the_summary_not_the_whole_state() {
-    let state = json!({
-        "device": { "id": "ios:AAAA", "name": "iPhone 17 Pro", "state": "booted", "platform": "ios" },
+const IOS: &str = "ios:00000000-0000-4000-8000-000000000001";
+
+fn valid_state() -> Value {
+    json!({
+        "device": {
+            "id": IOS,
+            "name": "iPhone 17 Pro",
+            "state": "booted",
+            "platform": "ios"
+        },
         "enabled": true,
         "lifecycle": "live",
         "controller": "agent",
-        "posture": { "kind": "folded" },
+        "posture": "open",
         "streamId": "screen-1"
-    });
-    let reduced = summary(&state);
+    })
+}
+
+#[test]
+fn a_start_or_stop_answers_with_the_summary_not_the_whole_state() {
+    let reduced = summary(&valid_state());
     assert_eq!(
         reduced,
         json!({
-            "simId": "ios:AAAA",
+            "simId": IOS,
             "name": "iPhone 17 Pro",
             "state": "booted",
             "lifecycle": "live",
             "controller": "agent",
-            "posture": { "kind": "folded" }
+            "posture": "open"
         })
     );
 
-    // A posture is optional.
     let folded = json!({
-        "device": { "id": "ios:AAAA", "name": "iPhone", "state": "booted" },
+        "device": {
+            "id": IOS,
+            "name": "iPhone",
+            "state": "booted",
+            "platform": "ios"
+        },
         "lifecycle": "live",
         "controller": "none"
     });
     assert_eq!(
         summary(&folded),
         json!({
-            "simId": "ios:AAAA", "name": "iPhone", "state": "booted",
+            "simId": IOS, "name": "iPhone", "state": "booted",
             "lifecycle": "live", "controller": "none"
         })
     );
 
-    // A value that does not parse is returned as it is.
-    let odd = json!({ "device": { "id": "ios:AAAA" } });
-    assert_eq!(summary(&odd), odd);
+    let invalid_device = json!({
+        "device": { "id": "ios:AAAA", "name": "n", "state": "booted" },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&invalid_device), invalid_device);
+
+    let invalid_posture = json!({
+        "device": {
+            "id": IOS,
+            "name": "iPhone",
+            "state": "booted",
+            "platform": "ios"
+        },
+        "lifecycle": "live",
+        "controller": "none",
+        "posture": { "kind": "folded" }
+    });
+    assert_eq!(summary(&invalid_posture), invalid_posture);
+
     assert_eq!(summary(&json!("raw")), json!("raw"));
+}
+
+#[test]
+fn a_summary_keeps_the_original_js_string_bytes_for_a_lone_surrogate() {
+    let name = Value::String(JsString::from_units(&[0xD800]));
+    let mut state = valid_state();
+    if let Value::Object(ref mut object) = state {
+        if let Some(Value::Object(device)) = object.get_mut("device") {
+            device.insert("name".to_owned(), name.clone());
+        }
+    }
+    let reduced = summary(&state);
+    if let Value::Object(object) = reduced {
+        assert_eq!(object.get("name"), Some(&name));
+    } else {
+        panic!("expected summary object");
+    }
 }
 
 #[test]
@@ -88,30 +136,28 @@ fn a_live_view_refusal_on_an_android_device_keeps_control() {
 
 #[test]
 fn the_how_to_rides_on_the_first_start_only() {
-    let started = json!({ "simId": "ios:AAAA", "state": "booted" });
+    let started = json!({ "simId": IOS, "state": "booted" });
     let guided = with_guidance(started.clone(), true, "Driving ios:AAAA.");
     assert_eq!(
         guided,
-        json!({ "simId": "ios:AAAA", "state": "booted", "guide": "Driving ios:AAAA." })
+        json!({ "simId": IOS, "state": "booted", "guide": "Driving ios:AAAA." })
     );
     assert_eq!(
         with_guidance(started.clone(), false, "Driving ios:AAAA."),
         started
     );
-    // A value that is not an object cannot carry a guide.
     assert_eq!(with_guidance(json!("raw"), true, "x"), json!("raw"));
 }
 
 #[test]
 fn the_screenshot_note_names_the_frame_and_its_scale() {
     assert_eq!(
-        screenshot_note("ios:AAAA", 7.0, 1206.0, 2622.0, 3.0),
-        "ios:AAAA frame 7, 1206x2622. Divide image pixels by scale 3 for sim_act points; prefer sim_ui refs."
+        screenshot_note(IOS, 7.0, 1206.0, 2622.0, 3.0),
+        "ios:00000000-0000-4000-8000-000000000001 frame 7, 1206x2622. Divide image pixels by scale 3 for sim_act points; prefer sim_ui refs."
     );
-    // Numbers are written as JavaScript writes them.
     assert_eq!(
-        screenshot_note("ios:AAAA", 8.0, 402.0, 874.0, 1.5),
-        "ios:AAAA frame 8, 402x874. Divide image pixels by scale 1.5 for sim_act points; prefer sim_ui refs."
+        screenshot_note(IOS, 8.0, 402.0, 874.0, 1.5),
+        "ios:00000000-0000-4000-8000-000000000001 frame 8, 402x874. Divide image pixels by scale 1.5 for sim_act points; prefer sim_ui refs."
     );
 }
 
@@ -131,7 +177,6 @@ fn a_public_failure_keeps_the_code_and_ace_keeps_its_message() {
         Some("@e3 is no longer on screen")
     );
 
-    // A failure ace did not write keeps only its code.
     let public = public_failure(&failure, false);
     assert_eq!(public.code, "stale_ref");
     assert_eq!(public.message, None);

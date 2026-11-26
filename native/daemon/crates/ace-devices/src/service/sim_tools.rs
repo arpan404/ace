@@ -6,7 +6,10 @@
 //! The tool registration, the MCP image and the abort wiring are the shell's; these
 //! are the decisions the shell renders.
 
+use std::sync::OnceLock;
+
 use ace_json::{Array, JsString, Map, Number, Value};
+use regex::Regex;
 
 use crate::error::{DeviceErrorCode, DeviceFailure};
 
@@ -34,6 +37,47 @@ const PUBLIC_CODES: [&str; 15] = [
     "person_busy",
 ];
 
+fn device_id_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r"^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$").expect("device id pattern")
+    })
+}
+
+fn js_string(value: &Value) -> Option<JsString> {
+    value
+        .as_js_str()
+        .cloned()
+        .or_else(|| value.as_str().map(JsString::from))
+}
+
+fn valid_device(device: &Map) -> bool {
+    let (Some(id), Some(name), Some(state), Some(platform)) = (
+        device.get("id").and_then(Value::as_str),
+        device.get("name").and_then(Value::as_str),
+        device.get("state").and_then(Value::as_str),
+        device.get("platform").and_then(Value::as_str),
+    ) else {
+        return false;
+    };
+    if name.is_empty() || name.chars().count() > 256 {
+        return false;
+    }
+    if !device_id_pattern().is_match(id) {
+        return false;
+    }
+    if platform != "ios" && platform != "android" {
+        return false;
+    }
+    matches!(state, "booted" | "shutdown" | "offline" | "unauthorized")
+}
+
+fn valid_posture(value: &Value) -> bool {
+    value
+        .as_str()
+        .is_some_and(|posture| matches!(posture, "closed" | "partiallyOpen" | "open"))
+}
+
 /// `summary`: what an agent needs after taking or releasing a simulator, not the
 /// full device state. A value that does not parse is returned as it is.
 pub fn summary(raw: &Value) -> Value {
@@ -43,25 +87,35 @@ pub fn summary(raw: &Value) -> Value {
     let Some(device) = object.get("device").and_then(Value::as_object) else {
         return raw.clone();
     };
-    let (Some(id), Some(name), Some(state)) = (
-        device.get("id").and_then(Value::as_str),
-        device.get("name").and_then(Value::as_str),
-        device.get("state").and_then(Value::as_str),
-    ) else {
+    if !valid_device(device) {
+        return raw.clone();
+    }
+    let Some(id) = device.get("id").and_then(js_string) else {
+        return raw.clone();
+    };
+    let Some(name) = device.get("name").and_then(js_string) else {
+        return raw.clone();
+    };
+    let Some(state) = device.get("state").and_then(js_string) else {
         return raw.clone();
     };
     let (Some(lifecycle), Some(controller)) = (
-        object.get("lifecycle").and_then(Value::as_str),
-        object.get("controller").and_then(Value::as_str),
+        object.get("lifecycle").and_then(js_string),
+        object.get("controller").and_then(js_string),
     ) else {
         return raw.clone();
     };
+    if let Some(posture) = object.get("posture")
+        && !valid_posture(posture)
+    {
+        return raw.clone();
+    }
     let mut out = Map::new();
-    out.insert("simId", Value::String(JsString::from(id)));
-    out.insert("name", Value::String(JsString::from(name)));
-    out.insert("state", Value::String(JsString::from(state)));
-    out.insert("lifecycle", Value::String(JsString::from(lifecycle)));
-    out.insert("controller", Value::String(JsString::from(controller)));
+    out.insert("simId", Value::String(id));
+    out.insert("name", Value::String(name));
+    out.insert("state", Value::String(state));
+    out.insert("lifecycle", Value::String(lifecycle));
+    out.insert("controller", Value::String(controller));
     if let Some(posture) = object.get("posture") {
         out.insert("posture", posture.clone());
     }
