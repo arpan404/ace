@@ -130,26 +130,46 @@ impl Definition {
     /// `access`. Every other field, known or not, is kept.
     pub fn normalize(input: &Value) -> Result<Definition> {
         let mut value = input.clone();
-        if let Value::Object(map) = &mut value
-            && let Some(permission) = map
+        if let Value::Object(map) = &mut value {
+            let permission = map
                 .get("permissionMode")
                 .and_then(Value::as_str)
-                .map(str::to_owned)
-        {
-            map.shift_remove("permissionMode");
-            let stored = match map.get("access") {
-                Some(Value::String(access)) => Some(access.to_string()),
-                _ => None,
-            };
-            if stored.is_none() {
-                let provider = map
-                    .get("provider")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                if let Some(access) = stored_access(&provider, &permission) {
-                    map.insert("access", Value::String(access.into()));
+                .map(str::to_owned);
+            if permission.is_some() {
+                map.shift_remove("permissionMode");
+            }
+            match map.get("access") {
+                Some(Value::Null) => {
+                    if permission.is_none() {
+                        // An explicit null is not an absent access; `Automation.parse` rejects it.
+                        return Err(AutomationsError::message("Invalid automation"));
+                    }
+                    map.shift_remove("access");
+                    if let Some(permission) = &permission {
+                        let provider = map
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned();
+                        if let Some(access) = stored_access(&provider, permission) {
+                            map.insert("access", Value::String(access.into()));
+                        }
+                    }
                 }
+                None => {
+                    if let Some(permission) = &permission {
+                        let provider = map
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned();
+                        if let Some(access) = stored_access(&provider, permission) {
+                            map.insert("access", Value::String(access.into()));
+                        }
+                    }
+                }
+                // A string is left for validation; any other explicit value fails parse.
+                Some(_) => {}
             }
         }
         let definition: Definition = ace_json::from_value(&value)
@@ -164,6 +184,10 @@ impl Definition {
         if !matches!(self.missed_run.as_str(), "skip" | "run_once")
             || !(1..=32).contains(&self.concurrency)
             || !(0..=3_600_000).contains(&self.jitter_ms)
+            || self
+                .access
+                .as_deref()
+                .is_some_and(|access| !ACCESS_MODES.contains(&access))
         {
             return Err(AutomationsError::message("Invalid automation"));
         }
@@ -371,6 +395,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn an_invalid_explicit_access_is_rejected_like_automation_parse() {
+        let cases = [
+            r#""access":123,"permissionMode":"bypassPermissions","#,
+            r#""access":null,"#,
+            r#""access":"plan","#,
+            r#""access":true,"#,
+        ];
+        for fields in cases {
+            let text =
+                definition_json(None, "").replace("\"prompt\"", &format!("{fields}\"prompt\""));
+            assert!(
+                Definition::normalize(&ace_json::parse(&text).expect("json")).is_err(),
+                "{fields}"
+            );
+        }
+        // A null access with a legacy selector is absent, so the selector maps it.
+        let text = definition_json(None, "").replace(
+            "\"prompt\"",
+            "\"access\":null,\"permissionMode\":\"plan\",\"prompt\"",
+        );
+        let definition =
+            Definition::normalize(&ace_json::parse(&text).expect("json")).expect("valid");
+        assert_eq!(definition.access.as_deref(), Some("read-only"));
     }
 
     #[test]
