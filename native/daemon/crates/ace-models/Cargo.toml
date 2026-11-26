@@ -22,6 +22,8 @@ ace-adapter-acp = { path = "../ace-adapter-acp" }
 ace-json = { path = "../ace-json" }
 # regex: display names and snapshot suffixes follow the TypeScript's patterns, anchored.
 regex = { version = "1" }
+# url: providerSource reads a base URL's hostname to spot a local endpoint.
+url = { version = "2" }
 # serde: provider payloads and catalog rows (de)serialize by field name.
 serde = { version = "1", features = ["derive"] }
 # serde_json: bounded raw metadata and tests compare the generated row shape.
