@@ -640,6 +640,9 @@ mod tests {
                     latch.wait().await;
                 })
             };
+            // The reader subscribes first: the race this guards is an open between the read
+            // and the registration, not an open before the wait ever starts.
+            tokio::task::yield_now().await;
             latch.open();
             tokio::time::timeout(Duration::from_secs(1), reader)
                 .await

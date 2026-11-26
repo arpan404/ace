@@ -81,10 +81,9 @@ impl PiSession {
                 &base64::engine::general_purpose::STANDARD,
                 content.message.as_bytes(),
             );
-            return Ok(PreparedSend::Ace(format!(
-                "/ace-context {} {encoded}",
-                self.control_secret
-            )));
+            return Ok(PreparedSend::Ace {
+                message: format!("/ace-context {} {encoded}", self.control_secret),
+            });
         }
         // Validate every admission before the first one can reach the harness.
         let inputs = native_command_inputs(&values)
@@ -99,19 +98,25 @@ impl PiSession {
                 .map_err(|error| AdapterApiError::InputRejected(error.to_string()))?;
             prepared.push((content, streaming));
         }
-        // Before the first prompt only: once one is taken, the rest belong with it.
-        assert_steer_target(input.delivery, input.fence)?;
-        Ok(PreparedSend::Prompts(prepared))
+        Ok(PreparedSend::Prompts { prompts: prepared })
     }
 
-    async fn write_send(&self, prepared: PreparedSend) -> Result<(), AdapterApiError> {
+    /// The fence is read here, immediately before the first write: a turn that ended while the
+    /// future waited refuses the steer without reaching Pi (`native-session.ts:449`-`:457`).
+    async fn write_send(
+        &self,
+        prepared: PreparedSend,
+        delivery: Delivery,
+        fence: Option<&dyn ace_adapter_api::SteerFence>,
+    ) -> Result<(), AdapterApiError> {
+        assert_steer_target(delivery, fence)?;
         match prepared {
-            PreparedSend::Ace(message) => self
+            PreparedSend::Ace { message } => self
                 .request("prompt", prompt_params_of(message))
                 .await
                 .map(|_| ())
                 .map_err(|error| send_error(error, 0, true)),
-            PreparedSend::Prompts(prompts) => {
+            PreparedSend::Prompts { prompts } => {
                 let mut accepted = 0_usize;
                 for (content, streaming) in prompts {
                     match self
@@ -131,9 +136,11 @@ impl PiSession {
 /// One send after admission: what the future writes, with nothing borrowed.
 enum PreparedSend {
     /// ace's own input, already marked as context.
-    Ace(String),
+    Ace { message: String },
     /// One admission per native command, in order.
-    Prompts(Vec<(PiInput, &'static str)>),
+    Prompts {
+        prompts: Vec<(PiInput, &'static str)>,
+    },
 }
 
 /// `send`'s catch (`session.ts:416`–`:423`): a refusal before anything was taken is the provider
@@ -247,14 +254,16 @@ impl Session for PiSession {
         })
     }
 
-    fn send(&self, input: SendInput<'_>) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
-        // Admission runs now, in the caller's synchronous turn, so the future owns every value
-        // it needs and the fence is read in one step with the first write being queued.
+    fn send<'a>(&'a self, input: SendInput<'a>) -> LocalBoxFuture<'a, Result<(), AdapterApiError>> {
+        // Admission runs now, in the caller's synchronous turn; the fence stays borrowed into
+        // the future so it is read again right before the write.
+        let fence = input.fence;
+        let delivery = input.delivery;
         let prepared = self.prepare_send(&input);
         Box::pin(async move {
             match prepared {
                 Err(error) => Err(error),
-                Ok(prepared) => self.write_send(prepared).await,
+                Ok(prepared) => self.write_send(prepared, delivery, fence).await,
             }
         })
     }

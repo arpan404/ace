@@ -140,7 +140,9 @@ pub trait Session {
     fn set_mode(&self, mode: String) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
     fn set_goal(&self, change: GoalChange) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
     fn clear_goal(&self) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
-    fn send(&self, input: SendInput<'_>) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
+    /// The future borrows the input as long as it borrows the session: a fence and parts
+    /// passed here stay readable until the write (`native-session.ts:449`).
+    fn send<'a>(&'a self, input: SendInput<'a>) -> LocalBoxFuture<'a, Result<(), AdapterApiError>>;
     fn interrupt(&self, target: InterruptTarget)
     -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
     fn resolve(

@@ -86,7 +86,9 @@ pub fn require_readable_pi(version: Option<&str>) -> Result<CliVersion, PiCliErr
 /// `parseCliVersion`: the first `major.minor[.patch][-prerelease]` in the output, wherever it
 /// sits, preceded by a non-word character and not followed by a run holding a digit.
 pub fn parse_cli_version(text: &str) -> Option<CliVersion> {
-    let text = truncate_utf8(text, 4096);
+    // `text.slice(0, 4096)` counts UTF-16 units, so a banner of astral characters does not
+    // push the version out of the window (1,500 emoji are 3,000 units, not 6,000 bytes).
+    let text = truncate_utf16(text, 4096);
     for (at, _) in text.char_indices() {
         if at > 0 {
             let previous = text[..at].chars().next_back()?;
@@ -95,11 +97,20 @@ pub fn parse_cli_version(text: &str) -> Option<CliVersion> {
                 continue;
             }
         }
-        if let Some(version) = parse_at(text, at) {
+        if let Some(version) = parse_at(&text, at) {
             return Some(version);
         }
     }
     None
+}
+
+/// `.slice(0, units)` over UTF-16 units: a cut surrogate pair becomes U+FFFD, as JS text does.
+fn truncate_utf16(text: &str, units: usize) -> String {
+    let encoded: Vec<u16> = text.encode_utf16().collect();
+    if encoded.len() <= units {
+        return text.to_owned();
+    }
+    String::from_utf16_lossy(&encoded[..units])
 }
 
 /// Semver order: a prerelease sorts before its own release, after the one before it.
@@ -240,17 +251,6 @@ fn identifiers(text: &str) -> (&str, usize) {
     (&text[..used], used)
 }
 
-fn truncate_utf8(text: &str, bytes: usize) -> &str {
-    if text.len() <= bytes {
-        return text;
-    }
-    let mut end = bytes;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +274,19 @@ mod tests {
         for text in ["", "no version", "1.2.3.4"] {
             assert_eq!(parse_cli_version(text), None, "{text}");
         }
+    }
+
+    #[test]
+    fn a_version_after_a_long_banner_of_astral_characters_is_still_read() {
+        // `text.slice(0, 4096)` counts UTF-16 units: 1,500 emoji are 3,000 units.
+        let text = format!("{} 1.2.3", "😀".repeat(1_500));
+        assert_eq!(
+            parse_cli_version(&text).map(|version| version.text()),
+            Some("1.2.3".to_owned())
+        );
+        // 3,000 emoji are 6,000 units: past the window, the version is not read.
+        let text = format!("{} 1.2.3", "😀".repeat(3_000));
+        assert_eq!(parse_cli_version(&text), None);
     }
 
     #[test]

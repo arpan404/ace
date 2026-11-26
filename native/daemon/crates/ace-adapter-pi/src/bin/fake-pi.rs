@@ -272,6 +272,20 @@ fn main() {
                     let _ = std::io::stdout().flush();
                     std::process::exit(0);
                 }
+                if message == "hang" && std::env::var_os("FAKE_PI_HANG_AFTER_PROMPT").is_some() {
+                    // Replace Pi with a leader that ignores SIGTERM: the stop must reach its
+                    // grace and SIGKILL it (`process.ts:411`-`:435`).
+                    let _ = std::io::stdout().flush();
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt as _;
+                        let _ = std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg("trap '' TERM; sleep 60")
+                            .exec();
+                    }
+                    std::process::exit(1);
+                }
             }
             _ => emit(
                 &mut stdout,
@@ -354,13 +368,24 @@ fn configuration() -> FakeConfiguration {
         eprintln!("Invalid private MCP configuration: controlSecret");
         std::process::exit(2);
     };
+    // `mcp: z.object({bearer: z.string()}).optional()`: present means a bearer is required.
+    let bearer = match value.get("mcp") {
+        None => None,
+        Some(Value::Object(mcp)) => match mcp.get("bearer").and_then(Value::as_str) {
+            Some(bearer) => Some(bearer.to_owned()),
+            None => {
+                eprintln!("Invalid private MCP configuration: mcp.bearer");
+                std::process::exit(2);
+            }
+        },
+        Some(_) => {
+            eprintln!("Invalid private MCP configuration: mcp");
+            std::process::exit(2);
+        }
+    };
     FakeConfiguration {
         control_secret: control_secret.to_owned(),
-        bearer: value
-            .get("mcp")
-            .and_then(|mcp| mcp.get("bearer"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        bearer,
     }
 }
 

@@ -1464,3 +1464,76 @@ fn a_closed_session_retains_nothing() -> TestResult {
     );
     Ok(())
 }
+
+/// The fence is read again right before the write: a turn that ends while the send future is
+/// waiting refuses the steer without a prompt (`native-session.ts:449`–`:457`).
+#[test]
+fn a_fence_that_ends_while_the_send_waits_is_checked_before_the_write() -> TestResult {
+    struct SlidingFence {
+        current: Arc<AtomicBool>,
+    }
+    impl ace_adapter_api::SteerFence for SlidingFence {
+        fn turn(&self) -> Option<&str> {
+            Some("native-turn")
+        }
+        fn current(&self) -> bool {
+            self.current.load(Ordering::SeqCst)
+        }
+    }
+    let harness = Harness::new("fence-late")?;
+    let session = harness.open(Vec::new(), None, |_| {}, None)?;
+    let current = Arc::new(AtomicBool::new(true));
+    let fence = SlidingFence {
+        current: Arc::clone(&current),
+    };
+    let parts = text("late");
+    let future = session.send(ace_adapter_api::SendInput {
+        input: &parts,
+        delivery: Delivery::Steer,
+        command_id: None,
+        origin: None,
+        fence: Some(&fence),
+    });
+    // The turn ends after the send was built and before it is polled.
+    current.store(false, Ordering::SeqCst);
+    let error = harness
+        .runtime
+        .block_on(future)
+        .err()
+        .ok_or("the ended fence was not refused")?;
+    assert!(matches!(error, AdapterApiError::SteerTargetLost(_)));
+    assert!(
+        harness.observer.record().sends("prompt").is_empty(),
+        "the steer reached Pi after its turn ended"
+    );
+    harness.close(&session)?;
+    Ok(())
+}
+
+/// A leader that ignores SIGTERM is killed at the grace, not left running (`process.ts:411`).
+#[test]
+fn a_leader_that_ignores_sigterm_is_killed_at_the_grace() -> TestResult {
+    let harness = Harness::new("grace-expiry")?;
+    let session = harness.open(
+        vec![("FAKE_PI_HANG_AFTER_PROMPT".to_owned(), "1".to_owned())],
+        None,
+        |_| {},
+        None,
+    )?;
+    send(&harness, &session, "hang", Delivery::Queue)?;
+    // The reply is written just before Pi replaces itself with the SIGTERM-ignoring leader.
+    std::thread::sleep(Duration::from_millis(100));
+    let started = Instant::now();
+    harness.close(&session)?;
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= Duration::from_millis(900),
+        "the stop escalated before the grace: {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_millis(2_500),
+        "the stop waited past the grace: {elapsed:?}"
+    );
+    assert_eq!(harness.observer.record().exits().len(), 1, "no exit notice");
+    Ok(())
+}
