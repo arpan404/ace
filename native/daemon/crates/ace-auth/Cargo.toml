@@ -31,6 +31,9 @@ base64 = { version = "0.22" }
 hex = { version = "0.4" }
 # subtle: the daemon token is compared in constant time (`local-files.ts:177`).
 subtle = { version = "2.6" }
+# url: a pairing link and an access origin are parsed as the WHATWG URL the TypeScript uses,
+# so the refusals (credentials in a URL, a decorated address) come out the same.
+url = { version = "2.5" }
 
 [dev-dependencies]
 # tempfile: a home's SQLite file lives in a temp directory and is removed with it.

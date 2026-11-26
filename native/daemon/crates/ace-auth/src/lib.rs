@@ -10,6 +10,7 @@
 //! or RNG. Tickets and pairing attempts live in memory only, so a restart voids every outstanding
 //! ticket while a persisted pairing link still redeems (`pairing-codes.ts:80`).
 
+pub mod client_access;
 pub mod devices;
 pub mod devices_channel;
 pub mod error;
@@ -23,6 +24,14 @@ pub mod remote_auth;
 pub mod tickets;
 pub mod token;
 
+pub use client_access::{
+    ACCESS_DETAIL_UTF16, AccessTarget, ClientError, HANDSHAKE_TIMEOUT_MS, LinkRefusal,
+    PIN_REJECTED_CLOSE, PairingLink, PinRefusal, PresentedCertificate, RESPONSE_LIMIT,
+    RedeemRequest, access_failure, access_response_error, access_target, invalid_json_response,
+    parse_pairing_link, pin_rejected_close, pin_verdict, redeem_request, request_timeout_ms,
+    response_too_large, tailnet_name, ticket_socket_origin, transport_unavailable, truncate_utf16,
+    valid_fingerprint,
+};
 pub use devices::{Device, PairedDevice, Scope, SessionActor, active_device, allows};
 pub use devices_channel::{
     ChannelFrame, ChannelOpening, DEVICE_ACCESS_REFUSED, DEVICES_UNAVAILABLE, DeviceFailure,

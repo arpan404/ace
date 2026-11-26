@@ -111,6 +111,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror",
+ "url",
 ]
 
 [[package]]
