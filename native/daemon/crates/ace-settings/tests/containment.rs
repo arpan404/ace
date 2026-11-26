@@ -220,6 +220,51 @@ fn a_cold_workspace_read_cannot_migrate_an_outside_v2_file() {
 }
 
 #[test]
+fn a_cold_workspace_read_guards_an_aliased_global_file_before_it_is_read() {
+    // `dataDir` is the workspace's own `.ace`, so the global file is the workspace file.
+    // With `.ace` replaced by a symlink before the first read, the workspace must be pinned
+    // before the global file is opened, or the global read migrates the outside file.
+    let root = scratch("cold-alias");
+    let outside = root.join("outside").join("settings.json");
+    let source = "{\"version\":1,\"values\":{\"threads.settleOnClose\":true}}";
+    std::fs::write(&outside, source).unwrap_or_else(|error| panic!("{error}"));
+    let ace = root.join("repo").join(".ace");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("outside"), &ace)
+        .unwrap_or_else(|error| panic!("{error}"));
+
+    let service = SettingsService::new(
+        ace,
+        Arc::new(FsIo),
+        Arc::new(NoScheduler),
+        std::collections::BTreeMap::new(),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let (entries, diagnostics) = SettingsService::read(
+        &service,
+        &["threads.settleOnClose".to_owned()],
+        &Scope {
+            workspace: Some(root.join("repo")),
+            thread: None,
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(entries[0].value, false, "the shipped default");
+    assert_eq!(entries[0].provenance, Provenance::Defaults);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == SettingsCode::Validation),
+        "{diagnostics:?}"
+    );
+    assert_eq!(
+        read_text(&outside),
+        source,
+        "the outside file was neither read for its values nor migrated"
+    );
+}
+
+#[test]
 fn a_write_rechecks_containment_immediately_before_its_rename() {
     let root = scratch("rename");
     let io = Arc::new(SwappingIo {

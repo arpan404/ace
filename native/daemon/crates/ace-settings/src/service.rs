@@ -272,21 +272,33 @@ impl SettingsService {
         Ok(())
     }
 
+    /// The scope's layers, most specific last, opening each file in the order
+    /// `service.ts:131` uses: the workspace first, so a cold global file that is a
+    /// workspace's own `.ace/settings.json` is acquired under that workspace's containment
+    /// check, then global, then the thread.
     fn layers(service: &Rc<RefCell<Self>>, scope: &Scope) -> Result<Vec<Layer>, SettingsError> {
-        let mut layers = Vec::new();
-        if let Some(workspace) = &scope.workspace {
-            layers.push(Layer::Workspace {
-                workspace: workspace.clone(),
-            });
+        let mut workspace = None;
+        if let Some(path) = &scope.workspace {
+            let layer = Layer::Workspace {
+                workspace: path.clone(),
+            };
+            let _ = Self::file(service, &layer)?;
+            workspace = Some(layer);
         }
-        layers.insert(0, Layer::Global);
-        if let Some(thread) = &scope.thread {
-            layers.push(Layer::Thread {
-                thread: thread.clone(),
-            });
+        let global = Layer::Global;
+        let _ = Self::file(service, &global)?;
+        let mut thread = None;
+        if let Some(id) = &scope.thread {
+            let layer = Layer::Thread { thread: id.clone() };
+            let _ = Self::file(service, &layer)?;
+            thread = Some(layer);
         }
-        for layer in &layers {
-            let _ = Self::file(service, layer)?;
+        let mut layers = vec![global];
+        if let Some(layer) = workspace {
+            layers.push(layer);
+        }
+        if let Some(layer) = thread {
+            layers.push(layer);
         }
         Ok(layers)
     }
