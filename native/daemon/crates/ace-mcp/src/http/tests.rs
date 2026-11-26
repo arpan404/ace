@@ -756,3 +756,108 @@ fn fixture_secret() -> SessionLease {
         .issue(McpScope::new("s", "t", "a", &[]), &Abort::new())
         .expect("lease")
 }
+
+#[tokio::test]
+async fn discovery_carries_the_servers_instructions_unless_the_native_client_asks_otherwise() {
+    let fixture = Fixture::new(&[], 16, 1024);
+    let initialized = fixture
+        .handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#)
+        .await;
+    let instructions = result_of(&initialized)
+        .get("instructions")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        instructions.starts_with("ace runs this session."),
+        "{instructions}"
+    );
+    let mut native = fixture.request(
+        r#"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#,
+    );
+    native
+        .headers
+        .push(("x-ace-instructions".to_owned(), "native".to_owned()));
+    let answered = fixture.server.handle(native, Arc::new(|_| {})).await;
+    assert!(
+        result_of(&answered).get("instructions").is_none(),
+        "a native client was sent the text it replaces"
+    );
+}
+
+#[tokio::test]
+async fn a_core_listing_hides_a_family_until_a_guide_call_opens_it() {
+    let fixture = Fixture::new(&[], 16, 1024);
+    for (name, toolset) in [
+        ("context", None),
+        ("guide", None),
+        ("thread_read", Some("ace-threads")),
+    ] {
+        let mut entry = descriptor(
+            name,
+            None,
+            "A tool",
+            "read-only",
+            None,
+            1_000,
+            parse("{\"type\":\"object\"}").expect("schema"),
+            None,
+        );
+        entry.toolset = toolset.map(str::to_owned);
+        fixture
+            .registry()
+            .register(ToolEntry::new(
+                entry,
+                Arc::new(FnTool(|input: Value, _context| async move { Ok(input) })),
+            ))
+            .expect("registration");
+    }
+    let core = |id: u8| format!(r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/list"}}"#);
+    let mut request = fixture.request(&core(1));
+    request
+        .headers
+        .push(("x-ace-tools".to_owned(), "core".to_owned()));
+    let listed = fixture.server.handle(request, Arc::new(|_| {})).await;
+    let names: Vec<String> = result_of(&listed)
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(names.contains(&"context".to_owned()));
+    assert!(names.contains(&"guide".to_owned()));
+    assert!(!names.contains(&"thread_read".to_owned()), "{names:?}");
+
+    let mut guide = fixture.request(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"guide","arguments":{"topic":"ace-threads"}}}"#,
+    );
+    guide
+        .headers
+        .push(("x-ace-tools".to_owned(), "core".to_owned()));
+    let answered = fixture.server.handle(guide, Arc::new(|_| {})).await;
+    assert_eq!(result_of(&answered).get("isError"), None);
+
+    let mut request = fixture.request(&core(3));
+    request
+        .headers
+        .push(("x-ace-tools".to_owned(), "core".to_owned()));
+    let listed = fixture.server.handle(request, Arc::new(|_| {})).await;
+    let names: Vec<String> = result_of(&listed)
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        names.contains(&"thread_read".to_owned()),
+        "the opened family was not listed: {names:?}"
+    );
+}

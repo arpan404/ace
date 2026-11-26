@@ -24,7 +24,7 @@ use crate::limits::{MAX_HEADER_BYTES, MAX_REQUESTS, PROGRESS_INTERVAL_MS};
 use crate::registry::{CallOptions, ToolRegistry};
 use crate::scope::{ScopeChallenge, ScopeCheck, bearer, bearer_challenge, scope_refusal};
 use crate::signal::{Abort, Scheduler, TokioScheduler};
-use crate::tool_names::dispatched_ace_call;
+use crate::tool_names::{ACE_TOOL_SEARCH, dispatched_ace_call};
 use crate::toolsets::{
     CALL_BUDGET_HEADER, CODEX_CLIENT_HEADER, CORE_TOOLS_HEADER, OpenToolsets, ace_client,
     call_budget_seconds, holds_on_demand_tools, listed_on_demand, tool_listing,
@@ -365,13 +365,39 @@ impl McpServer {
         headers: &[(String, String)],
     ) -> Result<Value, RpcError> {
         match method {
-            "initialize" => Ok(initialize(params.as_ref())),
+            "initialize" => Ok(initialize(params.as_ref(), headers)),
             "ping" => Ok(Value::Object(Map::new())),
             "tools/list" => Ok(Value::Object(self.tool_list(principal, headers))),
             "tools/call" => self.tool_call(principal, id, params, emit, headers).await,
             "resources/list" => Ok(Value::Object(self.resource_list())),
             "resources/read" => self.resource_read(principal, params).await,
             _ => Err(RpcError::new(METHOD_NOT_FOUND, "Method not found")),
+        }
+    }
+
+    /// `grows`: a successful call adds the family it opened to this session's list.
+    fn offer(
+        &self,
+        principal: &Principal,
+        name: &str,
+        arguments: &Value,
+        result: &crate::result::CallToolResult,
+    ) {
+        let call = dispatched_ace_call(name, arguments);
+        let mut toolsets = self
+            .toolsets
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let session = &principal.scope.session_id;
+        let opened = if crate::tool_names::bare_tool_name(&call.name) == ACE_TOOL_SEARCH {
+            let families = found_families(result.structured.as_ref());
+            toolsets.add(session, &families)
+        } else {
+            toolsets.opened(session, &call.name, &call.input)
+        };
+        drop(toolsets);
+        if opened {
+            self.tools_changed(session);
         }
     }
 
@@ -550,6 +576,9 @@ impl McpServer {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .remove(&key);
+        if !result.is_error {
+            self.offer(principal, name, &arguments, &result);
+        }
         // The reply names the call the client made, with the result the tool produced.
         Ok(result.to_json())
     }
@@ -564,7 +593,7 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 }
 
 /// `initialize`'s result (`http.ts:437`).
-fn initialize(params: Option<&Value>) -> Value {
+fn initialize(params: Option<&Value>, headers: &[(String, String)]) -> Value {
     let requested = params
         .and_then(|params| params.get("protocolVersion"))
         .and_then(Value::as_str);
@@ -579,11 +608,39 @@ fn initialize(params: Option<&Value>) -> Value {
     let mut server = Map::with_capacity(2);
     server.insert("name", Value::from(SERVER_NAME));
     server.insert("version", Value::from(SERVER_VERSION));
-    let mut map = Map::with_capacity(3);
+    let mut map = Map::with_capacity(4);
     map.insert("protocolVersion", Value::from(version));
     map.insert("capabilities", Value::Object(capabilities));
     map.insert("serverInfo", Value::Object(server));
+    // A native-app client reads its own instructions; every other client gets ace's text.
+    if header(headers, "X-Ace-Instructions") != Some("native")
+        && let Ok(catalog) = crate::catalog::catalog()
+    {
+        map.insert(
+            "instructions",
+            Value::String(JsString::from(catalog.instructions.instructions.as_str())),
+        );
+    }
     Value::Object(map)
+}
+
+/// The families a `tools_find` result matched (`foundFamilies`, `meta-tools.ts`).
+fn found_families(structured: Option<&Value>) -> Vec<String> {
+    let Some(matches) = structured
+        .and_then(|value| value.get("matches"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut families: Vec<String> = Vec::new();
+    for entry in matches.iter() {
+        if let Some(family) = entry.get("family").and_then(Value::as_str)
+            && !families.iter().any(|found| found == family)
+        {
+            families.push(family.to_owned());
+        }
+    }
+    families
 }
 
 /// "Duplicate active request id" (`http.ts:561`).
