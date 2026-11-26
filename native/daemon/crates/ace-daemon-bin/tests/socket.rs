@@ -156,3 +156,82 @@ fn a_host_token_welcomes_the_socket_and_a_second_hello_is_refused() {
     let status = daemon.terminate();
     assert_eq!(status.code(), Some(0));
 }
+
+/// `handed-ticket.server.process.test.ts`: a ticket minted over HTTP opens the
+/// socket by naming its device, exactly as the host token opens loopback.
+#[test]
+fn a_pairing_ticket_opens_the_socket() {
+    let home = Home::new("ticket");
+    let mut daemon = home.start_with(false, &[("ACE_LISTEN", "lan"), ("ACE_REMOTE_PORT", "0")]);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let (status, body) = support::request(&endpoint, "POST", "/v1/pairings", &token, "{}");
+    assert_eq!(status, 200, "{body}");
+    let issued: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let code = issued
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|url| url.split("code=").nth(1))
+        .and_then(|rest| rest.split('&').next())
+        .unwrap_or_default();
+    let (status, body) = support::request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"Phone\"}}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let paired: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let device_token = paired
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let device_id = paired
+        .get("device")
+        .and_then(|device| device.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let (status, body) = support::request(&endpoint, "POST", "/v1/tickets", device_token, "");
+    assert_eq!(status, 200, "{body}");
+    let ticket: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let ticket = ticket
+        .get("ticket")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let hello = format!(
+        "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"{device_id}\",\"ticket\":\"{ticket}\"}}"
+    );
+    let (messages, close) = websocket(&endpoint, &[text_frame(&hello)]);
+    assert!(
+        messages.iter().any(
+            |message| message.get("type").and_then(serde_json::Value::as_str) == Some("welcome")
+        ),
+        "a ticket opens the socket: {messages:?}"
+    );
+    assert_eq!(close, None);
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `cold-start.server.process.test.ts`: a hello before startup finishes is told
+/// services are starting, then gets its welcome. The hold is test-only.
+#[test]
+fn a_hello_before_startup_finishes_is_told_services_are_starting() {
+    let home = Home::new("cold-start");
+    let mut daemon = home.start_with(false, &[("ACE_TEST_STARTUP_HOLD_MS", "1500")]);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let hello = format!(
+        "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"cold-start\",\"token\":\"{token}\"}}"
+    );
+    let (messages, close) = websocket(&endpoint, &[text_frame(&hello)]);
+    let kinds: Vec<&str> = messages
+        .iter()
+        .filter_map(|message| message.get("type").and_then(serde_json::Value::as_str))
+        .collect();
+    assert_eq!(kinds, vec!["starting", "welcome"], "{messages:?}");
+    assert_eq!(close, None);
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}

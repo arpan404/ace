@@ -54,7 +54,13 @@ pub trait Authenticator: Send + Sync + 'static {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
     /// The socket is authenticated: send this first, then continue.
-    Authenticated(Welcome),
+    Authenticated {
+        welcome: Welcome,
+        /// The hello's `channel`, when it named one.
+        channel: Option<String>,
+        /// The credential holds `admin`: the devices channel requires it.
+        admin: bool,
+    },
     /// The hello authenticated nothing: this message, then close `4001`.
     Refused { message: &'static str },
     /// The hello did not match the protocol: "Message does not match the protocol".
@@ -72,6 +78,8 @@ pub fn start(
     deflate: Option<Deflate>,
     auth: Arc<dyn Authenticator>,
     local: bool,
+    // Whether startup finished; a hello before it gets `starting` first.
+    ready: Arc<std::sync::atomic::AtomicBool>,
     authenticated: Arc<dyn Fn() + Send + Sync>,
     closed: Closed,
 ) -> SocketHandle {
@@ -79,20 +87,21 @@ pub fn start(
     let sending = handle.clone();
     let next = Arc::new(AtomicU64::new(1));
     tokio::spawn(async move {
-        let mut signed_in = false;
+        let mut state = State::default();
         while let Some(event) = events.recv().await {
             match event {
                 SocketEvent::Message { data, binary } => {
                     let charge = data.len() as u64 + MESSAGE_OVERHEAD;
-                    signed_in = handle_message(
+                    state = handle_message(
                         &sending,
                         &next,
                         &auth,
                         local,
+                        &ready,
                         &authenticated,
                         &data,
                         binary,
-                        signed_in,
+                        state,
                     );
                     sending.delivered(charge);
                 }
@@ -109,55 +118,84 @@ pub fn start(
     handle
 }
 
-/// The answer a session owes one inbound message. Returns whether it is signed in.
+/// What the socket has become.
+#[derive(Debug, Clone, Copy, Default)]
+struct State {
+    signed_in: bool,
+    admin: bool,
+}
+
+/// The answer a session owes one inbound message.
 #[allow(clippy::too_many_arguments)]
 fn handle_message(
     handle: &SocketHandle,
     next: &AtomicU64,
     auth: &Arc<dyn Authenticator>,
     local: bool,
+    ready: &Arc<std::sync::atomic::AtomicBool>,
     authenticated: &Arc<dyn Fn() + Send + Sync>,
     data: &[u8],
     binary: bool,
-    signed_in: bool,
-) -> bool {
+    state: State,
+) -> State {
     if binary {
         refuse(handle, next, "Message does not match the protocol");
-        return signed_in;
+        return state;
     }
     let Ok(value) = serde_json::from_slice::<Value>(data) else {
         refuse(handle, next, "Message does not match the protocol");
-        return signed_in;
+        return state;
     };
     match value.get("type").and_then(Value::as_str) {
         // A heartbeat is answered only once welcomed: before the hello, every
         // frame but the hello is refused (`server.ts:866`).
-        Some("ping") if signed_in => {
+        Some("ping") if state.signed_in => {
             send(handle, next, br#"{"type":"pong"}"#);
-            signed_in
+            state
         }
-        Some("hello") if !signed_in => {
+        Some("hello") if !state.signed_in => {
             let Ok(text) = std::str::from_utf8(data) else {
                 refuse(handle, next, "Message does not match the protocol");
-                return signed_in;
+                return state;
             };
             match auth.hello(text, local) {
-                Answer::Authenticated(Welcome::Frame(frame)) => {
+                Answer::Authenticated {
+                    welcome: Welcome::Frame(frame),
+                    channel,
+                    admin,
+                } => {
                     authenticated();
+                    // The promise the welcome makes is that the services are up:
+                    // a hello that arrives before that is told they are starting.
+                    if !ready.load(Ordering::Acquire) {
+                        send(handle, next, br#"{"type":"starting"}"#);
+                    }
                     send(handle, next, &frame);
-                    true
+                    if channel.as_deref() == Some("devices") && admin {
+                        // The devices service is not in this slice: say off, and
+                        // answer its requests with the boundary's refusal.
+                        send(
+                            handle,
+                            next,
+                            br#"{"type":"devices.enabled","enabled":false}"#,
+                        );
+                    }
+                    State {
+                        signed_in: true,
+                        admin,
+                    }
                 }
                 Answer::Refused { message } => {
                     refuse(handle, next, message);
-                    signed_in
+                    state
                 }
                 Answer::Invalid => {
                     refuse(handle, next, "Message does not match the protocol");
-                    signed_in
+                    state
                 }
                 Answer::Unavailable => {
                     let _ = handle.close(Some(1011), "service_unavailable".to_owned());
-                    signed_in
+                    state
                 }
             }
         }
@@ -165,10 +203,19 @@ fn handle_message(
         // welcome (`auth.server.process.test.ts`).
         Some("hello") => {
             refuse(handle, next, "Hello is only valid once");
-            signed_in
+            state
         }
+        Some("devices.request") if state.signed_in => {
+            if state.admin {
+                device_unavailable(handle, next, &value);
+            } else {
+                device_refused(handle, next, &value);
+            }
+            state
+        }
+        Some("devices.ack") if state.signed_in => state,
         _ => {
-            if signed_in {
+            if state.signed_in {
                 // T2's command and read owners answer authenticated messages;
                 // until they are wired, an authenticated unknown type is the
                 // daemon's `unsupported` answer.
@@ -176,7 +223,7 @@ fn handle_message(
             } else {
                 refuse(handle, next, "Valid hello required");
             }
-            signed_in
+            state
         }
     }
 }
@@ -189,6 +236,29 @@ fn refuse(handle: &SocketHandle, next: &AtomicU64, message: &str) {
     );
     send(handle, next, body.as_bytes());
     let _ = handle.close(Some(4001), "unauthorized".to_owned());
+}
+
+/// `devices.result` with `deviceAccessRefused`, for a credential without admin.
+fn device_refused(handle: &SocketHandle, next: &AtomicU64, value: &Value) {
+    let Some(request_id) = value.get("requestId") else {
+        return;
+    };
+    let body = format!(
+        r#"{{"type":"devices.result","requestId":{request_id},"ok":false,"error":{{"code":"permission_denied","message":"Administrator scope is required for device access","hint":"Connect with an administrator device credential to use Devices."}}}}"#
+    );
+    send(handle, next, body.as_bytes());
+}
+
+/// `devices.result` with `devicesUnavailable`, for a devices request no service
+/// answers (`services/device-refusals.ts`).
+fn device_unavailable(handle: &SocketHandle, next: &AtomicU64, value: &Value) {
+    let Some(request_id) = value.get("requestId") else {
+        return;
+    };
+    let body = format!(
+        r#"{{"type":"devices.result","requestId":{request_id},"ok":false,"error":{{"code":"not_supported","message":"Devices service is unavailable on this daemon","hint":"Check the daemon's device service and reconnect."}}}}"#
+    );
+    send(handle, next, body.as_bytes());
 }
 
 /// `{type:"error", code:"unsupported"}` for an authenticated unknown request.

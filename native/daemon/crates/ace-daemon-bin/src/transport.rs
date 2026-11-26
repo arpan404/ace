@@ -84,6 +84,8 @@ impl UpgradeAdmission for Admission {
 struct Sink {
     live: Arc<Live>,
     auth: Arc<dyn session::Authenticator>,
+    /// Startup's gate: a hello before it opens is told services are starting.
+    ready: Arc<std::sync::atomic::AtomicBool>,
     /// The loopback listener admits the host token; remote listeners never do.
     local: bool,
 }
@@ -104,6 +106,7 @@ impl SocketSink for Sink {
             deflate,
             Arc::clone(&self.auth),
             self.local,
+            Arc::clone(&self.ready),
             Arc::new(move || signed_in.authenticated(reservation)),
             Arc::new(move || closed.closed(reservation)),
         );
@@ -173,6 +176,7 @@ impl Transport {
         port: u16,
         plan: Option<RemotePlan>,
         authenticator: Arc<dyn session::Authenticator>,
+        ready: Arc<std::sync::atomic::AtomicBool>,
         log: Arc<Log>,
     ) -> Result<Self, TransportError> {
         let secret = Arc::new(HopSecret::generate().map_err(TransportError::Loopback)?);
@@ -193,6 +197,7 @@ impl Transport {
             Arc::new(Sink {
                 live: Arc::clone(&live),
                 auth: Arc::clone(&authenticator),
+                ready: Arc::clone(&ready),
                 local: true,
             }),
         ));
@@ -205,7 +210,7 @@ impl Transport {
         let mut remote_listener = None;
         let mut tailscale_task = None;
         if let Some(plan) = plan {
-            match bind_remote(&live, http.addr, &plan, authenticator).await {
+            match bind_remote(&live, http.addr, &plan, authenticator, ready).await {
                 Ok((listener, tailnet)) => {
                     if let Some((resolver, name)) = tailnet {
                         tailscale_task = Some(crate::tailscale::spawn_refresh(
@@ -290,6 +295,7 @@ async fn bind_remote(
     internal: SocketAddr,
     plan: &RemotePlan,
     authenticator: Arc<dyn session::Authenticator>,
+    ready: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<
     (
         RemoteListener,
@@ -312,6 +318,7 @@ async fn bind_remote(
         Arc::new(Sink {
             live: Arc::clone(live),
             auth: authenticator,
+            ready,
             local: false,
         }),
     ));

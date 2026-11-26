@@ -16,8 +16,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-pub use ace_auth::valid_token;
-
 /// Why the token could not be loaded.
 #[derive(Debug)]
 pub enum TokenError {
@@ -221,10 +219,10 @@ mod tests {
     #[test]
     fn only_the_exact_token_matches() {
         let token = "ab".repeat(32);
-        assert!(valid_token(&token, &token));
-        assert!(!valid_token(&format!("{token}0"), &token));
-        assert!(!valid_token("ab", &token));
-        assert!(!valid_token(&"cd".repeat(32), &token));
-        assert!(!valid_token(&token, "short"));
+        assert!(ace_auth::valid_token(&token, &token));
+        assert!(!ace_auth::valid_token(&format!("{token}0"), &token));
+        assert!(!ace_auth::valid_token("ab", &token));
+        assert!(!ace_auth::valid_token(&"cd".repeat(32), &token));
+        assert!(!ace_auth::valid_token(&token, "short"));
     }
 }

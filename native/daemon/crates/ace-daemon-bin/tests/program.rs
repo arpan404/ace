@@ -150,3 +150,116 @@ fn a_lan_start_makes_its_identity_and_publishes_the_fingerprint() {
     let status = daemon.terminate();
     assert_eq!(status.code(), Some(0), "{}", daemon.output());
 }
+
+/// `access-cors.server.process.test.ts` and `devices-access.server.process.test.ts`:
+/// the access routes issue a pairing link, redeem it, mint a ticket, list the
+/// paired device, and revoke it — all over the real daemon's HTTP.
+#[test]
+fn the_access_routes_pair_a_device_mint_a_ticket_and_revoke_it() {
+    let home = Home::new("access");
+    let mut daemon = home.start_with(true, &[("ACE_LISTEN", "lan"), ("ACE_REMOTE_PORT", "0")]);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+
+    let (status, body) = request(&endpoint, "POST", "/v1/pairings", &token, "{}");
+    assert_eq!(status, 200, "{body}");
+    let issued: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let code = issued
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|url| url.split("code=").nth(1))
+        .and_then(|rest| rest.split('&').next())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(!code.is_empty(), "the link carries its code: {issued}");
+    let origin = issued
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    assert!(
+        origin.starts_with("https://"),
+        "a pairing link is HTTPS: {origin}"
+    );
+
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"Phone\"}}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let paired: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    let device_token = paired
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let device_id = paired
+        .get("device")
+        .and_then(|device| device.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    assert!(token_is_64_hex(&device_token));
+    assert!(!device_id.is_empty());
+
+    let (status, body) = request(&endpoint, "POST", "/v1/tickets", &device_token, "");
+    assert_eq!(status, 200, "{body}");
+    let ticket: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    assert!(
+        ticket
+            .get("ticket")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(token_is_64_hex),
+        "{ticket}"
+    );
+
+    let (status, body) = request(&endpoint, "GET", "/v1/devices", &token, "");
+    assert_eq!(status, 200, "{body}");
+    let devices: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+    assert!(
+        devices
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item.get("id").and_then(serde_json::Value::as_str) == Some(device_id.as_str())
+            })),
+        "the paired device is listed: {devices}"
+    );
+
+    let (status, body) = request(
+        &endpoint,
+        "DELETE",
+        &format!("/v1/devices/{device_id}"),
+        &token,
+        "",
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"revoked\":true"));
+
+    // A second redemption code is single use: the same code opens nothing.
+    let (status, _) = request(
+        &endpoint,
+        "POST",
+        "/v1/pair",
+        "",
+        &format!("{{\"code\":\"{code}\",\"name\":\"Phone\"}}"),
+    );
+    assert_eq!(status, 401);
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `pairing-issue.ts`: without remote access there is no address to pair with.
+#[test]
+fn issuing_a_pairing_link_is_refused_when_remote_access_is_off() {
+    let home = Home::new("pairing-off");
+    let mut daemon = home.start(false);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let (status, body) = request(&endpoint, "POST", "/v1/pairings", &token, "{}");
+    assert_eq!(status, 409, "{body}");
+    assert!(body.contains("Turn on remote access"));
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}

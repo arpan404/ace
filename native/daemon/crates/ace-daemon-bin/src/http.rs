@@ -30,15 +30,31 @@ use tokio::net::TcpListener;
 
 use crate::receipt::Admission;
 
+mod access;
+
+/// One route's answer, before the shared headers.
+pub(super) type Reply = (StatusCode, serde_json::Value);
+
+/// Where a pairing link sends the device: this daemon's HTTPS address and the
+/// key it pins. Absent while remote access is off (`POST /v1/pairings` is 409).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingOrigin {
+    pub origin: String,
+    pub fingerprint: String,
+}
+
 /// A JSON body's largest accepted size: `optionalBody`'s 16 KiB.
 const BODY_LIMIT: usize = 16_384;
 
 /// What the server reads and reports.
 pub struct HttpConfig {
-    pub token: String,
     pub version: String,
     /// Origins whose pages may read the cross-origin routes (`webOriginAllowlist`).
     pub allowed_origins: Vec<String>,
+    /// The daemon's hello and device state, shared with the socket.
+    pub auth: Arc<crate::auth::DaemonAuth>,
+    /// Set once the remote listener binds.
+    pub pairing: Arc<std::sync::Mutex<Option<PairingOrigin>>>,
     /// Called once a stop request is accepted, after its answer is on the wire.
     pub on_stop: Arc<dyn Fn(Admission) + Send + Sync>,
 }
@@ -136,7 +152,10 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
     });
     let path = request.uri().path().to_owned();
     // `crossOrigin`: only these routes answer CORS, and only to the allowlist.
-    let cross_origin = path == "/v1/status";
+    let cross_origin = matches!(
+        path.as_str(),
+        "/v1/status" | "/v1/pair" | "/v1/tickets" | "/v1/devices" | "/v1/pairings"
+    ) || path.starts_with("/v1/devices/");
     if cross_origin && request.method() == Method::OPTIONS {
         if !allowed {
             return json_body(
@@ -172,9 +191,27 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or("");
-    let host = crate::token::valid_token(token, &state.config.token);
-    let mut response = match (path.as_str(), request.method()) {
+        .unwrap_or("")
+        .to_owned();
+    let token = token.as_str();
+    let host = state.config.auth.local(token);
+    let method = request.method().clone();
+    let reply = |(status, body): Reply| json_body(status, &body);
+    let mut response = match (path.as_str(), &method) {
+        ("/v1/tickets", &Method::POST) => reply(access::ticket(&state, token)),
+        ("/v1/devices", &Method::GET) => reply(access::devices(&state, token)),
+        (path, &Method::DELETE) if path.starts_with("/v1/devices/") => {
+            let id = &path["/v1/devices/".len()..];
+            reply(access::revoke(&state, token, id))
+        }
+        ("/v1/pair", &Method::POST) => match read_body(request, BODY_LIMIT).await {
+            Ok(body) => reply(access::pair(&state, &body)),
+            Err(failure) => failure,
+        },
+        ("/v1/pairings", &Method::POST) => match read_body(request, BODY_LIMIT).await {
+            Ok(body) => reply(access::pairings(&state, token, &body)),
+            Err(failure) => failure,
+        },
         ("/v1/status", &Method::GET) => {
             if !host {
                 json_body(
@@ -214,6 +251,28 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
             .insert("access-control-allow-origin", value);
     }
     response
+}
+
+/// A request's body, refused over `limit` as `413 Request too large`.
+async fn read_body(request: Request<Incoming>, limit: usize) -> Result<Vec<u8>, Response> {
+    let collected = request
+        .into_body()
+        .collect()
+        .await
+        .map(|body| body.to_bytes())
+        .map_err(|error| {
+            json_body(
+                StatusCode::BAD_REQUEST,
+                &json!({"error": format!("Request failed: {error}")}),
+            )
+        })?;
+    if collected.len() > limit {
+        return Err(json_body(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &json!({"error": "Request too large"}),
+        ));
+    }
+    Ok(collected.to_vec())
 }
 
 /// `POST /v1/stop`: parse the optional body, write the receipt, answer, then stop.

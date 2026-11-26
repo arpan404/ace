@@ -16,10 +16,14 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use ace_auth::devices::Devices;
+use ace_auth::devices::{Device, Devices, PairedDevice, Scope, SessionActor};
 use ace_auth::hello::{FirstFrame, HelloGate};
 use ace_auth::pairing::SqlitePairingCodes;
-use ace_auth::{CredentialRuntime, RemoteAuth, Runtime, default_ticket_limits, hello_actor};
+use ace_auth::remote_auth::{HandedTicket, PairingTicket, RedeemedDevice};
+use ace_auth::{
+    CredentialRuntime, PairingTerms, RemoteAuth, Runtime, allows, default_ticket_limits,
+    hello_actor, pairing_link_url,
+};
 use serde_json::Value;
 
 use crate::session::{Answer, Welcome};
@@ -64,6 +68,89 @@ impl DaemonAuth {
             host_id: host_id.to_owned(),
             database_id: host_id.to_owned(),
         })
+    }
+
+    /// Whether `token` is the host token.
+    pub fn local(&self, token: &str) -> bool {
+        self.lock().local(token)
+    }
+
+    /// The paired device `token` belongs to, if it is one.
+    pub fn bearer(&self, token: &str) -> Option<PairedDevice> {
+        self.lock().device_bearer(token)
+    }
+
+    /// Whether `token` may administer this machine: the host token, or a paired
+    /// device holding `admin`.
+    pub fn is_admin(&self, token: &str) -> bool {
+        let auth = self.lock();
+        if auth.local(token) {
+            return true;
+        }
+        match auth.device_bearer(token) {
+            Some(paired) => allows(&SessionActor::paired(paired), Scope::Admin),
+            None => false,
+        }
+    }
+
+    /// A ticket for `device` (`POST /v1/tickets`).
+    pub fn ticket(&self, device: &PairedDevice) -> ace_auth::Result<HandedTicket> {
+        self.lock().ticket(device, "")
+    }
+
+    /// Every device this daemon knows (`GET /v1/devices`).
+    pub fn devices(&self) -> ace_auth::Result<Vec<Device>> {
+        self.lock().list()
+    }
+
+    /// Revoke one device (`DELETE /v1/devices/<id>`).
+    pub fn revoke(&self, id: &str) -> ace_auth::Result<bool> {
+        self.lock().revoke(id)
+    }
+
+    /// Count one pairing redemption attempt from `address` (`POST /v1/pair`).
+    pub fn pairing_attempt(&self, address: &str) -> ace_auth::Result<()> {
+        self.lock().pairing_attempt(address)
+    }
+
+    /// Issue one pairing link (`POST /v1/pairings`).
+    pub fn issue_pairing(
+        &self,
+        scopes: &[Scope],
+        terms: &PairingTerms,
+    ) -> ace_auth::Result<PairingTicket> {
+        self.lock().pairing(scopes, terms)
+    }
+
+    /// Redeem a pairing link (`POST /v1/pair`).
+    pub fn redeem(
+        &self,
+        code: &str,
+        name: &str,
+        install_id: Option<&str>,
+        standing_key: Option<&str>,
+    ) -> ace_auth::Result<RedeemedDevice> {
+        self.lock().redeem(code, name, install_id, standing_key)
+    }
+
+    /// The pairing link for an issued code, opened by a person's browser or app.
+    pub fn pairing_url(origin: &str, fingerprint: &str, code: &str, scopes: &[Scope]) -> String {
+        pairing_link_url(
+            &ace_auth::pairing::PairingConnection::Direct {
+                origin: origin.to_owned(),
+                fingerprint: fingerprint.to_owned(),
+                also_relay: None,
+            },
+            code,
+            scopes,
+            None,
+        )
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, RemoteAuth> {
+        self.auth
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     /// The welcome frame, in the schema's field order.
@@ -117,6 +204,23 @@ impl crate::session::Authenticator for DaemonAuth {
         } else {
             None
         };
-        Answer::Authenticated(Welcome::Frame(self.welcome(next)))
+        let channel = hello.channel.clone();
+        if channel.as_deref().is_some_and(|name| name != "devices") {
+            // Slice 1 serves only the main socket and the devices channel.
+            return Answer::Refused {
+                message: "Valid hello required",
+            };
+        }
+        let admin = allows(&actor, Scope::Admin);
+        if channel.as_deref() == Some("devices") && !admin {
+            return Answer::Refused {
+                message: "Valid hello required",
+            };
+        }
+        Answer::Authenticated {
+            welcome: Welcome::Frame(self.welcome(next)),
+            channel,
+            admin,
+        }
     }
 }

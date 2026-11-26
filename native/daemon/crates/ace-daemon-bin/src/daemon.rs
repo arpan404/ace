@@ -202,19 +202,24 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     let host_id =
         token::load_host_id(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
     // The hello and authentication T2 owns, opened on the store's own database.
-    let auth =
+    let auth = Arc::new(
         crate::auth::DaemonAuth::open(&data_dir, &tokens.token, &host_id).map_err(|error| {
             FailedStart::failed(format!("Cannot open the daemon's devices: {error}"))
-        })?;
+        })?,
+    );
+    // Where a pairing link points: filled once the remote listener binds.
+    let pairing_origin: Arc<std::sync::Mutex<Option<crate::http::PairingOrigin>>> =
+        Arc::new(std::sync::Mutex::new(None));
     let (stop, mut stopped) = mpsc::unbounded_channel::<StopReason>();
     let home_for_stop = data_dir.clone();
     let stop_for_http = stop.clone();
     let accepted: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let accepted_for_http = Arc::clone(&accepted);
     let http = HttpConfig {
-        token: tokens.token.clone(),
         version: config.version.clone(),
         allowed_origins: config.web_origins.clone(),
+        auth: Arc::clone(&auth),
+        pairing: Arc::clone(&pairing_origin),
         on_stop: Arc::new(move |admission: Admission| {
             // The receipt is written before the answer leaves, so `ace stop`
             // never reads a stale one.
@@ -248,26 +253,45 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
             None
         }
     };
-    let authenticator: Arc<dyn session::Authenticator> = Arc::new(auth);
-    let transport =
-        match Transport::bind(http, config.port, plan, authenticator, Arc::clone(&log)).await {
-            Ok(transport) => transport,
-            Err(error) => {
-                log.log(
-                    "error",
-                    "Daemon startup failed",
-                    serde_json::json!({"error": error.to_string()}),
-                );
-                return Err(FailedStart {
-                    code: if address_in_use(&error) {
-                        ExitCode::AddressInUse
-                    } else {
-                        ExitCode::Failed
-                    },
-                    message: error.to_string(),
-                });
-            }
-        };
+    let authenticator: Arc<dyn session::Authenticator> = auth.clone();
+    // Startup's gate: a hello before it opens is told services are starting.
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let transport = match Transport::bind(
+        http,
+        config.port,
+        plan,
+        authenticator,
+        Arc::clone(&ready),
+        Arc::clone(&log),
+    )
+    .await
+    {
+        Ok(transport) => transport,
+        Err(error) => {
+            log.log(
+                "error",
+                "Daemon startup failed",
+                serde_json::json!({"error": error.to_string()}),
+            );
+            return Err(FailedStart {
+                code: if address_in_use(&error) {
+                    ExitCode::AddressInUse
+                } else {
+                    ExitCode::Failed
+                },
+                message: error.to_string(),
+            });
+        }
+    };
+    if let Some(remote) = &transport.remote {
+        let origin = remote.url.replacen("wss://", "https://", 1);
+        *pairing_origin
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(crate::http::PairingOrigin {
+            origin,
+            fingerprint: remote.fingerprint.clone(),
+        });
+    }
     let endpoint = crate::endpoint::write(&data_dir, &transport.http_url())
         .map_err(|error| FailedStart::failed(error.to_string()))?;
     log.log(
@@ -276,6 +300,15 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         serde_json::json!({"url": transport.url(), "sinceSpawnMs": began.elapsed().as_millis()}),
     );
     print_started(&transport, &tokens.path, output);
+    // A test-only hold lets `cold-start` see the progress frame a client gets
+    // while a real daemon's services are still starting.
+    if let Some(hold) = std::env::var("ACE_TEST_STARTUP_HOLD_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(hold)).await;
+    }
+    ready.store(true, std::sync::atomic::Ordering::Release);
     let reason = wait_for_stop(&mut stopped, signals).await;
     log.log(
         "info",
