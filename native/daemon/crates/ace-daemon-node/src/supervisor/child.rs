@@ -72,36 +72,13 @@ fn stream(kind: &str) -> napi::Result<OutputStream> {
 #[napi]
 pub struct NativeOutputTarget {
     target: DivertTarget,
-    /// The line limit the session's framer applies, set from the spawn's
-    /// `maxLineBytes` before it starts (`process.ts`).
-    limit: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 impl NativeOutputTarget {
     /// The session binding's consumer and controls (E3-pi.2 and later): only a
     /// Rust session makes one.
     pub(crate) fn new(target: DivertTarget) -> Self {
-        Self {
-            target,
-            limit: None,
-        }
-    }
-}
-
-#[napi]
-impl NativeOutputTarget {
-    /// The spawn's `maxLineBytes`; a diverted session frames its own lines.
-    #[napi(catch_unwind)]
-    pub fn set_line_limit(&self, limit: f64) {
-        if let Some(slot) = &self.limit
-            && limit.is_finite()
-            && limit > 0.0
-        {
-            slot.store(
-                limit.min(u32::MAX as f64) as usize,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-        }
+        Self { target }
     }
 }
 
