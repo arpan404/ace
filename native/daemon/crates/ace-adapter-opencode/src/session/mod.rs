@@ -3,6 +3,7 @@
 //! stream and server core, then E3-opencode.2's tenant and E3-opencode.3's
 //! recovery and HTTP effects.
 
+pub mod admission;
 pub mod ancestry;
 pub mod api;
 pub mod coverage;
