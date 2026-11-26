@@ -2405,14 +2405,16 @@ on; none is a behaviour left unported.
   they call is `commands::admissions::RepoStore` (the reservation over `Repo`) and
   `liveness::stop_intents::cancel_delegated_inputs`. 4e's seam tests wait on the same wiring.
 - **4f's send path: `queue/worker.rs`** (`index.ts:1220`-`:1277` `wake`, `:1300`-`:1384` `work`,
-  `wakeQueued`, `releaseDormant`). It needs E5.2's per-actor `flush` (only `flush_all` exists),
-  the session facts `work` reads (`actor.session`, `steerYield`, `effectiveCapabilities`,
-  `backgroundTools`, `steerViaCancel`) which E5.6's session supplies, and the stubs it calls
-  (`delivery.run`, `delivery.fail`, `sessions.close`). Its `WorkerRun` is not bound to
-  `workers::WorkerSets::sends` yet. Ported and tested now: `steering/route.rs` (the whole
-  `steer-yield.ts` route table, `isPersonSteer`, `rootRun`, `yieldInFlight`),
-  `transitions/switch_ready.rs` (`usageBlocked`, `switchReady`, `runsProviderWork`) and
-  `queue/ready.rs` (`threadCapabilities`, `hasSelection`, `readyForInput`).
+  `wakeQueued`, `releaseDormant`). `actor::mailbox::task::flush` exists, so `work` can be written;
+  what it still needs is the session facts it reads (`actor.session`, `steerYield`,
+  `effectiveCapabilities`, `backgroundTools`, `steerViaCancel`), which E5.6's session supplies and
+  E5.2's `Actor` does not carry yet, and the stubs it calls (`delivery.run`, `delivery.fail`,
+  `sessions.close`). Its `WorkerRun` is not bound to `workers::WorkerSets::sends` yet, and a Rust
+  test of `work` has to interleave the flush's waiter with the engine's pump. Ported and tested
+  now: `steering/route.rs` (the whole `steer-yield.ts` route table, `isPersonSteer`, `rootRun`,
+  `yieldInFlight`), `transitions/switch_ready.rs` (`usageBlocked`, `switchReady`,
+  `runsProviderWork`) and `queue/ready.rs` (`threadCapabilities`, `hasSelection`,
+  `readyForInput`).
 - **The steer-yield record** (`SteerYield`) is passed into `steering::route` by its caller until
   E5.2's actor carries `steerYield`; E5.5's `steerNow`/`yieldTurn` own writing it.
 
