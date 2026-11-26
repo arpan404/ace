@@ -753,3 +753,12 @@ too. A JavaScript error that reaches Rust as a message alone (`ports.rs` keeps o
 text) cannot be classified by code: a JavaScript `"database is locked"` is reported and retried as
 a damaged thread would be skipped. Recorded here as a gap; closing it needs the port error to
 carry SQLite's code.
+
+### Unknown fields in stored records
+
+TypeScript's `parseRecord` validates a stored record with `safeParse` and returns the raw value
+(`apps/daemon/src/engine/records.ts:15`-`:19`). `JSON.stringify` writes that value back with
+its unknown fields intact. Rust keeps those fields on stored objects and on tagged variants
+with fields. In-place folds and object spreads carry the extras, including the spreads of
+`record.limited` and `record.retry` into an agent's blocked status. A replacement starts with
+its own fields. Rust unit variants carry only their tags.
