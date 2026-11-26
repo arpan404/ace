@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { DevicePosture } from "@ace/protocol/devices";
 import { postureAngle, readPosture, screenCount } from "./posture.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
 
 /** A finished command: its exit code and what it printed. */
 export type PostureCommand = (
@@ -81,12 +81,7 @@ export class SimulatorPostures {
    */
   async set(udid: string, posture: DevicePosture, authorize?: () => void): Promise<DevicePosture> {
     const from = await this.read(udid, authorize);
-    if (from === undefined)
-      throw new DeviceError(
-        "not_supported",
-        "This device doesn't fold",
-        "Only foldable simulators, such as the iPhone Duo, have a posture.",
-      );
+    if (from === undefined) throw catalogRefusal("simulatorNoFold");
     const result = await this.options.run(
       this.options.helper,
       [
@@ -101,11 +96,7 @@ export class SimulatorPostures {
     );
     if (result.code !== 0 || reply(result.stdout)?.done !== true) {
       this.foldable.delete(udid);
-      throw new DeviceError(
-        "not_supported",
-        "This simulator couldn't be folded",
-        "Fold it from Xcode's device tool; this Xcode may have changed how folding works.",
-      );
+      throw catalogRefusal("simulatorFoldFailed");
     }
     this.requested.set(udid, posture);
     return posture;

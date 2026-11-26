@@ -476,16 +476,23 @@ fn a_producer_racing_shutdown_is_refused_once_admission_closes() {
     }
     stop.store(true, SeqCst);
     producer.join().expect("producer thread");
+    // The backlog is however many pushes landed before admission closed, which a loaded machine
+    // can make 100,000 or more; a turn moves 32 of them, so the turns allowed follow the backlog.
+    let backlog = accepted.load(SeqCst);
     let mut budget = Standard;
     let mut done = false;
-    for _ in 0..1_000 {
+    for _ in 0..backlog.div_ceil(32) + 1 {
         let _ = exec.pump(&mut budget, &open);
         if matches!(drain.try_recv(), Ok(Some(()))) {
             done = true;
             break;
         }
     }
-    assert!(done, "the drain completed");
+    assert!(
+        done,
+        "the drain completed: accepted {backlog}, {} still in the inbox",
+        exec.inbox_len()
+    );
     assert!(accepted.load(SeqCst) > 0);
     assert!(
         refused.load(SeqCst) > 0,
@@ -509,6 +516,32 @@ fn a_producer_racing_shutdown_is_refused_once_admission_closes() {
     let _ = exec.pump(&mut budget, &open);
     let after: Vec<u32> = polls.iter().map(|count| count.get()).collect();
     assert_eq!(before, after, "nothing runs after shut");
+}
+
+#[test]
+fn a_backlog_admitted_before_close_drains_32_items_a_turn_however_large_it_is() {
+    let (exec, _posts) = executor();
+    let (polls, waker) = parked(&exec, Lane::Work);
+    let wake = exec.waker();
+    // More than the 1,000 turns' worth the racing test once allowed itself.
+    let backlog = 32 * 1_000 + 1;
+    for _ in 0..backlog {
+        assert_eq!(wake.push(Item::Wake(waker.clone())), Push::Accepted);
+    }
+    let mut drain = exec.close_admission();
+    assert_eq!(wake.push(Item::Wake(waker.clone())), Push::Refused);
+    let mut budget = Standard;
+    let mut turns = 0;
+    while !matches!(drain.try_recv(), Ok(Some(()))) {
+        assert_eq!(exec.claim(), SCHEDULED, "a turn is due until the drain");
+        let _ = exec.pump(&mut budget, &open);
+        turns += 1;
+        assert!(turns <= 1_001, "the drain completed once the inbox emptied");
+    }
+    assert_eq!(turns, 1_001, "every turn moved 32 items until the last");
+    assert_eq!(exec.inbox_len(), 0);
+    assert_eq!(exec.claim(), IDLE);
+    assert_eq!(polls.get(), 1 + 1_001, "the woken task ran once a turn");
 }
 
 #[test]

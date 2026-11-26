@@ -14,6 +14,8 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 
 ## Rules particular to the transport
 
+**Lengths:** a zod string bound counts code points in this repo (patched zod), while TypeScript's `.length` and `.slice()` count UTF-16 units. Match the unit of the TypeScript source, and test the boundary with an emoji. See rule 17 of `docs/engine/porting-guide.md`.
+
 1. **Clients see nothing change.** Bytes a client parses, close codes and reasons, HTTP statuses
    and headers, the connect sequence's round trips, frame sizes and compression choices are kept.
    A difference is a bug in the port unless ADR 0226 lists it.

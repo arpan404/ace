@@ -184,6 +184,12 @@ impl Delivered {
             self.flow.pause_unless_resumed_since(self.generation);
         }
     }
+
+    /// The stream's flow, so a consumer that paused a delivery resumes it
+    /// once it has room again.
+    pub fn flow(&self) -> Arc<Flow> {
+        Arc::clone(&self.flow)
+    }
 }
 
 impl Drop for Delivered {
