@@ -262,7 +262,9 @@ pub(crate) fn seal_instance(core: &Rc<Core>, actor: &ActorRef) {
         } else {
             let frames = std::mem::take(&mut state.pending);
             let bytes = std::mem::take(&mut state.pending_bytes);
-            let ack = state.pending_ack.take().unwrap_or_default();
+            let ack = Rc::new(std::cell::RefCell::new(
+                state.pending_ack.take().unwrap_or_default(),
+            ));
             Some((frames, bytes, ack))
         };
         (timer, batch)

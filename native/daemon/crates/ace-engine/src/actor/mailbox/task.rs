@@ -3,8 +3,7 @@
 //! flush (`actor.ts:254`-`:266`, `:431`-`:442`, `:589`-`:608`).
 
 use super::RunFn;
-use super::queue::admit_instance_run;
-use crate::actor::deps::BatchAck;
+use super::queue::{SharedAck, admit_instance_run};
 use crate::actor::mailbox::Handles;
 use crate::actor::state::{ActorInstance, ActorRef, FrameRef, current, instance_deps};
 use crate::actor::{flow, fold, intake, timer};
@@ -45,7 +44,7 @@ pub async fn run_when_writable(
 }
 
 /// Settles every acknowledgement attached to an op after it ran (`actor.ts:431`).
-pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: BatchAck) -> bool {
+pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: SharedAck) -> bool {
     let Some(actor) = current(core, thread) else {
         return settle_ack(&core.actor_deps.borrow().clone(), ack, true);
     };
@@ -57,7 +56,7 @@ pub(crate) fn settle_instance(
     actor: &ActorRef,
     frames: usize,
     bytes: usize,
-    ack: BatchAck,
+    ack: SharedAck,
 ) -> bool {
     let limits = super::limits(core);
     let reject = {
@@ -70,13 +69,17 @@ pub(crate) fn settle_instance(
     settle_ack(&instance_deps(core, actor), ack, reject)
 }
 
-fn settle_ack(deps: &crate::actor::ActorDeps, mut ack: BatchAck, reject: bool) -> bool {
-    let js = ack.js;
-    if reject {
-        ack.reject("Provider frame failed to commit");
-    } else {
-        ack.resolve();
-    }
+fn settle_ack(deps: &crate::actor::ActorDeps, ack: SharedAck, reject: bool) -> bool {
+    let js = {
+        let mut ack = ack.borrow_mut();
+        let js = ack.js;
+        if reject {
+            ack.reject("Provider frame failed to commit");
+        } else {
+            ack.resolve();
+        }
+        js
+    };
     if let Some(call) = js {
         deps.acks.settle(
             call,
@@ -111,7 +114,7 @@ pub fn release_owned(core: &Core, actor: &ActorRef, handles: &Rc<RefCell<Handles
 }
 
 /// A refused batch settles after the work ahead of it.
-pub(crate) fn settle_rejected_instance(core: &Core, actor: &ActorRef, ack: BatchAck) -> bool {
+pub(crate) fn settle_rejected_instance(core: &Core, actor: &ActorRef, ack: SharedAck) -> bool {
     settle_ack(&instance_deps(core, actor), ack, true)
 }
 

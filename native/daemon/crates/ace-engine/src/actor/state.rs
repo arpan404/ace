@@ -83,6 +83,8 @@ pub struct ActorInstance {
     pub mailbox: std::collections::VecDeque<Op>,
     /// An op is mid-run and still holds its `queued` until it ends.
     pub running: bool,
+    /// What the op the mailbox took still holds: close can land mid-run.
+    pub in_flight: Option<crate::actor::mailbox::InFlight>,
     pub timer: Option<(Timer, ArmedTimer)>,
     pub stopped: bool,
     pub mailbox_task: Option<TaskId>,
@@ -117,6 +119,7 @@ impl ActorInstance {
             flush_waiters: Vec::new(),
             mailbox: std::collections::VecDeque::new(),
             running: false,
+            in_flight: None,
             timer: None,
             stopped: false,
             mailbox_task: None,
@@ -218,9 +221,9 @@ pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
             }
         }
     }
-    let mut acks: Vec<BatchAck> = Vec::new();
+    let mut acks: Vec<crate::actor::mailbox::SharedAck> = Vec::new();
     if let Some(ack) = pending_ack {
-        acks.push(ack);
+        acks.push(Rc::new(RefCell::new(ack)));
     }
     for op in mailbox {
         match op {
@@ -229,9 +232,13 @@ pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
             _ => {}
         }
     }
-    for mut ack in acks {
-        let js = ack.js;
-        ack.reject("Provider frame failed to commit");
+    for ack in acks {
+        let js = {
+            let mut ack = ack.borrow_mut();
+            let js = ack.js;
+            ack.reject("Provider frame failed to commit");
+            js
+        };
         if let Some(call) = js {
             let deps = instance_deps(core, actor);
             deps.acks

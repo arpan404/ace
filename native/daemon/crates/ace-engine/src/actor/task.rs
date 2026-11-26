@@ -52,6 +52,7 @@ async fn mailbox_loop(core: Rc<Core>, actor: ActorRef) {
                 {
                     let mut state = actor.borrow_mut();
                     state.running = false;
+                    state.in_flight = None;
                     mailbox::resolve_flush_waiters(&mut state);
                 }
                 if end_turn {
@@ -70,7 +71,7 @@ async fn run_op(core: &Rc<Core>, actor: &ActorRef, op: mailbox::Op) -> bool {
             let frames = batch.frames.len();
             let bytes = batch.bytes;
             let handles = Rc::clone(&batch.handles);
-            let ack = std::mem::take(&mut batch.ack);
+            let ack = Rc::clone(&batch.ack);
             let mut run: mailbox::RunFn =
                 Box::new(move |core, actor| fold::fold_batch(core, actor, &mut batch));
             run_and_settle(
@@ -84,11 +85,11 @@ async fn run_op(core: &Rc<Core>, actor: &ActorRef, op: mailbox::Op) -> bool {
             )
             .await
         }
-        mailbox::Op::Run(mut run_op) => {
+        mailbox::Op::Run(run_op) => {
             let mut call = run_op.run;
             let frames = run_op.frames;
             let bytes = run_op.bytes;
-            let ack = run_op.ack.take();
+            let ack = run_op.ack.clone();
             run_and_settle(core, actor, &mut call, frames, bytes, ack, None).await
         }
         mailbox::Op::Settle(ack) => mailbox::settle_rejected_instance(core, actor, ack),
@@ -111,7 +112,7 @@ async fn run_and_settle(
     run: &mut mailbox::RunFn,
     frames: usize,
     bytes: usize,
-    ack: Option<BatchAck>,
+    ack: Option<mailbox::SharedAck>,
     handles: Option<Rc<RefCell<mailbox::Handles>>>,
 ) -> bool {
     // The pump never runs inside a transaction; the check confirms it.
@@ -132,7 +133,13 @@ async fn run_and_settle(
         // handles: only what the batch still owns goes back to the shell.
         mailbox::release_owned(core, actor, &handles);
     }
-    mailbox::task::settle_instance(core, actor, frames, bytes, ack.unwrap_or_default())
+    mailbox::task::settle_instance(
+        core,
+        actor,
+        frames,
+        bytes,
+        ack.unwrap_or_else(|| Rc::new(RefCell::new(BatchAck::default()))),
+    )
 }
 
 /// A macrotask: the next poll runs the work queued behind this turn.

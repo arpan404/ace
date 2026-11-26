@@ -267,7 +267,7 @@ pub(crate) fn finish_close(core: &Core) {
 /// The frames are dropped rather than sealed, since the executor is shut and no mailbox will fold
 /// them: a sealed batch would keep its payloads and senders alive with nothing to run them.
 pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
-    let (pending, ack, mailbox, flush_waiters, drains, timers) = {
+    let (pending, ack, in_flight, mailbox, flush_waiters, drains, timers) = {
         let mut state = actor.borrow_mut();
         state.stopped = true;
         state.pressure = false;
@@ -278,6 +278,7 @@ pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
         (
             std::mem::take(&mut state.pending),
             state.pending_ack.take(),
+            state.in_flight.take(),
             std::mem::take(&mut state.mailbox),
             std::mem::take(&mut state.flush_waiters),
             std::mem::take(&mut state.drains),
@@ -291,9 +292,18 @@ pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
         core.ports.cancel_timer(key);
     }
     intake::release_handles(core, actor, &pending);
-    let mut acks = Vec::new();
+    let mut acks: Vec<mailbox::SharedAck> = Vec::new();
     if let Some(ack) = ack {
-        acks.push(ack);
+        acks.push(Rc::new(std::cell::RefCell::new(ack)));
+    }
+    // The op the mailbox took would otherwise lose its acknowledgement and frame handles.
+    if let Some(in_flight) = in_flight {
+        if let Some(ack) = in_flight.ack {
+            acks.push(ack);
+        }
+        if let Some(handles) = in_flight.handles {
+            mailbox::release_owned(core, actor, &handles);
+        }
     }
     for op in mailbox {
         match op {
@@ -305,10 +315,10 @@ pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
             _ => {}
         }
     }
-    for ack in &mut acks {
+    for ack in &acks {
         // The facade's own promises reject with Engine closed through `reject_pending`; a native
         // session's gate is failed here, so it stops reading instead of waiting forever.
-        ack.reject("Engine closed");
+        ack.borrow_mut().reject("Engine closed");
     }
     for waiter in flush_waiters {
         let _ = waiter.send(());

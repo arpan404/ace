@@ -73,11 +73,22 @@ impl Handles {
     }
 }
 
+/// An op's acknowledgement, shared with the mailbox's in-flight record: close can land mid-run,
+/// so the same acknowledgement stays reachable until the op settles.
+pub type SharedAck = Rc<RefCell<BatchAck>>;
+
+/// The op the mailbox took and is running. Close drains the mailbox, so an op already taken would
+/// otherwise lose its acknowledgement and frame handles; this record keeps them reachable.
+pub struct InFlight {
+    pub ack: Option<SharedAck>,
+    pub handles: Option<Rc<RefCell<Handles>>>,
+}
+
 /// One sealed frame batch.
 pub struct BatchOp {
     pub frames: Vec<Pending>,
     pub bytes: usize,
-    pub ack: BatchAck,
+    pub ack: SharedAck,
     pub admitted: bool,
     pub memory: BatchMemory,
     /// Shared with the mailbox task's run: whichever path releases a handle takes it from here.
@@ -89,7 +100,7 @@ pub struct RunOp {
     pub run: RunFn,
     pub bytes: usize,
     pub frames: usize,
-    pub ack: Option<BatchAck>,
+    pub ack: Option<SharedAck>,
 }
 
 /// One mailbox entry.
@@ -97,7 +108,7 @@ pub enum Op {
     Batch(Box<BatchOp>),
     Run(Box<RunOp>),
     /// A refused batch's settle-only marker: it rejects after the ops before it.
-    Settle(BatchAck),
+    Settle(SharedAck),
     /// The overflow op: end the session visibly, then clear the flag.
     Overflow,
     /// A slot waiting for its transaction's commit.
@@ -262,6 +273,21 @@ impl Drop for StagedAdmit {
     }
 }
 
+/// Records what a taken op still holds, for a close that lands while it runs.
+fn begin(actor: &mut ActorInstance, op: &Op) {
+    actor.in_flight = match op {
+        Op::Batch(batch) => Some(InFlight {
+            ack: Some(Rc::clone(&batch.ack)),
+            handles: Some(Rc::clone(&batch.handles)),
+        }),
+        Op::Run(run) => Some(InFlight {
+            ack: run.ack.clone(),
+            handles: None,
+        }),
+        _ => None,
+    };
+}
+
 /// Takes the front entry, resolving staged slots.
 pub fn take_next(core: &Core, thread: &ThreadId) -> Next {
     current(core, thread).map_or(Next::Exit, |actor| select_next(&mut actor.borrow_mut()))
@@ -279,6 +305,7 @@ pub(crate) fn select_next(actor: &mut ActorInstance) -> Next {
         let Op::Staged(slot) = *front else {
             if let Some(op) = actor.mailbox.pop_front() {
                 actor.running = true;
+                begin(actor, &op);
                 return Next::Run(op);
             }
             return Next::Park;
@@ -296,7 +323,9 @@ pub(crate) fn select_next(actor: &mut ActorInstance) -> Next {
         actor.mailbox.pop_front();
         if let Staged::Ready(run) = entry {
             actor.running = true;
-            return Next::Run(Op::Run(run));
+            let op = Op::Run(run);
+            begin(actor, &op);
+            return Next::Run(op);
         }
     }
 }

@@ -302,10 +302,10 @@ fn close_retires_both_actor_sets_and_admits_no_late_frame() {
         .push_back(mailbox::Op::Batch(Box::new(mailbox::BatchOp {
             frames,
             bytes: 2,
-            ack: crate::actor::BatchAck {
+            ack: Rc::new(RefCell::new(crate::actor::BatchAck {
                 js: None,
                 native: vec![sealed_tx],
-            },
+            })),
             admitted: true,
             memory: mailbox::BatchMemory::default(),
             handles,
@@ -478,7 +478,7 @@ fn a_discarded_batch_releases_only_the_handles_it_still_owns() {
         .push_back(mailbox::Op::Batch(Box::new(mailbox::BatchOp {
             frames,
             bytes: 2,
-            ack: crate::actor::BatchAck::default(),
+            ack: Rc::new(RefCell::new(crate::actor::BatchAck::default())),
             admitted: true,
             memory: mailbox::BatchMemory::default(),
             handles: Rc::clone(&handles),
@@ -490,5 +490,169 @@ fn a_discarded_batch_releases_only_the_handles_it_still_owns() {
         harness.acks.released.borrow().is_empty(),
         "translated handles are not released again"
     );
+    assert!(actor.borrow().mailbox.is_empty());
+}
+
+#[test]
+fn a_promotion_that_fires_during_close_spawns_no_mailbox() {
+    let harness = Harness::with_limits("late-commit", 1.0);
+    let core = harness.engine.core();
+    let original = install_actor(core, "a", 1, 0);
+    original.borrow_mut().pending.push(pending(71, 0, 3));
+    let (ack_tx, mut ack_rx) = crate::futures::channel::oneshot::channel();
+    original.borrow_mut().pending_ack = Some(crate::actor::BatchAck {
+        js: None,
+        native: vec![ack_tx],
+    });
+
+    // A creation in a transaction pledges "a" and defers its promotion to the commit.
+    core.store
+        .atomic(|_| get_or_create(core, &"b".to_string()))
+        .expect("the creation commits");
+    let released = harness.shell.take_released();
+    assert!(!released.is_empty(), "the promotion waits for its commit");
+    assert!(
+        core.with_state(|state| state.actors.by_thread.contains_key("b"))
+            .expect("the state is free"),
+        "the creation holds its provisional actor until the commit"
+    );
+
+    // Close begins (the sequence is still running) and the transaction's commit releases the
+    // deferred promotion: it must not spawn a mailbox or move the pledged actor to stopping.
+    core.closing.set(true);
+    let seats = core
+        .with_state(|state| state.actors.next_seat)
+        .expect("the state is free");
+    core.after.release(&released);
+
+    let (spawned, promoted) = core
+        .with_state(|state| {
+            (
+                state
+                    .actors
+                    .by_thread
+                    .get("b")
+                    .is_some_and(|actor| actor.borrow().mailbox_task.is_some()),
+                !state.actors.seats["b"].provisional,
+            )
+        })
+        .expect("the state is free");
+    assert!(!spawned, "no mailbox task is spawned into a closing engine");
+    assert!(!promoted, "the provisional actor never takes its slot");
+    assert!(
+        core.with_state(|state| state.actors.stopping.is_empty())
+            .expect("the state is free"),
+        "no eviction starts after close"
+    );
+    assert!(
+        core.with_state(|state| state.actors.aside.is_empty())
+            .expect("the state is free"),
+        "the pledged actor is retired with the rest"
+    );
+    finish_close(core);
+
+    assert!(
+        core.with_state(|state| live_thread_ids(state))
+            .expect("the state is free")
+            .is_empty(),
+        "no provisional actor is resurrected"
+    );
+    assert!(
+        core.with_state(|state| state.actors.seats.is_empty()
+            && state.actors.stopping.is_empty()
+            && state.actors.aside.is_empty()
+            && state.actors.reserved.is_empty())
+            .expect("the state is free")
+    );
+    assert_eq!(
+        core.with_state(|state| state.actors.next_seat)
+            .expect("the state is free"),
+        seats,
+        "no post-close creation took a seat"
+    );
+    assert_eq!(
+        ack_rx.try_recv(),
+        Ok(Some(Err("Engine closed".to_string()))),
+        "the pledged actor's acknowledgement stays rejected"
+    );
+}
+
+#[test]
+fn a_promotion_that_fires_after_close_resurrects_no_actor() {
+    let harness = Harness::with_limits("late-commit", 1.0);
+    let core = harness.engine.core();
+    install_actor(core, "a", 1, 0);
+    core.store
+        .atomic(|_| get_or_create(core, &"b".to_string()))
+        .expect("the creation commits");
+    let released = harness.shell.take_released();
+    core.closing.set(true);
+    let seats = core
+        .with_state(|state| state.actors.next_seat)
+        .expect("the state is free");
+    finish_close(core);
+
+    core.after.release(&released);
+
+    assert!(
+        core.with_state(|state| live_thread_ids(state))
+            .expect("the state is free")
+            .is_empty()
+    );
+    assert!(
+        core.with_state(|state| state.actors.seats.is_empty()
+            && state.actors.stopping.is_empty()
+            && state.actors.aside.is_empty())
+            .expect("the state is free")
+    );
+    assert_eq!(
+        core.with_state(|state| state.actors.next_seat)
+            .expect("the state is free"),
+        seats
+    );
+}
+
+#[test]
+fn close_mid_fold_rejects_the_op_it_took_and_releases_its_handles() {
+    let harness = Harness::with_limits("mid-fold", 4.0);
+    let core = harness.engine.core();
+    let actor = install_actor(core, "a", 1, 0);
+    let frames = vec![pending(81, 0, 4)];
+    let handles = Rc::new(RefCell::new(mailbox::Handles::from_frames(&frames)));
+    let (ack_tx, mut ack_rx) = crate::futures::channel::oneshot::channel();
+    actor
+        .borrow_mut()
+        .mailbox
+        .push_back(mailbox::Op::Batch(Box::new(mailbox::BatchOp {
+            frames,
+            bytes: 4,
+            ack: Rc::new(RefCell::new(crate::actor::BatchAck {
+                js: None,
+                native: vec![ack_tx],
+            })),
+            admitted: true,
+            memory: mailbox::BatchMemory::default(),
+            handles,
+        })));
+
+    // The mailbox takes the op, as it does before a fold that parks on the writer.
+    let taken = mailbox::queue::select_next(&mut actor.borrow_mut());
+    assert!(matches!(taken, mailbox::Next::Run(_)));
+    drop(taken);
+
+    core.closing.set(true);
+    finish_close(core);
+
+    assert_eq!(
+        ack_rx.try_recv(),
+        Ok(Some(Err("Engine closed".to_string()))),
+        "the op the mailbox took still settles"
+    );
+    assert_eq!(
+        harness.acks.released.borrow().as_slice(),
+        [81],
+        "its frames go back to the shell exactly once"
+    );
+    assert!(actor.borrow().in_flight.is_none());
     assert!(actor.borrow().mailbox.is_empty());
 }
