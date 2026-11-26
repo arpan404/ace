@@ -57,10 +57,6 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       ...(steering ? { _meta: { steering: { supported: true } } } : {}),
     });
   else if (method === "session/new" || method === "session/load") {
-    if (process.argv.includes("--refuse-open")) {
-      send({ id: message["id"], error: { code: -32000, message: "no session for this launch" } });
-      return;
-    }
     if (process.argv.includes("--new-replay"))
       process.stdout.write(
         `${JSON.stringify({ id: message["id"], result: { sessionId: "native-root", configOptions: [{ id: "synthetic-model", category: "model", type: "select", options: [{ value: "test-model", name: "Synthetic" }] }] } })}\n${JSON.stringify({ method: "session/update", params: { sessionId: "native-root", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "initial notification" } } } })}\n`,

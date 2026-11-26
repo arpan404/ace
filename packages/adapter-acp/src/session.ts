@@ -5,7 +5,6 @@ import { appendAcpMcp, developerInstructions } from "@ace/mcp-server";
 import { AcpConfiguration, LegacyModelRejected } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
-import { sessionBackend } from "@ace/provider-kit/native-switches";
 import { clientMeta } from "./bridge-negotiation.ts";
 import { redactLease, redactedFrameJson } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -70,8 +69,6 @@ export async function openAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
-  if (sessionBackend("acp") === "native")
-    return (await import("./native-session.ts")).openNativeAcpSession(ctx, quirks, launch, runtime);
   if (ctx.signal.aborted) {
     ctx.mcp?.end();
     throw new Error("ACP session lifetime already ended");

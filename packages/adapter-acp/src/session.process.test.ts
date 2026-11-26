@@ -8,8 +8,6 @@ import { join } from "node:path";
 import { InputRejected, SteerTargetLost, type Frame, type ProviderSession } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { openAcpSession } from "./index.ts";
-import { openNativeAcpSession } from "./native-session.ts";
-import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { createAcpAdapter } from "./index.ts";
 import { extensionQuirks } from "./testing/extension-quirks.ts";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
@@ -802,62 +800,6 @@ it("a steer the running turn can't take goes in as the next prompt once that tur
     await h.session.close("user");
   }
 });
-it("an open that fails ends the lease and drops its abort listener even when the stop throws", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-acp-open-failure-"));
-  homes.push(home);
-  let stops = 0;
-  let leaseEnds = 0;
-  const controller = new AbortController();
-  const runtime: SessionRuntime = {
-    now: () => performance.now(),
-    spawn: (options) => {
-      const proc = spawnSupervised({
-        ...options,
-        ...(process.env["ACE_SUPERVISOR"] === "native" ? {} : { nativeOutput: undefined }),
-      });
-      const stop = proc.stop.bind(proc);
-      // The stop confirms nothing: it reaches the real stop, then fails as an unconfirmed one.
-      Object.defineProperty(proc, "stop", {
-        value: async (opts?: { graceMs?: number }) => {
-          stops += 1;
-          await stop(opts);
-          throw new Error("the stop could not be confirmed");
-        },
-      });
-      return proc;
-    },
-  };
-  await expect(
-    openNativeAcpSession(
-      {
-        threadId: ThreadId.parse("session-test"),
-        cwd: home,
-        env: { HOME: home },
-        signal: controller.signal,
-        onFrame: () => {},
-        onExit: () => {},
-        mcp: {
-          httpServers: [],
-          stdioServers: [],
-          configuredServers: [],
-          secrets: [],
-          end: () => {
-            leaseEnds += 1;
-          },
-        },
-      },
-      genericQuirks,
-      { command: process.execPath, args: [fake, "--refuse-open"] },
-      runtime,
-    ),
-  ).rejects.toBeInstanceOf(SessionOpenError);
-  expect(leaseEnds).toBeGreaterThan(0);
-  // A listener left behind would close again, and the stop would run a second time.
-  controller.abort();
-  await waitDelay(50);
-  expect(stops).toBe(1);
-});
-
 it("an agent with no native steering cancels the run, then takes the steer as the next prompt", async () => {
   // Its initialize advertises no steering extension, so the engine yields: the steer is queued
   // with a fence that names no run, the turn is cancelled, and the steer goes next.
