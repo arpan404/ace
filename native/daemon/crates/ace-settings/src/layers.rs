@@ -221,7 +221,8 @@ pub fn validate_overrides(
                 "Unknown settings key",
             ));
         }
-        kept.insert(key.clone(), validate_value(key, value)?);
+        let value = crate::cursor::normalize_assignment(key, validate_value(key, value)?);
+        kept.insert(key.clone(), value);
     }
     Ok(kept)
 }

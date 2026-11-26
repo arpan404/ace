@@ -7,6 +7,7 @@
 //! ports the composing crate injects.
 
 pub mod batch;
+pub mod cursor;
 pub mod document;
 pub mod edit;
 pub mod file;

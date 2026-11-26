@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+pub use crate::cursor::CURSOR_DEFAULT_INSTANCE_ID;
+use crate::cursor::{cursor_configuration, normalize_assignment, same_json};
 use crate::jsonc::{ObjectLayout, ScalarRange, Scanned, Segment, parse_document, replace_scalar};
 use crate::schema::{default_value, is_key, validate_value};
 use crate::validation::{MAX_DOCUMENT_BYTES, SettingsCode, SettingsError, guard_secrets};
@@ -26,9 +28,6 @@ pub const RETIRED_MEDIA_KEYS: [&str; 4] = [
     "media.recordings",
     "media.stills",
 ];
-
-/// The Cursor SDK instance id older selections called the CLI default.
-pub const CURSOR_DEFAULT_INSTANCE_ID: &str = "cursor-sdk-default";
 
 /// A validated document.
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +66,7 @@ pub fn validate_assignment(key: &str, value: &Value) -> Result<Value, SettingsEr
     if !is_key(key) {
         return Err(error(SettingsCode::Validation, "Unknown settings key"));
     }
-    validate_value(key, value)
+    validate_value(key, value).map(|value| normalize_assignment(key, value))
 }
 
 fn check_known_values(settings: &Map<String, Value>) -> Result<(), SettingsError> {
@@ -119,65 +118,6 @@ fn remote_networks(settings: &Map<String, Value>) -> Option<((bool, bool, bool),
         return None;
     }
     Some((transport_networks("lan", relay_url), false))
-}
-
-/// SDK-specific Cursor preferences win a collision with a retired CLI default. Only Cursor
-/// rows are rewritten: another provider's executable path stays exactly as stored.
-fn cursor_configuration(rows: &Value) -> Value {
-    let Some(rows) = rows.as_array() else {
-        return rows.clone();
-    };
-    let mut next: Vec<Value> = Vec::with_capacity(rows.len());
-    for value in rows {
-        let Some(row) = value.as_object() else {
-            next.push(value.clone());
-            continue;
-        };
-        if row.get("provider").and_then(Value::as_str) != Some("cursor") {
-            next.push(value.clone());
-            continue;
-        }
-        let instance = row.get("instance").and_then(Value::as_str);
-        let migrated = instance == Some("cursor-cli-default");
-        let target = match instance {
-            Some("cursor-cli-default") => Some(CURSOR_DEFAULT_INSTANCE_ID.to_owned()),
-            other => other.map(str::to_owned),
-        };
-        if migrated
-            && target.as_ref().is_some_and(|target| {
-                rows.iter().any(|other| {
-                    let other = other.as_object();
-                    other
-                        .and_then(|other| other.get("provider"))
-                        .and_then(Value::as_str)
-                        == Some("cursor")
-                        && other
-                            .and_then(|other| other.get("instance"))
-                            .and_then(Value::as_str)
-                            == Some(target.as_str())
-                })
-            })
-        {
-            continue;
-        }
-        let mut kept = Map::new();
-        for (name, field) in row {
-            if name == "binaryPath" {
-                continue;
-            }
-            kept.insert(name.clone(), field.clone());
-        }
-        match target {
-            Some(target) => {
-                kept.insert("instance".to_owned(), Value::String(target));
-            }
-            None => {
-                kept.remove("instance");
-            }
-        }
-        next.push(Value::Object(kept));
-    }
-    Value::Array(next)
 }
 
 impl DecodedDocument {
@@ -285,7 +225,9 @@ impl DecodedDocument {
                 // an unknown field alone is not a change.
                 let parsed = validate_value("providers.configuration", configuration)?;
                 let next = cursor_configuration(&parsed);
-                if next != parsed {
+                // The TypeScript compares the serialized rows, so an order-only rewrite
+                // still reaches the file.
+                if !same_json(&next, &parsed) {
                     let next_document = set_setting(&scanned, "providers.configuration", &next)?;
                     text = next_document.text;
                     migrated = true;
@@ -661,6 +603,27 @@ mod tests {
         assert!(!text.contains("media.encode"), "{text}");
         assert!(text.contains("// keep"), "{text}");
         assert!(text.contains("\"threads.settleOnClose\": false"), "{text}");
+    }
+
+    #[test]
+    fn an_assignment_of_provider_rows_writes_them_already_migrated() {
+        let text = "{\n  \"version\": 2,\n  \"settings\": {}\n}\n";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        let next = document
+            .assign(
+                "providers.configuration",
+                &json!([{
+                    "provider": "cursor",
+                    "instance": "cursor-cli-default",
+                    "binaryPath": "/opt/cursor"
+                }]),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+        let text = next.to_text().unwrap_or_default();
+        assert!(!text.contains("cursor-cli-default"), "{text}");
+        assert!(!text.contains("binaryPath"), "{text}");
+        assert!(text.contains("cursor-sdk-default"), "{text}");
+        assert!(!next.migrated, "the write needs no migration on top");
     }
 
     #[test]
