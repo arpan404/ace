@@ -763,8 +763,10 @@ async fn rejects_missing_and_mismatched_mirrored_custom_headers_before_effects_a
                     "read-only",
                     None,
                     1_000,
-                    parse("{\"type\":\"object\",\"properties\":{\"scope\":{\"type\":\"string\"}}}")
-                        .expect("schema"),
+                    parse(
+                        "{\"type\":\"object\",\"properties\":{\"scope\":{\"type\":\"string\",\"x-mcp-header\":\"Scope\"}}}",
+                    )
+                    .expect("schema"),
                     None,
                 ),
                 Arc::new(FnTool(move |input: Value, _context| {
@@ -783,9 +785,7 @@ async fn rejects_missing_and_mismatched_mirrored_custom_headers_before_effects_a
                         Ok(input)
                     }
                 })),
-            )
-            .param_header("scope", "Scope"),
-        )
+            ))
         .expect("registration");
     let send = |value: &str, header: Option<&str>| {
         let mut request = fixture.request(&format!(
@@ -1225,4 +1225,46 @@ async fn codexs_fixed_list_names_destructive_tools_and_tools_call_refuses_them()
             .and_then(Value::as_str),
         Some("read")
     );
+}
+
+#[tokio::test]
+async fn a_tool_the_caller_cannot_see_never_answers_header_mismatch() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    let ran = Arc::new(AtomicBool::new(false));
+    let clicked = Arc::clone(&ran);
+    fixture
+        .registry()
+        .register(ToolEntry::new(
+            descriptor(
+                "browser_open",
+                None,
+                "Open",
+                "external-effect",
+                Some("browser"),
+                1_000,
+                parse(
+                    "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\",\"x-mcp-header\":\"Url\"}}}",
+                )
+                .expect("schema"),
+                None,
+            ),
+            Arc::new(FnTool(move |input: Value, _context| {
+                let clicked = Arc::clone(&clicked);
+                async move {
+                    clicked.store(true, Ordering::SeqCst);
+                    Ok(input)
+                }
+            })),
+        ))
+        .expect("registration");
+    // The schema this caller cannot see is never enforced against it: the call is refused as
+    // unavailable, not as a header mismatch.
+    let called = fixture
+        .handle(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"browser_open","arguments":{"url":"https://example.com"}}}"#,
+        )
+        .await;
+    assert_eq!(called.status, 200);
+    assert_eq!(code_of(&called), "tool_unavailable");
+    assert!(!ran.load(Ordering::SeqCst));
 }

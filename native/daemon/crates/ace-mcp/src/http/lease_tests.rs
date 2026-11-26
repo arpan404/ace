@@ -216,3 +216,25 @@ async fn another_lease_never_inherits_an_open_family_and_an_ended_lease_forgets_
         "a replacement lease inherited an ended lease's open family"
     );
 }
+
+#[test]
+fn a_request_never_prints_its_bearer() {
+    let request = HttpRequest {
+        method: "POST".to_owned(),
+        path: "/mcp".to_owned(),
+        headers: vec![
+            ("host".to_owned(), "127.0.0.1:1".to_owned()),
+            (
+                "authorization".to_owned(),
+                "Bearer a-secret-bearer".to_owned(),
+            ),
+        ],
+        body: b"{\"jsonrpc\":\"2.0\"}".to_vec(),
+    };
+    let printed = format!("{request:?}");
+    assert!(
+        !printed.contains("a-secret-bearer"),
+        "the bearer reached a log: {printed}"
+    );
+    assert!(printed.contains("authorization"));
+}

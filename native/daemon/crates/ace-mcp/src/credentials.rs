@@ -163,6 +163,8 @@ struct CredentialCore {
 struct Entry {
     principal: Principal,
     expiry: Option<TimerGuard>,
+    /// The bearer's digest, kept so authentication compares it in constant time.
+    digest: [u8; 32],
 }
 
 impl CredentialRegistry {
@@ -237,7 +239,8 @@ impl CredentialRegistry {
         if !valid_bearer(&bearer) {
             return Err(CredentialError::BadSecret);
         }
-        let key = digest(&bearer);
+        let digest = digest(&bearer);
+        let key = hex(&digest);
         if entries.contains_key(&key) {
             return Err(CredentialError::Collision);
         }
@@ -257,6 +260,7 @@ impl CredentialRegistry {
             Entry {
                 principal: principal.clone(),
                 expiry,
+                digest,
             },
         );
         drop(entries);
@@ -271,18 +275,26 @@ impl CredentialRegistry {
         })
     }
 
-    /// `authenticate`: the principal a bearer names, reading the store each time.
+    /// `authenticate`: the principal a bearer names, reading the store each time. Every live
+    /// lease's digest is compared in constant time, so how long a refusal takes says nothing
+    /// about how much of the bearer matched.
     pub fn authenticate(&self, bearer: &str) -> Option<Principal> {
         if !valid_bearer(bearer) {
             return None;
         }
-        let key = digest(bearer);
-        self.core
+        let presented = digest(bearer);
+        let entries = self
+            .core
             .entries
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&key)
-            .map(|entry| entry.principal.clone())
+            .unwrap_or_else(|error| error.into_inner());
+        let mut found: Option<&Entry> = None;
+        for entry in entries.values() {
+            if constant_time_equal(&entry.digest, &presented) && found.is_none() {
+                found = Some(entry);
+            }
+        }
+        found.map(|entry| entry.principal.clone())
     }
 
     /// Revokes every lease.
@@ -351,9 +363,21 @@ fn valid_bearer(bearer: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-fn digest(bearer: &str) -> String {
-    let digest = Sha256::digest(bearer.as_bytes());
+fn digest(bearer: &str) -> [u8; 32] {
+    Sha256::digest(bearer.as_bytes()).into()
+}
+
+fn hex(digest: &[u8; 32]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Compares in constant time: no byte's position shortens the work.
+fn constant_time_equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
+    let mut difference = 0_u8;
+    for (left, right) in left.iter().zip(right.iter()) {
+        difference |= left ^ right;
+    }
+    difference == 0
 }
 
 #[cfg(test)]

@@ -55,13 +55,33 @@ pub const SERVER_NAME: &str = "ace";
 pub const SERVER_VERSION: &str = "0.1.0";
 
 /// One parsed HTTP request: what the listener's parser produces and the handler reads.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpRequest {
     pub method: String,
     pub path: String,
     /// Lowercase header names, as Node's `IncomingMessage.headers`.
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+impl std::fmt::Debug for HttpRequest {
+    /// Never the header values or the body: an `Authorization` line carries the lease's bearer.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("path", &self.path)
+            .field(
+                "headers",
+                &self
+                    .headers
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>(),
+            )
+            .field("body_bytes", &self.body.len())
+            .finish()
+    }
 }
 
 impl HttpRequest {
@@ -571,7 +591,8 @@ impl McpServer {
         };
         if let Message::Request { id, method, params } = &message
             && method == "tools/call"
-            && let Some(failure) = self.mirrored_headers(id, params.as_ref(), &request.headers)
+            && let Some(failure) =
+                self.mirrored_headers(&principal, id, params.as_ref(), &request.headers)
         {
             return failure;
         }
@@ -633,6 +654,7 @@ impl McpServer {
     /// any effect, as the SDK validates a `McpServer` product's mirrored parameters.
     fn mirrored_headers(
         &self,
+        principal: &Principal,
         id: &Id,
         params: Option<&Value>,
         headers: &[(String, String)],
@@ -644,6 +666,9 @@ impl McpServer {
             .cloned()
             .unwrap_or_else(|| Value::Object(Map::new()));
         let call = dispatched_ace_call(name, &arguments);
+        // Only a tool this caller may see has a schema to enforce; a foreign one is refused by
+        // the call itself as unavailable (`http.ts:432`).
+        self.registry.input_schema(&call.name, principal)?;
         for (path, header_name) in self.registry.param_headers(&call.name) {
             let expected = value_at(&call.input, &path);
             let actual = header(headers, &format!("Mcp-Param-{header_name}")).map(decode_header);
