@@ -13,7 +13,6 @@
 //! No clock: frames cross without `t` (the bridge stamps it), and the tenant's
 //! translator gets `now = 0.0`.
 
-use ace_adapter_api::FrameDirection;
 use ace_adapter_api::bridge::{EventQueue, SessionEvent};
 use ace_json::{Value, json};
 use indexmap::{IndexMap, IndexSet};
@@ -21,12 +20,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use crate::translate::Translator;
-use crate::translate::data::{fields, get, s_in};
+
+mod probe;
+mod state;
 
 use super::ancestry::AncestryProbe;
 use super::evidence::RecoveryEvidence;
 use super::ownership::SessionOwnership;
-use super::server::{Tenant, TenantError};
+use super::server::TenantError;
 
 /// How many events the opening buffer holds (`session.ts:369`).
 const OPENING_EVENTS: usize = 128;
@@ -36,8 +37,11 @@ const OPENING_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PENDING: usize = 1024;
 /// `this.waiters.size >= 64` (`:424`).
 const MAX_WAITERS: usize = 64;
-/// `OpenCode session closed` (`:423`).
+/// `new Error("OpenCode session closed")` in `shutdown`: a waiting barrier
+/// rejects with it (`:557`).
 const SESSION_CLOSED: &str = "OpenCode session closed";
+/// `barrier`'s own refusal (`:422`), which says "is closed".
+const BARRIER_CLOSED: &str = "OpenCode session is closed";
 /// `OpenCode recovery send limit` (`:424`).
 const RECOVERY_SEND_LIMIT: &str = "OpenCode recovery send limit";
 /// `OpenCode interaction limit` (`:388`).
@@ -121,6 +125,9 @@ pub struct OpenCodeTenant {
     execution_observed: Mutex<IndexSet<String>>,
     /// Barrier promise ids waiting for the pass (`:424`).
     waiters: Mutex<Vec<u64>>,
+    /// A recovery the tenant asked for mid-event; the server takes it after
+    /// the accept or receive that set it, so `beginRecovery` runs in the loop.
+    reconcile: AtomicBool,
 }
 
 impl OpenCodeTenant {
@@ -152,6 +159,7 @@ impl OpenCodeTenant {
             pending: Mutex::new(IndexMap::new()),
             execution_observed: Mutex::new(IndexSet::new()),
             waiters: Mutex::new(Vec::new()),
+            reconcile: AtomicBool::new(false),
         }
     }
 
@@ -290,86 +298,6 @@ impl OpenCodeTenant {
 
     pub(crate) fn bearer(&self) -> Option<&str> {
         self.bearer.as_deref()
-    }
-}
-
-impl Tenant for OpenCodeTenant {
-    fn queue(&self) -> &EventQueue {
-        &self.queue
-    }
-
-    fn accepts(&self, data: &Value, watermark: u64) -> bool {
-        self.owns(data, watermark)
-    }
-
-    fn receive(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
-        self.receive_at(data, watermark)
-    }
-
-    fn buffered(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
-        self.observe_buffered(data, watermark)
-    }
-
-    fn disconnected(&self, started: u64) {
-        self.recovering.store(true, Ordering::SeqCst);
-        self.lock_evidence().reset();
-        {
-            let mut probe = self.lock_ancestry();
-            probe.observe_pending(&mut |data, watermark| {
-                let envelope = fields(data);
-                let _ = self.lock_evidence().observe(
-                    s_in(envelope, "type"),
-                    fields(get(envelope, "data")),
-                    watermark,
-                );
-            });
-        }
-        self.recovery_started.store(started, Ordering::SeqCst);
-        let _ = self.emit(
-            FrameDirection::Note,
-            "lifecycle",
-            &json!({ "type": "disconnected" }),
-        );
-    }
-
-    fn reconcile(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
-        if self.covered(data, watermark) {
-            return Ok(());
-        }
-        self.receive_at(data, watermark)
-    }
-
-    fn finalize_snapshots(&self) -> Result<(), TenantError> {
-        let (positive, finished) = {
-            let mut evidence = self.lock_evidence();
-            (evidence.positive(), evidence.finish())
-        };
-        for snapshot in positive.into_iter().chain(finished) {
-            self.emit(FrameDirection::Recv, snapshot.channel, &snapshot.data)?;
-            if snapshot.channel == "snapshot.interactions" {
-                let keys = self
-                    .lock_evidence()
-                    .interaction_keys(&snapshot.data)
-                    .map_err(|error| TenantError(error.to_string()))?;
-                self.lock_pending()
-                    .retain(|key, entry| entry.session != snapshot.session || keys.contains(key));
-            }
-        }
-        Ok(())
-    }
-
-    fn recovered(&self) {
-        self.recovering.store(false, Ordering::SeqCst);
-        self.lock_evidence().reset();
-        let _ = self.emit(
-            FrameDirection::Note,
-            "lifecycle",
-            &json!({ "type": "resynced" }),
-        );
-        let waiters = std::mem::take(&mut *self.lock_waiters());
-        for id in waiters {
-            self.settle(id, Ok("null"));
-        }
     }
 }
 

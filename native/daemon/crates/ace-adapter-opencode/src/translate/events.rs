@@ -94,7 +94,7 @@ impl Translator {
         if typ == "shell.exited" || typ == "shell.deleted" {
             return self.shell_exited(typ, p, created.unwrap_or(MAX_SAFE), out);
         }
-        let id = event_session(envelope);
+        let id = event_session(envelope).to_owned();
         if !self.state.agents.contains_key(&id) {
             return Ok(());
         }

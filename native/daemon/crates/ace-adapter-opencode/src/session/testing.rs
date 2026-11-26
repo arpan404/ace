@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::server::{Tenant, TenantError};
+use crate::translate::boundaries::NativeEvent;
 
 /// One call the core made on a tenant, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +23,7 @@ pub(crate) enum Call {
 }
 
 /// A tenant's ownership predicate.
-type Predicate = Box<dyn Fn(&Value, u64) -> bool + Send + Sync>;
+type Predicate = Box<dyn Fn(&Value, u64) -> Result<bool, TenantError> + Send + Sync>;
 
 /// A tenant whose ownership is a predicate and whose calls are recorded.
 pub(crate) struct Fake {
@@ -35,10 +36,14 @@ pub(crate) struct Fake {
     trace: Mutex<Vec<String>>,
     /// How many times the core asked this tenant whether it accepts an event.
     accepts_calls: AtomicUsize,
+    /// Set while `finalize_snapshots` refuses with this message.
+    finalize_error: Mutex<Option<String>>,
 }
 
 impl Fake {
-    pub(crate) fn new(accept: impl Fn(&Value, u64) -> bool + Send + Sync + 'static) -> Self {
+    pub(crate) fn new(
+        accept: impl Fn(&Value, u64) -> Result<bool, TenantError> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             accept: Box::new(accept),
             calls: Mutex::new(Vec::new()),
@@ -46,6 +51,7 @@ impl Fake {
             tracing: false,
             trace: Mutex::new(Vec::new()),
             accepts_calls: AtomicUsize::new(0),
+            finalize_error: Mutex::new(None),
         }
     }
 
@@ -54,6 +60,19 @@ impl Fake {
         let mut fake = Self::all();
         fake.tracing = true;
         fake
+    }
+
+    /// A tenant that refuses every event with `message`.
+    pub(crate) fn refusing(message: &'static str) -> Self {
+        Self::new(move |_, _| Err(TenantError(message.to_owned())))
+    }
+
+    /// Makes `finalize_snapshots` refuse with `message`, or accept again.
+    pub(crate) fn fail_finalize(&self, message: Option<&str>) {
+        *self
+            .finalize_error
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = message.map(str::to_owned);
     }
 
     /// The notes and calls the core made, in the order they were produced.
@@ -86,17 +105,17 @@ impl Fake {
 
     /// A tenant that accepts every event.
     pub(crate) fn all() -> Self {
-        Self::new(|_, _| true)
+        Self::new(|_, _| Ok(true))
     }
 
     /// A tenant that accepts the events whose `data.sessionID` is `name`.
     pub(crate) fn session(name: &'static str) -> Self {
         Self::new(move |value, _| {
-            value
+            Ok(value
                 .get("data")
                 .and_then(|data| data.get("sessionID"))
                 .and_then(Value::as_str)
-                == Some(name)
+                == Some(name))
         })
     }
 
@@ -161,12 +180,22 @@ impl Tenant for Fake {
         &self.queue
     }
 
-    fn accepts(&self, data: &Value, watermark: u64) -> bool {
+    fn accepts(
+        &self,
+        _event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<bool, TenantError> {
         self.accepts_calls.fetch_add(1, Ordering::SeqCst);
         (self.accept)(data, watermark)
     }
 
-    fn receive(&self, data: &Value, _watermark: u64) -> Result<(), TenantError> {
+    fn receive(
+        &self,
+        _event: &NativeEvent<'_>,
+        data: &Value,
+        _watermark: u64,
+    ) -> Result<(), TenantError> {
         self.flush_notes();
         let json = ace_json::to_string(data);
         self.record(format!("receive:{json}"));
@@ -194,10 +223,22 @@ impl Tenant for Fake {
 
     fn finalize_snapshots(&self) -> Result<(), TenantError> {
         self.lock().push(Call::Finalize);
-        Ok(())
+        let failure = self
+            .finalize_error
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        match failure {
+            Some(message) => Err(TenantError(message)),
+            None => Ok(()),
+        }
     }
 
     fn recovered(&self) {
         self.lock().push(Call::Recovered);
+    }
+
+    fn take_reconcile(&self) -> bool {
+        false
     }
 }

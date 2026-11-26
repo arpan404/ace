@@ -26,7 +26,9 @@ pub trait ProbeHost {
     fn directory(&self) -> String;
     fn recovering(&self) -> bool;
     fn info(&self, info: &Value);
-    fn receive(&self, data: &Value, watermark: u64);
+    /// `session.ts:134`: covered evidence is not replayed, and while not
+    /// recovering delivery skips the evidence check entirely.
+    fn receive(&self, data: &Value, watermark: u64) -> Result<(), ProbeError>;
     fn buffered(&self, data: &Value, watermark: u64);
     fn pending(&self, guard: &str);
     fn settled(&self, guard: &str);
@@ -35,6 +37,10 @@ pub trait ProbeHost {
     /// through the probe's own state, not through this call.
     fn lookup(&self, id: &str, guard: &str);
 }
+
+/// A receipt's failure, as the TypeScript's thrown `Error` text. The pass that
+/// replayed the receipt rejects with it, exactly as `recoverOnce` does.
+pub type ProbeError = String;
 
 /// One held event, with the watermark it arrived at.
 struct Entry {
@@ -73,14 +79,14 @@ impl AncestryProbe {
         };
         let id = event_session(data);
         if id.is_empty()
-            || host.owns_session(&id)
+            || host.owns_session(id)
             || s_in(location, "directory") != host.directory()
             || s_in(envelope, "type") == "session.created"
         {
             return;
         }
         let bytes = ace_json::to_string(data).len();
-        let queued = self.probes.get(&id);
+        let queued = self.probes.get(id);
         if self.unknown_bytes + bytes > MAX_BYTES
             || queued.is_some_and(|probe| probe.events.len() >= MAX_EVENTS)
             || (queued.is_none() && self.probes.len() >= MAX_PROBES)
@@ -92,7 +98,7 @@ impl AncestryProbe {
         if is_new {
             self.sequence += 1;
             self.probes.insert(
-                id.clone(),
+                id.to_owned(),
                 Probe {
                     guard: format!("ancestry:{}", self.sequence),
                     events: Vec::new(),
@@ -101,7 +107,7 @@ impl AncestryProbe {
                 },
             );
         }
-        let Some(probe) = self.probes.get_mut(&id) else {
+        let Some(probe) = self.probes.get_mut(id) else {
             return;
         };
         probe.events.push(Entry {
@@ -114,7 +120,7 @@ impl AncestryProbe {
         host.buffered(data, watermark);
         if is_new {
             host.pending(&guard);
-            host.lookup(&id, &guard);
+            host.lookup(id, &guard);
         }
     }
 
@@ -168,7 +174,10 @@ impl AncestryProbe {
 
     /// `reconciled`: the pass is over; an owned probe replays and every probe
     /// that was looked up leaves.
-    pub fn reconciled(&mut self, host: &dyn ProbeHost) {
+    ///
+    /// The events are collected before they are delivered: a replay calls back
+    /// into the tenant, which takes the probe lock again (`owns` → `prove`).
+    pub fn reconciled(&mut self, host: &dyn ProbeHost) -> Result<(), ProbeError> {
         let ids: Vec<String> = self.probes.keys().cloned().collect();
         for id in ids {
             let owned = host.owns_session(&id);
@@ -178,13 +187,21 @@ impl AncestryProbe {
             if !owned && !probe.lookup_failed {
                 continue;
             }
-            if owned {
-                for entry in &probe.events {
-                    host.receive(&entry.data, entry.watermark);
-                }
+            let replay: Vec<(Value, u64)> = if owned {
+                probe
+                    .events
+                    .iter()
+                    .map(|entry| (entry.data.clone(), entry.watermark))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            for (data, watermark) in replay {
+                host.receive(&data, watermark)?;
             }
             self.finish(&id, host);
         }
+        Ok(())
     }
 
     /// `finish`: the probe's bytes go back and its receipt settles.

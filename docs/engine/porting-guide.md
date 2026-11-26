@@ -1525,7 +1525,21 @@ parsing the text again.
   its six types (`extension-catalog.ts:100`–`:107`). Each is a `Port` event published at the
   point the TypeScript called it, in order with the frames. Each starts with an await or only
   marks work as dirty, so starting it one batch later changes nothing a test can see.
-  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock.
+  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock: the
+  tenant keeps the request as a flag the server core takes after every `accepts` and `receive`
+  it calls, so `beginRecovery(watermark)` runs inside the same `consumeEvents` loop and the
+  events after it are buffered, exactly as the inline call made them. The `reconcile` port stays
+  for the paths that run outside the loop (a `session.moved` reply, a barrier's `uncertain`).
+- **Reply inputs**, each a synchronous handle call on the tenant: `establish_root` (`:277`,
+  `ownership.establish`), `root_snapshot` (`:277`'s `snapshot.info` with `root: true`),
+  `admit_stopped` (`:105`, the refused environment's note), and `moved_reply` (`:345`–`:362`:
+  `verify`, then `snapshot.info`, or a reconcile, and `moved_done` either way). The requests that
+  produce them are not this item's: `session.create`/`session.get` and the environment call are
+  the facade's (E3-opencode.4), and the `session.moved` GET and the ancestry chain are
+  E3-opencode.3's `lookup.rs`. `ServerCore::replay` returns a tenant's refusal to the facade,
+  which retries as `recoverUntilSettled` does; a failed pass never settles `recovering` and never
+  releases a barrier. `ServerCore::accepts` returns the tenant's refusal, so a shell past its
+  2,048 bound fails the stream as `routes.select`'s throw does.
 - **The flow gate**: the tenant's `ReadGate` has no pump. The facade waits on each session's
   `outputFlow` between body chunks, as `server.ts:413` waits between events (E3-opencode.4).
   `port.fail()` changes nothing observable, because TypeScript ignores `onFrame`'s promise here
@@ -1571,7 +1585,9 @@ parsing the text again.
 - **Must not**: issue a request any way but the effect; retry inside Rust (the server's retry
   loop is TypeScript's).
 - **Reviewer checks**: each `await` in `recoverSessions` is one stage, in order; a pass started
-  while one is in flight joins it.
+  while one is in flight joins it. The tenant side this item answers is already E3-opencode.2's
+  (`moved_reply`, the pass's `reconciled` through `prepareReplay`); this item owns the GETs and the
+  `http` ports that fill them, and `.4` owns the facade that answers them.
 
 #### E3-opencode.4 Binding, facades, the twin pool and the switch
 
@@ -1995,7 +2011,8 @@ Steps, in order:
 
 1. `capture.rs`: `capture(value: &Value, bearer: Option<&str>) -> Result<String, CaptureError>`:
    count the nodes of `value` in one linear pass (32,768, `payload.ts:25`–`:28`, its message
-   "Provider payload exceeds structural limit"), then `elided_json(value)`, then replace every
+   "Provider payload exceeds structural limit"), then `elided_text(value)` (elide while writing,
+   never a tree copy), then replace every
    occurrence of the bearer with `<ACE_MCP_CREDENTIAL>` (`injection.ts:212`–`:214`), then the byte
    bound (`maxProviderPayloadBytes`, 1 MiB, `payload.ts:4`, "Provider payload exceeds byte
    limit"). This is the order today's `new ProviderPayload(redactMcpCredential(elidedJson(data)))`
@@ -2066,6 +2083,8 @@ reached")` (claude-session.md intended difference 5). Only when every message pa
     `pushed > 0` makes it today (`:413`–`:419`);
   - `stdin_written`, `stdin_error`, `write_refused` as `PiWire`'s (E3-pi.1 step 4), with
     `Uncertain` for a write that may have reached the CLI.
+  - The exit message (`session.ts:262`–`:266`) is deferred to E3-claude.4 step 12: it needs the
+    process exit's code, signal or reason, which the wire never sees.
 
 - **Exact**: every message above; the answer envelopes (`agent_stream_json::host`); the frames and
   their order; `send` writes nothing unless every message passes.

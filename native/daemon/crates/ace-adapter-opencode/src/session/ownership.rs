@@ -14,8 +14,20 @@ use ace_json::Value;
 use indexmap::{IndexMap, IndexSet};
 use std::sync::LazyLock;
 
-use crate::translate::boundaries::{event_session, parse_native_event};
-use crate::translate::data::{fields, get, s_in, truthy};
+mod info;
+
+pub use info::{Info, parse_info, parse_session_info};
+
+/// One session's facts, as `put` stores them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Owner {
+    pub parent: String,
+    pub directory: String,
+    pub project: String,
+}
+
+use crate::translate::boundaries::{NativeEvent, event_session, parse_native_event};
+use crate::translate::data::{fields, get, s_in};
 
 /// `this.sessions.size >= 1024` (`ownership.ts:96`).
 const MAX_SESSIONS: usize = 1024;
@@ -45,84 +57,6 @@ pub enum OwnershipError {
     ShellLimit,
     #[error("OpenCode ancestry cycle")]
     Cycle,
-}
-
-/// A validated `SessionInfo` (`boundaries.ts:23`-`:31`), borrowed from the value.
-#[derive(Debug, Clone, Copy)]
-pub struct Info<'a> {
-    pub id: &'a str,
-    pub project_id: &'a str,
-    pub directory: &'a str,
-    /// `""` when the session has no parent.
-    pub parent_id: &'a str,
-    /// `info.fork`'s JavaScript truthiness: any other value is a fork.
-    pub fork: bool,
-}
-
-/// One session's facts, as `put` stores them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Owner {
-    pub parent: String,
-    pub directory: String,
-    pub project: String,
-}
-
-/// `SessionInfo.parse`: `None` where `safeParse` fails.
-pub fn parse_info(value: &Value) -> Option<Info<'_>> {
-    parse_info_as(value, None)
-}
-
-/// `SessionInfo.safeParse({ ...p, id: p.sessionID })` (`ownership.ts:119`), where
-/// `p` is the envelope's `data`: the event's session id stands in for the
-/// snapshot's own.
-pub fn parse_session_info(value: &Value) -> Option<Info<'_>> {
-    parse_info_as(get(fields(value), "data"), Some("sessionID"))
-}
-
-/// A snapshot's bounded fields; zod's bounds count code points (rule 17).
-fn parse_info_as<'a>(value: &'a Value, id_field: Option<&str>) -> Option<Info<'a>> {
-    let map = fields(value);
-    let id = match id_field {
-        Some(field) => match map.get(field) {
-            Some(Value::String(id)) => id.as_str(),
-            _ => return None,
-        },
-        None => match map.get("id") {
-            Some(Value::String(id)) => id.as_str(),
-            _ => return None,
-        },
-    };
-    if id.is_empty() || points(id) > 512 {
-        return None;
-    }
-    let project_id = match map.get("projectID") {
-        Some(Value::String(project)) if points(project) <= 512 => project.as_str(),
-        _ => return None,
-    };
-    let location = fields(get(map, "location"));
-    let directory = match location.get("directory") {
-        Some(Value::String(directory)) if !directory.is_empty() && points(directory) <= 4096 => {
-            directory.as_str()
-        }
-        _ => return None,
-    };
-    let parent_id = match map.get("parentID") {
-        None | Some(Value::Null) => "",
-        Some(Value::String(parent)) if points(parent) <= 512 => parent.as_str(),
-        _ => return None,
-    };
-    Some(Info {
-        id,
-        project_id,
-        directory,
-        parent_id,
-        fork: map.get("fork").is_some_and(truthy),
-    })
-}
-
-/// Code points, the way zod's patched bounds count (rule 17).
-fn points(text: &str) -> usize {
-    text.chars().count()
 }
 
 /// `SessionOwnership`: the root, its sessions and its shells.
@@ -282,10 +216,22 @@ impl SessionOwnership {
     }
 
     /// `accept`: whether an event belongs to this tree, keeping what it learns.
+    /// A shell past the 2,048 bound is the TypeScript's throw, which fails the
+    /// stream; every other refusal is `false`.
     pub fn accept(&mut self, value: &Value) -> Result<bool, OwnershipError> {
         let Ok(event) = parse_native_event(value) else {
             return Ok(false);
         };
+        self.accept_event(&event, value)
+    }
+
+    /// `accept` on the event the server already parsed: the per-event path
+    /// parses each envelope once (`server.ts:415`, `ownership.ts:85`).
+    pub fn accept_event(
+        &mut self,
+        event: &NativeEvent<'_>,
+        value: &Value,
+    ) -> Result<bool, OwnershipError> {
         if event.typ == "location.shutdown" {
             return Ok(event.location.is_some_and(|location| {
                 !self.at_location(s_in(location, "directory")).is_empty()
@@ -318,7 +264,7 @@ impl SessionOwnership {
                     == Some(s_in(location, "directory"))
             }));
         }
-        let Some(owner) = self.sessions.get(&id) else {
+        let Some(owner) = self.sessions.get(id) else {
             return Ok(false);
         };
         if event.typ == "session.moved" {
@@ -340,12 +286,12 @@ impl SessionOwnership {
             if shell.is_empty() {
                 return Ok(false);
             }
-            self.add_shell(shell, &id)?;
+            self.add_shell(shell, id)?;
         }
         if event.typ == "session.tool.progress" || event.typ == "session.tool.success" {
             let shell = s_in(fields(get(event.data, "metadata")), "shellID");
             if !shell.is_empty() {
-                self.add_shell(shell, &id)?;
+                self.add_shell(shell, id)?;
             }
         }
         Ok(true)

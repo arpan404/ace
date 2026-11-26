@@ -50,8 +50,9 @@ impl ProbeHost for Host {
         self.record(format!("info:{info}"));
     }
 
-    fn receive(&self, data: &Value, watermark: u64) {
+    fn receive(&self, data: &Value, watermark: u64) -> Result<(), super::ProbeError> {
         self.record(format!("receive:{watermark}:{data}"));
+        Ok(())
     }
 
     fn buffered(&self, data: &Value, watermark: u64) {
@@ -175,12 +176,12 @@ fn reconciled_replays_an_owned_probe_and_finishes_every_looked_up_one() {
     probe.observe_pending(&mut |_, _| {});
 
     // Not owned and the lookup has not failed: it stays.
-    probe.reconciled(&host);
+    probe.reconciled(&host).expect("a pass");
     assert!(probe.guard("child").is_some());
 
     // Owned: the events replay and the receipt settles.
     let host = Host::new(&["child"]);
-    probe.reconciled(&host);
+    probe.reconciled(&host).expect("a pass");
     assert!(probe.guard("child").is_none());
     assert!(
         host.log()
@@ -194,7 +195,7 @@ fn reconciled_replays_an_owned_probe_and_finishes_every_looked_up_one() {
     let mut probe = AncestryProbe::new();
     probe.prove(&event("session.text.delta", "child", "/work"), 3, &host);
     assert!(probe.mark_failed("child"));
-    probe.reconciled(&host);
+    probe.reconciled(&host).expect("a pass");
     assert!(probe.guard("child").is_none());
     assert!(!host.log().iter().any(|entry| entry.starts_with("receive:")));
 }

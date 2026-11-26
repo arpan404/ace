@@ -39,7 +39,9 @@ fn observe(
 /// `covered`, with the parse the server already did.
 fn covered(evidence: &RecoveryEvidence, value: &Value, session: &str, watermark: u64) -> bool {
     let event = parse_native_event(value).expect("a valid envelope");
-    evidence.covered(event.typ, event.data, session, event.created, watermark)
+    evidence
+        .covered(event.typ, event.data, session, event.created, watermark)
+        .expect("a well-formed evidence set")
 }
 
 #[test]
@@ -241,6 +243,25 @@ fn the_absence_clocks_drop_a_snapshot_a_later_event_overtook() {
     let finished = evidence.finish();
     assert_eq!(finished.len(), 2);
     assert!(finished.iter().all(|snapshot| snapshot.session == "t"));
+}
+
+#[test]
+fn a_malformed_interaction_snapshot_fails_coverage_instead_of_covering() {
+    let mut evidence = RecoveryEvidence::new();
+    evidence
+        .stage("snapshot.interactions", &json!({ "keys": [1] }), "s", 5)
+        .expect("in budget");
+    let asked = envelope(
+        "e",
+        "permission.asked",
+        json!({ "sessionID": "s", "id": "p1" }),
+    );
+    let event = parse_native_event(&asked).expect("a valid envelope");
+    assert_eq!(
+        evidence.covered(event.typ, event.data, "s", event.created, 4),
+        Err(EvidenceError::Keys),
+        "the TypeScript's ZodError, not a silent miss"
+    );
 }
 
 #[test]

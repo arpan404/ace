@@ -294,6 +294,25 @@ fn descendants_are_deepest_first() {
 }
 
 #[test]
+fn a_snapshot_with_a_null_parent_is_refused() {
+    let mut nulled = snapshot("root", "", "/work", "p1");
+    if let Value::Object(map) = &mut nulled {
+        map.insert("parentID", Value::Null);
+    }
+    assert!(
+        parse_info(&nulled).is_none(),
+        "z.string().optional() refuses null; only a missing parent is a root"
+    );
+    // Missing is a root, and an explicit string is the parent.
+    let root = json!({ "id": "root", "projectID": "p1", "location": { "directory": "/work" } });
+    assert_eq!(parse_info(&root).map(|info| info.parent_id), Some(""));
+    assert_eq!(
+        parse_info(&snapshot("child", "root", "/work", "p1")).map(|info| info.parent_id),
+        Some("root")
+    );
+}
+
+#[test]
 fn session_info_bounds_count_code_points() {
     // Rule 17: 512 emoji are 512 code points (and 1,024 UTF-16 units).
     let inside = snapshot(&"😀".repeat(512), "", "/work", "p1");
