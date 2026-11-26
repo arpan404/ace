@@ -32,7 +32,8 @@ pub use host::{
 };
 pub use http::{HOOKS_PATH, RelayHttpTarget, relay_http_enabled, relay_http_target};
 pub use machine::{
-    Admission, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots, URGENT, WAITING, answer,
+    Admission, HOSTED_RELAY_REFUSAL, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots,
+    TRANSFER_PIECE_BASE64, TRANSFER_PIECE_BYTES, URGENT, WAITING, answer, hosted_relay_answer,
     hosted_relay_carries, incoming, refusal, transfer_chunk, welcome,
 };
 pub use nk::admission::{
