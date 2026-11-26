@@ -29,6 +29,7 @@ const genericHints = new Set([
   "Read the UI tree again.",
   "Retry.",
   "Retry shortly.",
+  "Retry in a moment.",
 ]);
 
 let failed = 0;
