@@ -46,3 +46,17 @@ test("Codex terminal quota errors are limited while overloaded upstream retries 
   });
   expect(overloaded.state.status).toEqual({ state: "waiting", on: "upstream" });
 });
+
+test("a compaction in progress reads as compacting, and its row is the only one", () => {
+  const h = setup();
+  h.start();
+  h.item({ id: "compact", type: "contextCompaction" });
+  expect(h.state.agents["root"]?.agent.status).toEqual({
+    state: "working",
+    activity: "compacting",
+  });
+  h.item({ id: "compact", type: "contextCompaction" }, true);
+  expect(
+    h.events.filter((event) => event.type === "item.created" && event.item.type === "compaction"),
+  ).toHaveLength(1);
+});

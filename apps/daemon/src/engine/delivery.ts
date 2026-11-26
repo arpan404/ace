@@ -1,4 +1,5 @@
 import { contextNotice } from "@ace/context";
+import { compactionBlocked } from "@ace/core";
 import {
   stopsWholeThread,
   tasksEndingWithSession,
@@ -30,6 +31,13 @@ export class InteractionUnavailable extends Error {
 }
 export class DeliveryDeferred extends Error {}
 export class DeliveryNotStarted extends Error {}
+
+/** The thread started working between admission and execution: its compaction waits for idle. */
+export class CompactionNotIdle extends Error {
+  constructor() {
+    super("The agent is working, so its context was not compacted. Compact again when it is idle.");
+  }
+}
 
 export async function executeIntent(
   actor: ThreadActor,
@@ -282,6 +290,8 @@ export async function executeIntent(
   // A goal is the provider's own state: an idle thread's session reopens to change it.
   if ((p.type === "thread.goal.set" || p.type === "thread.goal.clear") && !actor.session)
     await sessions.open(actor);
+  // Compaction reads the session's own native history, so an idle thread opens it again too.
+  if (p.type === "thread.compact" && !actor.session) await sessions.open(actor);
   if (!actor.session) {
     if (
       p.type === "thread.interrupt" &&
@@ -312,6 +322,19 @@ export async function executeIntent(
   } else if (p.type === "thread.goal.clear") {
     if (!actor.session.clearGoal) throw new Error("Provider goals unavailable");
     await actor.session.clearGoal();
+  } else if (p.type === "thread.compact") {
+    if (!actor.session.compact) throw new Error("Provider compaction unavailable");
+    // Admission saw an idle thread; a send admitted beside it runs on its own lane and may
+    // have started a turn since. A provider compacts only its own idle history, so it is
+    // refused at execution too (`CompactionNotIdle`), never pushed into a running turn.
+    const current = repo.requireState(actor.id);
+    const root = current.rootKey;
+    if (
+      compactionBlocked(root ? current.agents[root]?.agent.status : undefined) ||
+      repo.pending.compacting(actor.id, intent.id)
+    )
+      throw new CompactionNotIdle();
+    await actor.session.compact();
   } else if (p.type === "thread.interrupt") {
     const targetKey =
       p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];

@@ -16,7 +16,11 @@ pub mod probe;
 pub mod promotion;
 pub mod rules;
 pub mod state;
+pub mod task;
 pub mod timer;
+
+#[cfg(test)]
+mod tests;
 
 pub use deps::{
     ActorDeps, ActorLinks, ActorRepo, ActorTranslator, BatchAck, JsBatchTranslator, Route,
@@ -25,194 +29,13 @@ pub use deps::{
 #[cfg(feature = "engine-probe")]
 pub use probe::run_op_opened;
 pub use promotion::restore_promotion;
-pub use state::{Actor, Actors, FrameRef, Pending};
+pub use state::{ActorInstance, ActorRef, Actors, FrameRef, Pending};
+pub use task::spawn_mailbox;
 pub use timer::keeps_timer;
 
-use crate::executor::{Lane, TaskId};
+use crate::executor::TaskId;
 use crate::{Core, EngineError, State, ThreadId};
 use std::rc::Rc;
-
-/// This thread's actor instance, when it is still the one a task belongs to.
-fn instance_of(core: &Core, thread: &ThreadId) -> Option<u64> {
-    core.with_state(|state| {
-        state
-            .actors
-            .by_thread
-            .get(thread)
-            .map(|actor| actor.instance)
-    })
-    .ok()
-    .flatten()
-}
-
-/// Whether `instance` is still this thread's actor: an evicted one is replaced by a new instance.
-fn alive(core: &Core, thread: &ThreadId, instance: u64) -> bool {
-    instance_of(core, thread).is_some_and(|current| current == instance)
-}
-
-/// Spawns an actor's mailbox task and records its id.
-pub fn spawn_mailbox(core: &Rc<Core>, thread: &ThreadId) -> TaskId {
-    let inner = Rc::clone(core);
-    let id = thread.clone();
-    let instance = instance_of(core, thread).unwrap_or(0);
-    let (task_id, task) = core.executor.spawn_next(Lane::Work, async move {
-        mailbox_loop(inner, id, instance).await
-    });
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.mailbox_task = Some(task_id);
-        }
-    })
-    .ok();
-    task.detach();
-    task_id
-}
-
-/// One actor's task: catch up, run one op, yield; or park on both timers.
-async fn mailbox_loop(core: Rc<Core>, thread: ThreadId, instance: u64) {
-    loop {
-        // A replacement actor owns the mailbox now: this task's work belongs to the old one.
-        if !alive(&core, &thread, instance) {
-            return;
-        }
-        intake::catch_up(&core, &thread);
-        match mailbox::take_next(&core, &thread) {
-            crate::actor::mailbox::Next::Exit => {
-                if alive(&core, &thread, instance) || instance_of(&core, &thread).is_none() {
-                    core.unregister_waker(&thread);
-                }
-                return;
-            }
-            mailbox::Next::Wait => yield_once().await,
-            mailbox::Next::Park => {
-                let idle = core
-                    .with_state(|state| {
-                        state
-                            .actors
-                            .by_thread
-                            .get_mut(&thread)
-                            .is_some_and(mailbox::resolve_flush_waiters)
-                    })
-                    .unwrap_or(true);
-                if idle {
-                    // A flush may have waited for the flag before the mailbox went idle.
-                    core.with_state(|state| {
-                        if let Some(actor) = state.actors.by_thread.get_mut(&thread) {
-                            mailbox::resolve_flush_waiters(actor);
-                        }
-                    })
-                    .ok();
-                }
-                if !mailbox::park(&core, &thread).await {
-                    core.unregister_waker(&thread);
-                    return;
-                }
-            }
-            mailbox::Next::Run(op) => {
-                let end_turn = run_op(&core, &thread, instance, op).await;
-                // The op settled: the mailbox is idle again, and a flush waiting on it resumes.
-                // An evicted actor's task never clears its replacement's state.
-                core.with_state(|state| {
-                    if let Some(actor) = state.actors.by_thread.get_mut(&thread)
-                        && actor.instance == instance
-                    {
-                        actor.running = false;
-                        mailbox::resolve_flush_waiters(actor);
-                    }
-                })
-                .ok();
-                if end_turn {
-                    core.executor.end_turn();
-                }
-                yield_once().await;
-            }
-        }
-    }
-}
-
-/// Runs one mailbox entry and settles its acknowledgement.
-async fn run_op(core: &Rc<Core>, thread: &ThreadId, instance: u64, op: mailbox::Op) -> bool {
-    match op {
-        mailbox::Op::Batch(mut batch) => {
-            let frames = batch.frames.len();
-            let bytes = batch.bytes;
-            let ack = std::mem::take(&mut batch.ack);
-            let thread_copy = thread.clone();
-            let mut run: mailbox::RunFn =
-                Box::new(move |core: &Rc<Core>| fold::fold_batch(core, &thread_copy, &mut batch));
-            run_and_settle(core, thread, instance, &mut run, frames, bytes, Some(ack)).await
-        }
-        mailbox::Op::Run(mut run_op) => {
-            let mut call = run_op.run;
-            let frames = run_op.frames;
-            let bytes = run_op.bytes;
-            let ack = run_op.ack.take();
-            run_and_settle(core, thread, instance, &mut call, frames, bytes, ack).await
-        }
-        mailbox::Op::Settle(ack) => mailbox::settle_rejected(core, ack),
-        mailbox::Op::Overflow => {
-            // The overflow behind the same writable gate as any op: a held store waits, as the
-            // TypeScript's `runWhenWritable` does, instead of aborting the session mid-write.
-            let op_thread = thread.clone();
-            let mut run: mailbox::RunFn =
-                Box::new(move |core: &Rc<Core>| failure::overflow(core, &op_thread));
-            if let Err(error) = mailbox::run_when_writable(core, thread, instance, &mut run).await {
-                failure::fail(core, thread, error);
-            }
-            false
-        }
-        mailbox::Op::Staged(_) => false,
-    }
-}
-
-async fn run_and_settle(
-    core: &Rc<Core>,
-    thread: &ThreadId,
-    instance: u64,
-    run: &mut mailbox::RunFn,
-    frames: usize,
-    bytes: usize,
-    ack: Option<BatchAck>,
-) -> bool {
-    // The pump never runs inside a transaction; the check confirms it.
-    let outcome = if core.store.is_open() {
-        Err(EngineError::NotOutermost)
-    } else {
-        mailbox::run_when_writable(core, thread, instance, run).await
-    };
-    if let Err(error) = outcome {
-        failure::fail(core, thread, error);
-    }
-    if !alive(core, thread, instance) {
-        // The actor was evicted while this op waited: its acknowledgement rejects, and the
-        // replacement's backlog is untouched.
-        return match ack {
-            Some(ack) => mailbox::settle_orphaned(core, ack),
-            None => false,
-        };
-    }
-    match ack {
-        Some(ack) => mailbox::settle(core, thread, frames, bytes, ack),
-        None => {
-            mailbox::settle(core, thread, frames, bytes, BatchAck::default());
-            false
-        }
-    }
-}
-
-/// A macrotask: the next poll runs the work queued behind this turn.
-pub(crate) async fn yield_once() {
-    let mut yielded = false;
-    crate::futures::future::poll_fn(|cx| {
-        if yielded {
-            return std::task::Poll::Ready(());
-        }
-        yielded = true;
-        cx.waker().wake_by_ref();
-        std::task::Poll::Pending
-    })
-    .await
-}
 
 /// `actor(id)` (`index.ts:528`–`:562`): the actor, created at capacity or inside a transaction.
 pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
@@ -238,8 +61,10 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
                 .actors
                 .by_thread
                 .iter()
-                .find(|(id, actor)| {
-                    !actor.provisional && !victims.contains(id) && !skipped.contains(id)
+                .find(|(id, _)| {
+                    !state.actors.seats[*id].provisional
+                        && !victims.contains(id)
+                        && !skipped.contains(id)
                 })
                 .map(|(id, _)| id.clone())
         })?;
@@ -280,15 +105,24 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
         state.actors.next_seat += 1;
         seat
     })?;
-    let mut actor = Actor::new(thread.clone(), generation, seat);
+    let mut actor = ActorInstance::new(thread.clone(), generation);
     actor.release_requested = released;
+    actor.deps = Some(Rc::clone(&deps));
     actor.instance = core.with_state(|state| {
         let instance = state.actors.next_instance;
         state.actors.next_instance += 1;
         instance
     })?;
+    let actor = Rc::new(std::cell::RefCell::new(actor));
     if !open {
         core.with_state(|state| {
+            state.actors.seats.insert(
+                thread.clone(),
+                state::Seat {
+                    order: seat,
+                    provisional: open,
+                },
+            );
             state.actors.by_thread.insert(thread.clone(), actor);
         })?;
         spawn_mailbox(core, thread);
@@ -296,7 +130,7 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     }
     // Capture the victims' positions, then remove from the highest index down so the captured
     // positions stay exact. The kept-aside actors are restored there on a rollback.
-    let mut aside: Vec<(usize, Actor)> = Vec::new();
+    let mut aside = Vec::new();
     let mut positions: Vec<(usize, ThreadId)> = Vec::new();
     for victim in &victims {
         if let Some(index) = core.with_state(|state| state.actors.by_thread.get_index_of(victim))? {
@@ -305,17 +139,26 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     }
     positions.sort_unstable_by_key(|(index, _)| std::cmp::Reverse(*index));
     for (index, victim) in positions {
-        if let Some(victim_actor) =
-            core.with_state(|state| state.actors.by_thread.shift_remove(&victim))?
-        {
-            aside.push((index, victim_actor));
+        if let Some((victim_actor, seat)) = core.with_state(|state| state.actors.remove(&victim))? {
+            let instance = victim_actor.borrow().instance;
+            core.with_state(|state| {
+                state
+                    .actors
+                    .aside
+                    .insert(instance, Rc::clone(&victim_actor));
+            })?;
+            aside.push((index, seat, victim_actor));
         }
     }
     core.with_state(|state| {
+        state.actors.seats.insert(
+            thread.clone(),
+            state::Seat {
+                order: seat,
+                provisional: open,
+            },
+        );
         state.actors.by_thread.insert(thread.clone(), actor);
-        if let Some(created) = state.actors.by_thread.get_mut(thread) {
-            created.provisional = true;
-        }
         state.actors.reserved.insert(thread.clone(), ());
     })?;
     let promotion = Rc::new(state::Promotion {
@@ -343,38 +186,36 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
 
 /// `stop()` (`actor.ts:599`): seal first, then stop everything the actor holds.
 pub fn stop(core: &Rc<Core>, thread: &ThreadId) {
-    intake::seal(core, thread);
-    let deps = core.actor_deps.borrow().clone();
-    let leases = core
-        .with_state(|state| {
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
-                return Vec::new();
-            };
-            actor.stopped = true;
-            actor.pressure = false;
-            for drain in actor.drains.drain(..) {
-                let _ = drain.send(());
-            }
-            let tokens: Vec<u64> = actor.leases.keys().copied().collect();
-            actor.leases.clear();
-            tokens
-        })
-        .unwrap_or_default();
-    timer::disarm(core, thread);
-    if !leases.is_empty() {
-        deps.links.release_leases(core, &leases);
+    if let Some(actor) = state::current(core, thread) {
+        stop_instance(core, &actor);
     }
+}
+
+pub(crate) fn stop_instance(core: &Rc<Core>, actor: &ActorRef) {
+    intake::catch_up_instance(core, actor);
+    intake::seal_instance(core, actor);
+    let drains = {
+        let mut state = actor.borrow_mut();
+        state.stopped = true;
+        state.pressure = false;
+        std::mem::take(&mut state.drains)
+    };
+    timer::disarm_instance(core, actor);
+    leases::release_instance_inputs(core, actor);
+    for drain in drains {
+        let _ = drain.send(());
+    }
+    core.record_actor_wake(actor);
 }
 
 /// `flush_all` (E5.1's `actor::flush_all`): seal and flush every actor, excluding the caller.
 pub async fn flush_all(core: &Rc<Core>, exclude: Option<TaskId>) -> Result<(), EngineError> {
-    let threads: Vec<ThreadId> = core.with_state(|state| {
-        let threads: Vec<ThreadId> = state.actors.by_thread.keys().cloned().collect();
+    let instances: Vec<_> = core.with_state(|state| {
         state.actors.seals += 1;
-        threads
+        state.actors.instances().cloned().collect()
     })?;
-    for thread in threads {
-        mailbox::flush(Rc::clone(core), thread, exclude).await;
+    for actor in instances {
+        mailbox::task::flush_instance(core, &actor, exclude).await;
     }
     Ok(())
 }
@@ -391,15 +232,108 @@ pub fn close_stop(core: &Rc<Core>) {
         .unwrap_or_default();
     for thread in threads {
         stop(core, &thread);
-        core.unregister_waker(&thread);
+    }
+}
+
+/// Close can cut a parked mailbox short, so it takes over the task's cleanup. Both registries are
+/// retired: no actor stays current, so a late frame finds none to admit, and nothing an actor held
+/// (a frame payload, a batch's acknowledgement, a waker) outlives the close.
+pub(crate) fn finish_close(core: &Core) {
+    let actors: Vec<ActorRef> = core
+        .with_state(|state| {
+            state
+                .actors
+                .instances()
+                .chain(state.actors.aside.values())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    for actor in &actors {
+        retire_instance(core, actor);
+    }
+    core.with_state(|state| {
+        state.actors.by_thread.clear();
+        state.actors.seats.clear();
+        state.actors.aside.clear();
+        state.actors.stopping.clear();
+        state.actors.reserved.clear();
+        state.actors.pledges.clear();
+    })
+    .ok();
+}
+
+/// One actor at close: refused for good, its held work released and its acknowledgements rejected.
+/// The frames are dropped rather than sealed, since the executor is shut and no mailbox will fold
+/// them: a sealed batch would keep its payloads and senders alive with nothing to run them.
+pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
+    let (pending, ack, in_flight, mailbox, flush_waiters, drains, timers) = {
+        let mut state = actor.borrow_mut();
+        state.stopped = true;
+        state.pressure = false;
+        state.waker = None;
+        for shared in state.staged.values() {
+            *shared.borrow_mut() = mailbox::Staged::Discarded;
+        }
+        (
+            std::mem::take(&mut state.pending),
+            state.pending_ack.take(),
+            state.in_flight.take(),
+            std::mem::take(&mut state.mailbox),
+            std::mem::take(&mut state.flush_waiters),
+            std::mem::take(&mut state.drains),
+            [
+                state.timer.take().map(|(timer, _)| timer.key),
+                state.batch_timer.take().map(|timer| timer.key),
+            ],
+        )
+    };
+    for key in timers.into_iter().flatten() {
+        core.ports.cancel_timer(key);
+    }
+    intake::release_handles(core, actor, &pending);
+    let mut acks: Vec<mailbox::SharedAck> = Vec::new();
+    if let Some(ack) = ack {
+        acks.push(Rc::new(std::cell::RefCell::new(ack)));
+    }
+    // The op the mailbox took would otherwise lose its acknowledgement and frame handles.
+    if let Some(in_flight) = in_flight {
+        if let Some(ack) = in_flight.ack {
+            acks.push(ack);
+        }
+        if let Some(handles) = in_flight.handles {
+            mailbox::release_owned(core, actor, &handles);
+        }
+    }
+    for op in mailbox {
+        match op {
+            mailbox::Op::Batch(batch) => {
+                mailbox::release_owned(core, actor, &batch.handles);
+                acks.push(batch.ack);
+            }
+            mailbox::Op::Settle(ack) => acks.push(ack),
+            _ => {}
+        }
+    }
+    for ack in &acks {
+        // The facade's own promises reject with Engine closed through `reject_pending`; a native
+        // session's gate is failed here, so it stops reading instead of waiting forever.
+        ack.borrow_mut().reject("Engine closed");
+    }
+    for waiter in flush_waiters {
+        let _ = waiter.send(());
+    }
+    for drain in drains {
+        let _ = drain.send(());
     }
 }
 
 /// Whether the actors hold no work E5.1 must wait for.
 pub fn quiescent(state: &State, exclude: Option<TaskId>) -> bool {
-    state.actors.by_thread.values().all(|actor| {
+    state.actors.instances().all(|actor| {
+        let actor = actor.borrow();
         let own = exclude.is_some() && actor.mailbox_task == exclude;
-        mailbox::actor_quiescent(actor) || own
+        mailbox::actor_quiescent(&actor) || own
     })
 }
 
@@ -410,6 +344,26 @@ pub fn live_thread_ids(state: &State) -> Vec<ThreadId> {
 
 /// `observeInputs`, called by E5.3's apply.
 pub use leases::observe_inputs;
+
+/// `workload()`'s figures (`index.ts:795`–`:806`): attached sessions, then the frames and bytes
+/// every actor the engine still owes work for holds. An evicted actor's accepted tail is still
+/// engine work while it stops, so it counts; TypeScript forgets it the moment the actor leaves its
+/// map, which is the one place Rust is deliberately stricter (behaviour.md §20).
+pub fn workload_counts(state: &State) -> (usize, usize, usize) {
+    let mut sessions = 0;
+    let mut frames = 0;
+    let mut bytes = 0;
+    for actor in state.actors.instances() {
+        let actor = actor.borrow();
+        if actor.session_attached {
+            sessions += 1;
+        }
+        let (actor_frames, actor_bytes) = actor.backlog();
+        frames += actor_frames;
+        bytes += actor_bytes;
+    }
+    (sessions, frames, bytes)
+}
 
 /// A thread's own rules, for E5.3's calls.
 pub use rules::has_running_foreground_command;
