@@ -9,6 +9,8 @@ use super::ClientError;
 
 /// How long a pinned handshake may take (`client-access.ts:118`).
 pub const HANDSHAKE_TIMEOUT_MS: i64 = 10_000;
+/// The failure a handshake past that deadline shows (`client-access.ts:118`).
+pub const HANDSHAKE_TIMEOUT: &str = "TLS handshake timed out";
 /// The pinned socket transport closes with this code when a pin rejects (`client-access.ts:279`).
 pub const PIN_REJECTED_CLOSE: u16 = 4001;
 
