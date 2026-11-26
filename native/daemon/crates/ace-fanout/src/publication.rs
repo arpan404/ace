@@ -142,6 +142,9 @@ mod tests {
         event_on(seq, "t")
     }
 
+    /// A batch as a thread route heard it: thread, head and the sequencess it carried.
+    type Heard = (String, u64, Vec<f64>);
+
     fn event_on(seq: u64, thread: &str) -> DeliveryEvent {
         DeliveryEvent::parse(&format!(
             r#"{{"id":"e{seq}","seq":{seq},"at":1,"threadId":"{thread}","payload":{{"type":"thread.updated","title":"t"}}}}"#
@@ -169,7 +172,7 @@ mod tests {
     /// when its thread had none.
     #[test]
     fn a_thread_route_hears_only_its_threads_events_and_the_batch_head() {
-        let seen: Rc<RefCell<Vec<(String, u64, Vec<f64>)>>> = Rc::new(RefCell::new(Vec::new()));
+        let seen: Rc<RefCell<Vec<Heard>>> = Rc::new(RefCell::new(Vec::new()));
         let mut publication = Publication::new();
         for thread in ["t", "u", "unseen"] {
             let seen = seen.clone();
