@@ -8,6 +8,7 @@ pub mod coverage;
 pub mod error;
 pub mod evidence;
 pub mod frames;
+pub mod http;
 pub mod notes;
 pub mod ownership;
 pub mod routes;
