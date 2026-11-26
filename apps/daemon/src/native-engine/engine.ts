@@ -27,6 +27,8 @@ import {
   type Settled,
 } from "./contracts.ts";
 import { UnportedMembers } from "./unported.ts";
+import { Calls } from "./calls.ts";
+import { prepareCommand } from "./prepare.ts";
 import { queuePage, queueRetains, queueSnapshot } from "./queue.ts";
 import { commandExecution, commandFailure, prioritizeSubagentResult } from "./intents.ts";
 import { inputFate } from "./inputs.ts";
@@ -49,11 +51,9 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   private closeSettled!: Settled;
   private readyFlag = false;
   private closingFlag = false;
-  private readonly calls = new Map<number, Settled>();
+  private readonly calls: Calls;
   /** The session frames the shell holds, released by handle when the engine refuses a batch. */
   readonly frames: FrameTable;
-  private nextCall = 1;
-  private holders = 0;
   private stopObserving?: () => void;
   private stopLiveStore?: () => void;
   private ownershipFence?: Parameters<EngineSurface["bindOwnershipFence"]>[0];
@@ -84,7 +84,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
       livePersist: (token) => native?.livePersist?.(token),
       liveCommitted: (token) => native?.liveCommitted?.(token),
       liveQuarantined: (thread, message) => native?.liveQuarantined?.(thread, message),
-      settleCall: (call, error) => this.settle(call, error),
+      settleCall: (call, error) => this.calls.settle(call, error),
       rejectPending: () => this.rejectPending(),
       finishClose: () => this.finishClose(),
       resolveReady: (error) => this.finishReady(error),
@@ -119,11 +119,12 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     const handle = database.nativeEngine(bindings, pump);
     native = handle;
     this.binding = handle;
+    this.calls = new Calls(handle);
     // The engine's live writes go through the connection's one buffer (E5.2 step 16).
     this.stopLiveStore = liveStorePort(store, handle);
     this.readyPromise = new Promise((resolve, reject) => {
       this.readySettled = { resolve, reject };
-      this.hold();
+      this.calls.hold();
     });
     const internal = receiptHandler({
       closing: () => this.closingFlag,
@@ -148,46 +149,8 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     return member.bind(this.binding) as (...args: unknown[]) => unknown;
   }
 
-  /** A pending facade promise: the binding refs the threadsafe function at 0 -> 1. */
-  private hold(): void {
-    this.holders += 1;
-    this.binding.hold?.();
-  }
-
-  private releaseHolder(): void {
-    if (this.holders === 0) return;
-    this.holders -= 1;
-    this.binding.releaseHold?.();
-  }
-
-  private call<T = void>(invoke: (call: number) => void): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const call = this.nextCall++;
-      this.calls.set(call, { resolve: resolve as (value: undefined) => void, reject });
-      this.hold();
-      try {
-        invoke(call);
-      } catch (error) {
-        this.calls.delete(call);
-        this.releaseHolder();
-        reject(error as Error);
-      }
-    });
-  }
-
-  private settle(call: number, error: string | null): void {
-    const pending = this.calls.get(call);
-    if (pending === undefined) return;
-    this.calls.delete(call);
-    this.releaseHolder();
-    if (error === null) pending.resolve(undefined);
-    else pending.reject(error === "Engine closed" ? closed() : new Error(error));
-  }
-
   private rejectPending(): void {
-    for (const pending of this.calls.values()) pending.reject(closed());
-    this.calls.clear();
-    while (this.holders > 0) this.releaseHolder();
+    this.calls.rejectAll();
     if (!this.readyFlag) {
       this.readyFlag = true;
       this.readySettled.reject(closed());
@@ -196,7 +159,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
 
   private finishReady(error: string | null): void {
     this.readyFlag = true;
-    this.releaseHolder();
+    this.calls.releaseHolder();
     if (error === null) this.readySettled.resolve(undefined);
     else this.readySettled.reject(new Error(error));
   }
@@ -208,7 +171,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
 
   private finishClose(): void {
     this.closingFlag = true;
-    this.releaseHolder();
+    this.calls.releaseHolder();
     this.stopObserving?.();
     this.stopLiveStore?.();
     // The terminal cleanup releases the threadsafe function last.
@@ -225,7 +188,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
    */
   frameCall(): { promise: Promise<void>; call: number } {
     let call = 0;
-    const promise = this.call<void>((id) => {
+    const promise = this.calls.call<void>((id) => {
       call = id;
     });
     // A frame the actor accepts without taking a promise still gets one; close must not see it
@@ -257,14 +220,14 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   flush(): Promise<void> {
     // Admission closed: no holder is taken and nothing is enqueued onto the shut executor.
     if (this.closingFlag) return Promise.reject(closed());
-    return this.call((call) => this.member("startFlush", "E5.1")(call));
+    return this.calls.call((call) => this.member("startFlush", "E5.1")(call));
   }
 
   close(): Promise<void> {
     this.closePromise ??= new Promise<void>((resolve, reject) => {
       this.closeSettled = { resolve, reject };
       this.closingFlag = true;
-      this.hold();
+      this.calls.hold();
       try {
         this.member("close", "E5.1")();
       } catch (error) {
@@ -276,7 +239,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
 
   async ensureProvider(provider: string): Promise<void> {
     if (this.closingFlag) throw closed();
-    return this.call((call) => this.member("ensureProvider", "E5.1")(provider, call));
+    return this.calls.call((call) => this.member("ensureProvider", "E5.1")(provider, call));
   }
 
   providerAvailability(
@@ -393,47 +356,18 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     if (this.closingFlag) return;
     (this.member("admissionReopened", "E5.4d") as () => void)();
   }
-  /**
-   * `index.ts:1116`-`:1138`: wait for the provider, then for readiness, then prepare the silence
-   * and the recovery defaults. A port that would do the work belongs to the item that owns it,
-   * so this throws rather than skipping it; with no port, `prepare` writes the defaults the
-   * opener already inserted.
-   */
+  /** `index.ts:1116`-`:1138`: the provider and readiness waits, then the type's own ports. */
   override async prepareCommand(
     ...args: Parameters<EngineSurface["prepareCommand"]>
   ): ReturnType<EngineSurface["prepareCommand"]> {
-    const command = args[0];
-    const payload = command.payload as { provider?: string; threadId?: ThreadId; type: string };
-    const provider =
-      payload.provider ??
-      (payload.threadId === undefined
-        ? undefined
-        : this.storeRef.getThread(payload.threadId)?.provider);
-    if (provider !== undefined) await this.optionsRef.waitForProvider?.(provider as never);
-    // A port this shell cannot run fails before readiness, naming the item that owns it.
-    if (this.optionsRef.resolveSilenceMs !== undefined)
-      throw incomplete("prepareCommand's silence", "E5.6");
-    if (
-      this.optionsRef.recovery?.preferences !== undefined ||
-      this.optionsRef.preferences !== undefined
-    )
-      throw incomplete("prepareCommand's recovery", "E5.8");
-    await this.readyPromise;
-    // `silence.prepareCommand` (`silence.ts:84`): without the port it returns at once.
-    if (
-      !["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
-        payload.type,
-      )
-    )
-      return;
-    // `recovery.prepare` (`recovery.ts:91`): the port and the defaults it reads are E5.8's.
-    if (
-      this.optionsRef.recovery?.preferences !== undefined ||
-      this.optionsRef.preferences !== undefined
-    )
-      throw incomplete("prepareCommand's recovery", "E5.8");
-    (this.binding.prepareCommand as ((value: string) => void) | undefined)?.(
-      JSON.stringify(command),
+    return prepareCommand(
+      {
+        options: this.optionsRef,
+        store: this.storeRef,
+        ready: this.readyPromise,
+        binding: this.binding,
+      },
+      args[0],
     );
   }
 }

@@ -10,12 +10,27 @@ import type { Store } from "../store.ts";
 
 export type Receipt = (command: string) => string;
 
+/**
+ * Commands that would start or redirect a turn; a moving or moved thread refuses them
+ * (`live-move.ts:13`-`:21`). Every other command, `thread.interrupt` and `thread.archive`
+ * included, still runs.
+ */
+const turnCommands = new Set([
+  "thread.send",
+  "thread.resume",
+  "queue.resume",
+  "thread.switch",
+  "thread.limit",
+  "thread.move",
+  "thread.continueOn",
+]);
+
 /** What the receipt handler wraps: the engine's policies and the native call. */
 export interface ReceiptDeps {
   closing(): boolean;
   ready(): boolean;
   store: Store;
-  /** `liveMove.fenceCommand`: a thread fenced to another machine refuses every command. */
+  /** `liveMove.fenceCommand`: a thread fenced to another machine refuses its turn commands. */
   fence?: ((threadId: string) => unknown) | undefined;
   host?: ((command: unknown) => unknown) | undefined;
   policy?: ((command: unknown, accept: () => unknown) => unknown) | undefined;
@@ -36,10 +51,22 @@ export function receiptHandler(deps: ReceiptDeps): CommandHandler {
       const receipt = (): CommandResult =>
         (accepted ??= JSON.parse(deps.receipt(JSON.stringify(command))) as CommandResult);
       const result = deps.store.atomic(() => {
-        const threadId = (command.payload as { threadId?: string }).threadId;
-        // `??`, as `index.ts:421`-`:426` has it: a null answer falls through.
-        const fenced = threadId === undefined ? undefined : deps.fence?.(threadId);
-        if (fenced !== undefined && fenced !== null) return fenced as CommandResult;
+        const payload = command.payload as { type: string; threadId?: string | null };
+        // Only a turn command with a thread id is fenced (`live-move.ts:33`-`:41`); the
+        // production fence answers `{code, detail}`, and TS wraps it as a refusal.
+        const fenced =
+          turnCommands.has(payload.type) && payload.threadId
+            ? deps.fence?.(payload.threadId)
+            : undefined;
+        if (fenced !== undefined && fenced !== null) {
+          const refused = fenced as { code: string; detail: string };
+          return {
+            commandId: command.id,
+            ok: false,
+            error: refused.code,
+            ...refused,
+          } as CommandResult;
+        }
         const hosted = deps.host?.(command);
         if (hosted !== undefined && hosted !== null) return hosted as CommandResult;
         const decided = deps.policy?.(command, receipt);

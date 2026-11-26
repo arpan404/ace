@@ -35,6 +35,13 @@ pub struct OpenFrameJs {
 /// `options.selectInstance`: the account a provider runs on by default.
 type SelectInstance = FunctionRef<FnArgs<(String, Option<String>)>, Option<String>>;
 
+/// `options.recovery.resetAt`'s answer, tagged so undefined, null and a time stay distinct.
+#[napi(object)]
+pub struct ResetAtJs {
+    pub tag: String,
+    pub at: Option<f64>,
+}
+
 /// Every port the engine calls, as function references.
 pub struct JsPorts {
     env: Cell<Option<Env>>,
@@ -71,7 +78,7 @@ pub struct JsPorts {
     has_move_target: bool,
     has_reset_at: bool,
     admits: FunctionRef<(), bool>,
-    reset_at: Option<FunctionRef<String, Option<f64>>>,
+    reset_at: Option<FunctionRef<String, ResetAtJs>>,
     select_instance: Option<SelectInstance>,
     timers: RefCell<HashMap<u64, ArmedTimer>>,
     /// The Rust port of `timeOrderedIds` (`time-ordered-id.ts:11`), used when no `ids` port
@@ -123,7 +130,7 @@ impl JsPorts {
         has_move_target: bool,
         has_reset_at: bool,
         admits: FunctionRef<(), bool>,
-        reset_at: Option<FunctionRef<String, Option<f64>>>,
+        reset_at: Option<FunctionRef<String, ResetAtJs>>,
         select_instance: Option<SelectInstance>,
     ) -> napi::Result<JsPorts> {
         Ok(JsPorts {

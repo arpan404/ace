@@ -73,10 +73,10 @@ impl ProviderAdmissionFacts for Facts<'_> {
         }
     }
 
-    fn default_instance(&self, provider: &str) -> Option<String> {
+    fn default_instance(&self, provider: &str) -> Result<Option<String>, String> {
         // `registry.has(provider) ? selectInstance(provider, backend) : undefined`.
         if !self.state.registry.has(provider) {
-            return None;
+            return Ok(None);
         }
         let backend = self
             .state
@@ -87,6 +87,7 @@ impl ProviderAdmissionFacts for Facts<'_> {
         self.core
             .ports
             .default_instance(provider, backend.as_deref())
+            .map_err(|error| error.to_string())
     }
 
     fn enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, String> {

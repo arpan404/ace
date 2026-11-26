@@ -11,6 +11,16 @@ use crate::{Core, EngineError, State};
 
 /// `recovery.sync`: clients see the queue's shown state, then core learns the retained work.
 pub fn sync(core: &Core, state: &mut State, thread: &str, now: f64) -> Result<(), EngineError> {
+    let held = crate::queue::store::get(&core.store, thread)?;
+    // `recovery.ts:166`-`:172`: an older build could leave the child's quota hold on the parent's
+    // account. Retire it, keeping the child's own quota evidence.
+    if held.limited
+        && !root_limited(state, thread)
+        && matches!(held.reason.as_deref(), Some("limit") | Some("snooze"))
+        && !crate::intents::store::recovering(core.store.conn(), thread)?
+    {
+        binding_changed(core, thread, now)?;
+    }
     let queue = crate::queue::store::shown(&core.store, thread)?;
     let saved = core
         .store
@@ -64,6 +74,23 @@ pub fn sync(core: &Core, state: &mut State, thread: &str, now: f64) -> Result<()
         )?;
     }
     Ok(())
+}
+
+/// Whether the thread's root agent still carries quota evidence. A thread with no resident
+/// snapshot has no root, which reads as not limited (`recovery.ts:163`).
+fn root_limited(state: &State, thread: &str) -> bool {
+    let Some(snapshot) = state.repo.snapshots.get(thread) else {
+        return false;
+    };
+    let borrowed = snapshot.borrow();
+    let Some(root) = borrowed.state.root_key.as_deref() else {
+        return false;
+    };
+    borrowed
+        .state
+        .agents
+        .get(root)
+        .is_some_and(|record| record.limited.is_some())
 }
 
 /// `repo.engineQueueFact` (`repository.ts:586`) over the receipt's own state.
@@ -238,6 +265,9 @@ pub fn binding_changed(core: &Core, thread: &str, at: f64) -> Result<(), EngineE
 pub fn schedule(core: &Core) -> Result<(), EngineError> {
     let ask: Weak<Core> = core.self_weak.borrow().clone();
     if core.ports.is_transaction_open() {
+        // Read the port now, as TypeScript's `schedule` does inside the receipt: a throw rolls
+        // the receipt back. The arming itself waits for the commit.
+        let _admits = core.ports.admits()?;
         core.defer(Deferred::AfterPublish(Box::new(move || {
             if let Some(core) = ask.upgrade() {
                 let _ = arm(&core);
@@ -262,7 +292,7 @@ fn arm(core: &Rc<Core>) -> Result<(), EngineError> {
         core.ports.cancel_timer(key);
     }
     // No deadline runs while maintenance holds new work or after close.
-    if core.with_state(|state| state.recovery.closed)? || !core.ports.admits() {
+    if core.with_state(|state| state.recovery.closed)? || !core.ports.admits()? {
         return Ok(());
     }
     let Some(at) = crate::queue::deadline::next_deadline(core.store.conn())? else {

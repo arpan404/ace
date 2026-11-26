@@ -50,6 +50,15 @@ pub struct OpenFrame {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortObject(pub u32);
 
+/// `options.recovery.resetAt`'s answer (`recovery.ts:31`). `undefined` falls back to the stored
+/// reading, `null` is no reading, and `At` is the account's reset (E5.4d).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetAt {
+    Undefined,
+    Null,
+    At(i64),
+}
+
 /// Every `EngineOptions` port. All synchronous on the JS thread; async ones return a future.
 pub trait Ports {
     // ---- The clock and its timers (E5.1) ----
@@ -203,9 +212,13 @@ pub trait Ports {
     fn on_provider_diagnostic(&self, _thread: &str, _json: &str) {}
     /// `options.onModelUnavailable` (E5.6).
     fn on_model_unavailable(&self, _provider: &str, _model: &str, _instance: Option<&str>) {}
-    /// `options.selectInstance` (E5.4).
-    fn select_instance(&self, _provider: &str, _backend: Option<&str>) -> Option<String> {
-        None
+    /// `options.selectInstance` (E5.4). A port that throws answers `Err`; the receipt rolls back.
+    fn select_instance(
+        &self,
+        _provider: &str,
+        _backend: Option<&str>,
+    ) -> Result<Option<String>, PortError> {
+        Ok(None)
     }
     /// `options.providerEnabled` (E5.4).
     fn provider_enabled(
@@ -217,7 +230,11 @@ pub trait Ports {
     }
 
     /// `options.selectInstance` for a provider the registry has (`handler.ts:108`-`:111`).
-    fn default_instance(&self, provider: &str, backend: Option<&str>) -> Option<String> {
+    fn default_instance(
+        &self,
+        provider: &str,
+        backend: Option<&str>,
+    ) -> Result<Option<String>, PortError> {
         self.select_instance(provider, backend)
     }
     /// `options.machine` (E5.4).
@@ -236,14 +253,15 @@ pub trait Ports {
         false
     }
 
-    /// `ports.admits()`: whether new work may start (the maintenance gate).
-    fn admits(&self) -> bool {
-        true
+    /// `ports.admits()`: whether new work may start (the maintenance gate). A port that throws
+    /// answers `Err`; the caller propagates it.
+    fn admits(&self) -> Result<bool, PortError> {
+        Ok(true)
     }
 
-    /// `ports.resetAt(thread)`: `None` when the port gave no reading, `Some(None)` for null.
-    fn reset_at(&self, _thread: &str) -> Option<Option<i64>> {
-        None
+    /// `ports.resetAt(thread)`'s answer, with undefined, null and a time kept apart.
+    fn reset_at(&self, _thread: &str) -> Result<Option<ResetAt>, PortError> {
+        Ok(None)
     }
 
     fn machine(&self) -> Result<String, PortError> {

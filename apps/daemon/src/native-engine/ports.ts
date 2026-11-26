@@ -82,8 +82,8 @@ export interface EngineBindings {
   hasMoveTarget: boolean;
   hasResetAt: boolean;
   admits(): boolean;
-  /** The account's reset reading, or undefined when no port was given. */
-  resetAt?(threadId: string): number | null | undefined;
+  /** The account's reset reading, with undefined, null and a time kept apart. */
+  resetAt?(threadId: string): { tag: "undefined" | "null" | "at"; at?: number };
 }
 
 /** The `options` JSON the binding reads: limits, idleMs and which ready ports were given. */
@@ -190,7 +190,15 @@ export function engineBindings(input: {
     hasResetAt: options.recovery?.resetAt !== undefined,
     admits: () => options.recovery?.admits?.() ?? true,
     ...(options.recovery?.resetAt
-      ? { resetAt: (threadId: string) => options.recovery?.resetAt?.(threadId as never) }
+      ? {
+          resetAt: (threadId: string) => {
+            // napi's `Option<f64>` cannot tell undefined from null, so the tag carries it.
+            const value = options.recovery?.resetAt?.(threadId as never);
+            if (value === undefined) return { tag: "undefined" as const };
+            if (value === null) return { tag: "null" as const };
+            return { tag: "at" as const, at: value };
+          },
+        }
       : {}),
   };
 }
