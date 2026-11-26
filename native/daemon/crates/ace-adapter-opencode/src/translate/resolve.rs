@@ -39,7 +39,7 @@ pub(crate) fn validate_resolution(value: &Value) -> Result<(), StateError> {
                     return Err(StateError::Limit("resolution"));
                 }
                 if let Some(Value::String(feedback)) = resolution.get("feedback") {
-                    if feedback.encode_utf16().count() > 8192 {
+                    if feedback.len_code_points() > 8192 {
                         return Err(StateError::Limit("resolution"));
                     }
                 } else if resolution.get("feedback").is_some() {
@@ -191,4 +191,21 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
         });
     }
     Err(StateError::Limit("resolution"))
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn question_feedback_accepts_8192_emoji() {
+        for length in [8192, 8193] {
+            let feedback = "😀".repeat(length);
+            let resolution = ace_json::parse(&format!(
+                r#"{{"kind":"question","answers":{{}},"feedback":"{feedback}"}}"#
+            ))
+            .expect("resolution");
+            assert_eq!(validate_resolution(&resolution).is_ok(), length == 8192);
+        }
+    }
 }

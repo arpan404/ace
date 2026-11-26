@@ -17,9 +17,10 @@ use ace_git::core::lease::processes::GitProcess;
 use super::wire::{self, Frame};
 use ace_git::core::cli::StreamCallbacks;
 use ace_git::core::error::{CleanupResult, GitError, GitErrorCode};
+use ace_git::core::events::{EventQueue, OutputChunk};
 use ace_git::core::spawn::{
-    BoxFuture, CancelHandle, CleanupSupervisorPort, EventQueue, GroupPort, OutputChunk,
-    ProcessChild, ProcessEvent, ProcessSpawner, SpawnRequest, SpawnedProcess, TimeoutScheduler,
+    BoxFuture, CancelHandle, CleanupSupervisorPort, GroupPort, ProcessChild, ProcessEvent,
+    ProcessSpawner, SpawnRequest, SpawnedProcess, TimeoutScheduler,
 };
 use napi::Status;
 use napi::bindgen_prelude::{FnArgs, Uint8Array};

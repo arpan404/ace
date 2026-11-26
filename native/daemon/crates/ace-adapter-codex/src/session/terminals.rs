@@ -9,7 +9,6 @@ use std::collections::HashSet;
 use ace_json::{Map, Value};
 
 use super::frames::{Calls, Effect, FrameDir, Frames};
-use super::state::utf16_len;
 
 /// A terminal page's bound (`TerminalPage`, `background-terminals.ts:2`).
 const TERMINALS_PER_PAGE: usize = 256;
@@ -153,8 +152,8 @@ fn parse_page(result: Result<&Value, &str>) -> Result<Page, String> {
         let process_id = entry
             .get("processId")
             .and_then(Value::as_str)
-            // `zod`'s `.min(1).max(1024)` counts UTF-16 code units.
-            .filter(|id| !id.is_empty() && utf16_len(id) <= PROCESS_ID_MAX)
+            // `zod`'s `.min(1).max(1024)` counts code points.
+            .filter(|id| !id.is_empty() && id.chars().count() <= PROCESS_ID_MAX)
             .ok_or_else(|| "Invalid Codex terminal page".to_owned())?;
         // `z.string().optional()`: an empty id names no item, and the
         // discovery fold's `if (terminal.itemId)` treats it as absent.
@@ -172,7 +171,7 @@ fn parse_page(result: Result<&Value, &str>) -> Result<Page, String> {
     let next_cursor = match body.get("nextCursor") {
         None | Some(Value::Null) => None,
         Some(Value::String(cursor)) if !cursor.as_str().is_empty() => {
-            if utf16_len(cursor.as_str()) > CURSOR_MAX {
+            if cursor.len_code_points() > CURSOR_MAX {
                 return Err("Invalid Codex terminal page".to_owned());
             }
             Some(cursor.as_str().to_owned())
@@ -340,11 +339,10 @@ mod tests {
     }
 
     #[test]
-    fn a_process_id_is_bounded_in_utf16_code_units_as_zod_counts_them() {
+    fn a_process_id_is_bounded_in_code_points() {
         let mut calls = Calls::new();
         let (mut read, _) = TerminalRead::start("t1", &mut calls);
-        // 600 CJK characters: 600 UTF-16 code units, 1,800 UTF-8 bytes.
-        let id = "\u{6f22}".repeat(600);
+        let id = "😀".repeat(PROCESS_ID_MAX);
         read.settled(
             &mut calls,
             Ok(
@@ -355,7 +353,7 @@ mod tests {
         assert!(matches!(read.outcome(), Some(Ok(_))));
         let mut calls = Calls::new();
         let (mut read, _) = TerminalRead::start("t1", &mut calls);
-        let id = "\u{6f22}".repeat(PROCESS_ID_MAX + 1);
+        let id = "😀".repeat(PROCESS_ID_MAX + 1);
         read.settled(
             &mut calls,
             Ok(
@@ -424,5 +422,17 @@ mod tests {
         assert!(read.settled(*call, false, None, &frames).is_empty());
         let array = ace_json::parse("[1]").expect("fixture parses");
         assert!(read.settled(*call, false, Some(&array), &frames).is_empty());
+    }
+
+    #[test]
+    fn the_next_terminal_cursor_is_bounded_in_code_points() {
+        for length in [4096, 4097] {
+            let cursor = "😀".repeat(length);
+            let mut calls = Calls::new();
+            let (mut read, _) = TerminalRead::start("t1", &mut calls);
+            let effects = read.settled(&mut calls, Ok(&page(&[], Some(&cursor))));
+            assert_eq!(!effects.is_empty(), length == 4096);
+            assert_eq!(read.outcome().is_some_and(Result::is_err), length > 4096);
+        }
     }
 }

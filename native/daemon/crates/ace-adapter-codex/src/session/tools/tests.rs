@@ -240,9 +240,8 @@ fn an_unread_config_keeps_every_tool_listed_whatever_the_catalog() {
 }
 
 #[test]
-fn a_catalog_slug_is_bounded_in_utf16_code_units_as_zod_counts_them() {
-    // 400 CJK characters: 400 UTF-16 code units, 1,200 UTF-8 bytes.
-    let slug = "\u{6f22}".repeat(400);
+fn a_catalog_slug_is_bounded_in_code_points() {
+    let slug = "😀".repeat(512);
     let mut calls = Calls::new();
     let (mut pager, _) = super::catalog::Pager::start(&mut calls, None);
     let page = ace_json::parse(&format!(
@@ -253,13 +252,27 @@ fn a_catalog_slug_is_bounded_in_utf16_code_units_as_zod_counts_them() {
     assert_eq!(pager.done, Some(Some(vec![slug.clone(), slug.clone()])));
     let mut calls = Calls::new();
     let (mut pager, _) = super::catalog::Pager::start(&mut calls, None);
-    let too_long = "\u{6f22}".repeat(513);
+    let too_long = "😀".repeat(513);
     let page = ace_json::parse(&format!(
         "{{\"data\":[{{\"id\":\"{too_long}\",\"model\":\"{too_long}\"}}]}}"
     ))
     .expect("fixture parses");
     assert!(pager.page(&mut calls, Some(&page)).is_empty());
     assert_eq!(pager.done, Some(None));
+}
+
+#[test]
+fn a_catalog_cursor_is_bounded_in_code_points() {
+    for (length, asked_again) in [(4096, true), (4097, false)] {
+        let mut calls = Calls::new();
+        let (mut pager, _) = super::catalog::Pager::start(&mut calls, None);
+        let page = ace_json::json!({
+            "data": [], "nextCursor": "😀".repeat(length)
+        });
+        let effects = pager.page(&mut calls, Some(&page));
+        assert_eq!(effects.len(), usize::from(asked_again), "{length}");
+        assert_eq!(pager.done.is_none(), asked_again, "{length}");
+    }
 }
 
 #[test]

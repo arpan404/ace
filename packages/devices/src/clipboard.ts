@@ -1,4 +1,6 @@
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal, DeviceError, deviceAnswer } from "./sdk.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
+import { nativeInput } from "./native-input.ts";
 
 /** Clipboard text read or written in one call, in UTF-16 units: the same budget as typed text. */
 export const clipboardLimit = 4096;
@@ -15,6 +17,10 @@ export interface DeviceClipboard {
 
 /** Bounds device clipboard text to the limit, never splitting a surrogate pair. */
 export function boundedClipboard(raw: string, cut = false): ClipboardRead {
+  if (nativeInput)
+    return JSON.parse(
+      nativeDevices().devicePlatformBoundedClipboard(JSON.stringify(raw), cut),
+    ) as ClipboardRead;
   if (raw.length <= clipboardLimit) return { text: raw, truncated: cut };
   let end = clipboardLimit;
   const last = raw.charCodeAt(end - 1);
@@ -24,9 +30,7 @@ export function boundedClipboard(raw: string, cut = false): ClipboardRead {
 
 /** Android's clipboard is reachable only over the scrcpy control socket of the live view. */
 export function androidClipboardUnavailable(): DeviceError {
-  return new DeviceError(
-    "not_supported",
-    "The Android clipboard needs ace's live view of the emulator",
-    "Start the device view (sim_start), then retry; adb has no clipboard command that works on every emulator.",
-  );
+  if (nativeInput)
+    return deviceAnswer(() => nativeDevices().devicePlatformAndroidClipboardRefusal());
+  return catalogRefusal("androidClipboardLiveView");
 }

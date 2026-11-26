@@ -8,7 +8,8 @@ import {
 import type { DeviceInput } from "@ace/protocol/devices";
 import type { z } from "zod";
 import { androidFind } from "./android-ui.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
+import { nativeAxLimits, nativeInput } from "./native-input.ts";
 import {
   simulatorActionInput,
   simulatorLayout,
@@ -23,7 +24,8 @@ export interface CaptureUI {
   act(options: unknown, guard: () => void): Promise<z.infer<typeof ScreenUIActResult>>;
 }
 
-const bodyLimit = 4 * 1024 * 1024;
+/** The read's body cap and deadline: ace-devices' numbers, with today's as the default. */
+const axLimits = nativeInput ? nativeAxLimits() : { bodyBytes: 4 * 1024 * 1024, timeoutMs: 10_000 };
 
 /** serve-sim's in-process accessibility bridge, read on demand from its `/ax` route. */
 export function simulatorUI(options: {
@@ -36,58 +38,35 @@ export function simulatorUI(options: {
 }): CaptureUI {
   const read = async (limits: unknown) => {
     const { width, height, orientation } = options.screen();
-    if (!width || !height)
-      throw new DeviceError(
-        "not_found",
-        "Simulator screen size is not known yet",
-        "Wait for the live view's first frame, then read the tree again.",
-      );
+    if (!width || !height) throw catalogRefusal("simulatorSizeUnknown");
     const controller = new AbortController();
     const abort = () => controller.abort();
     options.signal.addEventListener("abort", abort, { once: true });
-    const cancel = options.after(10000, abort);
+    const cancel = options.after(axLimits.timeoutMs, abort);
     try {
       const response = await options.fetch(options.url, {
         signal: controller.signal,
         redirect: "error",
       });
-      if (!response.ok || !response.body)
-        throw new DeviceError(
-          "command_failed",
-          "Simulator accessibility is unavailable",
-          "Unlock the Simulator and wait for an app to be frontmost, then read the tree again.",
-        );
+      if (!response.ok || !response.body) throw catalogRefusal("simulatorAxUnavailable");
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of response.body) {
         size += chunk.length;
-        if (size > bodyLimit)
-          throw new DeviceError(
-            "limit",
-            "Simulator accessibility tree exceeds its budget",
-            "Reduce the app's UI tree.",
-          );
+        if (size > axLimits.bodyBytes) throw catalogRefusal("simulatorAxBudget");
         chunks.push(Buffer.from(chunk));
       }
       let raw: unknown;
       try {
         raw = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       } catch {
-        throw new DeviceError(
-          "invalid_data",
-          "Simulator accessibility tree is malformed",
-          "Read the UI tree again.",
-        );
+        throw catalogRefusal("simulatorTreeUnreadable");
       }
       const screen = { width, height, ...(orientation ? { orientation } : {}) };
       return { tree: simulatorTree(raw, screen, limits), turn: simulatorLayout(raw, screen).turn };
     } catch (error) {
       if (controller.signal.aborted && !options.signal.aborted)
-        throw new DeviceError(
-          "timeout",
-          "Simulator accessibility read timed out",
-          "Read the UI tree again.",
-        );
+        throw catalogRefusal("simulatorAxTimeout");
       throw error;
     } finally {
       cancel();

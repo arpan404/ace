@@ -224,8 +224,3 @@ fn raw_errno_name(errno: i32) -> Option<&'static str> {
     .find(|(candidate, _)| candidate.raw_os_error() == errno)
     .map(|(_, name)| name)
 }
-
-#[cfg(not(unix))]
-fn raw_errno_name(_errno: i32) -> Option<&'static str> {
-    None
-}

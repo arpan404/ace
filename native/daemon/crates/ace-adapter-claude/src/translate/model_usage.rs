@@ -30,7 +30,7 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
     let mut out = ModelMap::new();
 
     for (name, entry) in as_map {
-        if name.is_empty() || name.len() > 512 {
+        if name.is_empty() || name.len_code_points() > 512 {
             return None;
         }
 
@@ -229,4 +229,22 @@ pub(crate) fn provider_session_fact(
     map.insert("costUsd".to_owned(), cost.clone());
 
     Value::Object(map)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn result_usage_accepts_a_model_of_512_emoji() {
+        for length in [512, 513] {
+            let model = "😀".repeat(length);
+            let usage = ace_json::parse(&format!(r#"{{"{model}":{{"inputTokens":1,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0}}}}"#)).expect("usage");
+            let parsed = parse_model_usage(&usage);
+            assert_eq!(
+                parsed.is_some_and(|totals| totals.contains_key(&model)),
+                length == 512
+            );
+        }
+    }
 }

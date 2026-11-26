@@ -214,6 +214,52 @@ interface DevicesAddon {
   devicePlatformServeSimSupported(version: string | null): boolean;
   devicePlatformReplacesHelper(commandLine: string, version: string): boolean;
   devicePlatformSimulatorList(output: string): string;
+  devicePlatformScrcpyEncode(message: string): Buffer;
+  devicePlatformScrcpyInputPlan(
+    input: string,
+    display: string,
+    video: string,
+    nextSequence: number,
+  ): string;
+  devicePlatformHeldPointersRelease(held: string[]): string;
+  devicePlatformFingerStep(op: string, held: string): string;
+  devicePlatformKeyRefusal(ios: boolean, name: string, key: string): string | null;
+  devicePlatformDeviceTouch(ios: boolean, multiTouch: boolean, input: boolean): string;
+  devicePlatformBoundedClipboard(text: string, cut: boolean): string;
+  devicePlatformAndroidClipboardRefusal(): string;
+  devicePlatformSimulatorScreens(report: string): string;
+  devicePlatformTouchTarget(screens: string, picture?: string): number;
+  devicePlatformPostureRead(report: string, requested?: string): string | null;
+  devicePlatformPostureAngle(posture: string): number;
+  devicePlatformScreenCount(report: string): number | null;
+  devicePlatformHasHinge(status: string): boolean;
+  devicePlatformPostureFromHinge(reply: string): string | null;
+  devicePlatformAndroidTree(xml: string, options: string): string;
+  devicePlatformAndroidFind(tree: string, options: string): string;
+  devicePlatformAndroidTarget(tree: string, reference: string): string;
+  devicePlatformAndroidAct(node: string, action: string): string;
+  devicePlatformSimulatorTree(raw: string, screen: string, options: string): string;
+  devicePlatformSimulatorLayout(raw: string, screen: string): string;
+  devicePlatformSimulatorTarget(tree: string, reference: string): string;
+  devicePlatformSimulatorActionInput(node: string, action: string, turn: number): string;
+  devicePlatformTypingArgs(device: string): string[];
+  devicePlatformInputShell(serial: string, command: string, sequence: number): string[];
+  devicePlatformUiHelperArgs(serial: string): string[];
+  devicePlatformUiHelperTree(reply: string): string;
+  devicePlatformDigitizerStep(message: string, target: number): string;
+  devicePlatformKeyAction(key: string, orientation: string): string;
+  devicePlatformNormalizedPoint(x: number, y: number, width: number, height: number): string;
+  devicePlatformScreenEdge(x: number, y: number): number;
+  devicePlatformHelperReply(line: string): string;
+  devicePlatformInputAnswer(line: string, marker: string): boolean | null;
+  devicePlatformPasteboardPlan(verb: string, udid: string): string;
+  devicePlatformScrcpyClipboardStep(state: string | null, event: string): string;
+  devicePlatformHeldPointersStep(state: string | null, input?: string): string;
+  devicePlatformScrcpyDeviceReaderNew(): number;
+  devicePlatformScrcpyDeviceReaderPush(id: number, chunk: string): string;
+  devicePlatformScrcpyDeviceReaderDrop(id: number): void;
+  devicePlatformSimulatorAxLimits(): string;
+  devicePlatformNativeCalls(): number;
 }
 
 const library =
@@ -255,6 +301,10 @@ export function nativeDevices(): DevicesAddon {
 /** One export's answer: its value, or the refusal the caller raises as a `DeviceError`. */
 export function answered<T>(invoke: () => string): T {
   const answer = JSON.parse(invoke()) as Answer<T>;
+  // A bare value here is a wiring bug, never a device fact: say which, not "refused without a
+  // message". Every refusal the addon answers carries a catalog word.
+  if (typeof answer?.ok !== "boolean")
+    throw new Error("ace-devices: the addon answered without an answer envelope");
   if (!answer.ok || answer.error) throw new Refused(answer.error);
   return answer.value as T;
 }

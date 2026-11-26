@@ -17,6 +17,7 @@
 //! - derived `serde::Serialize` types serialize with the same rules ([`ser::to_string`]).
 
 mod access;
+pub mod bounded;
 mod de;
 mod deep;
 mod macros;
@@ -38,7 +39,7 @@ pub use object::{Entry, Map, MapKey};
 pub use parse::{SyntaxError, parse};
 pub use raw::{Entries, Items, Kind, Raw, RawRef, parse_raw};
 pub use ser::PreSpliced;
-pub use string::{JsString, Units};
+pub use string::{JsString, Units, utf16_len};
 pub use to_value::{ToValue, to_value};
 pub use value::{Array, Value};
 pub use write::{ObjectWriter, to_string, write_js_string, write_str, write_value};
