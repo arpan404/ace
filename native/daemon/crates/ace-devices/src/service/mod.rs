@@ -6,11 +6,14 @@
 //!
 //! Sans-IO: the clock is a parameter, never a global, and nothing here awaits.
 
+pub mod held_pushes;
 pub mod input_queue;
 pub mod lease;
 pub mod queue;
+pub mod wire;
 pub mod words;
 
+pub use held_pushes::{Held, HeldPushes};
 pub use input_queue::{Admission, MAX_PENDING_PER_KIND, PendingInput, SharedInput};
 pub use lease::{
     Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, LeaseWatch, Retained,
