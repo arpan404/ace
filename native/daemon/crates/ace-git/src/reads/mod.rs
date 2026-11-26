@@ -26,6 +26,12 @@ pub struct Command {
     pub cwd: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    /// True when the command writes (GIT_OPTIONAL_LOCKS stays as the caller set it).
+    pub write: bool,
+    /// Bytes written to stdin, as `GitCli.call`'s `input`.
+    pub input: Option<Vec<u8>>,
+    /// The caller's capture bound, as `GitCli.call`'s `captureBytes`.
+    pub capture_bytes: Option<usize>,
     /// True when a non-zero exit is an answer, as `allowFailure` is.
     pub allow_failure: bool,
 }
@@ -36,6 +42,9 @@ impl Command {
             cwd: cwd.to_owned(),
             args: args.iter().map(|arg| (*arg).to_owned()).collect(),
             env: Vec::new(),
+            write: false,
+            input: None,
+            capture_bytes: None,
             allow_failure: false,
         }
     }
@@ -45,6 +54,9 @@ impl Command {
             cwd: cwd.to_owned(),
             args,
             env: Vec::new(),
+            write: false,
+            input: None,
+            capture_bytes: None,
             allow_failure: false,
         }
     }
@@ -59,6 +71,21 @@ impl Command {
 
     pub fn allowing_failure(mut self) -> Self {
         self.allow_failure = true;
+        self
+    }
+
+    pub fn writing(mut self) -> Self {
+        self.write = true;
+        self
+    }
+
+    pub fn with_input(mut self, input: &[u8]) -> Self {
+        self.input = Some(input.to_vec());
+        self
+    }
+
+    pub fn with_capture_bytes(mut self, bytes: usize) -> Self {
+        self.capture_bytes = Some(bytes);
         self
     }
 }
@@ -121,22 +148,45 @@ pub(crate) mod test_support {
                     .iter()
                     .map(|(key, value)| (key.as_str(), value.as_str()))
                     .collect();
-                let output = self
+                let mut child = self
                     .fixture
                     .command(Path::new(&command.cwd), &pairs)
                     .args(&command.args)
-                    .output()
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
                     .map_err(|error| {
                         GitError::new(
                             crate::core::error::GitErrorCode::GitMissing,
                             error.to_string(),
                         )
                     })?;
+                if let Some(input) = command.input {
+                    use std::io::Write;
+                    if let Some(stdin) = child.stdin.as_mut() {
+                        let _ = stdin.write_all(&input);
+                    }
+                }
+                drop(child.stdin.take());
+                let output = child.wait_with_output().map_err(|error| {
+                    GitError::new(
+                        crate::core::error::GitErrorCode::GitMissing,
+                        error.to_string(),
+                    )
+                })?;
+                let mut stdout = output.stdout;
+                let truncated = command
+                    .capture_bytes
+                    .is_some_and(|bytes| stdout.len() > bytes);
+                if let Some(bytes) = command.capture_bytes {
+                    stdout.truncate(bytes);
+                }
                 Ok(CommandOutput {
-                    stdout: output.stdout,
+                    stdout,
                     stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                     exit_code: output.status.code().unwrap_or(-1),
-                    truncated: false,
+                    truncated,
                 })
             })
         }
