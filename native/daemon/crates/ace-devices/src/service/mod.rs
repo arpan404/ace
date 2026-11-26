@@ -7,6 +7,7 @@
 //! Sans-IO: the clock is a parameter, never a global, and nothing here awaits.
 
 pub mod lease;
+pub mod words;
 
 pub use lease::{
     Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, LeaseWatch, Retained,

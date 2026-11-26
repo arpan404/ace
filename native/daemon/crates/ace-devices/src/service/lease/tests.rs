@@ -5,6 +5,7 @@
 
 use super::{Actor, ActorKind, Controller, ControllerLease, LEASE_MS, agent_owner};
 use crate::error::{DeviceError, DeviceErrorCode};
+use crate::service::words;
 
 fn human(owner: &str) -> Actor {
     Actor::human(owner)
@@ -139,8 +140,9 @@ fn a_retained_ticket_keeps_the_lease_alive_until_it_is_released() {
     );
     assert_eq!(lease.status(LEASE_MS * 2.0).controller, Controller::Agent);
 
+    // A ticket is consumed by its release, so a second one cannot happen (the
+    // TypeScript's closure flag); the count it held is gone either way.
     lease.release_retained(ticket);
-    lease.release_retained(ticket); // idempotent: the ticket is gone
     assert_eq!(
         lease.status(LEASE_MS * 3.0).controller,
         Controller::None,
@@ -191,14 +193,8 @@ fn asserting_the_lease_renews_it_and_names_the_way_back() {
         .assert_held(&human("person"), None, 20_000.0)
         .expect_err("a person does not hold the agent's lease");
     assert_eq!(refused.code(), DeviceErrorCode::LeaseRequired);
-    let DeviceError::Coded { message, hint, .. } = &refused else {
-        panic!("a coded refusal: {refused:?}");
-    };
-    assert_eq!(message.as_str(), "Controller lease required");
-    assert_eq!(
-        hint.as_str(),
-        "Call sim_start to take control again; wait while a person controls the simulator."
-    );
+    // The words are the catalog's, not this crate's.
+    assert_eq!(refused, words::refusal("leaseRequired"));
 }
 
 #[test]
@@ -207,4 +203,29 @@ fn an_agent_owner_is_the_json_pair_the_type_script_writes() {
     // A quote in either id is escaped as JSON.stringify escapes it.
     assert_eq!(agent_owner("t\"1", "a1"), r#"["t\"1","a1"]"#);
     assert_eq!(ActorKind::Agent.as_str(), "agent");
+}
+
+#[test]
+fn an_empty_thread_or_agent_id_names_no_holder() {
+    let mut lease = ControllerLease::new();
+    // `lease.ts` tests the ids by truthiness, so "" is no holder at all.
+    lease.claim(Actor::agent("agent-1", "", "a1"), 0.0);
+    assert_eq!(lease.status(0.0).holder, None);
+    lease.claim(Actor::agent("agent-1", "t1", ""), 0.0);
+    assert_eq!(lease.status(0.0).holder, None);
+}
+
+#[test]
+fn many_pending_actions_on_one_epoch_keep_one_retained_count() {
+    let mut lease = ControllerLease::new();
+    let agent = agent("agent-1");
+    lease.claim(agent.clone(), 0.0);
+    let tickets: Vec<_> = (0..64)
+        .map(|_| lease.retain(&agent, 1, 0.0).expect("held"))
+        .collect();
+    assert_eq!(lease.retained_epochs(), 1, "per epoch, never per call");
+    for ticket in tickets {
+        lease.release_retained(ticket);
+    }
+    assert_eq!(lease.retained_epochs(), 0);
 }

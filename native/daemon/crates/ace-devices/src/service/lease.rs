@@ -12,14 +12,15 @@
 
 use indexmap::IndexMap;
 
-use crate::error::{DeviceError, DeviceErrorCode};
+use crate::error::DeviceError;
+
+use super::words;
 
 /// `claim`'s lease length (`lease.ts:25`).
 pub const LEASE_MS: f64 = 30_000.0;
-/// The refusal a caller without the lease gets (`lease.ts:86`-`:90`).
-pub const LEASE_REQUIRED: &str = "Controller lease required";
-pub const LEASE_HINT: &str =
-    "Call sim_start to take control again; wait while a person controls the simulator.";
+/// The catalog key of the refusal a caller without the lease gets
+/// (`lease.ts:74`-`:79`).
+pub const LEASE_REQUIRED_KEY: &str = "leaseRequired";
 
 /// Who is acting: a person, or an agent in a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,15 +102,16 @@ pub struct LeaseStatus {
 }
 
 /// One `retain` call's ticket. Dropping it does not release: the caller says so
-/// with [`ControllerLease::release_retained`], which is idempotent per ticket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// with [`ControllerLease::release_retained`], which consumes it, so a second
+/// release is impossible — the TypeScript's per-closure `released` flag — and no
+/// per-call entry is kept in the lease (its `retained` counts per epoch only).
+#[derive(Debug, PartialEq, Eq)]
 pub struct Retained {
-    ticket: u64,
     epoch: u64,
 }
 
 impl Retained {
-    pub fn epoch(self) -> u64 {
+    pub fn epoch(&self) -> u64 {
         self.epoch
     }
 }
@@ -123,9 +125,6 @@ pub struct ControllerLease {
     deadline: f64,
     /// `this.retained`: how many pending actions hold each epoch alive.
     retained: IndexMap<u64, u32>,
-    /// Which epoch each live ticket belongs to, so a second release is a no-op.
-    tickets: IndexMap<u64, u64>,
-    next_ticket: u64,
 }
 
 impl ControllerLease {
@@ -168,9 +167,10 @@ impl ControllerLease {
             self.deadline = now + LEASE_MS;
         }
         if self.actor.is_some() && now >= self.deadline {
-            let expired = self.actor.take();
-            self.deadline = 0.0;
-            self.epoch = self.epoch.saturating_add(1);
+            // `lease.ts` expires through `release()`, so an expiry moves the epoch
+            // and clears the deadline exactly as a hand-back does.
+            let expired = self.actor.clone();
+            self.release(None);
             self.expired = expired;
         }
         let Some(actor) = self.actor.clone() else {
@@ -180,11 +180,16 @@ impl ControllerLease {
                 holder: None,
             };
         };
+        // `lease.ts` tests the ids by truthiness, so an empty one names no holder.
         let holder = match (actor.kind, actor.thread_id, actor.agent_id) {
-            (ActorKind::Agent, Some(thread_id), Some(agent_id)) => Some(Holder {
-                thread_id,
-                agent_id,
-            }),
+            (ActorKind::Agent, Some(thread_id), Some(agent_id))
+                if !thread_id.is_empty() && !agent_id.is_empty() =>
+            {
+                Some(Holder {
+                    thread_id,
+                    agent_id,
+                })
+            }
             _ => None,
         };
         LeaseStatus {
@@ -202,17 +207,11 @@ impl ControllerLease {
     pub fn retain(&mut self, actor: &Actor, epoch: u64, now: f64) -> Result<Retained, DeviceError> {
         self.assert_held(actor, Some(epoch), now)?;
         *self.retained.entry(epoch).or_insert(0) += 1;
-        let ticket = self.next_ticket;
-        self.next_ticket = self.next_ticket.saturating_add(1);
-        self.tickets.insert(ticket, epoch);
-        Ok(Retained { ticket, epoch })
+        Ok(Retained { epoch })
     }
 
     /// The `release` closure `retain` returned, once per ticket.
     pub fn release_retained(&mut self, retained: Retained) {
-        if self.tickets.shift_remove(&retained.ticket).is_none() {
-            return;
-        }
         let count = self.retained.get(&retained.epoch).copied().unwrap_or(0);
         if count > 1 {
             self.retained.insert(retained.epoch, count - 1);
@@ -236,11 +235,7 @@ impl ControllerLease {
         now: f64,
     ) -> Result<(), DeviceError> {
         if !self.holds(actor, epoch.unwrap_or(self.epoch), now) {
-            return Err(DeviceError::coded(
-                DeviceErrorCode::LeaseRequired,
-                LEASE_REQUIRED,
-                LEASE_HINT,
-            ));
+            return Err(words::refusal(LEASE_REQUIRED_KEY));
         }
         self.deadline = now + LEASE_MS;
         Ok(())
@@ -282,6 +277,12 @@ impl ControllerLease {
     pub fn current(&mut self, now: f64) -> Option<Actor> {
         self.status(now);
         self.actor.clone()
+    }
+
+    /// How many epochs have a pending action retaining them, for tests and
+    /// diagnostics: the TypeScript's `retained` map has one entry per epoch.
+    pub fn retained_epochs(&self) -> usize {
+        self.retained.len()
     }
 
     /// `owned`: whether this owner holds it.

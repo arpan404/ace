@@ -379,6 +379,11 @@
       "code": "not_supported",
       "message": "iOS Simulator input supports at most two fingers",
       "hint": "Use pointerId 0 or 1."
+    },
+    "leaseRequired": {
+      "code": "lease_required",
+      "message": "Controller lease required",
+      "hint": "Call sim_start to take control again; wait while a person controls the simulator."
     }
   },
   "adbTransports": {
