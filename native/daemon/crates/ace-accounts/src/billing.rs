@@ -108,7 +108,8 @@ mod tests {
         let plan = "😀".repeat(128);
         let accepted = reported_billing(&body(&format!(r#"{{"planType":"{plan}"}}"#)));
         assert_eq!(accepted.plan.map(|plan| plan.chars().count()), Some(128));
-        let rejected = reported_billing(&body(&format!(r#"{{"planType":"{}"}}"#, "😀".repeat(129))));
+        let rejected =
+            reported_billing(&body(&format!(r#"{{"planType":"{}"}}"#, "😀".repeat(129))));
         assert_eq!(rejected.plan, None);
     }
 }

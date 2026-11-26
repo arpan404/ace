@@ -292,6 +292,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-provider-installs"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "ace-protocol",
+ "regex",
+ "serde",
+]
+
+[[package]]
+name = "ace-provider-status"
+version = "0.1.0"
+dependencies = [
+ "ace-protocol",
+ "ace-provider-installs",
+ "serde",
+]
+
+[[package]]
 name = "ace-store"
 version = "0.1.0"
 dependencies = [

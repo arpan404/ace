@@ -3,7 +3,7 @@
 
 use ace_json::Value;
 
-use crate::availability::{availability, blocked_until, Availability};
+use crate::availability::{Availability, availability, blocked_until};
 use crate::instance::{Provider, ProviderInstance};
 use crate::quota::AccountQuota;
 
@@ -39,41 +39,43 @@ pub fn speed_hint(
     if policy.0.get(role).map(String::as_str) != Some("fast") {
         return SpeedHint::default();
     }
-    if provider == Provider::Codex {
-        if let Some(data) = codex_model_list
-            .and_then(Value::as_object)
-            .and_then(|list| list.get("data"))
-            .and_then(Value::as_array)
-        {
-            if data.len() <= 256 {
-                for value in data {
-                    let Some(row) = value.as_object() else {
-                        continue;
-                    };
-                    if string_bounded(row.get("model"), 256) != Some(model) {
-                        continue;
-                    }
-                    let tiers = row.get("serviceTiers").and_then(Value::as_array);
-                    if tiers.is_some_and(|tiers| {
-                        tiers.len() <= 16
-                            && tiers.iter().any(|tier| {
-                                tier.as_object()
-                                    .and_then(|tier| tier.get("id"))
-                                    .and_then(Value::as_str)
-                                    == Some("priority")
-                            })
-                    }) {
-                        return SpeedHint {
-                            service_tier: Some("priority"),
-                            fast_mode: false,
-                        };
-                    }
-                }
+    let codex_data = (provider == Provider::Codex)
+        .then(|| {
+            codex_model_list
+                .and_then(Value::as_object)
+                .and_then(|list| list.get("data"))
+                .and_then(Value::as_array)
+                .filter(|data| data.len() <= 256)
+        })
+        .flatten();
+    if let Some(data) = codex_data {
+        for value in data {
+            let Some(row) = value.as_object() else {
+                continue;
+            };
+            if string_bounded(row.get("model"), 256) != Some(model) {
+                continue;
+            }
+            let tiers = row.get("serviceTiers").and_then(Value::as_array);
+            if tiers.is_some_and(|tiers| {
+                tiers.len() <= 16
+                    && tiers.iter().any(|tier| {
+                        tier.as_object()
+                            .and_then(|tier| tier.get("id"))
+                            .and_then(Value::as_str)
+                            == Some("priority")
+                    })
+            }) {
+                return SpeedHint {
+                    service_tier: Some("priority"),
+                    fast_mode: false,
+                };
             }
         }
     }
     if provider == Provider::Claude
-        && claude_fast_models.is_some_and(|models| models.len() <= 256 && models.iter().any(|m| m == model))
+        && claude_fast_models
+            .is_some_and(|models| models.len() <= 256 && models.iter().any(|m| m == model))
     {
         return SpeedHint {
             service_tier: None,
@@ -145,7 +147,8 @@ pub fn pick_instance<'a>(
         let (next_reset, headroom) = room(&candidate.quota, now);
         if fallback.is_none()
             || headroom > fallback_headroom
-            || (headroom == fallback_headroom && fallback.is_some_and(|other| instance.id < other.id))
+            || (headroom == fallback_headroom
+                && fallback.is_some_and(|other| instance.id < other.id))
         {
             fallback = Some(instance);
             fallback_headroom = headroom;
@@ -157,7 +160,8 @@ pub fn pick_instance<'a>(
             || next_reset < best_reset
             || (next_reset == best_reset
                 && (headroom > best_headroom
-                    || (headroom == best_headroom && best.is_some_and(|other| instance.id < other.id))))
+                    || (headroom == best_headroom
+                        && best.is_some_and(|other| instance.id < other.id))))
         {
             best = Some(instance);
             best_reset = next_reset;
@@ -175,7 +179,9 @@ pub enum AccountRefusal {
     SignedOut,
     SignInUnconfirmed,
     /// `None` is the protocol's `null`: the provider did not say when it resets.
-    AtLimit { until: Option<i64> },
+    AtLimit {
+        until: Option<i64>,
+    },
 }
 
 /// What definitely keeps an account from working at `now`, or undefined when nothing does.
@@ -251,7 +257,8 @@ mod tests {
             );
         }
         Candidate {
-            instance: create_instance(id, Provider::Codex, id, format!("/tmp/{id}")).expect("instance"),
+            instance: create_instance(id, Provider::Codex, id, format!("/tmp/{id}"))
+                .expect("instance"),
             quota,
         }
     }
@@ -343,7 +350,11 @@ mod tests {
         ];
         assert_eq!(pick_instance(&worker(10.0), &candidates, NOW), Ok(None));
         let mut with_near = candidates.to_vec();
-        with_near.push(account("near", Some(97.0), crate::quota::AuthState::LoggedIn));
+        with_near.push(account(
+            "near",
+            Some(97.0),
+            crate::quota::AuthState::LoggedIn,
+        ));
         assert_eq!(
             pick_instance(&worker(10.0), &with_near, NOW)
                 .ok()

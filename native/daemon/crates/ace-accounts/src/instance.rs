@@ -62,7 +62,10 @@ impl Provider {
 pub type Env = IndexMap<String, Option<String>>;
 
 pub fn env_from(pairs: impl IntoIterator<Item = (impl Into<String>, Option<String>)>) -> Env {
-    pairs.into_iter().map(|(key, value)| (key.into(), value)).collect()
+    pairs
+        .into_iter()
+        .map(|(key, value)| (key.into(), value))
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,15 +157,11 @@ fn valid_short_label(value: &str) -> bool {
 /// initials are single code points, or a base with combining marks and a variation selector.
 fn graphemes(value: &str) -> usize {
     let mut count = 0;
-    let mut previous_combining = false;
     for character in value.chars() {
-        let combining = is_combining(character);
-        if !combining && !previous_combining {
-            count += 1;
-        } else if !combining && previous_combining {
+        // A new cluster starts at every base character, whatever came before it.
+        if !is_combining(character) {
             count += 1;
         }
-        previous_combining = combining;
     }
     count
 }
@@ -192,7 +191,8 @@ impl ProviderInstance {
         if self.label.is_empty() || Self::length_error(&self.label, 128) {
             return Err(AccountsError::InvalidNativeIdentity);
         }
-        if self.home_dir.as_os_str().is_empty() || Self::length_error(&self.home_dir.to_string_lossy(), 4096)
+        if self.home_dir.as_os_str().is_empty()
+            || Self::length_error(&self.home_dir.to_string_lossy(), 4096)
         {
             return Err(AccountsError::InvalidNativeIdentity);
         }
@@ -218,7 +218,8 @@ impl ProviderInstance {
         {
             return Err(AccountsError::InvalidNativeIdentity);
         }
-        if self.implicit && (self.managed || self.provider == Provider::Acp || !self.env.is_empty()) {
+        if self.implicit && (self.managed || self.provider == Provider::Acp || !self.env.is_empty())
+        {
             return Err(AccountsError::ImplicitSelectors);
         }
         if self.provider == Provider::Acp {
@@ -255,8 +256,7 @@ fn valid_account_id(value: &str) -> bool {
     if !first.is_ascii_alphanumeric() {
         return false;
     }
-    characters
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    characters.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         && value.chars().count() <= 128
 }
 
@@ -292,7 +292,10 @@ fn selector_env(provider: Provider, home_dir: &Path) -> IndexMap<String, String>
             env.insert("CODEX_HOME".into(), home_dir.to_string_lossy().into());
         }
         Provider::Claude => {
-            env.insert("CLAUDE_CONFIG_DIR".into(), home_dir.to_string_lossy().into());
+            env.insert(
+                "CLAUDE_CONFIG_DIR".into(),
+                home_dir.to_string_lossy().into(),
+            );
         }
         Provider::Pi => {
             env.insert(
@@ -454,7 +457,11 @@ fn get<'a>(env: &'a Env, key: &str) -> Option<&'a str> {
 }
 
 /// `appliedSelectors`: only the selectors that hold the CLI's own login and settings.
-fn applied_selectors(instance: &ProviderInstance, base: &Env, platform: Platform) -> IndexMap<String, String> {
+fn applied_selectors(
+    instance: &ProviderInstance,
+    base: &Env,
+    platform: Platform,
+) -> IndexMap<String, String> {
     if instance.provider != Provider::OpenCode {
         return instance.env.clone();
     }
@@ -527,7 +534,9 @@ pub fn acp_managed_home(acp_agent_id: &str) -> Option<&'static ManagedAcpHome> {
     (acp_agent_id == ANTIGRAVITY_ACP_AGENT_ID).then_some(&ANTIGRAVITY)
 }
 
-fn managed_acp_profile(instance: &ProviderInstance) -> Result<&'static ManagedAcpHome, AccountsError> {
+fn managed_acp_profile(
+    instance: &ProviderInstance,
+) -> Result<&'static ManagedAcpHome, AccountsError> {
     if instance.provider != Provider::Acp || instance.home_strategy != Some(HomeStrategy::Managed) {
         return Err(AccountsError::AcpIsolationUnverified);
     }
@@ -585,11 +594,20 @@ pub fn instance_env(
         Provider::Claude => ["CLAUDE_CONFIG_DIR"].into_iter().collect(),
         Provider::Pi => ["PI_CODING_AGENT_DIR"].into_iter().collect(),
         Provider::Cursor => ["CURSOR_DATA_DIR"].into_iter().collect(),
-        _ => ["XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"]
-            .into_iter()
-            .collect(),
+        _ => [
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_CACHE_HOME",
+        ]
+        .into_iter()
+        .collect(),
     };
-    if instance.env.keys().any(|key| !allowed.contains(key.as_str())) {
+    if instance
+        .env
+        .keys()
+        .any(|key| !allowed.contains(key.as_str()))
+    {
         return Err(AccountsError::ConflictingEnvironment);
     }
     let expected = selector_env(instance.provider, &resolve(&instance.home_dir));
@@ -692,11 +710,19 @@ mod tests {
     fn each_provider_selects_an_independent_home_and_strips_ambient_auth_overrides() {
         let base = base();
         assert_eq!(
-            get(&instance_env(&instance(Provider::Codex), &base, None, Platform::Darwin).expect("codex"), "CODEX_HOME"),
+            get(
+                &instance_env(&instance(Provider::Codex), &base, None, Platform::Darwin)
+                    .expect("codex"),
+                "CODEX_HOME"
+            ),
             Some("/tmp/codex")
         );
         assert_eq!(
-            get(&instance_env(&instance(Provider::Claude), &base, None, Platform::Darwin).expect("claude"), "CLAUDE_CONFIG_DIR"),
+            get(
+                &instance_env(&instance(Provider::Claude), &base, None, Platform::Darwin)
+                    .expect("claude"),
+                "CLAUDE_CONFIG_DIR"
+            ),
             Some("/tmp/claude")
         );
         let cursor = instance_env(
@@ -711,12 +737,25 @@ mod tests {
         assert_eq!(get(&cursor, "CURSOR_API_KEY"), Some("never-persist"));
         assert_eq!(get(&cursor, "CURSOR_DATA_DIR"), None);
         assert_eq!(get(&cursor, "CURSOR_CONFIG_DIR"), None);
-        let opencode = instance_env(&instance(Provider::OpenCode), &base, None, Platform::Darwin).expect("opencode");
+        let opencode = instance_env(&instance(Provider::OpenCode), &base, None, Platform::Darwin)
+            .expect("opencode");
         assert_eq!(get(&opencode, "XDG_DATA_HOME"), Some("/tmp/opencode/data"));
-        assert_eq!(get(&opencode, "XDG_STATE_HOME"), Some("/tmp/opencode/state"));
-        assert_eq!(get(&opencode, "XDG_CONFIG_HOME"), Some("/tmp/opencode/config"));
-        for provider in [Provider::Codex, Provider::Claude, Provider::Cursor, Provider::OpenCode] {
-            let env = instance_env(&instance(provider), &base, None, Platform::Darwin).expect("env");
+        assert_eq!(
+            get(&opencode, "XDG_STATE_HOME"),
+            Some("/tmp/opencode/state")
+        );
+        assert_eq!(
+            get(&opencode, "XDG_CONFIG_HOME"),
+            Some("/tmp/opencode/config")
+        );
+        for provider in [
+            Provider::Codex,
+            Provider::Claude,
+            Provider::Cursor,
+            Provider::OpenCode,
+        ] {
+            let env =
+                instance_env(&instance(provider), &base, None, Platform::Darwin).expect("env");
             assert_eq!(get(&env, "OPENAI_API_KEY"), None);
             assert_eq!(get(&env, "ANTHROPIC_API_KEY"), None);
             assert_eq!(get(&env, "CURSOR_API_KEY"), None);
@@ -732,7 +771,10 @@ mod tests {
             ("PATH", Some("/fake".into())),
             ("HOME", Some("/Users/person".into())),
             ("USERPROFILE", Some("C:\\Users\\person".into())),
-            ("APPDATA", Some("C:\\Users\\person\\AppData\\Roaming".into())),
+            (
+                "APPDATA",
+                Some("C:\\Users\\person\\AppData\\Roaming".into()),
+            ),
             ("XDG_CONFIG_HOME", Some("/Users/person/.config".into())),
             ("XDG_CACHE_HOME", Some("/Users/person/.cache".into())),
             ("TMPDIR", Some("/private/tmp/person".into())),
@@ -767,10 +809,16 @@ mod tests {
         assert_eq!(get(&env, "GH_CONFIG_DIR"), Some("/Users/person/.config/gh"));
         let windows = env_from([
             ("USERPROFILE", Some("C:\\Users\\person".into())),
-            ("APPDATA", Some("C:\\Users\\person\\AppData\\Roaming".into())),
+            (
+                "APPDATA",
+                Some("C:\\Users\\person\\AppData\\Roaming".into()),
+            ),
         ]);
         assert_eq!(
-            get(&instance_env(&managed, &windows, None, Platform::Windows).expect("windows"), "GH_CONFIG_DIR"),
+            get(
+                &instance_env(&managed, &windows, None, Platform::Windows).expect("windows"),
+                "GH_CONFIG_DIR"
+            ),
             Some("C:\\Users\\person\\AppData\\Roaming\\GitHub CLI")
         );
         let custom = env_from([
@@ -778,7 +826,10 @@ mod tests {
             ("GH_CONFIG_DIR", Some("/custom/gh".into())),
         ]);
         assert_eq!(
-            get(&instance_env(&managed, &custom, None, Platform::Darwin).expect("custom"), "GH_CONFIG_DIR"),
+            get(
+                &instance_env(&managed, &custom, None, Platform::Darwin).expect("custom"),
+                "GH_CONFIG_DIR"
+            ),
             Some("/custom/gh")
         );
     }
@@ -812,14 +863,23 @@ mod tests {
     #[test]
     fn login_and_logout_use_the_clis_own_commands_and_refuse_cursor_and_codex_api_keys() {
         assert_eq!(login_args(Provider::Codex, false), Ok(vec!["login".into()]));
-        assert_eq!(login_args(Provider::Codex, true), Err(AccountsError::ApiKeyHandoff));
+        assert_eq!(
+            login_args(Provider::Codex, true),
+            Err(AccountsError::ApiKeyHandoff)
+        );
         assert_eq!(
             login_args(Provider::Claude, true),
             Ok(vec!["auth".into(), "login".into(), "--console".into()])
         );
         assert_eq!(login_args(Provider::Pi, false), Ok(Vec::new()));
-        assert_eq!(login_args(Provider::Cursor, false), Err(AccountsError::CursorSignIn));
-        assert_eq!(logout_args(Provider::Cursor), Err(AccountsError::CursorSignOut));
+        assert_eq!(
+            login_args(Provider::Cursor, false),
+            Err(AccountsError::CursorSignIn)
+        );
+        assert_eq!(
+            logout_args(Provider::Cursor),
+            Err(AccountsError::CursorSignOut)
+        );
         assert_eq!(
             logout_args(Provider::Claude),
             Ok(vec!["auth".into(), "logout".into()])

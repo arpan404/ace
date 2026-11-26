@@ -6,7 +6,7 @@
 use ace_json::{Map, Value};
 use indexmap::IndexMap;
 
-use crate::billing::{reported_billing, BillingMode};
+use crate::billing::{BillingMode, reported_billing};
 use crate::instance::Provider;
 use crate::quota_decode::{decode_reset_credits, decode_windows};
 use crate::reset_time::parse_limit_reset_words;
@@ -196,7 +196,9 @@ pub fn ingest_quota(state: AccountQuota, fact: QuotaFact) -> Ingested {
         return Ingested { state, raw };
     }
     let frame = object(Some(&raw));
-    let body = frame.get("params").map_or(frame, |params| object(Some(params)));
+    let body = frame
+        .get("params")
+        .map_or(frame, |params| object(Some(params)));
     let decoded = decode_windows(fact.provider, body);
     let billing = reported_billing(body);
     let reset_credits = match fact.provider {
@@ -220,7 +222,10 @@ pub fn ingest_quota(state: AccountQuota, fact: QuotaFact) -> Ingested {
             advisory: false,
         });
     }
-    let auth = body.get("auth").and_then(Value::as_str).and_then(AuthState::parse);
+    let auth = body
+        .get("auth")
+        .and_then(Value::as_str)
+        .and_then(AuthState::parse);
     let usage_body = body
         .get("tokenUsage")
         .and_then(Value::as_object)
@@ -228,28 +233,29 @@ pub fn ingest_quota(state: AccountQuota, fact: QuotaFact) -> Ingested {
         .or_else(|| body.get("usage"))
         .or_else(|| body.get("session"));
     let usage_body = object(usage_body);
-    let mut usage = Usage::default();
-    usage.input_tokens = finite_nonnegative(
-        usage_body
-            .get("input_tokens")
-            .or_else(|| usage_body.get("inputTokens")),
-    );
-    usage.output_tokens = finite_nonnegative(
-        usage_body
-            .get("output_tokens")
-            .or_else(|| usage_body.get("outputTokens")),
-    );
-    usage.cost_usd = finite_nonnegative(
-        body.get("total_cost_usd")
-            .or_else(|| {
-                body.get("session")
-                    .and_then(Value::as_object)
-                    .and_then(|session| session.get("total_cost_usd"))
-            })
-            .or_else(|| usage_body.get("total_cost_usd"))
-            .or_else(|| usage_body.get("costUsd")),
-    );
-    if !auth.is_some()
+    let usage = Usage {
+        input_tokens: finite_nonnegative(
+            usage_body
+                .get("input_tokens")
+                .or_else(|| usage_body.get("inputTokens")),
+        ),
+        output_tokens: finite_nonnegative(
+            usage_body
+                .get("output_tokens")
+                .or_else(|| usage_body.get("outputTokens")),
+        ),
+        cost_usd: finite_nonnegative(
+            body.get("total_cost_usd")
+                .or_else(|| {
+                    body.get("session")
+                        .and_then(Value::as_object)
+                        .and_then(|session| session.get("total_cost_usd"))
+                })
+                .or_else(|| usage_body.get("total_cost_usd"))
+                .or_else(|| usage_body.get("costUsd")),
+        ),
+    };
+    if auth.is_none()
         && billing.billing_mode.is_none()
         && billing.plan.is_none()
         && decoded.count == 0
@@ -296,10 +302,8 @@ pub fn ingest_quota(state: AccountQuota, fact: QuotaFact) -> Ingested {
     } else if billing.billing_mode == Some(BillingMode::Api) {
         next.plan = None;
     }
-    if let Some(auth) = auth {
-        if auth != AuthState::Unknown {
-            next.auth = auth;
-        }
+    if let Some(auth) = auth.filter(|auth| *auth != AuthState::Unknown) {
+        next.auth = auth;
     }
     if let Some(credits) = reset_credits {
         next.reset_credits = Some(credits);
@@ -326,7 +330,7 @@ mod tests {
     use ace_json::parse;
 
     use super::*;
-    use crate::availability::{availability, Availability};
+    use crate::availability::{Availability, availability};
 
     fn payload(value: &str) -> Value {
         parse(value).unwrap_or(Value::Null)
@@ -396,8 +400,18 @@ mod tests {
     #[test]
     fn old_rate_limit_updates_cannot_restore_a_newly_exhausted_account() {
         let now = 1_790_000_000_000;
-        let exhausted = codex(codex_state(), 100.0, now, Some((now + 3_600_000) as f64 / 1000.0));
-        let older = codex(exhausted, 0.0, now - 1, Some((now + 3_600_000) as f64 / 1000.0));
+        let exhausted = codex(
+            codex_state(),
+            100.0,
+            now,
+            Some((now + 3_600_000) as f64 / 1000.0),
+        );
+        let older = codex(
+            exhausted,
+            0.0,
+            now - 1,
+            Some((now + 3_600_000) as f64 / 1000.0),
+        );
         assert_eq!(availability(&older, now), Availability::Exhausted);
     }
 
@@ -405,7 +419,12 @@ mod tests {
     #[test]
     fn unknown_and_malformed_facts_return_raw_unchanged_and_do_not_reset_quota() {
         let now = 1_790_000_000_000;
-        let state = codex(codex_state(), 100.0, now, Some((now + 3_600_000) as f64 / 1000.0));
+        let state = codex(
+            codex_state(),
+            100.0,
+            now,
+            Some((now + 3_600_000) as f64 / 1000.0),
+        );
         let payload = payload(
             r#"{"method":"future","params":{"rateLimits":{"primary":{"usedPercent":"oops"}},"secret":{"future":true}}}"#,
         );
@@ -427,7 +446,12 @@ mod tests {
     fn logged_out_accounts_stay_unavailable_even_when_quota_has_reset() {
         let now = 1_790_000_000_000;
         let state = ingest_quota(
-            codex(codex_state(), 100.0, now, Some((now + 3_600_000) as f64 / 1000.0)),
+            codex(
+                codex_state(),
+                100.0,
+                now,
+                Some((now + 3_600_000) as f64 / 1000.0),
+            ),
             QuotaFact {
                 provider: Provider::Codex,
                 payload: payload(r#"{"auth":"logged_out"}"#),
@@ -436,7 +460,10 @@ mod tests {
             },
         )
         .state;
-        assert_eq!(availability(&state, now + 86_400_000), Availability::LoggedOut);
+        assert_eq!(
+            availability(&state, now + 86_400_000),
+            Availability::LoggedOut
+        );
     }
 
     // "a rejection without a reported reset holds only while it is fresh"
@@ -454,7 +481,10 @@ mod tests {
         )
         .state;
         assert_eq!(availability(&state, now + 1), Availability::Exhausted);
-        assert_eq!(availability(&state, now + 86_400_000), Availability::Available);
+        assert_eq!(
+            availability(&state, now + 86_400_000),
+            Availability::Available
+        );
     }
 
     #[test]
@@ -485,7 +515,9 @@ mod tests {
             codex_state(),
             QuotaFact {
                 provider: Provider::Claude,
-                payload: payload(r#"{"planType":"max","rate_limits":{"five_hour":{"utilization":1}}}"#),
+                payload: payload(
+                    r#"{"planType":"max","rate_limits":{"five_hour":{"utilization":1}}}"#,
+                ),
                 observed_at: now,
                 time_zone: "UTC".into(),
             },

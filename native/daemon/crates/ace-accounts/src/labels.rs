@@ -22,7 +22,11 @@ pub fn default_account_badge_color(id: &str) -> &'static str {
     for character in id.chars() {
         // `charCodeAt(0)`: the first UTF-16 unit, as JavaScript hashes an astral character.
         let mut units = [0u16; 2];
-        let unit = character.encode_utf16(&mut units).first().copied().unwrap_or(0);
+        let unit = character
+            .encode_utf16(&mut units)
+            .first()
+            .copied()
+            .unwrap_or(0);
         hash = (hash ^ u32::from(unit)).wrapping_mul(16_777_619);
     }
     PALETTE[(hash % PALETTE.len() as u32) as usize]
@@ -37,7 +41,10 @@ mod tests {
         assert_eq!(account_short_label("  Work ", None), Some("W".into()));
         assert_eq!(account_short_label("émile", None), Some("É".into()));
         // A combining mark belongs to the first grapheme, not a letter of its own.
-        assert_eq!(account_short_label("e\u{0301}mile", None), Some("E\u{0301}".into()));
+        assert_eq!(
+            account_short_label("e\u{0301}mile", None),
+            Some("E\u{0301}".into())
+        );
         assert_eq!(account_short_label("Work", Some("WK")), Some("WK".into()));
         assert_eq!(account_short_label("   ", None), None);
     }
@@ -47,7 +54,10 @@ mod tests {
         let first = default_account_badge_color("account-1");
         assert_eq!(first, default_account_badge_color("account-1"));
         for id in ["a", "codex", "account-346", "😀"] {
-            assert!(["blue", "violet", "amber", "rose", "green"].contains(&default_account_badge_color(id)));
+            assert!(
+                ["blue", "violet", "amber", "rose", "green"]
+                    .contains(&default_account_badge_color(id))
+            );
         }
     }
 }

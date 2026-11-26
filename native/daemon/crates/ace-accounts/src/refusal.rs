@@ -35,9 +35,7 @@ pub fn refusal_words(name: &str, refusal: AccountRefusal, now: i64, time_zone: &
         AccountRefusal::AtLimit { until: None } => {
             format!("{name} is at its limit; the provider didn't say when it resets")
         }
-        AccountRefusal::AtLimit {
-            until: Some(until),
-        } => format!(
+        AccountRefusal::AtLimit { until: Some(until) } => format!(
             "{name} is at its limit until {}",
             reset_clock(until, now, time_zone)
         ),
@@ -89,7 +87,11 @@ mod tests {
             "Mon, Nov 2, 4:10 PM CST"
         );
         assert_eq!(
-            reset_clock(at("2026-10-02T21:10:00Z"), at("2026-10-02T20:00:00Z"), "America/Chicago"),
+            reset_clock(
+                at("2026-10-02T21:10:00Z"),
+                at("2026-10-02T20:00:00Z"),
+                "America/Chicago"
+            ),
             "4:10 PM CDT"
         );
     }
@@ -98,7 +100,12 @@ mod tests {
     fn every_refusal_has_its_own_sentence_and_a_missing_reset_says_so() {
         let now = at("2026-11-01T20:00:00Z");
         assert_eq!(
-            refusal_words("Claude account", AccountRefusal::AtLimit { until: None }, now, "UTC"),
+            refusal_words(
+                "Claude account",
+                AccountRefusal::AtLimit { until: None },
+                now,
+                "UTC"
+            ),
             "Claude account is at its limit; the provider didn't say when it resets"
         );
         assert_eq!(
@@ -110,7 +117,12 @@ mod tests {
             "Codex account can't be used: its home folder is missing or unreadable"
         );
         assert_eq!(
-            refusal_words("Codex account", AccountRefusal::SignInUnconfirmed, now, "UTC"),
+            refusal_words(
+                "Codex account",
+                AccountRefusal::SignInUnconfirmed,
+                now,
+                "UTC"
+            ),
             "Codex account hasn't confirmed it is signed in yet"
         );
         assert_eq!(
@@ -122,6 +134,9 @@ mod tests {
     #[test]
     fn an_unknown_zone_falls_back_to_utc_as_the_typescripts_intl_catch_does() {
         let now = at("2026-11-01T20:00:00Z");
-        assert_eq!(reset_clock(now + 3_600_000, now, "Not/AZone"), "9:00 PM UTC");
+        assert_eq!(
+            reset_clock(now + 3_600_000, now, "Not/AZone"),
+            "9:00 PM UTC"
+        );
     }
 }

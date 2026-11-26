@@ -3,14 +3,17 @@
 //! `packages/accounts/src/reset-time.ts`. All times are epoch milliseconds. An ambiguous or
 //! missing DST clock time is never guessed: the account stays blocked until a later reading.
 
+use jiff::Timestamp;
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
-use jiff::Timestamp;
 use regex::Regex;
 
 /// `Date.parse` for the reset strings providers report (RFC 3339).
 pub fn parse_date(value: &str) -> Option<i64> {
-    value.parse::<Timestamp>().ok().map(|instant| instant.as_millisecond())
+    value
+        .parse::<Timestamp>()
+        .ok()
+        .map(|instant| instant.as_millisecond())
 }
 
 fn timestamp(epoch: i64) -> Option<Timestamp> {
@@ -96,11 +99,19 @@ mod tests {
     fn a_limit_errors_clock_time_resolves_in_the_users_timezone_including_midnight() {
         let now = at("2026-10-02T15:00:00Z");
         assert_eq!(
-            parse_limit_reset_words("Usage limit reached. Try again at 11:31 AM", now, "America/Chicago"),
+            parse_limit_reset_words(
+                "Usage limit reached. Try again at 11:31 AM",
+                now,
+                "America/Chicago"
+            ),
             Some(at("2026-10-02T16:31:00Z"))
         );
         assert_eq!(
-            parse_limit_reset_words("Usage limit reached. Try again at 11:31 AM", now, "Asia/Kolkata"),
+            parse_limit_reset_words(
+                "Usage limit reached. Try again at 11:31 AM",
+                now,
+                "Asia/Kolkata"
+            ),
             Some(at("2026-10-03T06:01:00Z"))
         );
         assert_eq!(
@@ -129,7 +140,10 @@ mod tests {
             None
         );
         let now = at("2026-10-02T15:00:00Z");
-        assert_eq!(parse_limit_reset_words("try again at 25:30 AM", now, "UTC"), None);
+        assert_eq!(
+            parse_limit_reset_words("try again at 25:30 AM", now, "UTC"),
+            None
+        );
         assert_eq!(
             parse_limit_reset_words("try again at 2026-10-02T16:00:00-05:00", now, "UTC"),
             Some(at("2026-10-02T21:00:00Z"))
@@ -143,7 +157,10 @@ mod tests {
             parse_limit_reset_words("try again at 2026-10-02T10:00:00Z", now, "UTC"),
             None
         );
-        assert_eq!(parse_limit_reset_words("try again at 11:31 AM", now, "Not/AZone"), None);
+        assert_eq!(
+            parse_limit_reset_words("try again at 11:31 AM", now, "Not/AZone"),
+            None
+        );
         assert_eq!(parse_limit_reset_words("nothing to read", now, "UTC"), None);
     }
 }

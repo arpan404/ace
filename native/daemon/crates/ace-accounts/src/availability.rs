@@ -41,7 +41,9 @@ fn holding(state: &AccountQuota, now: i64) -> Vec<&QuotaWindow> {
     limiting(state)
         .chain(state.blockers.limit_error.iter())
         .filter(|window| {
-            window.used_percent >= 100.0 && live_window(window, now) && fresh_reading(window, state, now)
+            window.used_percent >= 100.0
+                && live_window(window, now)
+                && fresh_reading(window, state, now)
         })
         .collect()
 }
@@ -74,7 +76,8 @@ pub fn availability(state: &AccountQuota, now: i64) -> Availability {
 pub fn freshly_below_limit(state: &AccountQuota, now: i64) -> bool {
     let level = availability(state, now);
     (level == Availability::Available || level == Availability::NearLimit)
-        && limiting(state).any(|window| live_window(window, now) && fresh_reading(window, state, now))
+        && limiting(state)
+            .any(|window| live_window(window, now) && fresh_reading(window, state, now))
 }
 
 /// When an account held at its limit can work again: the last reset among what holds it.
@@ -121,7 +124,11 @@ mod tests {
     use super::*;
     use crate::quota::{AccountQuota, AuthState, Blockers, QuotaWindow, Usage};
 
-    fn quota(auth: AuthState, observed_at: i64, windows: &[(&str, f64, Option<i64>)]) -> AccountQuota {
+    fn quota(
+        auth: AuthState,
+        observed_at: i64,
+        windows: &[(&str, f64, Option<i64>)],
+    ) -> AccountQuota {
         AccountQuota {
             auth,
             observed_at,
@@ -159,14 +166,24 @@ mod tests {
         let now = 1_790_000_000_000;
         let soon = now + 20 * 60_000;
         assert_eq!(
-            availability(&quota(AuthState::LoggedIn, now, &[("five_hour", 20.0, Some(soon))]), now),
+            availability(
+                &quota(AuthState::LoggedIn, now, &[("five_hour", 20.0, Some(soon))]),
+                now
+            ),
             Availability::Available
         );
         assert_eq!(
-            availability(&quota(AuthState::LoggedIn, now, &[("five_hour", 80.0, Some(soon))]), now),
+            availability(
+                &quota(AuthState::LoggedIn, now, &[("five_hour", 80.0, Some(soon))]),
+                now
+            ),
             Availability::NearLimit
         );
-        let exhausted = quota(AuthState::LoggedIn, now, &[("five_hour", 100.0, Some(soon))]);
+        let exhausted = quota(
+            AuthState::LoggedIn,
+            now,
+            &[("five_hour", 100.0, Some(soon))],
+        );
         assert_eq!(availability(&exhausted, soon - 1), Availability::Exhausted);
         assert_eq!(availability(&exhausted, soon), Availability::Available);
     }
@@ -203,24 +220,44 @@ mod tests {
             advisory: false,
         });
         assert_eq!(availability(&state, now + 1), Availability::Exhausted);
-        assert_eq!(availability(&state, now + 86_400_000), Availability::Available);
+        assert_eq!(
+            availability(&state, now + 86_400_000),
+            Availability::Available
+        );
     }
 
     // "logged-out accounts stay unavailable even when quota has reset"
     #[test]
     fn logged_out_accounts_stay_unavailable_even_when_quota_has_reset() {
         let now = 1_790_000_000_000;
-        let state = quota(AuthState::LoggedOut, now, &[("five_hour", 10.0, Some(now + 1))]);
-        assert_eq!(availability(&state, now + 86_400_000), Availability::LoggedOut);
+        let state = quota(
+            AuthState::LoggedOut,
+            now,
+            &[("five_hour", 10.0, Some(now + 1))],
+        );
+        assert_eq!(
+            availability(&state, now + 86_400_000),
+            Availability::LoggedOut
+        );
     }
 
     // "stale readings never hold an account at its limit"
     #[test]
     fn a_reading_older_than_thirty_minutes_never_holds_an_account() {
         let now = 1_790_000_000_000;
-        let state = quota(AuthState::LoggedIn, now, &[("five_hour", 100.0, Some(now + 86_400_000))]);
-        assert_eq!(availability(&state, now + STALE_READING_MS), Availability::Exhausted);
-        assert_eq!(availability(&state, now + STALE_READING_MS + 1), Availability::Available);
+        let state = quota(
+            AuthState::LoggedIn,
+            now,
+            &[("five_hour", 100.0, Some(now + 86_400_000))],
+        );
+        assert_eq!(
+            availability(&state, now + STALE_READING_MS),
+            Availability::Exhausted
+        );
+        assert_eq!(
+            availability(&state, now + STALE_READING_MS + 1),
+            Availability::Available
+        );
     }
 
     // packages/accounts/src/quota.process.test.ts
@@ -228,7 +265,11 @@ mod tests {
     #[test]
     fn an_unreadable_home_is_unknown_and_its_windows_still_say_when_they_reset() {
         let now = 1_790_000_000_000;
-        let mut state = quota(AuthState::LoggedIn, now, &[("five_hour", 100.0, Some(now + 1000))]);
+        let mut state = quota(
+            AuthState::LoggedIn,
+            now,
+            &[("five_hour", 100.0, Some(now + 1000))],
+        );
         state.blockers.home_unavailable = Some("home_missing".into());
         assert_eq!(availability(&state, now), Availability::Unknown);
         // The quota itself is untouched by the home: only availability stops trusting it.

@@ -117,7 +117,10 @@ fn valid_name(name: &str) -> bool {
         && !["__proto__", "constructor", "prototype"].contains(&name)
 }
 
-fn neutral_window(value: &Value) -> Option<(f64, Option<i64>, Option<f64>, Option<String>, bool)> {
+/// A window's share used, its reset, duration, limit name and whether it is advisory.
+type NeutralWindow = (f64, Option<i64>, Option<f64>, Option<String>, bool);
+
+fn neutral_window(value: &Value) -> Option<NeutralWindow> {
     let row = value.as_object()?;
     let used = finite_nonnegative(row.get("usedPercent"))?;
     if used > 100.0 {
@@ -193,13 +196,11 @@ pub fn decode_windows(provider: Provider, body: &Map) -> DecodedWindows {
         match value.as_object() {
             None => complete = false,
             Some(rows) => {
-                let mut inspected = 0;
-                for (name, value) in rows {
-                    if inspected + 1 > 32 {
+                for (inspected, (name, value)) in rows.iter().enumerate() {
+                    if inspected >= 32 {
                         overflow = true;
                         break;
                     }
-                    inspected += 1;
                     if !valid_name(name.as_str()) {
                         complete = false;
                         continue;
@@ -313,8 +314,12 @@ pub fn decode_windows(provider: Provider, body: &Map) -> DecodedWindows {
                                 }
                             }
                         }
-                        let name = event.rate_limit_type.clone().unwrap_or_else(|| "default".into());
-                        if event.status.as_deref() == Some("rejected") || !windows.contains_key(&name)
+                        let name = event
+                            .rate_limit_type
+                            .clone()
+                            .unwrap_or_else(|| "default".into());
+                        if event.status.as_deref() == Some("rejected")
+                            || !windows.contains_key(&name)
                         {
                             let used = if event.status.as_deref() == Some("rejected") {
                                 100.0
@@ -387,11 +392,15 @@ pub fn decode_reset_credits(body: &Map) -> Option<QuotaResetCredits> {
     };
     let mut next_expires_at: Option<i64> = None;
     for entry in credits {
-        let Some(credit) = entry.as_object() else { continue };
-        if let Some(status) = credit.get("status").and_then(Value::as_str) {
-            if status.chars().count() > 64 || status != "available" {
-                continue;
-            }
+        let Some(credit) = entry.as_object() else {
+            continue;
+        };
+        if credit
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| status.chars().count() > 64 || status != "available")
+        {
+            continue;
         }
         if let Some(expires) = reset(credit.get("expiresAt")) {
             next_expires_at = Some(next_expires_at.map_or(expires, |current| current.min(expires)));
@@ -442,7 +451,10 @@ mod tests {
             ),
         );
         assert_eq!(decoded.count, 1);
-        let window = decoded.windows.get("codex:primary").expect("primary window");
+        let window = decoded
+            .windows
+            .get("codex:primary")
+            .expect("primary window");
         assert_eq!(window.used_percent, 100.0);
         assert_eq!(window.resets_at, Some(100_000));
         assert_eq!(window.remaining_percent, Some(0.0));
@@ -455,11 +467,15 @@ mod tests {
             if index > 0 {
                 entries.push(',');
             }
-            entries.push_str(&format!(r#""w{index}":{{"usedPercent":1,"resetsAt":null}}"#));
+            entries.push_str(&format!(
+                r#""w{index}":{{"usedPercent":1,"resetsAt":null}}"#
+            ));
         }
         entries.push('}');
-        let decoded =
-            decode_windows(Provider::Claude, &body(&format!(r#"{{"usageWindows":{entries}}}"#)));
+        let decoded = decode_windows(
+            Provider::Claude,
+            &body(&format!(r#"{{"usageWindows":{entries}}}"#)),
+        );
         assert_eq!(decoded.count, 32);
         assert!(decoded.overflow);
         assert!(!decoded.complete);

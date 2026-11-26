@@ -12,12 +12,15 @@ use crate::instance::Provider;
 const CLAUDE_CODE_CALLBACK: &str = "https://platform.claude.com/oauth/code/callback";
 
 fn allowed(provider: Provider, host: &str, path: &str) -> bool {
-    let claude = matches!(host, "claude.ai" | "console.anthropic.com" | "platform.claude.com")
-        && path == "/oauth/authorize"
+    let claude = matches!(
+        host,
+        "claude.ai" | "console.anthropic.com" | "platform.claude.com"
+    ) && path == "/oauth/authorize"
         || host == "claude.com" && path == "/cai/oauth/authorize";
-    let claude_any = host == "claude.ai" && path == "/oauth/authorize"
-        || host == "console.anthropic.com" && path == "/oauth/authorize"
-        || host == "platform.claude.com" && path == "/oauth/authorize"
+    let claude_any = matches!(
+        host,
+        "claude.ai" | "console.anthropic.com" | "platform.claude.com"
+    ) && path == "/oauth/authorize"
         || host == "claude.com" && path == "/cai/oauth/authorize";
     match provider {
         Provider::Codex => {
@@ -99,7 +102,12 @@ fn allowed_fields(provider: Provider) -> Vec<&'static str> {
         ]);
     }
     if matches!(provider, Provider::Acp | Provider::Antigravity) {
-        fields.extend(["access_type", "prompt", "login_hint", "include_granted_scopes"]);
+        fields.extend([
+            "access_type",
+            "prompt",
+            "login_hint",
+            "include_granted_scopes",
+        ]);
     }
     fields
 }
@@ -132,8 +140,10 @@ pub fn login_url(provider: Provider, candidate: &str) -> Option<String> {
             return None;
         }
         match key.as_ref() {
-            "redirectTarget" if value != "sdk" && !(provider == Provider::Acp && value == "cli") => {
-                return None
+            "redirectTarget"
+                if value != "sdk" && !(provider == Provider::Acp && value == "cli") =>
+            {
+                return None;
             }
             "supportsSelectedTeamLogin" if value != "true" => return None,
             "code" if value != "true" => return None,
@@ -161,9 +171,13 @@ pub fn login_url(provider: Provider, candidate: &str) -> Option<String> {
 }
 
 fn device_code_patterns() -> Option<(Regex, Regex)> {
-    let prefix = r"(?:(?:one[ -]time|user|device) code|enter(?: this| the)?(?: one[ -]time)? code|code:)";
+    let prefix =
+        r"(?:(?:one[ -]time|user|device) code|enter(?: this| the)?(?: one[ -]time)? code|code:)";
     let expiry = r"(?:\s*\(expires in \d{1,3} minutes?\))?";
-    let prompt = Regex::new(&format!(r"(?i)^\s*(?:\d+\.\s*)?{prefix}{expiry}\s*:?[\s]*$")).ok()?;
+    let prompt = Regex::new(&format!(
+        r"(?i)^\s*(?:\d+\.\s*)?{prefix}{expiry}\s*:?[\s]*$"
+    ))
+    .ok()?;
     let code = Regex::new(&format!(
         r"(?i){prefix}{expiry}\s*[:=]?\s*([A-Z0-9]{{4,5}}-[A-Z0-9]{{4,5}})(?:[^A-Za-z0-9_-]|$)"
     ))
@@ -216,7 +230,8 @@ pub fn login_observation(provider: Provider, text: &str) -> Option<LoginObservat
     if provider == Provider::Claude {
         let browser = Regex::new(r"(?i)opening browser to sign in").ok()?;
         let paste = Regex::new(r"(?i)paste code here if prompted").ok()?;
-        let invalid = Regex::new(r"(?i)^\s*(?:invalid code|that code is not from this sign-in)").ok()?;
+        let invalid =
+            Regex::new(r"(?i)^\s*(?:invalid code|that code is not from this sign-in)").ok()?;
         if browser.is_match(text) || paste.is_match(text) {
             return Some(LoginObservation {
                 code_entry: true,
@@ -239,7 +254,8 @@ pub fn login_observation(provider: Provider, text: &str) -> Option<LoginObservat
     )
     .ok()?;
     if manual.is_match(text) {
-        let ends = Regex::new(r"(?i)(?:enter|paste|input|provide)|(?:key|token|code)\s*:\s*$").ok()?;
+        let ends =
+            Regex::new(r"(?i)(?:enter|paste|input|provide)|(?:key|token|code)\s*:\s*$").ok()?;
         return ends.is_match(text).then(|| LoginObservation {
             manual_required: true,
             ..LoginObservation::awaiting_input()
@@ -314,19 +330,30 @@ mod tests {
         let link = "https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic&response_type=code&scope=user%3Aprofile&code_challenge=public-pkce&code_challenge_method=S256&state=public";
         let local = format!("{link}&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback");
         assert_eq!(login_url(Provider::Claude, &local), Some(local.clone()));
-        let paste = format!("{link}&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&login_method=sso&login_hint=person%40example.com");
+        let paste = format!(
+            "{link}&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&login_method=sso&login_hint=person%40example.com"
+        );
         assert_eq!(login_url(Provider::Claude, &paste), Some(paste.clone()));
         assert_eq!(login_url(Provider::Pi, &paste), None);
         assert_eq!(
-            login_url(Provider::Claude, &paste.replace("platform.claude.com", "evil.test")),
+            login_url(
+                Provider::Claude,
+                &paste.replace("platform.claude.com", "evil.test")
+            ),
             None
         );
         assert_eq!(
-            login_url(Provider::Claude, &paste.replace("%2Foauth%2Fcode%2Fcallback", "%2Fother")),
+            login_url(
+                Provider::Claude,
+                &paste.replace("%2Foauth%2Fcode%2Fcallback", "%2Fother")
+            ),
             None
         );
         assert_eq!(
-            login_url(Provider::Claude, &local.replace("code=true", "code=private")),
+            login_url(
+                Provider::Claude,
+                &local.replace("code=true", "code=private")
+            ),
             None
         );
         assert_eq!(login_url(Provider::Codex, &local), None);
@@ -336,7 +363,10 @@ mod tests {
     #[test]
     fn claudes_sign_in_takes_a_pasted_code_and_says_when_one_fails() {
         assert_eq!(
-            login_observation(Provider::Claude, "\u{0004}\u{0008}\u{0008}Opening browser to sign in\u{2026}"),
+            login_observation(
+                Provider::Claude,
+                "\u{0004}\u{0008}\u{0008}Opening browser to sign in\u{2026}"
+            ),
             Some(LoginObservation {
                 code_entry: true,
                 ..LoginObservation::awaiting_browser()
@@ -373,8 +403,11 @@ mod tests {
                 ..Default::default()
             })
         );
-        let enter = login_observation(Provider::Claude, "Press Enter to continue. Account-specific diagnostic data")
-            .unwrap_or_default();
+        let enter = login_observation(
+            Provider::Claude,
+            "Press Enter to continue. Account-specific diagnostic data",
+        )
+        .unwrap_or_default();
         assert!(enter.enter);
         assert_eq!(enter.state, Some(LoginState::AwaitingInput));
         assert!(
@@ -422,12 +455,15 @@ mod tests {
             "https://claude.ai/oauth/authorize?client_id=synthetic&code_challenge=public-pkce",
             "https://cursor.com/loginDeepControl?uuid=synthetic&challenge=public-pkce&redirectTarget=sdk",
         ] {
-            let observation = login_observation(Provider::Acp, &format!("Continue at {url}"))
-                .unwrap_or_default();
+            let observation =
+                login_observation(Provider::Acp, &format!("Continue at {url}")).unwrap_or_default();
             assert_eq!(observation.state, Some(LoginState::AwaitingBrowser));
             assert_eq!(observation.url.as_deref(), Some(url));
             assert_eq!(
-                login_observation(Provider::Acp, &format!("Continue at {url}&access_token=private-value")),
+                login_observation(
+                    Provider::Acp,
+                    &format!("Continue at {url}&access_token=private-value")
+                ),
                 None
             );
         }
@@ -452,12 +488,18 @@ mod tests {
             assert_eq!(login_url(Provider::Pi, url), Some(url.into()));
             let separator = if url.contains('?') { "&" } else { "?" };
             assert_eq!(
-                login_url(Provider::Pi, &format!("{url}{separator}access_token=private-value")),
+                login_url(
+                    Provider::Pi,
+                    &format!("{url}{separator}access_token=private-value")
+                ),
                 None
             );
         }
         assert_eq!(
-            login_url(Provider::Pi, &browser.replace("code=true", "code=private-authorization")),
+            login_url(
+                Provider::Pi,
+                &browser.replace("code=true", "code=private-authorization")
+            ),
             None
         );
         assert_eq!(
