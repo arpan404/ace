@@ -18,15 +18,35 @@ pub enum Layer {
     Thread,
 }
 
-/// Whether `key` may be written on `layer`: roles are global-only.
+/// Whether `key` may be written on `layer`, with the TypeScript's own refusal.
 pub fn placement(key: &str, layer: Layer) -> Result<(), &'static str> {
-    if layer != Layer::Global && crate::roles::role_setting(key) {
-        return Err("Roles are a global setting");
-    }
-    if layer == Layer::Thread && key.starts_with("projects.") {
-        return Err("Project settings are a global or workspace setting");
-    }
-    Ok(())
+    let layer = match layer {
+        Layer::Global => crate::layers::Layer::Global,
+        Layer::Workspace => crate::layers::Layer::Workspace {
+            workspace: std::path::PathBuf::from("/workspace"),
+        },
+        Layer::Thread => crate::layers::Layer::Thread {
+            thread: "thread".to_owned(),
+        },
+    };
+    crate::layers::placement(key, &layer).map_err(|error| match error.message.as_str() {
+        "Roles are a global setting" => "Roles are a global setting",
+        "Project folders are a global user setting" => "Project folders are a global user setting",
+        "Provider configuration is a global user setting" => {
+            "Provider configuration is a global user setting"
+        }
+        "The downloads folder is a global daemon setting" => {
+            "The downloads folder is a global daemon setting"
+        }
+        "Apps agents can't use is a global setting" => "Apps agents can't use is a global setting",
+        "Running Spade is a global setting" => "Running Spade is a global setting",
+        "Beta features are a global setting" => "Beta features are a global setting",
+        "Working while this Mac is locked is a global setting" => {
+            "Working while this Mac is locked is a global setting"
+        }
+        "Generation settings belong to the daemon" => "Generation settings belong to the daemon",
+        _ => "Settings cannot live on this layer",
+    })
 }
 
 /// A batch failure: a setting on a layer that cannot hold it, or a rejected value.
@@ -34,29 +54,37 @@ pub fn placement(key: &str, layer: Layer) -> Result<(), &'static str> {
 pub enum BatchError<E> {
     Placement(&'static str),
     Validation(E),
+    Limit(&'static str),
 }
 
-/// Applies a whole batch or nothing: every entry is placed and validated first, then
-/// `commit` runs once per entry. A failure leaves the store untouched.
+/// Applies a whole batch or nothing: 1 to 32 unique keys, every entry placed and
+/// validated first, then one `commit` with all entries, so subscribers see one change.
 pub fn apply_batch<K, V, E>(
     entries: &[(K, V)],
     layer: Layer,
     mut validate: impl FnMut(&K, &V) -> Result<(), E>,
-    mut commit: impl FnMut(&K, V),
+    commit: impl FnOnce(&[(K, V)]),
 ) -> Result<(), BatchError<E>>
 where
     K: AsRef<str>,
     V: Clone,
 {
+    if entries.is_empty() || entries.len() > 32 {
+        return Err(BatchError::Limit("Set between 1 and 32 settings at once"));
+    }
+    let mut seen = Vec::new();
     for (key, _) in entries {
-        placement(key.as_ref(), layer).map_err(BatchError::Placement)?;
+        let key = key.as_ref();
+        if seen.contains(&key) {
+            return Err(BatchError::Limit("Each setting can be set once per change"));
+        }
+        seen.push(key);
+        placement(key, layer).map_err(BatchError::Placement)?;
     }
     for (key, value) in entries {
         validate(key, value).map_err(BatchError::Validation)?;
     }
-    for (key, value) in entries {
-        commit(key, value.clone());
-    }
+    commit(entries);
     Ok(())
 }
 
@@ -87,8 +115,10 @@ mod tests {
                     Ok(())
                 }
             },
-            |key, value| {
-                store.insert(key.to_string(), value.to_string());
+            |entries: &[(&str, &str)]| {
+                for (key, value) in entries {
+                    store.insert((*key).to_string(), (*value).to_string());
+                }
             },
         );
         assert_eq!(result, Err(BatchError::Validation("Invalid value")));
@@ -104,7 +134,7 @@ mod tests {
         assert!(placement("providers.coder.provider", Layer::Global).is_ok());
         assert_eq!(
             placement("projects.roots", Layer::Thread),
-            Err("Project settings are a global or workspace setting")
+            Err("Project folders are a global user setting")
         );
     }
 

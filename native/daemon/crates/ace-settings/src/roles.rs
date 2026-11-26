@@ -100,10 +100,24 @@ pub struct RoleChoice {
     pub tier: Option<String>,
 }
 
-/// A value that counts as set only when it is a non-empty string that isn't `default`.
+/// A stored value checked against its key's schema; anything else counts as unset
+/// (`roles.ts`'s `read`).
+fn read(values: &Map<String, Value>, key: &str) -> Option<Value> {
+    crate::schema::validate_value(key, values.get(key)?).ok()
+}
+
+/// A validated text value that isn't `default`.
 fn text(values: &Map<String, Value>, key: &str) -> Option<String> {
-    let value = values.get(key)?.as_str()?.trim();
-    (!value.is_empty() && value != "default").then(|| value.to_owned())
+    let value = read(values, key)?.as_str()?.trim().to_owned();
+    (!value.is_empty() && value != "default").then_some(value)
+}
+
+/// A validated provider name.
+fn provider(values: &Map<String, Value>, key: &str) -> Option<String> {
+    read(values, key)?
+        .as_str()
+        .map(str::to_owned)
+        .filter(|value| !value.is_empty())
 }
 
 /// The roles the person set, in the order roles are listed.
@@ -111,7 +125,7 @@ pub fn configured_roles(values: &Map<String, Value>) -> Vec<(RunRole, RoleChoice
     let mut roles = Vec::new();
     for role in RunRole::ALL {
         let keys = role_keys(role);
-        let Some(provider) = text(values, keys.provider) else {
+        let Some(provider) = provider(values, keys.provider) else {
             continue;
         };
         roles.push((
@@ -143,6 +157,24 @@ mod tests {
 
     fn values(value: Value) -> Map<String, Value> {
         value.as_object().cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn a_stored_value_the_key_refuses_counts_as_unset() {
+        // `roles.ts` runs the key's schema before reading it: "chatgpt" is not a
+        // provider, and "bogus" is not a tier, so neither reaches a role.
+        let unset = values(json!({ "providers.coder.provider": "chatgpt" }));
+        assert!(configured_roles(&unset).is_empty());
+        let partial = values(json!({
+            "providers.coder.provider": "claude",
+            "providers.coder.tier": "bogus",
+            "providers.coder.model": 7
+        }));
+        let roles = configured_roles(&partial);
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles[0].1.provider, "claude");
+        assert_eq!(roles[0].1.tier, None);
+        assert_eq!(roles[0].1.model, None);
     }
 
     #[test]

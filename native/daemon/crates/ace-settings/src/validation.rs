@@ -12,17 +12,36 @@ const MAX_NESTING: usize = 64;
 /// A settings failure, carrying the protocol's diagnostic code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsCode {
+    Parse,
     Validation,
     Version,
-    Size,
     Secret,
+    Size,
     Io,
+    Limit,
+}
+
+impl SettingsCode {
+    /// The protocol's spelling of a diagnostic code.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Parse => "parse",
+            Self::Validation => "validation",
+            Self::Version => "version",
+            Self::Secret => "secret",
+            Self::Size => "size",
+            Self::Io => "io",
+            Self::Limit => "limit",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsError {
     pub code: SettingsCode,
     pub message: String,
+    /// The JSONC offset (UTF-16 units) a syntax or duplicate error points at.
+    pub offset: Option<usize>,
 }
 
 impl SettingsError {
@@ -30,6 +49,15 @@ impl SettingsError {
         Self {
             code,
             message: message.to_owned(),
+            offset: None,
+        }
+    }
+
+    pub fn at(code: SettingsCode, message: &str, offset: usize) -> Self {
+        Self {
+            code,
+            message: message.to_owned(),
+            offset: Some(offset),
         }
     }
 }
@@ -86,6 +114,17 @@ pub fn secret_property(key: &str) -> bool {
         .unwrap_or_else(|| key.to_owned());
     secret_word().is_some_and(|pattern| pattern.is_match(&words))
         || api_key_word().is_some_and(|pattern| pattern.is_match(key))
+}
+
+/// Refuses a property name that looks like a credential (`guardProperty`).
+pub fn guard_property(key: &str) -> Result<(), SettingsError> {
+    if secret_property(key) {
+        return Err(SettingsError::new(
+            SettingsCode::Secret,
+            "Secret-looking fields cannot be stored in settings",
+        ));
+    }
+    Ok(())
 }
 
 /// Refuses credential-looking values and property names anywhere in `value`.

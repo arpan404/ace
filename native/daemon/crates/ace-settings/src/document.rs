@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The versioned settings document (`document.ts`): version 2 with a `settings` object,
-//! version 1 migrated on read, unknown keys and envelope fields preserved, retired
-//! access keys refused. The text is JSON; comments in a person's file are a later port
-//! of the TypeScript's JSONC editor, and only affect formatting, not values.
+//! The versioned settings document (`document.ts`): JSONC with comments, version 2 with
+//! a `settings` object, version 1 migrated on read, the TypeScript's v2 migrations, known
+//! values checked against their key, retired keys dropped or refused, unknown keys and
+//! envelope fields preserved, and scalar edits that leave the rest of the file alone.
+
+use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
+use crate::jsonc::{
+    ScalarRange, Scanned, SettingsLayout, insert_setting, parse_document, remove_setting,
+    replace_scalar,
+};
+use crate::schema::{default_value, is_key, validate_value};
 use crate::validation::{MAX_DOCUMENT_BYTES, SettingsCode, SettingsError, guard_secrets};
 
 /// The keys `access.defaultMode` replaced (ADR 0075).
@@ -15,103 +22,302 @@ pub const RETIRED_ACCESS_KEYS: [&str; 3] = [
     "approvals.policy",
 ];
 
-/// A validated document: known values beside whatever else the file keeps.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Document {
+/// Settings this build retired (ADR 0208) and drops on read.
+pub const RETIRED_MEDIA_KEYS: [&str; 4] = [
+    "media.encode",
+    "media.delivery",
+    "media.recordings",
+    "media.stills",
+];
+
+/// The Cursor SDK instance id older selections called the CLI default.
+pub const CURSOR_DEFAULT_INSTANCE_ID: &str = "cursor-sdk-default";
+
+/// A validated document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecodedDocument {
     pub settings: Map<String, Value>,
-    /// Envelope fields other than version/settings, kept as they were.
-    pub envelope: Map<String, Value>,
+    pub text: String,
+    pub bytes: usize,
     pub migrated: bool,
+    pub ranges: BTreeMap<String, ScalarRange>,
+    pub layout: Option<SettingsLayout>,
 }
 
-fn parse(text: &str) -> Result<Value, SettingsError> {
-    serde_json::from_str(text)
-        .map_err(|_| SettingsError::new(SettingsCode::Validation, "Settings are not valid JSON"))
+/// The text a fresh settings file starts with.
+pub fn empty_text() -> &'static str {
+    "{\n  \"version\": 2,\n  \"settings\": {}\n}\n"
+}
+
+fn error(code: SettingsCode, message: &str) -> SettingsError {
+    SettingsError::new(code, message)
 }
 
 fn object(value: Option<&Value>) -> Option<&Map<String, Value>> {
     value?.as_object()
 }
 
-impl Document {
-    /// Reads version 2, migrating version 1's `values` into `settings`.
-    pub fn from_text(text: &str) -> Result<Self, SettingsError> {
-        if text.len() > MAX_DOCUMENT_BYTES {
-            return Err(SettingsError::new(
-                SettingsCode::Size,
-                "Settings document exceeds 1 MiB",
-            ));
+fn version_of(value: &Value) -> Option<i64> {
+    let number = value.get("version")?.as_f64()?;
+    (number.fract() == 0.0 && number.is_finite()).then_some(number as i64)
+}
+
+/// `validateAssignment`: the key's schema, after the credential guard.
+pub fn validate_assignment(key: &str, value: &Value) -> Result<Value, SettingsError> {
+    let mut probe = Map::new();
+    probe.insert(key.to_owned(), value.clone());
+    guard_secrets(&Value::Object(probe))?;
+    if !is_key(key) {
+        return Err(error(SettingsCode::Validation, "Unknown settings key"));
+    }
+    validate_value(key, value)
+}
+
+fn check_known_values(settings: &Map<String, Value>) -> Result<(), SettingsError> {
+    for (key, value) in settings {
+        if is_key(key) {
+            validate_value(key, value).map_err(|_| {
+                error(
+                    SettingsCode::Validation,
+                    "Settings document has invalid known values",
+                )
+            })?;
         }
-        let raw = parse(text)?;
-        let header = object(Some(&raw)).ok_or_else(|| {
-            SettingsError::new(
-                SettingsCode::Validation,
-                "Settings require a versioned document",
-            )
-        })?;
-        let version = header.get("version").and_then(Value::as_i64);
-        let (settings, migrated) = match version {
-            Some(2) => (
-                object(header.get("settings")).cloned().ok_or_else(|| {
-                    SettingsError::new(
-                        SettingsCode::Validation,
-                        "Settings document has no settings object",
-                    )
-                })?,
-                false,
-            ),
-            Some(1) => {
+    }
+    Ok(())
+}
+
+fn retired_workflow_keys(settings: &Map<String, Value>) -> Vec<String> {
+    settings
+        .keys()
+        .filter(|key| *key == "offshift" || key.starts_with("offshift."))
+        .cloned()
+        .collect()
+}
+
+fn transport_networks(transport: &str, relay_url: &str) -> (bool, bool, bool) {
+    (
+        transport != "tailscale",
+        transport == "tailscale",
+        transport == "relay" || !relay_url.is_empty(),
+    )
+}
+
+/// The networks a document gains, or none (`remote-networks-migration.ts`).
+fn remote_networks(settings: &Map<String, Value>) -> Option<((bool, bool, bool), bool)> {
+    let relay_url = settings
+        .get("remote.relayUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if let Some(transport) = settings.get("remote.transport").and_then(Value::as_str) {
+        return Some((transport_networks(transport, relay_url), true));
+    }
+    let chosen = settings.contains_key("remote.lan")
+        || settings.contains_key("remote.tailscale")
+        || settings.contains_key("remote.relay");
+    if chosen || relay_url.is_empty() {
+        return None;
+    }
+    Some((transport_networks("lan", relay_url), false))
+}
+
+/// SDK-specific Cursor preferences win a collision with a retired CLI default.
+fn cursor_configuration(rows: &Value) -> Value {
+    let Some(rows) = rows.as_array() else {
+        return rows.clone();
+    };
+    let mut next: Vec<Value> = Vec::new();
+    for value in rows {
+        let Some(row) = value.as_object() else {
+            next.push(value.clone());
+            continue;
+        };
+        let provider = row.get("provider").and_then(Value::as_str);
+        let instance = row.get("instance").and_then(Value::as_str);
+        let collapsed = provider == Some("cursor") && instance == Some("cursor-cli-default");
+        let target = if provider == Some("cursor") {
+            match instance {
+                Some("cursor-cli-default") => Some(CURSOR_DEFAULT_INSTANCE_ID.to_owned()),
+                other => other.map(str::to_owned),
+            }
+        } else {
+            instance.map(str::to_owned)
+        };
+        if collapsed
+            && target.as_ref().is_some_and(|target| {
+                rows.iter().any(|other| {
+                    let other = other.as_object();
+                    other
+                        .and_then(|other| other.get("provider"))
+                        .and_then(Value::as_str)
+                        == Some("cursor")
+                        && other
+                            .and_then(|other| other.get("instance"))
+                            .and_then(Value::as_str)
+                            == Some(target.as_str())
+                })
+            })
+        {
+            continue;
+        }
+        let mut kept = Map::new();
+        for (name, field) in row {
+            if name == "binaryPath" {
+                continue;
+            }
+            kept.insert(name.clone(), field.clone());
+        }
+        if provider == Some("cursor") {
+            match target {
+                Some(target) => {
+                    kept.insert("instance".to_owned(), Value::String(target));
+                }
+                None => {
+                    kept.remove("instance");
+                }
+            }
+        }
+        next.push(Value::Object(kept));
+    }
+    Value::Array(next)
+}
+
+impl DecodedDocument {
+    /// Reads a document, migrating version 1 and this build's v2 upgrades.
+    pub fn decode(text: &str) -> Result<Self, SettingsError> {
+        let mut text = text.to_owned();
+        let mut migrated = false;
+        for _ in 0..16 {
+            let scanned = parse_document(&text)?;
+            if scanned.bytes > MAX_DOCUMENT_BYTES {
+                return Err(error(SettingsCode::Size, "Settings document exceeds 1 MiB"));
+            }
+            let Some(header) = object(Some(&scanned.value)) else {
+                return Err(error(
+                    SettingsCode::Validation,
+                    "Settings require a versioned document",
+                ));
+            };
+            let version = version_of(&scanned.value).ok_or_else(|| {
+                error(
+                    SettingsCode::Validation,
+                    "Settings require a versioned document",
+                )
+            })?;
+            if version == 1 {
                 if header.contains_key("settings") {
-                    return Err(SettingsError::new(
+                    return Err(error(
                         SettingsCode::Validation,
                         "Invalid version 1 settings document",
                     ));
                 }
-                let values = object(header.get("values")).cloned().ok_or_else(|| {
-                    SettingsError::new(
+                let values = object(header.get("values")).ok_or_else(|| {
+                    error(
                         SettingsCode::Validation,
                         "Invalid version 1 settings document",
                     )
                 })?;
-                (values, true)
+                text = rewrite_version_one(&text, values)?;
+                migrated = true;
+                continue;
             }
-            Some(_) => {
-                return Err(SettingsError::new(
+            if version != 2 {
+                return Err(error(
                     SettingsCode::Version,
                     "Unsupported settings document version",
                 ));
             }
-            None => {
-                return Err(SettingsError::new(
+            let Some(settings) = object(header.get("settings")) else {
+                return Err(error(
                     SettingsCode::Validation,
-                    "Settings require a versioned document",
+                    "Settings document has no settings object",
+                ));
+            };
+            check_known_values(settings)?;
+            let retired: Vec<String> = retired_workflow_keys(settings)
+                .into_iter()
+                .chain(
+                    RETIRED_MEDIA_KEYS
+                        .into_iter()
+                        .filter(|key| settings.contains_key(*key))
+                        .map(str::to_owned),
+                )
+                .collect();
+            if !retired.is_empty() {
+                text = remove_keys(&scanned, &retired)?.text;
+                migrated = true;
+                continue;
+            }
+            if let Some(((lan, tailscale, relay), drop_transport)) = remote_networks(settings) {
+                let mut next = scanned.clone();
+                for (key, value) in [
+                    ("remote.lan", Value::Bool(lan)),
+                    ("remote.tailscale", Value::Bool(tailscale)),
+                    ("remote.relay", Value::Bool(relay)),
+                ] {
+                    next = set_setting(&next, key, &value)?;
+                }
+                if drop_transport {
+                    next = remove_keys(&next, &["remote.transport".to_owned()])?;
+                }
+                text = next.text;
+                migrated = true;
+                continue;
+            }
+            for key in ["clients.theme", "clients.keybindings"] {
+                if let Some(value) = settings.get(key) {
+                    validate_value(key, value)?;
+                }
+            }
+            let refused: Vec<&str> = RETIRED_ACCESS_KEYS
+                .into_iter()
+                .filter(|key| settings.contains_key(*key))
+                .collect();
+            if !refused.is_empty() {
+                return Err(error(
+                    SettingsCode::Validation,
+                    &format!(
+                        "Settings use {}, which this build no longer reads. Set access.defaultMode instead and remove them.",
+                        refused.join(", ")
+                    ),
                 ));
             }
-        };
-        let retired: Vec<&str> = RETIRED_ACCESS_KEYS
-            .into_iter()
-            .filter(|key| settings.contains_key(*key))
-            .collect();
-        if !retired.is_empty() {
-            return Err(SettingsError::new(
-                SettingsCode::Validation,
-                &format!(
-                    "Settings use {}, which this build no longer reads. Set access.defaultMode instead and remove them.",
-                    retired.join(", ")
-                ),
-            ));
+            if let Some(configuration) = settings.get("providers.configuration") {
+                let next = cursor_configuration(configuration);
+                if &next != configuration {
+                    let next_document = set_setting(&scanned, "providers.configuration", &next)?;
+                    text = next_document.text;
+                    migrated = true;
+                    continue;
+                }
+            }
+            let envelope: Map<String, Value> = header
+                .iter()
+                .filter(|(key, _)| key.as_str() != "version" && key.as_str() != "settings")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            let mut kept = Map::new();
+            for (key, value) in settings {
+                if is_key(key) {
+                    kept.insert(key.clone(), validate_value(key, value)?);
+                } else {
+                    kept.insert(key.clone(), value.clone());
+                }
+            }
+            let _ = envelope;
+            return Ok(Self {
+                settings: kept,
+                text: scanned.text.clone(),
+                bytes: scanned.bytes,
+                migrated,
+                ranges: scanned.ranges.clone(),
+                layout: scanned.layout.clone(),
+            });
         }
-        guard_secrets(&Value::Object(settings.clone()))?;
-        let envelope = header
-            .iter()
-            .filter(|(key, _)| key.as_str() != "version" && key.as_str() != "settings")
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        Ok(Self {
-            settings,
-            envelope,
-            migrated,
-        })
+        Err(error(
+            SettingsCode::Validation,
+            "Settings document has invalid known values",
+        ))
     }
 
     /// A value the document holds, unknown keys included.
@@ -119,119 +325,313 @@ impl Document {
         self.settings.get(key)
     }
 
-    /// Sets a value after the secret guard; the caller validates the value itself.
-    pub fn assign(&mut self, key: &str, value: Value) -> Result<(), SettingsError> {
-        guard_secrets(&value)?;
-        self.settings.insert(key.to_owned(), value);
-        Ok(())
+    /// A value that is set, else the key's shipped default, else null.
+    pub fn resolved(&self, key: &str) -> Value {
+        self.settings
+            .get(key)
+            .cloned()
+            .or_else(|| default_value(key))
+            .unwrap_or(Value::Null)
     }
 
-    /// Removes preferences without touching unknown keys.
-    pub fn reset(&mut self, keys: &[&str]) {
+    /// Sets a value, with the TypeScript's scalar fast path and migration-aware fallback.
+    pub fn assign(&self, key: &str, value: &Value) -> Result<Self, SettingsError> {
+        let parsed = validate_assignment(key, value)?;
+        if migrates_on_write(key)
+            || parsed.is_array()
+            || parsed.is_object()
+            || (parsed.is_null() && !self.ranges.contains_key(key))
+        {
+            let scanned = Scanned {
+                value: Value::Object(Map::new()),
+                bytes: self.bytes,
+                ranges: self.ranges.clone(),
+                layout: self.layout.clone(),
+                text: self.text.clone(),
+            };
+            let next = set_setting(&scanned, key, &parsed)?;
+            return Self::decode(&next.text);
+        }
+        let Some(range) = self.ranges.get(key).copied() else {
+            let scanned = Scanned {
+                value: Value::Object(Map::new()),
+                bytes: self.bytes,
+                ranges: self.ranges.clone(),
+                layout: self.layout.clone(),
+                text: self.text.clone(),
+            };
+            let next = set_setting(&scanned, key, &parsed)?;
+            return Self::decode(&next.text);
+        };
+        let content = serde_json::to_string(&parsed)
+            .map_err(|_| error(SettingsCode::Validation, "Settings are not serializable"))?;
+        let bytes = self.bytes - (range.end - range.start) + content.len();
+        if bytes > MAX_DOCUMENT_BYTES {
+            return Err(error(SettingsCode::Size, "Settings document exceeds 1 MiB"));
+        }
+        let text = replace_scalar(&self.text, range, &content);
+        let mut next = self.clone();
+        next.text = text;
+        next.bytes = bytes;
+        next.settings.insert(key.to_owned(), parsed);
+        let shift = content.len() as isize - (range.end - range.start) as isize;
+        for (other, position) in next.ranges.iter_mut() {
+            if other.as_str() == key {
+                position.end = position.start + content.len();
+            } else if position.start > range.start {
+                position.start = (position.start as isize + shift).max(0) as usize;
+                position.end = (position.end as isize + shift).max(0) as usize;
+            }
+        }
+        if let Some(layout) = next.layout.as_mut()
+            && let Some(span) = layout.properties.get_mut(key)
+        {
+            let key_start = span.key_start;
+            span.value_end = span.value_end.saturating_add_signed(shift);
+            for (_, other) in layout.properties.iter_mut() {
+                if other.key_start > key_start {
+                    other.key_start = other.key_start.saturating_add_signed(shift);
+                    other.value_end = other.value_end.saturating_add_signed(shift);
+                    if let Some(comma) = other.comma_before.as_mut() {
+                        *comma = comma.saturating_add_signed(shift);
+                    }
+                    if let Some(comma) = other.comma_after.as_mut() {
+                        *comma = comma.saturating_add_signed(shift);
+                    }
+                }
+            }
+            if let Some(last) = layout.last_value_end.as_mut() {
+                *last = last.saturating_add_signed(shift);
+            }
+            layout.close = layout.close.saturating_add_signed(shift);
+        }
+        Ok(next)
+    }
+
+    /// Removes known preferences, keeping unknown keys and comments.
+    pub fn reset(&self, keys: &[&str]) -> Result<Self, SettingsError> {
+        let scanned = Scanned {
+            value: Value::Object(Map::new()),
+            bytes: self.bytes,
+            ranges: self.ranges.clone(),
+            layout: self.layout.clone(),
+            text: self.text.clone(),
+        };
+        let mut next = scanned;
         for key in keys {
-            self.settings.remove(*key);
+            next = remove_keys(&next, &[(*key).to_owned()])?;
         }
+        Self::decode(&next.text)
     }
 
-    /// The document's JSON text. Nothing is written past the 1 MiB cap.
+    /// The document's text, or the size refusal.
     pub fn to_text(&self) -> Result<String, SettingsError> {
-        let mut root = self.envelope.clone();
-        root.insert("version".into(), Value::Number(2.into()));
-        root.insert("settings".into(), Value::Object(self.settings.clone()));
-        let text = serde_json::to_string_pretty(&Value::Object(root)).map_err(|_| {
-            SettingsError::new(SettingsCode::Validation, "Settings are not serializable")
-        })?;
-        let text = format!("{text}\n");
-        if text.len() > MAX_DOCUMENT_BYTES {
-            return Err(SettingsError::new(
-                SettingsCode::Size,
-                "Settings document exceeds 1 MiB",
-            ));
+        if self.bytes > MAX_DOCUMENT_BYTES {
+            return Err(error(SettingsCode::Size, "Settings document exceeds 1 MiB"));
         }
-        Ok(text)
+        Ok(self.text.clone())
     }
+}
+
+/// Keys whose writes may change other network settings (`migratesOnWrite`).
+pub fn migrates_on_write(key: &str) -> bool {
+    key == "remote.transport" || key == "remote.relayUrl"
+}
+
+fn rewrite_version_one(text: &str, values: &Map<String, Value>) -> Result<String, SettingsError> {
+    let mut scanned = parse_document(text)?;
+    // Replace `values` with `settings` at the same place, then the version.
+    let Some(header) = scanned.value.as_object().cloned() else {
+        return Err(error(
+            SettingsCode::Validation,
+            "Invalid version 1 settings document",
+        ));
+    };
+    if let Some(layout) = scanned.layout.clone() {
+        let _ = layout;
+    }
+    // A version 1 document has no `settings` object layout; write both keys by hand.
+    let mut root = header.clone();
+    root.remove("values");
+    root.insert("version".into(), Value::Number(2.into()));
+    root.insert("settings".into(), Value::Object(values.clone()));
+    let mut out = String::from("{\n");
+    let entries: Vec<_> = root.iter().collect();
+    for (index, (key, value)) in entries.iter().enumerate() {
+        let content = serde_json::to_string(value)
+            .map_err(|_| error(SettingsCode::Validation, "Settings are not serializable"))?;
+        out.push_str(&format!("  \"{key}\": {content}"));
+        if index + 1 < entries.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("}\n");
+    scanned.text = out.clone();
+    // The rewrite must still be a document this build reads.
+    let _ = parse_document(&out)?;
+    Ok(out)
+}
+
+fn set_setting(scanned: &Scanned, key: &str, value: &Value) -> Result<Scanned, SettingsError> {
+    let Some(layout) = scanned.layout.clone() else {
+        return Err(error(
+            SettingsCode::Validation,
+            "Settings document has no settings object",
+        ));
+    };
+    let text = if let Some(span) = layout.properties.get(key) {
+        let content = serde_json::to_string(value)
+            .map_err(|_| error(SettingsCode::Validation, "Settings are not serializable"))?;
+        replace_scalar(
+            &scanned.text,
+            ScalarRange {
+                start: span.key_start,
+                end: span.value_end,
+            },
+            &format!("\"{key}\": {content}"),
+        )
+    } else {
+        insert_setting(&scanned.text, &layout, key, value)?
+    };
+    parse_document(&text)
+}
+
+fn remove_keys(scanned: &Scanned, keys: &[String]) -> Result<Scanned, SettingsError> {
+    let mut text = scanned.text.clone();
+    for key in keys {
+        // Re-read so every later removal uses the spans of the text it removes from.
+        let current = parse_document(&text)?;
+        let Some(layout) = current.layout.as_ref() else {
+            break;
+        };
+        if let Some(span) = layout.properties.get(key) {
+            text = remove_setting(&text, span);
+        }
+    }
+    parse_document(&text)
 }
 
 #[cfg(test)]
 mod tests {
-    //! Ports the document cases of `packages/settings/src/scalars.test.ts` and
-    //! `permissions.test.ts`: unknown settings and envelope fields survive scalar
-    //! edits, the 1 MiB cap is UTF-8 bytes (rule 17's byte bounds), version 1
-    //! migrates, future versions are refused, and retired access keys are refused
-    //! without being reinterpreted.
+    //! Ports the document cases of `scalars.test.ts`, `permissions.test.ts`,
+    //! `retired-media-keys.test.ts`, `remote-networks.test.ts`,
+    //! `cursor-migration.process.test.ts` and the review's failing inputs: a commented
+    //! file loads, `version: 2.0` is accepted, retired media and Offshift keys are
+    //! dropped, `remote.transport` becomes the three networks, a Cursor CLI default
+    //! becomes the SDK default, unknown keys survive, and retired access keys are
+    //! refused.
 
     use super::*;
     use serde_json::json;
 
     #[test]
-    fn scalar_writes_preserve_unknown_settings_and_envelope_fields() {
-        let unknown: Map<String, Value> = (0..256)
-            .map(|index| (format!("future.{index}"), json!(index)))
-            .collect();
-        let mut root = unknown.clone();
-        root.insert("threads.settleOnClose".into(), json!(false));
-        let text = json!({
-            "version": 2,
-            "futureEnvelope": "retained",
-            "settings": Value::Object(root)
-        })
-        .to_string();
-        let mut document = Document::from_text(&text).unwrap_or_else(|_| panic!("decodes"));
-        document
-            .assign("threads.settleOnClose", json!(true))
-            .unwrap_or_else(|_| panic!("assigns"));
-        document
-            .assign("providers.coder.model", json!("new-model"))
-            .unwrap_or_else(|_| panic!("assigns"));
-        let text = document.to_text().unwrap_or_else(|_| panic!("encodes"));
-        let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        assert_eq!(value["version"], 2);
-        assert_eq!(value["futureEnvelope"], "retained");
-        assert_eq!(value["settings"]["threads.settleOnClose"], true);
-        assert_eq!(value["settings"]["future.255"], 255);
-        assert_eq!(value["settings"]["providers.coder.model"], "new-model");
-    }
-
-    #[test]
-    fn the_document_cap_counts_utf8_bytes_and_refuses_a_write_that_would_cross_it() {
-        let prefix = "{\n  \"version\": 2,\n  \"settings\": {\n    \"future.payload\": \"";
-        let suffix = "\"\n  }\n}\n";
-        let payload = "x".repeat(MAX_DOCUMENT_BYTES - prefix.len() - suffix.len() - 200);
-        let mut document = Document::from_text(&(prefix.to_owned() + &payload + suffix))
-            .unwrap_or_else(|_| panic!("decodes"));
-        // A value that fits.
-        document
-            .assign("threads.settleOnClose", json!(true))
-            .unwrap_or_else(|_| panic!("assigns"));
-        assert!(document.to_text().is_ok());
-        // Four-byte emoji past the cap fail, and the document keeps its previous value.
-        let oversized = "🚀"
-            .repeat((MAX_DOCUMENT_BYTES - document.to_text().unwrap_or_default().len()) / 4 + 2);
-        document
-            .assign("providers.coder.model", json!(oversized))
-            .unwrap_or_else(|_| panic!("assigns"));
+    fn a_commented_document_loads_and_keeps_its_comments() {
+        let text = "{\n  // ops note\n  \"version\": 2,\n  \"settings\": {\n    \"threads.settleOnClose\": true // keep\n  }\n}\n";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(
-            document.to_text().map_err(|error| error.code),
-            Err(SettingsCode::Size)
+            document.get("threads.settleOnClose"),
+            Some(&Value::Bool(true))
         );
+        let next = document
+            .assign("threads.settleOnClose", &Value::Bool(false))
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(next.to_text().unwrap_or_default().contains("// ops note"));
+        assert!(next.to_text().unwrap_or_default().contains("// keep"));
+        assert_eq!(next.get("threads.settleOnClose"), Some(&Value::Bool(false)));
     }
 
     #[test]
-    fn version_one_migrates_and_unreadable_versions_are_refused() {
-        let migrated = Document::from_text(
-            &json!({ "version": 1, "values": { "providers.coder.model": "m" } }).to_string(),
-        )
-        .unwrap_or_else(|_| panic!("migrates"));
-        assert!(migrated.migrated);
-        assert_eq!(migrated.get("providers.coder.model"), Some(&json!("m")));
+    fn version_two_as_a_float_is_accepted_and_other_versions_are_not() {
+        let text = json!({ "version": 2.0, "settings": {} }).to_string();
+        assert!(DecodedDocument::decode(&text).is_ok());
         assert_eq!(
-            Document::from_text(&json!({ "version": 3, "settings": {} }).to_string())
+            DecodedDocument::decode(&json!({ "version": 3, "settings": {} }).to_string())
                 .map_err(|error| error.code),
             Err(SettingsCode::Version)
         );
+    }
+
+    #[test]
+    fn a_known_value_the_schema_refuses_refuses_the_document() {
+        let text = json!({
+            "version": 2,
+            "settings": { "threads.followUpBehavior": "soon" }
+        })
+        .to_string();
         assert_eq!(
-            Document::from_text(&json!({ "settings": {} }).to_string()).map_err(|error| error.code),
-            Err(SettingsCode::Validation)
+            DecodedDocument::decode(&text).map_err(|error| (error.code, error.message)),
+            Err((
+                SettingsCode::Validation,
+                "Settings document has invalid known values".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn retired_media_workflow_and_transport_values_are_migrated_on_read() {
+        let text = json!({
+            "version": 2,
+            "settings": {
+                "media.encode": "h264",
+                "offshift.keep": true,
+                "remote.transport": "tailscale"
+            }
+        })
+        .to_string();
+        let document = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        assert!(document.migrated);
+        assert!(document.get("media.encode").is_none());
+        assert!(document.get("offshift.keep").is_none());
+        assert!(document.get("remote.transport").is_none());
+        assert_eq!(document.get("remote.lan"), Some(&Value::Bool(false)));
+        assert_eq!(document.get("remote.tailscale"), Some(&Value::Bool(true)));
+        assert_eq!(document.get("remote.relay"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn a_cursor_cli_default_becomes_the_sdk_default_without_binary_paths() {
+        let text = json!({
+            "version": 2,
+            "settings": {
+                "providers.configuration": [{
+                    "provider": "cursor",
+                    "instance": "cursor-cli-default",
+                    "binaryPath": "/opt/cursor"
+                }]
+            }
+        })
+        .to_string();
+        let document = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        let rows = document
+            .get("providers.configuration")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(rows[0]["instance"], CURSOR_DEFAULT_INSTANCE_ID);
+        assert!(rows[0].get("binaryPath").is_none());
+        assert!(document.migrated);
+    }
+
+    #[test]
+    fn unknown_keys_and_envelope_fields_survive_edits() {
+        let text = json!({
+            "version": 2,
+            "futureEnvelope": "retained",
+            "settings": { "future.note": 1, "threads.settleOnClose": false }
+        })
+        .to_string();
+        let document = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        let next = document
+            .assign("providers.coder.model", &json!("new-model"))
+            .unwrap_or_else(|error| panic!("{error}"));
+        let text = next.to_text().unwrap_or_default();
+        assert!(text.contains("\"futureEnvelope\":\"retained\""));
+        let decoded = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(decoded.get("future.note"), Some(&json!(1)));
+        assert_eq!(
+            decoded.get("providers.coder.model"),
+            Some(&json!("new-model"))
         );
     }
 
@@ -241,13 +641,21 @@ mod tests {
             json!({ "permissions.providerModes": { "claude": "bypassPermissions" } }),
             json!({ "permissions.defaultMode": "full-access" }),
             json!({ "approvals.policy": "never" }),
-            json!({ "access.defaultMode": "read-only", "approvals.policy": "never" }),
         ] {
             let text = json!({ "version": 2, "settings": stored }).to_string();
-            let error = Document::from_text(&text).err();
-            let error = error.unwrap_or_else(|| panic!("refuses {stored}"));
+            let error = DecodedDocument::decode(&text)
+                .err()
+                .unwrap_or_else(|| panic!("refuses"));
             assert_eq!(error.code, SettingsCode::Validation);
             assert!(error.message.contains("access.defaultMode"));
         }
+    }
+
+    #[test]
+    fn an_unknown_assignment_key_is_refused() {
+        assert_eq!(
+            validate_assignment("threads.settleSoon", &json!(true)).map_err(|error| error.message),
+            Err("Unknown settings key".into())
+        );
     }
 }

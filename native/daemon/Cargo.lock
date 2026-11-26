@@ -268,8 +268,10 @@ dependencies = [
 name = "ace-settings"
 version = "0.1.0"
 dependencies = [
+ "ace-protocol",
  "regex",
  "serde_json",
+ "url",
 ]
 
 [[package]]

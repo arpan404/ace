@@ -13,6 +13,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# ace-protocol: provider names are its generated enum.
+ace-protocol = { path = "../ace-protocol" }
+# url: the origin-only remote and gateway settings.
+url = "2"
 # serde_json: the versioned document's values and unknown-key preservation.
 serde_json = { version = "1", features = ["preserve_order"] }
 # regex: the credential and retired-key rules from the TypeScript.

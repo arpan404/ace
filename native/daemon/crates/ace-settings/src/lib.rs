@@ -8,5 +8,10 @@
 
 pub mod batch;
 pub mod document;
+pub mod file;
+pub mod jsonc;
+pub mod layers;
 pub mod roles;
+pub mod schema;
+pub mod service;
 pub mod validation;
