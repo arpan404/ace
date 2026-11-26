@@ -469,3 +469,69 @@ async fn a_helper_that_exits_during_its_start_fails_the_request_and_the_next_sta
         Some("calculator")
     );
 }
+
+/// A retired connection answers `stopped` after its helper exited, even though its own shutdown
+/// ended its task (`helper-connection.ts:101`-`:107`): otherwise the app's successor would wait
+/// forever on a connection that has nothing left to stop (`client.ts:157`-`:165`).
+#[tokio::test]
+async fn a_retired_connections_stopped_answers_after_its_helper_exited() {
+    let start = Arc::new(FakeStart::default());
+    let connection = Connection::start(options(Arc::clone(&start)));
+    let first = tokio::spawn({
+        let connection = connection.clone();
+        async move {
+            connection
+                .request("state", &payload(), 5_000, None, None)
+                .await
+        }
+    });
+    until("the state on the wire", || {
+        start.spawned() == 1 && start.helper(0).writes().len() == 1
+    })
+    .await;
+    start.helper(0).reply(0, r#"{"app":"calculator"}"#);
+    let _ = first.await;
+    connection.close();
+    until("the helper's exit", || {
+        start.helper(0).exited.load(Ordering::Relaxed)
+    })
+    .await;
+    // The task ends once nothing is starting, running or stopping.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        connection.stopped().await.is_ok(),
+        "a retired connection with no helper left answers stopped"
+    );
+}
+
+/// When SIGKILL is refused, a request already waiting on the stop hears `helper_stopping` at
+/// once instead of waiting for its own deadline (`helper-connection.ts:125`-`:131`, `:451`).
+#[tokio::test]
+async fn a_refused_sigkill_wakes_a_stopped_waiter_with_helper_stopping() {
+    let mut start = FakeStart::ignoring_stop();
+    start.refuses_kill = true;
+    let start = Arc::new(start);
+    let connection = Connection::start(options(Arc::clone(&start)));
+    let stuck = tokio::spawn({
+        let connection = connection.clone();
+        async move {
+            connection
+                .request("act", &payload(), 5_000, None, None)
+                .await
+        }
+    });
+    until("the act on the wire", || {
+        start.spawned() == 1 && start.helper(0).writes().len() == 1
+    })
+    .await;
+    // Shutdown starts the stop; the helper ignores SIGTERM and refuses SIGKILL.
+    connection.close();
+    let waited = tokio::time::timeout(Duration::from_secs(2), connection.stopped()).await;
+    let result = waited.expect("stopped answered once SIGKILL was refused");
+    assert_eq!(
+        result.unwrap_err().code,
+        "helper_stopping",
+        "the waiter is told the old helper is still running"
+    );
+    let _ = stuck.await;
+}

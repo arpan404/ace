@@ -334,11 +334,15 @@ impl Connection {
     pub async fn stopped(&self) -> Result<(), ComputerError> {
         let (reply, answer) = oneshot::channel();
         if self.shared.tx.send(Cmd::Stopped(reply)).is_err() {
-            return Err(ComputerError::stopped());
+            // The task ends only once shutdown found nothing starting, running or stopping, so
+            // a retired connection whose helper has exited answers `Ok` here. A successor
+            // waiting for it must be able to start, not inherit a closed connection
+            // (`helper-connection.ts:101`-`:107`).
+            return Ok(());
         }
         match answer.await {
             Ok(result) => result,
-            Err(_) => Err(ComputerError::stopped()),
+            Err(_) => Ok(()),
         }
     }
 
@@ -1003,6 +1007,11 @@ impl State {
                     // and the request waiting for its successor is refused at once with
                     // `helper_stopping` instead of waiting for its deadline (`:451`, `:126`).
                     self.unkillable = true;
+                    // Wake waiters already waiting on the stop (`:451`, `:131`): no successor
+                    // may start while the old helper lives, so they fail at once instead.
+                    for waiter in self.stopped_waiters.drain(..) {
+                        let _ = waiter.send(Err(ComputerError::helper_stopping()));
+                    }
                     if self.current.is_some() {
                         self.fail_current(ComputerError::helper_stopping());
                     }
