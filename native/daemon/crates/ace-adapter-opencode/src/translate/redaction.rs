@@ -8,10 +8,11 @@
 //! Credential shapes and secret-key names are `ace-redaction`'s: this module
 //! keeps only the walk, the bounds and the ephemeral secrets the session owns,
 //! so a shape added for another caller cannot leak here
-//! (`docs/engine/behaviour.md` §20).
+//! (`docs/engine/behaviour.md` §20). Its keys use the adapter's own policy
+//! (`is_opencode_secret_key`), which keeps `tokens` readable as usage.
 
 use ace_json::{Map, Value};
-use ace_redaction::{is_secret_key, redact_with_marker};
+use ace_redaction::{is_opencode_secret_key, redact_with_marker};
 use std::borrow::Cow;
 
 const MAX_STRING: usize = 1 << 20;
@@ -103,7 +104,7 @@ fn sanitize_object<'a, S: AsRef<str>>(
         None
     };
     for (key, original) in map.iter().take(count) {
-        let next = if is_secret_key(key) {
+        let next = if is_opencode_secret_key(key) {
             Cow::Owned(Value::from(String::from("[redacted]")))
         } else {
             sanitize_at(original, secrets, depth + 1)
@@ -152,7 +153,65 @@ fn sanitize_text<'a, S: AsRef<str>>(text: &'a str, secrets: &[S]) -> Cow<'a, str
 #[cfg(test)]
 mod tests {
     use super::{MAX_STRING, sanitize};
+    use crate::translate::translator::Translator;
     use ace_json::{Value, json};
+
+    /// Token counters are usage, not credentials: they survive sanitizing, and
+    /// translation still emits the context sample and the usage fact with their
+    /// cost (the TypeScript pins 185/35 tokens and $0.0027 in `v2.test.ts`).
+    #[test]
+    fn token_counters_survive_sanitize_and_still_translate_to_usage_and_context() {
+        let step = json!({
+            "id": "e1",
+            "type": "session.step.ended",
+            "data": { "sessionID": "a", "tokens": { "input": 185, "output": 35 } },
+        });
+        let clean = sanitize(&step, &[] as &[&str]).into_owned();
+        assert!(clean["data"]["tokens"].as_object().is_some(), "{clean}");
+        let mut out = String::new();
+        let mut translator = Translator::new(String::from("root"));
+        let created = json!({
+            "id": "e0",
+            "type": "session.created",
+            "data": { "id": "a" },
+        });
+        translator.translate_json(
+            r#"{"channel":"sse","dir":"in"}"#,
+            &ace_json::ser::to_string(&created).expect("events serialize"),
+            1.0,
+            &mut out,
+        );
+        translator.translate_json(
+            r#"{"channel":"sse","dir":"in"}"#,
+            &ace_json::ser::to_string(&clean).expect("sanitized events serialize"),
+            1.0,
+            &mut out,
+        );
+        assert!(out.contains(r#""type":"context.sample""#), "{out}");
+        assert!(out.contains(r#""usedTokens":220"#), "{out}");
+
+        let usage = json!({
+            "id": "e2",
+            "type": "session.usage.updated",
+            "data": {
+                "sessionID": "a",
+                "tokens": { "input": 185, "output": 35 },
+                "cost": 0.0027,
+            },
+        });
+        let clean = sanitize(&usage, &[] as &[&str]).into_owned();
+        let mut out = String::new();
+        translator.translate_json(
+            r#"{"channel":"sse","dir":"in"}"#,
+            &ace_json::ser::to_string(&clean).expect("sanitized events serialize"),
+            1.0,
+            &mut out,
+        );
+        assert!(out.contains(r#""type":"usage""#), "{out}");
+        assert!(out.contains(r#""inputTokens":185"#), "{out}");
+        assert!(out.contains(r#""outputTokens":35"#), "{out}");
+        assert!(out.contains(r#""costUsd":0.0027"#), "{out}");
+    }
 
     /// Opaque provider state is redacted under both its 2.0 and 2.1 names,
     /// text is kept.
