@@ -27,8 +27,8 @@ pub const MAX_SUBSCRIPTIONS: usize = 64;
 pub struct ReadError;
 
 /// `pageSubscription(...)`, as the shell's closure: it reaches the sidebar's ports.
-pub type PageFn<'a> =
-    dyn FnMut(&mut Subscriptions, &str, &ThreadListCursor, &str) -> Result<Value, ReadError> + 'a;
+pub type PageFn<'a> = dyn FnMut(&mut Subscriptions, &JsString, &ThreadListCursor, &JsString) -> Result<Value, ReadError>
+    + 'a;
 
 /// The creation of a checked subscription, as the shell's closure.
 pub type SubscribeFn<'a> = dyn FnMut(&mut Subscriptions, &Value) -> Result<(), ReadError> + 'a;
@@ -42,7 +42,9 @@ pub enum ManagedSubscription {
 /// Every subscription of one authenticated socket, by id.
 #[derive(Default)]
 pub struct Subscriptions {
-    entries: std::collections::BTreeMap<String, ManagedSubscription>,
+    /// Opaque wire ids keep their exact UTF-16 units: two ids that differ only by a lone
+    /// surrogate are different subscriptions, and a reply echoes the id it was asked with.
+    entries: std::collections::BTreeMap<JsString, ManagedSubscription>,
 }
 
 impl Subscriptions {
@@ -58,19 +60,19 @@ impl Subscriptions {
         self.entries.is_empty()
     }
 
-    pub fn contains(&self, id: &str) -> bool {
+    pub fn contains(&self, id: &JsString) -> bool {
         self.entries.contains_key(id)
     }
 
-    pub fn insert(&mut self, id: &str, subscription: ManagedSubscription) {
-        self.entries.insert(id.to_owned(), subscription);
+    pub fn insert(&mut self, id: JsString, subscription: ManagedSubscription) {
+        self.entries.insert(id, subscription);
     }
 
-    pub fn remove(&mut self, id: &str) -> Option<ManagedSubscription> {
+    pub fn remove(&mut self, id: &JsString) -> Option<ManagedSubscription> {
         self.entries.remove(id)
     }
 
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut ManagedSubscription> {
+    pub fn get_mut(&mut self, id: &JsString) -> Option<&mut ManagedSubscription> {
         self.entries.get_mut(id)
     }
 
@@ -92,8 +94,8 @@ fn stop(subscription: ManagedSubscription, store: &dyn crate::subscription::Subs
 /// Who a failure names, so the client can match it to its request or subscription.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FailScope<'a> {
-    pub request_id: Option<&'a str>,
-    pub subscription_id: Option<&'a str>,
+    pub request_id: Option<&'a JsString>,
+    pub subscription_id: Option<&'a JsString>,
 }
 
 /// What a core read needs from the store.
@@ -168,7 +170,7 @@ pub fn read_core(message: &Value, reader: &mut CoreReader<'_>) -> bool {
         "threads.page" => page(message, reader),
         "command.status" => command_status(message, reader),
         "unsubscribe" => {
-            if let Some(id) = field_text(message, "subscriptionId").map(JsString::as_str)
+            if let Some(id) = field_text(message, "subscriptionId")
                 && let Some(subscription) = reader.subscriptions.remove(id)
             {
                 stop(subscription, reader.subscription_store);
@@ -185,8 +187,8 @@ pub fn read_core(message: &Value, reader: &mut CoreReader<'_>) -> bool {
 }
 
 fn page(message: &Value, reader: &mut CoreReader<'_>) {
-    let subscription_id = field_text(message, "subscriptionId").map(JsString::as_str);
-    let request_id = field_text(message, "requestId").map(JsString::as_str);
+    let subscription_id = field_text(message, "subscriptionId");
+    let request_id = field_text(message, "requestId");
     let before = field(message, "before").and_then(ThreadListCursor::from_value);
     let usable = match (subscription_id, request_id, before) {
         (Some(id), Some(request), Some(before))
@@ -223,7 +225,7 @@ fn page(message: &Value, reader: &mut CoreReader<'_>) {
 }
 
 fn command_status(message: &Value, reader: &mut CoreReader<'_>) {
-    let request_id = field_text(message, "requestId").map(JsString::as_str);
+    let request_id = field_text(message, "requestId");
     let mut commands = Vec::new();
     for command_id in field(message, "commandIds")
         .and_then(|command_ids| match command_ids {
@@ -261,14 +263,14 @@ fn command_status(message: &Value, reader: &mut CoreReader<'_>) {
     let mut out = Map::with_capacity(3);
     out.insert("type", Value::String(JsString::from("command.status")));
     if let Some(request_id) = request_id {
-        out.insert("requestId", Value::String(JsString::from(request_id)));
+        out.insert("requestId", Value::String(request_id.clone()));
     }
     out.insert("commands", Value::Array(commands.into()));
     (reader.send)(Value::Object(out));
 }
 
 fn subscribe(message: &Value, reader: &mut CoreReader<'_>) {
-    let Some(subscription_id) = field_text(message, "subscriptionId").map(JsString::as_str) else {
+    let Some(subscription_id) = field_text(message, "subscriptionId") else {
         return;
     };
     let fail = |reader: &mut CoreReader<'_>, code: &str, wording: &str| {
@@ -314,8 +316,8 @@ fn subscribe(message: &Value, reader: &mut CoreReader<'_>) {
 }
 
 fn output_read(message: &Value, reader: &mut CoreReader<'_>) {
-    let request_id = field_text(message, "requestId").map(JsString::as_str);
-    let stream = field_text(message, "streamId").map(JsString::as_str);
+    let request_id = field_text(message, "requestId");
+    let stream = field_text(message, "streamId");
     if !(reader.authorize)("read") {
         (reader.fail)(
             "forbidden",
@@ -330,7 +332,7 @@ fn output_read(message: &Value, reader: &mut CoreReader<'_>) {
     }
     let readable = stream.is_some_and(|stream| {
         (reader.store)
-            .output_thread(stream)
+            .output_thread(stream.as_str())
             .is_some_and(|thread| can_read(reader, &thread))
     });
     let Some(stream) = stream.filter(|_| readable) else {
@@ -347,13 +349,13 @@ fn output_read(message: &Value, reader: &mut CoreReader<'_>) {
     };
     let offset = field(message, "offset").and_then(number).unwrap_or(0.0) as u64;
     let limit = field(message, "limit").and_then(number).unwrap_or(0.0) as usize;
-    let data = (reader.store).read_output(stream, offset, limit.min(OUTPUT_READ_BYTES));
+    let data = (reader.store).read_output(stream.as_str(), offset, limit.min(OUTPUT_READ_BYTES));
     let mut out = Map::with_capacity(5);
     out.insert("type", Value::String(JsString::from("output.data")));
     if let Some(request_id) = request_id {
         out.insert("requestId", Value::String(JsString::from(request_id)));
     }
-    out.insert("streamId", Value::String(JsString::from(stream)));
+    out.insert("streamId", Value::String(stream.clone()));
     out.insert("offset", Value::Number(Number::from(offset)));
     if let Value::Object(fields) = data {
         for (key, value) in fields {
@@ -364,11 +366,11 @@ fn output_read(message: &Value, reader: &mut CoreReader<'_>) {
 }
 
 fn interaction_read(message: &Value, reader: &mut CoreReader<'_>) {
-    let request_id = field_text(message, "requestId").map(JsString::as_str);
-    let thread = field_text(message, "threadId").map(JsString::as_str);
-    let interaction = field_text(message, "interactionId").map(JsString::as_str);
-    let readable =
-        thread.is_some_and(|thread| (reader.authorize)("read") && can_read(reader, thread));
+    let request_id = field_text(message, "requestId");
+    let thread = field_text(message, "threadId");
+    let interaction = field_text(message, "interactionId");
+    let readable = thread
+        .is_some_and(|thread| (reader.authorize)("read") && can_read(reader, thread.as_str()));
     let (Some(thread), Some(interaction)) = (thread.filter(|_| readable), interaction) else {
         (reader.fail)(
             "read_denied",
@@ -382,15 +384,15 @@ fn interaction_read(message: &Value, reader: &mut CoreReader<'_>) {
         return;
     };
     let offset = field(message, "offset").and_then(number).unwrap_or(0.0) as u64;
-    match (reader.store).read_interaction_request(thread, interaction, offset) {
+    match (reader.store).read_interaction_request(thread.as_str(), interaction.as_str(), offset) {
         Ok(page) => {
             let mut out = Map::with_capacity(5);
             out.insert("type", Value::String(JsString::from("interaction.data")));
             if let Some(request_id) = request_id {
-                out.insert("requestId", Value::String(JsString::from(request_id)));
+                out.insert("requestId", Value::String(request_id.clone()));
             }
-            out.insert("threadId", Value::String(JsString::from(thread)));
-            out.insert("interactionId", Value::String(JsString::from(interaction)));
+            out.insert("threadId", Value::String(thread.clone()));
+            out.insert("interactionId", Value::String(interaction.clone()));
             if let Value::Object(fields) = page {
                 for (key, value) in fields {
                     out.insert(key, value);
@@ -418,7 +420,7 @@ fn interaction_read(message: &Value, reader: &mut CoreReader<'_>) {
 }
 
 fn entities_page(message: &Value, reader: &mut CoreReader<'_>) {
-    let request_id = field_text(message, "requestId").map(JsString::as_str);
+    let request_id = field_text(message, "requestId");
     let thread = field_text(message, "threadId").map(JsString::as_str);
     let readable = thread.is_some_and(|thread| {
         (reader.authorize)("read") && (reader.store).read_thread(thread) && can_read(reader, thread)
@@ -446,7 +448,7 @@ fn entities_page(message: &Value, reader: &mut CoreReader<'_>) {
             let mut out = Map::with_capacity(3);
             out.insert("type", Value::String(JsString::from("entities.page")));
             if let Some(request_id) = request_id {
-                out.insert("requestId", Value::String(JsString::from(request_id)));
+                out.insert("requestId", Value::String(request_id.clone()));
             }
             out.insert("page", page);
             (reader.send)(Value::Object(out));
@@ -464,7 +466,7 @@ fn entities_page(message: &Value, reader: &mut CoreReader<'_>) {
 }
 
 fn items_page(message: &Value, reader: &mut CoreReader<'_>) {
-    let request_id = field_text(message, "requestId").map(JsString::as_str);
+    let request_id = field_text(message, "requestId");
     let thread = field_text(message, "threadId").map(JsString::as_str);
     if !(reader.authorize)("read") {
         (reader.fail)(
@@ -504,7 +506,7 @@ fn items_page(message: &Value, reader: &mut CoreReader<'_>) {
             let mut out = Map::with_capacity(3);
             out.insert("type", Value::String(JsString::from("items.page")));
             if let Some(request_id) = request_id {
-                out.insert("requestId", Value::String(JsString::from(request_id)));
+                out.insert("requestId", Value::String(request_id.clone()));
             }
             if let Value::Object(fields) = page {
                 for (key, value) in fields {
@@ -526,11 +528,11 @@ fn items_page(message: &Value, reader: &mut CoreReader<'_>) {
 }
 
 /// `JSON.stringify({type:"items.page", requestId, threadId})`, the bytes a page's envelope costs.
-fn item_page_envelope(request_id: Option<&str>, thread_id: &str) -> String {
+fn item_page_envelope(request_id: Option<&JsString>, thread_id: &str) -> String {
     let mut envelope = Map::with_capacity(3);
     envelope.insert("type", Value::String(JsString::from("items.page")));
     if let Some(request_id) = request_id {
-        envelope.insert("requestId", Value::String(JsString::from(request_id)));
+        envelope.insert("requestId", Value::String(request_id.clone()));
     }
     envelope.insert("threadId", Value::String(JsString::from(thread_id)));
     ace_json::to_string(&Value::Object(envelope))

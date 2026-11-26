@@ -102,7 +102,7 @@ impl CoreStore for Fake {
 struct Failure {
     code: String,
     message: String,
-    scope: (Option<String>, Option<String>),
+    scope: (Option<JsString>, Option<JsString>),
 }
 
 /// One socket's worth of state, and the reads one message causes.
@@ -144,10 +144,7 @@ fn answer(
         failures.push(Failure {
             code: code.to_owned(),
             message: message.to_owned(),
-            scope: (
-                scope.request_id.map(str::to_owned),
-                scope.subscription_id.map(str::to_owned),
-            ),
+            scope: (scope.request_id.cloned(), scope.subscription_id.cloned()),
         })
     };
     let handled = {
@@ -228,9 +225,9 @@ fn subscribe_nothing(_: &mut Subscriptions, _: &Value) -> Result<(), ReadError> 
 
 fn page_nothing(
     _: &mut Subscriptions,
-    _: &str,
+    _: &JsString,
     _: &ace_fanout::ThreadListCursor,
-    _: &str,
+    _: &JsString,
 ) -> Result<Value, ReadError> {
     Err(ReadError)
 }
@@ -276,7 +273,7 @@ fn a_subscribe_without_read_scope_is_forbidden() {
     assert_eq!(socket.failures.len(), 1);
     assert_eq!(socket.failures[0].code, "forbidden");
     assert_eq!(socket.failures[0].message, "Read scope required");
-    assert_eq!(socket.failures[0].scope, (None, Some("s".to_owned())));
+    assert_eq!(socket.failures[0].scope, (None, Some(JsString::from("s"))));
 }
 
 /// "Too many subscriptions" once the socket holds 64.
@@ -285,7 +282,7 @@ fn the_sixty_fifth_subscription_is_refused() {
     let mut socket = Socket::new();
     for index in 0..MAX_SUBSCRIPTIONS {
         socket.subscriptions.insert(
-            &format!("s{index}"),
+            JsString::from(format!("s{index}").as_str()),
             ManagedSubscription::Plain(Box::new(Subscription::new(
                 JsString::from("s"),
                 Scope::Threads,
@@ -370,7 +367,7 @@ fn a_page_without_its_subscription_is_page_failed() {
         &mut subscribe_nothing,
     );
     assert_eq!(socket.failures[0].code, "page_failed");
-    assert_eq!(socket.failures[0].scope, (Some("p".to_owned()), None));
+    assert_eq!(socket.failures[0].scope, (Some(JsString::from("p")), None));
 }
 
 /// An output read's limit never passes `outputReadBytes`, whatever was asked.
@@ -601,7 +598,7 @@ fn command_status_sends_settled_results_and_each_state() {
 fn every_read_answers_the_protocols_message() {
     let mut socket = Socket::new();
     socket.subscriptions.insert(
-        "s1",
+        JsString::from("s1"),
         ManagedSubscription::Plain(Box::new(Subscription::new(
             JsString::from("s1"),
             Scope::Thread("t_tree".to_owned()),
@@ -623,17 +620,17 @@ fn every_read_answers_the_protocols_message() {
         ..Fake::default()
     };
 
-    let pages: std::cell::RefCell<Vec<(String, u64, String, String)>> =
+    let pages: std::cell::RefCell<Vec<(JsString, u64, String, JsString)>> =
         std::cell::RefCell::new(Vec::new());
     let mut page = |_: &mut Subscriptions,
-                    subscription: &str,
+                    subscription: &JsString,
                     cursor: &ace_fanout::ThreadListCursor,
-                    request: &str| {
+                    request: &JsString| {
         pages.borrow_mut().push((
-            subscription.to_owned(),
+            subscription.clone(),
             cursor.at,
             cursor.id.clone(),
-            request.to_owned(),
+            request.clone(),
         ));
         Ok(parse(
             r#"{"type":"threads.patch","subscriptionId":"s1","seq":1,"threads":{},"removed":[],"window":{}}"#,
@@ -679,7 +676,12 @@ fn every_read_answers_the_protocols_message() {
 
     assert_eq!(
         pages.borrow().as_slice(),
-        [("s1".to_owned(), 7, "t_tree".to_owned(), "page-1".to_owned())],
+        [(
+            JsString::from("s1"),
+            7,
+            "t_tree".to_owned(),
+            JsString::from("page-1")
+        )],
         "threads.page passes its subscription, cursor and request"
     );
     let subscriptions = subscriptions.borrow();
@@ -723,7 +725,7 @@ fn every_read_answers_the_protocols_message() {
     assert_eq!(text_of(&socket.sends[3], "threadId"), "t_tree");
     assert_eq!(reply_type(&socket.sends[4]), "entities.page");
     assert!(
-        !socket.subscriptions.contains("s1"),
+        !socket.subscriptions.contains(&JsString::from("s1")),
         "unsubscribe removed it"
     );
 }
@@ -747,4 +749,59 @@ fn number_value(value: Option<&Value>) -> Option<f64> {
         Some(Value::Number(seen)) => Some(seen.value()),
         _ => None,
     }
+}
+
+fn wire_id(text: &str) -> JsString {
+    match parse(text) {
+        Value::String(seen) => seen,
+        _ => panic!("not a string"),
+    }
+}
+
+/// Two schema-valid subscription ids that differ only by a lone surrogate are different
+/// subscriptions. Reading them as `&str` would replace both with U+FFFD and replace one with
+/// the other.
+#[test]
+fn subscription_ids_that_differ_by_a_lone_surrogate_stay_distinct() {
+    let high = wire_id(r#""\ud800""#);
+    let low = wire_id(r#""\udc00""#);
+    assert_ne!(high, low);
+    assert_eq!(high.as_str(), low.as_str(), "both print as the replacement");
+
+    let mut subscriptions = Subscriptions::new();
+    for id in [&high, &low] {
+        subscriptions.insert(
+            id.clone(),
+            ManagedSubscription::Plain(Box::new(Subscription::new(
+                id.clone(),
+                Scope::Threads,
+                None,
+                SubscribeOptions::default(),
+            ))),
+        );
+    }
+    assert_eq!(subscriptions.len(), 2);
+    assert!(subscriptions.remove(&high).is_some());
+    assert!(subscriptions.contains(&low));
+}
+
+/// A reply echoes the request id with its exact code units, never a replacement character.
+#[test]
+fn a_reply_echoes_a_request_id_with_a_lone_surrogate() {
+    let mut socket = Socket::new();
+    let store = Fake::default();
+    answer(
+        &mut socket,
+        &store,
+        one(r#"{"type":"command.status","requestId":"\ud800","commandIds":["c1"]}"#),
+        None,
+        true,
+        true,
+        &mut page_nothing,
+        &mut subscribe_nothing,
+    );
+    assert_eq!(
+        ace_json::to_string(&socket.sends[0]),
+        r#"{"type":"command.status","requestId":"\ud800","commands":[{"commandId":"c1","state":"unknown"}]}"#
+    );
 }
