@@ -50,6 +50,135 @@ pub struct CompatibilityProfile {
     pub subagent_sessions: bool,
 }
 
+/// The fields `reviewed_profile` needs from `profiles.ts`'s specs.
+struct ReviewedProfile {
+    id: &'static str,
+    agent: &'static str,
+    version: &'static str,
+    legacy_model: bool,
+    deny_selectors: bool,
+    deny_resume: bool,
+    deny_http_mcp: bool,
+    subagent_sessions: bool,
+}
+
+impl ReviewedProfile {
+    fn profile(&self) -> CompatibilityProfile {
+        CompatibilityProfile {
+            id: self.id.to_owned(),
+            agent: self.agent.to_owned(),
+            version: self.version.to_owned(),
+            compatible: None,
+            legacy_model: self.legacy_model,
+            deny_selectors: self.deny_selectors,
+            deny_resume: self.deny_resume,
+            deny_http_mcp: self.deny_http_mcp,
+            subagent_sessions: self.subagent_sessions,
+        }
+    }
+}
+
+/// The reviewed profiles (`profiles.ts`'s `specs`, revision `source-2026-10-02`).
+const REVIEWED_PROFILES: [ReviewedProfile; 7] = [
+    ReviewedProfile {
+        id: "gemini-043",
+        agent: "gemini",
+        version: "0.43.0",
+        legacy_model: true,
+        deny_selectors: false,
+        deny_resume: false,
+        deny_http_mcp: false,
+        subagent_sessions: false,
+    },
+    ReviewedProfile {
+        id: "qwen-old",
+        agent: "qwen-code",
+        version: "0.0.14",
+        legacy_model: false,
+        deny_selectors: true,
+        deny_resume: true,
+        deny_http_mcp: true,
+        subagent_sessions: false,
+    },
+    ReviewedProfile {
+        id: "qwen-modern",
+        agent: "qwen-code",
+        version: "0.24.7",
+        legacy_model: false,
+        deny_selectors: false,
+        deny_resume: false,
+        deny_http_mcp: false,
+        subagent_sessions: false,
+    },
+    ReviewedProfile {
+        id: "claude-bridge",
+        agent: "claude-acp",
+        version: "0.85.1",
+        legacy_model: true,
+        deny_selectors: false,
+        deny_resume: false,
+        deny_http_mcp: false,
+        subagent_sessions: true,
+    },
+    ReviewedProfile {
+        id: "codex-bridge",
+        agent: "codex-acp",
+        version: "2.1.1",
+        legacy_model: true,
+        deny_selectors: false,
+        deny_resume: false,
+        deny_http_mcp: false,
+        subagent_sessions: true,
+    },
+    ReviewedProfile {
+        id: "goose-153",
+        agent: "goose",
+        version: "1.53.0",
+        legacy_model: false,
+        deny_selectors: false,
+        deny_resume: false,
+        deny_http_mcp: false,
+        subagent_sessions: false,
+    },
+    ReviewedProfile {
+        id: "auggie-036",
+        agent: "auggie",
+        version: "0.36.0",
+        legacy_model: false,
+        deny_selectors: false,
+        deny_resume: false,
+        deny_http_mcp: false,
+        subagent_sessions: false,
+    },
+];
+
+/// The profile an agent at `version` runs under (`profiles.ts`'s `matchProfile`): the
+/// verified one when a profile names that version, else the compatible profile
+/// verified on the newest version not above it.
+pub fn reviewed_profile(agent: &str, version: &str) -> Option<CompatibilityProfile> {
+    let mut best: Option<(CompatibilityProfile, CliVersion)> = None;
+    for spec in &REVIEWED_PROFILES {
+        if spec.agent != agent {
+            continue;
+        }
+        let profile = spec.profile();
+        let Some(fit) = profile_fit(&profile, version) else {
+            continue;
+        };
+        if fit == ProfileFit::Verified {
+            return Some(profile);
+        }
+        let order = parse_cli_version(&profile.version)?;
+        if best
+            .as_ref()
+            .is_none_or(|(_, current)| compare_cli_versions(&order, current) == Ordering::Greater)
+        {
+            best = Some((profile, order));
+        }
+    }
+    best.map(|(profile, _)| profile)
+}
+
 /// Whether `version` is in `profile`'s range (`profiles.ts:140`–`:151`).
 pub fn profile_fit(profile: &CompatibilityProfile, version: &str) -> Option<ProfileFit> {
     if version == profile.version {
@@ -509,10 +638,27 @@ pub fn session_support(
 mod tests {
     use super::{
         CompatibilityProfile, NegotiationError, ProfileFit, ResumeMethod, RunsAs, VersionChanged,
-        bounded_raw, bridge_subagents, client_meta, negotiate,
+        bounded_raw, bridge_subagents, client_meta, negotiate, reviewed_profile,
     };
     use crate::session::quirks::AcpSessionQuirks;
     use ace_json::{Map, Value, json};
+
+    #[test]
+    fn reviewed_profiles_follow_the_registrys_agent_and_version_fit() {
+        let qwen_old = reviewed_profile("qwen-code", "0.0.14").expect("qwen-old");
+        assert_eq!(qwen_old.id, "qwen-old");
+        assert!(qwen_old.deny_selectors);
+        let modern = reviewed_profile("qwen-code", "0.24.7").expect("qwen-modern");
+        assert_eq!(modern.id, "qwen-modern");
+        assert!(!modern.deny_selectors);
+        // A newer same-major version takes the newest verified profile below it.
+        assert_eq!(
+            reviewed_profile("qwen-code", "0.27.1").map(|profile| profile.id),
+            Some("qwen-modern".to_owned())
+        );
+        assert!(reviewed_profile("qwen-code", "1.0.0").is_none());
+        assert!(reviewed_profile("unknown-agent", "1.0.0").is_none());
+    }
 
     fn subagent_profile() -> CompatibilityProfile {
         CompatibilityProfile {

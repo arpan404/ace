@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-forge"
+description = "The forge behind @ace/forge's interfaces: the person's gh, glab, tea, bkt and origin run one process per request through ace-supervisor (F0 owns the foundations)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: every JS-visible value serializes with JSON.parse/JSON.stringify semantics, never serde_json.
+ace-json = { path = "../ace-json" }
+# ace-supervisor: every host CLI process the core starts goes through the supervisor (ADR 0223 E2): groups or jobs, bounded capture, deadlines.
+ace-supervisor = { path = "../ace-supervisor" }
+# ace-redaction: every reply, stderr tail and diagnostic is redacted before it is cached, kept as `raw`, logged or serialized (ADR 0224 §8a).
+ace-redaction = { path = "../ace-redaction" }
+# ace-protocol: protocol shapes come from the generated types, never a second copy (ADR 0223 §2).
+ace-protocol = { path = "../ace-protocol" }
+# ace-store: the forge's tables (F7) live on the store's connection, one SQLite library per file (ADR 0222).
+ace-store = { path = "../ace-store" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# regex: the network-failure pattern and the admission paths (F1), each re-expressed and checked by its (a) tests.
+regex = { version = "1" }
+# sha2: the GraphQL cache key is the SHA-256 of the document, as TypeScript names it.
+sha2 = { version = "0.10" }
