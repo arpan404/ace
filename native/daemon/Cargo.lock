@@ -178,6 +178,7 @@ dependencies = [
  "ace-supervisor",
  "base64",
  "flate2",
+ "indexmap",
  "notify",
  "regex",
  "rustls",
@@ -250,6 +251,19 @@ version = "0.1.0"
 dependencies = [
  "ace-json",
  "thiserror",
+]
+
+[[package]]
+name = "ace-models"
+version = "0.1.0"
+dependencies = [
+ "ace-adapter-acp",
+ "ace-json",
+ "ace-protocol",
+ "regex",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

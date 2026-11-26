@@ -89,6 +89,16 @@ Revised 2026-11-24 after review (gpt-6.2-sol, high) and the owner's decisions:
    E5.4 ports **the readers' fallbacks** of its own tables (the queue, attachment retention), in
    the bounded form that lands on main, and reads the fill state through `State.repo.fills`.
    "Open-time work" lists every statement.
+
+   **Superseded 2026-11-26 by ADR 0226's amendment (no bridges; `ace-daemon-bin` runs without
+   the TypeScript opener).** The DDL moves to Rust: `ace-engine::open` ports
+   `apps/daemon/src/native-engine/open.ts` and every constructor it runs, in today's order, and
+   each `CREATE TABLE`/`CREATE INDEX` text is the TypeScript's **byte for byte** (SQLite keeps it
+   in `sqlite_master`, so both daemons must leave identical schema text). An item that adds a
+   table puts its DDL there, never in `Engine::new`. Open-time work stays bounded (ADR 0170); the
+   fills stay idle and resumable. A test compares `sqlite_master` after the Rust opener with a
+   home the TypeScript opener made.
+
 9. **`personCommand` stays in the shell.** E5.1 step 9 keeps the normalization in
    `native-engine/engine.ts`, so `person-command.ts` is not replaced, and the `admitCreation`
    facade calls it before the binding as well.
