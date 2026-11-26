@@ -112,3 +112,96 @@ pub fn principal(facts: &PrincipalFacts) -> Principal {
     }
     Principal::Unproven
 }
+
+#[cfg(test)]
+mod tests {
+    //! Ports `apps/daemon/src/org-access/decide.test.ts`'s "who a request is on an org host"
+    //! cases: admission is not identity.
+
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use crate::devices::Member;
+
+    use super::{Principal, PrincipalFacts, principal};
+
+    const ORG: &str = "org_acme";
+
+    #[test]
+    fn who_a_request_is_on_an_org_host() {
+        let member_facts = || Member {
+            org: ORG.to_owned(),
+            account: "ann".to_owned(),
+            role: "member".to_owned(),
+        };
+        fn facts(build: impl FnOnce(&mut PrincipalFacts)) -> Principal {
+            let mut facts = PrincipalFacts {
+                org: Some(ORG.to_owned()),
+                ..Default::default()
+            };
+            build(&mut facts);
+            principal(&facts)
+        }
+        assert_eq!(
+            principal(&PrincipalFacts {
+                org: None,
+                proven: Some(member_facts()),
+                admitted: Some(member_facts()),
+                ..Default::default()
+            })
+            .kind(),
+            "personal"
+        );
+        assert_eq!(
+            facts(|each| {
+                each.admitted = Some(member_facts());
+                each.proven = Some(member_facts());
+            })
+            .kind(),
+            "member"
+        );
+        assert_eq!(
+            facts(|each| each.admitted = Some(member_facts())).kind(),
+            "admitted"
+        );
+        assert_eq!(
+            facts(|each| {
+                each.admitted = Some(member_facts());
+                each.proven = Some(Member {
+                    account: "bo".to_owned(),
+                    ..member_facts()
+                });
+            })
+            .kind(),
+            "admitted"
+        );
+        assert_eq!(
+            facts(|each| {
+                each.admitted = Some(member_facts());
+                each.proven = Some(Member {
+                    org: "org_other".to_owned(),
+                    ..member_facts()
+                });
+            })
+            .kind(),
+            "admitted"
+        );
+        assert_eq!(facts(|each| each.host_token = true).kind(), "host");
+        assert_eq!(
+            facts(|each| {
+                each.host_token = true;
+                each.proven = Some(member_facts());
+            })
+            .kind(),
+            "member"
+        );
+        assert_eq!(
+            facts(|each| each.proven = Some(member_facts())).kind(),
+            "unproven"
+        );
+        assert_eq!(
+            facts(|each| each.agent_root = Some("t_mine".to_owned())).kind(),
+            "agent"
+        );
+        assert_eq!(facts(|_| {}).kind(), "unproven");
+    }
+}

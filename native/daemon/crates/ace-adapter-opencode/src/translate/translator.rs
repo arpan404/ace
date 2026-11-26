@@ -88,7 +88,7 @@ impl Translator {
         }];
         let failed = {
             let mut emitter = Out::new(out);
-            self.frame(&channel, &dir, data, &data_value, now, &mut emitter)
+            self.frame(&channel, &dir, &data_value, None, now, &mut emitter)
                 .is_err()
         };
         if failed {
@@ -163,6 +163,14 @@ impl Translator {
     }
 
     /// The messages with live work for a session, oldest first.
+    /// The messages with live work for a session, oldest first.
+    pub fn live_messages(&self, session: &str) -> Vec<String> {
+        match self.state.live_messages.get(session) {
+            Some(messages) => messages.keys().cloned().collect(),
+            None => Vec::new(),
+        }
+    }
+
     pub fn live_messages_json(&self, session: &str, out: &mut String) {
         let messages: Vec<&str> = match self.state.live_messages.get(session) {
             Some(messages) => messages.keys().map(String::as_str).collect(),

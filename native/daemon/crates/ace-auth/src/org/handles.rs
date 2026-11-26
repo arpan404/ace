@@ -134,7 +134,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::{BoundHandle, Handles, run_if_still_allowed};
-    use crate::org::decide::{Decision, Operation, Resource, TreeRef, unplaced};
+    use crate::org::decide::{Decision, Operation, Resource, unplaced};
+    use crate::org::trees::TreeRef;
 
     fn tree(root: &str) -> Resource {
         Resource::Tree(TreeRef::Root(root.to_owned()))

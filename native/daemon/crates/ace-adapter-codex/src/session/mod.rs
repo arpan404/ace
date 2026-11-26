@@ -20,6 +20,7 @@ pub mod permissions;
 pub mod pool;
 pub mod routing;
 pub mod selection;
+pub mod shell;
 pub mod state;
 pub mod terminals;
 pub mod tools;

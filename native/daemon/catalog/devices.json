@@ -180,6 +180,16 @@
       "message": "Text is too long to paste",
       "hint": "Type shorter text."
     },
+    "jpegTooLarge": {
+      "code": "limit",
+      "message": "Android JPEG exceeds 8 MiB",
+      "hint": "Reduce emulator resolution."
+    },
+    "simulatorIncompletePicture": {
+      "code": "invalid_data",
+      "message": "The Simulator sent an incomplete picture",
+      "hint": "Retry; if it persists, restart the device view."
+    },
     "pasteTimedOut": {
       "code": "command_failed",
       "message": "Android paste timed out",

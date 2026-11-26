@@ -8,13 +8,6 @@ use std::sync::Arc;
 /// How long past its grant's expiry an account socket may stay open while its refresh is on the
 /// way.
 pub const GRANT_GRACE_MS: i64 = 30_000;
-/// The close code for an account socket whose grant ran out: not final, the client reconnects.
-pub const GRANT_EXPIRED_CLOSE: u16 = 4014;
-pub const GRANT_EXPIRED_REASON: &str = "Account grant expired";
-/// The close code for a socket whose account access changed (signed out, moved account, new
-/// machine code).
-pub const ACCESS_CHANGED_CLOSE: u16 = 4012;
-pub const ACCESS_CHANGED_REASON: &str = "Account access changed";
 
 /// A member's socket on an organization's host: the organization and role it was admitted with.
 #[derive(Debug, Clone, PartialEq, Eq)]

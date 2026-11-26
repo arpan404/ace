@@ -122,15 +122,11 @@ mod tests {
         )
         .unwrap();
         let item: ace_core::items::Item = decode_record(&value).unwrap();
+        let rewritten = ace_json::ser::to_string(&item).unwrap();
         assert_eq!(
-            value.get("futureField"),
-            Some(&Value::from(true)),
-            "the stored value keeps the field"
-        );
-        assert!(
-            !ace_json::ser::to_string(&item)
-                .unwrap()
-                .contains("futureField")
+            rewritten.matches(r#""futureField":true"#).count(),
+            1,
+            "{rewritten}"
         );
     }
 }

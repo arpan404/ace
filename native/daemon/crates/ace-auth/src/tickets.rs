@@ -7,6 +7,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use ace_core::expiry_map::ExpiryMap;
+
 /// The three caps (`ticket-pool.ts:3`–`:12`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TicketLimits {
@@ -76,7 +78,6 @@ pub struct TicketBinding<'a> {
 struct Ticket {
     device_id: String,
     generation: String,
-    expires_at: i64,
     epoch: String,
 }
 
@@ -87,21 +88,36 @@ struct Rate {
 }
 
 /// The pool (`ticket-pool.ts:15`–`:88`). Keys are SHA-256 hashes; the plain ticket never enters.
-#[derive(Debug, Clone)]
+/// Tickets and rate windows live in the expiry heap `ticket-pool.ts` uses, so a lookup evicts only
+/// entries that are due: a miss with `n` live entries costs `log n`, never a walk of every one
+/// (`expiry-map.ts:40`–`:42`).
 pub struct TicketPool {
     limits: TicketLimits,
-    tickets: HashMap<String, Ticket>,
+    tickets: ExpiryMap<Ticket>,
     owned: HashMap<String, HashSet<String>>,
-    rates: HashMap<String, Rate>,
+    rates: ExpiryMap<Rate>,
+}
+
+impl std::fmt::Debug for TicketPool {
+    /// Outstanding counts only; no hash of a ticket is a credential, but a pool's size is what a
+    /// test or a diagnostic wants, and the entries stay private.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TicketPool")
+            .field("limits", &self.limits)
+            .field("tickets", &self.tickets.len())
+            .field("rates", &self.rates.len())
+            .field("devices", &self.owned.len())
+            .finish()
+    }
 }
 
 impl TicketPool {
     pub fn new(limits: TicketLimits) -> Self {
         Self {
             limits,
-            tickets: HashMap::new(),
+            tickets: ExpiryMap::new(),
             owned: HashMap::new(),
-            rates: HashMap::new(),
+            rates: ExpiryMap::new(),
         }
     }
 
@@ -125,6 +141,10 @@ impl TicketPool {
         if self.owned.get(device_id).map_or(0, HashSet::len) >= self.limits.per_device {
             return Err(IssueError::DeviceQuotaExceeded);
         }
+        // The three caps, exactly as `ticket-pool.ts:37`-`:45` applies them: outstanding tickets
+        // in all, per device, and this device's minute. The last clause is the TypeScript's own:
+        // a device's first ticket in a minute is refused once the rate map itself has reached
+        // `global` windows, so the map can't grow past that cap.
         let existing = self.rates.get(device_id).copied();
         let mut rate = existing.unwrap_or(Rate {
             count: 0,
@@ -136,16 +156,16 @@ impl TicketPool {
             return Err(IssueError::RateLimitExceeded);
         }
         rate.count += 1;
-        self.rates.insert(device_id.to_owned(), rate);
+        self.rates.set(device_id.to_owned(), rate, rate.resets_at);
         let expires_at = now + TICKET_TTL_MS;
-        self.tickets.insert(
+        self.tickets.set(
             key.to_owned(),
             Ticket {
                 device_id: device_id.to_owned(),
                 generation: generation.to_owned(),
-                expires_at,
                 epoch: epoch.to_owned(),
             },
+            expires_at,
         );
         self.owned
             .entry(device_id.to_owned())
@@ -172,7 +192,7 @@ impl TicketPool {
                 return None;
             }
         }
-        let ticket = self.tickets.remove(key)?;
+        let ticket = self.tickets.delete(key)?;
         self.disown(&ticket.device_id, key);
         Some(TicketRef {
             device_id: ticket.device_id,
@@ -185,10 +205,10 @@ impl TicketPool {
     pub fn revoke(&mut self, device_id: &str) {
         if let Some(keys) = self.owned.remove(device_id) {
             for key in keys {
-                self.tickets.remove(&key);
+                self.tickets.delete(&key);
             }
         }
-        self.rates.remove(device_id);
+        self.rates.delete(device_id);
     }
 
     /// How many tickets are outstanding now, for a cap check and for tests.
@@ -200,19 +220,13 @@ impl TicketPool {
         self.tickets.is_empty()
     }
 
+    /// Drop what is due at `now`. The heaps stop at the first unexpired entry, so this visits only
+    /// entries that actually ended (`expiry-map.ts:40`–`:42`).
     fn evict(&mut self, now: i64) {
-        let expired: Vec<String> = self
-            .tickets
-            .iter()
-            .filter(|(_, ticket)| ticket.expires_at <= now)
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in expired {
-            if let Some(ticket) = self.tickets.remove(&key) {
-                self.disown(&ticket.device_id, &key);
-            }
+        for (key, ticket) in self.tickets.expire(now) {
+            self.disown(&ticket.device_id, &key);
         }
-        self.rates.retain(|_, rate| rate.resets_at > now);
+        self.rates.expire(now);
     }
 
     fn disown(&mut self, device_id: &str, key: &str) {
@@ -226,176 +240,4 @@ impl TicketPool {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Ports `apps/daemon/src/ticket-allocation.server.process.test.ts` at the pool the daemon's
-    //! `/v1/tickets` route and welcome handover call, with the same times, caps and refusals.
-
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
-
-    use super::{IssueError, TicketLimits, TicketPool, default_ticket_limits};
-
-    fn limits(global: usize, per_device: usize, per_minute: u32) -> TicketLimits {
-        TicketLimits {
-            global,
-            per_device,
-            per_minute,
-        }
-    }
-
-    #[test]
-    fn limits_one_devices_pending_tickets_without_starving_another_device() {
-        let mut pool = TicketPool::new(default_ticket_limits());
-        for index in 0..32 {
-            pool.issue(&format!("noisy-{index}"), "noisy", "g1", 1_000, "")
-                .expect("inside the per-device quota");
-        }
-        assert_eq!(
-            pool.issue("noisy-extra", "noisy", "g1", 1_000, ""),
-            Err(IssueError::DeviceQuotaExceeded)
-        );
-        // Another device still gets one, and it is usable.
-        pool.issue("other-1", "other", "g2", 1_000, "")
-            .expect("another device is unaffected");
-    }
-
-    #[test]
-    fn a_revoked_devices_pending_tickets_are_reclaimed_at_once_under_the_global_cap() {
-        let mut pool = TicketPool::new(limits(64, 32, 120));
-        for index in 0..32 {
-            pool.issue(&format!("first-{index}"), "first", "g1", 1_000, "")
-                .expect("first device's quota");
-            pool.issue(&format!("second-{index}"), "second", "g2", 1_000, "")
-                .expect("second device's quota");
-        }
-        assert_eq!(
-            pool.issue("waiting-1", "waiting", "g3", 1_000, ""),
-            Err(IssueError::TooManyPending)
-        );
-        pool.revoke("first");
-        assert_eq!(pool.len(), 32);
-        pool.issue("waiting-1", "waiting", "g3", 1_000, "")
-            .expect("the revoked device's capacity is released");
-        // The revoked device's own outstanding tickets are gone, not merely disowned.
-        assert_eq!(pool.consume("first-0", 1_000, None), None);
-    }
-
-    #[test]
-    fn rate_limits_issuance_even_when_every_ticket_is_consumed_and_resets_at_sixty_seconds() {
-        let mut pool = TicketPool::new(limits(10_000, 32, 3));
-        for index in 0..3 {
-            let ticket = format!("busy-{index}");
-            pool.issue(&ticket, "busy", "g1", 1_000, "")
-                .expect("inside the rate");
-            assert_eq!(
-                pool.consume(&ticket, 1_000, None)
-                    .expect("a fresh ticket is spent")
-                    .device_id,
-                "busy"
-            );
-        }
-        assert_eq!(
-            pool.issue("busy-3", "busy", "g1", 1_000, ""),
-            Err(IssueError::RateLimitExceeded)
-        );
-        pool.issue("other-1", "other", "g2", 1_000, "")
-            .expect("another device is unaffected");
-        pool.issue("busy-4", "busy", "g1", 61_000, "")
-            .expect("the window resets after sixty seconds");
-    }
-
-    #[test]
-    fn expiration_releases_capacity_without_evicting_a_later_unexpired_ticket() {
-        let mut pool = TicketPool::new(limits(2, 2, 120));
-        let old = pool
-            .issue("old", "paired", "g1", 1_000, "")
-            .expect("first ticket");
-        let later = pool
-            .issue("later", "paired", "g1", 11_000, "")
-            .expect("second ticket");
-        assert_eq!(
-            pool.issue("third", "paired", "g1", 11_000, ""),
-            Err(IssueError::TooManyPending)
-        );
-        pool.issue("third", "paired", "g1", 61_000, "")
-            .expect("the first ticket expired");
-        assert_eq!(pool.consume("old", 70_000, None), None);
-        assert!(pool.consume("later", 70_000, None).is_some());
-        assert_eq!(old.expires_at, 61_000);
-        assert_eq!(later.expires_at, 71_000);
-    }
-
-    #[test]
-    fn consuming_an_old_ticket_never_makes_a_different_expired_ticket_usable() {
-        let mut pool = TicketPool::new(limits(4, 4, 120));
-        pool.issue("a", "paired", "g1", 1_000, "").unwrap();
-        pool.issue("b", "paired", "g1", 11_000, "").unwrap();
-        pool.issue("c", "paired", "g1", 21_000, "").unwrap();
-        pool.issue("d", "paired", "g1", 31_000, "").unwrap();
-        assert!(pool.consume("a", 31_000, None).is_some());
-        // b expires at 71 s; c and d do not.
-        assert_eq!(pool.consume("b", 71_000, None), None);
-        assert!(pool.consume("c", 71_000, None).is_some());
-        assert!(pool.consume("d", 71_000, None).is_some());
-    }
-
-    #[test]
-    fn consumption_and_expiry_release_all_pending_capacity_while_preserving_later_tickets() {
-        let mut pool = TicketPool::new(limits(4, 4, 120));
-        pool.issue("a", "paired", "g1", 1_000, "").unwrap();
-        pool.issue("b", "paired", "g1", 11_000, "").unwrap();
-        pool.issue("c", "paired", "g1", 21_000, "").unwrap();
-        pool.issue("d", "paired", "g1", 31_000, "").unwrap();
-        assert!(pool.consume("a", 31_000, None).is_some());
-        assert!(pool.issue("first", "paired", "g1", 71_000, "").is_ok());
-        assert!(pool.issue("second", "paired", "g1", 71_000, "").is_ok());
-        // 71 s: a held (c, d, first, second) is four, the cap.
-        assert_eq!(
-            pool.issue("third", "paired", "g1", 71_000, ""),
-            Err(IssueError::TooManyPending)
-        );
-        for valid in ["c", "d", "first", "second"] {
-            assert!(pool.consume(valid, 71_000, None).is_some(), "{valid}");
-        }
-    }
-
-    #[test]
-    fn a_ticket_bound_to_another_epoch_or_device_is_left_as_it_was() {
-        let mut pool = TicketPool::new(default_ticket_limits());
-        pool.issue("key", "device", "g1", 1_000, "relay-a").unwrap();
-        assert_eq!(
-            pool.consume(
-                "key",
-                1_000,
-                Some(super::TicketBinding {
-                    epoch: "relay-b",
-                    device_id: "device",
-                })
-            ),
-            None
-        );
-        assert_eq!(
-            pool.consume(
-                "key",
-                1_000,
-                Some(super::TicketBinding {
-                    epoch: "relay-a",
-                    device_id: "another-device",
-                })
-            ),
-            None
-        );
-        assert_eq!(pool.len(), 1);
-        let spent = pool
-            .consume(
-                "key",
-                1_000,
-                Some(super::TicketBinding {
-                    epoch: "relay-a",
-                    device_id: "device",
-                }),
-            )
-            .expect("the matching binding spends it");
-        assert_eq!(spent.epoch, "relay-a");
-        assert_eq!(pool.len(), 0);
-    }
-}
+mod tests;

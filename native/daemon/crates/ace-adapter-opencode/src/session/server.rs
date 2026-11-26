@@ -19,9 +19,17 @@ use ace_json::Value;
 use indexmap::IndexMap;
 use std::sync::Arc;
 
-use crate::translate::boundaries::parse_native_event;
+use crate::translate::boundaries::{NativeEvent, parse_native_event};
 use crate::translate::cache::RecentMap;
 use crate::translate::redaction::sanitize;
+
+mod recovery;
+
+mod secrets;
+
+pub use secrets::SubscribeError;
+
+use secrets::check_secrets;
 
 use super::error::{SecretError, StreamError};
 use super::notes::{ACTIVITY, BUFFERED, RESTARTED, publish, text as note};
@@ -37,35 +45,59 @@ const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
 const SEQUENCES: usize = 1024;
 /// `ServerSecrets`: `z.array(z.string().min(1).max(4096)).max(32)`.
 const MAX_SECRETS: usize = 32;
-const MAX_SECRET_CHARS: usize = 4096;
+pub(super) const MAX_SECRET_CHARS: usize = 4096;
 
 /// One session on a server, as the per-event path needs it (E3-opencode.2).
 pub trait Tenant: Send + Sync {
     /// The tenant's ordered queue, where this core publishes its notes.
     fn queue(&self) -> &EventQueue;
     /// `routes.select`'s filter: whether this session owns the event at this
-    /// watermark.
-    fn accepts(&self, data: &Value, watermark: u64) -> bool;
-    /// One routed event while not recovering.
-    fn receive(&self, data: &Value);
+    /// watermark. The event is the one the core parsed; the tenant reads its
+    /// fields instead of parsing again. `Err` is the TypeScript's thrown body,
+    /// which fails the stream.
+    fn accepts(
+        &self,
+        event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<bool, TenantError>;
+    /// One routed event while not recovering. `Err` is the TypeScript's thrown
+    /// body, which fails the stream.
+    fn receive(
+        &self,
+        event: &NativeEvent<'_>,
+        data: &Value,
+        watermark: u64,
+    ) -> Result<(), TenantError>;
     /// One routed event while recovering, replayed later at `watermark`.
-    fn buffered(&self, data: &Value, watermark: u64);
+    fn buffered(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
     /// Recovery began at `started`.
     fn disconnected(&self, started: u64);
     /// One buffered event replayed, in the buffer's order.
-    fn reconcile(&self, data: &Value, watermark: u64);
+    fn reconcile(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
     /// The pass's snapshots are complete (`finalizeSnapshots`).
-    fn finalize_snapshots(&self);
+    fn finalize_snapshots(&self) -> Result<(), TenantError>;
     /// The pass settled (`recovered`).
     fn recovered(&self);
+    /// Take a recovery request a tenant made during an accept or a receive
+    /// (`session.ts:122`, `:418`: `server.reconcileNow()` ran `beginRecovery`
+    /// inline, so the rest of the chunk is buffered).
+    fn take_reconcile(&self) -> bool;
 }
 
 /// A tenant's handle on its server. Distinct from another's for as long as it
 /// is subscribed.
 pub type TenantId = u64;
 
+/// Why a tenant refused an event, as the TypeScript's thrown `Error` or
+/// `ZodError` text. The server fails the stream with it, so the facade
+/// reconnects exactly as `consumeEvents` does when the body throws.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct TenantError(pub String);
+
 /// What one body chunk changed (`server.ts:413`-`:454`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkOutcome {
     /// The stream has seen `server.connected`: a later failure reconnects
     /// instead of failing the server (`server.ts:456`-`:468`).
@@ -190,54 +222,6 @@ impl ServerCore {
         self.recovery_stale
     }
 
-    /// `beginRecovery(started = this.sequence)` (`server.ts:385`-`:390`): once
-    /// per pass, every tenant is told it is disconnected from `started`.
-    pub fn begin_recovery(&mut self, started: u64) {
-        if self.recovering {
-            return;
-        }
-        self.recovering = true;
-        self.recovery_started = started;
-        for tenant in self.tenants.values() {
-            tenant.disconnected(started);
-        }
-    }
-
-    /// `restartRecovery` (`server.ts:537`-`:543`): a retry is a new disconnect
-    /// at the current watermark, and the buffer starts empty.
-    pub fn restart_recovery(&mut self) {
-        self.recovery_stale = false;
-        self.buffered.clear();
-        self.buffered_bytes = 0;
-        self.recovery_started = self.sequence;
-        for tenant in self.tenants.values() {
-            tenant.disconnected(self.sequence);
-        }
-    }
-
-    /// `recoverOnce`'s tail, after the shell's awaited `resync` and
-    /// `prepareReplay` (`server.ts:552`-`:560`). False when buffered events were
-    /// dropped and the pass must start again.
-    pub fn replay(&mut self) -> bool {
-        if self.recovery_stale {
-            return false;
-        }
-        for entry in std::mem::take(&mut self.buffered) {
-            for tenant in self.tenants.values() {
-                tenant.reconcile(&entry.data, entry.watermark);
-            }
-        }
-        for tenant in self.tenants.values() {
-            tenant.finalize_snapshots();
-        }
-        self.buffered_bytes = 0;
-        self.recovering = false;
-        for tenant in self.tenants.values() {
-            tenant.recovered();
-        }
-        true
-    }
-
     /// One body chunk: its elided pieces in order, each activity note before
     /// that piece's events, as the SDK reads them.
     pub fn chunk(&mut self, bytes: &[u8]) -> ChunkOutcome {
@@ -310,7 +294,19 @@ impl ServerCore {
             }
             return Ok(());
         }
-        let targets = self.routes.select(value, watermark, &self.tenants);
+        let mut asked = Vec::new();
+        let selected = self
+            .routes
+            .select(&event, value, watermark, &self.tenants, &mut asked);
+        // An accept can ask for recovery (an ancestry receipt past its bound
+        // calls `reconcileNow`): `beginRecovery` ran inline there, before any
+        // later tenant's refusal ends the scan, so the rest of this chunk is
+        // buffered.
+        if !asked.is_empty() {
+            self.begin_recovery(watermark);
+            outcome.recover = true;
+        }
+        let targets = selected.map_err(fail)?;
         if targets.is_empty() {
             return Ok(());
         }
@@ -356,12 +352,20 @@ impl ServerCore {
                 return Ok(());
             }
             for tenant in &targets {
-                tenant.buffered(&self.buffered[at].data, watermark);
+                tenant
+                    .buffered(&self.buffered[at].data, watermark)
+                    .map_err(fail)?;
                 publish(tenant.as_ref(), BUFFERED, text.clone());
             }
         } else {
             for tenant in &targets {
-                tenant.receive(value);
+                tenant.receive(&event, value, watermark).map_err(fail)?;
+                // A receive can ask for recovery too (`reconcileLocation` on a
+                // `location.shutdown`): `beginRecovery` ran inline there.
+                if tenant.take_reconcile() {
+                    self.begin_recovery(watermark);
+                    outcome.recover = true;
+                }
             }
         }
         Ok(())
@@ -375,24 +379,9 @@ impl ServerCore {
     }
 }
 
-/// Why a tenant could not join: "OpenCode session limit reached".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("OpenCode session limit reached")]
-pub struct SubscribeError;
-
-/// `ServerSecrets.parse` over one list, in the same order and with the same
-/// code-point bounds (rule 17).
-fn check_secrets(secrets: &[String]) -> Result<(), SecretError> {
-    if secrets.len() > MAX_SECRETS {
-        return Err(SecretError::TooMany);
-    }
-    if secrets
-        .iter()
-        .any(|secret| secret.is_empty() || secret.chars().count() > MAX_SECRET_CHARS)
-    {
-        return Err(SecretError::Length);
-    }
-    Ok(())
+/// A tenant's refusal as a stream failure (the TypeScript reconnects).
+fn fail(error: TenantError) -> StreamError {
+    StreamError::Tenant(error.0)
 }
 
 #[cfg(test)]

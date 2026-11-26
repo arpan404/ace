@@ -577,7 +577,7 @@ fn taking_a_queued_stop_leaves_the_other_effects() {
         HostEffect::Frame {
             tenant: 1,
             dir: Direction::Recv,
-            data: Value::Null,
+            data: Arc::new(Value::Null),
         },
         Some(4),
     );

@@ -11,6 +11,7 @@
 //! ticket while a persisted pairing link still redeems (`pairing-codes.ts:80`).
 
 pub mod client_access;
+pub mod close;
 pub mod devices;
 pub mod devices_channel;
 pub mod error;
@@ -20,6 +21,7 @@ pub mod http_body;
 pub mod identity;
 pub mod org;
 pub mod pairing;
+pub mod pairing_issue;
 pub mod remote_auth;
 pub mod tickets;
 pub mod token;
@@ -32,6 +34,12 @@ pub use client_access::{
     response_too_large, tailnet_name, ticket_socket_origin, transport_unavailable, truncate_utf16,
     valid_fingerprint,
 };
+pub use close::{
+    ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON, CREDENTIAL_REPLACED_CLOSE,
+    CREDENTIAL_REPLACED_REASON, DEVICE_REVOKED_CLOSE, DEVICE_REVOKED_REASON, GRANT_EXPIRED_CLOSE,
+    GRANT_EXPIRED_REASON, HELLO_REFUSED_CLOSE, HELLO_REFUSED_REASON, SERVICE_UNAVAILABLE_CLOSE,
+    SERVICE_UNAVAILABLE_REASON,
+};
 pub use devices::{Device, PairedDevice, Scope, SessionActor, active_device, allows};
 pub use devices_channel::{
     ChannelFrame, ChannelOpening, DEVICE_ACCESS_REFUSED, DEVICES_UNAVAILABLE, DeviceFailure,
@@ -39,8 +47,7 @@ pub use devices_channel::{
 };
 pub use error::{AccessError, AuthError, Result};
 pub use grant::{
-    ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON, AccountGrantSocket, GRANT_EXPIRED_CLOSE,
-    GRANT_EXPIRED_REASON, GRANT_GRACE_MS, GrantRefreshOutcome, grant_lease_state,
+    AccountGrantSocket, GRANT_GRACE_MS, GrantRefreshOutcome, grant_lease_state,
     grant_refresh_outcome,
 };
 pub use hello::{Hello, HelloRefusal, hello_actor};
@@ -50,8 +57,10 @@ pub use identity::{
     pretty_hostname,
 };
 pub use pairing::{
-    IssuedPairing, PairingCodeStore, PairingConnection, PairingTerms, PendingCode, pairing_link_url,
+    IssuedPairing, PairingCodeStore, PairingConnection, PairingRequest, PairingTerms, PendingCode,
+    PendingPairing, RelayRoute, pairing_link_url, scope_label,
 };
+pub use pairing_issue::{issue_pairing, unique_scopes};
 pub use remote_auth::RemoteAuth;
 pub use tickets::{TicketLimits, TicketPool, default_ticket_limits};
 pub use token::{is_token, read_local_token, valid_token};

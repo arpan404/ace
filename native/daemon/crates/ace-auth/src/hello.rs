@@ -7,21 +7,53 @@
 
 use ace_json::Value;
 
-use crate::devices::{Device, Scope, SessionActor};
-use crate::error::AuthError;
-use crate::remote_auth::RemoteAuth;
+pub mod actor;
+pub mod gate;
 
-/// The credential fields of a hello, as the schema allows exactly one of them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub use actor::hello_actor;
+pub use gate::{FirstFrame, HelloGate};
+
+/// A hello frame, whole (`wire-core.ts:285`-`:390`): every field the schema carries, so the frame
+/// can be validated before its credential is classified or spent. Unknown keys are stripped, as
+/// `z.object` does.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Hello {
     pub device_id: String,
     pub token: Option<String>,
     pub ticket: Option<String>,
     /// An ace account grant (ADR 0111). Its verification is the account backend's; T2 carries it.
     pub grant: Option<String>,
+    pub machine_code: Option<String>,
+    /// With a grant: proof this account device holds a paired credential (ADR 0115).
+    pub link: Option<crate::devices::PairingLinkProof>,
     pub install_id: Option<String>,
     pub channel: Option<String>,
+    /// With `channel: "media"`: the ticket from the same device's `media.connect`.
+    pub media_ticket: Option<String>,
+    pub compression: Vec<String>,
+    pub flow_control: Vec<String>,
+    pub trims: Vec<String>,
+    pub framing: Vec<String>,
     pub next_ticket: bool,
+}
+
+impl std::fmt::Debug for Hello {
+    /// Tokens, tickets, grants, machine codes and link proofs are live credentials: Debug names
+    /// that they are present and never prints them.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hello")
+            .field("device_id", &self.device_id)
+            .field("token", &self.token.is_some())
+            .field("ticket", &self.ticket.is_some())
+            .field("grant", &self.grant.is_some())
+            .field("machine_code", &self.machine_code.is_some())
+            .field("link", &self.link.is_some())
+            .field("install_id", &self.install_id.is_some())
+            .field("channel", &self.channel)
+            .field("media_ticket", &self.media_ticket.is_some())
+            .field("next_ticket", &self.next_ticket)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why a first frame isn't a hello this daemon accepts.
@@ -55,53 +87,14 @@ impl HelloRefusal {
         }
     }
 
-    /// Every refusal closes the socket with `4001 Credential replaced`.
+    /// Every refusal closes the socket with `4001`, reason `unauthorized`
+    /// (`close.rs`'s `HELLO_REFUSED_*`).
     pub fn close_code(self) -> u16 {
-        4001
-    }
-}
-
-/// A first frame, as the transport saw it.
-#[derive(Debug, Clone, Copy)]
-pub enum FirstFrame<'a> {
-    Text(&'a str),
-    Binary,
-}
-
-/// The hello exchange's own state: one hello per socket.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct HelloGate {
-    authenticated: bool,
-}
-
-impl HelloGate {
-    pub fn new() -> Self {
-        Self::default()
+        crate::close::HELLO_REFUSED_CLOSE
     }
 
-    pub fn authenticated(&self) -> bool {
-        self.authenticated
-    }
-
-    /// Parse the first frame. The actor's resolution is separate, so a caller can run the hello
-    /// against a live [`RemoteAuth`] and answer with its refusal.
-    pub fn first(&mut self, frame: FirstFrame<'_>) -> Result<Hello, HelloRefusal> {
-        let text = match frame {
-            FirstFrame::Text(text) => text,
-            FirstFrame::Binary => return Err(HelloRefusal::Binary),
-        };
-        let value = ace_json::parse(text).map_err(|_| HelloRefusal::Malformed)?;
-        Hello::parse(&value)
-    }
-
-    /// A hello after the welcome is refused, without another welcome or heartbeat.
-    pub fn later(&mut self) -> HelloRefusal {
-        HelloRefusal::Later
-    }
-
-    /// The welcome is on the wire: the socket is no longer pre-authentication.
-    pub fn welcomed(&mut self) {
-        self.authenticated = true;
+    pub fn close_reason(self) -> &'static str {
+        crate::close::HELLO_REFUSED_REASON
     }
 }
 
@@ -117,16 +110,20 @@ const CHANNELS: [&str; 8] = [
 ];
 
 impl Hello {
-    /// The schema's rules, in `CoreClientMessage`'s order: `hello`, protocol version 1, a device
-    /// id, exactly one of token/ticket/grant, `machineCode` and `link` only with a grant, and a
-    /// known channel.
+    /// The hello schema, whole, before anything classifies the frame or spends its credential
+    /// (`wire-core.ts:285`-`:390`, `server.ts:855`-`:866`): the type, protocol version 1, a device
+    /// id, every optional field at its own bound, exactly one of token/ticket/grant, `machineCode`
+    /// and `link` only with a grant, and a known channel.
     pub fn parse(value: &Value) -> Result<Self, HelloRefusal> {
-        let object = value.as_object().ok_or(HelloRefusal::NotHello)?;
-        match object.get("type").and_then(Value::as_str) {
-            Some("hello") => {}
-            _ => return Err(HelloRefusal::NotHello),
-        }
+        // A frame that parses as JSON but isn't an object fails the schema, as it does through
+        // `parseSocketMessage`; only a socket message of another type is "Valid hello required".
+        let object = value.as_object().ok_or(HelloRefusal::Malformed)?;
         let malformed = HelloRefusal::Malformed;
+        match object.get("type") {
+            Some(Value::String(kind)) if kind.as_str() == "hello" => {}
+            Some(Value::String(_)) => return Err(HelloRefusal::NotHello),
+            _ => return Err(malformed),
+        }
         if object.get("protocolVersion").and_then(Value::as_u64) != Some(1) {
             return Err(malformed);
         }
@@ -146,6 +143,12 @@ impl Hello {
         let token = credential("token")?;
         let ticket = credential("ticket")?;
         let grant = credential("grant")?;
+        // A grant is `z.string().min(1).max(2048)` in code points (wire-core.ts:301).
+        if let Some(grant) = &grant
+            && !(1..=2_048).contains(&grant.chars().count())
+        {
+            return Err(malformed);
+        }
         let count = [token.is_some(), ticket.is_some(), grant.is_some()]
             .into_iter()
             .filter(|present| *present)
@@ -153,10 +156,25 @@ impl Hello {
         if count != 1 {
             return Err(malformed);
         }
-        if object.get("machineCode").is_some() && grant.is_none() {
+        let machine_code = match object.get("machineCode") {
+            None => None,
+            // `MachineCode`: 4 to 128 characters.
+            Some(Value::String(text)) if (4..=128).contains(&text.as_str().chars().count()) => {
+                Some(text.as_str().to_owned())
+            }
+            Some(_) => return Err(malformed),
+        };
+        let link = match object.get("link") {
+            None => None,
+            Some(value) => match parse_link(value) {
+                Some(link) => Some(link),
+                None => return Err(malformed),
+            },
+        };
+        if machine_code.is_some() && grant.is_none() {
             return Err(malformed);
         }
-        if object.get("link").is_some() && grant.is_none() {
+        if link.is_some() && grant.is_none() {
             return Err(malformed);
         }
         let install_id = match object.get("installId") {
@@ -181,6 +199,13 @@ impl Hello {
             }
             Some(_) => return Err(malformed),
         };
+        let media_ticket = match object.get("mediaTicket") {
+            None => None,
+            Some(Value::String(text)) if is_base64url(text.as_str(), 43) => {
+                Some(text.as_str().to_owned())
+            }
+            Some(_) => return Err(malformed),
+        };
         let next_ticket = match object.get("nextTicket") {
             None => false,
             Some(Value::Bool(true)) => true,
@@ -191,11 +216,66 @@ impl Hello {
             token,
             ticket,
             grant,
+            machine_code,
+            link,
             install_id,
             channel,
+            media_ticket,
+            compression: names(object, "compression", 8)?,
+            flow_control: names(object, "flowControl", 8)?,
+            trims: names(object, "trims", 16)?,
+            framing: names(object, "framing", 8)?,
             next_ticket,
         })
     }
+}
+
+/// `z.array(z.string().max(32)).max(max)`, absent as empty.
+fn names(object: &ace_json::Map, key: &str, max: usize) -> Result<Vec<String>, HelloRefusal> {
+    match object.get(key) {
+        None => Ok(Vec::new()),
+        Some(Value::Array(items)) => {
+            if items.len() > max {
+                return Err(HelloRefusal::Malformed);
+            }
+            let mut names = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(name) = item.as_str() else {
+                    return Err(HelloRefusal::Malformed);
+                };
+                if name.chars().count() > 32 {
+                    return Err(HelloRefusal::Malformed);
+                }
+                names.push(name.to_owned());
+            }
+            Ok(names)
+        }
+        Some(_) => Err(HelloRefusal::Malformed),
+    }
+}
+
+/// A `PairingLinkProof`: `{deviceId: min 1, proof: 43 base64url}`, extra keys stripped.
+fn parse_link(value: &Value) -> Option<crate::devices::PairingLinkProof> {
+    let object = value.as_object()?;
+    let device_id = object
+        .get("deviceId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?;
+    let proof = object.get("proof").and_then(Value::as_str)?;
+    if !is_base64url(proof, 43) {
+        return None;
+    }
+    Some(crate::devices::PairingLinkProof {
+        device_id: device_id.to_owned(),
+        proof: proof.to_owned(),
+    })
+}
+
+fn is_base64url(text: &str, length: usize) -> bool {
+    text.len() == length
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 /// `InstallId`: `/^[A-Za-z0-9-]{8,64}$/`, counted in UTF-16 code units as TypeScript's regex is
@@ -208,68 +288,6 @@ fn is_install_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
-/// The device a hello authenticates, or `None` when it authenticates nothing (`socket-hello.ts`).
-/// The host token counts only on loopback. A ticket or a desktop bearer must name the device the
-/// hello claims, and both stay revocable; the host token does not.
-///
-/// The ticket is spent before the claimed device is checked (behaviour.md §6), so a mismatched
-/// hello still spends it. A store failure is a `1011 service_unavailable` at the caller, never a
-/// refusal.
-pub fn hello_actor(
-    hello: &Hello,
-    auth: &mut RemoteAuth,
-    is_local: bool,
-) -> Result<Option<SessionActor>, AuthError> {
-    let bearer = match hello.token.as_deref() {
-        Some(token) if is_local && !auth.local(token) => auth.device_bearer(token),
-        _ => None,
-    };
-    let desktop = bearer
-        .clone()
-        .filter(|device| is_local_only_scopes(&device.device.scopes));
-    let revocable = hello.ticket.is_some() || desktop.is_some();
-    let mut actor = match hello.ticket.as_deref() {
-        Some(ticket) => auth.consume(ticket).map(SessionActor::paired),
-        None => match hello.token.as_deref() {
-            Some(token) if is_local && auth.local(token) => Some(SessionActor::host(host_device(
-                &hello.device_id,
-                auth.now(),
-            ))),
-            _ => desktop.map(SessionActor::paired),
-        },
-    };
-    let Some(ref mut authenticated) = actor else {
-        return Ok(None);
-    };
-    authenticated.revocable = revocable;
-    if revocable && authenticated.device.id != hello.device_id {
-        return Ok(None);
-    }
-    // A paired device names its app install, so its records fold into one (ADR 0115).
-    if hello.ticket.is_some() {
-        auth.recognize(&authenticated.device, hello.install_id.as_deref())?;
-    }
-    Ok(actor)
-}
-
-fn is_local_only_scopes(scopes: &[Scope]) -> bool {
-    scopes
-        .iter()
-        .any(|scope| matches!(scope, Scope::Desktop | Scope::UserBrowser))
-}
-
-fn host_device(id: &str, now: i64) -> Device {
-    Device {
-        id: id.to_owned(),
-        name: "Host".to_owned(),
-        scopes: vec![Scope::Admin, Scope::Projects, Scope::Accounts],
-        created_at: 0,
-        last_seen_at: now,
-        revoked_at: None,
-        expires_at: None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     //! Ports `apps/daemon/src/auth.server.process.test.ts`: the hello refusals a first frame
@@ -280,7 +298,7 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
-    use super::{FirstFrame, Hello, HelloGate, HelloRefusal, hello_actor};
+    use super::{Hello, HelloRefusal, hello_actor};
     use crate::devices::{Devices, PairedDevice, Scope};
     use crate::pairing::PairingTerms;
     use crate::remote_auth::RemoteAuth;
@@ -344,49 +362,148 @@ mod tests {
     }
 
     #[test]
-    fn a_non_hello_first_frame_is_refused_without_data() {
-        let mut gate = HelloGate::new();
+    fn the_whole_frame_is_validated_before_any_credential_is_classified() {
+        // `{}` fails the schema: it is malformed, not "Valid hello required".
         assert_eq!(
-            gate.first(FirstFrame::Text("{\"type\":\"ping\"}")),
+            Hello::parse(&ace_json::parse("{}").unwrap()),
+            Err(HelloRefusal::Malformed)
+        );
+        // A socket message of another type is the other case.
+        assert_eq!(
+            Hello::parse(&ace_json::parse("{\"type\":\"ping\"}").unwrap()),
             Err(HelloRefusal::NotHello)
         );
-        assert_eq!(HelloRefusal::NotHello.code(), "unauthorized");
-        assert_eq!(HelloRefusal::NotHello.message(), "Valid hello required");
-        assert_eq!(HelloRefusal::NotHello.close_code(), 4001);
+        // A well-formed ticket hello with an invalid field is malformed, and the ticket is never
+        // seen: a frame with a live ticket and `compression: true` parses to nothing.
+        let (mut auth, paired, _home) = paired_auth(1_000);
+        let ticket = auth.ticket(&paired, "").unwrap().ticket;
+        let frame = format!(
+            "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"{}\",\
+             \"ticket\":\"{ticket}\",\"compression\":true}}",
+            paired.device.id
+        );
+        assert_eq!(
+            Hello::parse(&ace_json::parse(&frame).unwrap()),
+            Err(HelloRefusal::Malformed)
+        );
+        // The ticket is still spendable: nothing classified it.
+        let hello = Hello::parse(
+            &ace_json::parse(&format!(
+                "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"{}\",\
+                 \"ticket\":\"{ticket}\"}}",
+                paired.device.id
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(hello_actor(&hello, &mut auth, false).unwrap().is_some());
     }
 
     #[test]
-    fn a_binary_first_frame_is_refused_even_when_it_contains_a_valid_hello() {
-        let mut gate = HelloGate::new();
-        assert_eq!(gate.first(FirstFrame::Binary), Err(HelloRefusal::Binary));
-        assert_eq!(HelloRefusal::Binary.code(), "unauthorized");
-        assert_eq!(HelloRefusal::Binary.close_code(), 4001);
+    fn every_optional_field_holds_its_own_bound() {
+        let hello = |extra: &str| {
+            ace_json::parse(&format!(
+                "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\
+                 \"token\":\"x\"{extra}}}"
+            ))
+            .unwrap()
+        };
+        // mediaTicket: 43 base64url characters.
+        assert!(
+            Hello::parse(&hello(
+                ",\"mediaTicket\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\""
+            ))
+            .is_ok()
+        );
+        assert_eq!(
+            Hello::parse(&hello(",\"mediaTicket\":\"short\"")),
+            Err(HelloRefusal::Malformed)
+        );
+        // trims up to 16 names of 32 characters, framing/compression/flowControl up to 8.
+        let names = |n: usize| format!("[{}]", vec!["\"x\""; n].join(","));
+        assert!(Hello::parse(&hello(&format!(",\"trims\":{}", names(16)))).is_ok());
+        assert_eq!(
+            Hello::parse(&hello(&format!(",\"trims\":{}", names(17)))),
+            Err(HelloRefusal::Malformed)
+        );
+        let long = "y".repeat(33);
+        assert_eq!(
+            Hello::parse(&hello(&format!(",\"framing\":[\"{long}\"]"))),
+            Err(HelloRefusal::Malformed)
+        );
+        // machineCode only with a grant, and 4 to 128 characters.
+        assert_eq!(
+            Hello::parse(&hello(",\"machineCode\":\"1234\"")),
+            Err(HelloRefusal::Malformed)
+        );
+        let grant = |extra: &str| {
+            ace_json::parse(&format!(
+                "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\
+                 \"grant\":\"g\"{extra}}}"
+            ))
+            .unwrap()
+        };
+        assert!(Hello::parse(&grant(",\"machineCode\":\"1234\"")).is_ok());
+        assert_eq!(
+            Hello::parse(&grant(",\"machineCode\":\"123\"")),
+            Err(HelloRefusal::Malformed)
+        );
+        // A link proof is 43 base64url characters and needs a grant.
+        let proof = "A".repeat(43);
+        assert!(
+            Hello::parse(&grant(&format!(
+                ",\"link\":{{\"deviceId\":\"d\",\"proof\":\"{proof}\"}}"
+            )))
+            .is_ok()
+        );
+        assert_eq!(
+            Hello::parse(&hello(&format!(
+                ",\"link\":{{\"deviceId\":\"d\",\"proof\":\"{proof}\"}}"
+            ))),
+            Err(HelloRefusal::Malformed)
+        );
     }
 
     #[test]
-    fn an_unsupported_protocol_version_a_missing_or_a_doubled_credential_is_malformed() {
-        let mut gate = HelloGate::new();
-        let two =
-            "{\"type\":\"hello\",\"protocolVersion\":2,\"deviceId\":\"device\",\"token\":\"x\"}";
+    fn debug_names_credentials_by_presence_never_by_value() {
+        let hello = Hello::parse(
+            &ace_json::parse(
+                "{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\
+                 \"grant\":\"sensitive-grant\",\"machineCode\":\"1234\",\
+                 \"link\":{\"deviceId\":\"d\",\"proof\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let printed = format!("{hello:?}");
+        for secret in [
+            "sensitive-grant",
+            "1234",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ] {
+            assert!(!printed.contains(secret), "{printed}");
+        }
+        assert!(printed.contains("grant: true"), "{printed}");
+    }
+
+    #[test]
+    fn a_grant_is_between_one_and_2048_code_points_or_the_hello_is_malformed() {
+        let hello = |grant: &str| {
+            ace_json::parse(&format!(
+                "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\
+                 \"grant\":\"{grant}\"}}"
+            ))
+            .unwrap()
+        };
+        let parse = |value: &ace_json::Value| Hello::parse(value);
+        assert!(parse(&hello("g".repeat(2_048).as_str())).is_ok());
+        assert_eq!(parse(&hello("")), Err(HelloRefusal::Malformed));
         assert_eq!(
-            gate.first(FirstFrame::Text(two)),
+            parse(&hello("g".repeat(2_049).as_str())),
             Err(HelloRefusal::Malformed)
         );
-        let none = "{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\"}";
-        assert_eq!(
-            gate.first(FirstFrame::Text(none)),
-            Err(HelloRefusal::Malformed)
-        );
-        let both = "{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\"token\":\"x\",\"ticket\":\"y\"}";
-        assert_eq!(
-            gate.first(FirstFrame::Text(both)),
-            Err(HelloRefusal::Malformed)
-        );
-        // A malformed frame answers the schema's message, as `server.ts` does.
-        assert_eq!(
-            HelloRefusal::Malformed.message(),
-            "Message does not match the protocol"
-        );
+        // The bound counts code points, so 2048 emoji pass (rule 17).
+        assert!(parse(&hello("😀".repeat(2_048).as_str())).is_ok());
     }
 
     #[test]
@@ -406,6 +523,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         let actor = hello_actor(&hello, &mut auth, true)
             .unwrap()
@@ -439,6 +563,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         assert!(hello_actor(&wrong, &mut auth, false).unwrap().is_none());
         // Spent first: the same ticket no longer opens the right device.
@@ -461,6 +592,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         let authenticated = hello_actor(&hello, &mut auth, false)
             .unwrap()
@@ -469,16 +607,6 @@ mod tests {
         assert_eq!(authenticated.device.id, paired.device.id);
         assert_eq!(authenticated.generation, Some(paired.generation));
         assert_eq!(authenticated.person, Some(false));
-    }
-
-    #[test]
-    fn a_second_hello_is_refused_without_another_welcome() {
-        let mut gate = HelloGate::new();
-        gate.welcomed();
-        assert!(gate.authenticated());
-        assert_eq!(gate.later(), HelloRefusal::Later);
-        assert_eq!(HelloRefusal::Later.message(), "Hello is only valid once");
-        assert_eq!(HelloRefusal::Later.close_code(), 4001);
     }
 
     #[test]
@@ -501,6 +629,13 @@ mod tests {
             install_id: None,
             channel: None,
             next_ticket: false,
+            machine_code: None,
+            link: None,
+            media_ticket: None,
+            compression: Vec::new(),
+            flow_control: Vec::new(),
+            trims: Vec::new(),
+            framing: Vec::new(),
         };
         let actor = hello_actor(&hello, &mut auth, true)
             .unwrap()

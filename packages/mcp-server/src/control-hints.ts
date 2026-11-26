@@ -38,6 +38,9 @@ const byOp: Partial<Record<Op, Partial<Record<Code, string>>>> = {
   },
 };
 
+/** Every fixed next step: by failure code, and by operation where one needs its own. */
+export const controlHints = { byCode, byOp } as const;
+
 export function withControlHint(op: Op, result: AgentControlResult): AgentControlResult {
   if (result.ok || result.hint || !result.code) return result;
   return { ...result, hint: byOp[op]?.[result.code] ?? byCode[result.code] };
