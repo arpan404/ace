@@ -341,10 +341,9 @@ impl Visitor<'_> for JsStringVisitor {
 
     /// The units the doorway handed over: little-endian UTF-16, a lone surrogate included.
     fn visit_bytes<E: de::Error>(self, bytes: &[u8]) -> std::result::Result<JsString, E> {
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
+        const UTF16_CODE_UNIT: usize = 2;
+        let (pairs, _) = bytes.as_chunks::<UTF16_CODE_UNIT>();
+        let units: Vec<u16> = pairs.iter().map(|pair| u16::from_le_bytes(*pair)).collect();
         Ok(JsString::from_units(&units))
     }
 

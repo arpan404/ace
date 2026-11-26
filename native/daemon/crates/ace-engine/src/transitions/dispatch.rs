@@ -224,3 +224,136 @@ mod dispatch_store {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::deps::ActorDeps;
+    use crate::executor::{Notified, Notifier};
+    use crate::frames::live::UnportedLive;
+    use crate::repository::testsupport::{Shell, header, home, sql_text};
+    use crate::{Engine, EngineStore, Inputs, State};
+    use ace_core::items::Item;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    fn merge_home() -> (Arc<ace_store::Connection>, EngineStore) {
+        let conn = home("t", &header("t"));
+        conn.exec(&format!(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, client) VALUES ('t2', 'workspace', 'Fork', 'claude', '{{\"state\":\"new\"}}', 0, 0, {})",
+            sql_text(r#"{"lineage":{"parentThreadId":"t","parentAgentId":"root","point":{"type":"turn","runId":"r"},"mode":"portable","lossy":true}}"#)
+        ))
+        .expect("fork");
+        conn.exec(&format!(
+            "INSERT INTO thread_state VALUES ('t2', {}, 0)",
+            sql_text(&header("t2"))
+        ))
+        .expect("state");
+        conn.exec(&format!(
+            "INSERT INTO items VALUES ('own', 't2', 1, {})",
+            sql_text(
+                r#"{"id":"own","agentId":"root","type":"message","role":"assistant","complete":true,"createdAt":1,"parts":[{"type":"text","text":"done"}]}"#
+            )
+        ))
+        .expect("item");
+        (conn.clone(), Shell::store(&conn))
+    }
+
+    fn snapshot_shows_merged_item(state: &mut State, store: &EngineStore, thread: &str) -> bool {
+        let snapshot = state.repo.require_state(store, thread).expect("resident");
+        snapshot.borrow().state.items.values().any(|record| {
+            matches!(
+                record,
+                Item::Message {
+                    synthetic: true,
+                    merged_context: Some(_),
+                    ..
+                }
+            )
+        })
+    }
+
+    fn merge_command(command_id: &str) -> String {
+        format!(
+            r#"{{"id":"{command_id}","deviceId":"d","payload":{{"type":"thread.merge","threadId":"t2","summary":"s","citations":[{{"threadId":"t2","itemId":"own"}}]}}}}"#
+        )
+    }
+
+    fn queue_merge(conn: &Arc<ace_store::Connection>, command_id: &str) {
+        conn.exec(&format!(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,position) VALUES ('{command_id}','t','thread.merge',{},'pending',1)",
+            sql_text(&merge_command(command_id))
+        ))
+        .expect("intent");
+    }
+
+    fn test_core(conn: &Arc<ace_store::Connection>) -> Rc<Core> {
+        let (_, shell) = Shell::store_with_controls(conn);
+        let engine = Engine::new(
+            shell.clone(),
+            shell,
+            Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            conn,
+            Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+        )
+        .expect("engine");
+        engine.core().clone()
+    }
+
+    #[test]
+    fn dispatching_a_queued_merge_writes_the_synthetic_item_and_settles_the_intent() {
+        let (conn, _store) = merge_home();
+        queue_merge(&conn, "cmd-merge");
+        let core = test_core(&conn);
+        core.with_state(|state| {
+            state.repo.probe_passthrough = true;
+            state.transitions.rebuilt.insert("t".into());
+            run_thread(&core, state, "t").expect("dispatch");
+        })
+        .expect("state");
+        core.with_state(|state| {
+            assert_eq!(
+                dispatch_store::command_status(&conn, "cmd-merge").expect("status"),
+                Some("done".to_owned())
+            );
+            assert!(snapshot_shows_merged_item(state, &core.store, "t"));
+            run_thread(&core, state, "t").expect("retry idle");
+            assert_eq!(
+                state
+                    .transition_get(&core.store, "t")
+                    .expect("meta")
+                    .context
+                    .len(),
+                1
+            );
+        })
+        .expect("state");
+    }
+
+    #[test]
+    fn recover_thread_runs_a_pending_merge_after_restart() {
+        let (conn, _store) = merge_home();
+        queue_merge(&conn, "cmd-restart");
+        let core = test_core(&conn);
+        core.with_state(|state| {
+            state.repo.probe_passthrough = true;
+            state.transitions.rebuilt.insert("t".into());
+            recover_thread(&core, state, "t").expect("recover");
+        })
+        .expect("state");
+        assert_eq!(
+            dispatch_store::command_status(&conn, "cmd-restart").expect("status"),
+            Some("done".to_owned())
+        );
+    }
+}

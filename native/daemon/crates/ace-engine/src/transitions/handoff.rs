@@ -7,6 +7,7 @@
 //! work keeps JavaScript's units: `.length` is UTF-16, `Buffer.byteLength` is UTF-8, and a cut
 //! is by units so a lone surrogate half can be dropped as the TypeScript drops it.
 
+use ace_adapter_api::util::is_js_space;
 use ace_core::item_meta::HandoffModel;
 use ace_core::item_model::ContentPart;
 use ace_core::items::Item;
@@ -18,6 +19,8 @@ const MAX_EXCERPT: usize = 8192;
 const MAX_SOURCES: usize = 8;
 /// The envelope's tag (`envelope.ts:9`).
 pub const HANDOFF_TAG: &str = "ace_context_handoff";
+/// The longest removable leading envelope (`envelope.ts:14`).
+const MAX_ENVELOPE: usize = 512 * 1024;
 /// A copied message's cut text (`inherited.ts:35`).
 pub const TRIMMED_TEXT: &str =
     "\n\n… The rest of this message is in the thread this was forked from.";
@@ -624,102 +627,173 @@ pub fn escape_handoff_text(text: &str) -> String {
 
 /// `text` without ace's leading handoff block, or none when it doesn't start with one
 /// (`envelope.ts:29`).
-pub fn without_handoff_envelope(text: &JsString) -> Option<JsString> {
-    let display = text.as_str();
-    let trimmed = display.trim_start();
-    let trimmed_units = text
-        .len_utf16()
-        .saturating_sub(JsString::from(trimmed).len_utf16());
-    if trimmed_units > 512 * 1024 + 64 * 1024 {
-        return None;
-    }
-    if let Some(end) = plain_envelope_end(trimmed) {
-        return Some(JsString::from(
-            trimmed[end..].trim_start_matches(['\r', '\n']),
-        ));
-    }
-    without_json_manifest(trimmed)
+fn is_js_space_unit(unit: u16) -> bool {
+    let unit = char::decode_utf16([unit])
+        .next()
+        .and_then(Result::ok)
+        .unwrap_or(char::REPLACEMENT_CHARACTER);
+    is_js_space(unit)
 }
 
-/// The byte index just past the plain block's closing tag, when `text` opens one.
-fn plain_envelope_end(text: &str) -> Option<usize> {
-    let open = format!("<{HANDOFF_TAG} source_thread=\"");
-    let rest = text.strip_prefix(&open)?;
-    let end = rest.find('"')?;
-    let source = &rest[..end];
-    if source.is_empty() || source.chars().count() > 256 || source.contains(['"', '\n']) {
+pub fn without_handoff_envelope(text: &JsString) -> Option<JsString> {
+    let units: Vec<u16> = text.units().collect();
+    let start = units
+        .iter()
+        .position(|unit| !is_js_space_unit(*unit))
+        .unwrap_or(units.len());
+    let trimmed = &units[start..];
+    if trimmed.len() > MAX_ENVELOPE + 64 * 1024 {
         return None;
     }
-    let rest = rest[end + 1..].strip_prefix(" through_seq=\"")?;
-    let seq_end = rest.find('"')?;
-    let seq = &rest[..seq_end];
-    if seq.is_empty() || seq.len() > 16 || !seq.bytes().all(|b| b.is_ascii_digit()) {
+    if let Some(body) = open_tag_len(trimmed) {
+        let close: Vec<u16> = format!("\n</{HANDOFF_TAG}>").encode_utf16().collect();
+        let content = trimmed.get(body..)?;
+        let end = content
+            .windows(close.len())
+            .position(|window| window == close.as_slice())?;
+        if end > MAX_ENVELOPE {
+            return None;
+        }
+        let rest = without_leading_line_breaks_units(&content[end + close.len()..]);
+        return Some(JsString::from_units(rest));
+    }
+    without_json_manifest_units(trimmed)
+}
+
+fn without_leading_line_breaks_units(units: &[u16]) -> &[u16] {
+    let mut at = 0;
+    while at + 1 < units.len() && units[at] == u16::from(b'\r') && units[at + 1] == u16::from(b'\n')
+    {
+        at += 2;
+    }
+    while at < units.len() && (units[at] == u16::from(b'\n') || units[at] == u16::from(b'\r')) {
+        at += 1;
+    }
+    &units[at..]
+}
+
+/// `^<ace_context_handoff source_thread="[^"\n]{1,256}" through_seq="\d{1,16}">\n`
+fn open_tag_len(units: &[u16]) -> Option<usize> {
+    let prefix: Vec<u16> = format!("<{HANDOFF_TAG} source_thread=\"")
+        .encode_utf16()
+        .collect();
+    if !units.starts_with(&prefix) {
         return None;
     }
-    let rest = rest[seq_end + 1..].strip_prefix(">\n")?;
-    let close = format!("\n</{HANDOFF_TAG}>");
-    let end = rest.find(&close)?;
-    if end > 512 * 1024 {
+    let mut at = prefix.len();
+    let source = units.get(at..)?;
+    let end = source
+        .iter()
+        .position(|unit| *unit == u16::from(b'"') || *unit == u16::from(b'\n'))?;
+    if !(1..=256).contains(&end) {
         return None;
     }
-    Some(text.len() - rest.len() + end + close.len())
+    at += end;
+    let middle: Vec<u16> = "\" through_seq=\"".encode_utf16().collect();
+    if units.get(at..)?.starts_with(&middle) {
+        at += middle.len();
+    } else {
+        return None;
+    }
+    let digits = units
+        .get(at..)?
+        .iter()
+        .take_while(|unit| (u16::from(b'0')..=u16::from(b'9')).contains(*unit))
+        .count();
+    if !(1..=16).contains(&digits) {
+        return None;
+    }
+    at += digits;
+    let close: Vec<u16> = "\">\n".encode_utf16().collect();
+    if units.get(at..)?.starts_with(&close) {
+        Some(at + close.len())
+    } else {
+        None
+    }
 }
 
 /// The version 1 envelope: the manifest itself as JSON, validated before it is removed
 /// (`envelope.ts:42`).
-fn without_json_manifest(text: &str) -> Option<JsString> {
-    if !starts_manifest(text) || text.len() > 512 * 1024 {
+fn without_json_manifest_units(units: &[u16]) -> Option<JsString> {
+    if !starts_like_manifest_units(units) || units.len() > MAX_ENVELOPE {
         return None;
     }
     let mut depth = 0i64;
     let mut quoted = false;
     let mut escaped = false;
-    for (index, character) in text.char_indices() {
+    for (at, unit) in units.iter().enumerate() {
+        let unit = *unit;
         if quoted {
             if escaped {
                 escaped = false;
-            } else if character == '\\' {
+            } else if unit == u16::from(b'\\') {
                 escaped = true;
-            } else if character == '"' {
+            } else if unit == u16::from(b'"') {
                 quoted = false;
             }
-        } else if character == '"' {
+        } else if unit == u16::from(b'"') {
             quoted = true;
-        } else if character == '{' {
+        } else if unit == u16::from(b'{') {
             depth += 1;
-        } else if character == '}' {
+        } else if unit == u16::from(b'}') {
             depth -= 1;
             if depth == 0 {
-                let candidate = ace_json::parse(&text[..=index]).ok()?;
+                let manifest = display_units(&units[..=at]);
+                let candidate = ace_json::parse(&manifest).ok()?;
                 PortableHandoff::from_value(&candidate)?;
-                return Some(JsString::from(
-                    text[index + 1..].trim_start_matches(['\r', '\n']),
-                ));
+                let rest = without_leading_line_breaks_units(&units[at + 1..]);
+                return Some(JsString::from_units(rest));
             }
         }
     }
     None
 }
 
-/// `^\{\s*"version"\s*:\s*1\s*,` (`envelope.ts:38`).
-fn starts_manifest(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    let Some(rest) = trimmed.strip_prefix('{') else {
+fn display_units(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied())
+        .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
+}
+
+/// `/^\{\s*"version"\s*:\s*1\s*,/` over UTF-16 code units.
+fn starts_like_manifest_units(units: &[u16]) -> bool {
+    let mut at = 0;
+    while at < units.len() && is_js_space_unit(units[at]) {
+        at += 1;
+    }
+    if units.get(at) != Some(&u16::from(b'{')) {
+        return false;
+    }
+    at += 1;
+    while at < units.len() && is_js_space_unit(units[at]) {
+        at += 1;
+    }
+    let version: Vec<u16> = "\"version\"".encode_utf16().collect();
+    let Some(rest) = units.get(at..) else {
         return false;
     };
-    let rest = rest.trim_start();
-    let Some(rest) = rest.strip_prefix("\"version\"") else {
+    if !rest.starts_with(&version) {
         return false;
-    };
-    let rest = rest.trim_start();
-    let Some(rest) = rest.strip_prefix(':') else {
+    }
+    at += version.len();
+    while at < units.len() && is_js_space_unit(units[at]) {
+        at += 1;
+    }
+    if units.get(at) != Some(&u16::from(b':')) {
         return false;
-    };
-    let rest = rest.trim_start();
-    let Some(rest) = rest.strip_prefix('1') else {
+    }
+    at += 1;
+    while at < units.len() && is_js_space_unit(units[at]) {
+        at += 1;
+    }
+    if units.get(at) != Some(&u16::from(b'1')) {
         return false;
-    };
-    rest.trim_start().starts_with(',')
+    }
+    at += 1;
+    while at < units.len() && is_js_space_unit(units[at]) {
+        at += 1;
+    }
+    units.get(at) == Some(&u16::from(b','))
 }
 
 /// A copy a fork starts its transcript with (`inherited.ts`'s `InheritedDraft`).
@@ -850,13 +924,14 @@ fn copied_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
             ContentPart::Mention { .. } => copied.push(part.clone()),
             ContentPart::Text { text, source, .. } => {
                 // A message sent right after a handoff still carries ace's block in front.
+                let original_units = text.len_utf16();
                 let mut value = if index == 0 {
                     without_handoff_envelope(text).unwrap_or_else(|| text.clone())
                 } else {
                     text.clone()
                 };
                 if let Some(source) = source
-                    && source.bytes > value.len_utf16() as i64 * 2
+                    && source.bytes > original_units as i64 * 2
                 {
                     // A cut between the halves of a surrogate pair would leave half a character.
                     let mut units = value.len_utf16();
@@ -1138,6 +1213,25 @@ mod tests {
             Some("Ship it".to_owned())
         );
         assert_eq!(without_handoff_envelope(&JsString::from("Ship it")), None);
+    }
+
+    // A source id is measured in UTF-16 code units, matching JavaScript's `.length`.
+    #[test]
+    fn a_wide_source_thread_id_counts_utf16_code_units_not_scalars() {
+        let inner = "\u{1f600}".repeat(128);
+        let wide = format!(
+            "<{HANDOFF_TAG} source_thread=\"{inner}\" through_seq=\"1\">\necho\n</{HANDOFF_TAG}>\nwords"
+        );
+        assert_eq!(
+            without_handoff_envelope(&JsString::from(wide))
+                .map(|text| text.to_string_lossy().into_owned()),
+            Some("words".to_owned())
+        );
+        let too_wide = format!(
+            "<{HANDOFF_TAG} source_thread=\"{}\" through_seq=\"1\">\necho\n</{HANDOFF_TAG}>\n",
+            "\u{1f600}".repeat(129)
+        );
+        assert_eq!(without_handoff_envelope(&JsString::from(too_wide)), None);
     }
 
     // From `index.test.ts`: a returning provider is told only what happened while it was away.

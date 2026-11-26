@@ -129,6 +129,21 @@ pub fn merge(
 mod tests {
     use super::*;
     use crate::repository::testsupport::{Shell, header, home};
+    use ace_core::items::Item;
+
+    fn snapshot_shows_merged_item(state: &mut State, store: &EngineStore, thread: &str) -> bool {
+        let snapshot = state.repo.require_state(store, thread).expect("resident");
+        snapshot.borrow().state.items.values().any(|record| {
+            matches!(
+                record,
+                Item::Message {
+                    synthetic: true,
+                    merged_context: Some(_),
+                    ..
+                }
+            )
+        })
+    }
 
     fn two_threads() -> (std::sync::Arc<ace_store::Connection>, EngineStore) {
         let conn = home("t", &header("t"));
@@ -177,6 +192,7 @@ mod tests {
         let metadata = state.transition_get(&store, "t").expect("metadata");
         assert_eq!(metadata.context.len(), 1);
         assert!(metadata.context[0].contains("merged_fork_context"));
+        assert!(snapshot_shows_merged_item(&mut state, &store, "t"));
         let grant = ace_store::stmt_cache::get_row(
             &conn,
             "SELECT source FROM engine_handoff_grants WHERE recipient='t'",
@@ -195,7 +211,7 @@ mod tests {
     // Re-running the same merge must not append a second context entry.
     #[test]
     fn retrying_the_same_merge_keeps_one_context_entry() {
-        let (_conn, store) = two_threads();
+        let (conn, store) = two_threads();
         let mut state = State::default();
         state.repo.probe_passthrough = true;
         let citations = ace_json::json!([{ "threadId": "t2", "itemId": "own", "excerpt": "done" }]);
@@ -230,6 +246,8 @@ mod tests {
         .expect("retry");
         let metadata = state.transition_get(&store, "t").expect("metadata");
         assert_eq!(metadata.context.len(), 1);
+        assert!(snapshot_shows_merged_item(&mut state, &store, "t"));
+        let _ = conn;
     }
 
     // The fork must still be the source's own; a re-parented lineage refuses.
