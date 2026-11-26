@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::translate::data::{object, string};
 
 const MAX_ACP_MCP_SERVERS: usize = 64;
-const MAX_SERVER_NAME_UNITS: usize = 256;
+/// `NamedAcpMcpServer.name` is `z.string().min(1).max(256)` (`injection.ts:239`): a zod
+/// bound, so code points (rule 17).
+const MAX_SERVER_NAME_CODE_POINTS: usize = 256;
 
 /// Transport selected for ace's injected MCP server (`AcpSessionSupport["mcp"]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,8 +89,8 @@ pub fn append_acp_mcp(user: &[Value], injected: &[Value]) -> Result<Vec<Value>, 
         let Some(name_js) = map.get("name").and_then(Value::as_js_str) else {
             return Err("Invalid ACP MCP server name".to_owned());
         };
-        let units = name_js.len_utf16();
-        if units == 0 || units > MAX_SERVER_NAME_UNITS {
+        let code_points = name_js.as_str().chars().count();
+        if code_points == 0 || code_points > MAX_SERVER_NAME_CODE_POINTS {
             return Err("Invalid ACP MCP server name".to_owned());
         }
         let name = name_js.to_string();
@@ -205,6 +207,21 @@ mod tests {
                     transport: "sse".to_owned(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_server_name_bound_counts_code_points_not_utf16_units() {
+        // `NamedAcpMcpServer.name` is `z.string().max(256)`: 256 emoji fit (512 units),
+        // 257 do not (rule 17).
+        let fits = "\u{1F600}".repeat(256);
+        assert_eq!(fits.chars().count(), 256);
+        assert_eq!(fits.encode_utf16().count(), 512);
+        assert!(append_acp_mcp(&[json!({ "name": fits })], &[]).is_ok());
+        let over = "\u{1F600}".repeat(257);
+        assert_eq!(
+            append_acp_mcp(&[json!({ "name": over })], &[]),
+            Err("Invalid ACP MCP server name".to_owned())
         );
     }
 

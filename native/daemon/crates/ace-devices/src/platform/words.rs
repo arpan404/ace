@@ -72,6 +72,23 @@ pub fn hint(key: &str) -> Option<&'static str> {
     catalog().tools.get(key).map(String::as_str)
 }
 
+/// The next step of a platform word whose message is data (a key's name, a simulator's verb):
+/// the catalog still owns the hint, so a refusal with a built message never spells its own.
+pub fn platform_hint(key: &str) -> &'static str {
+    catalog()
+        .platform
+        .get(key)
+        .map_or(MISSING.hint, |word| word.hint.as_str())
+}
+
+/// A tool word, or the missing word's text: a hint that must render is never blank.
+pub fn tool_hint(key: &str) -> &'static str {
+    catalog()
+        .tools
+        .get(key)
+        .map_or(MISSING.hint, String::as_str)
+}
+
 /// Whether the catalog names `key` with a code the protocol has.
 pub fn has(key: &str) -> bool {
     catalog()
@@ -116,6 +133,51 @@ mod tests {
             "androidBootBusy",
             "androidPortLimit",
             "toolsNowhere",
+            "iosRecentsKey",
+            "iosBackKey",
+            "androidActionKey",
+            "watchSideKey",
+            "androidClipboardLiveView",
+            "inputOutsideScreen",
+            "pasteTooLong",
+            "pasteTimedOut",
+            "clipboardWriteTimedOut",
+            "clipboardReadWaiting",
+            "androidControlRestarted",
+            "simulatorTreeMalformed",
+            "simulatorTreeUnreadable",
+            "simulatorTargetStale",
+            "simulatorActionUnsupported",
+            "simulatorSizeUnknown",
+            "simulatorAxUnavailable",
+            "simulatorAxBudget",
+            "simulatorAxTimeout",
+            "simulatorNoFold",
+            "deviceNoFold",
+            "simulatorFoldFailed",
+            "androidNoFold",
+            "androidFoldFailed",
+            "androidTreeBudget",
+            "androidXmlMalformed",
+            "androidXmlDeclaration",
+            "androidHierarchyDuplicate",
+            "androidNodeUnclosed",
+            "androidNodeOutsideHierarchy",
+            "androidTreeUnbalanced",
+            "androidNestingBudget",
+            "androidXmlIncomplete",
+            "androidEntityInvalid",
+            "androidAttributesMalformed",
+            "androidBoundsInvalid",
+            "androidTargetStale",
+            "androidActionUnsupported",
+            "androidUiQueueFull",
+            "simulatorTreeOnAndroid",
+            "androidHelperStartFailed",
+            "androidHelperExited",
+            "androidHelperTimedOut",
+            "androidInputEnded",
+            "simulatorTooManyFingers",
         ] {
             assert!(has(key), "catalog names no usable word for {key}");
         }
@@ -123,9 +185,27 @@ mod tests {
 
     #[test]
     fn every_tool_word_this_crate_renders_is_in_the_catalog() {
-        for key in ["downloadHint", "againHint", "scrcpyHint", "downloadTimeout"] {
+        for key in [
+            "downloadHint",
+            "againHint",
+            "scrcpyHint",
+            "downloadTimeout",
+            "simulatorPasteTimeoutHint",
+            "simulatorPasteFailedHint",
+            "androidNoKeyHint",
+            "iosNoKeyHint",
+        ] {
             assert!(hint(key).is_some(), "catalog names no tool word for {key}");
         }
+    }
+
+    #[test]
+    fn a_built_messages_next_step_still_comes_from_the_catalog() {
+        assert_eq!(platform_hint("androidNoKey"), MISSING.hint);
+        assert_eq!(
+            tool_hint("androidNoKeyHint"),
+            "Use the app's own controls instead."
+        );
     }
 
     #[test]

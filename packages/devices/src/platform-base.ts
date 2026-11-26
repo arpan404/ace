@@ -206,12 +206,7 @@ export class DevicePlatformBase {
   ): Promise<DevicePosture> {
     if (device.platform === "android")
       return this.emulatorPostures.set(device.id, this.emulatorConsole(device), posture, authorize);
-    if (device.platform !== "ios" || !this.postures)
-      throw new DeviceError(
-        "not_supported",
-        "This device doesn't fold",
-        "Only foldable simulators and emulators, such as the iPhone Duo, have a posture.",
-      );
+    if (device.platform !== "ios" || !this.postures) throw catalogRefusal("deviceNoFold");
     return this.postures.set(nativeId(device), posture, authorize);
   }
   /** The device's emulator console through adb; a failed command answers with its exit code. */

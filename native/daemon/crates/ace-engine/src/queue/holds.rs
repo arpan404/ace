@@ -261,12 +261,13 @@ fn arm(core: &Rc<Core>) -> Result<(), EngineError> {
     if let Some(key) = previous {
         core.ports.cancel_timer(key);
     }
+    // No deadline runs while maintenance holds new work or after close.
+    if core.with_state(|state| state.recovery.closed)? || !core.ports.admits() {
+        return Ok(());
+    }
     let Some(at) = crate::queue::deadline::next_deadline(core.store.conn())? else {
         return Ok(());
     };
-    if core.with_state(|state| state.recovery.closed)? {
-        return Ok(());
-    }
     let timer = core
         .ports
         .set_timer((at as f64 - core.ports.now()).max(0.0));

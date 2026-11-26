@@ -15,8 +15,12 @@ export interface ReceiptDeps {
   closing(): boolean;
   ready(): boolean;
   store: Store;
+  /** `liveMove.fenceCommand`: a thread fenced to another machine refuses every command. */
+  fence?: ((threadId: string) => unknown) | undefined;
   host?: ((command: unknown) => unknown) | undefined;
   policy?: ((command: unknown, accept: () => unknown) => unknown) | undefined;
+  /** `sessions.commanded` (`index.ts:429`), for an accepted access change. */
+  commanded?: ((command: unknown) => void) | undefined;
   receipt: Receipt;
 }
 
@@ -27,13 +31,22 @@ export function receiptHandler(deps: ReceiptDeps): CommandHandler {
       if (deps.closing())
         return { commandId: command.id, ok: false, error: "daemon_shutting_down" };
       if (!deps.ready()) return { commandId: command.id, ok: false, error: "engine_starting" };
-      const receipt = () => JSON.parse(deps.receipt(JSON.stringify(command))) as CommandResult;
-      return deps.store.atomic(() => {
+      // One native receipt per command, whether the policy accepts, decides, or both.
+      let accepted: CommandResult | undefined;
+      const receipt = (): CommandResult =>
+        (accepted ??= JSON.parse(deps.receipt(JSON.stringify(command))) as CommandResult);
+      const result = deps.store.atomic(() => {
+        const threadId = (command.payload as { threadId?: string }).threadId;
+        // `??`, as `index.ts:421`-`:426` has it: a null answer falls through.
+        const fenced = threadId === undefined ? undefined : deps.fence?.(threadId);
+        if (fenced !== undefined && fenced !== null) return fenced as CommandResult;
         const hosted = deps.host?.(command);
-        if (hosted !== undefined) return hosted as CommandResult;
-        const decided = deps.policy?.(command, () => receipt());
+        if (hosted !== undefined && hosted !== null) return hosted as CommandResult;
+        const decided = deps.policy?.(command, receipt);
         return (decided ?? receipt()) as CommandResult;
       });
+      if (result.ok) deps.commanded?.(command);
+      return result;
     },
   };
 }

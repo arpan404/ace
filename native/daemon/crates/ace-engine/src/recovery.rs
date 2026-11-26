@@ -36,7 +36,8 @@ pub fn recover_thread(_state: &mut State, thread: &ThreadId) -> Result<(), Engin
 
 /// `recovery.close()`: E5.8's. E5.1 fails at the call, naming the item; close reports it and
 /// still runs every shutdown step below.
-pub fn close(_state: &mut State) -> Result<(), EngineError> {
+pub fn close(state: &mut State) -> Result<(), EngineError> {
+    state.recovery.closed = true;
     Err(EngineError::not_ported("the recovery close", "E5.8"))
 }
 

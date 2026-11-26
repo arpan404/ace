@@ -89,9 +89,14 @@ mod tests {
 
     #[test]
     fn spades_host_thread_refuses_only_what_would_run_an_agent_and_other_threads_take_all() {
-        assert!(
-            host_refusal("cmd-1", "thread.send", Some("spade")).is_some(),
-            "a send would run an agent"
+        let refused = host_refusal("cmd-1", "thread.send", Some("spade")).expect("refused");
+        assert_eq!(
+            refused.get("title").and_then(Value::as_str),
+            Some("Spade's own thread")
+        );
+        assert_eq!(
+            refused.get("detail").and_then(Value::as_str),
+            Some("Spade works through this thread; nothing runs in it.")
         );
         assert!(
             host_refusal("cmd-1", "thread.rename", Some("spade")).is_none(),

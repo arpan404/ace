@@ -763,6 +763,8 @@ export async function scrcpyCapture(options: {
         };
         current = started;
         const messages = new DeviceMessageReader((message) => started.clipboard.received(message));
+        // The reader's buffer lives in the addon under the switch: let it go with the socket.
+        control.once("close", () => messages.close());
         control.on("data", (chunk: Buffer) => {
           try {
             messages.push(chunk);
@@ -861,6 +863,7 @@ export async function scrcpyCapture(options: {
     current = started;
     const reader = new VideoStreamReader((event) => started.units.push(event));
     const messages = new DeviceMessageReader((message) => started.clipboard.received(message));
+    connection.control.once("close", () => messages.close());
     const read = (target: { push(chunk: Buffer): void }) => (chunk: Buffer) => {
       try {
         target.push(chunk);

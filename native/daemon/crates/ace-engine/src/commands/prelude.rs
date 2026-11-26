@@ -35,6 +35,9 @@ const HANDLED: [&str; 11] = [
 /// The provider facts `providerCommandDisabled` reads.
 struct Facts<'a> {
     core: &'a Core,
+    state: &'a State,
+    /// The command thread's row, parsed once by the prelude.
+    row: Option<(&'a str, &'a Value)>,
 }
 
 /// The thread row as `store.getThread` gives it.
@@ -45,27 +48,52 @@ pub(crate) fn thread_row(core: &Core, id: &str) -> Result<Option<Value>, EngineE
     Ok(ace_json::parse(&text).ok())
 }
 
+/// The facts `providerCommandDisabled` reads from one thread row.
+fn provider_thread(core: &Core, id: &str, row: &Value) -> Option<ProviderThread> {
+    Some(ProviderThread {
+        provider: row.get("provider").and_then(Value::as_str)?.to_owned(),
+        instance_id: session_instance(core, id),
+        parent_thread_id: row
+            .get("lineage")
+            .and_then(|lineage| lineage.get("parentThreadId"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    })
+}
+
 impl ProviderAdmissionFacts for Facts<'_> {
     fn thread(&self, id: &str) -> Option<ProviderThread> {
-        // `thread()` is read through the store, which takes `&self`; the state is not touched.
-        let row = thread_row(self.core, id).ok().flatten()?;
-        Some(ProviderThread {
-            provider: row.get("provider").and_then(Value::as_str)?.to_owned(),
-            instance_id: session_instance(self.core, id),
-            parent_thread_id: row
-                .get("lineage")
-                .and_then(|lineage| lineage.get("parentThreadId"))
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-        })
+        // The command's own row was parsed once by the prelude; a parent thread's is read here.
+        match self.row {
+            Some((known, row)) if known == id => provider_thread(self.core, id, row),
+            _ => thread_row(self.core, id)
+                .ok()
+                .flatten()
+                .and_then(|row| provider_thread(self.core, id, &row)),
+        }
     }
 
     fn default_instance(&self, provider: &str) -> Option<String> {
-        self.core.ports.select_instance(provider, None)
+        // `registry.has(provider) ? selectInstance(provider, backend) : undefined`.
+        if !self.state.registry.has(provider) {
+            return None;
+        }
+        let backend = self
+            .state
+            .registry
+            .get(provider, None)
+            .ok()
+            .and_then(|entry| entry.backend.clone());
+        self.core
+            .ports
+            .default_instance(provider, backend.as_deref())
     }
 
-    fn enabled(&self, provider: &str, instance: Option<&str>) -> bool {
-        self.core.ports.provider_enabled(provider, instance)
+    fn enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, String> {
+        self.core
+            .ports
+            .provider_enabled(provider, instance)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -105,8 +133,17 @@ pub fn handle(
     let p = payload(command);
     let kind = payload_type(command);
     let thread = p.get("threadId").and_then(Value::as_str);
-    if let Some(thread) = thread {
-        let row = thread_row(core, thread)?;
+    // One read and one parse for the five checks that need the thread row.
+    let row = match thread {
+        Some(thread) => thread_row(core, thread)?,
+        None => None,
+    };
+    let present = |key: &str| {
+        row.as_ref()
+            .and_then(|row| row.get(key))
+            .is_some_and(|value| !value.is_null())
+    };
+    if thread.is_some() {
         let details = row.as_ref().and_then(|row| row.get("details"));
         if let Some(refused) =
             guest_refusal(&id, kind, details.and_then(|details| details.get("guest")))
@@ -123,12 +160,7 @@ pub fn handle(
             return Ok(Some(refused));
         }
     }
-    if kind == "thread.send"
-        && let Some(thread) = thread
-        && thread_row(core, thread)?
-            .and_then(|row| row.get("imported").map(|value| !value.is_null()))
-            .unwrap_or(false)
-    {
+    if kind == "thread.send" && thread.is_some() && present("imported") {
         return Err(EngineError::not_ported("imported thread adoption", "E5.8"));
     }
     if let Some(thread) = thread
@@ -136,10 +168,8 @@ pub fn handle(
     {
         return Ok(Some(error(&id, "thread_deleting")));
     }
-    if let Some(thread) = thread
-        && thread_row(core, thread)?
-            .and_then(|row| row.get("continuation").map(|value| !value.is_null()))
-            .unwrap_or(false)
+    if thread.is_some()
+        && present("continuation")
         && !matches!(kind, "thread.archive" | "thread.fork")
     {
         return Ok(Some(super::refusal(
@@ -150,8 +180,14 @@ pub fn handle(
         )));
     }
     {
-        let facts = Facts { core };
-        if ace_core::provider_admission::provider_command_disabled(p, &facts) {
+        let facts = Facts {
+            core,
+            state: &*state,
+            row: thread.zip(row.as_ref()),
+        };
+        let disabled = ace_core::provider_admission::provider_command_disabled(p, &facts)
+            .map_err(|message| EngineError::Port(crate::ports::PortError::Threw(message)))?;
+        if disabled {
             return Ok(Some(error(&id, "provider_disabled")));
         }
     }
@@ -169,8 +205,8 @@ pub fn handle(
     if matches!(kind, "thread.permission.set" | "thread.mode.set") {
         return Err(EngineError::not_ported("an access change", "E5.7"));
     }
-    if let Some(thread) = thread
-        && let Some(details) = thread_row(core, thread)?.and_then(|row| row.get("details").cloned())
+    if thread.is_some()
+        && let Some(details) = row.as_ref().and_then(|row| row.get("details"))
         && let Some(change) = details.get("workspaceChange")
         && (change.get("state").and_then(Value::as_str) == Some("preparing")
             || change.get("uncertain").and_then(Value::as_bool) == Some(true))

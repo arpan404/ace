@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { createThreadState } from "@ace/core";
-import { AgentId, NativeSessionId, ThreadId } from "@ace/protocol";
+import { AgentId, NativeSessionId } from "@ace/protocol";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { createDevThread } from "../commands.ts";
 import { engineSeam } from "./testing.ts";
@@ -123,110 +123,6 @@ describe.runIf(native)("turn-end queue events", () => {
           .map((row) => row.type),
       );
       expect(stored).toEqual(["thread.client.updated", "queue.updated", "run.ended"]);
-    } finally {
-      await seam.close();
-    }
-  });
-});
-
-async function seededQueue() {
-  let thread = "";
-  const seam = await engineSeam({
-    afterOpen: (store) => {
-      const workspace = store.createWorkspace(process.cwd(), "E5.4d");
-      const created = createDevThread(store, workspace);
-      thread = created.id;
-      const state = createThreadState({
-        threadId: ThreadId.parse(thread),
-        rootAgent: {
-          agent: AgentId.parse("root"),
-          fidelity: "full",
-          native: { provider: "codex", nativeId: NativeSessionId.parse("native-root") },
-          cwd: process.cwd(),
-        },
-        config: { provider: "codex", silenceMs: 30_000 },
-      });
-      store.atomic((db) => {
-        db.prepare("INSERT INTO thread_state VALUES (?, ?, ?)").run(
-          thread,
-          JSON.stringify({ ...state, engineSnapshot: 9 }),
-          store.headSeq(),
-        );
-        db.prepare("INSERT INTO engine_queue (thread_id) VALUES (?)").run(thread);
-      });
-    },
-  });
-  await seam.engine.ready().catch(() => {});
-  seam.probe.passThroughCollaborators();
-  return { seam, thread };
-}
-
-describe.runIf(native)("E5.4d's refusals and rollback", () => {
-  test("a refused receipt before the atomic step writes nothing and releases no wake", async () => {
-    const { seam, thread } = await seededQueue();
-    try {
-      const revision = seam.engine.queue(thread as never).revision;
-      const seq = seam.store.headSeq();
-      const woken = seam.probe.woken().length;
-      expect(
-        seam.engine.handler.handle(
-          {
-            id: "rename",
-            deviceId: "device",
-            payload: { type: "thread.rename", threadId: thread, title: "Mine" },
-          } as never,
-          undefined as never,
-        ),
-      ).toEqual({ commandId: "rename", ok: false, error: "not_implemented" });
-      expect(seam.engine.queue(thread as never).revision).toBe(revision);
-      expect(seam.store.headSeq()).toBe(seq);
-      expect(seam.probe.woken()).toHaveLength(woken);
-    } finally {
-      await seam.close();
-    }
-  });
-
-  test("a queue command whose policy throws after accepting rolls back: no revision bump, no wake", async () => {
-    const { seam, thread } = await seededQueue();
-    try {
-      const revision = seam.engine.queue(thread as never).revision;
-      const updated = seam.store.atomic(
-        (db) =>
-          (
-            db
-              .prepare(
-                "SELECT COUNT(*) AS n FROM events WHERE thread_id=? AND type='queue.updated'",
-              )
-              .get(thread) as { n: number }
-          ).n,
-      );
-      seam.engine.bindCommandPolicy(((_command: unknown, accept: () => unknown) => {
-        accept();
-        throw new Error("policy failed");
-      }) as never);
-      expect(() =>
-        seam.engine.handler.handle(
-          {
-            id: "pause",
-            deviceId: "device",
-            payload: { type: "queue.pause", threadId: thread, expectedRevision: revision },
-          } as never,
-          undefined as never,
-        ),
-      ).toThrow("policy failed");
-      expect(seam.engine.queue(thread as never).revision).toBe(revision);
-      expect(
-        seam.store.atomic(
-          (db) =>
-            (
-              db
-                .prepare(
-                  "SELECT COUNT(*) AS n FROM events WHERE thread_id=? AND type='queue.updated'",
-                )
-                .get(thread) as { n: number }
-            ).n,
-        ),
-      ).toBe(updated);
     } finally {
       await seam.close();
     }

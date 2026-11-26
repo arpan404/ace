@@ -16,11 +16,15 @@ pub struct ProviderThread {
 pub trait ProviderAdmissionFacts {
     fn thread(&self, id: &str) -> Option<ProviderThread>;
     fn default_instance(&self, provider: &str) -> Option<String>;
-    fn enabled(&self, provider: &str, instance: Option<&str>) -> bool;
+    /// A port that throws answers `Err` with its message; the receipt rolls back.
+    fn enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, String>;
 }
 
 /// `providerCommandDisabled`: a command that would reach a disabled provider or account.
-pub fn provider_command_disabled(payload: &Value, facts: &dyn ProviderAdmissionFacts) -> bool {
+pub fn provider_command_disabled(
+    payload: &Value,
+    facts: &dyn ProviderAdmissionFacts,
+) -> Result<bool, String> {
     let kind = payload
         .get("type")
         .and_then(Value::as_str)
@@ -40,7 +44,7 @@ pub fn provider_command_disabled(payload: &Value, facts: &dyn ProviderAdmissionF
             | "thread.goal.set"
             | "thread.goal.clear"
     ) {
-        return false;
+        return Ok(false);
     }
     let thread = payload
         .get("threadId")
@@ -78,9 +82,9 @@ pub fn provider_command_disabled(payload: &Value, facts: &dyn ProviderAdmissionF
                 .and_then(|provider| facts.default_instance(provider))
         });
     if let Some(provider) = provider.as_deref()
-        && !facts.enabled(provider, instance.as_deref())
+        && !facts.enabled(provider, instance.as_deref())?
     {
-        return true;
+        return Ok(true);
     }
     // Both the contributing fork and the parent receiving context/patches must be enabled.
     if kind == "thread.merge"
@@ -93,11 +97,11 @@ pub fn provider_command_disabled(payload: &Value, facts: &dyn ProviderAdmissionF
             .instance_id
             .clone()
             .or_else(|| facts.default_instance(&destination.provider));
-        if !facts.enabled(&destination.provider, instance.as_deref()) {
-            return true;
+        if !facts.enabled(&destination.provider, instance.as_deref())? {
+            return Ok(true);
         }
     }
-    false
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -119,8 +123,8 @@ mod tests {
         fn default_instance(&self, _provider: &str) -> Option<String> {
             None
         }
-        fn enabled(&self, _provider: &str, _instance: Option<&str>) -> bool {
-            !self.disabled
+        fn enabled(&self, _provider: &str, _instance: Option<&str>) -> Result<bool, String> {
+            Ok(!self.disabled)
         }
     }
 
@@ -131,16 +135,10 @@ mod tests {
     #[test]
     fn an_enabled_provider_takes_the_command_and_a_disabled_one_refuses_it() {
         let send = value(r#"{"type":"thread.send","threadId":"t","input":[]}"#);
-        assert!(!provider_command_disabled(
-            &send,
-            &Facts { disabled: false }
-        ));
-        assert!(provider_command_disabled(&send, &Facts { disabled: true }));
+        assert!(!provider_command_disabled(&send, &Facts { disabled: false }).expect("enabled"));
+        assert!(provider_command_disabled(&send, &Facts { disabled: true }).expect("answered"));
         // A command that reaches no provider is never disabled.
         let archive = value(r#"{"type":"thread.archive","threadId":"t"}"#);
-        assert!(!provider_command_disabled(
-            &archive,
-            &Facts { disabled: true }
-        ));
+        assert!(!provider_command_disabled(&archive, &Facts { disabled: true }).expect("answered"));
     }
 }

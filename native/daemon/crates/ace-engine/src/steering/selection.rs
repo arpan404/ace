@@ -74,7 +74,7 @@ pub fn fence_steer(
     if let Some(map) = out.as_object_mut() {
         map.insert("payload", stripped);
     }
-    Ok(out)
+    crate::intents::command::normalize(&out)
 }
 
 /// `hasNextTurnSelection`: a model or options selection.
@@ -184,7 +184,7 @@ pub fn admit_steer(
             map.insert("payload", queued);
         }
         return Ok(SteerAdmission {
-            send: current,
+            send: crate::intents::command::normalize(&current)?,
             selection: None,
         });
     };
@@ -197,6 +197,7 @@ pub fn admit_steer(
     if let Some(map) = send.as_object_mut() {
         map.insert("payload", text);
     }
+    let send = crate::intents::command::normalize(&send)?;
     let mut switch = ace_json::Map::new();
     switch.insert(
         "id",
@@ -218,7 +219,10 @@ pub fn admit_steer(
     switch.insert("payload", Value::Object(switch_payload));
     Ok(SteerAdmission {
         send,
-        selection: Some((Value::Object(switch), selection)),
+        selection: Some((
+            crate::intents::command::normalize(&Value::Object(switch))?,
+            selection,
+        )),
     })
 }
 

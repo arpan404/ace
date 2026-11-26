@@ -1,0 +1,13 @@
+[
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "--input-format",
+  "stream-json",
+  "--permission-prompt-tool",
+  "stdio",
+  "--setting-sources=",
+  "--strict-mcp-config",
+  "--include-hook-events",
+  "--include-partial-messages"
+]

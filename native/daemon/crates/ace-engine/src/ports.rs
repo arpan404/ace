@@ -208,13 +208,42 @@ pub trait Ports {
         None
     }
     /// `options.providerEnabled` (E5.4).
-    fn provider_enabled(&self, _provider: &str, _instance: Option<&str>) -> bool {
-        true
+    fn provider_enabled(
+        &self,
+        _provider: &str,
+        _instance: Option<&str>,
+    ) -> Result<bool, PortError> {
+        Ok(true)
+    }
+
+    /// `options.selectInstance` for a provider the registry has (`handler.ts:108`-`:111`).
+    fn default_instance(&self, provider: &str, backend: Option<&str>) -> Option<String> {
+        self.select_instance(provider, backend)
     }
     /// `options.machine` (E5.4).
     /// `ports.moveTarget(thread, requested)` (E5.8): the account a limit move goes to.
     fn move_target(&self, _thread: &str, _requested: Option<&str>) -> Result<String, PortError> {
         Err(PortError::Unbound("moveTarget"))
+    }
+
+    /// Whether `ports.moveTarget` was given at all (`queue-commands.ts:188`).
+    fn has_move_target(&self) -> bool {
+        false
+    }
+
+    /// Whether `ports.resetAt` was given.
+    fn has_reset_at(&self) -> bool {
+        false
+    }
+
+    /// `ports.admits()`: whether new work may start (the maintenance gate).
+    fn admits(&self) -> bool {
+        true
+    }
+
+    /// `ports.resetAt(thread)`: `None` when the port gave no reading, `Some(None)` for null.
+    fn reset_at(&self, _thread: &str) -> Option<Option<i64>> {
+        None
     }
 
     fn machine(&self) -> Result<String, PortError> {

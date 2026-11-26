@@ -181,7 +181,10 @@ fn spawn_owned<E: EventSink + Clone>(
     let mut command = spec.command(stdin_stdio, stdout_stdio, stderr_stdio);
     let spawned = command
         .spawn()
-        .map_err(|error| SupervisorError::Operation(format!("spawn {}: {error}", spec.command)));
+        .map_err(|error| SupervisorError::SpawnFailed {
+            code: Some(crate::errors::NodeIoError::new("spawn", &error).code()),
+            message: format!("spawn {}: {error}", spec.command),
+        });
     // The command holds the child's ends; this process must not keep them.
     drop(command);
     let warn_sink = sink.clone();
