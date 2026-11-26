@@ -38,9 +38,24 @@
       "expected": "{\"type\":\"thread.updated\",\"title\":\"renamed\",\"switch\":{\"selection\":{\"provider\":\"codex\",\"options\":{}},\"state\":\"applied\",\"lossy\":false,\"recommendation\":\"delegate\",\"at\":5}}"
     },
     {
+      "name": "a switch keeps its place before the fields that follow it",
+      "input": "{\"type\":\"thread.updated\",\"switch\":{\"selection\":{\"provider\":\"codex\"},\"state\":\"applied\",\"lossy\":false,\"recommendation\":\"delegate_task\",\"at\":5},\"execution\":{\"provider\":\"codex\"},\"status\":{\"state\":\"idle\"},\"archivedAt\":9}",
+      "expected": "{\"type\":\"thread.updated\",\"execution\":{\"provider\":\"codex\",\"options\":{}},\"switch\":{\"selection\":{\"provider\":\"codex\",\"options\":{}},\"state\":\"applied\",\"lossy\":false,\"recommendation\":\"delegate\",\"at\":5},\"status\":{\"state\":\"unknown\",\"raw\":{\"state\":\"idle\"}},\"archivedAt\":9}"
+    },
+    {
       "name": "a thread update with a title only",
       "input": "{\"type\":\"thread.updated\",\"title\":\"plain\",\"extra\":1}",
       "expected": "{\"type\":\"thread.updated\",\"title\":\"plain\"}"
+    },
+    {
+      "name": "a created thread with a state this build does not know",
+      "input": "{\"type\":\"thread.created\",\"thread\":{\"id\":\"t1\",\"workspaceId\":\"w1\",\"title\":\"Legacy\",\"provider\":\"codex\",\"status\":{\"state\":\"idle\",\"since\":3},\"createdAt\":1,\"updatedAt\":2}}",
+      "expected": "{\"type\":\"thread.created\",\"thread\":{\"id\":\"t1\",\"workspaceId\":\"w1\",\"title\":\"Legacy\",\"provider\":\"codex\",\"status\":{\"state\":\"unknown\",\"raw\":{\"state\":\"idle\",\"since\":3}},\"createdAt\":1,\"updatedAt\":2}}"
+    },
+    {
+      "name": "an agent status keeps its own states",
+      "input": "{\"type\":\"agent.status\",\"agentId\":\"a1\",\"status\":{\"state\":\"idle\"},\"completionRelevant\":true}",
+      "expected": "{\"type\":\"agent.status\",\"agentId\":\"a1\",\"status\":{\"state\":\"idle\"},\"completionRelevant\":true}"
     },
     {
       "name": "an event kind this build does not know",
@@ -98,6 +113,56 @@
       },
       "event": "{\"seq\":7,\"id\":\"e7\",\"at\":1800000000002,\"threadId\":\"t1\",\"payload\":{\"type\":\"item.created\",\"item\":{\"id\":\"m0\",\"agentId\":\"root\",\"createdAt\":1,\"complete\":true,\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"synthetic\":false,\"raw\":[]}}}",
       "bytes": 258
+    }
+  ],
+  "entities": [
+    {
+      "name": "an agent gets its defaults and keeps the schema's order",
+      "collection": "agents",
+      "input": "{\"id\":\"a1\",\"threadId\":\"t1\",\"parentId\":null,\"origin\":\"root\",\"native\":{\"provider\":\"codex\"},\"fidelity\":\"full\",\"cwd\":\"/repo\",\"status\":{\"state\":\"idle\"},\"createdAt\":1,\"future\":\"dropped\"}",
+      "expected": "{\"id\":\"a1\",\"threadId\":\"t1\",\"parentId\":null,\"origin\":\"root\",\"native\":{\"provider\":\"codex\"},\"fidelity\":\"full\",\"cwd\":\"/repo\",\"status\":{\"state\":\"idle\"},\"background\":false,\"createdAt\":1}"
+    },
+    {
+      "name": "a run drops the fields this build does not know",
+      "collection": "runs",
+      "input": "{\"id\":\"r1\",\"threadId\":\"t1\",\"agentId\":\"a1\",\"trigger\":\"user\",\"state\":\"active\",\"startedAt\":1,\"future\":\"dropped\"}",
+      "expected": "{\"id\":\"r1\",\"threadId\":\"t1\",\"agentId\":\"a1\",\"trigger\":\"user\",\"state\":\"active\",\"startedAt\":1}"
+    },
+    {
+      "name": "an interaction keeps its request as the schema parses it",
+      "collection": "interactions",
+      "input": "{\"id\":\"i1\",\"threadId\":\"t1\",\"agentId\":\"a1\",\"blocking\":true,\"request\":{\"kind\":\"plan_review\",\"markdown\":\"# plan\",\"future\":\"dropped\"},\"state\":\"pending\",\"createdAt\":1,\"future\":\"dropped\"}",
+      "expected": "{\"id\":\"i1\",\"threadId\":\"t1\",\"agentId\":\"a1\",\"blocking\":true,\"request\":{\"kind\":\"plan_review\",\"markdown\":\"# plan\"},\"state\":\"pending\",\"createdAt\":1,\"raw\":[]}"
+    },
+    {
+      "name": "a background task gets its defaults",
+      "collection": "backgroundTasks",
+      "input": "{\"id\":\"b1\",\"agentId\":\"a1\",\"kind\":\"shell\",\"title\":\"build\",\"status\":\"running\",\"stoppable\":true,\"startedAt\":1,\"future\":\"dropped\"}",
+      "expected": "{\"id\":\"b1\",\"agentId\":\"a1\",\"kind\":\"shell\",\"title\":\"build\",\"status\":\"running\",\"ambient\":false,\"stoppable\":true,\"startedAt\":1,\"raw\":[]}"
+    },
+    {
+      "name": "a usage row is its counters",
+      "collection": "usage",
+      "input": "{\"type\":\"usage.updated\",\"agentId\":\"a1\",\"inputTokens\":10,\"outputTokens\":5,\"future\":\"dropped\"}",
+      "expected": "{\"type\":\"usage.updated\",\"agentId\":\"a1\",\"inputTokens\":10,\"outputTokens\":5}"
+    },
+    {
+      "name": "a usage snapshot is the same row under its other collection",
+      "collection": "usageSnapshots",
+      "input": "{\"type\":\"usage.updated\",\"agentId\":\"a1\",\"inputTokens\":10,\"outputTokens\":5,\"future\":\"dropped\"}",
+      "expected": "{\"type\":\"usage.updated\",\"agentId\":\"a1\",\"inputTokens\":10,\"outputTokens\":5}"
+    },
+    {
+      "name": "a context meter keeps its optional fields out",
+      "collection": "contextMeters",
+      "input": "{\"agentId\":\"a1\",\"epoch\":1,\"usedTokens\":100,\"windowTokens\":200,\"source\":\"provider\"}",
+      "expected": "{\"agentId\":\"a1\",\"epoch\":1,\"usedTokens\":100,\"windowTokens\":200,\"source\":\"provider\"}"
+    },
+    {
+      "name": "a queue's nested state is parsed",
+      "collection": "queue",
+      "input": "{\"revision\":2,\"paused\":false,\"reason\":null,\"resumeAt\":null,\"lastFailure\":{\"title\":\"stopped\",\"code\":\"stopped\"},\"future\":\"dropped\"}",
+      "expected": "{\"revision\":2,\"paused\":false,\"lastFailure\":{\"title\":\"stopped\",\"code\":\"stopped\"},\"reason\":null,\"resumeAt\":null}"
     }
   ],
   "trustCases": [

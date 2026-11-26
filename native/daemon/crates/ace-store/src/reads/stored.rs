@@ -5,15 +5,17 @@
 //! Ports `decodeStoredPayload`, `decodeStoredItem`, `storedPayload`, `storedItem`,
 //! `storedEvent`, `decodeStoredEntity` and `storedEntity`. The shape table
 //! (`ace_protocol::shapes`) says what Zod's parse keeps of a value: field order, stripped
-//! unknowns and defaults. A transform's output can't be described by the table, so the legacy
-//! transforms the stored data reaches are applied here (`recommendation: "delegate_task"`).
-//! Nothing here validates types: a row that Zod would reject decodes as its shape, a recorded
+//! unknowns and defaults. A transform's output can't be described by the table, so a
+//! transform-bearing subtree is copied as stored — a recorded difference from Zod's parse
+//! inside it (`scripts/rust-protocol-shapes.ts`). The one legacy value fix whose output has the
+//! same shape, `SwitchRecommendation`'s `delegate_task`, is applied here, in place. Nothing
+//! else validates types: a row that Zod would reject decodes as its shape, a recorded
 //! difference covered by the fixtures over the trust tests' samples.
 
 use std::collections::BTreeSet;
 
 use ace_json::{JsString, Map, Number, Value};
-use ace_projection::{strip, strip_object};
+use ace_projection::strip;
 use ace_protocol::shape::Shape;
 use ace_protocol::shapes::{EVENT, STORED_ITEM};
 
@@ -234,6 +236,9 @@ pub enum EntityKind {
     Usage,
     ContextMeter,
     Queue,
+    /// The same rows as [`EntityKind::Usage`] under the collection's other name
+    /// (`storedEntitySchemas.usageSnapshots`).
+    UsageSnapshots,
 }
 
 impl EntityKind {
@@ -246,7 +251,7 @@ impl EntityKind {
             EntityKind::Run => &RUN,
             EntityKind::Interaction => &INTERACTION,
             EntityKind::BackgroundTask => &BACKGROUND_TASK,
-            EntityKind::Usage => &USAGE_UPDATED,
+            EntityKind::Usage | EntityKind::UsageSnapshots => &USAGE_UPDATED,
             EntityKind::ContextMeter => &CONTEXT_METER,
             EntityKind::Queue => &QUEUE_STATE,
         }
@@ -255,15 +260,7 @@ impl EntityKind {
 
 /// `decodeStoredEntity(collection, value)`: the collection's schema parse, defaults included.
 pub fn decode_entity(kind: EntityKind, value: &Value) -> Value {
-    let shape = kind.shape();
-    match shape {
-        // The generated roots are objects, so a stored entity is one too.
-        Shape::Object(fields) | Shape::Open(fields) => match value {
-            Value::Object(map) => Value::Object(strip_object(fields, map)),
-            _ => value.clone(),
-        },
-        shape => strip(shape, value),
-    }
+    strip(kind.shape(), value)
 }
 
 /// `storedEntity(collection, json, trust)`: trusted rows are JSON-parse only.
@@ -275,28 +272,80 @@ pub fn stored_entity(kind: EntityKind, json: &str, trusted: bool) -> Result<Valu
     Ok(decode_entity(kind, &value))
 }
 
-/// The legacy transforms a stored payload still needs: the TypeScript schema's own, whose
-/// output the shape table can't describe. `SwitchRecommendation` reads the pre-rename
-/// `delegate_task` as `delegate`.
+/// The legacy value fixes a stored payload still needs: the TypeScript schema's own, whose
+/// output has the same shape. `SwitchRecommendation` reads the pre-rename `delegate_task` as
+/// `delegate`. Applied in place, so the field keeps the position the schema's order gave it
+/// (Zod's parse never moves it), and a field holding something other than an object is left as
+/// stored rather than dropped: the table does not validate.
 fn apply_legacy_transforms(payload: Value) -> Value {
     let Value::Object(mut map) = payload else {
         return payload;
     };
-    if let Some(Value::Object(switch)) = map.remove("switch") {
-        let mut switch = switch;
-        fix_recommendation(&mut switch);
-        map.insert("switch", Value::Object(switch));
+    // Only a thread update's own `status` is a `ThreadStatus`; an agent's is an `AgentStatus`,
+    // whose states this build does not remap.
+    let thread_update =
+        matches!(map.get("type"), Some(Value::String(kind)) if kind == "thread.updated");
+    if let Some(Value::Object(switch)) = map.get_mut("switch") {
+        fix_recommendation(switch);
     }
-    if let Some(Value::Object(thread)) = map.remove("thread") {
-        let mut thread = thread;
-        if let Some(Value::Object(switch)) = thread.remove("switch") {
-            let mut switch = switch;
-            fix_recommendation(&mut switch);
-            thread.insert("switch", Value::Object(switch));
+    if let Some(Value::Object(thread)) = map.get_mut("thread") {
+        if let Some(Value::Object(switch)) = thread.get_mut("switch") {
+            fix_recommendation(switch);
         }
-        map.insert("thread", Value::Object(thread));
+        if let Some(status) = thread.get_mut("status") {
+            fix_thread_status(status);
+        }
+    }
+    if thread_update && let Some(status) = map.get_mut("status") {
+        fix_thread_status(status);
     }
     Value::Object(map)
+}
+
+/// The thread states this build knows, from `KnownThreadStatus`.
+const KNOWN_THREAD_STATES: [&str; 9] = [
+    "needs_you",
+    "working",
+    "waiting",
+    "limited",
+    "failed",
+    "unresponsive",
+    "moved",
+    "done",
+    "new",
+];
+
+/// `ThreadStatus`'s fallback: a state this build does not know reads as `{state: "unknown",
+/// raw: <the loose object>}`, so a newer daemon's state never fails the row around it. The
+/// object is the loose parse: `state` first, then its other keys in stored order. A value that
+/// would not parse (no `state` string of 1 to 64 characters) is left as stored, since the table
+/// does not validate.
+fn fix_thread_status(status: &mut Value) {
+    let Value::Object(map) = status else {
+        return;
+    };
+    let Some(Value::String(state)) = map.get("state") else {
+        return;
+    };
+    let state = state.as_str().to_owned();
+    if KNOWN_THREAD_STATES.contains(&state.as_str()) {
+        return;
+    }
+    if !(1..=64).contains(&state.chars().count()) {
+        return;
+    }
+    let mut raw = Map::with_capacity(map.len());
+    raw.insert("state", Value::String(JsString::from(state)));
+    for (key, value) in map.iter() {
+        if key.as_str() == "state" {
+            continue;
+        }
+        raw.insert(key.clone(), value.clone());
+    }
+    let mut out = Map::with_capacity(2);
+    out.insert("state", Value::String(JsString::from("unknown")));
+    out.insert("raw", Value::Object(raw));
+    *status = Value::Object(out);
 }
 
 fn fix_recommendation(switch: &mut Map) {

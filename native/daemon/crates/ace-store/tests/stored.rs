@@ -16,8 +16,8 @@ use std::collections::BTreeSet;
 
 use ace_json::Value;
 use ace_store::reads::stored::{
-    DecodeError, EventRow, Trust, decode_item, decode_payload, stored_event, stored_item,
-    stored_payload, trusted_from, untrusted,
+    DecodeError, EntityKind, EventRow, Trust, decode_entity, decode_item, decode_payload,
+    stored_entity, stored_event, stored_item, stored_payload, trusted_from, untrusted,
 };
 
 fn vectors() -> Value {
@@ -127,6 +127,44 @@ fn stored_events_are_the_typescripts_event_and_size() {
             "{}",
             text(case, "name")
         );
+    }
+}
+
+/// Every stored entity decodes to the TypeScript's bytes, for every `view_entities`
+/// collection: the schema's defaults fill, unknown keys strip, and a trusted row is stored JSON.
+#[test]
+fn stored_entities_decode_to_the_typescripts_bytes() {
+    let vectors = vectors();
+    for case in array(&vectors, "entities") {
+        let name = text(case, "name");
+        let kind = entity_kind(&text(case, "collection"));
+        let input = text(case, "input");
+        let decoded = decode_entity(kind, &parse(&input));
+        assert_eq!(
+            ace_json::to_string(&decoded),
+            text(case, "expected"),
+            "{name}"
+        );
+        assert_eq!(
+            ace_json::to_string(&stored_entity(kind, &input, true).expect("stored entity")),
+            input,
+            "{name} / trusted"
+        );
+    }
+}
+
+/// The collection a fixture names, as `storedEntitySchemas` spells it.
+fn entity_kind(collection: &str) -> EntityKind {
+    match collection {
+        "agents" => EntityKind::Agent,
+        "runs" => EntityKind::Run,
+        "interactions" => EntityKind::Interaction,
+        "backgroundTasks" => EntityKind::BackgroundTask,
+        "usage" => EntityKind::Usage,
+        "usageSnapshots" => EntityKind::UsageSnapshots,
+        "contextMeters" => EntityKind::ContextMeter,
+        "queue" => EntityKind::Queue,
+        other => panic!("unknown entity collection {other}"),
     }
 }
 
