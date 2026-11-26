@@ -3,7 +3,8 @@ import { AppDevice, type AppDevice as Device, type DeviceInput } from "@ace/prot
 import { ScreenUIActOptions, ScreenUIFindOptions } from "@ace/protocol";
 import { androidTree, androidFind, androidTarget } from "./android-ui.ts";
 import type { AndroidPlatform } from "./android-platform.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
+import { nativeAndroidAct, nativeInput } from "./native-input.ts";
 
 /** Bounded per-device ownership of the guest dump/read/remove transaction. */
 export class AndroidOperations {
@@ -24,18 +25,8 @@ export class AndroidOperations {
   }
   async tree(device: Device, options: unknown) {
     AppDevice.parse(device);
-    if (device.platform !== "android")
-      throw new DeviceError(
-        "not_supported",
-        "Simulator tree uses the screen session",
-        "Use the device service's Simulator tree operation.",
-      );
-    if (this.queuedUIReads >= 32)
-      throw new DeviceError(
-        "busy",
-        "Device UI read queue is full",
-        "Wait for another UI read to complete.",
-      );
+    if (device.platform !== "android") throw catalogRefusal("simulatorTreeOnAndroid");
+    if (this.queuedUIReads >= 32) throw catalogRefusal("androidUiQueueFull");
     this.queuedUIReads++;
     const previous = this.uiReads.get(device.id) ?? Promise.resolve();
     const done = Promise.withResolvers<void>();
@@ -66,11 +57,31 @@ export class AndroidOperations {
       !node.bounds.w ||
       !node.bounds.h
     )
-      throw new DeviceError(
-        "not_supported",
-        "Android UI target does not support this action",
-        "Read supported actions from the current tree.",
-      );
+      throw catalogRefusal("androidActionUnsupported");
+    if (nativeInput) {
+      // The whole decision is ace-devices': tap, a bounded swipe, or nothing to do.
+      const input = nativeAndroidAct(node, action);
+      if (input.kind === "none") return { fallback: false, method: input.method };
+      if (input.kind === "swipe")
+        await this.input(
+          device,
+          {
+            kind: "swipe",
+            x: input.x,
+            y: input.y,
+            toX: input.toX,
+            toY: input.toY,
+            durationMs: input.durationMs,
+          },
+          authorize,
+        );
+      else await this.input(device, { kind: "tap", x: input.x, y: input.y }, authorize);
+      return {
+        fallback: true,
+        method: "adb.shell.input",
+        boundsCentre: { x: input.x, y: input.y },
+      };
+    }
     if (
       action.action === "select" &&
       typeof action.value === "boolean" &&

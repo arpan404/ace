@@ -58,6 +58,11 @@ impl<V> RecentMap<V> {
         self.map.get(key)
     }
 
+    /// `Map.delete`: drops the entry, keeping the others' order.
+    pub fn delete(&mut self, key: &str) {
+        self.map.shift_remove(key);
+    }
+
     pub fn set(&mut self, key: String, value: V) {
         self.map.shift_remove(&key);
         self.map.insert(key, value);

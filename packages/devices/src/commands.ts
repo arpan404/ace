@@ -7,6 +7,7 @@ import {
 import type { ScreenInput } from "@ace/protocol";
 import type { Simulator } from "@ace/screen";
 import { refuseAndroidKey } from "./key-support.ts";
+import { catalogHint } from "./catalog.ts";
 import { catalogRefusal, DeviceError } from "./sdk.ts";
 
 const AVD = z
@@ -180,7 +181,7 @@ export function simulatorInput(input: DeviceInput): ScreenInput {
     throw new DeviceError(
       "not_supported",
       "This hardware key is not supported by iOS Simulator",
-      "Use the Simulator Device menu or the app's navigation.",
+      catalogHint("iosNoKeyHint"),
     );
   return mapped;
 }

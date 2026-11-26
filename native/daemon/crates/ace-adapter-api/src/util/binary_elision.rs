@@ -181,6 +181,64 @@ pub fn elided_json(value: &Value) -> String {
     ace_json::to_string(&owned)
 }
 
+/// `JSON.stringify(value)` with attachment strings replaced by their digest markers, in one
+/// pass over the tree and one write: nothing is cloned, so a 16 KiB line costs its own bytes
+/// and no more. This is the session capture's serializer (E3-claude.2).
+pub fn elided_text(value: &Value) -> String {
+    let mut out = String::with_capacity(64);
+    let mut stack = vec![Job::Value(value)];
+    while let Some(job) = stack.pop() {
+        match job {
+            Job::Raw(text) => out.push_str(text),
+            Job::Key(key) => {
+                ace_json::write_js_string(&mut out, key);
+                out.push(':');
+            }
+            Job::Value(value) => match value {
+                Value::Null => out.push_str("null"),
+                Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+                Value::Number(number) => ace_json::write_number(&mut out, number.value()),
+                Value::String(text) => match text.as_well_formed() {
+                    Some(plain) => match elide(plain) {
+                        Cow::Owned(marker) => ace_json::write_str(&mut out, &marker),
+                        Cow::Borrowed(_) => ace_json::write_js_string(&mut out, text),
+                    },
+                    None => ace_json::write_js_string(&mut out, text),
+                },
+                Value::Array(items) => {
+                    out.push('[');
+                    stack.push(Job::Raw("]"));
+                    for (index, item) in items.iter().enumerate().rev() {
+                        stack.push(Job::Value(item));
+                        if index > 0 {
+                            stack.push(Job::Raw(","));
+                        }
+                    }
+                }
+                Value::Object(map) => {
+                    out.push('{');
+                    stack.push(Job::Raw("}"));
+                    for (index, (key, item)) in map.iter().enumerate().rev() {
+                        stack.push(Job::Value(item));
+                        stack.push(Job::Key(key));
+                        if index > 0 {
+                            stack.push(Job::Raw(","));
+                        }
+                    }
+                }
+            },
+        }
+    }
+    out
+}
+
+/// One piece of the iterative write above.
+enum Job<'a> {
+    Value(&'a Value),
+    Key(&'a JsString),
+    Raw(&'static str),
+}
+
 /// The SHA-256 of the bytes an elision marker stands for, or None for any
 /// other string.
 pub fn elided_digest(value: &str) -> Option<&str> {
@@ -214,7 +272,7 @@ pub fn elided_digest(value: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BINARY_ELISION_CHARS, elided_digest, elided_json};
+    use super::{BINARY_ELISION_CHARS, elided_digest, elided_json, elided_text};
     use ace_json::{Value, json};
     use base64::Engine as _;
     use sha2::Digest as _;
@@ -300,6 +358,18 @@ mod tests {
         });
         let parsed: Value = ace_json::parse(&elided_json(&message)).expect("stays JSON");
         assert_eq!(parsed, message);
+    }
+
+    #[test]
+    fn elided_text_serializes_like_elided_json_without_a_tree_copy() {
+        let attachment = "A".repeat(20_000);
+        let value = json!({
+            "a": [1, 2.5, null, true, -0.0],
+            "b": "plain \u{2028} text",
+            "c": attachment,
+            "d": { "nested": "A".repeat(30_000) },
+        });
+        assert_eq!(elided_text(&value), elided_json(&value));
     }
 
     #[test]

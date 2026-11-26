@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "agent-stream-json"
+description = "Drives an agent CLI that speaks the stream-json control protocol, run as a subprocess the way the provider's documentation describes. It never handles credentials: the CLI signs itself in. A product built on this crate for other people should have those people authenticate the CLI with their own API key, as the provider's terms ask."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: the one parse of a received line, JavaScript-exact (JSON.parse and JSON.stringify
+# semantics), and the key order every built message keeps.
+ace-json = { path = "../ace-json" }
+# thiserror: the one typed refusal (writing a control after the controls closed).
+thiserror = "2"

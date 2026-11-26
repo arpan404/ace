@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import type { DeviceRuntime } from "./runtime.ts";
 import type { FingerMessage } from "./simulator-fingers.ts";
+import { nativeDigitizerStep, nativeInput } from "./native-input.ts";
 
 /** One touch step for the screen helper's `--sim-touch` mode. */
 export interface DigitizerStep {
@@ -18,6 +19,8 @@ const phases = { begin: "down", move: "move", end: "up" } as const;
 
 /** A finger message (one finger, or two together) as the step the digitizer takes. */
 export function digitizerStep(message: FingerMessage, target: number): DigitizerStep {
+  // The helper takes one line per touch: the step's own JSON, decided in ace-devices.
+  if (nativeInput) return nativeDigitizerStep(message, target) as DigitizerStep;
   const phase = phases[message.payload.type];
   if (message.tag === 3) {
     const { x, y, edge } = message.payload;
