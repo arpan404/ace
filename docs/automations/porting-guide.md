@@ -13,13 +13,12 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 
 ## Rules particular to automations
 
-1. **Recurrence and the calendar stay TypeScript** (ADR 0225 §4.1): `compileSchedule`,
-   `nextOccurrence`, `zonedCalendar`, `grammar` keep their one implementation, which `ui-core`
-   and `fake-daemon` share and whose zone rules come from ICU through `Intl`
-   (`calendar.ts:34`). The Rust scheduler calls them through a synchronous port on the JS thread:
-   `seek(schedule, after, previous?) → {at, ordinal} | undefined` and the validation that `put`
-   runs (`runtime.ts:41`), with their error text passed back untouched. Don't port them, and don't
-   add `jiff`, `chrono-tz`, a cron crate or `tokio-cron-scheduler`.
+1. **Recurrence and the calendar are Rust** (ADR 0226's amendment of ADR 0225 §4.1): the
+   owner's 2026-11-26 decision ports `compileSchedule`, `nextOccurrence`, `zonedCalendar` and
+   `grammar` to `ace-automations` too, so the daemon has no JavaScript child for them. The zone
+   rules come from `jiff`'s bundled tzdb, with `calendar.rs`'s own probe keeping the
+   TypeScript's fold and gap behaviour; `packages/ui-core` and `packages/fake-daemon` keep their
+   JavaScript copy for the apps. Do not add a cron crate or `tokio-cron-scheduler`.
 2. **One timer, one query.** The service arms one timer on the core's clock for the earliest
    deadline `nextScheduled` returns (`store.ts:314`); arming replaces the previous one. Jitter
    comes from the injected random port (the agent store's is zero), clock and ids from the
@@ -80,7 +79,7 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 
 | Item | Rust (yours)                                                                          | Binding (yours)                                 | TypeScript shell (yours)                                        | Switch                            |
 | ---- | ------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------- | --------------------------------- |
-| A1   | `ace-automations/src/{store,service,admission,queue,decisions,github,gh,webhooks}.rs` | `ace-daemon-node/src/automations/mod.rs`        | `packages/automations/src/native-service.ts`, `native-store.ts` | `ACE_AUTOMATIONS=native`          |
+| A1   | `ace-automations/src/{store,store_schema,definition,service,scheduler,decisions,github,webhooks,webhook_body,webhook_signature,webhook_secret_box,webhook_key,calendar,grammar,recurrence}.rs` | `ace-daemon-node/src/automations/mod.rs`        | `packages/automations/src/native-service.ts`, `native-store.ts` | `ACE_AUTOMATIONS=native`          |
 | A2   | `ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs`                 | `ace-daemon-node/src/engine/automation_runs.rs` | `apps/daemon/src/native-engine/automation-runs.ts`              | `ACE_AUTOMATION_EXECUTOR=native`  |
 | A3   | `ace-automations/src/workspace.rs`                                                    | `ace-daemon-node/src/automations/workspace.rs`  | the switch line in `apps/daemon/src/automation-workspace.ts:55` | `ACE_AUTOMATION_WORKSPACE=native` |
 | A4   | `ace-automations/src/tools.rs`                                                        | `ace-daemon-node/src/tools/automations.rs`      | the family line in agent-control's automation tools             | `ACE_NATIVE_TOOLS=automations`    |

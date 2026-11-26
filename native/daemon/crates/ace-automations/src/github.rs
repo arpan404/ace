@@ -31,6 +31,27 @@ struct PrNumber {
     number: i64,
 }
 
+/// Presence of a field, whatever its value (`pull_request: null` still means a PR,
+/// `github.ts:60`).
+#[derive(Debug, Clone, Copy)]
+struct Present;
+
+impl<'de> Deserialize<'de> for Present {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Present, D::Error> {
+        let _ = serde::de::IgnoredAny::deserialize(deserializer)?;
+        Ok(Present)
+    }
+}
+
+/// `Option<Present>` would treat `null` as absent; this keeps presence (`github.ts:60`).
+fn present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Present>, D::Error> {
+    Present::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct Resource {
     id: i64,
@@ -46,8 +67,8 @@ struct Resource {
     labels: Option<Vec<Label>>,
     #[serde(default)]
     conclusion: Option<String>,
-    #[serde(default)]
-    pull_request: Option<Value>,
+    #[serde(default, deserialize_with = "present")]
+    pull_request: Option<Present>,
     #[serde(default)]
     pull_requests: Option<Vec<PrNumber>>,
     #[serde(default)]
@@ -152,14 +173,38 @@ fn entries(data: &Value, trigger: &GithubTrigger) -> Result<Vec<GithubEntry>> {
     } else {
         ace_json::from_value(data).map_err(|error| AutomationsError::message(error.to_string()))?
     };
+    if resources.len() > 100 {
+        return Err(AutomationsError::message("Invalid GitHub resource"));
+    }
     let mut entries = Vec::new();
     for resource in resources {
-        if resource.id <= 0
-            || resource
-                .labels
+        let bounded = resource.updated_at.chars().count() <= 128
+            && resource.html_url.chars().count() <= 2048
+            && resource
+                .title
                 .as_ref()
-                .is_some_and(|labels| labels.len() > 100)
-        {
+                .is_none_or(|title| title.chars().count() <= 8192)
+            && resource
+                .body
+                .as_ref()
+                .is_none_or(|body| body.chars().count() <= 8192)
+            && resource.number.is_none_or(|number| number > 0)
+            && resource.labels.as_ref().is_none_or(|labels| {
+                labels.len() <= 100 && labels.iter().all(|label| label.name.chars().count() <= 256)
+            })
+            && resource
+                .pull_requests
+                .as_ref()
+                .is_none_or(|pulls| pulls.len() <= 100 && pulls.iter().all(|pull| pull.number > 0))
+            && resource
+                .pull_request_url
+                .as_ref()
+                .is_none_or(|url| url.chars().count() <= 2048)
+            && resource
+                .conclusion
+                .as_ref()
+                .is_none_or(|value| value.chars().count() <= 128);
+        if resource.id <= 0 || !bounded {
             return Err(AutomationsError::message("Invalid GitHub resource"));
         }
         if trigger.event == "issue_labelled" && resource.pull_request.is_some() {
@@ -309,17 +354,14 @@ pub fn poll_github(
     trigger: &GithubTrigger,
     state: &Value,
 ) -> Result<GithubPoll> {
-    let previous: Option<GithubState> = if state
+    // `GithubState.safeParse`: a cursor this build cannot read is a fresh baseline
+    // (`github.ts:133`), and more than 20 pages is not a state this build wrote.
+    let previous: Option<GithubState> = state
         .as_object()
         .is_some_and(|object| object.contains_key("pages"))
-    {
-        Some(
-            ace_json::from_value(state)
-                .map_err(|error| AutomationsError::message(error.to_string()))?,
-        )
-    } else {
-        None
-    };
+        .then(|| ace_json::from_value::<GithubState>(state).ok())
+        .flatten()
+        .filter(|state| state.pages.len() <= 20);
     let old = previous.as_ref();
     let mut pages = Vec::new();
     let mut changed = false;
@@ -395,14 +437,15 @@ pub fn parse_gh_response(output: &[u8], code: Option<i32>) -> Result<GhResponse>
         .or_else(|| text.find("\n\n").map(|index| (index, 2)))
         .ok_or_else(|| AutomationsError::message("Missing gh response headers"))?;
     let (header, body) = (&text[..boundary.0], &text[boundary.0 + boundary.1..]);
-    let status: u16 = header
-        .lines()
-        .find_map(|line| {
-            line.strip_prefix("HTTP/")
-                .and_then(|rest| rest.split_whitespace().nth(1))
-                .and_then(|value| value.parse().ok())
-        })
-        .ok_or_else(|| AutomationsError::message("Missing gh response headers"))?;
+    let status: Option<u16> = header.lines().find_map(|line| {
+        let rest = line.strip_prefix("HTTP/")?;
+        let value = rest.split_whitespace().nth(1)?;
+        (value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| value.parse().ok())
+            .flatten()
+    });
+    let status =
+        status.ok_or_else(|| AutomationsError::message("gh GET failed with status NaN"))?;
     if status != 304 && (code != Some(0) || status != 200) {
         return Err(AutomationsError::message(format!(
             "gh GET failed with status {status}"
@@ -417,7 +460,9 @@ pub fn parse_gh_response(output: &[u8], code: Option<i32>) -> Result<GhResponse>
         let name = name.trim().to_ascii_lowercase();
         let value = value.trim();
         if name == "etag" {
-            etag = Some(value.to_owned());
+            if etag.is_none() {
+                etag = Some(value.to_owned());
+            }
         } else if name == "link" {
             let url = value
                 .split(',')

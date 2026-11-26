@@ -30,7 +30,7 @@ const RUN_INDEXES: &str = "CREATE INDEX IF NOT EXISTS automation_history ON auto
       CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
       CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);
       CREATE INDEX IF NOT EXISTS automation_unfinished ON automation_runs(seq) WHERE finished_at IS NULL;
-      CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, 9223372036854775807));";
+      CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, 9007199254740991));";
 
 const WEBHOOK_INDEXES: &str = "CREATE INDEX IF NOT EXISTS automation_webhook_expiry ON automation_webhook_deliveries(expires);";
 
@@ -107,6 +107,13 @@ pub(crate) fn ensure_schema(store: &AutomationStore) -> Result<()> {
         )?;
         Ok(())
     })
+}
+
+/// Create the run indexes an older home may lack. Called from idle, never from open, because
+/// indexing an existing history is work proportional to it (ADR 0170).
+pub(crate) fn ensure_run_indexes(store: &AutomationStore) -> Result<()> {
+    store.conn.exec(RUN_INDEXES)?;
+    Ok(())
 }
 
 fn table_exists(store: &AutomationStore, name: &str) -> Result<bool> {

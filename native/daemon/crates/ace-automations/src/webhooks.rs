@@ -78,6 +78,7 @@ impl WebhookAnswer {
     }
 }
 
+#[derive(Debug)]
 pub struct RotatedSecret {
     pub hook_id: String,
     pub secret: String,
@@ -112,9 +113,16 @@ impl<'a> Webhooks<'a> {
             ));
         };
         let random = self.deps.random;
-        let secret = new_webhook_secret(fixed::<32>(&random(32)));
-        let hook_id = encode_random_hex(&fixed::<16>(&random(16)));
-        let iv = fixed::<12>(&random(12));
+        let secret =
+            new_webhook_secret(exact::<32>(&random(32)).ok_or_else(|| {
+                AutomationsError::message("Webhook randomness must return 32 bytes")
+            })?);
+        let hook_id =
+            encode_random_hex(&exact::<16>(&random(16)).ok_or_else(|| {
+                AutomationsError::message("Webhook randomness must return 16 bytes")
+            })?);
+        let iv = exact::<12>(&random(12))
+            .ok_or_else(|| AutomationsError::message("Webhook randomness must return 12 bytes"))?;
         let sealed = key
             .seal(&secret, automation_id, iv)
             .ok_or_else(|| AutomationsError::message("Could not seal the webhook secret"))?;
@@ -238,9 +246,6 @@ pub fn encode_random_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn fixed<const N: usize>(bytes: &[u8]) -> [u8; N] {
-    let mut out = [0u8; N];
-    let take = bytes.len().min(N);
-    out[..take].copy_from_slice(&bytes[..take]);
-    out
+fn exact<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
+    bytes.try_into().ok()
 }

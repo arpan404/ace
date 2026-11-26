@@ -74,3 +74,77 @@ fn a_github_definitions_body_is_byte_identical_to_the_typescripts_json() {
     assert_eq!(body_of(&path, "prs"), fixture);
     store.close().expect("close");
 }
+
+#[test]
+fn the_finished_index_and_inbox_query_use_the_typescripts_max_safe_integer() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let plan = store.inbox_query_plan(0).expect("plan");
+    assert!(
+        plan.iter()
+            .any(|step| step.contains("SEARCH") && step.contains("automation_finished")),
+        "plan: {plan:?}"
+    );
+    assert!(
+        !plan
+            .iter()
+            .any(|step| step.starts_with("SCAN automation_runs")),
+        "plan: {plan:?}"
+    );
+    let conn = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: true,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    let statement = conn
+        .prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='automation_finished'")
+        .expect("prepare");
+    statement.bind(&[]).expect("bind");
+    let row = statement.step().expect("step").expect("row");
+    assert!(
+        matches!(row.first(), Some(Value::Text(sql)) if sql.contains("9007199254740991")),
+        "{row:?}"
+    );
+    conn.close().expect("close");
+    store.close().expect("close");
+}
+
+#[test]
+fn an_older_home_without_the_finished_index_still_reads_and_idle_creates_it() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let conn = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    conn.exec("DROP INDEX IF EXISTS automation_finished")
+        .expect("drop");
+    conn.close().expect("close");
+    assert!(!store.has_index("automation_finished").expect("index"));
+    assert!(
+        store
+            .inbox(50, None, None, Some(0))
+            .expect("unindexed read")
+            .0
+            .is_empty()
+    );
+    store.backfill_finished_at(1).expect("idle");
+    assert!(store.has_index("automation_finished").expect("index"));
+    assert!(
+        store
+            .inbox(50, None, None, Some(0))
+            .expect("indexed read")
+            .0
+            .is_empty()
+    );
+    store.close().expect("close");
+}

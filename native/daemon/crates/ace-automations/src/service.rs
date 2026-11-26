@@ -28,6 +28,8 @@ pub enum Action {
     Recover { run_id: String, input: Value },
     /// Stop the run's thread; the run settles through its monitor.
     Interrupt { run_id: String, input: Value },
+    /// Poll this GitHub automation; the host answers through [`Service::poll_github_now`].
+    PollGithub { automation_id: String },
 }
 
 /// File watching, owned by the host (`WorkspaceChanges`, `contracts.ts:53`). Subscribe may fail
@@ -622,9 +624,28 @@ impl<'a> Service<'a> {
         Ok((claimed, input))
     }
 
-    /// One due schedule's turn (`service.ts:661`), then the waiting queue.
+    /// One due job's turn (`service.ts:661`): a GitHub poll is handed to the host, which owns
+    /// `gh`; a schedule is admitted here.
     pub fn tick(&mut self) -> Result<Option<Value>> {
         if !self.lives.live() {
+            return Ok(None);
+        }
+        if let Some(job) = self.store.next(&[])?
+            && job.automation.trigger.kind() == "github"
+            && job.due.is_some_and(|due| due <= self.now())
+        {
+            let interval = match &job.automation.trigger {
+                Trigger::Github {
+                    poll_interval_ms, ..
+                } => *poll_interval_ms,
+                _ => 0,
+            };
+            self.store
+                .advance(&job.automation.id, job.nominal, Some(self.now() + interval))?;
+            self.actions.push(Action::PollGithub {
+                automation_id: job.automation.id,
+            });
+            self.arm();
             return Ok(None);
         }
         let generation = self.generation;
@@ -655,7 +676,7 @@ impl<'a> Service<'a> {
         if !self.lives.live() {
             return Ok(None);
         }
-        let Some(job) = self.store.next_scheduled()? else {
+        let Some(job) = self.store.next(&[])? else {
             return Ok(None);
         };
         let Some(due) = job.due else {
@@ -664,6 +685,13 @@ impl<'a> Service<'a> {
         Ok(Some(
             (due - self.now()).clamp(0, crate::scheduler::MAX_TIMER_DELAY_MS),
         ))
+    }
+
+    /// One bounded idle step for the store's migration: fill up to `limit` runs' finish times
+    /// from their bodies and return how many changed, so the host loops until it returns less
+    /// than `limit`. Never history-sized work at open (ADR 0170).
+    pub fn idle_step(&mut self, limit: usize) -> Result<usize> {
+        self.store.backfill_finished_at(limit)
     }
 
     /// The host arms its one timer from [`Service::arm_delay`]; this is its re-arm point.
@@ -702,28 +730,38 @@ impl<'a> Service<'a> {
             poll_interval_ms,
         };
         let state = self.store.read_state(id)?;
+        // Advance before I/O (`service.ts:710`): a failing poll can never hot-loop.
+        self.store.advance(
+            id,
+            self.store.metadata(id)?.and_then(|job| job.nominal),
+            Some(self.now() + poll_interval_ms),
+        )?;
         match crate::github::poll_github(client, &trigger, &state) {
             Ok(poll) => {
                 if self.store.revision(id)? != revision {
                     return Ok(Vec::new());
                 }
-                self.store.transaction(|| {
-                    if poll.changed {
-                        let text = ace_json::ser::to_string(&poll.state)
-                            .map_err(|error| AutomationsError::message(error.to_string()))?;
-                        let value = ace_json::parse(&text)
-                            .map_err(|error| AutomationsError::message(error.to_string()))?;
-                        self.store.save_poll(id, &value)?;
-                    }
-                    self.store.clear_poll_error(id)?;
-                    self.store.clear_trigger_error(id)
-                })?;
+                // Admit first and commit the new pages after (`service.ts:725`): a crash between
+                // the two re-delivers these events, and their keys deduplicate them.
                 let mut runs = Vec::new();
                 for event in poll.events {
                     if self.store.revision(id)? != revision {
                         break;
                     }
                     runs.push(self.trigger(id, &event.key, event.variables, "github", None)?);
+                }
+                if self.store.revision(id)? == revision {
+                    self.store.transaction(|| {
+                        if poll.changed {
+                            let text = ace_json::ser::to_string(&poll.state)
+                                .map_err(|error| AutomationsError::message(error.to_string()))?;
+                            let value = ace_json::parse(&text)
+                                .map_err(|error| AutomationsError::message(error.to_string()))?;
+                            self.store.save_poll(id, &value)?;
+                        }
+                        self.store.clear_poll_error(id)?;
+                        self.store.clear_trigger_error(id)
+                    })?;
                 }
                 self.arm();
                 Ok(runs)
@@ -866,9 +904,9 @@ impl<'a> Service<'a> {
         }
         match &definition.trigger {
             Trigger::File { .. } => {
-                self.prepare_watch(&definition)?;
-                if let Some(revision) = self.watch_current(id) {
-                    let _ = revision;
+                if let Err(error) = self.prepare_watch(&definition) {
+                    let _ = self.save_watch_error(id, &error);
+                    return Err(error);
                 }
                 self.store.clear_trigger_error(id)?;
             }
@@ -925,7 +963,7 @@ impl<'a> Service<'a> {
                         let automation = object.get("automation").ok_or_else(|| {
                             AutomationsError::message("Invalid automation request")
                         })?;
-                        let definition: Definition = ace_json::from_value(automation)?;
+                        let definition = Definition::normalize(automation)?;
                         let expected = expected_revision(object.get("expectedRevision"))?;
                         self.put(&definition, expected)?;
                     }

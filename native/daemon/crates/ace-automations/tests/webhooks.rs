@@ -112,6 +112,7 @@ fn definition() -> Definition {
         missed_run: "skip".to_owned(),
         concurrency: 1,
         jitter_ms: 0,
+        extra: Default::default(),
     }
 }
 
@@ -1050,5 +1051,25 @@ fn a_run_admitted_for_a_delivery_holds_its_receipt_from_the_same_commit() {
             .webhook_delivered("deploy", "webhook:evt_1")
             .expect("receipt"),
         Some(run_id)
+    );
+}
+
+#[test]
+fn rotate_refuses_randomness_outside_the_contract_instead_of_zero_padding() {
+    let h = Harness::new();
+    let short = |size: usize| vec![1u8; size.saturating_sub(1)];
+    let deps = WebhookDeps {
+        clock: &h.clock,
+        random: &short,
+        allow: None,
+    };
+    let box_ = key();
+    let webhooks = Webhooks::new(&h.store, deps, Some(&box_));
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let error = webhooks.rotate("deploy").expect_err("short random");
+    assert!(
+        error.to_string().contains("must return 32 bytes"),
+        "{error}"
     );
 }

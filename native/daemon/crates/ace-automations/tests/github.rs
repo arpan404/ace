@@ -317,3 +317,86 @@ fn refuses_noncanonical_endpoints_and_header_injection_before_spawning() {
     assert!(args.iter().any(|arg| arg == "If-None-Match: \"v1\""));
     assert!(args.iter().any(|arg| arg == "github.com"));
 }
+
+#[test]
+fn a_corrupt_cursor_is_a_fresh_baseline_rather_than_a_permanent_error() {
+    let gh = FakeGh::default();
+    gh.push(ok(
+        Some("v1"),
+        &format!("[{}]", resource(1, "2024-01-01T00:00:00Z")),
+        None,
+    ));
+    let poll = poll_github(&gh, &trigger("pr_changed"), &json(r#"{"pages":["x"]}"#))
+        .expect("heals to a baseline");
+    assert!(poll.changed);
+    assert!(poll.events.is_empty());
+    assert_eq!(poll.state.pages.len(), 1);
+}
+
+#[test]
+fn an_explicit_null_pull_request_still_marks_an_issue_as_a_pull_request() {
+    let gh = FakeGh::default();
+    gh.push(ok(None, "[]", None));
+    let mut issue = trigger("issue_labelled");
+    issue.label = Some("fix".to_owned());
+    let before = poll_github(&gh, &issue, &json("{}")).expect("baseline");
+    gh.push(ok(
+    None,
+    r#"[{"id":2,"updated_at":"2024-01-01T00:00:00Z","html_url":"u","pull_request":null,"labels":[{"name":"fix"}]}]"#,
+    None,
+  ));
+    let current = poll_github(&gh, &issue, &serde_state(&before.state)).expect("changed");
+    assert!(current.events.is_empty());
+}
+
+#[test]
+fn refuses_resources_outside_the_protocols_bounds() {
+    let gh = FakeGh::default();
+    let title = "x".repeat(8193);
+    gh.push(ok(
+        None,
+        &format!(
+            r#"[{{"id":1,"updated_at":"2024-01-01T00:00:00Z","html_url":"u","title":"{title}"}}]"#
+        ),
+        None,
+    ));
+    assert!(poll_github(&gh, &trigger("pr_changed"), &json("{}")).is_err());
+}
+
+#[test]
+fn parses_a_missing_status_as_nan_and_prefers_the_first_etag() {
+    let error = parse_gh_response(
+        b"not a status\r\nETag: \"a\"\r\nETag: \"b\"\r\n\r\n[]",
+        Some(0),
+    )
+    .expect_err("no status");
+    assert!(error.to_string().contains("NaN"), "{error}");
+    let response = parse_gh_response(
+        b"HTTP/2.0 200 OK\r\nETag: \"first\"\r\nETag: \"second\"\r\n\r\n[]",
+        Some(0),
+    )
+    .expect("response");
+    assert_eq!(response.etag.as_deref(), Some("\"first\""));
+}
+
+#[test]
+fn a_github_body_is_sliced_to_utf16_units_at_the_boundary() {
+    // 4,096 astral characters are exactly 8,192 UTF-16 units and are kept whole.
+    let body = "\u{1F600}".repeat(4096);
+    let gh = FakeGh::default();
+    gh.push(ok(None, "[]", None));
+    let baseline = poll_github(&gh, &trigger("pr_changed"), &json("{}")).expect("baseline");
+    gh.push(ok(
+        None,
+        &format!(
+            r#"[{{"id":1,"updated_at":"2024-01-01T00:00:00Z","html_url":"u","body":"{body}"}}]"#
+        ),
+        None,
+    ));
+    let events = poll_github(&gh, &trigger("pr_changed"), &serde_state(&baseline.state))
+        .expect("changed")
+        .events;
+    let sliced = events[0].variables.get("body").expect("body");
+    assert_eq!(sliced.encode_utf16().count(), 8192);
+    assert_eq!(sliced.chars().count(), 4096);
+}

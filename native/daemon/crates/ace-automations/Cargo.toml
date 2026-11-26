@@ -33,6 +33,8 @@ jiff = { version = "1.0", default-features = false, features = [
   "std",
   "tzdb-bundle-always",
 ] }
+# rustix: the webhook key file's O_NOFOLLOW/O_NONBLOCK/O_EXCL open, fstat and fchmod.
+rustix = { version = "1", features = ["fs", "process"] }
 # sha2: Standard Webhooks signatures and a manual run's idempotency key is the SHA-256 of its automation and event key, so a
 # retried request maps to the same run even after its row was pruned.
 sha2 = "0.10"

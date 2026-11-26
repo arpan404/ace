@@ -111,6 +111,7 @@ mod tests {
             missed_run: "skip".to_owned(),
             concurrency: 1,
             jitter_ms: 0,
+            extra: Default::default(),
         }
     }
 

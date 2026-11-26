@@ -10,109 +10,16 @@ use std::sync::Arc;
 
 use ace_json::{Map, Value};
 use ace_store::{Connection, OpenOptions, Value as SqlValue};
-use serde::{Deserialize, Serialize};
 
 use crate::error::{AutomationsError, Result};
-use crate::recurrence::Schedule;
 use crate::store_schema::{
     int_of, number, parse_json, row_int, row_text, serialize, text, text_of,
 };
 
-/// Where a job sorts that has no due time yet.
-pub const NOT_FINISHED: i64 = i64::MAX;
+pub use crate::definition::{Definition, ScheduleTrigger, Trigger, TriggerError};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Definition {
-    pub id: String,
-    pub title: String,
-    pub enabled: bool,
-    pub workspace: String,
-    pub provider: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub instance: Option<String>,
-    pub prompt: String,
-    pub worktree: bool,
-    pub trigger: Trigger,
-    pub missed_run: String,
-    pub concurrency: i64,
-    pub jitter_ms: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Trigger {
-    Manual,
-    Schedule {
-        schedule: Schedule,
-    },
-    Github {
-        repository: String,
-        event: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        label: Option<String>,
-        #[serde(
-            rename = "pullRequest",
-            default,
-            skip_serializing_if = "Option::is_none"
-        )]
-        pull_request: Option<i64>,
-        #[serde(rename = "pollIntervalMs")]
-        poll_interval_ms: i64,
-    },
-    File {
-        paths: Vec<String>,
-    },
-    Webhook,
-}
-
-impl Trigger {
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Trigger::Manual => "manual",
-            Trigger::Schedule { .. } => "schedule",
-            Trigger::Github { .. } => "github",
-            Trigger::File { .. } => "file",
-            Trigger::Webhook => "webhook",
-        }
-    }
-
-    pub fn schedule(&self) -> Option<&ScheduleTrigger> {
-        match self {
-            Trigger::Schedule { schedule } => Some(schedule),
-            _ => None,
-        }
-    }
-}
-
-/// A schedule trigger, so callers need not reach into the enum.
-pub type ScheduleTrigger = Schedule;
-
-impl Definition {
-    pub fn missed_run_skips(&self) -> bool {
-        self.missed_run == "skip"
-    }
-
-    pub fn schedule(&self) -> Option<&Schedule> {
-        match &self.trigger {
-            Trigger::Schedule { schedule } => Some(schedule),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TriggerError {
-    pub message: String,
-    pub at: i64,
-}
+/// `Number.MAX_SAFE_INTEGER` (`store.ts:51`): where runs still going sort in the finished index.
+pub const NOT_FINISHED: i64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone)]
 pub struct JobMetadata {
@@ -209,11 +116,22 @@ impl AutomationStore {
         Ok(changes.max(0) as usize)
     }
 
+    /// Whether the named index exists in this file.
+    pub fn has_index(&self, name: &str) -> Result<bool> {
+        Ok(!self
+            .query(
+                "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+                &[text_of(name)],
+            )?
+            .is_empty())
+    }
+
     /// `store.ts:92`'s backfill, bounded so opening never rewrites history (ADR 0170): fill
     /// `finished_at` for at most `limit` rows whose body already has `finishedAt`, and let the
     /// host call it again from idle until it returns less than `limit`. Rows written by the
     /// TypeScript or by an older build otherwise read as unfinished forever.
     pub fn backfill_finished_at(&self, limit: usize) -> Result<usize> {
+        crate::store_schema::ensure_run_indexes(self)?;
         if limit == 0 {
             return Ok(0);
         }
@@ -263,7 +181,7 @@ impl AutomationStore {
         state: &Value,
         expected_revision: Option<Option<i64>>,
     ) -> Result<i64> {
-        let body = serialize(automation)?;
+        let body = serialize(&automation.normalized()?)?;
         let snapshot = ace_json::to_string(state);
         let revision = self.transaction(|| {
       let stored_revision = self.revision(&automation.id)?;
@@ -377,7 +295,7 @@ impl AutomationStore {
     /// every metadata query below selects.
     fn read_metadata(&self, row: &[SqlValue]) -> Result<JobMetadata> {
         let body = row_text(row, 2).ok_or_else(|| AutomationsError::message("Row has no body"))?;
-        let definition: Definition = ace_json::from_value(&parse_json(body)?)?;
+        let definition = Definition::normalize(&parse_json(body)?)?;
         let poll = row_text(row, 3).map(parse_json).transpose()?;
         let trigger = match row_text(row, 4) {
             Some(text) => Some(ace_json::from_value(&parse_json(text)?)?),
@@ -423,7 +341,7 @@ impl AutomationStore {
             Some(row) => {
                 let body =
                     row_text(row, 0).ok_or_else(|| AutomationsError::message("Row has no body"))?;
-                Ok(Some(ace_json::from_value(&parse_json(body)?)?))
+                Ok(Some(Definition::normalize(&parse_json(body)?)?))
             }
             None => Ok(None),
         }
@@ -803,6 +721,24 @@ impl AutomationStore {
             .max(0) as usize)
     }
 
+    /// The query plan for [`AutomationStore::inbox`] with a finish time, for the index test.
+    pub fn inbox_query_plan(&self, finished_after: i64) -> Result<Vec<String>> {
+        let where_clause = vec![
+            "seq < ?".to_owned(),
+            format!("coalesce(finished_at, {NOT_FINISHED}) > ?"),
+        ];
+        let values = vec![
+            Some(SqlValue::Integer(NOT_FINISHED)),
+            Some(SqlValue::Integer(finished_after)),
+        ];
+        let (sql, values) = inbox_query(50, &where_clause, values, true);
+        Ok(self
+            .query(&format!("EXPLAIN QUERY PLAN {sql}"), &values)?
+            .iter()
+            .filter_map(|row| row_text(row, 3).map(str::to_owned))
+            .collect())
+    }
+
     /// The highest run sequence, so a reopened service's generated ids never repeat one.
     pub fn max_run_seq(&self) -> Result<u64> {
         Ok(self
@@ -1047,7 +983,7 @@ impl AutomationStore {
         let limit = limit.clamp(1, 100);
         let mut where_clause = vec!["seq < ?".to_owned()];
         let mut values: Vec<Option<SqlValue>> =
-            vec![Some(SqlValue::Integer(before.unwrap_or(i64::MAX)))];
+            vec![Some(SqlValue::Integer(before.unwrap_or(NOT_FINISHED)))];
         if let Some(automation_id) = automation_id {
             where_clause.push("automation_id=?".to_owned());
             values.push(text_of(automation_id));
@@ -1056,11 +992,8 @@ impl AutomationStore {
             where_clause.push(format!("coalesce(finished_at, {NOT_FINISHED}) > ?"));
             values.push(Some(SqlValue::Integer(finished_after)));
         }
-        let sql = format!(
-            "SELECT seq,body FROM automation_runs WHERE {} ORDER BY seq DESC LIMIT ?",
-            where_clause.join(" AND ")
-        );
-        values.push(Some(SqlValue::Integer(limit as i64 + 1)));
+        let indexed = finished_after.is_some() && self.has_index("automation_finished")?;
+        let (sql, values) = inbox_query(limit, &where_clause, values, indexed);
         let rows = self.query(&sql, &values)?;
         let mut runs = Vec::new();
         for row in rows.iter().take(limit) {
@@ -1123,4 +1056,27 @@ impl AutomationStore {
       &[text_of(id), text_of(id)],
     )
     }
+}
+
+/// `store.ts:652`: with a finish time, the query names the finished index so the planner never
+/// walks every settled run backwards.
+fn inbox_query(
+    limit: usize,
+    where_clause: &[String],
+    mut values: Vec<Option<SqlValue>>,
+    finished_after: bool,
+) -> (String, Vec<Option<SqlValue>>) {
+    values.push(Some(SqlValue::Integer(limit as i64 + 1)));
+    let from = if finished_after {
+        "automation_runs INDEXED BY automation_finished"
+    } else {
+        "automation_runs"
+    };
+    (
+        format!(
+            "SELECT seq,body FROM {from} WHERE {} ORDER BY seq DESC LIMIT ?",
+            where_clause.join(" AND ")
+        ),
+        values,
+    )
 }
