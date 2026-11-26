@@ -59,6 +59,18 @@ impl SqlItemPage {
         Ok(rows)
     }
 
+    /// One statement whose first parameter is this thread's id.
+    pub(crate) fn query_thread(
+        &self,
+        sql: &str,
+        params: &[SqlValue],
+    ) -> Result<Vec<Vec<SqlValue>>, PageError> {
+        let mut all = Vec::with_capacity(params.len() + 1);
+        all.push(SqlValue::Text(self.thread_id.clone()));
+        all.extend_from_slice(params);
+        self.query(sql, &all)
+    }
+
     /// `pageItem(id, type)`: the preview for text items, the stored body otherwise.
     fn page_item(&self, id: &str, item_type: &str) -> Result<Json, PageError> {
         if matches!(item_type, "message" | "notice" | "reasoning") {

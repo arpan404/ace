@@ -3,6 +3,7 @@
 //! on and returns finished JSON; one module per phase so they are built independently.
 
 pub mod item_page_sql;
+pub mod item_window;
 pub mod items;
 pub mod long_thread;
 pub mod sidebar;
