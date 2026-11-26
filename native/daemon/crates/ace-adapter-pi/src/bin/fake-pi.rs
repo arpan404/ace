@@ -180,6 +180,12 @@ fn main() {
                 if message == "queued" {
                     queue = true;
                 }
+                if message == "fatal" && std::env::var_os("FAKE_PI_MALFORMED_ON_PROMPT").is_some() {
+                    // A stdout line the wire cannot read: the session's fatal path.
+                    let _ = writeln!(std::io::stdout(), "not a json line");
+                    let _ = std::io::stdout().flush();
+                    continue;
+                }
                 if message == "spawn-child" {
                     spawn_descendant();
                 }

@@ -56,6 +56,9 @@ pub(crate) struct Inner {
     control: AtomicBool,
     deliberate: AtomicBool,
     drained: Latch,
+    /// The close's admission: a write commits in the same synchronous turn as the close
+    /// check (`native-session.ts:259`-`:270`), so a fatal close cannot slip between them.
+    write_gate: WriteGate,
     released: std::sync::Once,
     config: Mutex<Option<super::config::PrivateMcpConfig>>,
     lease: Option<PiLease>,
@@ -91,6 +94,7 @@ impl Inner {
             control: AtomicBool::new(false),
             deliberate: AtomicBool::new(false),
             drained: Latch::new(),
+            write_gate: WriteGate::new(),
             released: std::sync::Once::new(),
             config: Mutex::new(Some(config)),
             lease,
@@ -119,20 +123,31 @@ impl Inner {
         command: &str,
         params: &Map,
     ) -> Result<String, PiSessionError> {
-        self.check_open()
-            .map_err(|_| PiSessionError::from_pi(PiError::refused(Refused::Closed)))?;
         let id = self.next_id();
         let (sender, receiver) = oneshot::channel();
-        self.pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(id, sender);
-        if let Err(error) = self.core.request(command, params, id) {
+        // The check, the pending entry and the write are one turn: a fatal close either
+        // happens before all of them (the write never reaches Pi) or after all of them.
+        let committed = self.write_gate.commit(|| {
+            if self.closed.load(Ordering::Acquire) || self.closing.load(Ordering::Acquire) {
+                return Err(PiSessionError::from_pi(PiError::refused(Refused::Closed)));
+            }
+            self.pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(id, sender);
+            self.core
+                .request(command, params, id)
+                .map_err(PiSessionError::from_pi)
+        });
+        let Some(committed) = committed else {
+            return Err(PiSessionError::from_pi(PiError::refused(Refused::Closed)));
+        };
+        if let Err(error) = committed {
             self.pending
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .shift_remove(&id);
-            return Err(PiSessionError::from_pi(error));
+            return Err(error);
         }
         match receiver.await {
             Ok(result) => result.map_err(PiSessionError::from_wire),
@@ -143,20 +158,29 @@ impl Inner {
 
     /// `rpc.write` for a dialog answer.
     pub(crate) async fn write(&self, data: &Map, resume_after: bool) -> Result<(), PiSessionError> {
-        self.check_open()
-            .map_err(|_| PiSessionError::from_pi(PiError::refused(Refused::Closed)))?;
         let id = self.next_id();
         let (sender, receiver) = oneshot::channel();
-        self.pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(id, sender);
-        if let Err(error) = self.core.write(data, id, resume_after) {
+        let committed = self.write_gate.commit(|| {
+            if self.closed.load(Ordering::Acquire) || self.closing.load(Ordering::Acquire) {
+                return Err(PiSessionError::from_pi(PiError::refused(Refused::Closed)));
+            }
+            self.pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(id, sender);
+            self.core
+                .write(data, id, resume_after)
+                .map_err(PiSessionError::from_pi)
+        });
+        let Some(committed) = committed else {
+            return Err(PiSessionError::from_pi(PiError::refused(Refused::Closed)));
+        };
+        if let Err(error) = committed {
             self.pending
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .shift_remove(&id);
-            return Err(PiSessionError::from_pi(error));
+            return Err(error);
         }
         match receiver.await {
             Ok(result) => result.map(|_| ()).map_err(PiSessionError::from_wire),
@@ -298,6 +322,9 @@ impl Inner {
             return Ok(());
         }
         let previous = self.deliberate.swap(deliberate, Ordering::SeqCst);
+        // The admission closes first: a write already committing finishes, and every later one
+        // is refused without reaching the wire.
+        self.write_gate.close();
         self.closing.store(true, Ordering::SeqCst);
         // The cancellation of ADR 0223 §7 rule 4: read on to EOF, still queueing every frame.
         self.core.gate().drain();
@@ -457,6 +484,38 @@ pub(crate) fn drain(inner: Arc<Inner>) -> BoxFuture<'static, ()> {
     })
 }
 
+/// Serializes a close's check with a write's commit. `commit` runs its closure while holding
+/// the lock and only while open; `close` takes the same lock before closing, so a write either
+/// commits entirely before the close or not at all.
+pub(crate) struct WriteGate {
+    open: AtomicBool,
+    gate: Mutex<()>,
+}
+
+impl WriteGate {
+    pub(crate) fn new() -> WriteGate {
+        WriteGate {
+            open: AtomicBool::new(true),
+            gate: Mutex::new(()),
+        }
+    }
+
+    /// Runs `write` if the gate is open; `None` once it is closed.
+    pub(crate) fn commit<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
+        let _guard = self.gate.lock().unwrap_or_else(|error| error.into_inner());
+        if !self.open.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(write())
+    }
+
+    /// Closes the gate, waiting for a write already committing to finish.
+    pub(crate) fn close(&self) {
+        let _guard = self.gate.lock().unwrap_or_else(|error| error.into_inner());
+        self.open.store(false, Ordering::SeqCst);
+    }
+}
+
 /// A one-shot terminal flag that cannot lose its wakeup: `watch` keeps the value's version, so
 /// a reader that subscribes after `open` still sees it and one already waiting is woken.
 pub(crate) struct Latch {
@@ -506,6 +565,40 @@ mod tests {
     // tight race with the open.
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn a_close_waits_for_a_write_already_committing_and_refuses_the_next() {
+        let gate = Arc::new(WriteGate::new());
+        let (committing, committed) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let writer = {
+            let gate = Arc::clone(&gate);
+            std::thread::spawn(move || {
+                gate.commit(|| {
+                    committing.send(()).expect("signal");
+                    released.recv().expect("release");
+                })
+                .is_some()
+            })
+        };
+        committed.recv().expect("the write started");
+        let closer = {
+            let gate = Arc::clone(&gate);
+            std::thread::spawn(move || gate.close())
+        };
+        // The close is held until the in-flight write commits.
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        release.send(()).expect("release the write");
+        closer.join().expect("closer");
+        assert!(
+            writer.join().expect("writer"),
+            "the in-flight write was refused"
+        );
+        assert!(
+            gate.commit(|| ()).is_none(),
+            "a write after the close reached the wire"
+        );
+    }
 
     #[tokio::test]
     async fn a_latch_opened_before_its_reader_resolves_at_once() {

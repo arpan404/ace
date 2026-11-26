@@ -100,6 +100,10 @@ impl Record {
         })
     }
 
+    fn fatal_seen(&self) -> bool {
+        self.log.iter().any(|entry| matches!(entry, Logged::Fatal))
+    }
+
     fn sends(&self, kind: &str) -> Vec<&Value> {
         self.frames()
             .into_iter()
@@ -1350,6 +1354,50 @@ fn a_close_waits_for_a_detached_descendant_and_returns_only_when_it_is_gone() ->
     assert!(
         !alive(pid),
         "the detached descendant was still running when close returned"
+    );
+    Ok(())
+}
+
+/// A send after a fatal close began is refused without reaching Pi; the gate admits a write
+/// and a close in one order, never interleaved (`native-session.ts:259`–`:270`).
+#[test]
+fn a_send_after_a_fatal_close_is_refused_and_never_reaches_pi() -> TestResult {
+    let harness = Harness::new("fatal-close")?;
+    let session = harness.open(
+        vec![("FAKE_PI_MALFORMED_ON_PROMPT".to_owned(), "1".to_owned())],
+        None,
+        |_| {},
+        None,
+    )?;
+    let _ = send(&harness, &session, "fatal", Delivery::Queue);
+    assert!(
+        harness.observer.wait(|state| state.fatal_seen(), 5_000),
+        "the fatal frame never arrived"
+    );
+    let error = send(&harness, &session, "late", Delivery::Queue)
+        .err()
+        .ok_or("a send after the fatal close was admitted")?;
+    assert!(
+        matches!(error, AdapterApiError::InputRejected(_)),
+        "a closed send must be a refusal, got {error}"
+    );
+    let record = harness.observer.record();
+    let fatal_at = record
+        .log
+        .iter()
+        .position(|entry| matches!(entry, Logged::Fatal))
+        .ok_or("no fatal entry")?;
+    let late_at = record.log.iter().skip(fatal_at).position(|entry| {
+        matches!(
+            entry,
+            Logged::Frame(frame)
+                if frame.dir == ace_adapter_api::FrameDirection::Send
+                    && frame.data.get("message").and_then(Value::as_str) == Some("late")
+        )
+    });
+    assert!(
+        late_at.is_none(),
+        "a prompt was written after the fatal close"
     );
     Ok(())
 }
