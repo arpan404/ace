@@ -302,10 +302,11 @@ fn digest(bytes: &[u8]) -> String {
 
 /// The path inside the checkout when it is a regular file there (no symlink on the way out).
 fn regular_file(root: &str, name: &str) -> Option<String> {
-    let file = Path::new(root).join(name);
+    let root = paths::canonical(root).unwrap_or_else(|_| root.to_owned());
+    let file = Path::new(&root).join(name);
     let parent = file.parent()?;
     let real_parent = paths::canonical(&parent.to_string_lossy()).ok()?;
-    if !paths::within(root, &real_parent) {
+    if !paths::within(&root, &real_parent) {
         return None;
     }
     std::fs::symlink_metadata(&file)
