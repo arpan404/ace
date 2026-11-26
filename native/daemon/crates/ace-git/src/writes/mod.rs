@@ -4,6 +4,7 @@
 //! person's hooks and signing in their roots exactly where TypeScript does.
 //! G0 stub.
 
+pub mod bind;
 pub mod branches;
 pub mod commit;
 pub mod context;

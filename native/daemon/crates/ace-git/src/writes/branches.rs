@@ -9,6 +9,7 @@
 use crate::core::decode::hash_schema;
 use crate::core::error::{GitError, GitErrorCode};
 use crate::reads::{Command, CommandPort, checked, text_output};
+use crate::writes::bind::{long_writing, serial_turn};
 
 fn conflict(branch: &str, existing: &str) -> GitError {
     GitError::new(
@@ -100,11 +101,20 @@ pub async fn switch_branch(
             "Commit or explicitly allow uncommitted changes",
         ));
     }
+    let (_key, _serial) = serial_turn(root).await?;
     checked(
         port,
-        Command::new(root, &["switch", "--no-guess", "--", branch])
-            .writing()
-            .with_env(&[("GIT_TRACE2_EVENT", "1")]),
+        long_writing(Command::new(
+            root,
+            &[
+                "switch",
+                "--no-guess",
+                "--no-overwrite-ignore",
+                "--",
+                branch,
+            ],
+        ))
+        .with_env(&[("GIT_TRACE2_EVENT", "1")]),
     )
     .await?;
     Ok(())
@@ -119,7 +129,7 @@ pub async fn delete_unchanged_branch(
 ) -> Result<(), GitError> {
     let head = hash_schema(expected_head)
         .ok_or_else(|| GitError::new(GitErrorCode::InvalidArgument, "Invalid expected head"))?;
-    if branch.is_empty() || branch.encode_utf16().count() > 256 {
+    if branch.is_empty() || branch.chars().count() > 256 {
         return Err(GitError::new(
             GitErrorCode::InvalidRef,
             "Invalid cleanup branch",
@@ -137,9 +147,24 @@ pub async fn delete_unchanged_branch(
             "Invalid cleanup branch",
         ));
     }
+    let symbolic = checked(
+        port,
+        Command::new(root, &["symbolic-ref", "--quiet", &reference]).allowing_failure(),
+    )
+    .await?;
+    if symbolic.exit_code == 0 {
+        return Err(GitError::new(
+            GitErrorCode::InvalidRef,
+            "Cleanup branch is a symbolic ref",
+        ));
+    }
     let current = checked(
         port,
-        Command::new(root, &["show-ref", "--verify", "--hash", &reference]).allowing_failure(),
+        Command::new(
+            root,
+            &["show-ref", "--verify", "--hash", "--no-deref", &reference],
+        )
+        .allowing_failure(),
     )
     .await?;
     if current.exit_code != 0 {
@@ -161,21 +186,22 @@ pub async fn delete_unchanged_branch(
             "Cleanup branch is still checked out",
         ));
     }
+    let (_key, _serial) = serial_turn(root).await?;
     // Compare-and-delete prevents a changed ref being removed between observation and mutation.
     checked(
         port,
-        Command::new(
+        long_writing(Command::new(
             root,
             &[
                 "-c",
                 "core.hooksPath=/dev/null",
                 "update-ref",
+                "--no-deref",
                 "-d",
                 &reference,
                 &head,
             ],
-        )
-        .writing(),
+        )),
     )
     .await?;
     Ok(())
@@ -241,7 +267,8 @@ pub async fn create_branch(
     Err(GitError::new(
         GitErrorCode::RefConflict,
         format!("Cannot create branch {name}"),
-    ))
+    )
+    .with_detail("stderr", ace_json::Value::from(result.stderr.trim())))
 }
 
 #[cfg(test)]
@@ -274,11 +301,17 @@ mod tests {
         delete_unchanged_branch(&port, &root, "absent", &head.clone().unwrap_or_default())
             .await
             .expect("absent");
+        let feature_head = crate::reads::info::head(&port, &root).await.expect("head");
         assert_eq!(
-            delete_unchanged_branch(&port, &root, "feature", &"b".repeat(40))
-                .await
-                .expect_err("checked out and changed")
-                .code,
+            delete_unchanged_branch(
+                &port,
+                &root,
+                "feature",
+                &feature_head.clone().unwrap_or_default(),
+            )
+            .await
+            .expect_err("checked out")
+            .code,
             GitErrorCode::RestoreCollision
         );
         switch_branch(&port, &root, "main", false)
@@ -308,6 +341,72 @@ mod tests {
             .output()
             .expect("show-ref");
         assert!(!refs.status.success());
+    }
+
+    #[tokio::test]
+    async fn cleanup_deletes_the_direct_ref_not_a_symbolic_ref_at_the_same_oid() {
+        let fixture = Fixture::new("g4-symbolic-cleanup");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        let head = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "HEAD"]))
+            .trim_end()
+            .to_owned();
+        fixture.git(&repo, &["branch", "feature"]);
+        fixture.git(
+            &repo,
+            &["symbolic-ref", "refs/heads/feature", "refs/heads/main"],
+        );
+        create_branch(&port, &root, "real", "HEAD")
+            .await
+            .expect("create");
+        assert_eq!(
+            delete_unchanged_branch(&port, &root, "feature", &head)
+                .await
+                .expect_err("symbolic")
+                .code,
+            GitErrorCode::InvalidRef
+        );
+        delete_unchanged_branch(&port, &root, "real", &head)
+            .await
+            .expect("delete real");
+        let main = fixture
+            .command(&repo, &[])
+            .args(["show-ref", "--verify", "--quiet", "refs/heads/main"])
+            .output()
+            .expect("main");
+        assert!(main.status.success());
+    }
+
+    #[tokio::test]
+    async fn cleanup_refuses_a_branch_still_checked_out_in_another_worktree() {
+        let fixture = Fixture::new("g4-cleanup-worktree");
+        let repo = fixture.repository("repo");
+        let side = repo.parent().expect("parent").join("side");
+        create_branch(
+            &ProcessCommands { fixture: &fixture },
+            &repo.to_string_lossy(),
+            "feature",
+            "HEAD",
+        )
+        .await
+        .expect("create");
+        fixture.git(
+            &repo,
+            &["worktree", "add", side.to_str().expect("path"), "feature"],
+        );
+        fixture.git(&repo, &["checkout", "--quiet", "main"]);
+        let head = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "feature"]))
+            .trim_end()
+            .to_owned();
+        let port = ProcessCommands { fixture: &fixture };
+        assert_eq!(
+            delete_unchanged_branch(&port, &repo.to_string_lossy(), "feature", &head)
+                .await
+                .expect_err("checked out elsewhere")
+                .code,
+            GitErrorCode::RestoreCollision
+        );
     }
 
     #[tokio::test]

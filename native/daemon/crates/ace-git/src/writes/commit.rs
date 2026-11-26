@@ -10,6 +10,7 @@
 use crate::core::decode::hash_schema;
 use crate::core::error::{GitError, GitErrorCode};
 use crate::reads::{Command, CommandPort, checked};
+use crate::writes::bind::{checkout_snapshot, long_writing, serial_turn};
 use crate::writes::stage::{
     MAX_PATH_LENGTH, MAX_PATHS, is_ace_private, person_pathspecs, validate_repo_paths,
     within_commit_path_bytes,
@@ -63,7 +64,7 @@ fn add_all(root: &str, paths: &[String]) -> Command {
         input.push_str(&path);
         input.push('\0');
     }
-    Command::new(
+    long_writing(Command::new(
         root,
         &[
             "add",
@@ -71,9 +72,8 @@ fn add_all(root: &str, paths: &[String]) -> Command {
             "--pathspec-from-file=-",
             "--pathspec-file-nul",
         ],
-    )
+    ))
     .with_input(input.as_bytes())
-    .writing()
     .with_capture_bytes(65_536)
 }
 
@@ -106,6 +106,7 @@ pub async fn commit_changes(
         Some(listed) => Some(validate_repo_paths(root, listed)?),
         None => None,
     };
+    let (_key, _serial) = serial_turn(root).await?;
     let info_head = crate::reads::info::head(port, root).await?;
     if info_head != request.expected_head {
         return Err(head_moved("HEAD changed; refresh before committing"));
@@ -126,6 +127,12 @@ pub async fn commit_changes(
         return Err(GitError::new(
             GitErrorCode::PrivatePathStaged,
             "ace's own Recently deleted files are staged; unstage them before committing",
+        ));
+    }
+    if request.staged_only && paths.is_none() && state.status.staged.is_empty() {
+        return Err(GitError::new(
+            GitErrorCode::NothingToCommit,
+            "There is nothing staged to commit",
         ));
     }
     if let Some(fingerprint) = &request.draft_fingerprint {
@@ -162,7 +169,6 @@ pub async fn commit_changes(
             ));
         }
     }
-    crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
     let named: Vec<String> = paths.clone().unwrap_or_default();
     if let Some(listed) = &listed {
         // The view listed these with nothing staged. Anything staged since (an agent's partial
@@ -173,14 +179,12 @@ pub async fn commit_changes(
                 "Something was staged meanwhile. Review and commit again.",
             ));
         }
+        let snapshot = checkout_snapshot(port, root).await?;
+        snapshot.assert_head(request.expected_head.as_deref())?;
+        snapshot.assert_index_unchanged(port, root).await?;
+        crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
         checked(port, add_all(root, listed)).await?;
     } else if request.staged_only && paths.is_none() {
-        if state.status.staged.is_empty() {
-            return Err(GitError::new(
-                GitErrorCode::NothingToCommit,
-                "There is nothing staged to commit",
-            ));
-        }
     } else {
         let named = paths
             .as_ref()
@@ -203,10 +207,16 @@ pub async fn commit_changes(
         } else {
             named
         };
+        let snapshot = checkout_snapshot(port, root).await?;
+        snapshot.assert_head(request.expected_head.as_deref())?;
+        crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
         if !staging.is_empty() {
+            snapshot.assert_index_unchanged(port, root).await?;
             checked(port, add_all(root, &staging)).await?;
         }
     }
+    let snapshot = checkout_snapshot(port, root).await?;
+    snapshot.assert_head(request.expected_head.as_deref())?;
     let mut args: Vec<String> = vec!["commit".to_owned(), "--file=-".to_owned()];
     if paths.is_some() {
         args.push("--only".to_owned());
@@ -215,11 +225,12 @@ pub async fn commit_changes(
     }
     checked(
         port,
-        Command::owned(root, args)
-            .with_input(message.as_bytes())
-            .writing()
-            .with_capture_bytes(65_536)
-            .with_env(&[("GIT_TRACE2_EVENT", "1"), ("GIT_LITERAL_PATHSPECS", "1")]),
+        long_writing(
+            Command::owned(root, args)
+                .with_input(message.as_bytes())
+                .with_capture_bytes(65_536)
+                .with_env(&[("GIT_TRACE2_EVENT", "1"), ("GIT_LITERAL_PATHSPECS", "1")]),
+        ),
     )
     .await?;
     crate::reads::info::head(port, root).await?.ok_or_else(|| {
@@ -468,6 +479,71 @@ mod tests {
                 .expect_err("moved")
                 .code,
             GitErrorCode::HeadMoved
+        );
+    }
+
+    #[tokio::test]
+    async fn refusing_staged_meanwhile_and_nothing_to_commit_leaves_exclude_and_index_unchanged() {
+        let fixture = Fixture::new("g4-exclude-refusal");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy().into_owned();
+        let mut meanwhile = request("listed");
+        meanwhile.expected_head = crate::reads::info::head(&port, &root).await.expect("head");
+        meanwhile.stage_listed = Some(vec!["listed.txt".to_owned()]);
+        std::fs::write(repo.join("other.txt"), "other\n").expect("other");
+        crate::writes::stage::stage_paths(&port, &root, Some(&["other.txt".to_owned()]), false)
+            .await
+            .expect("stage");
+        let exclude_before =
+            std::fs::read_to_string(repo.join(".git/info/exclude")).unwrap_or_default();
+        let index_before = std::fs::read(repo.join(".git/index")).expect("index");
+        std::fs::write(repo.join("listed.txt"), "listed\n").expect("listed");
+        assert_eq!(
+            commit_changes(
+                &port,
+                &root,
+                &fixture.root.to_string_lossy(),
+                &meanwhile,
+                false,
+            )
+            .await
+            .expect_err("meanwhile")
+            .code,
+            GitErrorCode::StagedMeanwhile
+        );
+        assert_eq!(
+            std::fs::read(repo.join(".git/index")).expect("index"),
+            index_before
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.join(".git/info/exclude")).unwrap_or_default(),
+            exclude_before
+        );
+        let fresh = Fixture::new("g4-exclude-nothing");
+        let repo = fresh.repository("repo");
+        let port = ProcessCommands { fixture: &fresh };
+        let root = repo.to_string_lossy().into_owned();
+        let exclude_before =
+            std::fs::read_to_string(repo.join(".git/info/exclude")).unwrap_or_default();
+        let index_before = std::fs::read(repo.join(".git/index")).expect("index");
+        let mut nothing = request("nothing");
+        nothing.expected_head = crate::reads::info::head(&port, &root).await.expect("head");
+        nothing.staged_only = true;
+        assert_eq!(
+            commit_changes(&port, &root, &fresh.root.to_string_lossy(), &nothing, false,)
+                .await
+                .expect_err("nothing")
+                .code,
+            GitErrorCode::NothingToCommit
+        );
+        assert_eq!(
+            std::fs::read(repo.join(".git/index")).expect("index"),
+            index_before
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.join(".git/info/exclude")).unwrap_or_default(),
+            exclude_before
         );
     }
 

@@ -219,6 +219,17 @@ Each read keeps its exact Git command and its strict parse, ported.
   `remote-default-branch.process`, `transfer-bundle.process` (read cases).
 - Then the 39 daemon test files that use a real `GitService`, one at a time.
 
+## Intended differences (G4 write fixes)
+
+- Merge and branch switch pass `--no-overwrite-ignore` so an ignored untracked file is never
+  overwritten silently; TypeScript still relies on Git's default merge/switch behaviour.
+- Commit, merge, and branch cleanup hold the serial turn and compare-and-swap HEAD/index (and
+  unmerged stages for resolutions) before mutating; TypeScript rechecks HEAD but not the index.
+- Branch cleanup uses `--no-deref` and refuses symbolic cleanup branches; TypeScript may delete a
+  different direct ref at the same OID.
+- Writing-context fingerprints omit absent `remote` and serialize `baseRef`; TypeScript matches
+  after the `base_ref` rename on the Rust `FingerprintSelection::Pr` enum.
+
 ## G4: writes that make no checkpoint
 
 Commits, staging, merges, stack replays, branches, worktrees, fetch, push, clone, init, transfers
