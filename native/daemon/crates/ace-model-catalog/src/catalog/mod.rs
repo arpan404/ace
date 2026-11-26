@@ -1012,6 +1012,11 @@ impl Catalog {
             }
             inner.closed = true;
             inner.listeners.clear();
+            // Every probe is aborted before anything is awaited, so a probe waiting on
+            // its own signal returns and its gate opens.
+            for signal in inner.probe_signals.drain(..) {
+                signal.abort();
+            }
             let observed = inner.observed_check.take();
             let mut flights = Vec::new();
             let mut invalidations = Vec::new();

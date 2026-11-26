@@ -1376,3 +1376,46 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
         "the old login's probe result is fenced off"
     );
 }
+#[test]
+fn close_aborts_a_waiting_probe_instead_of_waiting_on_it() {
+    struct Probe;
+    impl super::ConnectionProbe for Probe {
+        fn probe(
+            &self,
+            _request: super::DiscoveryRequest,
+            signal: crate::signals::Signal,
+        ) -> futures::future::LocalBoxFuture<
+            'static,
+            Result<String, crate::failures::DiscoveryFailure>,
+        > {
+            Box::pin(async move {
+                signal.wait().await;
+                Err(crate::failures::DiscoveryFailure::with_code(
+                    crate::failures::FailureCode::Timeout,
+                ))
+            })
+        }
+    }
+    let account = instance(ProviderKind::Opencode, "account");
+    let spawn = TestSpawn::new();
+    let mut options = CatalogOptions::new(
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+        TestClock::new(1_000.0),
+        TestDeadlines::new(),
+        spawn.clone(),
+    );
+    options.instances = vec![account];
+    options.revision_probe = Some(std::sync::Arc::new(Probe));
+    let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+    let mut probing = Box::pin(catalog.reconcile_connections());
+    assert!(poll_once(probing.as_mut()).is_pending(), "the probe waits");
+    let closing = Box::pin(catalog.close());
+    // A regression fails here instead of hanging the suite.
+    let (_, closed) = settle(
+        async move { futures::join!(probing, closing) },
+        &spawn,
+        "close against a waiting probe",
+    );
+    closed.unwrap_or_else(|error| panic!("{error}"));
+}
