@@ -6,7 +6,8 @@
 
 use ace_json::Value;
 
-use crate::commands::{command_id, payload};use crate::transitions::switch_admission::{record_switch, resolve_switch};
+use crate::commands::{command_id, payload};
+use crate::transitions::switch_admission::{record_switch, resolve_switch};
 use crate::{Core, EngineError, State};
 
 /// A send ready to admit, and the pending switch split off it, if any.

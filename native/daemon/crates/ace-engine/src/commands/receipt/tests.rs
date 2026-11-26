@@ -318,7 +318,11 @@ fn a_stop_that_names_the_root_turns_run_interrupts_it() {
     let accepted = receipt.handle(
         r#"{"id":"stop","deviceId":"device","payload":{"type":"thread.interrupt","threadId":"t","cascade":true,"runId":"run-1"}}"#,
     );
-    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true), "{accepted}");
+    assert_eq!(
+        accepted.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{accepted}"
+    );
     assert_eq!(
         receipt.text("SELECT reason AS value FROM engine_queue WHERE thread_id='t'"),
         Some("stopped".to_owned())
@@ -554,17 +558,17 @@ fn a_create_naming_an_existing_thread_refuses_thread_exists() {
     // The harness's thread `t` is stored: `validateCreation` refuses its id (`handler.ts:217`,
     // `creation-validation.ts:26`) instead of overwriting a live thread's snapshot.
     let command = r#"{"id":"create","deviceId":"device","payload":{"type":"thread.create","workspaceId":"workspace","provider":"codex","threadId":"t","input":[{"type":"text","text":"hello"}]}}"#;
-    assert_eq!(
-        receipt.handle(command),
-        result("create", "thread_exists")
-    );
+    assert_eq!(receipt.handle(command), result("create", "thread_exists"));
     assert!(
         receipt.shell.events("t").is_empty(),
         "the refusal wrote no thread"
     );
     // A fresh id still creates.
     assert_eq!(
-        receipt.handle(&create(None)).get("ok").and_then(Value::as_bool),
+        receipt
+            .handle(&create(None))
+            .get("ok")
+            .and_then(Value::as_bool),
         Some(true)
     );
 }
@@ -677,10 +681,7 @@ fn a_create_with_a_catalog_stores_the_model_the_catalog_resolves() {
     let accepted = receipt.handle(&create(None));
     assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
     // `executionModelId(row)` prefixes the row's source provider (`execution-id.ts:8`).
-    assert_eq!(
-        stored_model(&receipt).as_deref(),
-        Some("openai/gpt-5")
-    );
+    assert_eq!(stored_model(&receipt).as_deref(), Some("openai/gpt-5"));
     let created = receipt
         .shell
         .events("new")
@@ -692,7 +693,11 @@ fn a_create_with_a_catalog_stores_the_model_the_catalog_resolves() {
         .and_then(|thread| thread.get("live"))
         .and_then(|live| live.get("model"))
         .and_then(Value::as_str);
-    assert_eq!(live_model, Some("openai/gpt-5"), "the live block names it too");
+    assert_eq!(
+        live_model,
+        Some("openai/gpt-5"),
+        "the live block names it too"
+    );
 }
 
 #[test]
@@ -723,7 +728,9 @@ fn an_unknown_explicit_model_is_model_unavailable_with_one_callback() {
 #[test]
 fn a_created_thread_keeps_its_workspaces_kind_machine_and_capabilities() {
     let receipt = Receipt::new(LimitOverrides::default());
-    receipt.exec("INSERT INTO workspace_metadata (workspace_id, kind) VALUES ('workspace','repository')");
+    receipt.exec(
+        "INSERT INTO workspace_metadata (workspace_id, kind) VALUES ('workspace','repository')",
+    );
     receipt
         .shell
         .answer_machine(r#"{"host":"m1","name":"Arpan's MacBook Pro"}"#);

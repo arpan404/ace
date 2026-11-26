@@ -171,7 +171,10 @@ pub fn select(
         return reject(catalog, provider, model, instance);
     };
     let native_provider_id = row.get("nativeProviderId").and_then(Value::as_str);
-    Ok(Some(execution_model_id(native_model_id, native_provider_id)))
+    Ok(Some(execution_model_id(
+        native_model_id,
+        native_provider_id,
+    )))
 }
 
 fn reject(

@@ -166,7 +166,10 @@ fn selection_provider(selection: &Value) -> String {
 }
 
 /// `repo.store.getWorkspace(id)`: its path, name and metadata kind (`workspace-store.ts:53`).
-fn workspace_row(store: &crate::EngineStore, workspace: &str) -> Option<(String, String, Option<String>)> {
+fn workspace_row(
+    store: &crate::EngineStore,
+    workspace: &str,
+) -> Option<(String, String, Option<String>)> {
     const ROW: &str = "SELECT w.path AS path, w.name AS name, m.kind AS kind \
                        FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id \
                        WHERE w.id = ?";

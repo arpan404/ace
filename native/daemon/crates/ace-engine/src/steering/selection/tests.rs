@@ -72,7 +72,8 @@ fn a_native_session_and_an_already_aimed_steer_are_left_alone() {
     assert_eq!(aimed(&unchanged), None);
     // A sender that already named a run is not re-aimed.
     let kept = steer(Some("run-9"));
-    let unchanged = aim_steer_at_run(&store.store, &mut store.state, &kept, "t", true).expect("aim");
+    let unchanged =
+        aim_steer_at_run(&store.store, &mut store.state, &kept, "t", true).expect("aim");
     assert_eq!(aimed(&unchanged).and_then(Value::as_str), Some("run-9"));
 }
 

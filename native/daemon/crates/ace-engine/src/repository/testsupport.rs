@@ -144,7 +144,10 @@ pub(crate) fn header_with_agents(
 /// `model` is the whole `CatalogModel` row, never its id.
 pub(crate) fn model_resolution(native_model_id: &str, native_provider_id: Option<&str>) -> String {
     let mut row = ace_json::Map::new();
-    row.insert("id", ace_json::Value::from(format!("row-{native_model_id}")));
+    row.insert(
+        "id",
+        ace_json::Value::from(format!("row-{native_model_id}")),
+    );
     row.insert("displayName", ace_json::Value::from(native_model_id));
     row.insert("provider", ace_json::Value::from("codex"));
     row.insert("instance", ace_json::Value::from("codex-cli-default"));
