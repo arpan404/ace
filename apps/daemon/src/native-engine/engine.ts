@@ -39,6 +39,8 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   /** The addon handle, for the test seam's probe hooks. */
   readonly binding: NativeEngineHandle;
   private readonly registry: AdapterRegistry;
+  private readonly storeRef: Store;
+  private readonly optionsRef: EngineOptions;
   readonly handler: CommandHandler;
   readonly internalHandler: CommandHandler;
   private readyPromise!: Promise<void>;
@@ -56,6 +58,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   private stopLiveStore?: () => void;
   private ownershipFence?: Parameters<EngineSurface["bindOwnershipFence"]>[0];
   private commandPolicy?: (command: unknown, accept: () => unknown) => unknown;
+  private commandedHook?: (command: unknown) => void;
   private hostInteractions?: (command: unknown) => unknown;
   private deletionPolicy?: (id: ThreadId, commandId: string) => void;
   private externalTaskStop?: { prefix: string; stop: (id: string, threadId: ThreadId) => void };
@@ -63,6 +66,8 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   constructor(store: Store, options: EngineOptions = {}) {
     super();
     recordEvidence();
+    this.storeRef = store;
+    this.optionsRef = options;
     this.frames = new FrameTable(() => (options.clock ?? systemClock).now());
     // The opener: the TypeScript repository's schema setup, in today's order (E5.3 step 1).
     openEngineData(store, options, () => (options.clock ?? systemClock).now());
@@ -127,6 +132,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
       fence: (threadId) => this.ownershipFence?.(threadId as never),
       host: (command) => this.hostInteractions?.(command),
       policy: (command, accept) => this.commandPolicy?.(command, accept),
+      commanded: (command) => this.commandedHook?.(command),
       receipt: (value) => (this.member("handle", "E5.4d") as Receipt)(value),
     });
     this.internalHandler = internal;
@@ -297,6 +303,11 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     this.commandPolicy = args[0] as (command: unknown, accept: () => unknown) => unknown;
   }
 
+  /** `sessions.commanded` (`index.ts:429`): bound by the live access reconciliation (E5.7). */
+  bindCommanded(commanded: (command: unknown) => void): void {
+    this.commandedHook = commanded;
+  }
+
   bindHostInteractions(...args: Parameters<EngineSurface["bindHostInteractions"]>): void {
     this.hostInteractions = args[0] as (command: unknown) => unknown;
   }
@@ -382,14 +393,47 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     if (this.closingFlag) return;
     (this.member("admissionReopened", "E5.4d") as () => void)();
   }
-  /** Readiness stays in the shell; the receipt's store work is Rust's. */
+  /**
+   * `index.ts:1116`-`:1138`: wait for the provider, then for readiness, then prepare the silence
+   * and the recovery defaults. A port that would do the work belongs to the item that owns it,
+   * so this throws rather than skipping it; with no port, `prepare` writes the defaults the
+   * opener already inserted.
+   */
   override async prepareCommand(
     ...args: Parameters<EngineSurface["prepareCommand"]>
   ): ReturnType<EngineSurface["prepareCommand"]> {
+    const command = args[0];
+    const payload = command.payload as { provider?: string; threadId?: ThreadId; type: string };
+    const provider =
+      payload.provider ??
+      (payload.threadId === undefined
+        ? undefined
+        : this.storeRef.getThread(payload.threadId)?.provider);
+    if (provider !== undefined) await this.optionsRef.waitForProvider?.(provider as never);
+    // A port this shell cannot run fails before readiness, naming the item that owns it.
+    if (this.optionsRef.resolveSilenceMs !== undefined)
+      throw incomplete("prepareCommand's silence", "E5.6");
+    if (
+      this.optionsRef.recovery?.preferences !== undefined ||
+      this.optionsRef.preferences !== undefined
+    )
+      throw incomplete("prepareCommand's recovery", "E5.8");
     await this.readyPromise;
-    // A resolveSilenceMs or preferences port is E5.6's; without one there is nothing to load.
+    // `silence.prepareCommand` (`silence.ts:84`): without the port it returns at once.
+    if (
+      !["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
+        payload.type,
+      )
+    )
+      return;
+    // `recovery.prepare` (`recovery.ts:91`): the port and the defaults it reads are E5.8's.
+    if (
+      this.optionsRef.recovery?.preferences !== undefined ||
+      this.optionsRef.preferences !== undefined
+    )
+      throw incomplete("prepareCommand's recovery", "E5.8");
     (this.binding.prepareCommand as ((value: string) => void) | undefined)?.(
-      JSON.stringify(args[0]),
+      JSON.stringify(command),
     );
   }
 }
