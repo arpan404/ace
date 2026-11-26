@@ -8,6 +8,7 @@ pub mod calls;
 pub mod catalog;
 pub mod claude;
 pub mod credentials;
+pub mod delivery;
 pub mod http;
 pub mod json_budget;
 pub mod jsonrpc;
