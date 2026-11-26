@@ -60,8 +60,10 @@ pub fn find_delivery(listing: ToolListing, client: Option<AceClient>) -> ToolDel
             schemas: false,
             how: Some(UNTIL_RELOADED),
         },
+        // A session that lists every tool already carries every match's schema; sending it
+        // again would make the model pay for it twice.
         ToolListing::All => ToolDelivery {
-            schemas: true,
+            schemas: false,
             how: None,
         },
     }
@@ -118,10 +120,11 @@ mod tests {
 
     #[test]
     fn tools_find_carries_schemas_only_where_the_model_would_not_see_them() {
+        // A full list already has each schema; no session pays for one twice.
         assert_eq!(
             find_delivery(ToolListing::All, None),
             ToolDelivery {
-                schemas: true,
+                schemas: false,
                 how: None
             }
         );

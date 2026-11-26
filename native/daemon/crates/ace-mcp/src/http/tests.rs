@@ -919,9 +919,16 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
     let mut call = call;
     call.headers
         .push(("mcp-session-id".to_owned(), first_id.clone()));
+    let answered = fixture.server.handle(call, Arc::new(|_| {})).await;
+    assert_eq!(answered.status, 200);
+    // The tool ran: the reply is its own value, not just any 200.
     assert_eq!(
-        fixture.server.handle(call, Arc::new(|_| {})).await.status,
-        200
+        result_of(&answered)
+            .get("structuredContent")
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str),
+        Some("legacy"),
+        "the legacy call never reached the tool"
     );
     // Another lease cannot use the id.
     let other = fixture

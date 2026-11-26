@@ -246,6 +246,32 @@ mod tests {
     }
 
     #[test]
+    fn the_listing_header_literals_are_the_catalogs() {
+        let headers = &crate::catalog::catalog()
+            .expect("the embedded catalog parses")
+            .listing_headers;
+        assert_eq!(
+            CORE_TOOLS_HEADER,
+            (headers.core.name.as_str(), headers.core.value.as_str())
+        );
+        assert_eq!(
+            STATIC_TOOLS_HEADER,
+            (
+                headers.static_listing.name.as_str(),
+                headers.static_listing.value.as_str()
+            )
+        );
+        assert_eq!(
+            CODEX_CLIENT_HEADER,
+            (headers.codex.name.as_str(), headers.codex.value.as_str())
+        );
+        assert_eq!(
+            CURSOR_CLIENT_HEADER,
+            (headers.cursor.name.as_str(), headers.cursor.value.as_str())
+        );
+    }
+
+    #[test]
     fn a_call_budget_is_whole_seconds_from_five_to_six_hundred() {
         assert_eq!(call_budget_seconds(Some("60")), Some(60));
         assert_eq!(call_budget_seconds(Some(" 60 ")), Some(60));
