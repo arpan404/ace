@@ -53,12 +53,17 @@ impl Routes {
     /// `shell:<id>` for the two event types that report a shell. A tenant's
     /// refusal (a shell past its bound) fails the selection, as the TypeScript's
     /// throw inside `filter` fails the stream.
+    ///
+    /// Every tenant's recovery request is taken as its accept answers, into
+    /// `reconcile`: the TypeScript's `beginRecovery` ran inside the accept, so a
+    /// later tenant's refusal cannot undo it (`server.ts:381`-`:389`).
     pub fn select(
         &mut self,
         event: &NativeEvent<'_>,
         data: &Value,
         watermark: u64,
         tenants: &IndexMap<TenantId, Arc<dyn Tenant>>,
+        reconcile: &mut Vec<TenantId>,
     ) -> Result<Vec<Arc<dyn Tenant>>, TenantError> {
         let payload = event.data;
         let session = event_session(data);
@@ -77,15 +82,15 @@ impl Routes {
             self.owners.get(&key).cloned()
         };
         let accepted = match &cached {
-            Some(ids) => self.keep(ids, tenants, event, data, watermark)?,
-            None => self.keep_all(tenants, event, data, watermark)?,
+            Some(ids) => self.keep(ids, tenants, event, data, watermark, reconcile)?,
+            None => self.keep_all(tenants, event, data, watermark, reconcile)?,
         };
         if cached.is_some() && accepted.is_empty() {
             // The cached owners no longer match. Delete the entry and select
             // again, as `routes.ts:19` does, so the next event asks every
             // tenant exactly as a cache miss would.
             self.owners.delete(&key);
-            return self.select(event, data, watermark, tenants);
+            return self.select(event, data, watermark, tenants, reconcile);
         }
         if !key.is_empty() && !accepted.is_empty() {
             self.owners
@@ -115,13 +120,18 @@ impl Routes {
         event: &NativeEvent<'_>,
         data: &Value,
         watermark: u64,
+        reconcile: &mut Vec<TenantId>,
     ) -> Result<Vec<Accepted>, TenantError> {
         let mut accepted = Vec::new();
         for id in ids {
             let Some((id, tenant)) = tenants.get_key_value(id) else {
                 continue;
             };
-            if tenant.accepts(event, data, watermark)? {
+            let answer = tenant.accepts(event, data, watermark);
+            if tenant.take_reconcile() {
+                reconcile.push(*id);
+            }
+            if answer? {
                 accepted.push((*id, Arc::clone(tenant)));
             }
         }
@@ -135,10 +145,15 @@ impl Routes {
         event: &NativeEvent<'_>,
         data: &Value,
         watermark: u64,
+        reconcile: &mut Vec<TenantId>,
     ) -> Result<Vec<Accepted>, TenantError> {
         let mut accepted = Vec::new();
         for (id, tenant) in tenants {
-            if tenant.accepts(event, data, watermark)? {
+            let answer = tenant.accepts(event, data, watermark);
+            if tenant.take_reconcile() {
+                reconcile.push(*id);
+            }
+            if answer? {
                 accepted.push((*id, Arc::clone(tenant)));
             }
         }

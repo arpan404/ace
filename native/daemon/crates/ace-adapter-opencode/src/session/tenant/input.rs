@@ -70,15 +70,19 @@ impl OpenCodeTenant {
     pub fn moved_reply(&self, id: &str, ok: bool, body: &Value) {
         let verified =
             ok && parse_info(body).is_some_and(|info| self.lock_ownership().verify(&info).is_ok());
-        if verified {
-            let _ = self.emit(
-                FrameDirection::Recv,
-                "snapshot.info",
-                &json!({ "info": body }),
-            );
-        }
+        // A snapshot the tenant cannot frame is the TypeScript's `catch`: the
+        // session reconciles instead of keeping a location it could not record
+        // (`session.ts:354`-`:358`).
+        let framed = verified
+            && self
+                .emit(
+                    FrameDirection::Recv,
+                    "snapshot.info",
+                    &json!({ "info": body }),
+                )
+                .is_ok();
         self.moved_done(id);
-        if !verified {
+        if !framed {
             self.reconcile_now();
         }
     }
@@ -128,7 +132,7 @@ impl OpenCodeTenant {
             Err(error) => return Err(TenantError(error.to_string())),
         };
         if !accepted {
-            self.prove(data, watermark);
+            self.prove(data, watermark)?;
         }
         if accepted && event.typ == "session.moved" {
             let id = event_session(data).to_owned();
@@ -256,7 +260,8 @@ impl OpenCodeTenant {
         if typ.starts_with("session.execution.") || typ.starts_with("session.step.") {
             self.lock_execution().insert(event_session(data).to_owned());
         }
-        self.emit(FrameDirection::Recv, "sse", data)?;
+        // The server already parsed this envelope; the translator reads it.
+        self.emit_sse(event, data)?;
         if typ == "location.shutdown" {
             self.reconcile_location();
         }
@@ -304,9 +309,13 @@ impl OpenCodeTenant {
             .map_err(|error| TenantError(error.to_string()))
     }
 
-    /// `ancestry.prove`: an unowned session's facts wait for a lookup.
-    pub(crate) fn prove(&self, data: &Value, watermark: u64) {
-        self.lock_ancestry().prove(data, watermark, self);
+    /// `ancestry.prove`: an unowned session's facts wait for a lookup. A
+    /// receipt sink that refuses fails the stream, as the TypeScript's throw
+    /// inside routing does.
+    pub(crate) fn prove(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
+        self.lock_ancestry()
+            .prove(data, watermark, self)
+            .map_err(TenantError)
     }
 
     /// `object(data).type`, for the closed filter's callers.

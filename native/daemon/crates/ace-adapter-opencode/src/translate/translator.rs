@@ -88,7 +88,7 @@ impl Translator {
         }];
         let failed = {
             let mut emitter = Out::new(out);
-            self.frame(&channel, &dir, data, &data_value, now, &mut emitter)
+            self.frame(&channel, &dir, &data_value, None, now, &mut emitter)
                 .is_err()
         };
         if failed {

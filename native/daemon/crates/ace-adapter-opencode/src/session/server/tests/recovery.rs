@@ -12,6 +12,38 @@ use crate::session::error::StreamError;
 use crate::session::server::{ServerCore, Tenant, TenantError};
 use crate::session::testing::{Call, Fake};
 
+#[test]
+fn a_tenant_that_asks_for_recovery_is_disconnected_before_another_fails_the_scan() {
+    let mut server = core(&[]);
+    let asking = Arc::new(Fake::all());
+    let refusing = Arc::new(Fake::refusing("OpenCode shell limit"));
+    server.subscribe(asking.clone()).expect("asking");
+    server.subscribe(refusing.clone()).expect("refusing");
+    // The first tenant's accept overflowed its ancestry buffer and asked for a
+    // pass (`session.ts:122`); the second refuses the same event. The
+    // TypeScript has already disconnected both before the refusal returns.
+    asking.ask_reconcile();
+    let outcome = server.chunk(
+        event(
+            "e",
+            "session.text.delta",
+            json!({ "sessionID": "asking", "delta": "x" }),
+        )
+        .as_bytes(),
+    );
+    assert_eq!(
+        outcome.failed,
+        Some(StreamError::Tenant(String::from("OpenCode shell limit")))
+    );
+    assert!(
+        outcome.recover,
+        "the pass the accept asked for is requested"
+    );
+    assert!(server.recovering(), "the server began the pass");
+    assert_eq!(asking.calls(), vec![Call::Disconnected(1)]);
+    assert_eq!(refusing.calls(), vec![Call::Disconnected(1)]);
+}
+
 /// One envelope with an event-level location, as `location.shutdown` carries.
 fn located(id: &str, kind: &str, data: Value, directory: &str) -> String {
     format!(

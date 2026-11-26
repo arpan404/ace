@@ -294,17 +294,19 @@ impl ServerCore {
             }
             return Ok(());
         }
-        let targets = self
+        let mut asked = Vec::new();
+        let selected = self
             .routes
-            .select(&event, value, watermark, &self.tenants)
-            .map_err(fail)?;
+            .select(&event, value, watermark, &self.tenants, &mut asked);
         // An accept can ask for recovery (an ancestry receipt past its bound
-        // calls `reconcileNow`): `beginRecovery` ran inline there, so the rest
-        // of this chunk is buffered.
-        if self.take_reconcile() {
+        // calls `reconcileNow`): `beginRecovery` ran inline there, before any
+        // later tenant's refusal ends the scan, so the rest of this chunk is
+        // buffered.
+        if !asked.is_empty() {
             self.begin_recovery(watermark);
             outcome.recover = true;
         }
+        let targets = selected.map_err(fail)?;
         if targets.is_empty() {
             return Ok(());
         }
@@ -367,15 +369,6 @@ impl ServerCore {
             }
         }
         Ok(())
-    }
-
-    /// Every tenant's pending recovery request, taken once.
-    fn take_reconcile(&self) -> bool {
-        let mut asked = false;
-        for tenant in self.tenants.values() {
-            asked |= tenant.take_reconcile();
-        }
-        asked
     }
 
     /// `c.frame("note", channel, data)` for every tenant, in subscription order.
