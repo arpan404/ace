@@ -1,6 +1,7 @@
-import { contextMeter } from "@ace/fake-daemon";
+import { contextMeter, facts } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { configure, fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -70,6 +71,44 @@ test("while the provider compacts, the card says so and its compact action waits
   await screen.findByText("Compacting context…");
   const button = await screen.findByRole("button", { name: "Compact context" });
   expect(unavailable(button)).toBe(true);
+});
+
+test("a root waiting on its subagents keeps the compact action disabled, with its reason", async () => {
+  const scenario = contextMeter();
+  // The root's turn is still live: it waits on a foreground child it spawned.
+  scenario.steps = [
+    {
+      kind: "facts",
+      facts: [
+        facts.rootAgent("claude"),
+        facts.turn("root"),
+        facts.message("root", "ask", "user", "Find why the checkout test flakes."),
+        facts.subagent("claude", "child", "Child", "root"),
+        facts.turn("child", "parent_agent"),
+        facts.tool("root", "spawn", {
+          kind: "agent.spawn",
+          title: "Child",
+          status: "running",
+          detail: { kind: "agent.spawn", childAgent: "child" },
+        }),
+      ],
+    },
+    {
+      kind: "facts",
+      facts: [
+        { type: "context.sample", agent: "root", usedTokens: 124_000, windowTokens: 200_000 },
+      ],
+    },
+  ];
+  const app = harness();
+  app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-context");
+
+  const button = await screen.findByRole("button", { name: "Compact context" });
+  // The root's turn is still live while it waits on its foreground child.
+  expect(unavailable(button)).toBe(true);
+  await userEvent.hover(button);
+  expect(await screen.findByText("Wait for this turn to finish")).toBeTruthy();
 });
 
 test("a turn that ended with a background command still running can compact", async () => {

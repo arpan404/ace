@@ -177,6 +177,93 @@ function slowGoalProvider(frames: ReturnType<typeof scriptFrames>, entered: () =
   return { adapter, scripted, release };
 }
 
+test("a root waiting on its foreground subagents refuses a compact", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            // A foreground child keeps the root's turn live: the provider must not compact.
+            {
+              type: "agent.seen",
+              agent: "child",
+              parent: "root",
+              spawnedBy: "root",
+              origin: "provider_subagent",
+              fidelity: "full",
+              native: { provider: "codex", nativeId: "child" },
+              cwd: "/tmp/child",
+              name: "Child",
+              background: false,
+            },
+            { type: "turn.started", agent: "child", trigger: "parent_agent" },
+            {
+              type: "item.upsert",
+              agent: "root",
+              item: "spawn",
+              draft: {
+                type: "tool_call",
+                complete: false,
+                call: {
+                  kind: "agent.spawn",
+                  title: "Child",
+                  status: "running",
+                  detail: { kind: "agent.spawn", childAgent: "child" },
+                  raw: [],
+                },
+              },
+            },
+          ),
+        ],
+      },
+    ],
+    frames,
+    { capabilities: capabilities(true) },
+  );
+  closes.push(h.close);
+  const id = await h.create();
+
+  expect(h.command({ type: "thread.compact", threadId: id })).toMatchObject({
+    ok: false,
+    error: "thread_not_idle",
+  });
+  await h.engine.flush();
+  expect(h.adapter.commands.some((command) => command.type === "compact")).toBe(false);
+});
+
+test("a root whose turn ended with a background command still running can compact", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(start, end, {
+            type: "background.started",
+            agent: "root",
+            task: "shell",
+            kind: "shell",
+            title: "Dev server",
+            stoppable: true,
+          }),
+        ],
+      },
+      { on: "compact", frames: [frames.frame(compactionItem)] },
+    ],
+    frames,
+    { capabilities: capabilities(true) },
+  );
+  closes.push(h.close);
+  const id = await h.create();
+
+  expect(h.command({ type: "thread.compact", threadId: id }).ok).toBe(true);
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((command) => command.type === "compact")).toHaveLength(1);
+});
+
 test("a compaction admitted while idle never lands in a turn that started before it ran", async () => {
   const frames = scriptFrames();
   const entered = Promise.withResolvers<void>();
