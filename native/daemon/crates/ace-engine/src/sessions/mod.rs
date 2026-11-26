@@ -36,6 +36,7 @@ pub mod failure_copy;
 pub mod metadata;
 pub mod observer;
 pub mod open;
+pub mod open_session;
 pub mod ports;
 pub mod provider_sessions;
 

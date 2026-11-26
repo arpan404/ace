@@ -200,9 +200,12 @@ mod tests {
     use std::sync::Arc;
 
     fn temp_connection() -> (Arc<Connection>, std::path::PathBuf) {
+        // A counter as well as the clock: parallel cases in one process can read the same instant.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "ace-correlations-{}-{}.sqlite",
+            "ace-correlations-{}-{}-{}.sqlite",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|since| since.as_nanos())
