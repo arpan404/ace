@@ -9,6 +9,7 @@
 pub mod channel;
 pub mod cipher;
 pub mod error;
+pub mod host;
 pub mod http;
 pub mod nk;
 pub mod noise;
@@ -23,6 +24,11 @@ pub use channel::{
 };
 pub use cipher::{CipherState, Snapshot};
 pub use error::RelayError;
+pub use host::{
+    Backoff, ClientSlots, ControlMessage, FirstMessage, HTTP_FEATURE, HostOptions, HttpAnswer,
+    MEDIA_FEATURE, Registration, RegistrationWait, RejectReason, Reservation, authorize_first,
+    first_message, http_answer, valid_host_id, valid_ticket,
+};
 pub use http::{HOOKS_PATH, RelayHttpTarget, relay_http_enabled, relay_http_target};
 pub use nk::admission::{
     Held, NK_LIMITS, NkAdmission, NkClock, NkLimits, NkSession, Rate, Remaining, Suppression,
