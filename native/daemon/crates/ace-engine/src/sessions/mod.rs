@@ -9,7 +9,7 @@ use ace_json::Value;
 
 use crate::executor::TaskId;
 use crate::repository::collaborators::{SessionFacts, SessionInfo};
-use crate::{EngineError, EngineStore, State};
+use crate::{EngineError, EngineStore, State, ThreadId};
 
 /// The engine's session interface, in the shape E5.6 consumes (declared by E3-pi.3): a session
 /// hands its frames, identity, failure and terminal exit to one `SessionObserver`, in order.
@@ -20,8 +20,11 @@ pub use ace_adapter_api::{SessionExit, SessionFrame, SessionObserver};
 pub struct Sessions {
     pub silence: crate::meters::silence::SilenceThresholds,
     pub provider_sessions: ProviderSessions,
+    /// The sessions open on a thread now, by thread.
+    pub attached: indexmap::IndexMap<ThreadId, attach::Attached>,
 }
 
+pub mod attach;
 pub mod background_ports;
 pub mod compact;
 pub mod env;
