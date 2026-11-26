@@ -239,19 +239,16 @@ fn peer_is_live(
     owner: &str,
     moving: &str,
 ) -> Result<bool, EngineError> {
-    if owner == moving || state.repo.snapshots.contains_key(owner) {
-        return Ok(!quiescent(store, state, owner)? || live_pending(store, state, owner)?);
+    // A peer outside the resident set has no live state to read, but its persisted one still
+    // holds the approvals, provider work and intents a restart left behind: load it, as
+    // `workspace-change.ts:166` reads `repo.state(owner)`.
+    if owner != moving && !state.repo.snapshots.contains_key(owner) {
+        state.repo.state(store, owner)?;
     }
-    Ok(live_pending(store, state, owner)?
-        || crate::intents::store::awaiting(store.conn(), owner)?.is_some()
-        || crate::intents::header::headers(store.conn(), Some(owner), None)?
-            .iter()
-            .any(|intent| {
-                matches!(
-                    intent.kind.as_str(),
-                    "thread.switch" | "thread.merge" | "thread.send" | "thread.create"
-                ) && matches!(intent.status.as_str(), "pending" | "queued" | "running")
-            }))
+    if !quiescent(store, state, owner)? || live_pending(store, state, owner)? {
+        return Ok(true);
+    }
+    Ok(crate::intents::store::awaiting(store.conn(), owner)?.is_some())
 }
 
 /// One status write (`workspace-change.ts:114`).
@@ -425,14 +422,33 @@ pub fn begin(
     })
 }
 
+/// `workspace-change.ts:177`-`:181`: after the owners' sessions close and before any Git
+/// write, every fenced thread must still be quiet. A peer can start work while the closes run,
+/// so the receipt's own check is not enough.
+pub fn recheck_quiet(
+    store: &EngineStore,
+    state: &mut State,
+    fence: &Fence,
+    moving: &str,
+) -> Result<(), EngineError> {
+    for owner in &fence.owners {
+        if peer_is_live(store, state, owner, moving)? {
+            return Err(records("thread_tree_is_live"));
+        }
+    }
+    Ok(())
+}
+
 /// The context the moved thread carries: `handoff(repo, id, headSeq, 16384, provider)` from
 /// `:182`, read after the sessions close and before the Git effect.
 pub fn handoff_for(
     store: &EngineStore,
     state: &mut State,
+    fence: &Fence,
     id: &str,
     provider: &str,
 ) -> Result<Value, EngineError> {
+    recheck_quiet(store, state, fence, id)?;
     let through = store.head_seq()? as i64;
     let handoff = crate::transitions::history::handoff(
         store,
@@ -614,24 +630,87 @@ mod tests {
         }
     }
 
+    /// A second thread bound to the same checkout, with the stored state `header` gives it.
+    fn cold_peer(conn: &std::sync::Arc<ace_store::Connection>, id: &str, header: String) {
+        conn.exec(&format!(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ('{id}', 'workspace', 'Peer', 'claude', '{{\"state\":\"new\"}}', 0, 0)"
+        ))
+        .expect("peer thread");
+        conn.exec(&format!(
+            "INSERT INTO thread_state VALUES ('{id}', {}, 0)",
+            crate::repository::testsupport::sql_text(&header)
+        ))
+        .expect("peer state");
+        conn.exec(&format!(
+            "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES ('{id}','/w',NULL,NULL,'acp','a',NULL)"
+        ))
+        .expect("peer session");
+    }
+
+    // `workspace-change.ts:166`: a peer sharing the checkout is read from its persisted state,
+    // so provider work a restart left behind still holds the checkout.
     #[test]
-    fn a_never_started_threads_checkout_shows_preparing_when_details_are_absent() {
-        let mut details = if Value::Null.is_null() {
-            Value::Object(ace_json::Map::new())
-        } else {
-            Value::Null
-        };
-        let mut change = ace_json::Map::new();
-        change.insert("state", Value::from("preparing"));
-        if let Some(object) = details.as_object_mut() {
-            object.insert("workspaceChange", Value::Object(change));
-        }
+    fn a_cold_peer_with_persisted_provider_work_holds_the_checkout() {
+        let (conn, store, mut state) = home_with_checkout();
+        let peer = header("p").replace(
+            "\"hasRun\":false",
+            "\"hasRun\":true,\"uncertainTasks\":{\"task-1\":true}",
+        );
+        cold_peer(&conn, "p", peer);
+        assert!(
+            !state.repo.snapshots.contains_key("p"),
+            "the peer starts cold"
+        );
+        let refused = begin(
+            &store,
+            &mut state,
+            "t",
+            BeginRequest {
+                command_id: "cmd-cold",
+                now: 5.0,
+                reservation: &reservation("/w"),
+                has_owned_work: &|_| false,
+                canonicalize: &|path| path.to_owned(),
+            },
+        )
+        .expect_err("the peer's work refuses the move");
+        assert_eq!(refused.to_string(), "thread_tree_is_live");
+        assert!(
+            !state.transition_guarded(&store, "t").expect("guarded"),
+            "a refused begin holds no guard"
+        );
+    }
+
+    // `workspace-change.ts:177`-`:181`: the fence is checked again after the sessions close,
+    // because a peer can start work while they do.
+    #[test]
+    fn a_peer_that_starts_work_during_the_closes_refuses_the_git_write() {
+        let (conn, store, mut state) = home_with_checkout();
+        cold_peer(&conn, "p", header("p"));
+        let fence = begin(
+            &store,
+            &mut state,
+            "t",
+            BeginRequest {
+                command_id: "cmd-recheck",
+                now: 5.0,
+                reservation: &reservation("/w"),
+                has_owned_work: &|_| false,
+                canonicalize: &|path| path.to_owned(),
+            },
+        )
+        .expect("begin");
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,awaiting,position) \
+             VALUES ('send-peer','p','thread.send','{\"type\":\"thread.send\"}','pending',0,1)",
+        )
+        .expect("peer work");
+        let refused = handoff_for(&store, &mut state, &fence, "t", "claude");
         assert_eq!(
-            details
-                .get("workspaceChange")
-                .and_then(|c| c.get("state"))
-                .and_then(Value::as_str),
-            Some("preparing")
+            refused
+                .expect_err("the peer's new work refuses")
+                .to_string(),
+            "thread_tree_is_live"
         );
     }
 
@@ -663,7 +742,7 @@ mod tests {
         .expect("reservation")
         .is_some();
         assert!(reserved);
-        let carried = handoff_for(&store, &mut state, "t", "claude").expect("handoff");
+        let carried = handoff_for(&store, &mut state, &fence, "t", "claude").expect("handoff");
         commit(
             &store,
             &mut state,
