@@ -241,6 +241,16 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         "Event store opened",
         serde_json::json!({"durationMs": began.elapsed().as_millis()}),
     );
+    // What the previous run left running, and what cannot be proven either way, before any
+    // service starts (ADR 0186's stop ownership by evidence).
+    let inventory = crate::inventory::Inventory::begin(&data_dir, &log).map_err(|error| {
+        log.log(
+            "error",
+            "Daemon startup failed",
+            serde_json::json!({"error": error}),
+        );
+        FailedStart::failed(error)
+    })?;
     let tokens = token::load(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
     let host_id =
         token::load_host_id(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
@@ -420,6 +430,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         };
         run.stopped(reason.source, reason.signal, &overran);
     }
+    inventory.close();
     crate::endpoint::retire(Some(&endpoint));
     lock.release();
     Ok(if overran {

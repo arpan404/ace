@@ -522,3 +522,92 @@ fn a_fresh_start_is_logged_and_backed_up() {
     let status = daemon.terminate();
     assert_eq!(status.code(), Some(0));
 }
+
+/// `daemon-unverified-startup.process.test.ts`: "a group the last run left whose leader is
+/// gone never stops the daemon from starting". The crashed run recorded a group whose leader
+/// is dead while a member still runs: startup goes on, the member is left alone, and the log
+/// counts what could not be resolved.
+#[test]
+#[cfg(unix)]
+fn a_stranded_group_from_the_last_run_never_stops_the_daemon_from_starting() {
+    use std::io::BufRead as _;
+    use std::os::unix::process::CommandExt as _;
+
+    let home = Home::new("stranded");
+    let mut first = home.start(false);
+    let _ = first.ready(&home);
+    assert_eq!(first.terminate().code(), Some(0));
+
+    // A leader that exits while a child in its own group runs on.
+    let mut shell = std::process::Command::new("/bin/sh")
+        .args(["-c", "sleep 30 & echo $!; wait"])
+        .process_group(0)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("a process group");
+    let group = shell.id();
+    let mut line = String::new();
+    let child = {
+        let stdout = shell.stdout.take().expect("its stdout");
+        std::io::BufReader::new(stdout)
+            .read_line(&mut line)
+            .expect("the child's pid");
+        line.trim().parse::<u32>().expect("a pid")
+    };
+    let _ = shell.kill();
+    let _ = shell.wait();
+    assert!(
+        ace_supervisor::reaper::process_alive(child).unwrap_or(false),
+        "the stranded member still runs"
+    );
+
+    // The crashed run's row: its leader's start is not the dead process's, so the group can
+    // never be proven the last run's.
+    let database = home.ace_home.join("processes.sqlite");
+    let connection = ace_store::Connection::open(
+        &database.to_string_lossy(),
+        ace_store::OpenOptions::default(),
+    )
+    .expect("open the process journal");
+    connection
+        .exec("CREATE TABLE IF NOT EXISTS processes(pid INTEGER PRIMARY KEY,entry TEXT NOT NULL)")
+        .expect("the journal's table");
+    let row = format!(
+        "{{\"pid\":{group},\"uid\":{},\"group\":{group},\"start\":\"1\",\"ownerPid\":{group},\"ownerStart\":\"1\",\"name\":\"crashed-provider\",\"createdAt\":0}}",
+        rustix::process::getuid().as_raw()
+    );
+    let insert = connection
+        .prepare("INSERT OR REPLACE INTO processes VALUES (?, ?)")
+        .expect("prepare the row");
+    insert
+        .bind(&[
+            Some(ace_store::Value::Integer(i64::from(group))),
+            Some(ace_store::Value::Text(row)),
+        ])
+        .expect("bind the row");
+    insert.step().expect("insert the row");
+    let _ = connection.close();
+
+    let mut second = home.start(false);
+    let _ = second.ready(&home);
+
+    // Not provably the run's: left alone, never a reason to refuse startup.
+    assert!(
+        ace_supervisor::reaper::process_alive(child).unwrap_or(false),
+        "the unproven member is left running"
+    );
+    // But said: the log counts what could not be resolved.
+    let log = std::fs::read_to_string(home.ace_home.join("logs/ace.jsonl")).unwrap_or_default();
+    assert!(
+        log.contains("\"message\":\"Previous run's processes could not all be resolved\""),
+        "{log}"
+    );
+    assert!(log.contains("\"unresolved\":1"), "{log}");
+    assert_eq!(second.terminate().code(), Some(0));
+
+    if let Ok(pid) = i32::try_from(child).map(rustix::process::Pid::from_raw)
+        && let Some(pid) = pid
+    {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    }
+}

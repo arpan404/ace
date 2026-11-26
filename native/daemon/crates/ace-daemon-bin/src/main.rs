@@ -17,6 +17,7 @@ mod home;
 mod http;
 mod identity;
 mod ids;
+mod inventory;
 mod lock;
 mod log;
 mod peer;
