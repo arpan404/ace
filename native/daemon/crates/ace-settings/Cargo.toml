@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-settings"
+description = "The settings document, validation, roles and batches (ADR 0226, slice 4)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# serde_json: the versioned document's values and unknown-key preservation.
+serde_json = { version = "1", features = ["preserve_order"] }
+# regex: the credential and retired-key rules from the TypeScript.
+regex = { version = "1" }

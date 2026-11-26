@@ -265,6 +265,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-settings"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "ace-store"
 version = "0.1.0"
 dependencies = [
