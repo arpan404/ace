@@ -76,6 +76,10 @@ pub struct ForgeError {
     pub retry_at: Option<f64>,
     /// `Some(false)` only when admission proved the CLI never started.
     pub dispatched: Option<bool>,
+    /// A read the host accepted whose result could not be published (`ForgeMutationOutcome`).
+    pub receipt: Option<ace_json::Value>,
+    /// The HTTP status of a 401/403 refusal, so 401 and 403 stay distinguishable.
+    pub status: Option<u16>,
 }
 
 impl ForgeError {
@@ -85,6 +89,8 @@ impl ForgeError {
             kind,
             retry_at: None,
             dispatched: None,
+            receipt: None,
+            status: None,
         }
     }
 
@@ -94,6 +100,8 @@ impl ForgeError {
             kind,
             retry_at: None,
             dispatched: Some(false),
+            receipt: None,
+            status: None,
         }
     }
 
@@ -103,6 +111,19 @@ impl ForgeError {
             kind,
             retry_at: Some(at),
             dispatched: Some(false),
+            receipt: None,
+            status: None,
+        }
+    }
+
+    /// An access refusal that keeps the host's 401 or 403.
+    pub fn refused(kind: Kind, status: u16) -> ForgeError {
+        ForgeError {
+            kind,
+            retry_at: None,
+            dispatched: Some(false),
+            receipt: None,
+            status: Some(status),
         }
     }
 }
