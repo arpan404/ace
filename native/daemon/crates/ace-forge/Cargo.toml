@@ -27,5 +27,7 @@ ace-store = { path = "../ace-store" }
 thiserror = { version = "2" }
 # regex: the network-failure pattern and the admission paths (F1), each re-expressed and checked by its (a) tests.
 regex = { version = "1" }
+# tokio: the runner waits on the supervisor's child, its deadline and the caller's cancellation.
+tokio = { version = "1.54", features = ["rt", "sync", "time"] }
 # sha2: the GraphQL cache key is the SHA-256 of the document, as TypeScript names it.
 sha2 = { version = "0.10" }
