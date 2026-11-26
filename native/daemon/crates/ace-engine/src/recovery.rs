@@ -5,6 +5,27 @@
 use crate::executor::TaskId;
 use crate::{EngineError, State, ThreadId};
 
+/// A deadline pass that could not commit (the store is busy, say) runs again after this
+/// (`recovery.ts:45`).
+pub const DEADLINE_RETRY_MS: f64 = 1_000.0;
+/// The longest wait a deadline that keeps failing is put off to (`recovery.ts:46`).
+pub const DEADLINE_DEFERRAL_MAX_MS: f64 = 600_000.0;
+
+/// The next wait for a deadline that keeps failing: doubling from a second, capped
+/// (`recovery.ts:49`). Only the deadline it put off carries its backoff; a new hold starts over.
+pub fn deadline_deferral(previous: Option<f64>) -> f64 {
+    let next = previous.map_or(DEADLINE_RETRY_MS, |previous| previous * 2.0);
+    next.min(DEADLINE_DEFERRAL_MAX_MS)
+}
+
+/// One thread's deadline that could not be acted on: the deadline it was put off to, and how
+/// long that deferral was (`recovery.ts:64`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Deferral {
+    pub deadline: String,
+    pub delay: f64,
+}
+
 /// Recovery state: preferences, pending captures, the limit policy (E5.8), and the deadline
 /// timer a receipt arms (E5.4d).
 #[derive(Debug, Default)]
@@ -44,4 +65,26 @@ pub fn close(state: &mut State) -> Result<(), EngineError> {
 /// Whether recovery holds no work E5.1 must wait for (E5.8 fills this).
 pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The first failure waits a second, then doubles, and stops at ten minutes.
+    #[test]
+    fn a_failing_deadline_is_put_off_with_doubling_bounded_waits() {
+        assert_eq!(deadline_deferral(None), DEADLINE_RETRY_MS);
+        assert_eq!(deadline_deferral(Some(DEADLINE_RETRY_MS)), 2_000.0);
+        assert_eq!(deadline_deferral(Some(2_000.0)), 4_000.0);
+        assert_eq!(
+            deadline_deferral(Some(DEADLINE_DEFERRAL_MAX_MS)),
+            DEADLINE_DEFERRAL_MAX_MS
+        );
+        assert_eq!(
+            deadline_deferral(Some(DEADLINE_DEFERRAL_MAX_MS / 1.5)),
+            DEADLINE_DEFERRAL_MAX_MS,
+            "the cap holds just below it"
+        );
+    }
 }
