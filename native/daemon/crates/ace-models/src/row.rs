@@ -29,12 +29,12 @@ const ALIASES_LIMIT: usize = 32;
 const ROW_LIMIT: usize = 8192;
 
 /// The protocol's 256-code-point label newtype, built from a plain string.
-fn text<T: From<String>>(value: &str) -> T {
+pub(crate) fn text<T: From<String>>(value: &str) -> T {
     value.to_owned().into()
 }
 
 /// A list of labels as the protocol stores it.
-fn texts<W, T>(values: impl IntoIterator<Item = String>) -> W
+pub(crate) fn texts<W, T>(values: impl IntoIterator<Item = String>) -> W
 where
     T: From<String>,
     W: From<Vec<T>>,
@@ -43,8 +43,13 @@ where
 }
 
 /// An optional field whose generated newtype wraps another one; serde finds the path.
-fn decoded_text<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
+pub(crate) fn decoded_text<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
     value.and_then(|text| serde_json::from_value(Value::String(text.to_owned())).ok())
+}
+
+/// A positive number in the protocol's `NonZeroU64` newtype, when the value is one.
+pub(crate) fn nonzero<T: From<std::num::NonZeroU64>>(value: u64) -> Option<T> {
+    std::num::NonZeroU64::new(value).map(T::from)
 }
 
 /// The row a provider's native entry becomes before its own fields are applied.

@@ -11,5 +11,6 @@ pub mod effort;
 pub mod free;
 pub mod instance;
 pub mod metadata;
+pub mod opencode;
 pub mod raw;
 pub mod row;
