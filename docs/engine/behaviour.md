@@ -441,6 +441,13 @@ itself. Every implementation keeps this order exactly; the status tests (section
   `SessionContext.resume.unsettled`, `engine-api/src/index.ts:180`). Cursor turns a restart cut
   short are reconciled with Cursor's store once ready (`CursorReconciles`,
   `engine/cursor-reconcile.ts:233`).
+- **Continuation bounds count UTF-16 units, and Rust cuts before a split pair.** The names in a
+  restart continuation are `.slice(0, n)`s (`lost-work.ts:18`, `:31`; `restart-resume.ts:50`,
+  `:66`): they count UTF-16 units and may split a surrogate pair, leaving a lone half that renders
+  as U+FFFD once stored. A Rust `String` cannot hold a lone surrogate, so `restart::units` cuts
+  before the pair instead: the unit count is the TypeScript's, and the text differs by at most
+  that one half character. The 16,384 bound on the stored continuation is a different rule:
+  `queue-store.ts:25`'s Zod string counts code points (rule 17).
 - A saved session that can never be opened again moves the thread to the next provider store
   generation and hands off, keeping earlier generations (ADR 0211,
   `engine/provider-recovery.ts:33`).

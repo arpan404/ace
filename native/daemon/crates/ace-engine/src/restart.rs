@@ -9,7 +9,7 @@
 
 use ace_core::entity_model::InteractionRequest;
 use ace_core::state::ThreadState;
-use ace_core::status::AgentStatus;
+use ace_core::status::is_settled;
 use ace_store::{Value, stmt_cache};
 use std::sync::Arc;
 
@@ -21,20 +21,14 @@ use crate::repository::residency::{cell_int, cell_text};
 pub const MAX_RESTART_RESUMES: i64 = 3;
 /// The most background-work lines a continuation or its notice names (`lost-work.ts:19`).
 const MAX_LOST_LINES: usize = 64;
-/// The bound on a continuation's text (`restart-resume.ts:74`, a Zod string of 16,384 units).
+/// The bound on a continuation's text: a `.slice(0, 16384)` in UTF-16 units
+/// (`restart-resume.ts:66`-`:69`), not the code-point Zod bound of the queue's stored record
+/// (`queue-store.ts:25`).
 const CONTINUATION_UNITS: usize = 16_384;
 
 // ---------------------------------------------------------------------------------------------
 // What was lost (`lost-work.ts`)
 // ---------------------------------------------------------------------------------------------
-
-/// The agent statuses that are not doing, or waiting on, work (`lost-work.ts:27`).
-fn settled_state(status: &AgentStatus) -> bool {
-    matches!(
-        status,
-        AgentStatus::Idle | AgentStatus::Interrupted | AgentStatus::Failed { .. }
-    )
-}
 
 /// The background work a stopped provider took with it, or `None` when nothing was live: no
 /// turn, provider queue, wake window, running task, subagent or open request.
@@ -71,7 +65,7 @@ pub fn lost_work_lines(
         active = active
             || record.active_run.is_some()
             || record.wake_until.is_some_and(|until| until > now);
-        if record.agent.origin == "root" || settled_state(&record.agent.status) {
+        if record.agent.origin == "root" || is_settled(&record.agent.status) {
             continue;
         }
         if lines.len() < MAX_LOST_LINES {
@@ -132,7 +126,11 @@ pub fn lost_work(
 /// One line naming what the agent's open request asks the person, if it has one.
 pub fn open_request_line(state: &ThreadState) -> Option<String> {
     for key in state.indexes.pending_interactions.keys() {
-        let interaction = state.interactions.get(key)?;
+        // A stale index entry (a snapshot another build wrote) is skipped, not fatal to the
+        // capture: the next pending request still names what the agent waits on.
+        let Some(interaction) = state.interactions.get(key) else {
+            continue;
+        };
         if interaction.state == "pending" {
             return Some(request_line(&interaction.request));
         }
@@ -288,20 +286,27 @@ pub fn restart_continuation(lost: &[String]) -> String {
 // The ledgers (`restart-resume.ts:76`, `restart-captures.ts:20`)
 // ---------------------------------------------------------------------------------------------
 
-/// Both tables TypeScript creates on first use. A home written either way opens with the other.
+/// `engine_restart_resumes`' DDL, byte for byte the TypeScript's (`restart-resume.ts:78`-`:81`):
+/// SQLite keeps the text in `sqlite_master`, so both daemons must leave identical schema text.
+/// `ace-engine::open` runs it at open, in the TypeScript opener's order; `Engine::new` never
+/// does open-time DDL (E5.4 decision 8 as amended 2026-11-26).
+pub const RESTART_RESUMES_DDL: &str = "CREATE TABLE IF NOT EXISTS engine_restart_resumes (
+        thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+        streak INTEGER NOT NULL
+      )";
+
+/// `engine_restart_captures`' DDL, byte for byte the TypeScript's (`restart-captures.ts:23`-`:27`).
+pub const RESTART_CAPTURES_DDL: &str = "CREATE TABLE IF NOT EXISTS engine_restart_captures (
+        thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+        waiting_on TEXT
+      )";
+
+/// Creates both ledgers from the consts above. `ace-engine::open` calls this at open; tests that
+/// drive the ledgers over a bare connection call it too. `Engine::new` must not: open-time DDL
+/// has one owner.
 pub fn ensure_ledgers(conn: &Arc<ace_store::Connection>) -> Result<(), EngineError> {
-    conn.exec(
-        "CREATE TABLE IF NOT EXISTS engine_restart_resumes (
-          thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
-          streak INTEGER NOT NULL
-        )",
-    )?;
-    conn.exec(
-        "CREATE TABLE IF NOT EXISTS engine_restart_captures (
-          thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
-          waiting_on TEXT
-        )",
-    )?;
+    conn.exec(RESTART_RESUMES_DDL)?;
+    conn.exec(RESTART_CAPTURES_DDL)?;
     Ok(())
 }
 
@@ -320,9 +325,9 @@ pub fn streak(conn: &Arc<ace_store::Connection>, thread: &str) -> Result<i64, En
 pub fn increment_streak(
     conn: &Arc<ace_store::Connection>,
     thread: &str,
-) -> Result<i64, EngineError> {
+) -> Result<(), EngineError> {
     stmt_cache::run(conn, INCREMENT_STREAK, vec![Value::Text(thread.to_owned())])?;
-    streak(conn, thread)
+    Ok(())
 }
 
 /// A completed turn or new input from someone ends the run of restarts.
@@ -385,8 +390,10 @@ pub fn clear_capture(conn: &Arc<ace_store::Connection>, thread: &str) -> Result<
     Ok(())
 }
 
-/// JavaScript's `String.prototype.slice(0, max)`, which counts UTF-16 units (rule 17): cut at a
-/// character boundary so the result never exceeds `max`.
+/// JavaScript's `String.prototype.slice(0, max)`, which counts UTF-16 units (rule 17). A Rust
+/// `String` cannot hold the lone surrogate `.slice` leaves when a cut splits a pair, so this cuts
+/// before the pair instead: the count is the TypeScript's, and the text differs by that one half
+/// character (`docs/engine/behaviour.md`, section 13).
 fn units(text: &str, max: usize) -> &str {
     if text.encode_utf16().count() <= max {
         return text;

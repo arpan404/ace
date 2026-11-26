@@ -189,7 +189,7 @@ fn the_message_names_the_provider_or_the_cursor_uncertainty() {
     let cursor = lost_work(&state, 0, Some("cursor-sdk"), 10).unwrap();
     assert!(cursor.starts_with("ace restarted. The previous Cursor SDK host is unavailable."));
     assert!(cursor.contains("The following background work is unresolved:"));
-    assert!(cursor.contains("unresolved") || cursor.contains("uncertain"));
+    assert!(cursor.contains("checkpoint reconciliation"));
 }
 
 #[test]
@@ -390,7 +390,7 @@ fn both_messages_stay_inside_16384_units() {
 }
 
 #[test]
-fn a_named_title_is_cut_at_160_units_without_splitting_a_character() {
+fn a_named_title_is_cut_at_160_utf16_units_and_drops_a_split_surrogate() {
     let mut state = state();
     run(&mut state);
     task(
@@ -405,15 +405,56 @@ fn a_named_title_is_cut_at_160_units_without_splitting_a_character() {
         line.starts_with(&format!("bash: {} [", "t".repeat(159))),
         "the emoji crossed the 160-unit bound: {line:?}"
     );
-    assert!(!line.contains('😀'), "a cut never splits a character");
+    // `String.prototype.slice(0, 160)` would keep the high surrogate; a Rust `String` cannot hold
+    // one, so the cut lands before the pair. The count is the TypeScript's; only that half
+    // character differs (section 13 of behaviour.md).
+    assert!(!line.contains('😀'), "the cut keeps 160 units at most");
+}
+
+#[test]
+fn the_ledgers_keep_the_typescripts_schema_text_byte_for_byte() {
+    // SQLite stores the CREATE text in `sqlite_master`, so a home either daemon opens must keep
+    // the same schema text: the consts, not a reformatted copy (`restart-resume.ts:78`,
+    // `restart-captures.ts:23`).
+    let conn = database();
+    assert_eq!(
+        RESTART_RESUMES_DDL,
+        "CREATE TABLE IF NOT EXISTS engine_restart_resumes (\n        thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,\n        streak INTEGER NOT NULL\n      )"
+    );
+    assert_eq!(
+        RESTART_CAPTURES_DDL,
+        "CREATE TABLE IF NOT EXISTS engine_restart_captures (\n        thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,\n        waiting_on TEXT\n      )"
+    );
+    for (name, ddl) in [
+        ("engine_restart_resumes", RESTART_RESUMES_DDL),
+        ("engine_restart_captures", RESTART_CAPTURES_DDL),
+    ] {
+        let row = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT sql FROM sqlite_master WHERE name=?",
+            vec![ace_store::Value::Text(name.to_owned())],
+        )
+        .unwrap()
+        .expect("the ledger exists");
+        // SQLite records the statement without its `IF NOT EXISTS` clause; every other byte,
+        // whitespace included, is the text it was given.
+        let stored_text = ddl.replacen("CREATE TABLE IF NOT EXISTS", "CREATE TABLE", 1);
+        assert_eq!(
+            row.get("sql")
+                .and_then(crate::repository::residency::cell_text),
+            Some(stored_text.as_str()),
+            "{name}'s stored schema text"
+        );
+    }
 }
 
 #[test]
 fn a_restart_streak_counts_up_and_new_input_clears_it() {
     let conn = database();
     assert_eq!(streak(&conn, "thread-1").unwrap(), 0);
-    assert_eq!(increment_streak(&conn, "thread-1").unwrap(), 1);
-    assert_eq!(increment_streak(&conn, "thread-1").unwrap(), 2);
+    increment_streak(&conn, "thread-1").unwrap();
+    assert_eq!(streak(&conn, "thread-1").unwrap(), 1);
+    increment_streak(&conn, "thread-1").unwrap();
     assert_eq!(streak(&conn, "thread-1").unwrap(), 2);
     clear_streak(&conn, "thread-1").unwrap();
     assert_eq!(streak(&conn, "thread-1").unwrap(), 0);

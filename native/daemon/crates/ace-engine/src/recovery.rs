@@ -6,20 +6,20 @@ use crate::executor::TaskId;
 use crate::{EngineError, State, ThreadId};
 
 /// A deadline pass that could not commit (the store is busy, say) runs again after this
-/// (`recovery.ts:45`).
+/// (`recovery.ts:48`).
 pub const DEADLINE_RETRY_MS: f64 = 1_000.0;
-/// The longest wait a deadline that keeps failing is put off to (`recovery.ts:46`).
+/// The longest wait a deadline that keeps failing is put off to (`recovery.ts:49`).
 pub const DEADLINE_DEFERRAL_MAX_MS: f64 = 600_000.0;
 
 /// The next wait for a deadline that keeps failing: doubling from a second, capped
-/// (`recovery.ts:49`). Only the deadline it put off carries its backoff; a new hold starts over.
+/// (`recovery.ts:51`). Only the deadline it put off carries its backoff; a new hold starts over.
 pub fn deadline_deferral(previous: Option<f64>) -> f64 {
     let next = previous.map_or(DEADLINE_RETRY_MS, |previous| previous * 2.0);
     next.min(DEADLINE_DEFERRAL_MAX_MS)
 }
 
 /// One thread's deadline that could not be acted on: the deadline it was put off to, and how
-/// long that deferral was (`recovery.ts:64`).
+/// long that deferral was (`recovery.ts:67`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Deferral {
     pub deadline: String,

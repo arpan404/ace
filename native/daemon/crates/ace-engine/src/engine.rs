@@ -49,9 +49,8 @@ impl Engine {
             ..State::default()
         };
         state.registry.set_entries(registry_json)?;
-        // The restart ledgers are created on first use, as TypeScript creates them; a home this
-        // build opens then reads with the other backend either way.
-        crate::restart::ensure_ledgers(store.conn())?;
+        // The restart ledgers' DDL is open-time work and belongs to `ace-engine::open`, in the
+        // TypeScript opener's order (E5.4 decision 8 as amended 2026-11-26): never here.
         let (ready_tx, ready_rx) = oneshot::channel();
         let core = Rc::new(Core {
             executor: Executor::new(notifier),
