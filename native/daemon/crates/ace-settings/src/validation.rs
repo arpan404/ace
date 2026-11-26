@@ -74,8 +74,12 @@ fn credential_value() -> Option<&'static regex::Regex> {
     static PATTERN: OnceLock<Option<regex::Regex>> = OnceLock::new();
     PATTERN
         .get_or_init(|| {
+            // The TypeScript's `\b` is JavaScript's word boundary, which word characters are
+            // ASCII only: `é` is not a word character, so `éBearer …` is a boundary. Scoping
+            // the boundary to ASCII keeps that refusal while the rest of the pattern stays
+            // Unicode-aware (`\s`, `\S`).
             regex::Regex::new(
-                r"(?i)(?:\bBearer\s+\S+|\b(?:sk-|ghp_|github_pat_|AKIA)[a-zA-Z0-9_-]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
+                r"(?i)(?:(?-u:\b)Bearer\s+\S+|(?-u:\b)(?:sk-|ghp_|github_pat_|AKIA)[a-zA-Z0-9_-]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
             )
             .ok()
         })
@@ -193,6 +197,27 @@ mod tests {
             );
         }
         assert!(guard_secrets(&json!({ "providers.coder.model": "claude-opus-5-5" })).is_ok());
+    }
+
+    #[test]
+    fn a_credential_is_refused_with_javascripts_ascii_word_boundaries() {
+        // JS `\b` is ASCII-word based, so a letter like `é` is not a word character: the
+        // boundary before `Bearer` exists and the string is a credential. A Unicode `\b`
+        // would treat both as word characters and let it through.
+        for text in [
+            "éBearer example-credential",
+            "日Bearer example-credential",
+            "Bearer example-credential",
+            "sk-abcdefghijklmnop",
+        ] {
+            assert_eq!(
+                guard_secrets(&json!({ "threads.sortBy": text })).map_err(|error| error.code),
+                Err(SettingsCode::Secret),
+                "{text}"
+            );
+        }
+        // A boundary is still required: `xBearer` is one word in JavaScript too.
+        assert!(guard_secrets(&json!({ "threads.sortBy": "xBearer example" })).is_ok());
     }
 
     #[test]
