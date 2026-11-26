@@ -380,6 +380,11 @@ export async function openNativeCodexSession(
         release();
       },
       (error: unknown) => {
+        // A close that lost the race with the terminal barrier is gone either way.
+        if (error instanceof Error && error.message === "Codex session is closed") {
+          release();
+          return;
+        }
         closePromise = undefined;
         throw error;
       },
