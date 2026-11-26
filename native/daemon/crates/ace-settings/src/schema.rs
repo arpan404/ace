@@ -397,6 +397,18 @@ fn kind_absolute_path_fits(path: &str) -> bool {
         && !path.chars().any(|c| c.is_control())
 }
 
+/// Each category's window: `days` in `storage.ts` as `1..=36500` or `null` to disable it.
+/// The 3,650-day cap belongs to `storage.retentionDays` alone.
+fn retention_days(value: &Value) -> Option<Value> {
+    match value {
+        Value::Null => Some(Value::Null),
+        _ => value
+            .as_i64()
+            .filter(|number| (1..=36_500).contains(number))
+            .map(Value::from),
+    }
+}
+
 fn storage_retention(value: &Value) -> Result<Value, SettingsError> {
     let entries = value
         .as_object()
@@ -404,10 +416,7 @@ fn storage_retention(value: &Value) -> Result<Value, SettingsError> {
     let days = |name: &str, fallback: i64| -> Result<Value, SettingsError> {
         match entries.get(name) {
             None => Ok(Value::from(fallback)),
-            Some(value) => value
-                .as_i64()
-                .filter(|number| (1..=3650).contains(number))
-                .map(Value::from)
+            Some(value) => retention_days(value)
                 .ok_or_else(|| invalid("storage.retention", SettingsCode::Validation)),
         }
     };
@@ -814,6 +823,30 @@ mod tests {
         assert_eq!(kept["attachments"], 30);
         assert_eq!(kept["idleThreads"], false);
         assert!(kept.get("futureField").is_none());
+    }
+
+    #[test]
+    fn retention_categories_may_be_null_or_up_to_ten_thousand_days() {
+        let kept = validate_value(
+            "storage.retention",
+            &json!({ "threads": null, "logs": 10_000 }),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(kept["threads"], Value::Null, "null disables the category");
+        assert_eq!(kept["logs"], 10_000);
+        assert_eq!(
+            kept["attachments"], 30,
+            "an absent category keeps its default"
+        );
+        assert!(validate_value("storage.retention", &json!({ "threads": 36_500 })).is_ok());
+        for bad in [json!(0), json!(36_501), json!("30")] {
+            assert!(
+                validate_value("storage.retention", &json!({ "threads": bad })).is_err(),
+                "{bad}"
+            );
+        }
+        // `storage.retentionDays` keeps the separate 3,650-day cap.
+        assert!(validate_value("storage.retentionDays", &json!(3651)).is_err());
     }
 
     #[test]
