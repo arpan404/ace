@@ -64,6 +64,32 @@ pub(crate) fn header(thread: &str) -> String {
     HEADER.replace("\"threadId\":\"t\"", &format!("\"threadId\":\"{thread}\""))
 }
 
+/// A `ModelResolution` as the models port answers it (`packages/protocol/src/models.ts:200`):
+/// `model` is the whole `CatalogModel` row, never its id.
+pub(crate) fn model_resolution(native_model_id: &str, native_provider_id: Option<&str>) -> String {
+    let mut row = ace_json::Map::new();
+    row.insert("id", ace_json::Value::from(format!("row-{native_model_id}")));
+    row.insert("displayName", ace_json::Value::from(native_model_id));
+    row.insert("provider", ace_json::Value::from("codex"));
+    row.insert("instance", ace_json::Value::from("codex-cli-default"));
+    if let Some(provider) = native_provider_id {
+        row.insert("nativeProviderId", ace_json::Value::from(provider));
+    }
+    row.insert("nativeModelId", ace_json::Value::from(native_model_id));
+    row.insert("efforts", ace_json::Value::Array(Vec::new().into()));
+    row.insert("serviceTiers", ace_json::Value::Array(Vec::new().into()));
+    row.insert("inputModalities", ace_json::Value::Array(Vec::new().into()));
+    row.insert("isDefault", ace_json::Value::Bool(true));
+    row.insert("hidden", ace_json::Value::Bool(false));
+    row.insert("deprecated", ace_json::Value::Bool(false));
+    let mut resolution = ace_json::Map::new();
+    resolution.insert("ok", ace_json::Value::Bool(true));
+    resolution.insert("model", ace_json::Value::Object(row));
+    resolution.insert("stale", ace_json::Value::Bool(false));
+    resolution.insert("reason", ace_json::Value::from("role"));
+    ace_json::to_string(&ace_json::Value::Object(resolution))
+}
+
 /// A message item with one text part, in the stored shape.
 pub(crate) fn message(id: &str, thread: &str, text: &str) -> ace_core::items::Item {
     ace_json::from_value(

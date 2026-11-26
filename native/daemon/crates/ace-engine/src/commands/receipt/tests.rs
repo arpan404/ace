@@ -8,7 +8,7 @@ use crate::actor::ActorDeps;
 use crate::executor::{Budget, Notified, Notifier};
 use crate::frames::live::UnportedLive;
 use crate::limits::LimitOverrides;
-use crate::repository::testsupport::{Shell, header, home};
+use crate::repository::testsupport::{Shell, header, home, model_resolution};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -506,10 +506,14 @@ fn a_create_with_a_catalog_stores_the_model_the_catalog_resolves() {
     let receipt = Receipt::new(LimitOverrides::default());
     receipt
         .shell
-        .answer_models(r#"{"ok":true,"model":"gpt-5"}"#, "{}");
+        .answer_models(&model_resolution("gpt-5", Some("openai")), "{}");
     let accepted = receipt.handle(&create(None));
     assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
-    assert_eq!(stored_model(&receipt).as_deref(), Some("gpt-5"));
+    // `executionModelId(row)` prefixes the row's source provider (`execution-id.ts:8`).
+    assert_eq!(
+        stored_model(&receipt).as_deref(),
+        Some("openai/gpt-5")
+    );
     let created = receipt
         .shell
         .events("new")
@@ -521,7 +525,7 @@ fn a_create_with_a_catalog_stores_the_model_the_catalog_resolves() {
         .and_then(|thread| thread.get("live"))
         .and_then(|live| live.get("model"))
         .and_then(Value::as_str);
-    assert_eq!(live_model, Some("gpt-5"), "the live block names it too");
+    assert_eq!(live_model, Some("openai/gpt-5"), "the live block names it too");
 }
 
 #[test]

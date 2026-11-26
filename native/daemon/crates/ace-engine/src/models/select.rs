@@ -162,10 +162,16 @@ pub fn select(
     {
         return reject(catalog, provider, model, instance);
     }
-    let Some(model) = resolution.get("model").and_then(Value::as_str) else {
+    // A resolution's model is the catalog row itself (`CatalogModel`), not its id: the provider's
+    // launch id is `executionModelId(row)` (`execution-id.ts:8`).
+    let Some(row) = resolution.get("model") else {
         return reject(catalog, provider, model, instance);
     };
-    Ok(Some(execution_model_id(model, None)))
+    let Some(native_model_id) = row.get("nativeModelId").and_then(Value::as_str) else {
+        return reject(catalog, provider, model, instance);
+    };
+    let native_provider_id = row.get("nativeProviderId").and_then(Value::as_str);
+    Ok(Some(execution_model_id(native_model_id, native_provider_id)))
 }
 
 fn reject(
@@ -224,6 +230,15 @@ mod tests {
         ace_json::parse(text).expect("json")
     }
 
+    /// A `ModelResolution` as `models.resolve` returns it: `model` is the whole `CatalogModel`
+    /// row (`packages/protocol/src/models.ts:200`-`:208`), required fields and all.
+    fn resolved(native_model_id: &str, native_provider_id: Option<&str>) -> Value {
+        value(&crate::repository::testsupport::model_resolution(
+            native_model_id,
+            native_provider_id,
+        ))
+    }
+
     #[test]
     fn without_a_catalog_select_is_the_default_sentinel_rule() {
         assert_eq!(select(None, "codex", None, None, None).unwrap(), None);
@@ -240,7 +255,7 @@ mod tests {
     #[test]
     fn a_resolved_model_crosses_as_its_execution_id() {
         let catalog = Fake {
-            resolve: value(r#"{"ok":true,"model":"gpt-5"}"#),
+            resolve: resolved("gpt-5", None),
             ..Fake::default()
         };
         assert_eq!(
@@ -248,6 +263,15 @@ mod tests {
             Some("gpt-5".to_owned())
         );
         assert!(catalog.rejected.borrow().is_empty());
+        // A row with a source provider launches as `provider/model` (`execution-id.ts:8`).
+        let catalog = Fake {
+            resolve: resolved("claude-sonnet", Some("anthropic")),
+            ..Fake::default()
+        };
+        assert_eq!(
+            select(Some(&catalog), "codex", Some("claude-sonnet"), None, None).unwrap(),
+            Some("anthropic/claude-sonnet".to_owned())
+        );
     }
 
     #[test]
@@ -277,7 +301,7 @@ mod tests {
     #[test]
     fn an_acp_row_without_its_identity_is_unavailable_for_an_explicit_model() {
         let catalog = Fake {
-            resolve: value(r#"{"ok":true,"model":"agent/model"}"#),
+            resolve: resolved("agent/model", None),
             ..Fake::default()
         };
         assert_eq!(
