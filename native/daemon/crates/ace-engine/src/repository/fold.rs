@@ -459,10 +459,7 @@ mod tests {
                 let record = &borrowed.state.agents["root"];
                 (
                     record.agent.id.clone(),
-                    record
-                        .active_run
-                        .clone()
-                        .expect("the turn started a run"),
+                    record.active_run.clone().expect("the turn started a run"),
                 )
             })
             .expect("the state is free")
