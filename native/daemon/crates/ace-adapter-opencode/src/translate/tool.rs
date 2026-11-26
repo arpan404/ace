@@ -95,7 +95,7 @@ pub fn tool(
         .or_else(|| native.get("input"))
         .or(ended_input.as_ref());
     // The stored input: the previous one when nothing new arrived, else the
-    // exact command, path, and display fields the tool ran with.
+    // command, path and display fields the tool ran with (prompt and agent cut).
     let stored: String = match supplied {
         None => match previous_input {
             Some(input) => input.get().to_owned(),
@@ -368,5 +368,90 @@ fn status_of(complete: bool, failed: bool, typ: &str) -> &'static str {
         "pending"
     } else {
         "running"
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::tool;
+    use crate::translate::state::{NativeState, Out};
+    use ace_json::{Map, Value, json};
+
+    fn detail(typ: &str, p: Value) -> Value {
+        let mut state = NativeState::new(String::from("root"));
+        let mut buf = String::new();
+        {
+            let mut out = Out::new(&mut buf);
+            let fields = match &p {
+                Value::Object(map) => map.clone(),
+                _ => Map::new(),
+            };
+            tool(
+                &mut state,
+                typ,
+                "session",
+                "message",
+                &fields,
+                &json!({}),
+                &mut out,
+            )
+            .expect("a tool frame never fails to translate");
+        }
+        let facts = match ace_json::parse(&format!("[{buf}]")) {
+            Ok(Value::Array(facts)) => facts,
+            _ => ace_json::Array::default(),
+        };
+        facts
+            .iter()
+            .find(|fact| fact.get("type") == Some(&Value::from("item.reconciled")))
+            .and_then(|fact| fact.pointer("/draft/call/detail").cloned())
+            .unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn an_ended_tool_input_counts_code_points_like_zods_max_65536() {
+        for (payload, accepted) in [(65_523, true), (65_524, false)] {
+            // `{"prompt":"…"}` is 13 code points around the payload.
+            let text = format!(r#"{{"prompt":"{}"}}"#, "😀".repeat(payload));
+            let p = json!({"id": "call", "name": "subagent", "text": text});
+            let detail = detail("session.tool.input.ended", p);
+            let prompt = detail.get("prompt").and_then(Value::as_str).unwrap_or("");
+            if accepted {
+                assert_eq!(
+                    prompt,
+                    "😀".repeat(4096),
+                    "the prompt is sliced to 8,192 units"
+                );
+            } else {
+                assert!(
+                    prompt.is_empty(),
+                    "one code point over the bound is no input"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_spawned_prompt_and_agent_are_sliced_in_utf16_units() {
+        for (prompt, agent, want_prompt, want_agent) in [
+            ("😀".repeat(10), "😀".repeat(10), 10, 10),
+            // 4,097 emoji are 8,194 units; 129 are 258: both cut at the pair.
+            ("😀".repeat(4_097), "😀".repeat(129), 4_096, 128),
+        ] {
+            let p = json!({
+                "id": "call",
+                "name": "subagent",
+                "input": {"prompt": prompt, "agent": agent}
+            });
+            let detail = detail("session.tool.started", p);
+            assert_eq!(
+                detail.get("prompt").and_then(Value::as_str),
+                Some("😀".repeat(want_prompt).as_str())
+            );
+            assert_eq!(
+                detail.get("agentType").and_then(Value::as_str),
+                Some("😀".repeat(want_agent).as_str())
+            );
+        }
     }
 }

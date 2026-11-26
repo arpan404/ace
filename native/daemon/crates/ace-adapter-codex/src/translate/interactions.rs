@@ -370,6 +370,33 @@ mod length_tests {
     use super::*;
 
     #[test]
+    fn a_file_change_path_counts_code_points_at_the_approval_targets_limit() {
+        for length in [4096, 4097] {
+            let path = Value::from("😀".repeat(length));
+            let item = ace_json::json!({
+                "type":"fileChange",
+                "changes":[{"path":path, "kind":{"type":"add"}}]
+            });
+            let facts = open_request(
+                "agent",
+                "key",
+                "item/fileChange/requestApproval",
+                &Map::new(),
+                &Value::Null,
+                false,
+                item.as_object(),
+            );
+            let target = facts
+                .iter()
+                .find_map(|fact| fact.data.to_value().pointer("/request/target").cloned());
+            assert_eq!(target.is_some(), length == 4096, "{length}");
+            if let Some(target) = target {
+                assert_eq!(target.get("paths"), Some(&Value::from(vec![path])));
+            }
+        }
+    }
+
+    #[test]
     fn an_approval_target_accepts_astral_command_and_working_directory_at_their_limits() {
         for (field, limit) in [("command", 32768), ("cwd", 4096)] {
             for length in [limit, limit + 1] {

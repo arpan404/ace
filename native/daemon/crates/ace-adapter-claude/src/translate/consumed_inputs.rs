@@ -98,3 +98,45 @@ fn consumed_fact(root: &str, ids: &[String]) -> Value {
     );
     Value::Object(map)
 }
+
+#[cfg(test)]
+mod length_tests {
+    use super::ConsumedInputs;
+    use crate::translate::frame::FrameView;
+    use crate::translate::state::ClaudeState;
+
+    fn consumed(uuid: &str) -> Vec<String> {
+        let mut state = ClaudeState::new("root");
+        state.active.insert("root".to_owned());
+        let data = ace_json::json!({"type":"assistant", "user_message_uuid": uuid});
+        let frame = FrameView {
+            seq: 1,
+            dir: "recv",
+            channel: "sdk",
+            data: &data,
+            payload_bytes: None,
+        };
+        ConsumedInputs::new().observe(&mut state, &frame);
+        state
+            .facts
+            .iter()
+            .filter_map(|fact| match fact.pointer("/nativeInputIds") {
+                Some(ace_json::Value::Array(ids)) => Some(
+                    ids.iter()
+                        .filter_map(|id| id.as_str().map(str::to_owned))
+                        .collect::<Vec<String>>(),
+                ),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    #[test]
+    fn a_consumed_uuid_counts_utf16_units_like_string_length() {
+        // 256 emoji are 512 UTF-16 units: the last uuid that fits.
+        assert_eq!(consumed(&"😀".repeat(256)).len(), 1);
+        assert!(consumed(&"😀".repeat(257)).is_empty());
+        assert!(consumed(&"x".repeat(513)).is_empty());
+    }
+}

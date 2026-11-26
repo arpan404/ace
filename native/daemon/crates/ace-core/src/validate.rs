@@ -843,4 +843,39 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn turn_permission_mode_and_moved_names_count_code_points() {
+        let state = crate::state::create_thread_state(
+            "thread".to_owned(),
+            None,
+            crate::state::CoreConfig {
+                provider: "codex".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .expect("empty thread");
+        for length in [4096, 4097] {
+            let fact = ace_json::json!({
+                "type":"turn.started", "trigger":"user", "permissionMode":"😀".repeat(length)
+            });
+            assert_eq!(
+                shape_valid(&state, fact.as_object().expect("object"), "turn.started", 0),
+                Ok(length == 4096),
+                "permissionMode"
+            );
+        }
+        for length in [256, 257] {
+            let fact = ace_json::json!({
+                "type":"thread.moved",
+                "to":{"hostId":"h","name":"😀".repeat(length),"threadId":"t"}
+            });
+            assert_eq!(
+                shape_valid(&state, fact.as_object().expect("object"), "thread.moved", 0),
+                Ok(length == 256),
+                "moved name"
+            );
+        }
+    }
 }

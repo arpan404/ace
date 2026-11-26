@@ -256,3 +256,28 @@ pub(crate) fn tool_output_delta(owner: &str, item: &str, output: &str) -> Value 
     map.insert("append".to_owned(), Value::from(output.to_owned()));
     Value::Object(map)
 }
+
+#[cfg(test)]
+mod length_tests {
+    use super::user_text_upsert;
+    use ace_json::Value;
+
+    #[test]
+    fn a_user_draft_native_id_counts_utf16_units_like_string_length() {
+        for (uuid, expected) in [
+            ("😀".repeat(128), true),
+            ("😀".repeat(129), false),
+            ("u".repeat(256), true),
+            ("u".repeat(257), false),
+        ] {
+            let draft = user_text_upsert("agent", "item", &[], false, None, &uuid, Value::Null);
+            let native = draft.pointer("/draft/nativeId");
+            assert_eq!(
+                native.is_some(),
+                expected,
+                "{} UTF-16 units",
+                uuid.encode_utf16().count()
+            );
+        }
+    }
+}

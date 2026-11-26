@@ -1151,4 +1151,210 @@ mod tests {
             assert_eq!(valid_raw_payload(&raw), length == 512);
         }
     }
+
+    #[test]
+    fn native_ref_and_machine_name_bounds_count_code_points() {
+        for length in [1024, 1025] {
+            let text = "😀".repeat(length);
+            let value = ace_json::json!({"provider":"codex","forkedFromNativeId":text});
+            assert_eq!(valid_native_ref(Some(&value)), length == 1024, "forked");
+        }
+        for (field, limit) in [("machine", 64), ("name", 256)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let mut value = ace_json::json!({
+                    "machine":"m", "name":"n", "hostId":"h"
+                });
+                value
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from(text));
+                assert_eq!(
+                    valid_agent_machine(Some(&value)),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn agent_error_details_count_code_points() {
+        for (field, limit) in [
+            ("details.code", 256),
+            ("details.title", 256),
+            ("details.detail", 2048),
+            ("details.model", 256),
+        ] {
+            for length in [limit, limit + 1] {
+                let mut details = ace_json::json!({"code":"code","provider":"codex"});
+                details.as_object_mut().expect("object").insert(
+                    field.trim_start_matches("details."),
+                    Json::from("😀".repeat(length)),
+                );
+                let error = ace_json::json!({
+                    "kind":"provider", "message":"failed", "details":details
+                });
+                assert_eq!(valid_agent_error(Some(&error)), length == limit, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn approval_target_strings_count_code_points() {
+        for (field, limit) in [
+            ("tool", 256),
+            ("description", 2048),
+            ("command", 32768),
+            ("cwd", 4096),
+            ("paths", 4096),
+        ] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let mut target = ace_json::json!({"tool":"tool","access":"execute"});
+                let map = target.as_object_mut().expect("object");
+                if field == "paths" {
+                    map.insert("paths", Json::from(vec![Json::from(text)]));
+                } else {
+                    map.insert(field, Json::from(text));
+                }
+                let request = ace_json::json!({
+                    "kind":"approval", "title":"title", "options":[], "target":target
+                });
+                assert_eq!(
+                    valid_interaction_request(Some(&request)),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn browser_help_strings_count_code_points() {
+        for (field, limit) in [
+            ("tabId", 256),
+            ("message", 1000),
+            ("url", 8192),
+            ("title", 1024),
+        ] {
+            for length in [limit, limit + 1] {
+                let mut request = ace_json::json!({
+                    "kind":"browser_help", "tabId":"tab", "reason":"login", "message":"m"
+                });
+                request
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from("😀".repeat(length)));
+                assert_eq!(
+                    valid_interaction_request(Some(&request)),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn question_feedback_counts_code_points() {
+        for length in [8192, 8193] {
+            let resolution = ace_json::json!({
+                "kind":"question", "answers":{}, "feedback":"😀".repeat(length)
+            });
+            assert_eq!(
+                valid_interaction_resolution(Some(&resolution)),
+                length == 8192
+            );
+        }
+    }
+
+    #[test]
+    fn usage_ids_count_code_points() {
+        for field in ["contextSessionId", "accountId", "counterKey"] {
+            for length in [512, 513] {
+                let mut usage = ace_json::json!({"inputTokens":1,"outputTokens":2});
+                usage
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from("😀".repeat(length)));
+                let map = usage.as_object().expect("object");
+                assert_eq!(valid_usage_like(map, &[]), length == 512, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn goal_objective_and_reason_count_code_points() {
+        for (field, limit) in [("objective", 4000), ("lastReason", 4000)] {
+            for length in [limit, limit + 1] {
+                let mut goal = ace_json::json!({"objective":"work","status":"active"});
+                goal.as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from("😀".repeat(length)));
+                let map = goal.as_object().expect("object");
+                assert_eq!(valid_goal(map), length == limit, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn screen_input_text_and_browser_action_bounds_count_code_points() {
+        for kind in ["text.type", "text.paste"] {
+            for length in [4096, 4097] {
+                let input = ace_json::json!({"kind":kind, "text":"😀".repeat(length)});
+                assert_eq!(valid_screen_input(&input), length == 4096, "{kind}");
+            }
+        }
+        for length in [256, 257] {
+            let action = ace_json::json!({"action":"click", "ref":"😀".repeat(length)});
+            assert_eq!(valid_browser_action(&action), length == 256, "ref");
+        }
+        for length in [65_536, 65_537] {
+            let action = ace_json::json!({
+                "action":"type", "ref":"r", "text":"😀".repeat(length)
+            });
+            assert_eq!(valid_browser_action(&action), length == 65_536, "text");
+        }
+    }
+
+    #[test]
+    fn step_measurement_target_and_notes_count_code_points() {
+        for (field, limit) in [("bundleId", 256), ("threadId", 256), ("tabId", 256)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let target = if field == "bundleId" {
+                    ace_json::json!({"kind":"window", "bundleId":text, "windowId":41})
+                } else {
+                    ace_json::json!({"kind":"browser-tab", "threadId":"t", "tabId":text})
+                };
+                let mut target = target;
+                if field == "threadId" {
+                    target
+                        .as_object_mut()
+                        .expect("object")
+                        .insert("threadId", Json::from(text));
+                }
+                let measurement = ace_json::json!({
+                    "source":"browser-trace", "target":target, "refreshHz":120,
+                    "windowMs":2000, "frames":80, "hitches":[], "verdict":"smooth",
+                    "confidence":"high", "notes":[]
+                });
+                assert_eq!(
+                    valid_step_measurement(&measurement),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+        for length in [512, 513] {
+            let measurement = ace_json::json!({
+                "source":"browser-trace",
+                "target":{"kind":"window", "bundleId":"b", "windowId":41},
+                "refreshHz":120, "windowMs":2000, "frames":80, "hitches":[],
+                "verdict":"smooth", "confidence":"high",
+                "notes":["😀".repeat(length)]
+            });
+            assert_eq!(valid_step_measurement(&measurement), length == 512, "notes");
+        }
+    }
 }

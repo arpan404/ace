@@ -262,6 +262,20 @@ fn a_catalog_slug_is_bounded_in_code_points() {
 }
 
 #[test]
+fn a_catalog_cursor_is_bounded_in_code_points() {
+    for (length, asked_again) in [(4096, true), (4097, false)] {
+        let mut calls = Calls::new();
+        let (mut pager, _) = super::catalog::Pager::start(&mut calls, None);
+        let page = ace_json::json!({
+            "data": [], "nextCursor": "😀".repeat(length)
+        });
+        let effects = pager.page(&mut calls, Some(&page));
+        assert_eq!(effects.len(), usize::from(asked_again), "{length}");
+        assert_eq!(pager.done.is_none(), asked_again, "{length}");
+    }
+}
+
+#[test]
 fn a_tenant_waiting_on_another_tenants_catalog_load_is_woken_with_its_value() {
     let mut cache = CodexCatalogCache::new();
     let mut calls = Calls::new();

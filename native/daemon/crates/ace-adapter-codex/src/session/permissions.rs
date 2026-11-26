@@ -257,6 +257,24 @@ mod tests {
     }
 
     #[test]
+    fn a_permission_profile_counts_code_points_like_zods_max_256() {
+        for length in [256, 257] {
+            let mode = format!(
+                r#"{{"permissions":"{}","approvalsReviewer":"user"}}"#,
+                "😀".repeat(length)
+            );
+            let policy = codex_thread_policy(Some(&mode));
+            assert_eq!(policy.is_ok(), length == 256, "{length}");
+            if let Ok(policy) = policy {
+                assert_eq!(
+                    policy.get("permissions").and_then(Value::as_str),
+                    Some("😀".repeat(256).as_str())
+                );
+            }
+        }
+    }
+
+    #[test]
     fn no_chosen_mode_leaves_codexs_own_configuration_in_place() {
         assert_eq!(
             object(codex_thread_policy(None).expect("nothing chosen")),

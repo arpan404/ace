@@ -395,3 +395,70 @@ pub fn message(
         }
     }
 }
+
+#[cfg(test)]
+mod length_tests {
+    use super::message;
+    use crate::translate::blocks::MessageIndex;
+    use crate::translate::state::ClaudeState;
+    use ace_json::Value;
+    use std::collections::HashMap;
+
+    fn translate(data: &Value) -> ClaudeState {
+        let mut state = ClaudeState::new("root");
+        let mut messages = MessageIndex::new("root");
+        message(&mut state, data, 1, &mut HashMap::new(), &mut messages);
+        state
+    }
+
+    fn field<'a>(state: &'a ClaudeState, pointer: &str) -> Option<&'a Value> {
+        state
+            .facts
+            .iter()
+            .filter(|fact| fact.get("type") == Some(&Value::from("item.upsert")))
+            .find_map(|fact| fact.pointer(pointer))
+    }
+
+    #[test]
+    fn a_native_uuid_counts_utf16_units_like_string_length() {
+        for (uuid, expected) in [
+            ("😀".repeat(128), true),
+            ("😀".repeat(129), false),
+            ("u".repeat(256), true),
+            ("u".repeat(257), false),
+        ] {
+            let data = ace_json::json!({
+                "type":"assistant", "uuid": uuid,
+                "message":{"id":"m", "role":"assistant", "content":[{"type":"text","text":"hi"}]}
+            });
+            let state = translate(&data);
+            let native = field(&state, "/draft/nativeId");
+            assert_eq!(
+                native.is_some(),
+                expected,
+                "{} UTF-16 units",
+                uuid.encode_utf16().count()
+            );
+        }
+    }
+
+    #[test]
+    fn a_provider_error_code_counts_code_points_for_its_details() {
+        for length in [256, 257] {
+            let data = ace_json::json!({
+                "type":"result",
+                "error":"😀".repeat(length),
+                "message":{"content":[{"type":"text","text":"boom"}]}
+            });
+            let state = translate(&data);
+            let details = field(&state, "/draft/details");
+            assert_eq!(details.is_some(), length == 256, "{length}");
+            if length == 256 {
+                assert_eq!(
+                    details.and_then(|details| details.get("code")),
+                    Some(&Value::from("😀".repeat(256)))
+                );
+            }
+        }
+    }
+}

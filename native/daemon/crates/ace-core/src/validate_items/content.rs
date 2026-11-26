@@ -321,3 +321,40 @@ fn valid_catalog_invocation(value: &Json) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod length_tests {
+    use super::{Json, Map, valid_content_part};
+
+    fn file_part(encoding: &str, data: String) -> Json {
+        let mut content = Map::new();
+        content.insert("encoding", Json::from(encoding));
+        content.insert("data", Json::from(data));
+        let mut part = Map::new();
+        part.insert("type", Json::from("file"));
+        part.insert("path", Json::from("/tmp/notes.txt"));
+        part.insert("content", Json::Object(content));
+        Json::Object(part)
+    }
+
+    #[test]
+    fn file_content_text_is_bounded_in_code_points() {
+        for length in [128 * 1024, 128 * 1024 + 1] {
+            let part = file_part("text", "😀".repeat(length));
+            assert_eq!(valid_content_part(&part), length == 128 * 1024);
+        }
+    }
+
+    #[test]
+    fn file_content_base64_is_bounded_in_code_points_not_bytes() {
+        const LIMIT: usize = 44 * 1024 * 1024;
+        // LIMIT / 2 + 1 emoji are 46 M UTF-16 units and 92 MB of UTF-8, both
+        // over the limit, but 23 M code points, under it: only the count the
+        // patched Zod does takes this part.
+        let part = file_part("base64", "😀".repeat(LIMIT / 2 + 1));
+        assert!(valid_content_part(&part), "code points are the unit");
+        drop(part);
+        let part = file_part("base64", "a".repeat(LIMIT + 1));
+        assert!(!valid_content_part(&part), "one code point over the limit");
+    }
+}

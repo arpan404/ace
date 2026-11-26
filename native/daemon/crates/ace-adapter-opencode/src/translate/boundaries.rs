@@ -130,16 +130,38 @@ pub struct SessionInfo<'a> {
     pub values: &'a Map,
 }
 
-/// Validate a session snapshot the way `SessionInfo.parse` does.
+/// Validate a session snapshot the way `SessionInfo.parse` does: `id` is
+/// 1..=512 code points, `projectID` 0..=512, `location.directory` 1..=4096,
+/// and `parentID` is optional but at most 512.
 pub fn parse_session_info(value: &Value) -> Result<SessionInfo<'_>, BoundaryError> {
     let info = fields(value);
-    match info.get("id") {
-        Some(Value::String(id)) if !id.is_empty() && bounded(id, 512) => Ok(SessionInfo {
-            id: id.as_str(),
-            values: info,
-        }),
-        _ => Err(BoundaryError::Event("session.id")),
+    let id = match info.get("id") {
+        Some(Value::String(id)) if !id.is_empty() && bounded(id, 512) => id.as_str(),
+        _ => return Err(BoundaryError::Event("session.id")),
+    };
+    if !matches!(
+        info.get("projectID"),
+        Some(Value::String(project)) if bounded(project, 512)
+    ) {
+        return Err(BoundaryError::Event("session.projectID"));
     }
+    let directory_ok = match info.get("location") {
+        Some(Value::Object(location)) => matches!(
+            location.get("directory"),
+            Some(Value::String(directory))
+                if !directory.is_empty() && bounded(directory, 4096)
+        ),
+        _ => false,
+    };
+    if !directory_ok {
+        return Err(BoundaryError::Event("session.location"));
+    }
+    match info.get("parentID") {
+        None => {}
+        Some(Value::String(parent)) if bounded(parent, 512) => {}
+        _ => return Err(BoundaryError::Event("session.parentID")),
+    }
+    Ok(SessionInfo { id, values: info })
 }
 
 /// Validate a page of native history (`Page` in TypeScript).
@@ -284,6 +306,54 @@ mod length_tests {
                     "{field}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn session_info_checks_project_directory_and_parent_in_code_points() {
+        for (field, limit) in [("projectID", 512), ("directory", 4096), ("parentID", 512)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let mut value = ace_json::json!({
+                    "id":"session", "projectID":"p", "location":{"directory":"/tmp"}
+                });
+                let map = value.as_object_mut().expect("object");
+                match field {
+                    "directory" => {
+                        map.get_mut("location")
+                            .and_then(Value::as_object_mut)
+                            .expect("location")
+                            .insert("directory", Value::from(text));
+                    }
+                    _ => {
+                        map.insert(field, Value::from(text));
+                    }
+                }
+                assert_eq!(
+                    parse_session_info(&value).is_ok(),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+        // Required: `projectID` and `location.directory` must be present, and
+        // the directory is `.min(1)`.
+        for missing in [
+            r#"{"id":"session","location":{"directory":"/tmp"}}"#,
+            r#"{"id":"session","projectID":"p"}"#,
+            r#"{"id":"session","projectID":"p","location":{"directory":""}}"#,
+            r#"{"id":"session","projectID":"p","location":{}}"#,
+        ] {
+            let value = ace_json::parse(missing).expect("fixture");
+            assert!(parse_session_info(&value).is_err(), "{missing}");
+        }
+        // `projectID` and `parentID` have no `.min(1)`: empty is a value.
+        for accepted in [
+            r#"{"id":"session","projectID":"","location":{"directory":"/tmp"}}"#,
+            r#"{"id":"session","projectID":"p","location":{"directory":"/tmp"},"parentID":""}"#,
+        ] {
+            let value = ace_json::parse(accepted).expect("fixture");
+            assert!(parse_session_info(&value).is_ok(), "{accepted}");
         }
     }
 

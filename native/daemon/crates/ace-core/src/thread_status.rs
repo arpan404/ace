@@ -323,3 +323,36 @@ impl serde::Serialize for ThreadStatus {
         }
     }
 }
+
+#[cfg(test)]
+mod length_tests {
+    use super::ThreadStatus;
+
+    fn status(text: &str) -> Option<ThreadStatus> {
+        let value = ace_json::parse(text).expect("fixture parses");
+        ace_json::from_value(&value).ok()
+    }
+
+    #[test]
+    fn an_unknown_state_counts_code_points_like_zods_max_64() {
+        // 64 emoji are 128 UTF-16 units: only code points fit the bound.
+        for length in [64, 65] {
+            let text = format!(r#"{{"state":"{}","raw":{{}}}}"#, "😀".repeat(length));
+            assert_eq!(status(&text).is_some(), length == 64, "{length}");
+            if length == 64 {
+                assert!(matches!(status(&text), Some(ThreadStatus::Unknown { .. })));
+            }
+        }
+    }
+
+    #[test]
+    fn a_moved_name_counts_code_points_like_zods_max_256() {
+        for length in [256, 257] {
+            let text = format!(
+                r#"{{"state":"moved","to":{{"hostId":"h","name":"{}","threadId":"t"}}}}"#,
+                "😀".repeat(length)
+            );
+            assert_eq!(status(&text).is_some(), length == 256, "{length}");
+        }
+    }
+}
