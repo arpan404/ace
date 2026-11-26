@@ -1026,8 +1026,12 @@ pub(crate) fn thread_quiescent(
     id: &str,
 ) -> Result<bool, EngineError> {
     let snapshot = state.repo.require_state(store, id)?;
+    let has_run = snapshot.borrow().state.has_run;
+    if !has_run && crate::intents::store::awaiting(store.conn(), id)?.is_some() {
+        return Ok(false);
+    }
     let view = snapshot.borrow_mut().quiescence_view()?;
-    let ready = readiness::agents_ready(store.conn(), id)?;
+    let ready = readiness::rebuilt(store, state, id)? && readiness::agents_ready(store.conn(), id)?;
     Ok(readiness::quiescent(&view, ready))
 }
 

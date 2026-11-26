@@ -57,7 +57,7 @@ impl Default for State {
             commands: commands::Commands,
             sessions: sessions::Sessions,
             recovery: recovery::Recovery::default(),
-            transitions: transitions::Transitions,
+            transitions: transitions::Transitions::default(),
             liveness: liveness::Liveness,
             engine: std::rc::Weak::new(),
             deferred_queue: Vec::new(),

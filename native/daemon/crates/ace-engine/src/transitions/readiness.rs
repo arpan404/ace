@@ -20,7 +20,7 @@
 use crate::repository::collaborators::QuiescenceView;
 use crate::repository::residency::cell_text;
 use crate::snapshot::Snapshot;
-use crate::{EngineError, State};
+use crate::{EngineError, EngineStore, State};
 use ace_core::person_input::PersonInputFacts;
 use ace_core::state::AgentRecord;
 use ace_core::status::AgentStatus;
@@ -98,6 +98,9 @@ pub fn accepts_person_input(
     thread: &str,
     now: i64,
 ) -> Result<bool, EngineError> {
+    if !state.transitions.rebuilt.contains(thread) {
+        return Ok(false);
+    }
     let Some(snapshot) = state.readiness_snapshot(thread)? else {
         return Err(EngineError::MissingState);
     };
@@ -135,12 +138,33 @@ pub fn accepts_person_input(
     ))
 }
 
+/// Whether the thread's readiness rebuild committed this boot.
+pub fn rebuilt(store: &EngineStore, state: &State, thread: &str) -> Result<bool, EngineError> {
+    let _ = store;
+    Ok(state.transitions.rebuilt.contains(thread))
+}
+
+pub fn mark_rebuilt(state: &mut State, thread: &str) {
+    state.transitions.rebuilt.insert(thread.to_owned());
+}
+
 /// `TransitionReadiness.agentsReady` (`:88`): no stored blocker for the thread.
 pub fn agents_ready(
     conn: &std::sync::Arc<ace_store::Connection>,
     thread: &str,
 ) -> Result<bool, EngineError> {
     Ok(stmt_cache::get_row(conn, FIND, vec![Cell::Text(thread.to_owned())])?.is_none())
+}
+
+pub fn agents_ready_checked(
+    store: &EngineStore,
+    state: &State,
+    thread: &str,
+) -> Result<bool, EngineError> {
+    if !rebuilt(store, state, thread)? {
+        return Ok(false);
+    }
+    agents_ready(store.conn(), thread)
 }
 
 /// `TransitionReadiness.update` (`:59`): one agent's blocker row follows its record.
@@ -164,30 +188,113 @@ fn update(
     Ok(())
 }
 
-/// `TransitionReadiness`'s construction (`:54`): the boot rebuild drops every blocker and seeds
-/// one for each stored agent record that is not ready. E5.3 runs it as an idle fill; it reads
-/// only the agent records, never the transcript.
-pub fn rebuild(conn: &std::sync::Arc<ace_store::Connection>, now: i64) -> Result<(), EngineError> {
-    stmt_cache::run(conn, "DELETE FROM engine_transition_blockers", Vec::new())?;
-    let rows = stmt_cache::all_rows(
-        conn,
-        "SELECT thread_id,key,value FROM engine_state_records WHERE section='agents'",
-        Vec::new(),
-    )?;
-    for row in rows {
-        let cell = |column: &str| row.get(column).and_then(cell_text).map(str::to_owned);
-        let (Some(thread), Some(key), Some(value)) =
-            (cell("thread_id"), cell("key"), cell("value"))
-        else {
-            continue;
-        };
-        let parsed =
-            ace_json::parse(&value).map_err(|error| EngineError::Records(error.to_string()))?;
-        let record: AgentRecord = ace_json::from_value(&parsed)
-            .map_err(|error| EngineError::Records(error.to_string()))?;
-        if !agent_ready(&record, now) {
-            stmt_cache::run(conn, PUT, vec![Cell::Text(thread), Cell::Text(key)])?;
+const REBUILD_SLICE: i64 = 256;
+
+/// `TransitionReadiness`'s construction (`:54`): rebuild one thread in bounded slices, without
+/// clearing other threads' blockers until the thread's replacement is ready.
+pub fn rebuild_thread(
+    conn: &std::sync::Arc<ace_store::Connection>,
+    now: i64,
+    thread: &str,
+) -> Result<(), EngineError> {
+    loop {
+        let (deleted, _) = stmt_cache::run(
+            conn,
+            "DELETE FROM engine_transition_blockers WHERE rowid IN (SELECT rowid FROM engine_transition_blockers WHERE thread_id=? LIMIT ?)",
+            vec![Cell::Text(thread.to_owned()), Cell::Integer(REBUILD_SLICE)],
+        )?;
+        if deleted == 0 {
+            break;
         }
+    }
+    let mut cursor = String::new();
+    loop {
+        let rows = stmt_cache::all_rows(
+            conn,
+            "SELECT key,value FROM engine_state_records WHERE section='agents' AND thread_id=? AND key>? ORDER BY key LIMIT ?",
+            vec![
+                Cell::Text(thread.to_owned()),
+                Cell::Text(cursor.clone()),
+                Cell::Integer(REBUILD_SLICE),
+            ],
+        )?;
+        if rows.is_empty() {
+            break;
+        }
+        for row in &rows {
+            let key = row
+                .get("key")
+                .and_then(cell_text)
+                .ok_or_else(|| EngineError::Records("agent key".into()))?;
+            let value = row
+                .get("value")
+                .and_then(cell_text)
+                .ok_or_else(|| EngineError::Records("agent record".into()))?;
+            let parsed =
+                ace_json::parse(value).map_err(|error| EngineError::Records(error.to_string()))?;
+            let record: AgentRecord = ace_json::from_value(&parsed)
+                .map_err(|error| EngineError::Records(error.to_string()))?;
+            if !agent_ready(&record, now) {
+                stmt_cache::run(
+                    conn,
+                    PUT,
+                    vec![Cell::Text(thread.to_owned()), Cell::Text(key.to_owned())],
+                )?;
+            }
+            cursor = key.to_owned();
+        }
+    }
+    let leftover = stmt_cache::get_row(
+        conn,
+        "SELECT agent_key FROM engine_transition_blockers WHERE thread_id=? AND agent_key NOT IN (SELECT key FROM engine_state_records WHERE section='agents' AND thread_id=?) LIMIT 1",
+        vec![Cell::Text(thread.to_owned()), Cell::Text(thread.to_owned())],
+    )?;
+    if leftover.is_some() {
+        stmt_cache::run(
+            conn,
+            "DELETE FROM engine_transition_blockers WHERE thread_id=? AND agent_key NOT IN (SELECT key FROM engine_state_records WHERE section='agents' AND thread_id=?)",
+            vec![Cell::Text(thread.to_owned()), Cell::Text(thread.to_owned())],
+        )?;
+    }
+    Ok(())
+}
+
+/// Rebuild every thread that has agent records or stale blockers, marking each when done.
+pub fn rebuild(
+    conn: &std::sync::Arc<ace_store::Connection>,
+    now: i64,
+) -> Result<Vec<String>, EngineError> {
+    let mut threads = std::collections::HashSet::new();
+    for row in stmt_cache::all_rows(
+        conn,
+        "SELECT DISTINCT thread_id FROM engine_state_records WHERE section='agents'",
+        Vec::new(),
+    )? {
+        if let Some(id) = row.get("thread_id").and_then(cell_text) {
+            threads.insert(id.to_owned());
+        }
+    }
+    for row in stmt_cache::all_rows(
+        conn,
+        "SELECT DISTINCT thread_id FROM engine_transition_blockers",
+        Vec::new(),
+    )? {
+        if let Some(id) = row.get("thread_id").and_then(cell_text) {
+            threads.insert(id.to_owned());
+        }
+    }
+    let mut done = Vec::new();
+    for thread in threads {
+        rebuild_thread(conn, now, &thread)?;
+        done.push(thread);
+    }
+    Ok(done)
+}
+
+/// On boot, rebuild readiness for loaded threads in bounded steps.
+pub fn boot_rebuild(store: &EngineStore, state: &mut State, now: i64) -> Result<(), EngineError> {
+    for thread in rebuild(store.conn(), now)? {
+        mark_rebuilt(state, &thread);
     }
     Ok(())
 }
@@ -376,6 +483,7 @@ mod tests {
             ace_core::person_input::accepts_person_input(&cold, 0),
             "the cold state alone reads no root, which is the bug the load fixes"
         );
+        state.transitions.rebuilt.insert("t".to_owned());
         assert!(
             !accepts_person_input(&mut state, "t", 0).expect("an answer"),
             "the root's active run holds the thread"
@@ -390,6 +498,7 @@ mod tests {
             .expect("corrupt agent");
         let mut state = State::default();
         state.repo.probe_passthrough = true;
+        state.transitions.rebuilt.insert("t".to_owned());
         let _ = state.repo.require_state(&store, "t").expect("snapshot");
         let error = accepts_person_input(&mut state, "t", 0).expect_err("a corrupt row fails");
         assert!(
@@ -417,7 +526,11 @@ mod tests {
             stored(agent_json("a-idle", "idle", None))
         ))
         .expect("idle");
-        rebuild(&conn, 10).expect("rebuild");
+        let mut state = State::default();
+        let threads = rebuild(&conn, 10).expect("rebuild");
+        for thread in threads {
+            mark_rebuilt(&mut state, &thread);
+        }
         let keys = stmt_cache::all_rows(&conn, KEYS, vec![Cell::Text("t".into())])
             .expect("rows")
             .iter()

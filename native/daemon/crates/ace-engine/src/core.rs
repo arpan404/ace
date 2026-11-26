@@ -374,6 +374,8 @@ impl Core {
             let after = scan.after().to_owned();
             scan.restart(after);
         }
+        let now = self.ports.now() as i64;
+        self.with_state(|state| transitions::boot(&self.store, state, now))??;
         self.with_state(|state| {
             state.lifecycle = Lifecycle::Ready;
         })

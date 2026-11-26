@@ -2473,6 +2473,8 @@ For every E5 item:
 
 ## When you are done
 
+- E5.9: `thread.fork` creation still waits on E5.4e’s `create_engine_thread` (`commands::create`);
+  merge and switch dispatch run in Rust `transitions::dispatch` without a TS bridge.
 - Every (a) file of your item passes alone with the switch on and off; your (b) cases pass as
   `cargo test -p <crate>`; `check:daemon-native` passes.
 - Report: the files run and their results, the bench figures off and on, any behaviour you found

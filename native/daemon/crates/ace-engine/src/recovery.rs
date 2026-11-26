@@ -29,9 +29,13 @@ pub fn prepare(_state: &mut State) -> Result<(), EngineError> {
 }
 
 /// `recovery.prepare(thread)` and `recoverEngine`'s per-thread recovery (E5.8).
-pub fn recover_thread(_state: &mut State, thread: &ThreadId) -> Result<(), EngineError> {
-    let _ = thread;
-    Err(EngineError::not_ported("restart recovery", "E5.8"))
+pub fn recover_thread(state: &mut State, thread: &ThreadId) -> Result<(), EngineError> {
+    let Some(core) = state.engine.upgrade() else {
+        return Ok(());
+    };
+    state.transition_prune_guards(&core.store)?;
+    crate::transitions::dispatch::recover_thread(&core, state, thread)?;
+    Ok(())
 }
 
 /// `recovery.close()`: E5.8's. E5.1 fails at the call, naming the item; close reports it and

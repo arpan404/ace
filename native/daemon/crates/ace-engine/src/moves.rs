@@ -200,10 +200,10 @@ pub fn drop_carried_session(
     let mut metadata =
         crate::transitions::metadata::metadata_json(&state.transition_get(store, id)?);
     metadata.shift_remove("fork");
-    state.transition_set(store, id, &Value::Object(metadata))?;
-    store.atomic(|tx| {
+    store.atomic(|_tx| {
+        state.transition_set(store, id, &Value::Object(metadata))?;
         ace_store::stmt_cache::run(
-            tx.conn(),
+            store.conn(),
             "UPDATE engine_sessions SET native_session_id=NULL WHERE thread_id=?",
             vec![ace_store::Value::Text(id.to_owned())],
         )?;
