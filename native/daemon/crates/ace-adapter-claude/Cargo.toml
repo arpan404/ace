@@ -12,6 +12,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dev-dependencies]
+# tokio: the shell's tests spawn a real child through the supervisor, which needs a runtime
+# handle; the features are the ones ace-supervisor already turns on.
+tokio = { version = "1.54", features = ["rt-multi-thread", "time"] }
+
 [dependencies]
 # ace-adapter-api: the Adapter, Translator and Session traits this provider implements, plus the
 # frame direction, elision and JSON helpers the session shares with every adapter.

@@ -8,7 +8,9 @@ use ace_supervisor::peer::{Direction, PeerEffect, Timeout};
 use super::{ack_writes, settlements};
 use crate::session::core::{AcpCore, AcpCoreConfig, AcpEffect, CODE_RPC_ERROR};
 use crate::session::frames::MAX_PROVIDER_PAYLOAD_BYTES;
+use crate::session::mcp::McpConfig;
 use crate::session::quirks::AcpSessionQuirks;
+use crate::translate::frame_redaction::LEASE_REDACTION;
 
 /// An outbound request whose frame cannot be captured rejects only its own call, as
 /// `#send` throws at the observer before the write (`jsonrpc.ts:285`, `:229`), and the
@@ -89,6 +91,7 @@ fn an_uncapturable_reply_fails_the_session_even_when_its_id_matches_a_pending_ca
             PeerEffect::Frame {
                 dir: Direction::Send,
                 value: reply,
+                text: None,
             },
             PeerEffect::Write {
                 wire: b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n".to_vec(),
@@ -282,4 +285,108 @@ fn prompt_end_cancellation_replies_are_captured_after_the_prompt_end_frame() {
         prompt_end < cancellation,
         "the prompt-end frame comes before the replies it cancels: {effects:?}"
     );
+}
+
+/// The frame a session publishes is the line the agent wrote, not a re-serialization of
+/// the tree it parsed: the line's own spacing and duplicate key survive.
+#[test]
+fn a_published_frame_is_the_agents_own_line() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-line",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let line = r#"{ "jsonrpc": "2.0", "method": "custom/update", "params": { "a": 1, "a": 2 } }"#;
+    let effects = core.stdout_bytes(format!("{line}\n").as_bytes());
+    let published: Vec<&str> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            AcpEffect::Frame { text, dir, .. } if *dir == FrameDirection::Recv => {
+                Some(text.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(published, vec![line]);
+}
+
+/// A line holding a lease secret is the one frame walked: what is published is that
+/// frame with the secret replaced, everything else the agent wrote kept.
+#[test]
+fn a_published_frame_holding_a_lease_secret_is_redacted() {
+    let mut config = AcpCoreConfig::new("t-secret", "/work", AcpSessionQuirks::generic());
+    config.mcp = Some(McpConfig {
+        http_servers: Vec::new(),
+        stdio_servers: Vec::new(),
+        configured_servers: Vec::new(),
+        secrets: vec!["top-secret-lease".to_owned()],
+        instructions: None,
+        developer_instructions: None,
+    });
+    let (mut core, _) = AcpCore::new(config);
+    let line = json!({
+        "jsonrpc": "2.0",
+        "method": "custom/update",
+        "params": { "token": "Bearer top-secret-lease", "kept": [1, { "deep": true }] }
+    })
+    .to_json();
+    let effects = core.stdout_bytes(format!("{line}\n").as_bytes());
+    let published = effects
+        .iter()
+        .find_map(|effect| match effect {
+            AcpEffect::Frame { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert!(!published.contains("top-secret-lease"));
+    assert!(published.contains(LEASE_REDACTION));
+    assert_eq!(
+        ace_json::parse(&published).unwrap_or(ace_json::Value::Null),
+        json!({
+            "jsonrpc": "2.0",
+            "method": "custom/update",
+            "params": { "token": format!("Bearer {LEASE_REDACTION}"), "kept": [1, { "deep": true }] }
+        })
+    );
+}
+
+/// A lease secret the agent spelled with JSON escapes never reaches the published frame:
+/// `\/` and `\uXXXX` both decode to the secret, so the line is walked.
+#[test]
+fn a_published_frame_holding_an_escaped_lease_secret_is_redacted() {
+    for (secret, spelled) in [
+        ("lease/0123456789abcdef", r#"lease\/0123456789abcdef"#),
+        ("lease-0123456789abcdef", r#"le\u0061se-0123456789abcdef"#),
+    ] {
+        let mut config =
+            AcpCoreConfig::new("t-escaped-secret", "/work", AcpSessionQuirks::generic());
+        config.mcp = Some(McpConfig {
+            http_servers: Vec::new(),
+            stdio_servers: Vec::new(),
+            configured_servers: Vec::new(),
+            secrets: vec![secret.to_owned()],
+            instructions: None,
+            developer_instructions: None,
+        });
+        let (mut core, _) = AcpCore::new(config);
+        let line = format!(
+            r#"{{"jsonrpc":"2.0","method":"custom/echo","params":{{"value":"{spelled}"}}}}"#
+        );
+        let effects = core.stdout_bytes(format!("{line}\n").as_bytes());
+        let published = effects
+            .iter()
+            .find_map(|effect| match effect {
+                AcpEffect::Frame { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let parsed = ace_json::parse(&published).unwrap_or(ace_json::Value::Null);
+        assert_eq!(
+            parsed
+                .pointer("/params/value")
+                .and_then(ace_json::Value::as_str),
+            Some(LEASE_REDACTION),
+            "{secret} spelled {spelled} must not reach the frame: {published}"
+        );
+    }
 }

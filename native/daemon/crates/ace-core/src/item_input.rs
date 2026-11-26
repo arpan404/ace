@@ -129,6 +129,7 @@ pub fn merge_candidate(
     {
         overlay_value(&mut candidate, &to_map(previous));
     }
+    // packages/core/src/item-input.ts:83-84 reuses omitted parts or replaces the entire list.
     overlay(&mut candidate, patch);
     candidate.insert("id".to_owned(), Json::from(base.id.clone()));
     candidate.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));
@@ -152,14 +153,16 @@ fn merge_tool_candidate(
     };
     let empty = Map::new();
     let patch_call = draft_call(patch).unwrap_or(&empty);
-    let normalized = crate::ace_tools::normalize_ace_call(patch_call, previous_call);
-    let call_map = normalized;
-    let mut detail_patch = detail_patch.cloned().unwrap_or_default();
-    if call_map.get("detail").and_then(|detail| match detail {
-        Json::Object(map) => str_field(map, "kind"),
+    // packages/core/src/ace-tools.ts:227-245 may reuse MCP detail or build redacted detail.
+    let call_map = crate::ace_tools::normalize_ace_call(patch_call, previous_call);
+    let normalized_detail = match call_map.get("detail") {
+        Some(Json::Object(detail)) => Some(detail),
         _ => None,
-    }) == Some("mcp")
-        && let Some(Json::Object(detail)) = call_map.get("detail")
+    };
+    let normalized_detail_kind = normalized_detail.and_then(|detail| str_field(detail, "kind"));
+    let mut detail_patch = detail_patch.cloned().unwrap_or_default();
+    if normalized_detail_kind == Some("mcp")
+        && let Some(detail) = normalized_detail
     {
         detail_patch = detail.clone();
     }
@@ -176,10 +179,8 @@ fn merge_tool_candidate(
         .unwrap_or_else(|| "custom".to_owned());
     // `output` summaries belong to core; adapters append output deltas.
     detail_patch.remove("output");
-    // The prior detail carries over only when its kind is the draft detail's
-    // kind (or the call kind when the draft names none); else a kind marker.
-    let draft_detail_kind = draft_detail(patch).and_then(|detail| str_field(detail, "kind"));
-    let mut merged_detail = prior_merged_detail(&prior_call_value, draft_detail_kind, &kind);
+    // packages/core/src/item-input.ts:47 spreads same-kind detail or starts with { kind }.
+    let mut merged_detail = prior_merged_detail(&prior_call_value, normalized_detail_kind, &kind);
     overlay(&mut merged_detail, &detail_patch);
     if merged_detail.get("kind").and_then(|kind| kind.as_str()) == Some("shell") {
         if let Some(Json::String(output)) = merged_detail.get("output").cloned() {

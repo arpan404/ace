@@ -2,7 +2,7 @@
 //! SSE events (`translator.ts`: events). Durable cursors deliver exactly
 //! once; execution, tool, interaction, and inbox events fold into facts.
 
-use crate::translate::boundaries::{event_session, order_envelope, parse_native_event};
+use crate::translate::boundaries::{NativeEvent, event_session, order_envelope};
 use crate::translate::data::{Num, fields, get, n_in, n_in_fb, retry_reason, s_in};
 use crate::translate::interactions::interaction;
 use crate::translate::projected::{TextLoc, synthetic_kind, text};
@@ -15,13 +15,15 @@ use ace_json::{Map, Value};
 
 impl Translator {
     #[allow(clippy::too_many_lines)]
+    /// One SSE event the caller already validated: the session's hot path
+    /// parses the envelope once and hands it here borrowed (`frames.rs:70`).
     pub(crate) fn event(
         &mut self,
+        event: &NativeEvent<'_>,
         envelope: &Value,
         now: f64,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
-        let event = parse_native_event(envelope)?;
         // Evidence embeds the envelope as `NativeEvent.parse` emits it:
         // schema keys first, the rest in arrival order.
         let ordered = order_envelope(envelope);
@@ -94,7 +96,7 @@ impl Translator {
         if typ == "shell.exited" || typ == "shell.deleted" {
             return self.shell_exited(typ, p, created.unwrap_or(MAX_SAFE), out);
         }
-        let id = event_session(envelope);
+        let id = event_session(envelope).to_owned();
         if !self.state.agents.contains_key(&id) {
             return Ok(());
         }

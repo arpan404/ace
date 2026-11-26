@@ -1,0 +1,676 @@
+{
+  "generator": "scripts/opencode-routes.ts",
+  "client": "@opencode/client 2.0.22",
+  "routes": [
+    {
+      "op": "session.create",
+      "params": {
+        "id": "ses_new",
+        "parentID": "ses_parent",
+        "title": "ace",
+        "agent": "build",
+        "model": {
+          "providerID": "anthropic",
+          "id": "claude",
+          "variant": "high"
+        },
+        "location": {
+          "directory": "/work"
+        },
+        "metadata": {
+          "source": "ace"
+        },
+        "permissions": {
+          "edit": "ask"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session",
+      "body": {
+        "id": "ses_new",
+        "parentID": "ses_parent",
+        "title": "ace",
+        "agent": "build",
+        "model": {
+          "providerID": "anthropic",
+          "id": "claude",
+          "variant": "high"
+        },
+        "location": {
+          "directory": "/work"
+        },
+        "metadata": {
+          "source": "ace"
+        },
+        "permissions": {
+          "edit": "ask"
+        }
+      }
+    },
+    {
+      "op": "session.get",
+      "params": {
+        "sessionID": "a/b?c d!'()~*",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session/a%2Fb%3Fc%20d!'()~*"
+    },
+    {
+      "op": "session.list",
+      "params": {
+        "limit": 128,
+        "order": "asc",
+        "search": "need le!'()~*",
+        "parentID": "ses_parent",
+        "directory": "/work",
+        "project": "prj",
+        "subpath": "sub/dir",
+        "cursor": "children:2",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session?limit=128&order=asc&search=need+le%21%27%28%29%7E*&parentID=ses_parent&directory=%2Fwork&project=prj&subpath=sub%2Fdir&cursor=children%3A2"
+    },
+    {
+      "op": "session.active",
+      "params": {},
+      "method": "GET",
+      "target": "/api/session/active"
+    },
+    {
+      "op": "session.update",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "title": "ace",
+        "metadata": {
+          "source": "ace"
+        },
+        "permissions": {
+          "edit": "ask"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "PATCH",
+      "target": "/api/session/ses_1",
+      "body": {
+        "title": "ace",
+        "metadata": {
+          "source": "ace"
+        },
+        "permissions": {
+          "edit": "ask"
+        }
+      }
+    },
+    {
+      "op": "session.switchAgent",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "agent": "build",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/agent",
+      "body": {
+        "agent": "build"
+      }
+    },
+    {
+      "op": "session.switchModel",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "model": {
+          "providerID": "anthropic",
+          "id": "claude",
+          "variant": "high"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/model",
+      "body": {
+        "model": {
+          "providerID": "anthropic",
+          "id": "claude",
+          "variant": "high"
+        }
+      }
+    },
+    {
+      "op": "session.interrupt",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "resume": true,
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/interrupt?resume=true"
+    },
+    {
+      "op": "session.prompt",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "id": "msg_2",
+        "text": "hello",
+        "files": [
+          {
+            "path": "a.txt",
+            "mime": "text/plain"
+          }
+        ],
+        "agents": [
+          "build"
+        ],
+        "skills": [
+          "review"
+        ],
+        "metadata": {
+          "source": "ace"
+        },
+        "delivery": "async",
+        "resume": false,
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/prompt",
+      "body": {
+        "id": "msg_2",
+        "text": "hello",
+        "files": [
+          {
+            "path": "a.txt",
+            "mime": "text/plain"
+          }
+        ],
+        "agents": [
+          "build"
+        ],
+        "skills": [
+          "review"
+        ],
+        "metadata": {
+          "source": "ace"
+        },
+        "delivery": "async",
+        "resume": false
+      }
+    },
+    {
+      "op": "session.command",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "name": "init",
+        "text": "hello",
+        "files": [
+          {
+            "path": "a.txt",
+            "mime": "text/plain"
+          }
+        ],
+        "agents": [
+          "build"
+        ],
+        "skills": [
+          "review"
+        ],
+        "delivery": "async",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/command",
+      "body": {
+        "name": "init",
+        "text": "hello",
+        "files": [
+          {
+            "path": "a.txt",
+            "mime": "text/plain"
+          }
+        ],
+        "agents": [
+          "build"
+        ],
+        "skills": [
+          "review"
+        ],
+        "delivery": "async"
+      }
+    },
+    {
+      "op": "session.environment",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "variables": {
+          "ACE_CONTEXT": "1"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "PUT",
+      "target": "/api/session/ses_1/environment",
+      "body": {
+        "variables": {
+          "ACE_CONTEXT": "1"
+        }
+      }
+    },
+    {
+      "op": "session.instructions.put",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "key": "ace.tool-guidance",
+        "value": "guidance",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "PUT",
+      "target": "/api/experimental/session/ses_1/instructions/entries/ace.tool-guidance",
+      "body": {
+        "value": "guidance"
+      }
+    },
+    {
+      "op": "session.message.get",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session/ses_1/message/msg_1"
+    },
+    {
+      "op": "message.list",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "limit": 64,
+        "order": "desc",
+        "cursor": "cursor:1",
+        "type": "user",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session/ses_1/message?limit=64&order=desc&cursor=cursor%3A1&type=user"
+    },
+    {
+      "op": "permission.list",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session/ses_1/permission"
+    },
+    {
+      "op": "permission.reply",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "decision": "once",
+        "message": "yes",
+        "answer": {
+          "q": "a"
+        },
+        "cancel": false,
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/permission/per_1/reply",
+      "body": {
+        "decision": "once",
+        "message": "yes"
+      }
+    },
+    {
+      "op": "session.form.list",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session/ses_1/form"
+    },
+    {
+      "op": "session.form.reply",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "cancel": false,
+        "message": "noise",
+        "answer": {
+          "q": "a"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/session/ses_1/form/frm_1/reply",
+      "body": {
+        "answer": {
+          "q": "a"
+        }
+      }
+    },
+    {
+      "op": "session.form.cancel",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "cancel": true,
+        "message": "dismissed",
+        "answer": {
+          "q": "a"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "DELETE",
+      "target": "/api/session/ses_1/form/frm_1?message=dismissed"
+    },
+    {
+      "op": "session.inbox.list",
+      "params": {
+        "sessionID": "ses_1",
+        "messageID": "msg_1",
+        "requestID": "per_1",
+        "formID": "frm_1",
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/session/ses_1/inbox"
+    },
+    {
+      "op": "shell.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/shell?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "shell.get",
+      "params": {
+        "id": "sh_1",
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/shell/sh_1?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "shell.remove",
+      "params": {
+        "id": "sh_1",
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "DELETE",
+      "target": "/api/shell/sh_1?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "model.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/model?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "model.default",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/model/default?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "command.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/command?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "skill.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/skill?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "agent.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/agent?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "plugin.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/plugin?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "mcp.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/mcp?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "mcp.add",
+      "params": {
+        "server": "ace",
+        "location": {
+          "directory": "/work"
+        },
+        "config": {
+          "type": "remote",
+          "url": "http://127.0.0.1:1/mcp"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "PUT",
+      "target": "/api/experimental/mcp/ace?location%5Bdirectory%5D=%2Fwork",
+      "body": {
+        "config": {
+          "type": "remote",
+          "url": "http://127.0.0.1:1/mcp"
+        }
+      }
+    },
+    {
+      "op": "mcp.connect",
+      "params": {
+        "server": "ace",
+        "location": {
+          "directory": "/work"
+        },
+        "config": {
+          "type": "remote"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/experimental/mcp/ace/connect?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "mcp.disconnect",
+      "params": {
+        "server": "ace",
+        "location": {
+          "directory": "/work"
+        },
+        "config": {
+          "type": "remote"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/experimental/mcp/ace/disconnect?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "agent.environment.settle",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "input": {
+          "sessionID": "ses_1",
+          "ok": true,
+          "message": "settled"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/rpc/ace.agent.environment/settle?location%5Bdirectory%5D=%2Fwork",
+      "body": {
+        "input": {
+          "sessionID": "ses_1",
+          "ok": true,
+          "message": "settled"
+        }
+      }
+    },
+    {
+      "op": "mcp.readiness.ready",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "input": {},
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/rpc/ace.mcp.readiness/ready?location%5Bdirectory%5D=%2Fwork",
+      "body": {
+        "input": {}
+      }
+    },
+    {
+      "op": "integration.list",
+      "params": {
+        "location": {
+          "directory": "/work"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "GET",
+      "target": "/api/integration?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
+      "op": "event.subscribe",
+      "params": {},
+      "method": "GET",
+      "target": "/api/event"
+    }
+  ]
+}

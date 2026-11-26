@@ -6,12 +6,19 @@
 //! I/O of its own, so the TypeScript shell runs the SDK command and this crate says which
 //! command, with which arguments, or which `DeviceError` refuses it. Words come from
 //! `native/daemon/catalog/devices.json` ([`words`]); every result serializes through `ace-json`.
+pub mod android_skin;
+pub mod android_skin_files;
 pub mod android_ui;
 pub mod boot;
 pub mod budget;
 pub mod capture;
+pub mod chrome;
+pub mod chrome_raster;
 pub mod clipboard;
 pub mod commands;
+pub mod device_chrome_reader;
+pub mod device_chrome_sources;
+pub mod device_images;
 pub mod device_input;
 pub mod emulator;
 pub mod emulator_grpc;
@@ -23,6 +30,7 @@ pub mod host_frames;
 pub mod http;
 pub mod identity;
 pub mod jpeg;
+pub mod jsnum;
 pub mod keys;
 pub mod lifecycle;
 pub mod list;
@@ -31,6 +39,12 @@ pub mod logs;
 pub mod media_paths;
 pub mod mjpeg;
 pub mod one_off_screenshot;
+pub mod paths;
+pub mod pdf_lexer;
+pub mod pdf_objects;
+pub mod pdf_paint;
+pub mod pdf_style;
+pub mod pdf_svg;
 pub mod posture;
 pub mod recording;
 pub mod recording_artifact;
@@ -41,15 +55,22 @@ pub mod sdk;
 pub mod serve_sim;
 pub mod simulator_avcc;
 pub mod simulator_ax;
+pub mod simulator_body;
 pub mod simulator_capture;
+pub mod simulator_chrome;
+pub mod simulator_chrome_file;
+pub mod simulator_chrome_source;
 pub mod simulator_frames;
 pub mod simulator_jpeg;
+pub mod simulator_panels;
 pub mod simulator_rotation;
 pub mod simulator_source_rate;
 pub mod simulator_transcode;
 pub mod simulator_ui;
 pub mod simulators;
 pub mod still_writer;
+#[cfg(test)]
+pub mod test_pdf;
 pub mod tools;
 pub mod words;
 

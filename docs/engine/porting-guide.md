@@ -1368,7 +1368,13 @@ Later, not part of the pilot (owner decision 4).
   `apps/daemon/src/engine/` `acp-selection.process`, `acp-resume-failure.process`,
   `acp-stop-shell.process`, `acp-access.process`, `adapter-echo.process`.
 - **Cross-mode**, both ways: `adapter-acp/src/integration-restart.test.ts`,
-  `engine/acp-resume-failure.process`, `engine/acp-selection.process`.
+  `engine/acp-resume-failure.process`, `engine/acp-selection.process`. Only a file that reopens
+  the store root shows alternation (`noteDatabaseBoot`): the two engine files restart the engine
+  over the same `Store`, so no root boots twice (the adapter file opens no store at all), and
+  the gate reports "no restart" for all three. No ACP test reopens a root;
+  `engine/restart-resume.process.test.ts` is the smallest that does (12 roots alternate both
+  ways, run 2026-11-25) but runs a scripted provider, so it proves the switch's boot value, not
+  an ACP session across a reopen. That needs a `crashCopy` variant of `acp-resume-failure.process`.
 - **Bench**: `session-stream.ts` with the ACP fake.
 
 ### E3-opencode: OpenCode (HTTP and SSE to a pooled `opencode serve`)
@@ -1534,7 +1540,21 @@ never from `Object.keys(variants)` (the dead `--verbose` path) and never from `s
   its six types (`extension-catalog.ts:100`–`:107`). Each is a `Port` event published at the
   point the TypeScript called it, in order with the frames. Each starts with an await or only
   marks work as dirty, so starting it one batch later changes nothing a test can see.
-  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock.
+  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock: the
+  tenant keeps the request as a flag the server core takes after every `accepts` and `receive`
+  it calls, so `beginRecovery(watermark)` runs inside the same `consumeEvents` loop and the
+  events after it are buffered, exactly as the inline call made them. The `reconcile` port stays
+  for the paths that run outside the loop (a `session.moved` reply, a barrier's `uncertain`).
+- **Reply inputs**, each a synchronous handle call on the tenant: `establish_root` (`:277`,
+  `ownership.establish`), `root_snapshot` (`:277`'s `snapshot.info` with `root: true`),
+  `admit_stopped` (`:105`, the refused environment's note), and `moved_reply` (`:345`–`:362`:
+  `verify`, then `snapshot.info`, or a reconcile, and `moved_done` either way). The requests that
+  produce them are not this item's: `session.create`/`session.get` and the environment call are
+  the facade's (E3-opencode.4), and the `session.moved` GET and the ancestry chain are
+  E3-opencode.3's `lookup.rs`. `ServerCore::replay` returns a tenant's refusal to the facade,
+  which retries as `recoverUntilSettled` does; a failed pass never settles `recovering` and never
+  releases a barrier. `ServerCore::accepts` returns the tenant's refusal, so a shell past its
+  2,048 bound fails the stream as `routes.select`'s throw does.
 - **The flow gate**: the tenant's `ReadGate` has no pump. The facade waits on each session's
   `outputFlow` between body chunks, as `server.ts:413` waits between events (E3-opencode.4).
   `port.fail()` changes nothing observable, because TypeScript ignores `onFrame`'s promise here
@@ -1580,7 +1600,20 @@ never from `Object.keys(variants)` (the dead `--verbose` path) and never from `s
 - **Must not**: issue a request any way but the effect; retry inside Rust (the server's retry
   loop is TypeScript's).
 - **Reviewer checks**: each `await` in `recoverSessions` is one stage, in order; a pass started
-  while one is in flight joins it.
+  while one is in flight joins it. The tenant side this item answers is already E3-opencode.2's
+  (`moved_reply`, the pass's `reconciled` through `prepareReplay`); this item owns the GETs and the
+  `http` ports that fill them, and `.4` owns the facade that answers them.
+- **Landed so far**: `http.rs` (one request per SDK call, and `reply`'s two refusal shapes);
+  `history.rs` (`HistoryReader`'s paging machine: the head per session, the repeated cursor, the
+  512-page bound, the message checks); `lookup.rs` (the ancestry chain: 16 hops, the cycle check,
+  a fork or root ends it, the identity check, and the `needsRecovery` branch); and the tenant's
+  reply routing — `reply(id, ok, json)` drops a reply nobody waits on, `Owner::Moved` lands in
+  `moved_reply`, and `Owner::Ancestry` walks the chain, admits it oldest first, then replays the
+  held receipts or fails the probe. `finalize_snapshots` and `recovered` have direct tests.
+- **Left for this item**: `recovery.rs` — the `recoverSessions` walk itself (the visit stack, the
+  64-page child listing with its pagination bound, the live messages, the history read, the
+  interaction and inbox staging, then the global active read and the per-directory shell listing
+  with the exact-shell read), and `Owner::Recovery`/`Owner::Replay` in the tenant's `reply`.
 
 #### E3-opencode.4 Binding, facades, the twin pool and the switch
 
@@ -1685,6 +1718,41 @@ server's retry loop and the requests move to Rust as `impl ace_adapter_api::Sess
 becomes an engine port, so the tests' injected fetch still answers. Then `reqwest` comes back,
 without TLS. Briefed with E5.6.
 
+**Landed before E5.6** (`ace/rust-engine-e3-opencode-control`, 2026-11-26). Two units that need
+none of E5.6's ports:
+
+- **The call table** (`session/api.rs`) is the SDK's own routes, not a rule: method, path ids,
+  the query fields in the SDK's order, and each route's body field whitelist. A body no longer
+  carries "params minus the path ids", which leaked `kind`, `sessionID`, `answer` and `cancel`
+  into bodies whose route declares other fields. `session.instructions.put` is
+  `/api/experimental/…`; `session.form.cancel` sends the feedback as the `message` query and no
+  body; `mcp.connect` sends no body; both plugin RPCs send `{input}` and name their `location`;
+  `mcp.add` and `mcp.connect` take the server as a path id. Query encoding is the wire's, not
+  `encodeURIComponent`'s: `URLSearchParams` serialization for the query (space is `+`, `!'()~`
+  escaped), `encodeURIComponent` for a path segment, a null is the text `null`, and an array
+  repeats its key. `scripts/opencode-routes.ts` drives the installed `@opencode/client` with a
+  capturing fetch and records each call's method, target and body in
+  `session/api/routes.golden.json`; the test builds the same call from the same params and
+  compares it, and `check:daemon-native` regenerates the golden and fails on a diff, so a bumped
+  SDK fails until the table follows.
+- **The control's decisions** (`session/control/`): the catalog's first-read policy
+  (`metadata.ts`: 50 ms, 40 reads, 5 s, and a malformed reply is not an empty one); the readiness
+  and environment gates (`readinessStep`, `ace_context` with a description, the settle refusal,
+  the environment one session runs with, minus every credential); the answer to a native
+  interaction (the three decisions, a question's answers per field, an elicitation's content,
+  cancel-with-feedback as the query, one refusal text); prompt admission (the id, the request
+  that started a send, the 4xx that stored nothing, `rejected` vs `uncertain`); and cleanup
+  (shells first, then the tree deepest first). `Request` carries the directory whose client
+  sends a call, because a session route's location is the `x-opencode-directory` header, not a
+  query. `admission.rs` now takes the caller's cancellation, so an aborted caller never takes
+  the lock or a seat, as `throwIfAborted` comes before the waiter-limit check.
+
+**Still for E5.6**: the transport (the scoped client's header, the 768 KiB reply bound, the
+abort), the server process and its retry loop, `promptBody` (`input.ts`, which needs Node's path
+resolution and `pathToFileURL` shared with ACP rather than copied), the locations state machine
+(`mcp-locations.ts`: collision refusal, the 128-location limit, generations and shared work),
+and the `impl Session` wiring.
+
 ### E3-cursor: Cursor (the host wire to a TypeScript SDK host child)
 
 Later, not part of the pilot (owner decision 4). Build after E3-codex.5 and E3-acp.3 are on
@@ -1757,9 +1825,10 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
   `stray`, `connection`, `errorFrame`, `stop`), `ArmTimer`/`CancelTimer` and `Drained`.
 - **The stray-line hold**: a stray line's `host-output` frame takes its place in line order
   (`host.ts:143` emits it before the next line is read). So the core publishes
-  `Port { name: "stray" }` and holds every later event of this session until the facade's
-  `note(host-output)` arrives. The facade answers synchronously inside the same delivery, so the
-  hold lasts one batch. Held events count toward the queue's bound.
+  `Port { name: "stray" }` and holds every later event of this session until the caller's
+  `note(host-output)` arrives. The caller owns the redacted text and answers the port; while the
+  hold is open `holding()` is reported to the read gate, which answers the next delivered chunk
+  `taken(false)`, so a stalled consumer can only grow the hold by the pipes' bounded read-ahead.
 - **(b)**: `frame-batch`'s `unbatch` cases move to `envelope.rs`. Its `FrameBatch` cases stay:
   `FrameBatch` runs in the host child, which stays TypeScript. The six (b) host process files
   are owner question 3.
@@ -1806,11 +1875,14 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
   5. Otherwise it writes the `send cancel` frame and the `cancel` request in that step.
   - A host refusal of `send` is `InputRejected` (`:271`–`:274`). Any other failure sets
     `uncertain` from `terminal`, and the error is rethrown.
-- **The exit**: on the supervisor's `close`, the core publishes `Port { name: "exited" }`. The
-  facade answers `handle.exit(code, signal, reason, detail?)` once `proc.exited` resolves
-  (`reason` is the TypeScript supervisor's, `detail` is the facade's `failureMessage`). Then the
-  core publishes the `host-exit` frame (`:156`–`:171`), a `Callback` for `onExit` with
-  `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units), and `Drained`.
+- **The exit**: the Rust daemon owns the child, so its own wait on the child is the exit input:
+  when it resolves, the caller calls `handle.exit(code, signal, reason, detail?)` directly. There
+  is no `Port { name: "exited" }`: that port existed because a TypeScript facade owned the
+  `proc.exited` promise, and the Rust shell does not need to be asked. `exit` may arrive at the
+  leader's end, before the pipes finish; its `host-exit` frame (`:156`–`:171`), the `onExit`
+  `Callback` with `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units)
+  and `Drained` are published only after the pipes' close (`pipes_closed`) has drained every
+  frame and settle the host wrote, because the queue drops anything after `Drained`.
 - **The stop**: the host's stop stays TypeScript (`host.ts:254`–`:267`, Windows'
   `stopTreeAfterEof`), asked for by `Port { name: "stop" }`.
 - **(b)**: `tool-guidance` stays: it is open-time text, built in the facade.
@@ -2350,12 +2422,12 @@ or later, as its proof table says.
 | E5.2 actor and frames                    | `actor`, `frame-envelope`, `delta-batch`, `raw`, `fact-bytes`, `attachment-echo`, `attachment-correlations`, `attachment-payload`, `stream-facts`                                                                                                                                                                                                                                                                    | `actor`, `frames`                                                                                                         | storage row; `signal-batching`, `sdk-burst`, `streaming-behaviour`                                                                                | `actor-timer`, `frame-envelope`, `fact-bytes`                                                                                                                                              |
 | E5.3 persistence                         | `repository`, `persistence`, `records`, `record-cache`, `snapshot`, `append`, `item-metadata`, `schema-version`, `migrations`, `store-generations`, `execution-provenance`, `provider-facts`                                                                                                                                                                                                                         | `repository`, `snapshot`, `records`                                                                                       | storage row; `records-write-budget`, `schema-compatibility`, `startup-quarantine`, `cold-state`                                                   | `item-metadata`, `audit-record-cache.process`, `record-budget.process`, `snapshot-retention.process`, `open-text-restart.process`, `snapshot-release.process`, `snapshot-rollback.process` |
 | E5.4 commands, intents, queue            | `handler`, `intents`, `queue-store`, `queue-commands`, `create-thread`, `creation-admissions`, `creation-validation`, `input`, `input-journal`, `input-delivery`, `input-fate`, `stale-inputs`, `message-facts`, `person-command`, `title-input`, `thread-posts`, `transcript-inputs`, `ace-inputs`, `ace-input-attribution`, `ace-waits`, `edited-context`, `goal-change`, `guest-admission`, `workspace-directory` | `commands`, `intents`, `queue`, `inputs`                                                                                  | commands row (31 files)                                                                                                                           | `edited-context`, `retired-bot-threads`                                                                                                                                                    |
-| E5.5 delivery and steering               | `intent-delivery`, `delivery`, `steer-lane`, `steer-selection`, `steer-yield`, `steer-notes`, `turn-origin`, `root-run-start`, `resolution`                                                                                                                                                                                                                                                                          | `delivery`, `steering`                                                                                                    | steering row; `submission`, `input-fate`, `input-leases`, `held-send-release`, `resolution`, `interaction-replay`                                 | `steer-yield`, `root-run-start`                                                                                                                                                            |
+| E5.5 delivery and steering               | `intent-delivery`, `delivery`, `steer-lane`, `steer-selection`, `steer-yield`, `steer-notes`, `turn-origin`, `root-run-start`, `resolution`                                                                                                                                                                                                                                                                          | `delivery`, `steering` (`selection`, `notes` landed in 4d)                                                                | steering row; `submission`, `input-fate`, `input-leases`, `held-send-release`, `resolution`, `interaction-replay`                                 | `steer-yield`, `root-run-start`                                                                                                                                                            |
 | E5.6 sessions                            | `sessions`, `provider-sessions`, `session-metadata`, `session-open-route`, `session-fenced`, `resume-open-error`, `provider-errors`, `failure-copy`, `provider-release`, `slot-reclaim`, `background-ports`, `agent-env`, `account-route`, `models`, `selection-notices`, `provider-command-metadata`, `context-meter`, `context-sample`, `silence`, `startup-skip`                                                  | `sessions`, `release`, `models`, `meters`                                                                                 | `open-failure`, `provider-release`, `resource-limits`, `model-selection`, `context-meter`, `provider-context-meter`, `socket-liveness`, `silence` | `agent-env`                                                                                                                                                                                |
 | E5.7 access and approvals                | `permissions`, `permission-ceiling`, `permission-storage`, `access-defaults`, `ace-approvals`, `interaction-ledger`, `host-threads`, `guest-threads`                                                                                                                                                                                                                                                                 | `access`, `approvals`, `hosts`                                                                                            | access row; `execution-approval`, `guest-admission`                                                                                               | `ace-approvals`, `permission-ceiling`                                                                                                                                                      |
-| E5.8 recovery and restart                | `recovery`, `restart`, `restart-resume`, `restart-eligibility`, `restart-captures`, `provider-recovery`, `provider-return`, `cursor-reconcile`, `cursor-attempt`, `cursor-empty-migration`, `recover-limited-children`, `lost-work`, `session-bound-tasks`, `imported-thread`                                                                                                                                        | `recovery`, `restart`, `cursor_reconcile`                                                                                 | restart row, limits row, Cursor row                                                                                                               | `cursor-attempt-record`, `restart-ledgers.process`, `session-bound-tasks.process`, `cursor-migration.process`                                                                              |
-| E5.9 transitions                         | `transitions`, `transition-handler`, `transition-state`, `transition-readiness`, `transition-history`, `switch-admission`, `switch-recovery`, `fork-history`, `fork-replay`, `machine-handoff`, `live-move`, `workspace-change`, `store-handoff`                                                                                                                                                                     | `transitions`, `moves`                                                                                                    | transitions row (17 files)                                                                                                                        | none                                                                                                                                                                                       |
-| E5.10 liveness, stop, settle, delegation | `thread-liveness`, `settled-trees`, `stop-intents`, `stop-scope`, `snooze-wake`, `delegation-facts`, `child-attachment`, `remote-child-status`, `long-thread-child`                                                                                                                                                                                                                                                  | `liveness`, `settle`, `delegation`                                                                                        | stop row; `thread-liveness`; the 56 files outside `engine/` that build an `Engine` (agent-control, machines)                                      | `settled-hold`                                                                                                                                                                             |
+| E5.8 recovery and restart                | `recovery`, `restart`, `restart-resume`, `restart-eligibility`, `restart-captures`, `provider-recovery`, `provider-return`, `cursor-reconcile`, `cursor-attempt`, `cursor-empty-migration`, `recover-limited-children`, `lost-work`, `session-bound-tasks`, `imported-thread`                                                                                                                                        | `recovery`, `restart`, `cursor_reconcile`; `queue::holds` and `queue::admission` landed in 4d                             | restart row, limits row, Cursor row                                                                                                               | `cursor-attempt-record`, `restart-ledgers.process`, `session-bound-tasks.process`, `cursor-migration.process`                                                                              |
+| E5.9 transitions                         | `transitions`, `transition-handler`, `transition-state`, `transition-readiness`, `transition-history`, `switch-admission`, `switch-recovery`, `fork-history`, `fork-replay`, `machine-handoff`, `live-move`, `workspace-change`, `store-handoff`                                                                                                                                                                     | `transitions` (`switch_admission`'s receipt side landed in 4d), `moves`                                                   | transitions row (17 files)                                                                                                                        | none                                                                                                                                                                                       |
+| E5.10 liveness, stop, settle, delegation | `thread-liveness`, `settled-trees`, `stop-intents`, `stop-scope`, `snooze-wake`, `delegation-facts`, `child-attachment`, `remote-child-status`, `long-thread-child`                                                                                                                                                                                                                                                  | `liveness` (`stop_intents`, `stop_scope` landed in 4d), `settle`, `delegation`                                            | stop row; `thread-liveness`; the 56 files outside `engine/` that build an `Engine` (agent-control, machines)                                      | `settled-hold`                                                                                                                                                                             |
 
 `worktree-title.ts` stays TypeScript (git branch naming); the engine calls it through the
 `worktreeGit` port.

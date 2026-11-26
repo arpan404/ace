@@ -480,6 +480,8 @@ pub struct Capabilities {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub child_fidelity: ::std::option::Option<CapabilitiesChildFidelity>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub compaction: ::std::option::Option<bool>,
     pub fork: bool,
     #[serde(
         rename = "forkMode",
@@ -953,6 +955,135 @@ impl ::std::convert::TryFrom<::std::string::String> for CapabilitiesSteeringMode
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+#[doc = "`CatalogModel`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct CatalogModel {
+    #[serde(
+        rename = "acpAgentId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub acp_agent_id: ::std::option::Option<Schema316>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub aliases: ::std::option::Option<Schema336>,
+    #[serde(
+        rename = "contextWindow",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub context_window: ::std::option::Option<Schema323>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub custom: ::std::option::Option<Schema340>,
+    #[serde(
+        rename = "defaultEffort",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub default_effort: ::std::option::Option<Schema327>,
+    #[serde(
+        rename = "defaultSource",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub default_source: ::std::option::Option<Schema335>,
+    #[serde(
+        rename = "defaultTier",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub default_tier: ::std::option::Option<Schema332>,
+    pub deprecated: Schema344,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub detail: ::std::option::Option<Schema309>,
+    #[serde(rename = "displayName")]
+    pub display_name: Schema308,
+    pub efforts: Schema324,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub family: ::std::option::Option<Schema310>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub favourite: ::std::option::Option<Schema339>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub free: ::std::option::Option<Schema346>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub group: ::std::option::Option<Schema337>,
+    pub hidden: Schema338,
+    pub id: Schema308,
+    #[serde(rename = "inputModalities")]
+    pub input_modalities: Schema333,
+    #[serde(
+        rename = "installationId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub installation_id: ::std::option::Option<Schema317>,
+    pub instance: Schema308,
+    #[serde(
+        rename = "instanceId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub instance_id: ::std::option::Option<Schema318>,
+    #[serde(rename = "isDefault")]
+    pub is_default: Schema334,
+    #[serde(
+        rename = "isNew",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub is_new: ::std::option::Option<Schema345>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub legacy: ::std::option::Option<Schema343>,
+    #[serde(
+        rename = "modelConfigId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub model_config_id: ::std::option::Option<Schema321>,
+    #[serde(rename = "nativeModelId")]
+    pub native_model_id: Schema308,
+    #[serde(
+        rename = "nativeProviderId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub native_provider_id: ::std::option::Option<Schema319>,
+    pub provider: ProviderKind,
+    #[serde(
+        rename = "providerEnabled",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub provider_enabled: ::std::option::Option<Schema341>,
+    pub raw: CatalogRaw,
+    #[serde(
+        rename = "resolvedModelId",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub resolved_model_id: ::std::option::Option<Schema320>,
+    #[serde(
+        rename = "selectorMethod",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub selector_method: ::std::option::Option<Schema322>,
+    #[serde(rename = "serviceTiers")]
+    pub service_tiers: Schema329,
+    #[serde(
+        rename = "sortKey",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub sort_key: ::std::option::Option<Schema313>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub source: ::std::option::Option<Schema314>,
+    #[serde(
+        rename = "thinkingToggle",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub thinking_toggle: ::std::option::Option<Schema328>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub tier: ::std::option::Option<Schema312>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub version: ::std::option::Option<Schema311>,
+    #[serde(
+        rename = "visibilityReason",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub visibility_reason: ::std::option::Option<Schema342>,
+}
+#[doc = "`CatalogRaw`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct CatalogRaw {
+    pub json: ::std::string::String,
+    pub truncated: bool,
 }
 #[doc = "`Command`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -2032,6 +2163,12 @@ pub enum CommandPayload {
         type_: ::std::string::String,
     },
     Variant100 {
+        #[serde(rename = "threadId")]
+        thread_id: ThreadId,
+        #[serde(rename = "type")]
+        type_: ::std::string::String,
+    },
+    Variant101 {
         #[serde(rename = "interactionId")]
         interaction_id: Schema48,
         #[serde(
@@ -2043,7 +2180,7 @@ pub enum CommandPayload {
         #[serde(rename = "type")]
         type_: ::std::string::String,
     },
-    Variant101 {
+    Variant102 {
         #[serde(rename = "taskId")]
         task_id: Schema46,
         #[serde(rename = "type")]
@@ -4595,6 +4732,81 @@ impl ::std::convert::TryFrom<::std::string::String> for ContentPartKind {
         value.parse()
     }
 }
+#[doc = "`EffortLevel`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum EffortLevel {
+    #[serde(rename = "off")]
+    Off,
+    #[serde(rename = "minimal")]
+    Minimal,
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "high")]
+    High,
+    #[serde(rename = "xhigh")]
+    Xhigh,
+    #[serde(rename = "max")]
+    Max,
+    #[serde(rename = "ultra")]
+    Ultra,
+}
+impl ::std::fmt::Display for EffortLevel {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Off => f.write_str("off"),
+            Self::Minimal => f.write_str("minimal"),
+            Self::Low => f.write_str("low"),
+            Self::Medium => f.write_str("medium"),
+            Self::High => f.write_str("high"),
+            Self::Xhigh => f.write_str("xhigh"),
+            Self::Max => f.write_str("max"),
+            Self::Ultra => f.write_str("ultra"),
+        }
+    }
+}
+impl ::std::str::FromStr for EffortLevel {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "off" => Ok(Self::Off),
+            "minimal" => Ok(Self::Minimal),
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "xhigh" => Ok(Self::Xhigh),
+            "max" => Ok(Self::Max),
+            "ultra" => Ok(Self::Ultra),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for EffortLevel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for EffortLevel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 #[doc = "`Event`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Event {
@@ -6944,6 +7156,151 @@ pub struct MessageOriginVia {
     pub thread_id: ThreadId,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub title: ::std::option::Option<::std::string::String>,
+}
+#[doc = "`ModelEffort`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct ModelEffort {
+    pub id: Schema308,
+    pub label: Schema308,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub level: ::std::option::Option<EffortLevel>,
+}
+#[doc = "`ModelSource`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct ModelSource {
+    pub id: Schema308,
+    pub kind: ModelSourceKind,
+    pub label: Schema308,
+    #[serde(
+        rename = "requiresAuth",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub requires_auth: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub service: ::std::option::Option<ModelSourceService>,
+}
+#[doc = "`ModelSourceKind`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ModelSourceKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "subscription")]
+    Subscription,
+    #[serde(rename = "api_key")]
+    ApiKey,
+    #[serde(rename = "account")]
+    Account,
+    #[serde(rename = "other")]
+    Other,
+}
+impl ::std::fmt::Display for ModelSourceKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Local => f.write_str("local"),
+            Self::Subscription => f.write_str("subscription"),
+            Self::ApiKey => f.write_str("api_key"),
+            Self::Account => f.write_str("account"),
+            Self::Other => f.write_str("other"),
+        }
+    }
+}
+impl ::std::str::FromStr for ModelSourceKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "local" => Ok(Self::Local),
+            "subscription" => Ok(Self::Subscription),
+            "api_key" => Ok(Self::ApiKey),
+            "account" => Ok(Self::Account),
+            "other" => Ok(Self::Other),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ModelSourceKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ModelSourceKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`ModelSourceService`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ModelSourceService {
+    #[serde(rename = "opencode_go")]
+    OpencodeGo,
+    #[serde(rename = "opencode_zen")]
+    OpencodeZen,
+}
+impl ::std::fmt::Display for ModelSourceService {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::OpencodeGo => f.write_str("opencode_go"),
+            Self::OpencodeZen => f.write_str("opencode_zen"),
+        }
+    }
+}
+impl ::std::str::FromStr for ModelSourceService {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "opencode_go" => Ok(Self::OpencodeGo),
+            "opencode_zen" => Ok(Self::OpencodeZen),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ModelSourceService {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ModelSourceService {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`ModelTier`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct ModelTier {
+    pub id: Schema308,
+    pub name: Schema308,
+    pub parameters: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub speed: ::std::option::Option<::std::string::String>,
 }
 #[doc = "`PermissionMode`"]
 #[derive(
@@ -18553,6 +18910,90 @@ impl ::std::str::FromStr for Schema306 {
         Ok(Self(value.to_string()))
     }
 }
+#[doc = "`Schema308`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(transparent)]
+pub struct Schema308(pub ::std::string::String);
+impl ::std::ops::Deref for Schema308 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema308> for ::std::string::String {
+    fn from(value: Schema308) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::string::String> for Schema308 {
+    fn from(value: ::std::string::String) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema308 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema308 {
+    type Err = ::std::convert::Infallible;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.to_string()))
+    }
+}
+#[doc = "`Schema309`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema309(pub Schema308);
+impl ::std::ops::Deref for Schema309 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema309> for Schema308 {
+    fn from(value: Schema309) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema309 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema309 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema309 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema309 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema309 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
 #[doc = "`Schema31`"]
 #[derive(
     :: serde :: Deserialize,
@@ -18592,6 +19033,378 @@ impl ::std::str::FromStr for Schema31 {
     type Err = ::std::convert::Infallible;
     fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Self(value.to_string()))
+    }
+}
+#[doc = "`Schema310`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema310(pub Schema308);
+impl ::std::ops::Deref for Schema310 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema310> for Schema308 {
+    fn from(value: Schema310) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema310 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema310 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema310 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema310 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema310 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema311`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema311(pub Schema308);
+impl ::std::ops::Deref for Schema311 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema311> for Schema308 {
+    fn from(value: Schema311) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema311 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema311 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema311 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema311 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema311 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema312`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Schema312 {
+    #[serde(rename = "current")]
+    Current,
+    #[serde(rename = "legacy")]
+    Legacy,
+}
+impl ::std::fmt::Display for Schema312 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Current => f.write_str("current"),
+            Self::Legacy => f.write_str("legacy"),
+        }
+    }
+}
+impl ::std::str::FromStr for Schema312 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "current" => Ok(Self::Current),
+            "legacy" => Ok(Self::Legacy),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema312 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema312 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Schema313`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema313(pub Schema308);
+impl ::std::ops::Deref for Schema313 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema313> for Schema308 {
+    fn from(value: Schema313) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema313 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema313 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema313 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema313 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema313 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema314`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema314(pub ModelSource);
+impl ::std::ops::Deref for Schema314 {
+    type Target = ModelSource;
+    fn deref(&self) -> &ModelSource {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema314> for ModelSource {
+    fn from(value: Schema314) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<ModelSource> for Schema314 {
+    fn from(value: ModelSource) -> Self {
+        Self(value)
+    }
+}
+#[doc = "`Schema316`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema316(pub Schema77);
+impl ::std::ops::Deref for Schema316 {
+    type Target = Schema77;
+    fn deref(&self) -> &Schema77 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema316> for Schema77 {
+    fn from(value: Schema316) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema77> for Schema316 {
+    fn from(value: Schema77) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema316 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema316 {
+    type Err = <Schema77 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema316 {
+    type Error = <Schema77 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema316 {
+    type Error = <Schema77 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema317`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema317(pub Schema77);
+impl ::std::ops::Deref for Schema317 {
+    type Target = Schema77;
+    fn deref(&self) -> &Schema77 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema317> for Schema77 {
+    fn from(value: Schema317) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema77> for Schema317 {
+    fn from(value: Schema77) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema317 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema317 {
+    type Err = <Schema77 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema317 {
+    type Error = <Schema77 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema317 {
+    type Error = <Schema77 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema318`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema318(pub Schema77);
+impl ::std::ops::Deref for Schema318 {
+    type Target = Schema77;
+    fn deref(&self) -> &Schema77 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema318> for Schema77 {
+    fn from(value: Schema318) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema77> for Schema318 {
+    fn from(value: Schema77) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema318 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema318 {
+    type Err = <Schema77 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema318 {
+    type Error = <Schema77 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema318 {
+    type Error = <Schema77 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema319`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema319(pub Schema308);
+impl ::std::ops::Deref for Schema319 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema319> for Schema308 {
+    fn from(value: Schema319) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema319 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema319 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema319 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema319 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema319 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
     }
 }
 #[doc = "`Schema32`"]
@@ -18635,6 +19448,312 @@ impl ::std::str::FromStr for Schema32 {
         Ok(Self(value.to_string()))
     }
 }
+#[doc = "`Schema320`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema320(pub Schema308);
+impl ::std::ops::Deref for Schema320 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema320> for Schema308 {
+    fn from(value: Schema320) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema320 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema320 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema320 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema320 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema320 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema321`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema321(pub Schema308);
+impl ::std::ops::Deref for Schema321 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema321> for Schema308 {
+    fn from(value: Schema321) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema321 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema321 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema321 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema321 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema321 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema322`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Schema322 {
+    #[serde(rename = "session/set_config_option")]
+    SessionSetConfigOption,
+    #[serde(rename = "session/set_model")]
+    SessionSetModel,
+}
+impl ::std::fmt::Display for Schema322 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::SessionSetConfigOption => f.write_str("session/set_config_option"),
+            Self::SessionSetModel => f.write_str("session/set_model"),
+        }
+    }
+}
+impl ::std::str::FromStr for Schema322 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "session/set_config_option" => Ok(Self::SessionSetConfigOption),
+            "session/set_model" => Ok(Self::SessionSetModel),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema322 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema322 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Schema323`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema323(pub ::std::num::NonZeroU64);
+impl ::std::ops::Deref for Schema323 {
+    type Target = ::std::num::NonZeroU64;
+    fn deref(&self) -> &::std::num::NonZeroU64 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema323> for ::std::num::NonZeroU64 {
+    fn from(value: Schema323) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::num::NonZeroU64> for Schema323 {
+    fn from(value: ::std::num::NonZeroU64) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema323 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema323 {
+    type Err = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema323 {
+    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema323 {
+    type Error = <::std::num::NonZeroU64 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema324`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema324(pub ::std::vec::Vec<ModelEffort>);
+impl ::std::ops::Deref for Schema324 {
+    type Target = ::std::vec::Vec<ModelEffort>;
+    fn deref(&self) -> &::std::vec::Vec<ModelEffort> {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema324> for ::std::vec::Vec<ModelEffort> {
+    fn from(value: Schema324) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<ModelEffort>> for Schema324 {
+    fn from(value: ::std::vec::Vec<ModelEffort>) -> Self {
+        Self(value)
+    }
+}
+#[doc = "`Schema327`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema327(pub Schema308);
+impl ::std::ops::Deref for Schema327 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema327> for Schema308 {
+    fn from(value: Schema327) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema327 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema327 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema327 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema327 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema327 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema328`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema328(pub bool);
+impl ::std::ops::Deref for Schema328 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema328> for bool {
+    fn from(value: Schema328) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema328 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema328 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema328 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema328 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema328 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema329`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema329(pub ::std::vec::Vec<ModelTier>);
+impl ::std::ops::Deref for Schema329 {
+    type Target = ::std::vec::Vec<ModelTier>;
+    fn deref(&self) -> &::std::vec::Vec<ModelTier> {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema329> for ::std::vec::Vec<ModelTier> {
+    fn from(value: Schema329) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<ModelTier>> for Schema329 {
+    fn from(value: ::std::vec::Vec<ModelTier>) -> Self {
+        Self(value)
+    }
+}
 #[doc = "`Schema33`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(transparent)]
@@ -18655,6 +19774,344 @@ impl ::std::convert::From<Schema18> for Schema33 {
         Self(value)
     }
 }
+#[doc = "`Schema331`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema331(pub ::serde_json::Map<::std::string::String, ::serde_json::Value>);
+impl ::std::ops::Deref for Schema331 {
+    type Target = ::serde_json::Map<::std::string::String, ::serde_json::Value>;
+    fn deref(&self) -> &::serde_json::Map<::std::string::String, ::serde_json::Value> {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema331>
+    for ::serde_json::Map<::std::string::String, ::serde_json::Value>
+{
+    fn from(value: Schema331) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
+    for Schema331
+{
+    fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
+        Self(value)
+    }
+}
+#[doc = "`Schema332`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema332(pub Schema308);
+impl ::std::ops::Deref for Schema332 {
+    type Target = Schema308;
+    fn deref(&self) -> &Schema308 {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema332> for Schema308 {
+    fn from(value: Schema332) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<Schema308> for Schema332 {
+    fn from(value: Schema308) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema332 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema332 {
+    type Err = <Schema308 as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema332 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema332 {
+    type Error = <Schema308 as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema333`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema333(pub ::std::vec::Vec<Schema308>);
+impl ::std::ops::Deref for Schema333 {
+    type Target = ::std::vec::Vec<Schema308>;
+    fn deref(&self) -> &::std::vec::Vec<Schema308> {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema333> for ::std::vec::Vec<Schema308> {
+    fn from(value: Schema333) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<Schema308>> for Schema333 {
+    fn from(value: ::std::vec::Vec<Schema308>) -> Self {
+        Self(value)
+    }
+}
+#[doc = "`Schema334`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema334(pub bool);
+impl ::std::ops::Deref for Schema334 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema334> for bool {
+    fn from(value: Schema334) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema334 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema334 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema334 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema334 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema334 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema335`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Schema335 {
+    #[serde(rename = "built-in")]
+    BuiltIn,
+    #[serde(rename = "user")]
+    User,
+}
+impl ::std::fmt::Display for Schema335 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::BuiltIn => f.write_str("built-in"),
+            Self::User => f.write_str("user"),
+        }
+    }
+}
+impl ::std::str::FromStr for Schema335 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "built-in" => Ok(Self::BuiltIn),
+            "user" => Ok(Self::User),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema335 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema335 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Schema336`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema336(pub ::std::vec::Vec<Schema308>);
+impl ::std::ops::Deref for Schema336 {
+    type Target = ::std::vec::Vec<Schema308>;
+    fn deref(&self) -> &::std::vec::Vec<Schema308> {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema336> for ::std::vec::Vec<Schema308> {
+    fn from(value: Schema336) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<Schema308>> for Schema336 {
+    fn from(value: ::std::vec::Vec<Schema308>) -> Self {
+        Self(value)
+    }
+}
+#[doc = "`Schema337`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Schema337 {
+    #[serde(rename = "current")]
+    Current,
+    #[serde(rename = "legacy")]
+    Legacy,
+}
+impl ::std::fmt::Display for Schema337 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Current => f.write_str("current"),
+            Self::Legacy => f.write_str("legacy"),
+        }
+    }
+}
+impl ::std::str::FromStr for Schema337 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "current" => Ok(Self::Current),
+            "legacy" => Ok(Self::Legacy),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema337 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema337 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Schema338`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema338(pub bool);
+impl ::std::ops::Deref for Schema338 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema338> for bool {
+    fn from(value: Schema338) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema338 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema338 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema338 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema338 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema338 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema339`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema339(pub bool);
+impl ::std::ops::Deref for Schema339 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema339> for bool {
+    fn from(value: Schema339) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema339 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema339 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema339 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema339 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema339 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
 #[doc = "`Schema34`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(transparent)]
@@ -18673,6 +20130,331 @@ impl ::std::convert::From<Schema34> for ::std::vec::Vec<Schema35> {
 impl ::std::convert::From<::std::vec::Vec<Schema35>> for Schema34 {
     fn from(value: ::std::vec::Vec<Schema35>) -> Self {
         Self(value)
+    }
+}
+#[doc = "`Schema340`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema340(pub bool);
+impl ::std::ops::Deref for Schema340 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema340> for bool {
+    fn from(value: Schema340) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema340 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema340 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema340 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema340 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema340 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema341`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema341(pub bool);
+impl ::std::ops::Deref for Schema341 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema341> for bool {
+    fn from(value: Schema341) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema341 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema341 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema341 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema341 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema341 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema342`"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum Schema342 {
+    #[serde(rename = "provider_disabled")]
+    ProviderDisabled,
+    #[serde(rename = "group_hidden")]
+    GroupHidden,
+    #[serde(rename = "model_hidden")]
+    ModelHidden,
+    #[serde(rename = "deprecated")]
+    Deprecated,
+    #[serde(rename = "not_favourite")]
+    NotFavourite,
+    #[serde(rename = "provider_hidden")]
+    ProviderHidden,
+}
+impl ::std::fmt::Display for Schema342 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::ProviderDisabled => f.write_str("provider_disabled"),
+            Self::GroupHidden => f.write_str("group_hidden"),
+            Self::ModelHidden => f.write_str("model_hidden"),
+            Self::Deprecated => f.write_str("deprecated"),
+            Self::NotFavourite => f.write_str("not_favourite"),
+            Self::ProviderHidden => f.write_str("provider_hidden"),
+        }
+    }
+}
+impl ::std::str::FromStr for Schema342 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "provider_disabled" => Ok(Self::ProviderDisabled),
+            "group_hidden" => Ok(Self::GroupHidden),
+            "model_hidden" => Ok(Self::ModelHidden),
+            "deprecated" => Ok(Self::Deprecated),
+            "not_favourite" => Ok(Self::NotFavourite),
+            "provider_hidden" => Ok(Self::ProviderHidden),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema342 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Schema342 {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "`Schema343`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema343(pub bool);
+impl ::std::ops::Deref for Schema343 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema343> for bool {
+    fn from(value: Schema343) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema343 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema343 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema343 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema343 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema343 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema344`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema344(pub bool);
+impl ::std::ops::Deref for Schema344 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema344> for bool {
+    fn from(value: Schema344) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema344 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema344 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema344 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema344 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema344 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema345`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema345(pub bool);
+impl ::std::ops::Deref for Schema345 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema345> for bool {
+    fn from(value: Schema345) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema345 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema345 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema345 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema345 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema345 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+#[doc = "`Schema346`"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct Schema346(pub bool);
+impl ::std::ops::Deref for Schema346 {
+    type Target = bool;
+    fn deref(&self) -> &bool {
+        &self.0
+    }
+}
+impl ::std::convert::From<Schema346> for bool {
+    fn from(value: Schema346) -> Self {
+        value.0
+    }
+}
+impl ::std::convert::From<bool> for Schema346 {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+impl ::std::fmt::Display for Schema346 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl ::std::str::FromStr for Schema346 {
+    type Err = <bool as ::std::str::FromStr>::Err;
+    fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+        Ok(Self(value.parse()?))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Schema346 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<String> for Schema346 {
+    type Error = <bool as ::std::str::FromStr>::Err;
+    fn try_from(value: String) -> ::std::result::Result<Self, Self::Error> {
+        value.parse()
     }
 }
 #[doc = "`Schema35`"]

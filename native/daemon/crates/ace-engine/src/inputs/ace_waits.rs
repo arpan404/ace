@@ -75,6 +75,7 @@ pub fn ace_wait_fact(state: &ThreadState, fact: &Value) -> Option<Value> {
         server,
         tool,
         arguments,
+        ..
     } = &call.detail
     else {
         return None;

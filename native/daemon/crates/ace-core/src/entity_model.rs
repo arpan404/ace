@@ -38,6 +38,8 @@ pub struct Interaction {
     /// Explicit canonical automatic review; absence means unknown.
     #[serde(rename = "autoReviewed", skip_serializing_if = "Option::is_none")]
     pub auto_reviewed: Option<bool>,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// What the agent asks the person for.
@@ -277,6 +279,8 @@ pub struct BackgroundTask {
     /// the end, so they serialize last.
     #[serde(skip)]
     pub trailing: Vec<&'static str>,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl BackgroundTask {

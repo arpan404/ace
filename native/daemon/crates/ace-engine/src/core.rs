@@ -3,7 +3,7 @@
 
 use crate::ThreadId;
 use crate::actor;
-use crate::actor::yield_once;
+use crate::actor::task::yield_once;
 use crate::error::{EngineError, Lifecycle};
 use crate::executor::{AfterCommit, Deferred, DeferredHost, Executor, Lane, TaskId};
 use crate::futures::channel::oneshot;
@@ -234,7 +234,16 @@ impl Core {
 
     /// Wakers currently registered: the probe's check that a discarded actor left none.
     pub fn registered(&self) -> usize {
-        self.wakes.borrow().registered()
+        let actors = self
+            .with_state(|state| {
+                state
+                    .actors
+                    .instances()
+                    .filter(|actor| actor.borrow().waker.is_some())
+                    .count()
+            })
+            .unwrap_or(0);
+        self.wakes.borrow().registered() + actors
     }
 
     /// The flush depth and how many actor seals flush has asked for (the probe's, E5.1).
@@ -260,9 +269,22 @@ impl Core {
 
     pub(crate) fn record_wake(&self, thread: &str) {
         // The waker comes out with the borrow released, so a wake never runs under it.
+        let actor = actor::state::current(self, thread);
         let waker = self.wakes.borrow_mut().record(thread);
-        if let Some(waker) = waker {
+        let actor_waker = actor.and_then(|actor| actor.borrow().waker.clone());
+        if let Some(waker) = actor_waker.or(waker) {
             waker.wake_by_ref();
+        }
+    }
+
+    pub(crate) fn record_actor_wake(&self, actor: &actor::ActorRef) {
+        let (thread, waker) = {
+            let state = actor.borrow();
+            (state.id.clone(), state.waker.clone())
+        };
+        self.wakes.borrow_mut().record(&thread);
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 

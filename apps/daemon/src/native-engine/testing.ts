@@ -12,7 +12,7 @@ import { Engine, type EngineOptions } from "../engine/index.ts";
 import { ManualClock } from "../engine/test-support.ts";
 import { Store } from "../store.ts";
 import { NativeEngine } from "./engine.ts";
-import { FrameTable, type ActorContext } from "./actor.ts";
+import { type ActorContext } from "./actor.ts";
 import { probeFor } from "./probe.ts";
 import type { Translator } from "@ace/engine-api";
 
@@ -80,6 +80,7 @@ export interface EngineProbe {
   loseReservation(threadId: string): void;
   /** Seals the pending frame batch now, as a flush would. */
   seal(threadId: string): void;
+  schedule(threadId: string): void;
   /** Queues one labelled operation behind the frames sealed before it. */
   enqueue(threadId: string, label: string): void;
   /** Queues what `onExit` runs: a retire op behind the batch. */
@@ -90,6 +91,8 @@ export interface EngineProbe {
   generation(threadId: string): number;
   /** Wakers the engine has registered. */
   registeredWakers(): number;
+  stopActor(threadId: string): void;
+  stoppingCount(): number;
   /** One native frame through the native intake, with its acknowledgement. */
   nativeFrame(
     threadId: string,
@@ -321,7 +324,7 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
   if (native === undefined) throw new Error("the engine seam built the TypeScript engine");
   const probe = probeFor(
     native,
-    new FrameTable(() => clock.now()),
+    (engine as unknown as NativeEngine).frames,
     engine as unknown as NativeEngine,
     options,
     clock,
@@ -353,7 +356,7 @@ export async function engineSeam(input: EngineSeamInput = {}): Promise<EngineSea
       const nextNative = (nextEngine as unknown as NativeEngine).binding;
       const nextProbe = probeFor(
         nextNative,
-        new FrameTable(() => nextClock.now()),
+        (nextEngine as unknown as NativeEngine).frames,
         nextEngine as unknown as NativeEngine,
         logged(input.options ?? {}, nextClock, nextPorts),
         nextClock,

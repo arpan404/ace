@@ -9,6 +9,7 @@ use ace_engine::ports::PortError;
 use ace_engine::{Core, EngineError, ThreadId};
 use ace_json::Value;
 use ace_store::Connection;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -81,6 +82,7 @@ impl LiveSnapshot for ProbeSnapshot {
 
 /// The probe's links: every call recorded, nothing caused.
 pub(super) struct ProbeLinks {
+    pub(super) sessions: Rc<RefCell<super::ProbeThreads>>,
     pub(super) log: Rc<ProbeLog>,
 }
 
@@ -88,8 +90,20 @@ impl ActorLinks for ProbeLinks {
     fn wake(&self, _core: &Core, _thread: &ThreadId) {
         *self.log.wakes.borrow_mut() += 1;
     }
-    fn abort_session(&self, _core: &Core, _thread: &ThreadId, _drop_session: bool) {
-        *self.log.aborted.borrow_mut() += 1;
+    fn abort_session(
+        &self,
+        _core: &Core,
+        actor: &ace_engine::actor::ActorRef,
+        _drop_session: bool,
+    ) {
+        let instance = actor.borrow().instance;
+        let sessions = self.sessions.borrow();
+        *sessions
+            .sessions
+            .get(&instance)
+            .unwrap_or(&self.log)
+            .aborted
+            .borrow_mut() += 1;
     }
     fn expire(&self, _core: &Core, _thread: &ThreadId, generation: u64) {
         self.log.expired.borrow_mut().push(generation);
@@ -119,7 +133,8 @@ impl Translator for ProbeTranslator {
     ) -> Vec<ace_core::RawFact> {
         vec![ace_core::RawFact {
             fact_type: "signal".to_string(),
-            data: ace_json::Raw::from_json("{}").expect("canonical empty object"),
+            data: ace_json::Raw::from_json("{}")
+                .unwrap_or_else(|_| ace_json::Raw::from_json("null").unwrap_or_default()),
         }]
     }
     fn tick(&mut self, _now_ms: i64) -> Vec<ace_core::RawFact> {
