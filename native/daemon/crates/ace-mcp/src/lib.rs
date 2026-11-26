@@ -3,17 +3,4 @@
 //! words, descriptors, guidance and hints `scripts/export-catalog.ts` writes from today's
 //! TypeScript, embedded here so both backends serve the same bytes.
 
-pub mod calls;
 pub mod catalog;
-pub mod credentials;
-pub mod http;
-pub mod json_budget;
-pub mod jsonrpc;
-pub mod limits;
-pub mod public_error;
-pub mod registry;
-pub mod result;
-pub mod scope;
-pub mod signal;
-pub mod tool_names;
-pub mod toolsets;

@@ -242,11 +242,7 @@ name = "ace-mcp"
 version = "0.1.0"
 dependencies = [
  "ace-json",
- "futures",
- "indexmap",
- "sha2 0.11.1",
  "thiserror",
- "tokio",
 ]
 
 [[package]]
