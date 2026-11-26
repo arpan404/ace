@@ -269,6 +269,9 @@ name = "ace-settings"
 version = "0.1.0"
 dependencies = [
  "ace-protocol",
+ "getrandom 0.4.3",
+ "libc",
+ "notify",
  "regex",
  "serde_json",
  "url",

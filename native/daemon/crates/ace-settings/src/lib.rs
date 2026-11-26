@@ -10,6 +10,7 @@ pub mod batch;
 pub mod document;
 pub mod edit;
 pub mod file;
+pub mod io;
 pub mod jsonc;
 pub mod layers;
 pub mod roles;

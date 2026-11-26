@@ -21,3 +21,9 @@ url = "2"
 serde_json = { version = "1", features = ["preserve_order"] }
 # regex: the credential and retired-key rules from the TypeScript.
 regex = { version = "1" }
+# libc: O_NOFOLLOW and O_NONBLOCK when reading a settings file.
+libc = { version = "0.2" }
+# notify: the settings watcher's directory watches.
+notify = { version = "8" }
+# getrandom: the UUID in an atomic write's temporary file name.
+getrandom = { version = "0.4" }
