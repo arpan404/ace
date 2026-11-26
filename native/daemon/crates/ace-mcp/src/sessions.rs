@@ -126,11 +126,6 @@ impl LegacySessions {
         }
     }
 
-    /// Ends `id` whatever lease owns it (`DELETE` after authentication).
-    pub fn remove(&mut self, id: &str) -> bool {
-        self.entries.shift_remove(id).is_some()
-    }
-
     pub fn close_all(&mut self) {
         self.entries.clear();
     }

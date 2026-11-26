@@ -930,6 +930,39 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
             .status,
         404
     );
+    // A foreign DELETE is refused too, and leaves the owner's session open.
+    let mut foreign_delete = fixture.request("{}");
+    foreign_delete.method = "DELETE".to_owned();
+    for (name, value) in foreign_delete.headers.iter_mut() {
+        if name == "authorization" {
+            *value = format!("Bearer {}", other.bearer);
+        }
+    }
+    foreign_delete
+        .headers
+        .push(("mcp-session-id".to_owned(), first_id.clone()));
+    assert_eq!(
+        fixture
+            .server
+            .handle(foreign_delete, Arc::new(|_| {}))
+            .await
+            .status,
+        404,
+        "another lease ended this session"
+    );
+    let mut owned_ping = fixture.request(r#"{"jsonrpc":"2.0","id":8,"method":"ping"}"#);
+    owned_ping
+        .headers
+        .push(("mcp-session-id".to_owned(), first_id.clone()));
+    assert_eq!(
+        fixture
+            .server
+            .handle(owned_ping, Arc::new(|_| {}))
+            .await
+            .status,
+        200,
+        "the foreign DELETE closed the owner's session"
+    );
     // Reinitializing supersedes the oldest of the lease's four.
     let mut ids = vec![first_id.clone()];
     for id in 2..=5 {

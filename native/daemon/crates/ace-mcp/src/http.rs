@@ -325,7 +325,7 @@ impl McpServer {
                     .legacy
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .remove(&id);
+                    .close(&id, &principal);
                 return if removed {
                     HttpResponse::empty(200)
                 } else {
