@@ -35,6 +35,8 @@ pub struct State {
     pub recovery: recovery::Recovery,          // E5.8
     pub transitions: transitions::Transitions, // E5.9
     pub liveness: liveness::Liveness,          // E5.10
+    /// The steer-yield records E5.5's lane writes (E5.2's actor carries none).
+    pub steering: crate::steering::Steering, // E5.5
     /// The engine this state belongs to, so the fold's collaborators reach the store without a
     /// trait signature change (E5.4a). A bare `State` in a unit test has none.
     pub(crate) engine: std::rc::Weak<Core>,
@@ -61,6 +63,7 @@ impl Default for State {
             recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions,
             liveness: liveness::Liveness,
+            steering: crate::steering::Steering::default(),
             engine: std::rc::Weak::new(),
             deferred_queue: Vec::new(),
             deferred_wakes: std::collections::HashSet::new(),
