@@ -426,6 +426,11 @@ impl ToolRegistry {
             .unwrap_or_default()
     }
 
+    /// Whether a provider should gate `name` itself (`ToolEntry::destructive`).
+    pub fn destructive(&self, name: &str) -> bool {
+        self.resolve(name).is_some_and(|entry| entry.destructive)
+    }
+
     /// The input schema a caller may see for `name`.
     pub fn input_schema(
         &self,
@@ -442,8 +447,16 @@ impl ToolRegistry {
 
     /// The annotations and `_meta` a descriptor is served with (`registry.ts:333`–`:380`).
     pub fn descriptor_json(&self, descriptor: &Descriptor) -> Value {
+        self.descriptor_json_as(descriptor, None)
+    }
+
+    /// The same descriptor with `destructiveHint` replaced where the list says so: a Codex
+    /// fixed list marks `tools_call` non-destructive because it refuses destructive targets
+    /// (`http.ts:543`).
+    pub fn descriptor_json_as(&self, descriptor: &Descriptor, destructive: Option<bool>) -> Value {
         let entry = self.resolve(&descriptor.name);
-        let destructive = entry.as_ref().is_some_and(|entry| entry.destructive);
+        let destructive =
+            destructive.unwrap_or_else(|| entry.as_ref().is_some_and(|entry| entry.destructive));
         let effect = entry.as_ref().and_then(|entry| entry.effect);
         descriptor_json(descriptor, destructive, effect)
     }

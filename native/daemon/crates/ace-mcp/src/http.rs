@@ -23,14 +23,17 @@ use crate::jsonrpc::{INTERNAL_ERROR, INVALID_PARAMS, Id, METHOD_NOT_FOUND, Messa
 use crate::limits::{
     MAX_HEADER_BYTES, MAX_REQUESTS, NOTIFICATION_STREAMS_TOTAL, PROGRESS_INTERVAL_MS,
 };
+use crate::public_error::{PublicIssue, PublicToolError, ToolFailure, fixed_failure, tool_failure};
 use crate::registry::{CallOptions, ToolRegistry};
+use crate::result::CallToolResult;
 use crate::scope::{ScopeChallenge, ScopeCheck, bearer, bearer_challenge, scope_refusal};
 use crate::sessions::{LegacySessions, SessionIds};
 use crate::signal::{Abort, Scheduler, TokioScheduler};
-use crate::tool_names::{ACE_TOOL_SEARCH, dispatched_ace_call};
+use crate::tool_names::{ACE_TOOL_DISPATCH, ACE_TOOL_SEARCH, DispatchedCall, dispatched_ace_call};
 use crate::toolsets::{
-    CALL_BUDGET_HEADER, CODEX_CLIENT_HEADER, CORE_TOOLS_HEADER, OpenToolsets, ace_client,
-    call_budget_seconds, holds_on_demand_tools, listed_on_demand, tool_listing,
+    CALL_BUDGET_HEADER, CODEX_CLIENT_HEADER, CORE_TOOLS_HEADER, OpenToolsets, ToolListing,
+    ace_client, call_budget_seconds, dispatches, holds_on_demand_tools, listed_on_demand,
+    tool_listing,
 };
 
 /// The MCP protocol versions ace serves (`http.ts:444`).
@@ -620,6 +623,9 @@ impl McpServer {
         let listing = tool_listing(header(headers, CORE_TOOLS_HEADER.0));
         let client = ace_client(header(headers, CODEX_CLIENT_HEADER.0));
         let holds = holds_on_demand_tools(listing, client);
+        // Where Codex approves `tools_call` on the fixed list, a destructive tool is listed by
+        // name so its own prompt is the one that runs, and the wrapper says it never reaches one.
+        let names_destructive = crate::toolsets::names_destructive_tools(listing, client);
         let mut tools = Vec::new();
         let toolsets = self
             .shared
@@ -628,16 +634,21 @@ impl McpServer {
             .unwrap_or_else(|error| error.into_inner());
         for descriptor in self.registry.list(principal) {
             let set = self.registry.toolset(&descriptor.name);
-            if !toolsets.lists(principal.lease, listing, &descriptor.name, set.as_deref()) {
+            let destructive = self.registry.destructive(&descriptor.name);
+            let listed = toolsets.lists(principal.lease, listing, &descriptor.name, set.as_deref())
+                && !(holds
+                    && listed_on_demand(&descriptor.name)
+                    && !toolsets.is_open(principal.lease, crate::toolsets::ON_DEMAND_TOOLSET));
+            if !(listed || names_destructive && destructive) {
                 continue;
             }
-            if holds
-                && listed_on_demand(&descriptor.name)
-                && !toolsets.is_open(principal.lease, crate::toolsets::ON_DEMAND_TOOLSET)
-            {
-                continue;
-            }
-            tools.push(self.registry.descriptor_json(&descriptor));
+            let wrapper = names_destructive
+                && crate::tool_names::bare_tool_name(&descriptor.name)
+                    == crate::tool_names::ACE_TOOL_DISPATCH;
+            tools.push(
+                self.registry
+                    .descriptor_json_as(&descriptor, wrapper.then_some(false)),
+            );
         }
         let mut map = Map::with_capacity(1);
         map.insert("tools", Value::Array(tools.into()));
@@ -768,7 +779,24 @@ impl McpServer {
             Arc::clone(&emit),
             Arc::clone(&self.scheduler),
         );
-        let target = dispatched_ace_call(name, &arguments);
+        let target = match dispatch_target(
+            name,
+            &arguments,
+            listing,
+            crate::toolsets::names_destructive_tools(listing, client),
+            &self.registry,
+        ) {
+            Ok(target) => target,
+            Err(failure) => {
+                stop();
+                self.shared
+                    .calls
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&key);
+                return Ok(failure.to_json());
+            }
+        };
         let result = self
             .registry
             .call(
@@ -962,6 +990,65 @@ fn call_key(principal: &Principal, id: &Id) -> CallKey {
         lease: principal.lease,
         id: id.key(),
     }
+}
+
+/// The tool a `tools/call` runs. `tools_call` is validated against its own schema, refused where
+/// the session lists every tool, and refused for a destructive target where Codex approves it on
+/// the fixed list (`meta-tools.ts:149`, `http.ts:535`): those targets keep their own prompt.
+fn dispatch_target(
+    name: &str,
+    arguments: &Value,
+    listing: ToolListing,
+    names_destructive: bool,
+    registry: &ToolRegistry,
+) -> Result<DispatchedCall, CallToolResult> {
+    if crate::tool_names::bare_tool_name(name) != ACE_TOOL_DISPATCH {
+        return Ok(dispatched_ace_call(name, arguments));
+    }
+    let Some(object) = arguments.as_object() else {
+        return Err(invalid_arguments(Some("(root)")));
+    };
+    if let Some((key, _)) = object
+        .iter()
+        .find(|(key, _)| key.as_str() != "name" && key.as_str() != "arguments")
+    {
+        return Err(invalid_arguments(Some(key.as_str())));
+    }
+    let Some(target) = object.get("name").and_then(Value::as_str) else {
+        return Err(invalid_arguments(Some("name")));
+    };
+    // Zod's `.min(1).max(128)` counts code points, as ADR 0125 reads every length.
+    let length = target.chars().count();
+    let bare = crate::tool_names::bare_tool_name(target);
+    if length == 0 || length > 128 || bare == ACE_TOOL_SEARCH || bare == ACE_TOOL_DISPATCH {
+        return Err(invalid_arguments(Some("name")));
+    }
+    let input = match object.get("arguments") {
+        None => Value::Object(Map::new()),
+        Some(Value::Object(map)) => Value::Object(map.clone()),
+        Some(_) => return Err(invalid_arguments(Some("arguments"))),
+    };
+    if !dispatches(listing) {
+        return Err(fixed_failure("tool_unavailable"));
+    }
+    if names_destructive && registry.destructive(&bare) {
+        return Err(fixed_failure("call_directly"));
+    }
+    Ok(DispatchedCall { name: bare, input })
+}
+
+/// `invalid_arguments` with the field the wrapper broke, as `parseToolArguments` names it.
+fn invalid_arguments(field: Option<&str>) -> CallToolResult {
+    let Some(error) = PublicToolError::new("invalid_arguments") else {
+        return CallToolResult::failure("{\"code\":\"invalid_arguments\"}");
+    };
+    let issues = field.map_or_else(Vec::new, |field| {
+        vec![PublicIssue {
+            path: field.to_owned(),
+            expected: "a value this tool's schema accepts".to_owned(),
+        }]
+    });
+    tool_failure(ToolFailure::Public(Box::new(error.with_issues(issues))))
 }
 
 /// `progressHeartbeat` (`progress-heartbeat.ts`): a beat every 30 s while the call runs.

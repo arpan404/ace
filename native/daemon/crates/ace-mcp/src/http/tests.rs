@@ -1244,3 +1244,199 @@ async fn another_lease_never_inherits_an_open_family_and_an_ended_lease_forgets_
         "a replacement lease inherited an ended lease's open family"
     );
 }
+
+/// Registers a `tools_call` descriptor and a destructive `automation_remove`, both as the
+/// registry serves them, plus an echoing read-only target.
+fn register_dispatch_tools(fixture: &Fixture, ran: &Arc<AtomicUsize>) {
+    {
+        let ran = Arc::clone(ran);
+        fixture
+            .registry()
+            .register(ToolEntry::new(
+                descriptor(
+                    "ace_echo",
+                    Some("Echo"),
+                    "Echo",
+                    "read-only",
+                    None,
+                    1_000,
+                    parse("{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}")
+                        .expect("schema"),
+                    None,
+                ),
+                Arc::new(FnTool(move |input: Value, _context| {
+                    let ran = Arc::clone(&ran);
+                    async move {
+                        ran.fetch_add(1, Ordering::SeqCst);
+                        Ok(input)
+                    }
+                })),
+            ))
+            .expect("registration");
+    }
+    for (name, destructive, toolset) in [
+        ("tools_call", false, None),
+        ("automation_remove", true, Some("ace-threads")),
+    ] {
+        let mut entry = descriptor(
+            name,
+            None,
+            name,
+            "external-effect",
+            None,
+            1_000,
+            if name == "tools_call" {
+                parse("{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"arguments\":{\"type\":\"object\"}}}")
+                    .expect("schema")
+            } else {
+                parse("{\"type\":\"object\"}").expect("schema")
+            },
+            None,
+        );
+        entry.toolset = toolset.map(str::to_owned);
+        let ran = Arc::clone(ran);
+        fixture
+            .registry()
+            .register(
+                ToolEntry::new(
+                    entry,
+                    Arc::new(FnTool(move |input: Value, _context| {
+                        let ran = Arc::clone(&ran);
+                        async move {
+                            ran.fetch_add(1, Ordering::SeqCst);
+                            Ok(input)
+                        }
+                    })),
+                )
+                .destructive(destructive),
+            )
+            .expect("registration");
+    }
+}
+
+fn tools_call_body(name: &str, arguments: &str) -> String {
+    format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"tools_call","arguments":{{"name":"{name}","arguments":{arguments}}}}}}}"#
+    )
+}
+
+#[tokio::test]
+async fn tools_call_validates_its_wrapper_and_never_dispatches_where_the_list_is_complete() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    let ran = Arc::new(AtomicUsize::new(0));
+    register_dispatch_tools(&fixture, &ran);
+    // A session that lists every tool calls each one directly; `tools_call` is not offered.
+    let complete = fixture
+        .handle(&tools_call_body("ace_echo", r#"{"value":"direct"}"#))
+        .await;
+    assert_eq!(code_of(&complete), "tool_unavailable");
+    assert_eq!(ran.load(Ordering::SeqCst), 0, "a full list dispatched");
+    // The wrapper's own schema: a name, and an object of arguments.
+    let core = |body: String| {
+        let mut request = fixture.request(&body);
+        request
+            .headers
+            .push(("x-ace-tools".to_owned(), "core".to_owned()));
+        request
+    };
+    for body in [
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tools_call","arguments":{}}}"#.to_owned(),
+        tools_call_body("tools_find", "{}"),
+        tools_call_body("tools_call", "{}"),
+        tools_call_body("ace_echo", "5"),
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tools_call","arguments":{"name":"ace_echo","arguments":{},"extra":1}}}"#.to_owned(),
+    ] {
+        let response = fixture.server.handle(core(body), Arc::new(|_| {})).await;
+        assert_eq!(code_of(&response), "invalid_arguments", "{}", {
+            std::str::from_utf8(&response.body).unwrap_or_default()
+        });
+        assert_eq!(ran.load(Ordering::SeqCst), 0, "an invalid wrapper ran a tool");
+    }
+    // A dispatcher's list grows, so it reaches a target it has not listed yet.
+    let dispatched = fixture
+        .server
+        .handle(
+            core(tools_call_body("ace_echo", r#"{"value":"found"}"#)),
+            Arc::new(|_| {}),
+        )
+        .await;
+    assert_eq!(
+        result_of(&dispatched)
+            .get("structuredContent")
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str),
+        Some("found")
+    );
+    assert_eq!(ran.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn codexs_fixed_list_names_destructive_tools_and_tools_call_refuses_them() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    let ran = Arc::new(AtomicUsize::new(0));
+    register_dispatch_tools(&fixture, &ran);
+    let mut request = fixture.request(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    request
+        .headers
+        .push(("x-ace-tools".to_owned(), "static".to_owned()));
+    request
+        .headers
+        .push(("x-ace-client".to_owned(), "codex".to_owned()));
+    let listed = fixture.server.handle(request, Arc::new(|_| {})).await;
+    let tools = result_of(&listed)
+        .get("tools")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let destructive = tools
+        .iter()
+        .find(|tool| tool.get("name").and_then(Value::as_str) == Some("automation_remove"))
+        .expect("the destructive tool is not listed by name");
+    assert_eq!(
+        destructive
+            .get("annotations")
+            .and_then(|annotations| annotations.get("destructiveHint"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    let wrapper = tools
+        .iter()
+        .find(|tool| tool.get("name").and_then(Value::as_str) == Some("tools_call"))
+        .expect("tools_call is not listed");
+    assert_eq!(
+        wrapper
+            .get("annotations")
+            .and_then(|annotations| annotations.get("destructiveHint"))
+            .and_then(Value::as_bool),
+        Some(false),
+        "the wrapper still says it can be destructive"
+    );
+    let mut call = fixture.request(&tools_call_body("automation_remove", "{}"));
+    call.headers
+        .push(("x-ace-tools".to_owned(), "static".to_owned()));
+    call.headers
+        .push(("x-ace-client".to_owned(), "codex".to_owned()));
+    let refused = fixture.server.handle(call, Arc::new(|_| {})).await;
+    assert_eq!(code_of(&refused), "call_directly");
+    assert_eq!(
+        ran.load(Ordering::SeqCst),
+        0,
+        "a destructive target was dispatched"
+    );
+    // A read-only target still goes through the wrapper.
+    let mut allowed = fixture.request(&tools_call_body("ace_echo", r#"{"value":"read"}"#));
+    allowed
+        .headers
+        .push(("x-ace-tools".to_owned(), "static".to_owned()));
+    allowed
+        .headers
+        .push(("x-ace-client".to_owned(), "codex".to_owned()));
+    let answered = fixture.server.handle(allowed, Arc::new(|_| {})).await;
+    assert_eq!(
+        result_of(&answered)
+            .get("structuredContent")
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str),
+        Some("read")
+    );
+}
