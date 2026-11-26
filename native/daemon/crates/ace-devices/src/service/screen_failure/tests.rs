@@ -72,6 +72,18 @@ fn a_permission_refusal_takes_its_code_from_the_catalog_not_a_hardcoded_default(
 }
 
 #[test]
+fn screen_limit_uses_the_catalog_busy_code_not_permission_denied() {
+    let failed = screen_failure(&super::ScreenError {
+        code: None,
+        message: "Session limit",
+    })
+    .expect("typed");
+    assert_eq!(failed, words::refusal("screenLimit"));
+    assert_eq!(failed.code(), DeviceErrorCode::Busy);
+    assert_ne!(failed.code(), DeviceErrorCode::PermissionDenied);
+}
+
+#[test]
 fn screen_recording_permission_denied_carries_the_permission() {
     for message in [
         "Screen Recording permission denied",
