@@ -11,7 +11,7 @@ use ace_devices::platform::{
     simulator_chrome::{ArtFrom, chrome_from_frame, frame},
     simulator_chrome_file::chrome_file,
     simulator_chrome_source::{art_path, bundle_matches, chrome_bundles, device_type_bundle},
-    simulator_panels::{SimulatorPanel, profile, simulator_panels},
+    simulator_panels::{SimulatorPanel, profile, shown_panel, simulator_panels},
 };
 use napi_derive::napi;
 use serde::Serialize;
@@ -96,23 +96,33 @@ pub fn device_platform_simulator_art_paths(
     text(&paths)
 }
 
-/// A device type's built-in screens, from its profile and capabilities files.
+/// The screen a device type shows in a posture: a foldable's inner panel once open, else its
+/// cover. None when this Mac's files size no screen.
 #[napi]
-pub fn device_platform_simulator_panels(
+pub fn device_platform_simulator_panel(
     profile_json: Option<String>,
     capabilities_json: Option<String>,
+    open: bool,
 ) -> napi::Result<String> {
     let Some(profile) = profile_json
         .as_deref()
         .and_then(|text| parse_json(text).ok())
         .and_then(|value| profile(&value))
     else {
-        return Ok("[]".to_string());
+        return Ok("null".to_string());
     };
     let capabilities = capabilities_json
         .as_deref()
         .and_then(|text| parse_json(text).ok());
-    text(&simulator_panels(&profile, capabilities.as_ref()))
+    let panels = simulator_panels(&profile, capabilities.as_ref());
+    let posture = match open {
+        true => ace_devices::platform::posture::Posture::Open,
+        false => ace_devices::platform::posture::Posture::Closed,
+    };
+    match shown_panel(&panels, Some(posture)) {
+        Some(panel) => text(panel),
+        None => Ok("null".to_string()),
+    }
 }
 
 /// Whether a chrome frame still needs painting, and the pieces that paint it.
@@ -136,14 +146,14 @@ fn art_at(arts: &BTreeMap<String, String>, prefix: &str) -> Option<SvgArt> {
     pdf_art(&bytes, prefix)
 }
 
-/// The Simulator look for one screen. `body_url` is the painted body when the caller has drawn
-/// the pieces; without it, a sliced frame answers only what still has to be painted.
+/// The Simulator look for one screen, and the pieces to paint when its body is sliced. The look
+/// carries the SVG body meanwhile; the shell puts the painted picture in its place, so one read
+/// decodes each PDF once.
 #[napi]
 pub fn device_platform_simulator_chrome(
     panel: String,
     chrome_json: String,
     arts: String,
-    body_url: Option<String>,
 ) -> napi::Result<String> {
     let panel: SimulatorPanel = parse(&panel)?;
     let value = parse_json(&chrome_json)?;
@@ -166,16 +176,6 @@ pub fn device_platform_simulator_chrome(
         height: frame.body.1,
         pieces: pieces.clone(),
     });
-    let painted = match (frame.pieces.is_some(), body_url.as_deref()) {
-        (true, None) => {
-            return text(&ChromeAnswer {
-                chrome: None,
-                paint,
-            });
-        }
-        (true, Some(url)) => Some(url.to_string()),
-        (false, _) => None,
-    };
-    let chrome = chrome_from_frame(&panel, &file, &frame, painted.as_deref(), &read);
+    let chrome = chrome_from_frame(&panel, &file, &frame, None, &read);
     text(&ChromeAnswer { chrome, paint })
 }

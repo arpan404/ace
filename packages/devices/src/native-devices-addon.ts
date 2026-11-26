@@ -324,7 +324,6 @@ interface DevicesAddon {
   devicePlatformSimulatorAxLimits(): string;
   devicePlatformNativeCalls(): number;
   devicePlatformImageLimits(): string;
-  devicePlatformImageError(what: string, reason?: string, message?: string): string;
   devicePlatformChromeKey(
     platform: string,
     avd: string,
@@ -355,13 +354,12 @@ interface DevicesAddon {
     mask: string | null,
     sensorBar: string | null,
   ): string;
-  devicePlatformSimulatorPanels(profile: string | null, capabilities: string | null): string;
-  devicePlatformSimulatorChrome(
-    panel: string,
-    chromeJson: string,
-    arts: string,
-    bodyUrl: string | undefined,
+  devicePlatformSimulatorPanel(
+    profile: string | null,
+    capabilities: string | null,
+    open: boolean,
   ): string;
+  devicePlatformSimulatorChrome(panel: string, chromeJson: string, arts: string): string;
   devicePlatformChromeToPng(chrome: string, rendered: string | null): string;
 }
 

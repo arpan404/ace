@@ -16,7 +16,7 @@ use ace_devices::platform::{
     chrome_raster::{chrome_as_png, png_requests},
     device_chrome_reader::{CACHE_CAP, chrome_key, png_key},
     device_chrome_sources::{avd_roots, chrome_roots},
-    device_images::{LOOK_DEADLINE_MS, SHOT_DEADLINE_MS, device_image_error},
+    device_images::{LOOK_DEADLINE_MS, SHOT_DEADLINE_MS},
 };
 use napi_derive::napi;
 use serde::Serialize;
@@ -39,13 +39,12 @@ pub(crate) fn parse_json(text: &str) -> napi::Result<ace_json::Value> {
     ace_json::parse(text).map_err(|error| napi::Error::from_reason(format!("ace-devices: {error}")))
 }
 
-/// A files map as the shell sends it: a path to its bytes.
-type Files = BTreeMap<String, Vec<u8>>;
+/// A files map as the shell sends it: a path to its text, `""` for a path it read and could not
+/// open, and absent for one it has not asked yet.
+type Files = BTreeMap<String, String>;
 
 fn as_text(files: &Files, path: &str) -> Option<String> {
-    files
-        .get(path)
-        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+    files.get(path).cloned()
 }
 
 /// The deadline and per-unit bounds of every look and shot, so the shell takes them from here.
@@ -66,20 +65,6 @@ pub fn device_platform_image_limits() -> napi::Result<String> {
         look_deadline_ms: LOOK_DEADLINE_MS,
         cache_cap: CACHE_CAP,
     })
-}
-
-/// `deviceImageError`: a failed image job as the `DeviceError` an agent or person can act on.
-#[napi]
-pub fn device_platform_image_error(
-    what: String,
-    reason: Option<String>,
-    message: Option<String>,
-) -> napi::Result<String> {
-    text(&device_image_error(
-        &what,
-        reason.as_deref(),
-        message.as_deref(),
-    ))
 }
 
 /// What a look is remembered by: the AVD, or the Simulator's device type and shown screen.

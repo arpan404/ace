@@ -49,6 +49,9 @@ interface Panel {
   sensorBarImage?: string;
 }
 
+/** The most diagonal samples a corner scan takes, matching `ace-devices`' bound. */
+const maxReach = 8192;
+
 /** The prefix an SVG data URL carries before its base64. */
 const svgPrefix = "data:image/svg+xml;base64,";
 
@@ -57,11 +60,48 @@ function bare<T>(invoke: () => string): T {
   return JSON.parse(invoke()) as T;
 }
 
+/**
+ * The alpha along a picture's corner diagonal, one value a step, stopping at the first pixel
+ * outside the picture as `android-skin.ts`'s `cornerRadius` does. The reach is bounded, so a
+ * layout claiming an enormous screen cannot ask for an endless scan.
+ */
+export async function cornerScan(
+  images: ImageWork,
+  bytes: Uint8Array,
+  corner: [number, number] | null,
+  reach: number,
+  deadlineMs: number,
+): Promise<Array<number | null>> {
+  if (!corner) return [];
+  let decoded;
+  try {
+    decoded = await images.run({
+      inputs: [{ kind: "bytes", bytes }],
+      op: { op: "alpha", maxPixels: 16 * 1024 * 1024 },
+      deadlineMs,
+    });
+  } catch {
+    return [];
+  }
+  const { bytes: data, width, height } = decoded;
+  const scan: Array<number | null> = [];
+  const steps = Math.min(Math.max(0, Math.floor(reach)), maxReach);
+  for (let step = 0; step <= steps; step++) {
+    const x = corner[0] + step;
+    const y = corner[1] + step;
+    if (x < 0 || y < 0 || x >= width || y >= height) break;
+    scan.push(data[y * width + x] ?? null);
+  }
+  return scan;
+}
+
 export class NativeChromeReader {
   private readonly options: NativeChromeOptions;
   private readonly cache = new Map<string, Promise<DeviceChrome | undefined>>();
   private roots: ChromeRoots | undefined;
   private cap: number | undefined;
+  /** The device type each listed Simulator stands for, read once. */
+  private types = new Map<string, Promise<string | undefined>>();
 
   constructor(options: NativeChromeOptions) {
     this.options = options;
@@ -99,9 +139,15 @@ export class NativeChromeReader {
     return key ?? undefined;
   }
 
-  private async simulatorType(device: Device): Promise<string | undefined> {
-    if (device.model) return device.model;
-    return this.options.simulatorType(nativeId(device));
+  private simulatorType(device: Device): Promise<string | undefined> {
+    if (device.model) return Promise.resolve(device.model);
+    const id = nativeId(device);
+    let type = this.types.get(id);
+    if (!type) {
+      type = this.options.simulatorType(id);
+      this.types.set(id, type);
+    }
+    return type;
   }
 
   private remember(
@@ -165,15 +211,14 @@ export class NativeChromeReader {
     for (let round = 0; round < 8; round++) {
       const answer = step(files);
       if (answer.read.length === 0) return answer;
-      let read = 0;
+      let asked = 0;
       for (const path of answer.read) {
-        if (files[path] !== undefined) continue;
-        const text = await this.readText(path);
-        if (text === undefined) continue;
-        files[path] = text;
-        read++;
+        if (path in files) continue;
+        // A path that cannot be read is recorded as empty: read, and holding nothing.
+        files[path] = (await this.readText(path)) ?? "";
+        asked++;
       }
-      if (read === 0) return undefined;
+      if (asked === 0) return undefined;
     }
     return undefined;
   }
@@ -223,30 +268,12 @@ export class NativeChromeReader {
   }
 
   /** The alpha along a picture's corner diagonal, one value a step; none outside it. */
-  private async alpha(
+  private alpha(
     bytes: Uint8Array,
     corner: [number, number] | null,
     reach: number,
   ): Promise<Array<number | null>> {
-    if (!corner) return [];
-    let decoded;
-    try {
-      decoded = await this.options.images.run({
-        inputs: [{ kind: "bytes", bytes }],
-        op: { op: "alpha", maxPixels: 16 * 1024 * 1024 },
-        deadlineMs: lookDeadlineMs,
-      });
-    } catch {
-      return [];
-    }
-    const { bytes: data, width, height } = decoded;
-    const scan: Array<number | null> = [];
-    for (let step = 0; step <= reach; step++) {
-      const x = corner[0] + step;
-      const y = corner[1] + step;
-      scan.push(x >= 0 && y >= 0 && x < width && y < height ? (data[y * width + x] ?? null) : null);
-    }
-    return scan;
+    return cornerScan(this.options.images, bytes, corner, reach, lookDeadlineMs);
   }
 
   /** A Simulator device type's look from Xcode's own files. */
@@ -254,7 +281,11 @@ export class NativeChromeReader {
     const addon = nativeDevices();
     const type = await this.simulatorType(device);
     if (!type) return undefined;
-    const types = await this.options.simctl(["list", "devicetypes", "--json"]);
+    // A `simctl` that fails describes no device type, as the TypeScript's `catch` reads it.
+    const types = await this.options
+      .simctl(["list", "devicetypes", "--json"])
+      .catch(() => undefined);
+    if (types === undefined) return undefined;
     const bundle = addon.devicePlatformDeviceTypeBundle(types, type);
     if (!bundle) return undefined;
     const resources = join(bundle, "Contents/Resources");
@@ -269,10 +300,10 @@ export class NativeChromeReader {
       plist("profile.plist"),
       plist("capabilities.plist"),
     ]);
-    const panels = bare<Panel[]>(() =>
-      addon.devicePlatformSimulatorPanels(profileText ?? null, capabilitiesText ?? null),
+    // The screen this posture shows is `ace-devices`' choice, not the shell's.
+    const panel = bare<Panel | null>(() =>
+      addon.devicePlatformSimulatorPanel(profileText ?? null, capabilitiesText ?? null, open),
     );
-    const panel = (open ? panels[1] : undefined) ?? panels[0];
     if (!panel?.chromeIdentifier) return undefined;
     const identifier = panel.chromeIdentifier;
     const directories = bare<string[]>(() =>
@@ -298,31 +329,28 @@ export class NativeChromeReader {
         const bytes = await this.readBase64(entry.path);
         if (bytes) arts[entry.key] = bytes;
       }
-      const first = this.simulatorLook(panel, text, arts, undefined);
-      if (!first?.paint) return (first?.chrome as DeviceChrome | null) ?? undefined;
-      const url = await pngBody(this.options.images)(
-        { width: first.paint.width, height: first.paint.height },
-        first.paint.pieces,
+      const look = this.simulatorLook(panel, text, arts);
+      const chrome = look?.chrome as DeviceChrome | null | undefined;
+      if (!chrome) return undefined;
+      // The look carries the SVG body; a painted one takes its place.
+      if (!look?.paint) return chrome;
+      const body = await pngBody(this.options.images)(
+        { width: look.paint.width, height: look.paint.height },
+        look.paint.pieces,
       );
-      if (!url) return undefined;
-      const ready = this.simulatorLook(panel, text, arts, url);
-      return (ready?.chrome as DeviceChrome | null) ?? undefined;
+      // A body that cannot be painted leaves no look, as the TypeScript's painter does.
+      if (!body) return undefined;
+      return { ...chrome, body: { ...chrome.body, image: body } };
     }
     return undefined;
   }
 
-  private simulatorLook(
-    panel: Panel,
-    chrome: string,
-    arts: Record<string, string>,
-    body: string | undefined,
-  ): ChromeAnswer {
+  private simulatorLook(panel: Panel, chrome: string, arts: Record<string, string>): ChromeAnswer {
     return bare<ChromeAnswer>(() =>
       nativeDevices().devicePlatformSimulatorChrome(
         JSON.stringify(panel),
         chrome,
         JSON.stringify(arts),
-        body,
       ),
     );
   }

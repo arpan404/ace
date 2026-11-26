@@ -124,7 +124,7 @@ governed by its provider's permission mode, through the tools' MCP annotations).
   ref reads the tree again first, and a vanished element fails with `stale_ref` before anything
   reaches the device.
 - `sim_screenshot` reads the live view when one runs, else takes a one-off still (`simctl io
-  screenshot`, or `screencap` over adb), fitted inside the frame bounds by ace-media.
+screenshot`, or `screencap` over adb), fitted inside the frame bounds by ace-media.
 - The device how-to (`sim-guidance.ts`) rides on an agent's first `sim_start` of a device only.
 - Errors are `DeviceError` (`sdk.ts`) codes mapped to `PublicToolError` text: model-facing
   strings are contract, byte for byte.
