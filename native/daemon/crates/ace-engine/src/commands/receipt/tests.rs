@@ -634,6 +634,11 @@ fn an_unknown_explicit_model_is_model_unavailable_with_one_callback() {
         receipt.cell("SELECT COUNT(*) AS value FROM intents"),
         Some(0)
     );
+    // And took no engine slot: the model is chosen before the thread reserves (`handler.ts:232`).
+    assert_eq!(
+        receipt.cell("SELECT COUNT(*) AS value FROM engine_slots"),
+        Some(0)
+    );
 }
 
 #[test]
