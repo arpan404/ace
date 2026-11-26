@@ -196,6 +196,7 @@ dependencies = [
  "ace-adapter-pi",
  "ace-core",
  "ace-json",
+ "ace-models",
  "ace-projection",
  "ace-protocol",
  "ace-store",
@@ -245,6 +246,19 @@ version = "0.1.0"
 dependencies = [
  "ace-json",
  "thiserror",
+]
+
+[[package]]
+name = "ace-models"
+version = "0.1.0"
+dependencies = [
+ "ace-adapter-acp",
+ "ace-json",
+ "ace-protocol",
+ "regex",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]
