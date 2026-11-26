@@ -38,7 +38,7 @@ const MAX_ATTACHMENTS: usize = 64;
 
 /// The most paths one `remember_paths` may write, and the longest one.
 const MAX_PATHS: usize = 64;
-const MAX_PATH_UNITS: usize = 4096;
+const MAX_PATH_POINTS: usize = 4096;
 
 /// What `Attachment.parse` returns for a stored row: the schema's key order, unknown keys
 /// dropped.
@@ -155,8 +155,7 @@ impl Correlations {
             return Err(EngineError::InvalidStoredAttachment);
         }
         for (sha256, path) in paths {
-            if path.is_empty() || path.encode_utf16().count() > MAX_PATH_UNITS || sha256.is_empty()
-            {
+            if path.is_empty() || path.chars().count() > MAX_PATH_POINTS || sha256.is_empty() {
                 return Err(EngineError::InvalidStoredAttachment);
             }
         }
@@ -263,6 +262,22 @@ mod tests {
             expected.contains(sql.as_str()),
             "the stored text is ours: {sql:?}"
         );
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn an_attachment_path_accepts_4096_emoji() {
+        let (conn, path) = temp_connection();
+        let correlations = Correlations::open(&conn).expect("correlations");
+        for length in [4096, 4097] {
+            let input = [("sha".to_owned(), "😀".repeat(length))];
+            assert_eq!(
+                correlations.remember_paths("t1", &input).is_ok(),
+                length == 4096
+            );
+        }
+        drop(correlations);
         drop(conn);
         let _ = std::fs::remove_file(path);
     }

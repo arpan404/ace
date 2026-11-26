@@ -43,7 +43,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
             .unwrap_or("")
             .to_owned();
         if !KNOWN_THREAD_STATES.contains(&state.as_str()) {
-            if state.is_empty() || state.len() > 64 {
+            if state.is_empty() || state.chars().count() > 64 {
                 return Err(D::Error::custom("invalid thread status"));
             }
             let raw = ace_json::Raw::from_value(&Json::Object(map));
@@ -163,7 +163,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                     .get("name")
                     .and_then(|value| value.as_str())
                     .unwrap_or("");
-                if host_id.is_empty() || name.is_empty() || name.len() > 256 {
+                if host_id.is_empty() || name.is_empty() || name.chars().count() > 256 {
                     return Err(D::Error::custom("invalid thread status"));
                 }
                 let thread_id = to
@@ -320,6 +320,39 @@ impl serde::Serialize for ThreadStatus {
                 map.serialize_entry("raw", raw)?;
                 map.end()
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::ThreadStatus;
+
+    fn status(text: &str) -> Option<ThreadStatus> {
+        let value = ace_json::parse(text).expect("fixture parses");
+        ace_json::from_value(&value).ok()
+    }
+
+    #[test]
+    fn an_unknown_state_counts_code_points_like_zods_max_64() {
+        // 64 emoji are 128 UTF-16 units: only code points fit the bound.
+        for length in [64, 65] {
+            let text = format!(r#"{{"state":"{}","raw":{{}}}}"#, "😀".repeat(length));
+            assert_eq!(status(&text).is_some(), length == 64, "{length}");
+            if length == 64 {
+                assert!(matches!(status(&text), Some(ThreadStatus::Unknown { .. })));
+            }
+        }
+    }
+
+    #[test]
+    fn a_moved_name_counts_code_points_like_zods_max_256() {
+        for length in [256, 257] {
+            let text = format!(
+                r#"{{"state":"moved","to":{{"hostId":"h","name":"{}","threadId":"t"}}}}"#,
+                "😀".repeat(length)
+            );
+            assert_eq!(status(&text).is_some(), length == 256, "{length}");
         }
     }
 }

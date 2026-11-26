@@ -144,9 +144,7 @@ pub fn handle_status(
             .map(|a| a.key.clone())
             .unwrap_or_default();
         let current = translator.agents.get(native).and_then(|a| a.model.clone());
-        if let Value::String(model_str) = &model
-            && !model_str.is_empty()
-            && model_str.encode_utf16().count() <= 256
+        if let Some(model_str) = super::model::bounded_model(&model)
             && current.as_deref() != Some(model_str.as_str())
         {
             if let Some(agent) = translator.agents.get_mut(native) {
