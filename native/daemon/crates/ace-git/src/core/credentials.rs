@@ -26,7 +26,7 @@ pub struct ConfigOutput {
 }
 
 /// The port that runs one `git config` query; every argument list is Git's own.
-pub trait TransportQuery: Send + Sync {
+pub trait GitQuery: Send + Sync {
     fn query(&self, args: &[String]) -> BoxFuture<'_, Result<ConfigOutput, GitError>>;
 }
 
@@ -141,7 +141,7 @@ pub fn validate_helpers(helpers: Vec<CredentialHelper>) -> Result<Vec<Credential
 /// Helpers from one of the person's own config files, following its includes and `includeIf`
 /// conditions (evaluated against the checkout the query runs in), as their own Git would.
 pub async fn read_credential_helpers(
-    query: &dyn TransportQuery,
+    query: &dyn GitQuery,
     file: &str,
     trusted: &TrustedOrigin,
 ) -> Result<Vec<CredentialHelper>, GitError> {
@@ -173,7 +173,7 @@ pub async fn read_credential_helpers(
 
 /// `core.sshCommand` values from one of the person's own files, under the same trust rule.
 pub async fn read_ssh_commands(
-    query: &dyn TransportQuery,
+    query: &dyn GitQuery,
     file: &str,
     trusted: &TrustedOrigin,
 ) -> Result<Vec<String>, GitError> {
@@ -201,7 +201,7 @@ fn config_file_args(file: &str, tail: &[&str]) -> Vec<String> {
 }
 
 /// The repository's own `core.sshCommand` values (local and worktree scope), in Git's order.
-pub async fn repository_ssh_commands(query: &dyn TransportQuery) -> Result<Vec<String>, GitError> {
+pub async fn repository_ssh_commands(query: &dyn GitQuery) -> Result<Vec<String>, GitError> {
     let output = query
         .query(&[
             "config".to_owned(),
@@ -227,7 +227,7 @@ pub async fn repository_ssh_commands(query: &dyn TransportQuery) -> Result<Vec<S
 /// transfer borrows from it (a credential helper or `core.sshCommand`); a system file setting
 /// neither has nothing to restore.
 pub async fn system_credential_config_file(
-    query: &dyn TransportQuery,
+    query: &dyn GitQuery,
 ) -> Result<Option<String>, GitError> {
     let output = query
         .query(&[
@@ -294,7 +294,7 @@ pub(crate) mod test_support {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use super::{ConfigOutput, TransportQuery};
+    use super::{ConfigOutput, GitQuery};
     use crate::core::error::{GitError, GitErrorCode};
     use crate::core::spawn::BoxFuture;
 
@@ -383,7 +383,7 @@ pub(crate) mod test_support {
         }
     }
 
-    /// A [`TransportQuery`] that answers a fixed sequence, for the malformed and absent cases.
+    /// A [`GitQuery`] that answers a fixed sequence, for the malformed and absent cases.
     pub(crate) struct SequenceQuery(std::sync::Mutex<std::collections::VecDeque<ConfigOutput>>);
 
     impl SequenceQuery {
@@ -401,7 +401,7 @@ pub(crate) mod test_support {
         }
     }
 
-    impl TransportQuery for SequenceQuery {
+    impl GitQuery for SequenceQuery {
         fn query(&self, _args: &[String]) -> BoxFuture<'_, Result<ConfigOutput, GitError>> {
             let next = self
                 .0
@@ -413,14 +413,14 @@ pub(crate) mod test_support {
         }
     }
 
-    /// A [`TransportQuery`] that runs real Git in a fixture checkout.
-    pub(crate) struct GitQuery<'a> {
+    /// A [`GitQuery`] that runs real Git in a fixture checkout.
+    pub(crate) struct ProcessQuery<'a> {
         pub(crate) fixture: &'a Fixture,
         pub(crate) cwd: &'a Path,
         pub(crate) env: &'a [(&'a str, &'a str)],
     }
 
-    impl TransportQuery for GitQuery<'_> {
+    impl GitQuery for ProcessQuery<'_> {
         fn query(&self, args: &[String]) -> BoxFuture<'_, Result<ConfigOutput, GitError>> {
             let args = args.to_vec();
             Box::pin(async move {
@@ -442,7 +442,7 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{Fixture, GitQuery, SequenceQuery, quote_config};
+    use super::test_support::{Fixture, ProcessQuery, SequenceQuery, quote_config};
     use super::*;
 
     fn output(text: &str) -> ConfigOutput {
@@ -631,7 +631,7 @@ mod tests {
         // The repository's own helper is never a file the transfer reads.
         fixture.git(&repo, &["config", "credential.helper", "repo-helper"]);
 
-        let query = GitQuery {
+        let query = ProcessQuery {
             fixture: &fixture,
             cwd: &repo,
             env: &[],
@@ -676,7 +676,7 @@ mod tests {
         .expect("person");
         // The repository's own value counts only for a checkout no agent writes.
         fixture.git(&repo, &["config", "core.sshCommand", "repo-ssh"]);
-        let query = GitQuery {
+        let query = ProcessQuery {
             fixture: &fixture,
             cwd: &repo,
             env: &[],
@@ -703,7 +703,7 @@ mod tests {
         let system = fixture.root.join("system.gitconfig");
         std::fs::write(&system, "[credential]\n\thelper = system-helper\n").expect("system");
         let path = system.to_string_lossy().into_owned();
-        let query = GitQuery {
+        let query = ProcessQuery {
             fixture: &fixture,
             cwd: &repo,
             env: &[("GIT_CONFIG_SYSTEM", &path)],

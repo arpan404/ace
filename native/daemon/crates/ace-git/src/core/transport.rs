@@ -8,9 +8,7 @@
 
 use std::path::Path;
 
-use crate::core::credentials::{
-    self, ConfigOutput, CredentialHelper, TransportQuery, TrustedOrigin,
-};
+use crate::core::credentials::{self, ConfigOutput, CredentialHelper, GitQuery, TrustedOrigin};
 use crate::core::error::{GitError, GitErrorCode};
 
 /// One `rev-parse` path value: strip one LF terminator (CRLF only on Windows).
@@ -29,10 +27,7 @@ pub fn single_path(output: &ConfigOutput, is_windows: bool) -> Option<String> {
 }
 
 /// The checkout's working tree and Git common directory, as absolute paths.
-async fn checkout_roots(
-    query: &dyn TransportQuery,
-    is_windows: bool,
-) -> Result<Vec<String>, GitError> {
+async fn checkout_roots(query: &dyn GitQuery, is_windows: bool) -> Result<Vec<String>, GitError> {
     let mut roots: Vec<String> = Vec::new();
     for flag in ["--show-toplevel", "--git-common-dir"] {
         let output = query
@@ -90,7 +85,7 @@ pub struct TransportConfig {
 }
 
 pub async fn user_transport_config(
-    query: &dyn TransportQuery,
+    query: &dyn GitQuery,
     options: &TransportOptions<'_>,
 ) -> Result<TransportConfig, GitError> {
     let mut roots = checkout_roots(query, options.is_windows).await?;
@@ -123,7 +118,9 @@ pub async fn user_transport_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::credentials::test_support::{Fixture, GitQuery, SequenceQuery, quote_config};
+    use crate::core::credentials::test_support::{
+        Fixture, ProcessQuery, SequenceQuery, quote_config,
+    };
 
     fn rev_parse(path: &str) -> ConfigOutput {
         ConfigOutput {
@@ -242,7 +239,7 @@ mod tests {
         let global = fixture.root.join("global.gitconfig");
         std::fs::write(&global, "[core]\n\tsshCommand = global-ssh\n").expect("global");
         fixture.git(&repo, &["config", "core.sshCommand", "repo-ssh"]);
-        let query = GitQuery {
+        let query = ProcessQuery {
             fixture: &fixture,
             cwd: &repo,
             env: &[],
@@ -280,7 +277,7 @@ mod tests {
             format!("[include]\n\tpath = {}\n", quote_config(&outside)),
         )
         .expect("global");
-        let query = GitQuery {
+        let query = ProcessQuery {
             fixture: &fixture,
             cwd: &repo,
             env: &[],
@@ -332,7 +329,7 @@ mod tests {
         )
         .expect("first");
         std::fs::write(&second, "[core]\n\tsshCommand =\n").expect("second");
-        let query = GitQuery {
+        let query = ProcessQuery {
             fixture: &fixture,
             cwd: &repo,
             env: &[],
