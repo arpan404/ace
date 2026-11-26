@@ -200,6 +200,8 @@ pub struct DelegationStarted {
     pub outcome: Option<DelegationOutcome>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine: Option<AgentMachine>,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A settled delegation and its results.
@@ -209,6 +211,8 @@ pub struct DelegationSettled {
     pub origin: String,
     pub results: Vec<DelegationOutcome>,
     pub delivery: String,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Daemon-captured ace result content.

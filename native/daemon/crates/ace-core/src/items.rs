@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Stored transcript items and their shared record fields.
 
+use std::ops::{Deref, DerefMut};
+
 use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
@@ -53,21 +55,21 @@ pub enum Item {
         #[serde(default)]
         raw: Vec<RawPayload>,
     },
-    /// A delegated child thread started.
+    /// A delegated child thread started. The payload owns the extra fields.
     #[serde(rename = "delegation.started")]
     DelegationStarted {
         #[serde(flatten)]
-        base: ItemBase,
+        base: ItemFields,
         #[serde(flatten)]
         delegation: DelegationStarted,
         #[serde(default)]
         raw: Vec<RawPayload>,
     },
-    /// A delegated child thread settled.
+    /// A delegated child thread settled. The payload owns the extra fields.
     #[serde(rename = "delegation.settled")]
     DelegationSettled {
         #[serde(flatten)]
-        base: ItemBase,
+        base: ItemFields,
         #[serde(flatten)]
         delegation: DelegationSettled,
         #[serde(default)]
@@ -171,7 +173,7 @@ pub enum Item {
 
 /// The identity and liveness fields every item carries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ItemBase {
+pub struct ItemFields {
     pub id: String,
     #[serde(rename = "agentId")]
     pub agent_id: String,
@@ -193,9 +195,30 @@ pub struct ItemBase {
     /// Sent to a client whose hello asked for raw on demand; never stored.
     #[serde(rename = "rawOmitted", skip_serializing_if = "Option::is_none")]
     pub raw_omitted: Option<bool>,
+}
+
+/// Shared item fields and the remaining keys of a variant with no other flattened payload.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ItemBase {
+    #[serde(flatten)]
+    pub fields: ItemFields,
     /// Fields a newer build wrote; the raw record keeps them.
     #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Deref for ItemBase {
+    type Target = ItemFields;
+
+    fn deref(&self) -> &ItemFields {
+        &self.fields
+    }
+}
+
+impl DerefMut for ItemBase {
+    fn deref_mut(&mut self) -> &mut ItemFields {
+        &mut self.fields
+    }
 }
 
 fn default_true() -> bool {
@@ -222,6 +245,8 @@ pub struct ArtifactBase {
     pub inherited: Option<Vetted>,
     #[serde(rename = "rawOmitted", skip_serializing_if = "Option::is_none")]
     pub raw_omitted: Option<bool>,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Item {
