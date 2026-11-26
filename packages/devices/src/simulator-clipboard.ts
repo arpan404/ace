@@ -1,6 +1,8 @@
 import type { spawnRawSupervised } from "@ace/provider-kit/process";
 import { boundedClipboard, clipboardLimit, type ClipboardRead } from "./clipboard.ts";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError } from "./sdk.ts";
+import { nativeInput, nativePasteboardPlan } from "./native-input.ts";
 
 /** How one Simulator's pasteboard is reached: `xcrun simctl pbcopy|pbpaste <udid>`. */
 export type SimulatorPasteboard = {
@@ -21,14 +23,17 @@ async function pasteboard(
   verb: "pbcopy" | "pbpaste",
   input: string,
 ): Promise<{ bytes: Buffer; cut: boolean }> {
+  // The command, its byte cap and its deadline are ace-devices' decision under the switch.
+  const plan = nativeInput ? nativePasteboardPlan(verb, options.udid) : undefined;
   const child = options.spawn({
     command: options.xcrun,
-    args: ["simctl", verb, options.udid],
+    args: plan?.args ?? ["simctl", verb, options.udid],
     // Without a UTF-8 locale pbcopy reads stdin as MacRoman and mangles anything non-ASCII; a
     // daemon started by launchd usually has no LANG at all.
     env: { ...options.env, LC_ALL: "en_US.UTF-8" },
     name: `simulator-${verb}`,
   });
+  const limit = plan?.readBytes ?? readBytes;
   const chunks: Buffer[] = [];
   let bytes = 0;
   let cut = false;
@@ -37,7 +42,7 @@ async function pasteboard(
     if (cut || !Buffer.isBuffer(chunk)) return;
     chunks.push(chunk);
     bytes += chunk.length;
-    if (bytes > readBytes) {
+    if (bytes > limit) {
       cut = true;
       // The exit below is what the caller reads; a stop that cannot finish adds nothing.
       void child.stop({ graceMs: 0 }).catch(() => {});
@@ -45,7 +50,7 @@ async function pasteboard(
   });
   child.stderr.resume();
   child.stdin.on("error", () => {});
-  const cancel = options.after(timeoutMs, () => {
+  const cancel = options.after(plan?.timeoutMs ?? timeoutMs, () => {
     timedOut = true;
     // The exit below is what the caller reads; a stop that cannot finish adds nothing.
     void child.stop({ graceMs: 0 }).catch(() => {});
@@ -57,15 +62,15 @@ async function pasteboard(
       throw new DeviceError(
         "timeout",
         `Simulator ${verb} did not finish`,
-        "Check that the Simulator is booted and responding, then retry.",
+        catalogHint("simulatorPasteTimeoutHint"),
       );
     if (!cut && exit.code !== 0)
       throw new DeviceError(
         "command_failed",
         `Simulator ${verb} failed`,
-        "Check that the Simulator is booted, then retry.",
+        catalogHint("simulatorPasteFailedHint"),
       );
-    return { bytes: Buffer.concat(chunks).subarray(0, readBytes), cut };
+    return { bytes: Buffer.concat(chunks).subarray(0, limit), cut };
   } finally {
     cancel();
   }

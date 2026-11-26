@@ -1,3 +1,11 @@
+import { nativeDevices } from "./native-devices-addon.ts";
+import {
+  nativeDeviceReaderDrop,
+  nativeDeviceReaderNew,
+  nativeDeviceReaderPush,
+  nativeInput,
+} from "./native-input.ts";
+
 /**
  * ace's own client side of the scrcpy wire protocol, written from scrcpy's `doc/develop.md` and
  * the message layouts its protocol tests document. There is no backward compatibility between
@@ -42,6 +50,13 @@ export const injectTextLimit = 300;
 export const clipboardTextLimit = (1 << 18) - 14;
 
 export type ScreenSize = { width: number; height: number };
+
+/** The message with its bigints as decimal digits: JSON has no bigint, and every bit must survive. */
+function nativeControl(message: ControlMessage): string {
+  return JSON.stringify(message, (_key, value) =>
+    typeof value === "bigint" ? value.toString() : value,
+  );
+}
 export type ControlMessage =
   | { type: "keycode"; action: "down" | "up"; keycode: number; repeat?: number; meta?: number }
   | { type: "text"; text: string }
@@ -89,6 +104,18 @@ function position(buffer: Buffer, offset: number, x: number, y: number, screen: 
 }
 
 export function encodeControl(message: ControlMessage): Buffer {
+  if (nativeInput) {
+    try {
+      return nativeDevices().devicePlatformScrcpyEncode(nativeControl(message));
+    } catch (error) {
+      // Only the server's text cap is the `RangeError` `utf8` throws, with its own words; a
+      // wiring bug or any other failure stays the error it was.
+      const detail = error instanceof Error ? error.message : String(error);
+      const limit = "scrcpy text exceeds the server's limit";
+      if (detail.endsWith(limit)) throw new RangeError(limit);
+      throw error;
+    }
+  }
   switch (message.type) {
     case "keycode": {
       const buffer = Buffer.alloc(14);
@@ -161,11 +188,26 @@ export type DeviceMessage =
 export class DeviceMessageReader {
   private buffer: Buffer = Buffer.alloc(0);
   private broken = false;
+  /** The Rust reader's handle under the switch; its buffer never leaves the addon. */
+  private native: number | undefined;
   private readonly emit: (message: DeviceMessage) => void;
   constructor(emit: (message: DeviceMessage) => void) {
     this.emit = emit;
   }
+  /** Frees the addon's buffer for good; the socket's end calls it, and nothing pushes after. */
+  close(): void {
+    if (this.native === undefined) return;
+    readerDrop.unregister(this);
+    nativeDeviceReaderDrop(this.native);
+    this.native = undefined;
+  }
   push(chunk: Buffer): void {
+    if (nativeInput) {
+      this.native ??= this.#createReader();
+      for (const message of nativeDeviceReaderPush(this.native, chunk).messages)
+        this.emit(reviveDeviceMessage(message));
+      return;
+    }
     if (this.broken) return;
     this.buffer = this.buffer.length ? Buffer.concat([this.buffer, chunk]) : chunk;
     if (this.buffer.length > clipboardTextLimit + 64)
@@ -176,6 +218,12 @@ export class DeviceMessageReader {
       this.buffer = this.buffer.subarray(consumed);
     }
   }
+  #createReader(): number {
+    const id = nativeDeviceReaderNew();
+    readerDrop.register(this, id, this);
+    return id;
+  }
+
   private next(): number {
     const buffer = this.buffer;
     if (!buffer.length) return 0;
@@ -205,6 +253,16 @@ export class DeviceMessageReader {
     return 0;
   }
 }
+
+/** A reader's message as the TypeScript's own shape: the acknowledgement's sequence is a bigint. */
+function reviveDeviceMessage(message: { type: string } & Record<string, unknown>): DeviceMessage {
+  if (message.type === "clipboardAck")
+    return { type: "clipboardAck", sequence: BigInt(String(message["sequence"])) };
+  return message as DeviceMessage;
+}
+
+/** Hands the addon's reader back when the socket's reader is collected. */
+const readerDrop = new FinalizationRegistry<number>((id) => nativeDeviceReaderDrop(id));
 
 export const videoCodecId = { h264: 0x68323634, h265: 0x68323635, av1: 0x00617631 } as const;
 

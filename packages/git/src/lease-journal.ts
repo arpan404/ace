@@ -30,6 +30,20 @@ export const orphans = new Map<string, OwnedLease>();
 /** The lease this process owns under `id`: running, unwinding or orphaned. */
 export const owned = (id: string) => live.get(id) ?? orphans.get(id);
 
+/**
+ * Forgets every process-local record of `id` after a retirement another backend
+ * performed: its file is gone, so nothing here may hold or retire it again.
+ */
+export function forgetLease(id: string): void {
+  live.delete(id);
+  orphans.delete(id);
+}
+
+/** The ids this process still holds or remembers, for a retirement's regression test. */
+export function heldLeaseIds(): string[] {
+  return [...new Set([...live.keys(), ...orphans.keys()])];
+}
+
 export function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

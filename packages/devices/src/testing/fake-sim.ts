@@ -13,7 +13,7 @@ import { framePacket, type Frame } from "@ace/screen";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { DevicePlatform } from "../platform.ts";
 import { DevicesService } from "../service.ts";
-import { DeviceError } from "../sdk.ts";
+import { catalogRefusal, DeviceError } from "../sdk.ts";
 import { androidFind } from "../android-ui.ts";
 import type { DeviceShot } from "../one-off-screenshot.ts";
 import { boundedClipboard } from "../clipboard.ts";
@@ -107,8 +107,7 @@ export class FakeSimPlatform extends DevicePlatform {
     return this.folds.get(device.id);
   }
   override async setPosture(device: Device, posture: DevicePosture): Promise<DevicePosture> {
-    if (!this.folds.has(device.id))
-      throw new DeviceError("not_supported", "This device doesn't fold", "Use a foldable one.");
+    if (!this.folds.has(device.id)) throw catalogRefusal("deviceNoFold");
     this.effects.push(`${device.id} posture ${posture}`);
     this.folds.set(device.id, posture);
     return posture;

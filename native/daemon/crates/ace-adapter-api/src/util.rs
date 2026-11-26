@@ -8,7 +8,7 @@ pub mod data_url;
 pub mod elision;
 pub mod record;
 
-pub use binary_elision::{BINARY_ELISION_CHARS, elided_digest, elided_json};
+pub use binary_elision::{BINARY_ELISION_CHARS, elided_digest, elided_json, elided_text};
 pub use data_url::{Base64DataUrl, base64_data_url, is_base64};
 pub use elision::{ElisionLimits, JsonElider};
 pub use record::{NativeRecord, native_record};
