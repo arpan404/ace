@@ -7,6 +7,7 @@
 //! relay and its host half. Tests never contact the hosted relay; a local server stands in.
 
 pub mod channel;
+pub mod cipher;
 pub mod error;
 pub mod http;
 pub mod nk;
@@ -20,6 +21,7 @@ pub use channel::{
     ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input, chunk_room,
     control_room, files_need_scoped, support_local_only,
 };
+pub use cipher::{CipherState, Snapshot};
 pub use error::RelayError;
 pub use http::{HOOKS_PATH, RelayHttpTarget, relay_http_enabled, relay_http_target};
 pub use nk::admission::{

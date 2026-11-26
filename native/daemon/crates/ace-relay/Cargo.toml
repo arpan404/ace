@@ -26,6 +26,9 @@ sha2 = { version = "0.11" }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 # data-encoding: base32 for the relay host id, the form pairing links and the relay protocol use.
 data-encoding = { version = "2.6" }
+# chacha20poly1305: the media cipher's ChaCha20-Poly1305 (RustCrypto), the primitive `cipher.ts`
+# builds its ordered states and rekeys on.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
 # snow: the Noise protocol framework, replacing `@ace/secure-channel` (XX and NK, ADR 0155). The
 # RustCrypto default resolver, never ring: the daemon's one TLS stack is aws-lc-rs.
 snow = { version = "0.10", default-features = false, features = [
