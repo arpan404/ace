@@ -530,11 +530,20 @@ impl SettingsService {
         result
     }
 
-    /// Removes global preferences in one commit.
+    /// Removes global preferences in one commit. The daemon resets every key it may
+    /// write at once (about ninety), so there is no 1–32 cap here; an empty list is a
+    /// no-op, as `service.ts:271` has it.
     pub fn reset(service: &Rc<RefCell<Self>>, keys: &[String]) -> Result<(), SettingsError> {
-        let keys = Self::key_list(keys)?;
+        for key in keys {
+            if !is_key(key) {
+                return Err(SettingsError::new(
+                    SettingsCode::Validation,
+                    "Unknown settings key",
+                ));
+            }
+        }
         let file = Self::file(service, &Layer::Global)?;
-        let result = file.borrow_mut().reset(&keys);
+        let result = file.borrow_mut().reset(keys);
         Self::drain(service);
         result
     }
