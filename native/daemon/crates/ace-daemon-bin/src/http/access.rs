@@ -159,7 +159,8 @@ pub(super) fn pairings(state: &HttpState, token: &str, body: &[u8]) -> Reply {
     let creator = state.config.auth.creator_scopes(token);
     if let Some(held) = &creator {
         for scope in &request.scopes {
-            if !held.contains(scope) {
+            // `allows_scopes`: admin carries read/operate, not projects/accounts.
+            if !ace_auth::devices::allows_scopes(held, *scope) {
                 return error(
                     StatusCode::FORBIDDEN,
                     &format!(

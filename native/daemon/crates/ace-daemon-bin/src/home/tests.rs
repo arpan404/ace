@@ -360,3 +360,39 @@ fn a_half_applied_update_is_not_carried() {
         other => panic!("expected no carried release: {other:?}"),
     }
 }
+
+/// `home-claim.ts`: an older ace (0.x keeps no daemon-lock) that still holds a
+/// home's database open is refused with `OldAceRunningError`, and nothing moves.
+#[test]
+#[cfg(unix)]
+fn an_older_ace_holding_the_home_is_refused() {
+    let parent = TempDir::new("ace-home-old-ace");
+    let root = parent.path().join(".ace");
+    let _ = std::fs::create_dir_all(root.join("userdata"));
+    let database = root.join("userdata/state.sqlite");
+    let _ = std::fs::write(&database, "old ace data");
+    let holder = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "exec 3<>\"$0\"; sleep 30",
+            &database.display().to_string(),
+        ])
+        .spawn();
+    let Ok(mut holder) = holder else {
+        return;
+    };
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let refused = prepare(&root, 1, 1);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    match refused {
+        Err(HomeError::Live { message, pid, .. }) => {
+            assert!(message.contains("older ace"), "{message}");
+            assert!(message.contains("Nothing was moved"), "{message}");
+            assert!(pid.is_some());
+        }
+        other => panic!("an older ace holding the home is refused: {other:?}"),
+    }
+    assert!(root.join("userdata/state.sqlite").exists());
+    assert!(!parent.path().join(".ace-v0").exists());
+}

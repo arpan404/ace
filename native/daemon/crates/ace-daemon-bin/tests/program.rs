@@ -330,6 +330,15 @@ fn a_pairing_link_cannot_grant_scopes_the_creator_does_not_hold() {
         "{\"scopes\":[\"admin\"]}",
     );
     assert_eq!(status, 200, "{body}");
+    // Admin carries read and operate, as `allows_scopes` says.
+    let (status, body) = request(
+        &endpoint,
+        "POST",
+        "/v1/pairings",
+        &admin_token,
+        "{\"scopes\":[\"read\"]}",
+    );
+    assert_eq!(status, 200, "{body}");
 
     // `/v1/status` is open to any admin, not only the host token.
     let (status, body) = request(&endpoint, "GET", "/v1/status", &admin_token, "");

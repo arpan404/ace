@@ -57,8 +57,9 @@ pub struct HttpConfig {
     pub ready: Arc<std::sync::atomic::AtomicBool>,
     /// Set once the remote listener binds.
     pub pairing: Arc<std::sync::Mutex<Option<PairingOrigin>>>,
-    /// Called once a stop request is accepted, after its answer is on the wire.
-    pub on_stop: Arc<dyn Fn(Admission) + Send + Sync>,
+    /// Called once a stop request is accepted, after its answer is on the wire,
+    /// with the caller chain verified by evidence (empty when unproven).
+    pub on_stop: Arc<dyn Fn(Admission, Vec<crate::peer::Member>) + Send + Sync>,
 }
 
 /// The state one server answers from.
@@ -325,6 +326,18 @@ async fn read_body(request: Request<Incoming>, limit: usize) -> Result<Vec<u8>, 
 
 /// `POST /v1/stop`: parse the optional body, write the receipt, answer, then stop.
 async fn stop_request(state: &HttpState, request: Request<Incoming>) -> Response {
+    let port = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(0)
+    };
+    let connection = crate::peer::Connection {
+        remote_port: port("x-ace-hop-peer-port"),
+        local_port: port("x-ace-hop-local-port"),
+    };
     let collected = match read_body(request, BODY_LIMIT).await {
         Ok(body) => body,
         Err(failure) => return failure,
@@ -361,12 +374,18 @@ async fn stop_request(state: &HttpState, request: Request<Incoming>) -> Response
             );
         }
     };
+    // The claimed caller is only spared when the process holding this connection
+    // proves it; an unproven chain spares nobody (`peer-process.ts`).
+    let hint = crate::peer::caller_from(&body);
+    let verified = tokio::task::spawn_blocking(move || crate::peer::verified(&hint, connection))
+        .await
+        .unwrap_or_default();
     let admission = Admission { receipt_id: id };
     let response = json_body(
         StatusCode::OK,
         &serde_json::from_str(&admission.to_json()).unwrap_or(json!({"stopping": true})),
     );
-    (state.config.on_stop)(admission);
+    (state.config.on_stop)(admission, verified);
     response
 }
 

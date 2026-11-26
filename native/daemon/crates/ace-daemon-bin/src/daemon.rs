@@ -260,31 +260,41 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     let stop_for_http = stop.clone();
     let accepted: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let accepted_for_http = Arc::clone(&accepted);
+    let log_for_stop = Arc::clone(&log);
     let http = HttpConfig {
         version: config.version.clone(),
         allowed_origins: config.web_origins.clone(),
         auth: Arc::clone(&auth),
         ready: Arc::clone(&ready),
         pairing: Arc::clone(&pairing_origin),
-        on_stop: Arc::new(move |admission: Admission| {
-            // The receipt is written before the answer leaves, so `ace stop`
-            // never reads a stale one.
-            let _ = crate::receipt::write(
-                &home_for_stop,
-                &admission.receipt_id,
-                State::Pending,
-                home::now_ms() as f64,
-                None,
-                false,
-            );
-            *accepted_for_http
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner()) = Some(admission.receipt_id);
-            let _ = stop_for_http.send(StopReason {
-                source: "stop-request",
-                signal: None,
-            });
-        }),
+        on_stop: Arc::new(
+            move |admission: Admission, caller: Vec<crate::peer::Member>| {
+                if !caller.is_empty() {
+                    log_for_stop.log(
+                        "info",
+                        "Stop request caller verified",
+                        serde_json::json!({"processes": caller.len()}),
+                    );
+                }
+                // The receipt is written before the answer leaves, so `ace stop`
+                // never reads a stale one.
+                let _ = crate::receipt::write(
+                    &home_for_stop,
+                    &admission.receipt_id,
+                    State::Pending,
+                    home::now_ms() as f64,
+                    None,
+                    false,
+                );
+                *accepted_for_http
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner()) = Some(admission.receipt_id);
+                let _ = stop_for_http.send(StopReason {
+                    source: "stop-request",
+                    signal: None,
+                });
+            },
+        ),
     };
     let plan = match remote_plan(&config).await {
         Ok(plan) => plan,

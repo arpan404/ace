@@ -178,6 +178,18 @@ impl HomeError {
         matches!(self, Self::NewerData { .. })
     }
 
+    /// An older ace (0.x, no lock database) is still using the home.
+    pub fn live_old(home: &Path, pid: i64) -> Self {
+        Self::Live {
+            home: home.to_path_buf(),
+            pid: Some(pid),
+            message: format!(
+                "An older ace (pid {pid}) is still running and using {}. Quit the old ace first, then open ace again. Nothing was moved.",
+                home.display()
+            ),
+        }
+    }
+
     /// A daemon still holds the old home; nothing was moved.
     pub fn live(home: &Path, pid: Option<i64>) -> Self {
         Self::Live {

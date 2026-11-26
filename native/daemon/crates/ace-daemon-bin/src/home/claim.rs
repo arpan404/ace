@@ -8,7 +8,7 @@
 //! ("a live home is never renamed", "a crashed old daemon's leftover lock does not
 //! block the fresh start") and `home-format.ts`'s two refusal messages.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ace_store::Connection;
 
@@ -79,10 +79,142 @@ pub fn claim(root: &Path) -> Result<Claim, HomeError> {
     {
         return Err(HomeError::live(root, Some(pid)));
     }
+    // An older ace keeps no lock database: what it has open, or the pid files it
+    // published, prove it is using the home (`home-claim.ts:83`).
+    if !exists {
+        let files = live_files(root);
+        let running = recorded_pids(&files)
+            .into_iter()
+            .filter(|pid| *pid != std::process::id() as i64 && alive(*pid))
+            .chain(
+                openers(&files)
+                    .into_iter()
+                    .filter(|pid| *pid != std::process::id() as i64),
+            )
+            .next();
+        if let Some(pid) = running {
+            return Err(HomeError::live_old(root, pid));
+        }
+    }
     Ok(Claim { connection: None })
 }
 
 /// The pid in `<home>/daemon-lock`, when it holds one.
+/// The files under `root`, two levels deep, that a running ace keeps open
+/// (`liveFiles`): databases, journals, sockets, pid and lock files.
+pub fn live_files(root: &Path) -> Vec<PathBuf> {
+    const SKIPPED: [&str; 3] = ["worktrees", "node_modules", "releases"];
+    let mut files = Vec::new();
+    let mut pending = vec![(root.to_path_buf(), 0_u8)];
+    while let Some((directory, depth)) = pending.first().cloned() {
+        pending.remove(0);
+        if files.len() >= 256 {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = directory.join(entry.file_name());
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if depth < 2 && !SKIPPED.contains(&name.as_str()) {
+                    pending.push((path, depth + 1));
+                }
+            } else if is_live(&entry.file_name().to_string_lossy()) && files.len() < 256 {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+fn is_live(name: &str) -> bool {
+    [".sqlite", ".db", ".sock", ".socket", ".pid", ".lock"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+        || [".sqlite-wal", ".sqlite-shm", ".db-wal"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+}
+
+/// Pids recorded in `*.pid` files (`recordedPids`).
+fn recorded_pids(files: &[PathBuf]) -> Vec<i64> {
+    let mut pids = Vec::new();
+    for file in files {
+        if file.extension().and_then(|extension| extension.to_str()) != Some("pid") {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(file)
+            && let Ok(pid) = text.get(..32).unwrap_or(&text).trim().parse::<i64>()
+            && pid > 0
+        {
+            pids.push(pid);
+        }
+    }
+    pids
+}
+
+/// Which processes hold any of `files` open (`systemOpeners`): Linux reads
+/// `/proc/*/fd`; elsewhere lsof is asked about these files only.
+fn openers(files: &[PathBuf]) -> Vec<i64> {
+    if files.is_empty() {
+        return Vec::new();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut pids = Vec::new();
+        let mut descriptors = 0_u32;
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return pids;
+        };
+        for entry in entries.flatten().take(16_384) {
+            let Ok(pid) = entry.file_name().to_string_lossy().parse::<i64>() else {
+                continue;
+            };
+            let Ok(fds) = std::fs::read_dir(entry.path().join("fd")) else {
+                continue;
+            };
+            for fd in fds.flatten() {
+                descriptors += 1;
+                if descriptors > 65_536 {
+                    return pids;
+                }
+                let Ok(target) = std::fs::read_link(fd.path()) else {
+                    continue;
+                };
+                if files.iter().any(|file| file == &target) {
+                    pids.push(pid);
+                    break;
+                }
+            }
+        }
+        return pids;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = std::process::Command::new("lsof")
+            .arg("-t")
+            .arg("--")
+            .args(files)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let Ok(output) = output else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<i64>().ok())
+            .filter(|pid| *pid > 0)
+            .collect()
+    }
+}
+
+
 fn lock_owner(root: &Path) -> Option<i64> {
     let text = std::fs::read_to_string(root.join("daemon-lock")).ok()?;
     let value: serde_json::Value = serde_json::from_str(text.get(..256).unwrap_or(&text)).ok()?;

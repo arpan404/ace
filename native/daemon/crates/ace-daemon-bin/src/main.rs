@@ -18,6 +18,7 @@ mod identity;
 mod ids;
 mod lock;
 mod log;
+mod peer;
 mod process;
 mod receipt;
 mod run_marker;
