@@ -13,6 +13,7 @@ pub mod classification;
 pub mod cleanup;
 pub mod cli;
 pub mod deletions;
+pub mod discovery;
 pub mod failures;
 pub mod gate;
 pub mod learned;
