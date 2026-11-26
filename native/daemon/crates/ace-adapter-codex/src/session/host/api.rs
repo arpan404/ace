@@ -140,7 +140,7 @@ impl Host {
             );
             // The handshake's frames reached the process before this channel was
             // registered: replay them so a dedicated channel still sees them.
-            let init: Vec<(Direction, Value)> = inner.init_frames.clone();
+            let init: Vec<(Direction, Arc<Value>)> = inner.init_frames.clone();
             for (dir, data) in init {
                 inner.deliver(tenant, dir, &data, None);
             }

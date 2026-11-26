@@ -302,11 +302,12 @@ pub enum HostEffect {
         exit: HostExit,
     },
     /// One frame for a channel that took it, published in the host's order
-    /// with every settlement and exit. The data is cloned once per delivery.
+    /// with every settlement and exit. One decoded value is shared by every
+    /// recipient, so a delivery never deep-clones it.
     Frame {
         tenant: u64,
         dir: Direction,
-        data: Value,
+        data: Arc<Value>,
     },
     /// One notification, after the frame it belongs to.
     Notification {
@@ -558,7 +559,7 @@ impl ShellScan {
 struct Pending {
     route: Route<u64>,
     /// Kept only for the lone-channel host-request fallback (`:565`).
-    data: Option<Value>,
+    data: Option<Arc<Value>>,
     held: Option<(JsString, usize)>,
     failed: HashSet<u64>,
 }
@@ -577,7 +578,7 @@ struct Inner {
     router: HostRouter<u64>,
     tenants: IndexMap<u64, Tenant>,
     holds: IndexMap<JsString, Hold>,
-    init_frames: Vec<(Direction, Value)>,
+    init_frames: Vec<(Direction, Arc<Value>)>,
     peer: RpcPeer,
     pid: Option<u32>,
     /// The leader's end, recorded while the pipes still drain (`#exit`).

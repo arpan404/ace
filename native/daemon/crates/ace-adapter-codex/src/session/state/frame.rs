@@ -28,12 +28,14 @@ impl Session {
         now: f64,
     ) -> Vec<Effect> {
         let mut effects = Vec::new();
-        let message = data.as_object().cloned().unwrap_or_default();
+        // Borrow the frame's own values: a deep clone per frame is exactly the
+        // cost the hot path pays for nothing.
+        let empty = Map::new();
+        let message = data.as_object().unwrap_or(&empty);
         let params = message
             .get("params")
             .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
+            .unwrap_or(&empty);
         let method = text_of(message.get("method"));
         let thread = text_of(params.get("threadId"));
         let submitted_mode = self.permission_mode.clone();
@@ -59,9 +61,9 @@ impl Session {
         let id = rpc_of(message.get("id"));
         if dir == Direction::Recv {
             // `:208`-`:250`: what this received frame proves.
-            self.observe_recovery(&thread, &method, &turn_of(&params));
+            self.observe_recovery(&thread, &method, &turn_of(params));
             if method == "turn/completed" {
-                let turn = turn_of(&params);
+                let turn = turn_of(params);
                 self.ended_turns.add(turn.clone());
                 let ids: Vec<RpcId> = self
                     .control_requests
@@ -90,13 +92,11 @@ impl Session {
             let result = message
                 .get("result")
                 .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
+                .unwrap_or(&empty);
             let snapshot = result
                 .get("thread")
                 .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
+                .unwrap_or(&empty);
             if let Some(control) = control
                 && !message.contains_key("error")
             {
@@ -128,11 +128,9 @@ impl Session {
                             if snapshot.get("turns").is_some_and(Value::is_array) {
                                 self.recovered.insert(self.root.clone());
                             }
-                            remember_historical_questions(
-                                &Value::Object(snapshot.clone()),
-                                &mut self.seen_questions,
-                            );
-                            self.hydrate(&Value::Object(snapshot.clone()));
+                            let thread_state = result.get("thread").unwrap_or(&Value::Null);
+                            remember_historical_questions(thread_state, &mut self.seen_questions);
+                            self.hydrate(thread_state);
                         }
                     }
                 }
@@ -154,7 +152,7 @@ impl Session {
             note.insert("threadId", Value::from(thread.clone()));
             note.insert(
                 "task",
-                Value::from(format!("discovery:{}", turn_of(&params))),
+                Value::from(format!("discovery:{}", turn_of(params))),
             );
             effects.extend(self.emit_note(&Value::Object(note)));
         }
@@ -168,11 +166,12 @@ impl Session {
         let history = dir == Direction::Recv && (self.history_replies.shift_remove(&id) || scoped);
         // History replies grow with the thread; their turns are recorded as
         // bounded notes.
-        let recorded = if history {
-            crate::session::frames::compact_history_reply(data)
+        let compact = if history {
+            Some(crate::session::frames::compact_history_reply(data))
         } else {
-            data.clone()
+            None
         };
+        let recorded = compact.as_ref().unwrap_or(data);
         let channel = if scoped {
             "codex-discovery"
         } else if history {
@@ -180,7 +179,7 @@ impl Session {
         } else {
             "stdio"
         };
-        match self.emit(dir, &recorded, channel, optional) {
+        match self.emit(dir, recorded, channel, optional) {
             Ok(ref mut emitted) => effects.append(emitted),
             Err(rejected) => {
                 // A received frame the bound refuses retires the transport, as
@@ -207,11 +206,11 @@ impl Session {
             effects.extend(self.schedule_recovery(&thread));
         }
         if method == "turn/started" {
-            let turn = turn_of(&params);
+            let turn = turn_of(params);
             self.active.insert(thread.clone(), turn);
         }
         if method == "turn/completed" {
-            let turn = turn_of(&params);
+            let turn = turn_of(params);
             if self.active.get(&thread) == Some(&turn) {
                 self.active.shift_remove(&thread);
             }
@@ -219,14 +218,9 @@ impl Session {
                 .pending
                 .iter()
                 .filter(|(_, entry)| {
-                    let params = entry
-                        .params
-                        .as_ref()
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default();
-                    text_of(params.get("threadId")) == thread
-                        && text_of(params.get("turnId")) == turn
+                    let params = entry.params.as_ref().and_then(Value::as_object);
+                    text_of(params.and_then(|params| params.get("threadId"))) == thread
+                        && text_of(params.and_then(|params| params.get("turnId"))) == turn
                 })
                 .map(|(key, entry)| (key.clone(), entry.id.clone()))
                 .collect();
@@ -262,20 +256,15 @@ impl Session {
             let item = params
                 .get("item")
                 .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
-            let item_value = Value::Object(item.clone());
+                .unwrap_or(&empty);
+            let item_value = params.get("item").unwrap_or(&Value::Null);
             let item_id = text_of(item.get("id"));
             if item.get("type").and_then(Value::as_str) == Some("collabAgentToolCall")
                 && item.get("tool").and_then(Value::as_str) == Some("spawnAgent")
             {
-                let receivers = item
-                    .get("receiverThreadIds")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                for receiver in receivers {
-                    let child = text_of(Some(&receiver));
+                let receivers = item.get("receiverThreadIds").and_then(Value::as_array);
+                for receiver in receivers.into_iter().flatten() {
+                    let child = text_of(Some(receiver));
                     if !child.is_empty() {
                         effects.extend(self.discover_child(&child, &thread));
                     }
@@ -298,7 +287,7 @@ impl Session {
                 }
             }
             if !item_id.is_empty()
-                && crate::translate::helpers::is_async_question(&item_value)
+                && crate::translate::helpers::is_async_question(item_value)
                 && !self.seen_questions.contains(&item_id)
             {
                 self.seen_questions.insert(item_id.clone());
