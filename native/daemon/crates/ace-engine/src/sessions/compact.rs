@@ -13,6 +13,14 @@ pub const UNSUPPORTED_COMPACT: &str = "unsupported_compact";
 /// `thread.compact`'s refusal: the provider can't compact while its agent works.
 pub const THREAD_NOT_IDLE: &str = "thread_not_idle";
 
+/// `thread.compact`'s admission against the provider's capabilities (`Capabilities.compaction`).
+pub fn admit_capabilities(
+    capabilities: &ace_protocol::generated::Capabilities,
+    status: &str,
+) -> Result<(), &'static str> {
+    admit(capabilities.compaction, status)
+}
+
 /// Whether the command may go to the session: a provider with native compaction, an idle thread.
 pub fn admit(compaction: Option<bool>, status: &str) -> Result<(), &'static str> {
     if !observer::compact_supported(compaction) {
