@@ -55,9 +55,14 @@ impl HelloRefusal {
         }
     }
 
-    /// Every refusal closes the socket with `4001 Credential replaced`.
+    /// Every refusal closes the socket with `4001`, reason `unauthorized`
+    /// (`close.rs`'s `HELLO_REFUSED_*`).
     pub fn close_code(self) -> u16 {
-        4001
+        crate::close::HELLO_REFUSED_CLOSE
+    }
+
+    pub fn close_reason(self) -> &'static str {
+        crate::close::HELLO_REFUSED_REASON
     }
 }
 
@@ -353,6 +358,7 @@ mod tests {
         assert_eq!(HelloRefusal::NotHello.code(), "unauthorized");
         assert_eq!(HelloRefusal::NotHello.message(), "Valid hello required");
         assert_eq!(HelloRefusal::NotHello.close_code(), 4001);
+        assert_eq!(HelloRefusal::NotHello.close_reason(), "unauthorized");
     }
 
     #[test]

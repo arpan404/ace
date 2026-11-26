@@ -125,14 +125,19 @@ impl TicketPool {
         if self.owned.get(device_id).map_or(0, HashSet::len) >= self.limits.per_device {
             return Err(IssueError::DeviceQuotaExceeded);
         }
-        let existing = self.rates.get(device_id).copied();
-        let mut rate = existing.unwrap_or(Rate {
+        // The three caps are the documented ones (`ticket-pool.ts:8`-`:12`, behaviour.md §6):
+        // outstanding tickets in all (checked above), outstanding per device, and issued per
+        // device per minute. This check is the minute's, and only the minute's: the TypeScript
+        // also refused a device's *first* ticket once `rates.size` reached `global`, which is
+        // the rate map's size rather than the cap on outstanding tickets, so a minute in which
+        // enough other devices had asked refused a fresh device. Live tickets are the cap
+        // (review P1), and the map is bounded by the devices that asked in the last minute.
+        self.evict_rates(now);
+        let mut rate = self.rates.get(device_id).copied().unwrap_or(Rate {
             count: 0,
             resets_at: now + TICKET_TTL_MS,
         });
-        if rate.count >= self.limits.per_minute
-            || (existing.is_none() && self.rates.len() >= self.limits.global)
-        {
+        if rate.count >= self.limits.per_minute {
             return Err(IssueError::RateLimitExceeded);
         }
         rate.count += 1;
@@ -196,8 +201,21 @@ impl TicketPool {
         self.tickets.len()
     }
 
+    /// The live per-minute windows at `now`. An expired window is dropped as it is asked about,
+    /// so it never counts against a later minute.
+    pub fn rate_windows(&mut self, now: i64) -> usize {
+        self.evict_rates(now);
+        self.rates.len()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.tickets.is_empty()
+    }
+
+    /// Drop the per-minute windows that ran out. Called before every rate check as well as by
+    /// `evict`, so a window is never counted in a minute it did not issue in.
+    fn evict_rates(&mut self, now: i64) {
+        self.rates.retain(|_, rate| rate.resets_at > now);
     }
 
     fn evict(&mut self, now: i64) {
@@ -356,6 +374,43 @@ mod tests {
         for valid in ["c", "d", "first", "second"] {
             assert!(pool.consume(valid, 71_000, None).is_some(), "{valid}");
         }
+    }
+
+    #[test]
+    fn many_devices_holding_rate_windows_do_not_refuse_a_new_devices_first_ticket() {
+        // Ten thousand devices may each hold a 60-second rate window while only a handful of
+        // tickets are outstanding; the documented cap is on outstanding tickets, so the next
+        // device's first redemption must be allowed. The same case at a test's scale: three
+        // devices used their windows, no ticket is live, and a fourth device asks.
+        let mut pool = TicketPool::new(limits(3, 3, 5));
+        for device in ["a", "b", "c"] {
+            let key = format!("{device}-1");
+            pool.issue(&key, device, "g", 1_000, "")
+                .expect("inside the caps");
+            pool.consume(&key, 1_000, None).expect("spent");
+        }
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.rate_windows(1_000), 3);
+        pool.issue("d-1", "d", "g", 1_000, "")
+            .expect("a first redemption is not the rate map's size limit");
+    }
+
+    #[test]
+    fn an_expired_rate_window_does_not_count_and_the_map_forgets_it() {
+        let mut pool = TicketPool::new(limits(10, 10, 2));
+        let first = pool.issue("a-1", "a", "g", 1_000, "").unwrap();
+        pool.consume("a-1", 1_000, None).expect("spent");
+        pool.issue("a-2", "a", "g", 1_000, "").unwrap();
+        assert_eq!(
+            pool.issue("a-3", "a", "g", 1_000, ""),
+            Err(IssueError::RateLimitExceeded)
+        );
+        // Sixty seconds later the window is gone, and asking about it drops it rather than
+        // leaving it to count against the next minute.
+        assert_eq!(pool.rate_windows(61_000), 0);
+        pool.issue("a-3", "a", "g", 61_000, "")
+            .expect("a fresh minute starts a fresh window");
+        assert_eq!(first.expires_at, 61_000);
     }
 
     #[test]
