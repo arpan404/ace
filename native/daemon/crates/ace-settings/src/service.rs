@@ -50,7 +50,8 @@ pub struct SettingsService {
     listeners: Vec<ChangeListener>,
     pending: Rc<RefCell<Vec<Pending>>>,
     closed: bool,
-    watchers: Vec<Stop>,
+    /// One pending debounced reload per file: a new change cancels the one before it.
+    timers: BTreeMap<PathBuf, Stop>,
 }
 
 impl SettingsService {
@@ -91,7 +92,7 @@ impl SettingsService {
             listeners: Vec::new(),
             pending: Rc::new(RefCell::new(Vec::new())),
             closed: false,
-            watchers: Vec::new(),
+            timers: BTreeMap::new(),
         })))
     }
 
@@ -145,6 +146,7 @@ impl SettingsService {
         // A watched change only schedules the reload; the debounce is this service's.
         let scheduled_service: Weak<RefCell<Self>> = Rc::downgrade(service);
         let scheduled_layer = layer.clone();
+        let scheduled_path = path.clone();
         let schedule: std::rc::Rc<dyn Fn()> = std::rc::Rc::new(move || {
             let Some(service) = scheduled_service.upgrade() else {
                 return;
@@ -153,17 +155,25 @@ impl SettingsService {
                 let service = service.borrow();
                 (service.scheduler.clone(), service.delay_ms)
             };
+            if let Some(cancel) = service.borrow_mut().timers.remove(&scheduled_path) {
+                cancel();
+            }
             let timer_service = scheduled_service.clone();
             let timer_layer = scheduled_layer.clone();
+            let timer_path = scheduled_path.clone();
             let cancel = scheduler.schedule(
                 delay,
                 Box::new(move || {
                     if let Some(service) = timer_service.upgrade() {
+                        service.borrow_mut().timers.remove(&timer_path);
                         let _ = Self::refresh_shared(&service, &timer_layer);
                     }
                 }),
             );
-            service.borrow_mut().watchers.push(cancel);
+            service
+                .borrow_mut()
+                .timers
+                .insert(scheduled_path.clone(), cancel);
         });
         let _ = file.borrow_mut().watch(schedule);
         service.borrow_mut().files.insert(path, file.clone());
@@ -403,7 +413,7 @@ impl SettingsService {
     pub fn close(service: &Rc<RefCell<Self>>) {
         let mut borrowed = service.borrow_mut();
         borrowed.closed = true;
-        for cancel in borrowed.watchers.drain(..) {
+        for (_, cancel) in std::mem::take(&mut borrowed.timers) {
             cancel();
         }
         for file in borrowed.files.values() {
@@ -421,6 +431,9 @@ mod tests {
     //! take on a workspace, a batch commits once, and a value an older file held is
     //! migrated when the service opens it.
 
+    // The service is single-threaded: its IO and timers are inert objects the test drives.
+    #![allow(clippy::arc_with_non_send_sync)]
+
     use super::*;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
@@ -429,11 +442,43 @@ mod tests {
     struct MemoryIo {
         files: Mutex<BTreeMap<PathBuf, String>>,
         writes: Mutex<usize>,
+        reads: Mutex<usize>,
         watches: Mutex<usize>,
+        changed: Mutex<Option<Rc<dyn Fn()>>>,
+        failed: Mutex<Option<Rc<dyn Fn()>>>,
+    }
+
+    impl MemoryIo {
+        fn fire_changed(&self) {
+            if let Some(changed) = self
+                .changed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+            {
+                changed();
+            }
+        }
+
+        fn fire_failed(&self) {
+            if let Some(failed) = self
+                .failed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+            {
+                failed();
+            }
+        }
+
+        fn count(counter: &Mutex<usize>) -> usize {
+            *counter.lock().unwrap_or_else(|error| error.into_inner())
+        }
     }
 
     impl SettingsIo for MemoryIo {
         fn read(&self, path: &std::path::Path) -> Result<Option<String>, SettingsError> {
+            *self.reads.lock().unwrap_or_else(|error| error.into_inner()) += 1;
             Ok(self
                 .files
                 .lock()
@@ -465,14 +510,87 @@ mod tests {
         fn watch(
             &self,
             _path: &std::path::Path,
-            _changed: std::rc::Rc<dyn Fn()>,
-            _failed: std::rc::Rc<dyn Fn()>,
+            changed: std::rc::Rc<dyn Fn()>,
+            failed: std::rc::Rc<dyn Fn()>,
         ) -> Result<Stop, SettingsError> {
             *self
                 .watches
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) += 1;
+            *self
+                .changed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(changed);
+            *self
+                .failed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(failed);
             Ok(Box::new(|| {}))
+        }
+    }
+
+    /// A scheduler whose pending timers the test fires by hand.
+    #[derive(Default, Clone)]
+    struct FakeScheduler {
+        state: Arc<FakeState>,
+    }
+
+    #[derive(Default)]
+    struct FakeState {
+        pending: Mutex<BTreeMap<usize, Box<dyn Fn()>>>,
+        next: Mutex<usize>,
+    }
+
+    impl FakeScheduler {
+        fn pending(&self) -> usize {
+            self.state
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len()
+        }
+
+        fn fire(&self) {
+            let callbacks: Vec<Box<dyn Fn()>> = std::mem::take(
+                &mut *self
+                    .state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()),
+            )
+            .into_values()
+            .collect();
+            for callback in callbacks {
+                callback();
+            }
+        }
+    }
+
+    impl Scheduler for FakeScheduler {
+        fn schedule(&self, _delay_ms: u64, callback: Box<dyn Fn()>) -> Stop {
+            let id = {
+                let mut next = self
+                    .state
+                    .next
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                let id = *next;
+                *next += 1;
+                id
+            };
+            self.state
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(id, callback);
+            let pending = self.state.clone();
+            Box::new(move || {
+                pending
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&id);
+            })
         }
     }
 
@@ -666,6 +784,70 @@ mod tests {
             0,
             "nothing is written over the malformed text"
         );
+    }
+
+    #[test]
+    fn watch_events_before_the_boundary_collapse_into_one_reload() {
+        let io = Arc::new(MemoryIo::default());
+        let scheduler = FakeScheduler::default();
+        let service = SettingsService::new(
+            PathBuf::from("/data"),
+            io.clone(),
+            Arc::new(scheduler.clone()),
+            BTreeMap::new(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        SettingsService::get(&service, "threads.sortBy", &Scope::default())
+            .unwrap_or_else(|error| panic!("{error}"));
+        let reads = MemoryIo::count(&io.reads);
+        for _ in 0..20 {
+            io.fire_changed();
+        }
+        assert_eq!(
+            scheduler.pending(),
+            1,
+            "one reload is scheduled, not twenty"
+        );
+        scheduler.fire();
+        assert_eq!(scheduler.pending(), 0);
+        assert_eq!(MemoryIo::count(&io.reads), reads + 1, "one reload happened");
+    }
+
+    #[test]
+    fn a_failed_watch_reports_a_diagnostic_and_retries() {
+        let io = Arc::new(MemoryIo::default());
+        let scheduler = FakeScheduler::default();
+        let service = SettingsService::new(
+            PathBuf::from("/data"),
+            io.clone(),
+            Arc::new(scheduler.clone()),
+            BTreeMap::new(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        SettingsService::get(&service, "threads.settleOnClose", &Scope::default())
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(MemoryIo::count(&io.watches), 1);
+
+        io.fire_failed();
+        let (_, diagnostics) = SettingsService::read(
+            &service,
+            &["threads.settleOnClose".to_owned()],
+            &Scope::default(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(diagnostics[0].code, SettingsCode::Io);
+        assert_eq!(diagnostics[0].message, "Settings watcher failed");
+        assert_eq!(scheduler.pending(), 1, "a retry is scheduled");
+
+        scheduler.fire();
+        assert_eq!(MemoryIo::count(&io.watches), 2, "the watch is reinstalled");
+        let (_, diagnostics) = SettingsService::read(
+            &service,
+            &["threads.settleOnClose".to_owned()],
+            &Scope::default(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert!(diagnostics.is_empty(), "the recovered watch is quiet");
     }
 
     #[test]

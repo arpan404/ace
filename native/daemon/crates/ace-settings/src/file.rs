@@ -216,6 +216,7 @@ impl SettingsFile {
             }
             retry();
         });
+        let on_failure = failed.clone();
         match self.io.watch(&self.path, schedule, failed) {
             Ok(stop) => {
                 if let Some(previous) = self.stop_watch.take() {
@@ -226,12 +227,9 @@ impl SettingsFile {
                 Ok(())
             }
             Err(error) => {
-                *self.watcher_diagnostic.borrow_mut() = Some(FileDiagnostic {
-                    layer,
-                    code: SettingsCode::Io,
-                    message: "Settings watcher failed".to_owned(),
-                    offset: None,
-                });
+                // A watch that cannot be installed reports and schedules another attempt,
+                // as a watch that later failed does.
+                on_failure();
                 Err(error)
             }
         }
