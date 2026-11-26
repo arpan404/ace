@@ -30,7 +30,7 @@ pub fn pi_context_sample(message: Option<&str>) -> Option<ContextSample> {
     let model = match super::native::field(&map, "model") {
         Some(raw) => {
             let model: String = super::native::raw_as_str(raw)?;
-            if model.is_empty() || model.encode_utf16().count() > 1024 {
+            if model.is_empty() || model.chars().count() > 1024 {
                 return None;
             }
             Some(model)
@@ -50,4 +50,20 @@ fn count_field(map: &super::native::Fields, key: &str) -> Option<u64> {
     let value: u64 = super::native::raw_as_u64(raw)?;
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
     if value <= MAX_SAFE { Some(value) } else { None }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn a_context_sample_accepts_1024_emoji_in_the_model_name() {
+        for length in [1024, 1025] {
+            let model = "😀".repeat(length);
+            let sample = format!(
+                r#"{{"type":"ace_context_usage","tokens":1,"contextWindow":2,"model":"{model}"}}"#
+            );
+            assert_eq!(pi_context_sample(Some(&sample)).is_some(), length == 1024);
+        }
+    }
 }

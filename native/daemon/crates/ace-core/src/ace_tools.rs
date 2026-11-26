@@ -205,7 +205,7 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
             && name.is_some()
             && input_json
             && let Some(text) = get_str(data, "text")
-            && text.len() <= 65_536
+            && ace_json::utf16_len(text) <= 65_536
             && let Ok(parsed) = ace_json::parse(text)
             && let Some(record) = as_object(&parsed)
         {

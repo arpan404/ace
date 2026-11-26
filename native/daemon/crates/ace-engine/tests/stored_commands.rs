@@ -4,6 +4,11 @@ use ace_engine::intents::command;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+struct Fixture {
+    commands: Vec<Case>,
+}
+
+#[derive(Deserialize)]
 struct Case {
     name: String,
     input: String,
@@ -12,10 +17,10 @@ struct Case {
 
 #[test]
 fn stored_commands_match_zod_verdicts_and_json_bytes() {
-    let cases: Vec<Case> =
+    let fixture: Fixture =
         serde_json::from_str(include_str!("fixtures/stored-command-cases.json")).unwrap();
     let mut mismatches = Vec::new();
-    for case in cases {
+    for case in fixture.commands {
         let actual = command::parse(&case.input)
             .ok()
             .map(|command| ace_json::to_string(&command));

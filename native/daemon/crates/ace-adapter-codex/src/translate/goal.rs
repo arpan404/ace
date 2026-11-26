@@ -36,7 +36,7 @@ pub fn codex_goal(value: &Value) -> Option<Value> {
     let goal = obj_map(value);
     let status = valid_status(str_empty(goal.get("status")))?;
     let objective = str_empty(goal.get("objective")).trim().to_owned();
-    let objective_units = objective.encode_utf16().count();
+    let objective_units = objective.chars().count();
     if !(1..=4000).contains(&objective_units) {
         return None;
     }
@@ -60,4 +60,19 @@ pub fn codex_goal(value: &Value) -> Option<Value> {
         map.insert("setAt".to_owned(), Value::Number((v * 1000).into()));
     }
     Some(Value::Object(map))
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn a_goal_accepts_4000_emoji_after_trimming() {
+        for length in [4000, 4001] {
+            let text = "😀".repeat(length);
+            let goal = ace_json::parse(&format!(r#"{{"status":"active","objective":" {text} "}}"#))
+                .expect("goal");
+            assert_eq!(codex_goal(&goal).is_some(), length == 4000);
+        }
+    }
 }

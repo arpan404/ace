@@ -97,17 +97,17 @@ fn valid_provider_error_details(value: &Json) -> bool {
     };
     map.keys()
         .all(|key| ["code", "provider", "title", "detail", "model"].contains(&key.as_str()))
-        && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 256)
+        && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len_code_points() <= 256)
         && valid_provider_kind(map.get("provider"))
         && map.get("title").is_none_or(|title| {
-            matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len() <= 256)
+            matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len_code_points() <= 256)
         })
         && map.get("detail").is_none_or(|detail| {
             matches!(detail, Json::Null)
-                | matches!(detail, Json::String(detail) if detail.len() <= 2048)
+                | matches!(detail, Json::String(detail) if detail.len_code_points() <= 2048)
         })
         && map.get("model").is_none_or(|model| {
             matches!(model, Json::Null)
-                | matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256)
+                | matches!(model, Json::String(model) if !model.is_empty() && model.len_code_points() <= 256)
         })
 }
