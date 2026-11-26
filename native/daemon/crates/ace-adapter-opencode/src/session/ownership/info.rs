@@ -78,3 +78,47 @@ fn parse_info_as<'a>(value: &'a Value, id_field: Option<&str>) -> Option<Info<'a
 fn points(text: &str) -> usize {
     text.chars().count()
 }
+
+/// The snapshot as `SessionInfo.parse` emits it: the schema's keys in order
+/// (`id`, `projectID`, `location`, `parentID`, `fork`; an absent one is left
+/// out), then every unknown key in arrival order. `location` keeps `directory`
+/// first the same way. This is the value the TypeScript frames.
+pub fn order_info(value: &Value) -> Value {
+    let map = fields(value);
+    let mut out = ace_json::Map::new();
+    for key in ["id", "projectID", "location", "parentID", "fork"] {
+        if let Some(field) = map.get(key) {
+            out.insert(
+                key.to_owned(),
+                if key == "location" {
+                    order_location(field)
+                } else {
+                    field.clone()
+                },
+            );
+        }
+    }
+    for (key, field) in map.iter() {
+        if !out.contains_key(key) {
+            out.insert(key.clone(), field.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+fn order_location(value: &Value) -> Value {
+    let map = fields(value);
+    if !matches!(value, Value::Object(_)) {
+        return value.clone();
+    }
+    let mut out = ace_json::Map::new();
+    if let Some(directory) = map.get("directory") {
+        out.insert("directory".to_owned(), directory.clone());
+    }
+    for (key, field) in map.iter() {
+        if !out.contains_key(key) {
+            out.insert(key.clone(), field.clone());
+        }
+    }
+    Value::Object(out)
+}

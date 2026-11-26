@@ -55,6 +55,8 @@ struct Probe {
     events: Vec<Entry>,
     needs_recovery: bool,
     lookup_failed: bool,
+    /// The event that started the probe: the one `failed` reports.
+    trigger: Value,
 }
 
 /// The probes one tenant holds.
@@ -104,6 +106,7 @@ impl AncestryProbe {
                     events: Vec::new(),
                     needs_recovery: host.recovering(),
                     lookup_failed: false,
+                    trigger: data.clone(),
                 },
             );
         }
@@ -205,7 +208,7 @@ impl AncestryProbe {
     }
 
     /// `finish`: the probe's bytes go back and its receipt settles.
-    fn finish(&mut self, id: &str, host: &dyn ProbeHost) {
+    pub fn finish(&mut self, id: &str, host: &dyn ProbeHost) {
         let Some(probe) = self.probes.shift_remove(id) else {
             return;
         };
@@ -218,6 +221,29 @@ impl AncestryProbe {
     /// The guard a probe holds, for the lookup's reply (E3-opencode.3).
     pub fn guard(&self, id: &str) -> Option<&str> {
         self.probes.get(id).map(|probe| probe.guard.as_str())
+    }
+
+    /// Whether the probe's facts need a pass (`probe.needsRecovery`).
+    pub fn needs_recovery(&self, id: &str) -> bool {
+        self.probes
+            .get(id)
+            .is_some_and(|probe| probe.needs_recovery)
+    }
+
+    /// The probe's held events and their watermarks, in arrival order.
+    pub fn events(&self, id: &str) -> Vec<(Value, u64)> {
+        self.probes.get(id).map_or_else(Vec::new, |probe| {
+            probe
+                .events
+                .iter()
+                .map(|entry| (entry.data.clone(), entry.watermark))
+                .collect()
+        })
+    }
+
+    /// The event that started the probe, for `failed`.
+    pub fn trigger(&self, id: &str) -> Option<Value> {
+        self.probes.get(id).map(|probe| probe.trigger.clone())
     }
 
     /// Mark the probe's lookup as failed, as the chain's `catch` does.

@@ -7,8 +7,9 @@ use ace_json::{Value, json};
 use std::sync::atomic::Ordering;
 
 use super::super::ancestry::{ProbeError, ProbeHost};
+use super::super::http::Owner;
+use super::super::lookup::Lookup;
 use super::OpenCodeTenant;
-use super::{PORT_ANCESTRY, port};
 
 impl ProbeHost for OpenCodeTenant {
     fn owns_session(&self, id: &str) -> bool {
@@ -80,10 +81,11 @@ impl ProbeHost for OpenCodeTenant {
     }
 
     fn lookup(&self, id: &str, guard: &str) {
-        port(
-            &self.queue,
-            PORT_ANCESTRY,
-            json!({ "id": id, "guard": guard }),
-        );
+        let _ = guard;
+        let (lookup, step) = Lookup::begin(id);
+        self.lock_lookups().insert(id.to_owned(), lookup);
+        if let super::super::lookup::Step::Request(params) = step {
+            self.request_http(Owner::Ancestry(id.to_owned()), "session.get", params);
+        }
     }
 }

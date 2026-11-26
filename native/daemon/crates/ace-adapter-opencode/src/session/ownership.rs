@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 
 mod info;
 
-pub use info::{Info, parse_info, parse_session_info};
+pub use info::{Info, order_info, parse_info, parse_session_info};
 
 /// One session's facts, as `put` stores them.
 #[derive(Debug, Clone, PartialEq, Eq)]

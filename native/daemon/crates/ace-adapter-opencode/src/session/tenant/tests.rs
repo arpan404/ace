@@ -72,6 +72,22 @@ fn frames(events: &[SessionEvent]) -> Vec<(FrameDirection, String, String)> {
         .collect()
 }
 
+/// The value with an envelope-level `location`, for the events that carry one.
+fn located(mut value: Value, directory: &str) -> Value {
+    if let Value::Object(map) = &mut value {
+        map.insert("location", json!({ "directory": directory }));
+    }
+    value
+}
+
+fn notes(events: &[SessionEvent]) -> Vec<String> {
+    frames(events)
+        .into_iter()
+        .filter(|(dir, _, _)| *dir == FrameDirection::Note)
+        .map(|(_, _, text)| text)
+        .collect()
+}
+
 fn ports(events: &[SessionEvent]) -> Vec<(&'static str, String)> {
     events
         .iter()
@@ -224,24 +240,34 @@ fn a_rebuilt_location_forgets_the_mcp_location_and_asks_for_recovery() {
 }
 
 #[test]
-fn a_session_moved_refetch_is_asked_once_until_it_is_answered() {
+fn a_session_moved_refetch_is_one_get_until_it_is_answered() {
     let (tenant, queue) = ready();
     let moved = event("session.moved", json!({ "sessionID": "root" }));
     tenant.receive_value(&moved, 1).expect("moved");
     tenant.receive_value(&moved, 2).expect("moved again");
-    let asked: Vec<String> = ports(&drain(&queue))
-        .into_iter()
-        .filter(|(name, _)| *name == "session.moved")
-        .map(|(_, json)| json)
-        .collect();
-    assert_eq!(asked, vec![r#"{"sessionID":"root"}"#.to_owned()]);
+    assert_eq!(
+        ports(&drain(&queue)),
+        vec![(
+            "http",
+            r#"{"id":0,"op":"session.get","params":{"sessionID":"root"}}"#.to_owned()
+        )]
+    );
 
-    tenant.moved_done("root");
+    // The reply verifies the snapshot and releases the id.
+    tenant.reply(
+        0,
+        true,
+        &ace_json::to_string(&snapshot("root", "", "/work", "p1")),
+    );
+    let framed = frames(&drain(&queue));
+    assert_eq!(framed.len(), 1);
+    assert_eq!(framed[0].1, "snapshot.info");
+
     tenant.receive_value(&moved, 3).expect("moved once more");
     assert_eq!(
         ports(&drain(&queue))
             .into_iter()
-            .filter(|(name, _)| *name == "session.moved")
+            .filter(|(name, _)| *name == "http")
             .count(),
         1
     );
@@ -341,4 +367,6 @@ fn a_shell_exit_drops_the_shell_it_names() {
     let _ = drain(&queue);
 }
 
+mod chain;
+mod pass;
 mod scenarios;

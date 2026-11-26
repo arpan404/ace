@@ -3,7 +3,7 @@
 //! frames (`session.ts:129`-`:137`), the reply inputs the facade feeds back
 //! (`:98`, `:277`, `:345`-`:362`), and the barrier's two closed messages.
 
-use super::{drain, event, frames, ports, ready, snapshot};
+use super::{drain, event, frames, located, notes, ports, ready, snapshot};
 use ace_adapter_api::FrameDirection;
 use ace_adapter_api::bridge::{EventQueue, ReadGate, SessionEvent};
 use ace_json::{Value, json};
@@ -12,22 +12,6 @@ use super::OpenCodeTenant;
 use crate::session::ancestry::ProbeHost;
 use crate::session::server::Tenant;
 use crate::session::tenant::{TenantConfig, TenantError};
-
-/// The value with an envelope-level `location`, for the events that carry one.
-fn located(mut value: Value, directory: &str) -> Value {
-    if let Value::Object(map) = &mut value {
-        map.insert("location", json!({ "directory": directory }));
-    }
-    value
-}
-
-fn notes(events: &[SessionEvent]) -> Vec<String> {
-    frames(events)
-        .into_iter()
-        .filter(|(dir, _, _)| *dir == FrameDirection::Note)
-        .map(|(_, _, text)| text)
-        .collect()
-}
 
 #[test]
 fn an_unknown_childs_receipt_is_noted_before_its_lookup() {
@@ -71,8 +55,8 @@ fn an_unknown_childs_receipt_is_noted_before_its_lookup() {
     assert_eq!(
         ports(&events),
         vec![(
-            "ancestry",
-            r#"{"id":"child","guard":"ancestry:1"}"#.to_owned()
+            "http",
+            r#"{"id":0,"op":"session.get","params":{"sessionID":"child"}}"#.to_owned()
         )]
     );
     assert!(
@@ -149,7 +133,7 @@ fn a_moved_reply_verifies_the_session_and_releases_its_id() {
     assert_eq!(
         ports(&drain(&queue))
             .into_iter()
-            .filter(|(name, _)| *name == "session.moved")
+            .filter(|(name, _)| *name == "http")
             .count(),
         1
     );

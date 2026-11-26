@@ -1588,6 +1588,17 @@ parsing the text again.
   while one is in flight joins it. The tenant side this item answers is already E3-opencode.2's
   (`moved_reply`, the pass's `reconciled` through `prepareReplay`); this item owns the GETs and the
   `http` ports that fill them, and `.4` owns the facade that answers them.
+- **Landed so far**: `http.rs` (one request per SDK call, and `reply`'s two refusal shapes);
+  `history.rs` (`HistoryReader`'s paging machine: the head per session, the repeated cursor, the
+  512-page bound, the message checks); `lookup.rs` (the ancestry chain: 16 hops, the cycle check,
+  a fork or root ends it, the identity check, and the `needsRecovery` branch); and the tenant's
+  reply routing — `reply(id, ok, json)` drops a reply nobody waits on, `Owner::Moved` lands in
+  `moved_reply`, and `Owner::Ancestry` walks the chain, admits it oldest first, then replays the
+  held receipts or fails the probe. `finalize_snapshots` and `recovered` have direct tests.
+- **Left for this item**: `recovery.rs` — the `recoverSessions` walk itself (the visit stack, the
+  64-page child listing with its pagination bound, the live messages, the history read, the
+  interaction and inbox staging, then the global active read and the per-directory shell listing
+  with the exact-shell read), and `Owner::Recovery`/`Owner::Replay` in the tenant's `reply`.
 
 #### E3-opencode.4 Binding, facades, the twin pool and the switch
 

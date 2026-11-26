@@ -22,10 +22,13 @@ use std::sync::{Mutex, MutexGuard};
 use crate::translate::Translator;
 
 mod probe;
+mod replies;
 mod state;
 
 use super::ancestry::AncestryProbe;
 use super::evidence::RecoveryEvidence;
+use super::http::Http;
+use super::lookup::Lookup;
 use super::ownership::SessionOwnership;
 use super::server::TenantError;
 
@@ -61,8 +64,6 @@ const CATALOG_TYPES: [&str; 6] = [
 
 /// The port names, each the TypeScript method it replaces.
 const PORT_ADMIT: &str = "admitEnvironment";
-const PORT_MOVED: &str = "session.moved";
-const PORT_ANCESTRY: &str = "ancestry";
 const PORT_RECONCILE: &str = "reconcile";
 const PORT_CATALOG: &str = "catalog.changed";
 const PORT_MCP_FORGET: &str = "mcp.forget";
@@ -128,6 +129,10 @@ pub struct OpenCodeTenant {
     /// A recovery the tenant asked for mid-event; the server takes it after
     /// the accept or receive that set it, so `beginRecovery` runs in the loop.
     reconcile: AtomicBool,
+    /// The `http` request space (E3-opencode.3).
+    http: Mutex<Http>,
+    /// The ancestry chains in flight, one per probed session.
+    lookups: Mutex<IndexMap<String, Lookup>>,
 }
 
 impl OpenCodeTenant {
@@ -160,6 +165,8 @@ impl OpenCodeTenant {
             execution_observed: Mutex::new(IndexSet::new()),
             waiters: Mutex::new(Vec::new()),
             reconcile: AtomicBool::new(false),
+            http: Mutex::new(Http::new()),
+            lookups: Mutex::new(IndexMap::new()),
         }
     }
 
@@ -260,6 +267,16 @@ impl OpenCodeTenant {
 
     fn lock_ancestry(&self) -> MutexGuard<'_, AncestryProbe> {
         self.ancestry
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    pub(crate) fn lock_http(&self) -> MutexGuard<'_, Http> {
+        self.http.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    pub(crate) fn lock_lookups(&self) -> MutexGuard<'_, IndexMap<String, Lookup>> {
+        self.lookups
             .lock()
             .unwrap_or_else(|error| error.into_inner())
     }

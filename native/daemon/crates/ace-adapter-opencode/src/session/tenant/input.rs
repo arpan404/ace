@@ -18,7 +18,7 @@ use super::PendingInteraction;
 
 use super::{
     BARRIER_CLOSED, CATALOG_TYPES, INTERACTION_LIMIT, MAX_PENDING, MAX_WAITERS, OPENING_BYTES,
-    OPENING_EVENTS, PORT_CATALOG, PORT_MCP_FORGET, PORT_MOVED, PORT_RECONCILE, RECOVERY_SEND_LIMIT,
+    OPENING_EVENTS, PORT_CATALOG, PORT_MCP_FORGET, PORT_RECONCILE, RECOVERY_SEND_LIMIT,
     SESSION_CLOSED, STARTUP_LIMIT, port,
 };
 
@@ -138,7 +138,13 @@ impl OpenCodeTenant {
             }
             moves.insert(id.clone());
             drop(moves);
-            port(&self.queue, PORT_MOVED, json!({ "sessionID": id }));
+            // The refetch is one `session.get` (E3-opencode.3); its reply goes
+            // through `moved_reply`.
+            self.request_http(
+                super::super::http::Owner::Moved(id.clone()),
+                "session.get",
+                json!({ "sessionID": id }),
+            );
         }
         Ok(accepted)
     }
