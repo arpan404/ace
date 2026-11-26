@@ -16,6 +16,19 @@ pub fn strip(shape: &Shape, value: &Value) -> Value {
             Value::Object(map) => Value::Object(strip_object(fields, map)),
             _ => value.clone(),
         },
+        Shape::Open(fields) => match value {
+            Value::Object(map) => {
+                let mut out = strip_object(fields, map);
+                for (key, entry) in map {
+                    if fields.iter().any(|field| field.key == key.as_str()) {
+                        continue;
+                    }
+                    out.insert(key.clone(), entry.clone());
+                }
+                Value::Object(out)
+            }
+            _ => value.clone(),
+        },
         Shape::Array(inner) => match value {
             Value::Array(items) => {
                 Value::Array(items.iter().map(|item| strip(inner, item)).collect())

@@ -5,3 +5,4 @@
 pub mod items;
 pub mod long_thread;
 pub mod sidebar;
+pub mod stored;

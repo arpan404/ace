@@ -10,10 +10,17 @@
 /// What Zod's parse keeps of a value, generated from the schema.
 pub enum Shape {
     /// Kept as it is: strings, numbers, booleans, null, enums, literals, `z.unknown`, and
-    /// unions, arrays and nullables whose every part is `Copy`.
+    /// unions, arrays and nullables whose every part is `Copy`. A union whose options the table
+    /// can't describe (a transform, a loose object, an order only Zod can run) is also `Copy`:
+    /// it is kept as stored, a recorded difference from Zod's parse inside that subtree.
     Copy,
     /// `z.object` in strip mode: the fields in schema order; any other key is dropped.
     Object(&'static [Field]),
+    /// `z.looseObject` (`passthrough`): the fields in schema order, then every other key the
+    /// value carried, in its own order. A `z.strictObject` is an [`Shape::Object`] whose extra
+    /// keys Zod rejects; the walk keeps the known fields, and a decode site that must reject
+    /// them checks separately.
+    Open(&'static [Field]),
     /// `z.array`: each element through the shape.
     Array(&'static Shape),
     /// `z.record` with string keys: own keys in JavaScript order, `__proto__` dropped, each
