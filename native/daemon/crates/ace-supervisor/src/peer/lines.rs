@@ -19,7 +19,7 @@ impl RpcPeer {
                 line: line.to_owned(),
             }];
         };
-        let kind = jsonrpc::inspect(line);
+        let kind = jsonrpc::inspect_value(&value);
         let mut effects = Vec::new();
         match kind {
             FrameKind::Unparsable => {

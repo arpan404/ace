@@ -618,6 +618,7 @@ fn fold_inner(
                     attempt: *attempt,
                     until: *until,
                     message: message.clone(),
+                    extra: Default::default(),
                 });
             } else {
                 record.retry = None;
@@ -626,6 +627,7 @@ fn fold_inner(
                 record.limited = Some(crate::state::LimitedInfo {
                     until: *until,
                     message: message.clone(),
+                    extra: Default::default(),
                 });
             }
         }

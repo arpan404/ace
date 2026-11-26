@@ -70,6 +70,12 @@ export interface NativeGitCoreHandle {
   replyPort(reqId: number, replyJson: string): void;
   /** One lease operation (`mutationState`, `heal`, ...) with its JSON arguments. */
   leaseOp(op: string, argsJson: string, settle: NativeJsonSettle): void;
+  /** The execution policy for one Git call (G2c): its environment and guard arguments. */
+  prepareCall(reqJson: string, settle: NativeJsonSettle): void;
+  /** Files whose change alters a checkout's configuration (G2c), from raw Git output. */
+  configWatch(reqJson: string, settle: NativeJsonSettle): void;
+  /** One cached configuration fact (G2c); its ports are answered on this thread. */
+  configRead(reqJson: string, settle: NativeJsonSettle): void;
   pushSpawnEvent(
     spawnId: number,
     kind: string,
@@ -102,6 +108,7 @@ interface GitAddon {
   gitCoreProbe(op: string): string;
   gitValidateTimeout(ms?: number | null): number;
   gitVerifyVersion(stdout: Uint8Array, binary: string): void;
+  gitDecodeVersion(text: string): string;
   NativeGitCore: new (configJson: string, onPort: NativePortHandler) => NativeGitCoreHandle;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;

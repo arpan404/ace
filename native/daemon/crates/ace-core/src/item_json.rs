@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `Item` as `JSON.stringify` writes it. The TypeScript builds every stored item with
-//! `Item.parse`, so its keys come out in the protocol schema's order: the identity fields,
-//! then `type`, then the variant's own fields. serde's tagged enum would put `type` first,
-//! so the order is written here, field for field, exactly as `packages/protocol` declares it.
+//! Write an item's known keys in protocol order, followed by the extra keys from its stored row.
 
 use serde::Serialize;
 use serde::ser::{SerializeMap, Serializer};
 
-use crate::items::{ArtifactBase, Item, ItemBase};
+use crate::items::{ArtifactBase, Item, ItemFields};
 
 /// The identity fields every item carries, in `ItemBase` order.
-fn base_fields<S: SerializeMap>(map: &mut S, base: &ItemBase) -> Result<(), S::Error> {
+fn base_fields<S: SerializeMap>(map: &mut S, base: &ItemFields) -> Result<(), S::Error> {
     map.serialize_entry("id", &base.id)?;
     map.serialize_entry("agentId", &base.agent_id)?;
     if let Some(run_id) = &base.run_id {
@@ -62,7 +59,7 @@ fn artifact_fields<S: SerializeMap>(map: &mut S, base: &ArtifactBase) -> Result<
 impl Serialize for Item {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
-        match self {
+        let extra = match self {
             Self::Html {
                 base,
                 visualization,
@@ -72,12 +69,14 @@ impl Serialize for Item {
                 map.serialize_entry("type", "html")?;
                 map.serialize_entry("visualization", visualization)?;
                 map.serialize_entry("raw", raw)?;
+                &base.extra
             }
             Self::Image { base, image, raw } => {
                 base_fields(&mut map, base)?;
                 map.serialize_entry("type", "image")?;
                 map.serialize_entry("image", image)?;
                 map.serialize_entry("raw", raw)?;
+                &base.extra
             }
             Self::Message {
                 base,
@@ -112,6 +111,7 @@ impl Serialize for Item {
                     map.serialize_entry("speaker", speaker)?;
                 }
                 map.serialize_entry("raw", raw)?;
+                &base.extra
             }
             Self::DelegationStarted {
                 base,
@@ -140,6 +140,7 @@ impl Serialize for Item {
                     map.serialize_entry("machine", machine)?;
                 }
                 map.serialize_entry("raw", raw)?;
+                &delegation.extra
             }
             Self::DelegationSettled {
                 base,
@@ -152,6 +153,7 @@ impl Serialize for Item {
                 map.serialize_entry("results", &delegation.results)?;
                 map.serialize_entry("delivery", &delegation.delivery)?;
                 map.serialize_entry("raw", raw)?;
+                &delegation.extra
             }
             Self::Reasoning {
                 base,
@@ -168,6 +170,7 @@ impl Serialize for Item {
                 }
                 map.serialize_entry("summary", summary)?;
                 map.serialize_entry("raw", raw)?;
+                &base.extra
             }
             Self::ToolCall {
                 base,
@@ -180,6 +183,7 @@ impl Serialize for Item {
                 if let Some(measurement) = measurement {
                     map.serialize_entry("measurement", measurement)?;
                 }
+                &base.extra
             }
             Self::Notice {
                 base,
@@ -236,6 +240,7 @@ impl Serialize for Item {
                     map.serialize_entry("source", source)?;
                 }
                 map.serialize_entry("raw", raw)?;
+                &base.extra
             }
             Self::Compaction {
                 base,
@@ -256,12 +261,14 @@ impl Serialize for Item {
                     map.serialize_entry("summary", summary)?;
                 }
                 map.serialize_entry("raw", raw)?;
+                &base.extra
             }
             Self::Unknown { base, raw, data } => {
                 base_fields(&mut map, base)?;
                 map.serialize_entry("type", "unknown")?;
                 map.serialize_entry("raw", raw)?;
                 map.serialize_entry("data", data)?;
+                &base.extra
             }
             Self::Artifact {
                 base,
@@ -288,7 +295,11 @@ impl Serialize for Item {
                 map.serialize_entry("path", path)?;
                 map.serialize_entry("mimeType", mime_type)?;
                 map.serialize_entry("bytes", bytes)?;
+                &base.extra
             }
+        };
+        for (key, value) in extra {
+            map.serialize_entry(key, value)?;
         }
         map.end()
     }

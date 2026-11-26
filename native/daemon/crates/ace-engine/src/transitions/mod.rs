@@ -17,3 +17,4 @@ pub mod metadata;
 pub mod readiness;
 pub mod remembered;
 pub mod state;
+pub mod switch_admission;

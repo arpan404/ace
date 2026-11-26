@@ -75,6 +75,15 @@ export interface EngineBindings {
   settleCall(call: number, error: string | null): void;
   rejectPending(): void;
   finishClose(): void;
+  /** A provider or account the person turned off; the shell answers true when unconfigured. */
+  providerEnabled(provider: string, instanceId?: string): boolean;
+  /** The default account a provider runs on (`handler.ts:108`-`:111`). */
+  selectInstance?(provider: string, backend?: string): string | undefined;
+  hasMoveTarget: boolean;
+  hasResetAt: boolean;
+  admits(): boolean;
+  /** The account's reset reading, with undefined, null and a time kept apart. */
+  resetAt?(threadId: string): { tag: "undefined" | "null" | "at"; at?: number };
 }
 
 /** The `options` JSON the binding reads: limits, idleMs and which ready ports were given. */
@@ -169,5 +178,27 @@ export function engineBindings(input: {
     settleCall: (call, error) => host.settleCall(call, error),
     rejectPending: () => host.rejectPending(),
     finishClose: () => host.finishClose(),
+    providerEnabled: (provider, instanceId) =>
+      options.providerEnabled ? options.providerEnabled(provider as never, instanceId) : true,
+    ...(options.selectInstance
+      ? {
+          selectInstance: (provider: string, backend?: string) =>
+            options.selectInstance?.(provider, backend as never),
+        }
+      : {}),
+    hasMoveTarget: options.recovery?.moveTarget !== undefined,
+    hasResetAt: options.recovery?.resetAt !== undefined,
+    admits: () => options.recovery?.admits?.() ?? true,
+    ...(options.recovery?.resetAt
+      ? {
+          resetAt: (threadId: string) => {
+            // napi's `Option<f64>` cannot tell undefined from null, so the tag carries it.
+            const value = options.recovery?.resetAt?.(threadId as never);
+            if (value === undefined) return { tag: "undefined" as const };
+            if (value === null) return { tag: "null" as const };
+            return { tag: "at" as const, at: value };
+          },
+        }
+      : {}),
   };
 }

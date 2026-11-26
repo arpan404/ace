@@ -71,7 +71,9 @@ pub enum PeerEffect {
     },
     Notification {
         /// The frame's `params` are not copied here: the `Frame` effect of the same line
-        /// carries them once (`peer.rs:line`).
+        /// carries them once (`peer/lines.rs`), and both codex and ACP read them there.
+        /// Codex .5 defined this variant with `params` beside the frame; one definition,
+        /// without the copy, is what both crates share.
         method: JsString,
     },
     /// The line was not a JSON-RPC envelope, or not JSON at all.
