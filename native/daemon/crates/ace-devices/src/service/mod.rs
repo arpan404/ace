@@ -41,7 +41,7 @@ pub use device_tools_wire::check_request as check_tools_request;
 pub use devices_setting::{Goal, SettingGoal};
 pub use held_pushes::{Held, HeldPushes};
 pub use input_budget::device_input_timeout;
-pub use input_queue::{Admission, MAX_PENDING_PER_KIND, PendingInput, SharedInput};
+pub use input_queue::{Admission, Lane, MAX_PENDING_PER_KIND, PendingInput, SharedInput};
 pub use lease::{
     Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, LeaseWatch, Retained,
     WatchStep, agent_owner,

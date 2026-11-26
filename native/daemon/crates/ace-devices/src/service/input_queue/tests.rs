@@ -8,8 +8,8 @@
 use ace_json::{Value, json};
 
 use super::{
-    MAX_PENDING_PER_KIND, PendingInput, admit, admit_shared, finish, finish_shared, guard,
-    shared_guard, with_waited,
+    Lane, MAX_PENDING_PER_KIND, PendingInput, admit, admit_shared, finish, finish_shared, guard,
+    lane, shared_guard, with_waited,
 };
 use crate::error::DeviceErrorCode;
 use crate::service::lease::{Actor, ActorKind, Controller, ControllerLease, LEASE_MS};
@@ -172,4 +172,27 @@ fn a_waited_result_carries_the_note_only_on_a_plain_object() {
         with_waited(json!({ "completed": true }), Some("")),
         json!({ "completed": true })
     );
+}
+
+#[test]
+fn only_a_person_takes_the_lease_free_lane() {
+    // `service.ts:552`: the shared lane is a person's, while an agent's input
+    // always proves the lease.
+    assert_eq!(lane(true, &person(), None), Lane::Shared);
+    assert_eq!(lane(true, &person(), Some(ActorKind::Agent)), Lane::Shared);
+    // A person's own control is exclusive: their input goes through the queue.
+    assert_eq!(lane(true, &person(), Some(ActorKind::Human)), Lane::Queued);
+    // An agent never takes the lease-free lane, even in cowork.
+    assert_eq!(lane(true, &agent(), None), Lane::Queued);
+    assert_eq!(lane(true, &agent(), Some(ActorKind::Agent)), Lane::Queued);
+    // With cowork off, nobody does.
+    assert_eq!(lane(false, &person(), None), Lane::Queued);
+}
+
+#[test]
+fn an_agent_is_refused_the_lease_free_lane() {
+    let mut pending = PendingInput::new();
+    let refused = admit_shared(&mut pending, &agent()).expect_err("an agent has no shared lane");
+    assert_eq!(refused.code(), DeviceErrorCode::LeaseRequired);
+    assert_eq!(pending.total(), 0, "the refusal counted nothing");
 }

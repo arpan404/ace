@@ -122,9 +122,33 @@ pub fn admit(
     })
 }
 
+/// `service.ts:552`-`:569`: whose input lane a request takes. The lease-free lane
+/// is the person's only, and only while no person controls the device; an agent's
+/// input always proves the lease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lane {
+    /// Cowork: the person's input alongside an agent's control.
+    Shared,
+    /// The queued lane, which proves the lease.
+    Queued,
+}
+
+pub fn lane(cowork: bool, actor: &Actor, controller: Option<ActorKind>) -> Lane {
+    if cowork && actor.kind == ActorKind::Human && controller != Some(ActorKind::Human) {
+        Lane::Shared
+    } else {
+        Lane::Queued
+    }
+}
+
 /// `enqueueSharedInput`'s admission: the person's input in cowork takes no
-/// ticket, but the lane still bounds it.
+/// ticket, but the lane still bounds it, and it is the person's alone.
 pub fn admit_shared(pending: &mut PendingInput, actor: &Actor) -> Result<SharedInput, DeviceError> {
+    // The lease-free lane is the person's alone: an agent here would act on a
+    // device it does not hold, so it is refused the lease it lacks.
+    if actor.kind != ActorKind::Human {
+        return Err(words::refusal("leaseRequired"));
+    }
     if pending.full(actor.kind) {
         return Err(words::refusal(QUEUE_FULL_KEY));
     }
