@@ -136,3 +136,74 @@ fn a_moving_thread_takes_no_new_work_here() {
     pass.pass().expect("a fenced pass is not an error");
     assert_eq!(pass.status("moving").as_deref(), Some("pending"));
 }
+
+/// A stored intent of any kind, as the TypeScript engine writes it.
+fn intent(kind: &str, delivery: &str, position: i64, extra: &str) -> String {
+    format!(
+        "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position{}) \
+         VALUES ('{kind}','t','{kind}','{{}}','pending','{delivery}',{position}{})",
+        if extra.is_empty() {
+            String::new()
+        } else {
+            ",awaiting".to_owned()
+        },
+        if extra.is_empty() {
+            String::new()
+        } else {
+            format!(",{extra}")
+        }
+    )
+}
+
+#[test]
+fn a_thread_with_nothing_to_run_releases_its_actor_and_slot() {
+    let pass = Pass::new("INSERT INTO engine_queue (thread_id) VALUES ('t')", "");
+    pass.exec("INSERT INTO engine_slots VALUES ('t')");
+    pass.pass().expect("an empty pass is not an error");
+    // No session, no work, no hold: the actor goes and its slot with it.
+    assert!(
+        !pass
+            .core()
+            .with_state(|state| state.repo.reserved_slot(&pass.core().store, "t"))
+            .unwrap()
+            .unwrap()
+    );
+    assert!(
+        !pass
+            .core()
+            .with_state(|state| state.actors.by_thread.contains_key("t"))
+            .unwrap()
+    );
+}
+
+#[test]
+fn an_awaiting_input_holds_the_next_send() {
+    let pass = Pass::new("INSERT INTO engine_queue (thread_id) VALUES ('t')", "");
+    // The provider has the thread's input and has not acknowledged it: nothing else goes.
+    pass.exec(&intent("thread.send", "queue", 1, "1"));
+    pass.exec(&queued_send("next", "later"));
+    pass.pass().expect("an awaiting thread is not an error");
+    assert_eq!(pass.status("next").as_deref(), Some("pending"));
+}
+
+#[test]
+fn a_recovery_intent_runs_even_when_the_queue_is_paused() {
+    let pass = Pass::new(
+        "INSERT INTO engine_queue (thread_id, paused, reason) VALUES ('t', 1, 'manual')",
+        "",
+    );
+    pass.exec(&intent("thread.resume", "queue", 1, ""));
+    let error = pass.pass().expect_err("delivery is E5.5's");
+    assert!(error.to_string().contains("E5.5"), "{error}");
+}
+
+#[test]
+fn a_transition_intent_runs_before_a_waiting_message() {
+    let pass = Pass::new("INSERT INTO engine_queue (thread_id) VALUES ('t')", "");
+    pass.exec(&intent("thread.switch", "queue", 1, ""));
+    pass.exec(&queued_send("after", "hello"));
+    let error = pass.pass().expect_err("delivery is E5.5's");
+    assert!(error.to_string().contains("E5.5"), "{error}");
+    // The message was never marked for delivery.
+    assert_eq!(pass.status("after").as_deref(), Some("pending"));
+}
