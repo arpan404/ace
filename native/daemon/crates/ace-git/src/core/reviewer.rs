@@ -144,81 +144,34 @@ pub struct ShellLayout {
     pub home: Option<String>,
 }
 
-/// A path's drive prefix, `C:`, or `""`.
-fn drive_of(path: &str) -> &str {
-    let bytes = path.as_bytes();
-    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-        return &path[..2];
-    }
-    ""
-}
-
 fn separator(character: char) -> bool {
     character == '\\' || character == '/'
-}
-
-/// Node's `path.win32.normalize`: one drive or UNC prefix, `.` and `..` folded, `\` separators.
-fn win32_normalize(path: &str) -> String {
-    let (prefix, tail) = if let Some(rest) = path
-        .strip_prefix("\\\\")
-        .or_else(|| path.strip_prefix("//"))
-    {
-        let mut parts = rest.split(separator);
-        let server = parts.next().unwrap_or("");
-        let share = parts.next().unwrap_or("");
-        (
-            format!("\\\\{server}\\{share}"),
-            parts.collect::<Vec<_>>().join("\\"),
-        )
-    } else if drive_of(path).is_empty() {
-        (String::new(), path.to_owned())
-    } else {
-        (drive_of(path).to_owned(), path[2..].to_owned())
-    };
-    let mut folded: Vec<&str> = Vec::new();
-    for part in tail.split(separator) {
-        match part {
-            "" | "." => {}
-            ".." => {
-                folded.pop();
-            }
-            other => folded.push(other),
-        }
-    }
-    let mut out = prefix;
-    for part in folded {
-        if !out.is_empty() && !out.ends_with('\\') {
-            out.push('\\');
-        }
-        out.push_str(part);
-    }
-    out
 }
 
 /// Node's `path.win32.resolve(base, path)`.
 fn win32_resolve(base: &str, path: &str) -> String {
     let rooted = path.starts_with('\\') || path.starts_with('/');
-    let combined = if !drive_of(path).is_empty() {
+    let combined = if !paths::win32_drive(path).is_empty() {
         path.to_owned()
     } else if rooted {
-        format!("{}{path}", drive_of(base))
+        format!("{}{path}", paths::win32_drive(base))
     } else if base.is_empty() {
         path.to_owned()
     } else {
         format!("{}\\{path}", base.trim_end_matches(separator))
     };
-    win32_normalize(&combined)
+    paths::win32_normalize(&combined)
 }
 
 /// Node's `path.win32.join(base, path)`.
 fn win32_join(base: &str, path: &str) -> String {
     if path.is_empty() {
-        return win32_normalize(base);
+        return paths::win32_normalize(base);
     }
     if base.is_empty() {
-        return win32_normalize(path);
+        return paths::win32_normalize(path);
     }
-    win32_normalize(&format!("{}\\{path}", base.trim_end_matches(separator)))
+    paths::win32_normalize(&format!("{}\\{path}", base.trim_end_matches(separator)))
 }
 
 /// The MSYS drive form `/(cygdrive/)?<letter>` plus the rest: the letter as a drive root.
@@ -339,7 +292,7 @@ pub fn git_install(exec_path: &str) -> Option<String> {
     if install.is_empty() {
         return None;
     }
-    Some(win32_normalize(install))
+    Some(paths::win32_normalize(install))
 }
 
 /// The paths a configured hook command names: every word holding a `/`, quotes removed, read
