@@ -3,7 +3,6 @@ import {
   spadeGroupRow,
   spadeByState,
   spadeBotFamilies,
-  spadeExpandedBotRow,
   type SpadeRow,
 } from "@ace/ui-core/spade-chat";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -86,52 +85,29 @@ function topLevel(
 }
 
 /**
- * Every row in the list's order with no nesting, workers among the rest: what the search looks
- * through, and where a pinned worker comes from while its family is folded.
+ * Every row in the list's order, what the search looks through: the bots the person talks to.
+ * A bot another bot made is that bot's own worker and has no row.
  */
 export function spadeFlatEntries(
   bots: readonly RosterBot[],
   groups: readonly RosterGroup[],
   missing?: SpadeGoalMissing,
 ): SpadeListEntry[] {
-  return topLevel(bots, groups, missing);
+  const families = spadeBotFamilies(bots, (bot, id) => `${bot.machine.key}/${id}`);
+  return topLevel(
+    families.map(({ root }) => root),
+    groups,
+    missing,
+  );
 }
 
-/**
- * The list's rows: Spade, the main bot, first as an ordinary row, then every other bot and every
- * group by state, newest first within one. A bot another bot made nests under its maker while the
- * maker or one of its workers is the open conversation (`open`, a bot id); while the family is
- * folded only a worker that needs the person or failed shows, raised under its maker, which
- * carries the rest in its own state. A worker whose maker isn't in the list shows as any bot.
- */
+/** The list's rows: the same bots the search looks through, in the list's order. */
 export function spadeListEntries(
   allBots: readonly RosterBot[],
   groups: readonly RosterGroup[],
-  open?: string,
   missing?: SpadeGoalMissing,
 ): SpadeListEntry[] {
-  const families = spadeBotFamilies(allBots, (bot, id) => `${bot.machine.key}/${id}`);
-  const roots = families.map(({ root }) => root);
-  const workersOf = new Map(families.map(({ root, workers }) => [botKey(root), workers]));
-  const rows: SpadeListEntry[] = [];
-  for (const entry of topLevel(roots, groups, missing)) {
-    if (entry.kind !== "bot") {
-      rows.push(entry);
-      continue;
-    }
-    const family = workersOf.get(botKey(entry.bot)) ?? [];
-    const unfolded = open !== undefined && [entry.bot, ...family].some((bot) => bot.id === open);
-    const shown = family
-      .map((bot) => botEntry(bot, missing, 1))
-      .filter(
-        (worker) => unfolded || worker.row.state === "needs-you" || worker.row.state === "failed",
-      );
-    rows.push(
-      shown.length ? { ...entry, row: spadeExpandedBotRow(entry.row) } : entry,
-      ...byState(shown),
-    );
-  }
-  return rows;
+  return spadeFlatEntries(allBots, groups, missing);
 }
 
 /**
@@ -146,37 +122,34 @@ export const pinnedAt = (entry: SpadeListEntry): number | undefined =>
       : entry.bot.pinnedAt;
 
 /**
- * The pinned conversations, oldest pin first, which show as a strip under the list's buttons,
- * and the rest of `entries`, which stay in the rows below in their order. The strip draws on
- * `all`, so a pinned worker shows there while its family is folded.
+ * The list in its order: Spade, the main bot, first, then the pinned conversations, oldest pin
+ * first, then the rest as `entries` has them. Pins draw on `all`, so a pinned worker shows while
+ * its family is folded; a worker whose maker was pinned has no row to nest under and stands alone.
  */
-export function splitPinned(
+export function spadePinnedFirst(
   entries: readonly SpadeListEntry[],
   all: readonly SpadeListEntry[] = entries,
-): {
-  pinned: SpadeListEntry[];
-  rest: SpadeListEntry[];
-} {
-  const pinned = all.filter((entry) => pinnedAt(entry) !== undefined);
+): SpadeListEntry[] {
+  const pinned = all
+    .filter((entry) => pinnedAt(entry) !== undefined)
+    .toSorted((a, b) => (pinnedAt(a) ?? 0) - (pinnedAt(b) ?? 0));
   const pinnedBots = new Set(
     pinned.flatMap((entry) => (entry.kind === "bot" ? [botKey(entry.bot)] : [])),
   );
-  return {
-    pinned: pinned.toSorted((a, b) => (pinnedAt(a) ?? 0) - (pinnedAt(b) ?? 0)),
-    rest: entries
-      .filter((entry) => pinnedAt(entry) === undefined)
-      // A worker whose maker moved to the strip has no row to nest under.
-      .map((entry): SpadeListEntry => {
-        if (
-          entry.kind === "bot" &&
-          entry.depth === 1 &&
-          entry.bot.parent &&
-          pinnedBots.has(`${entry.bot.machine.key}/${entry.bot.parent.id}`)
-        )
-          return Object.assign({}, entry, { depth: 0 });
-        return entry;
-      }),
-  };
+  const rest = entries
+    .filter((entry) => pinnedAt(entry) === undefined)
+    .map((entry): SpadeListEntry => {
+      if (
+        entry.kind === "bot" &&
+        entry.depth === 1 &&
+        entry.bot.parent &&
+        pinnedBots.has(`${entry.bot.machine.key}/${entry.bot.parent.id}`)
+      )
+        return Object.assign({}, entry, { depth: 0 });
+      return entry;
+    });
+  const isMain = (entry: SpadeListEntry) => entry.kind === "bot" && entry.bot.kind === "main";
+  return [...rest.filter(isMain), ...pinned, ...rest.filter((entry) => !isMain(entry))];
 }
 
 function words(entry: SpadeListEntry): string[] {

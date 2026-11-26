@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
+import { createCipheriv, createHash, createPrivateKey, randomBytes, verify } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { request } from "node:http";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { p256PublicPoint, vapidAuthorization } from "@ace/notify/webpush-crypto";
 import { sealHandle } from "./handles.ts";
@@ -18,6 +20,28 @@ let output = "";
 const apnsKey = apnsKeyPair();
 const daemonKey = createPrivateKey(signingKeyPem());
 const strangerKey = createPrivateKey(signingKeyPem());
+const activityStates = JSON.parse(
+  readFileSync(
+    new URL("../../../fixtures/live-activity-content-state.json", import.meta.url),
+    "utf8",
+  ),
+);
+const update = {
+  v: 1,
+  event: "update",
+  timestamp: 1795500002,
+  priority: 5,
+  staleAfter: 900,
+  state: { ...activityStates.update, working: 1200, failed: -3 },
+};
+const start = {
+  ...update,
+  event: "start",
+  timestamp: 1795500000,
+  priority: 10,
+  slot: 15,
+  state: activityStates.start,
+};
 
 beforeAll(async () => {
   apns = await startFakeApns();
@@ -59,6 +83,10 @@ afterAll(async () => {
 
 const auth = (key = daemonKey, aud = audience) =>
   vapidAuthorization(key, aud, undefined, Date.now());
+const daemonHash = () =>
+  createHash("sha256")
+    .update(Buffer.from(p256PublicPoint(daemonKey), "base64url"))
+    .digest("base64url");
 const register = (body: unknown, authorization = auth()) =>
   fetch(`${origin}/v1/registrations`, {
     method: "POST",
@@ -66,8 +94,8 @@ const register = (body: unknown, authorization = auth()) =>
     body: JSON.stringify(body),
   });
 const Registered = z.object({ handle: z.string(), expiresAt: z.number() });
-const handleFor = async (deviceToken: string, environment = "production") => {
-  const response = await register({ token: deviceToken, environment });
+const handleFor = async (deviceToken: string, environment = "production", kind?: string) => {
+  const response = await register({ token: deviceToken, environment, kind });
   expect(response.status).toBe(201);
   return Registered.parse(await response.json()).handle;
 };
@@ -87,6 +115,247 @@ const push = (
     },
     body: new Uint8Array(options.body ?? record()),
   });
+const activity = (handle: string, body: unknown, authorization = auth()) =>
+  fetch(`${origin}/v1/activity/${handle}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization },
+    body: JSON.stringify(body),
+  });
+
+it("advertises its supported handle kinds without authorization", async () => {
+  const response = await fetch(`${origin}/v1/capabilities`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ kinds: ["alert", "liveactivity", "start"] });
+});
+
+it("still sends alerts from handles made before registrations carried a kind", async () => {
+  const legacyToken = "bc".repeat(32);
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", sealKey, nonce);
+  cipher.setAAD(Buffer.from("ace-push-handle-v1"));
+  const sealed = cipher.update(
+    JSON.stringify({ t: legacyToken, e: "production", d: daemonHash(), x: Date.now() + 60_000 }),
+  );
+  const handle = Buffer.concat([nonce, sealed, cipher.final(), cipher.getAuthTag()]).toString(
+    "base64url",
+  );
+  expect((await push(handle)).status).toBe(201);
+  expect(apns.calls.at(-1)?.headers).toMatchObject({
+    ":path": `/3/device/${legacyToken}`,
+    "apns-push-type": "alert",
+  });
+});
+
+it.each(["start", "liveactivity"])("refuses an encrypted alert from a %s handle", async (kind) => {
+  const handle = await handleFor("91".repeat(32), "production", kind);
+  const before = apns.calls.length;
+  expect((await push(handle)).status).toBe(403);
+  expect(apns.calls).toHaveLength(before);
+});
+
+it("starts, updates and ends an activity with the gateway-built APNs payloads", async () => {
+  const startToken = "a1".repeat(32);
+  const updateToken = "b2".repeat(32);
+  const startHandle = await handleFor(startToken, "sandbox", "start");
+  const updateHandle = await handleFor(updateToken, "sandbox", "liveactivity");
+  const finalState = {
+    ...activityStates.update,
+    seq: 43,
+    at: 1795500010,
+    phase: "settled",
+    needsYou: 0,
+    working: 0,
+    waiting: 0,
+    limited: 0,
+    background: 0,
+    done: 6,
+  };
+  const before = apns.calls.length;
+  expect((await activity(startHandle, start)).status).toBe(201);
+  expect((await activity(updateHandle, update)).status).toBe(201);
+  expect(
+    (
+      await activity(updateHandle, {
+        ...update,
+        event: "end",
+        timestamp: 1795500011,
+        priority: 10,
+        dismissAfter: 900,
+        state: finalState,
+      })
+    ).status,
+  ).toBe(201);
+  const calls = apns.calls.slice(before);
+  expect(
+    calls.map(({ headers }) => ({
+      path: headers[":path"],
+      topic: headers["apns-topic"],
+      pushType: headers["apns-push-type"],
+      priority: headers["apns-priority"],
+      expiration: headers["apns-expiration"],
+    })),
+  ).toEqual([
+    {
+      path: `/3/device/${startToken}`,
+      topic: "app.ace.ios.push-type.liveactivity",
+      pushType: "liveactivity",
+      priority: "10",
+      expiration: "1795500900",
+    },
+    {
+      path: `/3/device/${updateToken}`,
+      topic: "app.ace.ios.push-type.liveactivity",
+      pushType: "liveactivity",
+      priority: "5",
+      expiration: "1795500902",
+    },
+    {
+      path: `/3/device/${updateToken}`,
+      topic: "app.ace.ios.push-type.liveactivity",
+      pushType: "liveactivity",
+      priority: "10",
+      expiration: "1795500911",
+    },
+  ]);
+  expect(calls.map(({ body }) => JSON.parse(body.toString()))).toEqual([
+    {
+      aps: {
+        timestamp: 1795500000,
+        event: "start",
+        "content-state": activityStates.start,
+        "stale-date": 1795500900,
+        "input-push-token": 1,
+        "attributes-type": "MachineActivityAttributes",
+        attributes: { slot: 15, version: 1 },
+        alert: { title: "ace", body: "An agent started working" },
+      },
+    },
+    {
+      aps: {
+        timestamp: 1795500002,
+        event: "update",
+        "content-state": activityStates.update,
+        "stale-date": 1795500902,
+      },
+    },
+    {
+      aps: {
+        timestamp: 1795500011,
+        event: "end",
+        "content-state": finalState,
+        "stale-date": 1795500911,
+        "dismissal-date": 1795500911,
+      },
+    },
+  ]);
+});
+
+it("refuses activity requests whose handle kind or registering daemon does not match", async () => {
+  const alertHandle = await handleFor("c3".repeat(32), "production", "alert");
+  const activityHandle = await handleFor("d4".repeat(32), "production", "liveactivity");
+  const startHandle = await handleFor("e5".repeat(32), "production", "start");
+  const end = { ...update, event: "end", dismissAfter: 900 };
+  const before = apns.calls.length;
+  for (const [handle, body] of [
+    [alertHandle, start],
+    [alertHandle, update],
+    [alertHandle, end],
+    [activityHandle, start],
+    [startHandle, update],
+    [startHandle, end],
+  ] as const) {
+    expect((await activity(handle, body)).status).toBe(403);
+  }
+  expect((await activity(startHandle, start, auth(strangerKey))).status).toBe(403);
+  expect((await activity(activityHandle, update, auth(strangerKey))).status).toBe(403);
+  expect((await activity(activityHandle, update, "")).status).toBe(401);
+  expect(apns.calls).toHaveLength(before);
+});
+
+it("rejects malformed activity JSON and oversized requests without sending to APNs", async () => {
+  const activityHandle = await handleFor("f6".repeat(32), "production", "liveactivity");
+  const before = apns.calls.length;
+  for (const invalid of [
+    { ...update, title: "private title" },
+    { ...update, state: { ...update.state, rows: [] } },
+    { ...update, state: { ...update.state, needsYou: "1" } },
+    { ...update, staleAfter: 59 },
+  ]) {
+    expect((await activity(activityHandle, invalid)).status).toBe(400);
+  }
+  const response = await fetch(`${origin}/v1/activity/${activityHandle}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: auth() },
+    body: "{",
+  });
+  expect(response.status).toBe(400);
+  expect((await activity(activityHandle, "x".repeat(1023))).status).toBe(413);
+  const chunkedStatus = await new Promise<number | undefined>((resolve, reject) => {
+    const stream = request(
+      `${origin}/v1/activity/${activityHandle}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: auth() },
+      },
+      (chunkedResponse) => {
+        chunkedResponse.resume();
+        resolve(chunkedResponse.statusCode);
+      },
+    );
+    stream.once("error", reject);
+    stream.write(" ".repeat(512));
+    stream.end(" ".repeat(513));
+  });
+  expect(chunkedStatus).toBe(413);
+  expect(apns.calls).toHaveLength(before);
+});
+
+it.each([
+  ["liveactivity", "fa", update, 240],
+  ["start", "fb", start, 12],
+] as const)(
+  "limits %s sends and keeps the budget on re-registration",
+  async (kind, byte, body, limit) => {
+    const activityToken = byte.repeat(32);
+    const handle = await handleFor(activityToken, "production", kind);
+    const before = apns.calls.length;
+    for (let i = 0; i < limit; i++) {
+      expect((await activity(handle, body)).status).toBe(201);
+    }
+    const renewedHandle = await handleFor(activityToken.toUpperCase(), "production", kind);
+    expect(renewedHandle).not.toBe(handle);
+    const response = await activity(renewedHandle, body);
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(apns.calls).toHaveLength(before + limit);
+  },
+);
+
+it.each([
+  [410, "Unregistered", "fc"],
+  [400, "BadDeviceToken", "fd"],
+  [400, "DeviceTokenNotForTopic", "fe"],
+] as const)(
+  "remembers activity tokens refused by APNs with %i %s",
+  async (status, reason, byte) => {
+    const activityToken = byte.repeat(32);
+    apns.answer(activityToken, status, reason);
+    const handle = await handleFor(activityToken, "sandbox", "liveactivity");
+    expect((await activity(handle, update)).status).toBe(410);
+    const after = apns.calls.length;
+    expect((await activity(handle, update)).status).toBe(410);
+    expect(
+      (await register({ token: activityToken, environment: "sandbox", kind: "liveactivity" }))
+        .status,
+    ).toBe(410);
+    expect(apns.calls).toHaveLength(after);
+    apns.answer(activityToken, 200);
+    const otherEnvironment = await handleFor(activityToken, "production", "liveactivity");
+    expect((await activity(otherEnvironment, update)).status).toBe(201);
+    const otherKind = await handleFor(activityToken, "sandbox", "start");
+    expect((await activity(otherKind, start)).status).toBe(201);
+  },
+);
 
 it("forwards an encrypted alert to APNs with a verifiable provider token and fixed visible text", async () => {
   const handle = await handleFor(token);
@@ -168,6 +437,7 @@ it("refuses malformed registrations and pushes before reaching APNs", async () =
   const before = apns.calls.length;
   expect((await register({ token: "not-hex", environment: "production" })).status).toBe(400);
   expect((await register({ token, environment: "staging" })).status).toBe(400);
+  expect((await register({ token, environment: "production", kind: "unknown" })).status).toBe(400);
   const handle = await handleFor(token);
   expect((await push(handle, { body: record(2801) })).status).toBe(413);
   expect((await push(handle, { headers: { "content-encoding": "gzip" } })).status).toBe(400);
@@ -217,12 +487,15 @@ it("limits pushes per phone", async () => {
 });
 
 it("rejects an expired handle even when it is otherwise well-formed", async () => {
-  const daemon = createHash("sha256")
-    .update(Buffer.from(p256PublicPoint(daemonKey), "base64url"))
-    .digest("base64url");
   const expired = sealHandle(
     sealKey,
-    { token, environment: "production", daemon, expiresAt: Date.now() - 1000 },
+    {
+      token,
+      environment: "production",
+      daemon: daemonHash(),
+      expiresAt: Date.now() - 1000,
+      kind: "alert",
+    },
     randomBytes(12),
   );
   const before = apns.calls.length;
@@ -230,7 +503,7 @@ it("rejects an expired handle even when it is otherwise well-formed", async () =
   expect(apns.calls.length).toBe(before);
 });
 
-it("logs no device token, handle, key or IP", async () => {
+it("logs route and status only, including for accepted and refused activity pushes", async () => {
   const handle = await handleFor(token);
   await push(handle);
   expect(output).toContain('"route":"push"');
@@ -239,6 +512,26 @@ it("logs no device token, handle, key or IP", async () => {
   expect(output).not.toContain(handle);
   expect(output).not.toContain("127.0.0.1");
   expect(output).not.toContain("vapid");
+
+  const activityToken = "a2".repeat(32);
+  const activityHandle = await handleFor(activityToken, "production", "liveactivity");
+  const before = output.length;
+  const privateText = "private thread title";
+  expect((await activity(activityHandle, update)).status).toBe(201);
+  expect((await activity(activityHandle, { ...update, title: privateText })).status).toBe(400);
+  await vi.waitFor(() => {
+    const lines = output.slice(before).trim().split("\n");
+    expect(
+      lines.filter((line) => line.includes('"route":"activity"')).map((line) => JSON.parse(line)),
+    ).toEqual([
+      { route: "activity", status: 201 },
+      { route: "activity", status: 400 },
+    ]);
+  });
+  expect(output).not.toContain(activityToken);
+  expect(output).not.toContain(activityHandle);
+  expect(output).not.toContain(privateText);
+  expect(output).not.toContain('"needsYou"');
 });
 
 it("answers health checks", async () => {

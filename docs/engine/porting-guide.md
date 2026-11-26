@@ -1448,6 +1448,15 @@ Routing, ownership, evidence and the private translator all read that one parsed
 payload bound is checked on the value, by node count and the serialized text's length, never by
 parsing the text again.
 
+**Effort levels (PR #2802, 2026-11-26).** The beta showed no OpenCode effort levels. On OpenCode 2.4.2, a
+cold Location's first `GET /api/model` answers `data: []`, and the catalog fills 1–3 s later. Any Rust
+port that reads the catalog must read again until it has models: every 50 ms, at most 40 reads or 5 s,
+on the injected clock, honouring abort (`packages/adapter-opencode/src/metadata.ts` `modelCatalog`).
+It takes efforts from `variants[].id` in the server's order (`packages/models/src/open-code.ts:92`),
+never from `Object.keys(variants)` (the dead `--verbose` path) and never from `settings.reasoningEffort`
+(redaction strips `settings`). The Rust session builds the model object as `input.ts:8-22` does:
+`{providerID, id, variant}`, with `variant` set to the chosen effort id, for create, switchModel and prompt.
+
 #### E3-opencode.1 The event stream and the server core (sans-IO)
 
 - **Files**: create `native/daemon/crates/ace-adapter-opencode/src/session/{mod.rs,stream.rs,server.rs,routes.rs,error.rs}`

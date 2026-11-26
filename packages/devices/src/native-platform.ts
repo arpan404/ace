@@ -29,10 +29,16 @@ import {
   envStrings,
   nativeDevices,
 } from "./native-devices-addon.ts";
+import { unavailableImages } from "@ace/media/images";
+import type { DeviceChrome, DevicePosture } from "@ace/protocol/devices";
+import { androidSdkRoots } from "./sdk-roots.ts";
+import { NativeChromeReader } from "./native-chrome.ts";
 import { DevicePlatformBase } from "./platform-base.ts";
 import { DeviceError, deviceAnswer, deviceRefusal } from "./sdk.ts";
 
 export class NativeDevicePlatform extends DevicePlatformBase {
+  private nativeChromes: NativeChromeReader | undefined;
+
   /** The native platform is the only one that passes its injected clock to probes. */
   protected override nativeProbes(): boolean {
     return true;
@@ -60,6 +66,35 @@ export class NativeDevicePlatform extends DevicePlatformBase {
         ),
       ),
     );
+  }
+
+  /**
+   * The device's real look: `ace-devices` decides each path, name and bound, and the SDK's files
+   * and ace-media's image jobs are the shell's. The look is remembered per kind of hardware.
+   */
+  override async chrome(
+    device: Device,
+    format?: "svg" | "png",
+    posture?: DevicePosture,
+  ): Promise<DeviceChrome | undefined> {
+    if (device.platform === "ios" && this.options.platform !== "darwin") return undefined;
+    this.nativeChromes ??= new NativeChromeReader({
+      home: this.options.home,
+      env: this.options.env,
+      darwin: this.options.platform === "darwin",
+      images:
+        this.options.images ?? unavailableImages("the device platform was given no image work"),
+      ...(this.options.readFile ? { readFile: this.options.readFile } : {}),
+      simctl: async (args) => {
+        const { xcrun } = await this.xcode();
+        return (await this.run(xcrun, ["simctl", ...args], 2 * 1024 * 1024)).stdout;
+      },
+      plutil: async (args) => (await this.run("/usr/bin/plutil", args, 256 * 1024)).stdout,
+      simulatorType: async (udid) =>
+        (await this.simulators.list()).find((entry) => entry.udid === udid)?.deviceTypeIdentifier,
+      sdkRoots: () => androidSdkRoots(this.options.env, this.options.home),
+    });
+    return this.nativeChromes.chrome(device, format, posture);
   }
 
   override async simulatorDevice(input: Device): Promise<Device> {

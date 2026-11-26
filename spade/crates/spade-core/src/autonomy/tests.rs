@@ -139,9 +139,16 @@ fn what_the_rule_gate_would_hold_goes_to_the_reviewer_with_what_singles_it_out()
             },
             reviewed(None),
         ),
-        // The person's "always" for a write still holds, for a send or a payment too.
-        (gate(Runs, message), Route::Run),
-        (gate(Runs, Class::Sensitive(Sensitive::Payment)), Route::Run),
+        // An Always allow cannot authorize a person-only effect.
+        (gate(Runs, message), Route::Ask(SENDS_AS_YOU.to_owned())),
+        (
+            gate(Runs, Class::Sensitive(Sensitive::Payment)),
+            Route::Ask(SPENDS.to_owned()),
+        ),
+        (
+            gate(Runs, Class::Sensitive(Sensitive::Credentials)),
+            Route::Ask(crate::effect::CHANGES_ACCESS.to_owned()),
+        ),
     ];
     for (call, expected) in cases {
         assert_eq!(route(call), expected, "{call:?}");
@@ -218,7 +225,7 @@ fn an_approval_runs_and_a_refusal_goes_to_the_person_with_the_reviewers_reason()
 }
 
 #[test]
-fn the_reviewer_is_told_what_singles_a_call_out_and_that_a_refusal_goes_to_the_person() {
+fn the_reviewer_sees_the_concern_and_the_repeated_refusal_rule() {
     let arguments = json!({ "command": "rm -r build" });
     let case = Case {
         bot: "B",
@@ -237,7 +244,10 @@ fn the_reviewer_is_told_what_singles_a_call_out_and_that_a_refusal_goes_to_the_p
     let text = format!("{:?}", prompt(&case));
     assert!(text.contains("<concern>It deletes something outside"));
     assert!(text.contains("rm -r build"));
-    assert!(text.contains("put to the person"), "{text}");
+    assert!(
+        text.contains("A second refusal of the same step goes to the person"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -306,29 +316,26 @@ fn a_granted_call_runs_unreviewed_until_untrusted_content_is_in_view() {
         ..granted(Class::Outward)
     };
     assert_eq!(route(tainted), reviewed(Some(GRANTED_TAINTED)));
-    // No grant covers a payment or a send as the person: they go to the person, taint or not.
-    for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
-        let line = kind.persons().map(str::to_owned).unwrap_or_default();
+    // Grants and Always allow cannot authorize payment, send, or access changes.
+    for (kind, line) in [
+        (Sensitive::Payment, SPENDS),
+        (Sensitive::MessageAsPerson, SENDS_AS_YOU),
+        (Sensitive::Credentials, crate::effect::CHANGES_ACCESS),
+    ] {
         for tainted in [false, true] {
-            let call = Call {
-                tainted,
-                ..granted(Class::Sensitive(kind))
-            };
-            assert_eq!(route(call), Route::Ask(line.clone()), "{kind:?} {tainted}");
+            for rule in [Decision::Ask, Decision::Run] {
+                let call = Call {
+                    tainted,
+                    rule,
+                    ..granted(Class::Sensitive(kind))
+                };
+                assert_eq!(
+                    route(call),
+                    Route::Ask(line.to_owned()),
+                    "{kind:?} {tainted} {rule:?}"
+                );
+            }
         }
-    }
-    // Nor an access change: it is reviewed as without the grant, never run on it.
-    assert_eq!(
-        route(granted(Class::Sensitive(Sensitive::Credentials))),
-        reviewed(Some(Sensitive::Credentials.reason()))
-    );
-    // The person's own Always allow still runs them.
-    for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
-        let always = Call {
-            granted: true,
-            ..gate(Decision::Run, Class::Sensitive(kind))
-        };
-        assert_eq!(route(always), Route::Run, "{kind:?}");
     }
 }
 

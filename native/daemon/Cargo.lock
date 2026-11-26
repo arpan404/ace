@@ -165,6 +165,7 @@ dependencies = [
  "base64",
  "flate2",
  "notify",
+ "regex",
  "rustls",
  "rustls-native-certs",
  "serde",
@@ -227,6 +228,14 @@ dependencies = [
  "indexmap",
  "ryu-js",
  "serde",
+]
+
+[[package]]
+name = "ace-mcp"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "thiserror",
 ]
 
 [[package]]

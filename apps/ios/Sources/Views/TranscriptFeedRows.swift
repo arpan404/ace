@@ -4,16 +4,16 @@ import SwiftUI
 struct TranscriptFeedRow: Identifiable {
     let id: String
     let block: BlockModel
-    /// The room under it: the larger of its own `after` and the next block's `before`, as the
-    /// web's feed lays the shared row-room values.
+    /// The room under it, before applying the chosen transcript density.
     let room: CGFloat
     var readingPriority: Double = 0
     @MainActor static func rows(_ thread: ThreadModel) -> [TranscriptFeedRow] {
         let blocks = thread.screen.blockOrder.compactMap { id in thread.screen.blocks[id].map { (id, $0) } }
         return blocks.enumerated().map { index, entry in
-            let after = entry.1.room?.after ?? 8
-            let before = index + 1 < blocks.count ? blocks[index + 1].1.room?.before ?? 8 : 8
-            return TranscriptFeedRow(id: "block:\(entry.0)", block: entry.1, room: max(after, before), readingPriority: Double(blocks.count - index))
+            let next = index + 1 < blocks.count ? blocks[index + 1].1.kind : nil
+            let room = entry.1.kind == "user" || next == "user" || next == "message"
+                ? AceDesign.Space.turnGap : AceDesign.Space.feedGap
+            return TranscriptFeedRow(id: "block:\(entry.0)", block: entry.1, room: room, readingPriority: Double(blocks.count - index))
         }
     }
 
@@ -56,13 +56,10 @@ struct TranscriptFeedRowView: View, Equatable {
     @State private var empty = false
     var body: some View {
         let _ = PerfCounters.bump("row.body")
-        // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer;
-        // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)
             .environment(\.markdownOwner, row.block.id)
             .onGeometryChange(for: Bool.self) { $0.size.height < 1 } action: { empty = $0 }
-            // The approved feed: one 14pt gap between its parts; its sides are the composer's edge.
-            .padding(.bottom, empty ? AceTheme.Spacing.none : AceDesign.Space.feedGap * AceTheme.density(densityId).transcriptRoom)
+            .padding(.bottom, empty ? AceTheme.Spacing.none : row.room * AceTheme.density(densityId).transcriptRoom)
             .padding(.horizontal, ReadingColumn.bar(sizeClass).text)
     }
 }

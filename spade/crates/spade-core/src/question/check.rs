@@ -13,12 +13,17 @@ const ID_CHARS: usize = 64;
 const SHORT_CHARS: usize = 200;
 
 /// The questions an `ask_user` call asks, or why it can't ask them. Takes `questions` (one to
-/// five), or the old `question` as one `text` question, and `wait` (default `true`).
+/// five), or the old `question` as one `text` question, and `blocking` or `wait` (default `true`,
+/// or `false` when every question states a `default` and neither flag was explicitly set).
 pub fn parse(arguments: &Value) -> Result<Ask, String> {
-    let wait = match arguments.get("wait") {
-        None | Some(Value::Null) => true,
-        Some(Value::Bool(wait)) => *wait,
-        Some(_) => return Err("`wait` must be true or false.".to_owned()),
+    let wait_arg = bool_arg(arguments, "wait")?;
+    let blocking_arg = bool_arg(arguments, "blocking")?;
+    let explicit_wait = match (blocking_arg, wait_arg) {
+        (Some(blocking), Some(wait)) if blocking != wait => {
+            return Err("Give `blocking` or `wait`, not both with different values.".to_owned());
+        }
+        (Some(blocking), _) => Some(blocking),
+        (None, wait) => wait,
     };
     let questions = match (arguments.get("questions"), arguments.get("question")) {
         (Some(Value::Array(list)), _) => {
@@ -36,11 +41,19 @@ pub fn parse(arguments: &Value) -> Result<Ask, String> {
             questions
         }
         (Some(_), _) => return Err("`questions` must be a list of questions.".to_owned()),
-        (None, Some(Value::String(text))) => vec![Question {
-            id: None,
-            prompt: prompt(text)?,
-            kind: Kind::Text { placeholder: None },
-        }],
+        (None, Some(Value::String(text))) => {
+            let kind = Kind::Text { placeholder: None };
+            let default = match arguments.get("default") {
+                None | Some(Value::Null) => None,
+                Some(raw) => Some(check_default(&kind, raw)?),
+            };
+            vec![Question {
+                id: None,
+                prompt: prompt(text)?,
+                kind,
+                default,
+            }]
+        }
         (None, _) => {
             return Err(
                 "Give the questions to ask in `questions`, each with `prompt` and `kind`."
@@ -59,7 +72,21 @@ pub fn parse(arguments: &Value) -> Result<Ask, String> {
             ids.push(id);
         }
     }
+    let all_defaulted = questions.iter().all(|q| q.default.is_some());
+    let wait = explicit_wait.unwrap_or(!all_defaulted);
     Ok(Ask { questions, wait })
+}
+
+fn bool_arg(arguments: &Value, key: &str) -> Result<Option<bool>, String> {
+    match arguments.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(flag)) => Ok(Some(*flag)),
+        Some(_) => Err(format!("`{key}` must be true or false.")),
+    }
+}
+
+fn check_default(kind: &Kind, value: &Value) -> Result<Value, String> {
+    check_one(kind, value).map_err(|why| format!("`default`: {why}"))
 }
 
 fn one(raw: &Value) -> Result<Question, String> {
@@ -80,15 +107,17 @@ fn one(raw: &Value) -> Result<Question, String> {
         other => return Err(format!("there is no kind \"{other}\"; use {KINDS}.")),
     };
     for key in fields.keys() {
-        if !["id", "prompt", "kind"].contains(&key.as_str()) && !allowed.contains(&key.as_str()) {
+        if !["id", "prompt", "kind", "default"].contains(&key.as_str())
+            && !allowed.contains(&key.as_str())
+        {
             let fields = if allowed.is_empty() {
                 "none of its own".to_owned()
             } else {
                 allowed.join(", ")
             };
             return Err(format!(
-                "a {kind_name} question has no field `{key}` (its fields: id, prompt, kind and \
-                 {fields})."
+                "a {kind_name} question has no field `{key}` (its fields: id, prompt, kind, \
+                 default and {fields})."
             ));
         }
     }
@@ -155,7 +184,16 @@ fn one(raw: &Value) -> Result<Question, String> {
             time: flag(fields, "time")?,
         },
     };
-    Ok(Question { id, prompt, kind })
+    let default = match fields.get("default") {
+        None | Some(Value::Null) => None,
+        Some(raw) => Some(check_default(&kind, raw)?),
+    };
+    Ok(Question {
+        id,
+        prompt,
+        kind,
+        default,
+    })
 }
 
 fn prompt(text: &str) -> Result<String, String> {

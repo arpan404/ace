@@ -33,7 +33,7 @@ impl Engine {
     }
 
     /// One lane as the list shows it: `{task, conversation, title, state, needs_you, progress,
-    /// plan_step, started_ms, ended_ms, cost_micros, asks, moved, report}`. `detailed` adds the
+    /// plan_step, started_ms, ended_ms, cost_micros, asks, moved, report, brief}`. `detailed` adds the
     /// goal and plan, for `tasks`.
     pub(in super::super) fn lane_view(
         &self,
@@ -88,6 +88,8 @@ impl Engine {
             "moved": link.is_some_and(|l| l.moved_from.is_some()),
             "model": row.model,
             "report": report,
+            "brief": lane::brief_line(&events, task.as_ref().map(|t| t.goal.title.as_str()))
+                .map(|line| spade_core::asks::cut(&line, REPORT_CHARS)),
         });
         if detailed {
             view["goal"] = task.as_ref().map_or(Value::Null, |t| json!(t.goal.text));

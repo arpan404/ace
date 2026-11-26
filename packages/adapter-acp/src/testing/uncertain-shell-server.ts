@@ -1,5 +1,7 @@
 // Local protocol boundary only. Never starts a provider or a model.
 import { createInterface } from "node:readline";
+import { appendFileSync, readdirSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { object, list, string } from "../data.ts";
 const send = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const update = (value: unknown, sessionId = "native-root") =>
@@ -30,6 +32,45 @@ let gatedPrompt: unknown;
 let heldPrompt: unknown;
 let heldTool = "held";
 let heldCount = 0;
+// A held prompt ends its turn when released, or only frees its command so a steer can cancel it.
+let heldEndsTurn = true;
+// The test releases a held turn by dropping a marker file into this directory: no timer decides.
+const releaseDir = process.env.ACE_ACP_RELEASE_DIR;
+const eventLog = process.env.ACE_ACP_EVENT_LOG;
+const note = (event: string) => {
+  if (eventLog) appendFileSync(eventLog, `${event}\n`);
+};
+const releaseHeld = () => {
+  const promptId = heldPrompt;
+  if (promptId === undefined) return;
+  note("release");
+  if (!heldEndsTurn) {
+    update({ sessionUpdate: "tool_call_update", toolCallId: heldTool, status: "completed" });
+    return;
+  }
+  // The turn ends before its command reports back, so nothing can cancel it in between.
+  send({ id: promptId, result: { stopReason: "end_turn" } });
+  heldPrompt = undefined;
+  update({ sessionUpdate: "tool_call_update", toolCallId: heldTool, status: "completed" });
+};
+if (releaseDir)
+  setInterval(() => {
+    if (heldPrompt === undefined) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(releaseDir).toSorted();
+    } catch {
+      return;
+    }
+    const next = entries[0];
+    if (next === undefined) return;
+    try {
+      unlinkSync(join(releaseDir, next));
+    } catch {
+      return;
+    }
+    releaseHeld();
+  }, 25).unref();
 createInterface({ input: process.stdin }).on("line", (line) => {
   const frame = object(JSON.parse(line));
   const params = object(frame["params"]);
@@ -62,9 +103,23 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const text = string(object(list(params["prompt"])[0])["text"]);
     if (heldPrompt !== undefined) {
       send({ id: frame["id"], error: { code: -32603, message: "Overlapping prompt" } });
+    } else if (text === "hold-shell-for-steer" || text === "hold-shell-natural") {
+      // A command of a turn that waits for the test: releasing frees the shell, and a natural
+      // turn also answers.
+      heldPrompt = frame["id"];
+      heldTool = text === "hold-shell-natural" ? "natural-shell" : "held-shell";
+      heldEndsTurn = text === "hold-shell-natural";
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: heldTool,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "sleep 60" },
+      });
     } else if (text === "hold-for-steer" || text.startsWith("hold-for-steer:")) {
       heldPrompt = frame["id"];
       heldTool = text === "hold-for-steer" ? "held" : `held-${++heldCount}`;
+      heldEndsTurn = true;
       update({
         sessionUpdate: "tool_call",
         toolCallId: heldTool,
@@ -129,6 +184,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       send({ id: frame["id"], error: { code: -32603, message: "Internal error" } });
     } else send({ id: frame["id"], result: { stopReason: "end_turn" } });
   } else if (frame["method"] === "session/cancel" && heldPrompt !== undefined) {
+    note("cancel");
     const promptId = heldPrompt;
     const toolId = heldTool;
     setTimeout(() => {

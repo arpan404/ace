@@ -1,0 +1,26 @@
+{
+  "start": {
+    "seq": 41,
+    "at": 1795500000,
+    "phase": "busy",
+    "needsYou": 0,
+    "working": 1,
+    "failed": 0,
+    "waiting": 0,
+    "limited": 0,
+    "background": 0,
+    "done": 0
+  },
+  "update": {
+    "seq": 42,
+    "at": 1795500001,
+    "phase": "busy",
+    "needsYou": 1,
+    "working": 999,
+    "failed": 0,
+    "waiting": 2,
+    "limited": 3,
+    "background": 4,
+    "done": 5
+  }
+}

@@ -8,6 +8,9 @@ struct TranscriptEntry {
     let key: AnyHashable
     /// A transcript row: the feed hears where it lays out, and when it comes and goes.
     var isRow = false
+    /// Blank room of a known height (a spacer, the keyboard's room): laid out at it as the window
+    /// changes, and never what keeps the reader's place.
+    var height: CGFloat?
     let content: () -> AnyView
 }
 

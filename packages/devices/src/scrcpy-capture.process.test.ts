@@ -162,18 +162,29 @@ it("a request for still images keeps the H.264 view, which agents' stills never 
   ).resolves.toEqual({ codec: "h264" });
 });
 
+/** A wait with its own bound: a socket close can land after `until`'s five seconds. */
+async function later<T>(read: () => T | undefined, ms = 15_000): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const value = read();
+    if (value !== undefined) return value;
+    if (Date.now() > end) throw new Error("Condition was not reached");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 it("the view fails when the emulator side of the stream goes away", async () => {
   const { device, frames, failures } = await fixture();
   await until(() => (frames.length ? true : undefined));
   device.hangUp();
-  expect(await until(() => failures[0])).toMatchObject({ code: "command_failed" });
+  expect(await later(() => failures[0])).toMatchObject({ code: "command_failed" });
 });
 
 it("input after the emulator went away says the view ended, not that control is reconnecting", async () => {
   const { capture, device, frames, failures } = await fixture();
   await until(() => (frames.length ? true : undefined));
   device.hangUp();
-  await until(() => failures[0]);
+  await later(() => failures[0]);
   await expect(capture.input?.({ kind: "tap", x: 10, y: 10 }, () => {})).rejects.toMatchObject({
     code: "command_failed",
     message: "The Android screen stream ended",

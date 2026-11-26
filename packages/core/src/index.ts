@@ -171,4 +171,5 @@ export {
   isRunningShellTool,
   hasForegroundShellCommand,
   hasRunningForegroundCommand,
+  hasRunningForegroundCommandInTree,
 } from "./steering.ts";

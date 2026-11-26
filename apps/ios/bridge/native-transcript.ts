@@ -20,8 +20,14 @@ import { followBlocks } from "./thread-blocks.ts";
  * streaming rows stay live. Replies carry only where the window stands.
  */
 
-/** Bound grouping, layout and retained text to about two pages beside the live tail. */
-export const phoneWindow: WindowBounds = { capacity: 400, weight: 2 * 1024 * 1024 };
+/**
+ * The phone keeps every page the reader loaded until the app quits: an evicted page left blank
+ * room the reader could scroll back into before its rows were read again.
+ */
+export const phoneWindow: WindowBounds = {
+  capacity: Number.POSITIVE_INFINITY,
+  weight: Number.POSITIVE_INFINITY,
+};
 
 export const NativeTranscriptRequest = z
   .object({
@@ -262,9 +268,28 @@ export class NativeTranscript {
         if (keys === "all" || keys.has("order")) jump.tailMoved();
       }),
       jump.subscribe(() => this.#show(active)),
+      this.client.onArchiveRevised((threadId) => {
+        if (threadId === active.threadId) this.#revise(active);
+      }),
     );
     this.#active = active;
     return active;
+  }
+
+  /**
+   * The daemon corrected archived rows of this thread (ADR 0225): the window takes the range it
+   * holds as the archive now has it, in place.
+   */
+  #revise(active: Active): void {
+    if (this.#active !== active) return;
+    const window = active.jump.snapshot().window;
+    const first = window?.items[0];
+    const last = window?.items.at(-1);
+    const from = first && window?.seqs.get(first.id);
+    const through = last && window?.seqs.get(last.id);
+    if (from === undefined || through === undefined) return;
+    const range = this.client.archivedBetween(active.threadId, from, through);
+    if (range) active.jump.revise(range.items, range.seqs);
   }
 
   /** The controller moved: show its window, or the window it replaced it with. */

@@ -12,7 +12,16 @@ pub(super) enum Piece {
         title: Option<String>,
     },
     Close(Kind),
+    /// A whole `<react to="…">emoji</react>`: the id when it reads as one, and the inner text.
+    React {
+        to: Option<String>,
+        emoji: String,
+    },
 }
+
+/// The tag a reaction opens with and the one it closes with, on the same line.
+const REACT: &str = "<react";
+const REACT_CLOSE: &str = "</react>";
 
 /// What sits at a `<`.
 enum At {
@@ -137,6 +146,12 @@ fn next_line(b: &[u8], i: usize) -> Option<usize> {
 
 fn tag_at(text: &str, i: usize) -> At {
     let rest = &text[i..];
+    if rest.starts_with(REACT) {
+        return reaction(text, i);
+    }
+    if REACT.starts_with(rest) {
+        return At::Cut;
+    }
     for (close, kind) in [("</msg>", Kind::Msg), ("</doc>", Kind::Doc)] {
         if rest.starts_with(close) {
             return At::Tag(Piece::Close(kind), close.len());
@@ -172,6 +187,44 @@ fn tag_at(text: &str, i: usize) -> At {
         };
     }
     At::Words
+}
+
+/// A reaction at `i`: its attributes, then its emoji up to `</react>` on the same line. One whose
+/// line ends first is words; one the text ends inside may still be arriving.
+fn reaction(text: &str, i: usize) -> At {
+    let b = text.as_bytes();
+    let after = match b.get(i + REACT.len()) {
+        Some(b'>') => Read::Done(Vec::new(), i + REACT.len() + 1),
+        Some(b' ' | b'\t') => attributes(text, i + REACT.len()),
+        None => Read::Cut,
+        Some(_) => Read::Words,
+    };
+    let (attrs, inner) = match after {
+        Read::Done(attrs, inner) => (attrs, inner),
+        Read::Cut => return At::Cut,
+        Read::Words => return At::Words,
+    };
+    let line = &text[inner..];
+    let line = &line[..line.find('\n').unwrap_or(line.len())];
+    let Some(close) = line.find(REACT_CLOSE) else {
+        // A closing tag cut short, or none yet, at the very end: still arriving.
+        return if inner + line.len() == text.len() {
+            At::Cut
+        } else {
+            At::Words
+        };
+    };
+    let to = attrs
+        .iter()
+        .find(|(name, _)| *name == "to")
+        .map(|(_, v)| *v)
+        .filter(|v| super::is_id(v))
+        .map(str::to_owned);
+    let piece = Piece::React {
+        to,
+        emoji: line[..close].to_owned(),
+    };
+    At::Tag(piece, inner + close + REACT_CLOSE.len() - i)
 }
 
 fn open_piece(kind: Kind, attrs: Vec<(&str, &str)>) -> Piece {

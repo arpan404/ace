@@ -29,24 +29,18 @@ extension ConversationFeed {
     }
 
     /// Size changes keep the bottom still (`TranscriptGrowthAnchor.windowGrowing`) while the
-    /// window's rows land and measure; what is drawn is frozen over the feed meanwhile, so the
-    /// rows show once, in place, at the end. The reader's own scroll ends it (`endPageHold`).
-    /// Under VoiceOver and Switch Control nothing is frozen: the feed makes no automatic
-    /// corrections there, and only the bottom holds.
+    /// window's rows land and measure. Nothing is laid over the feed: the flipped collection
+    /// keeps the live end where it is as rows join (ADR 0222), and a snapshot of it can draw
+    /// blank. The reader's own scroll ends the hold (`endPageHold`).
     private func holdEndWhileWindowGrows() {
         guard !surface.running(.page) else { return }
-        let frozen = !Self.assistiveScrolling && surface.freeze()
-        if frozen { TranscriptJumpHooks.covered(true) }
-        let intent = intent, surface = surface
+        let intent = intent
         var settle = TranscriptSettle(at: CACurrentMediaTime())
         surface.untilSettled(.page, { time in
             let placed = TranscriptSettle.opened(following: true, fromEnd: Double(intent.metrics.bottom), restoring: false)
             return settle.frame([Double(intent.metrics.height)], placed: placed, at: time)
         }) { _ in
             growth.windowHoldEnded()
-            guard frozen else { return }
-            surface.thaw()
-            TranscriptJumpHooks.covered(false)
         }
     }
 }

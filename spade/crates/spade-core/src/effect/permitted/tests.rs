@@ -1,5 +1,5 @@
 //! A bot's Permissions at the gate (ADR 0171, amendment 7), as tables of steps and routes: a
-//! driving step runs under its family's switch with no review and no request, in both modes,
+//! driving step runs under its family's switch with no review or request in Auto-review,
 //! and is refused without it; the never-use list, a place Spade can't hold the step to, the
 //! package's ceiling and the organization still stop it.
 
@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use crate::autonomy::Mode;
 use crate::effect::ceiling::Ceiling;
 use crate::effect::{
-    Call, Drive, Effect, GIT_PUSH, Granted, Place, Route, SENDS_AS_YOU, SPENDS, drive, route,
+    Call, Drive, Effect, GIT_PUSH, Granted, PUSHES, Place, Route, SENDS_AS_YOU, SPENDS, drive,
+    route,
 };
 use crate::gate::Decision;
 use crate::permission::{Held, Switch, never};
@@ -173,7 +174,7 @@ fn with_computer_use_on_every_screen_step_runs_with_no_review_or_request() {
 }
 
 #[test]
-fn with_computer_use_off_every_screen_step_is_refused_saying_where_to_turn_it_on() {
+fn only_auto_review_requires_the_computer_use_switch() {
     let off = Route::Refuse(Switch::ComputerUse.off());
     let Route::Refuse(line) = &off else {
         unreachable!()
@@ -190,14 +191,19 @@ fn with_computer_use_off_every_screen_step_is_refused_saying_where_to_turn_it_on
             },
         ] {
             for call in every_way(step.call(permits)) {
-                assert_eq!(route(call), off, "{} {}", step.tool, step.arguments);
+                let expected = if call.mode == Mode::FullAccess {
+                    &Route::Run
+                } else {
+                    &off
+                };
+                assert_eq!(&route(call), expected, "{} {}", step.tool, step.arguments);
             }
         }
     }
 }
 
 #[test]
-fn an_app_on_the_never_use_list_is_refused_even_with_computer_use_on() {
+fn auto_review_refuses_apps_on_the_never_use_list_even_with_computer_use_on() {
     let on = Held {
         computer_use: true,
         ..Held::default()
@@ -250,7 +256,10 @@ fn an_app_on_the_never_use_list_is_refused_even_with_computer_use_on() {
         for call in every_way(step.call(on)) {
             assert_eq!(
                 route(call),
-                Route::Refuse(never::refusal(entry)),
+                match call.mode {
+                    Mode::AutoReview => Route::Refuse(never::refusal(entry)),
+                    Mode::FullAccess => Route::Run,
+                },
                 "{arguments}"
             );
         }
@@ -266,7 +275,7 @@ fn an_app_on_the_never_use_list_is_refused_even_with_computer_use_on() {
 }
 
 #[test]
-fn browser_and_simulator_steps_run_under_their_own_switch_and_are_refused_without_it() {
+fn only_auto_review_requires_the_browser_and_device_switches() {
     let tabs =
         r#"{"tabs":[{"tabId":"t1","url":"https://mail.google.com/mail/u/0/","current":true}]}"#;
     let browser = [
@@ -337,7 +346,10 @@ fn browser_and_simulator_steps_run_under_their_own_switch_and_are_refused_withou
             })) {
                 assert_eq!(
                     route(call),
-                    Route::Refuse(switch.off()),
+                    match call.mode {
+                        Mode::AutoReview => Route::Refuse(switch.off()),
+                        Mode::FullAccess => Route::Run,
+                    },
                     "{} {}",
                     step.tool,
                     step.arguments
@@ -348,7 +360,7 @@ fn browser_and_simulator_steps_run_under_their_own_switch_and_are_refused_withou
 }
 
 #[test]
-fn a_step_that_must_be_held_where_spade_cant_place_or_hold_it_is_refused_not_asked() {
+fn auto_review_refuses_driving_steps_it_cannot_place_or_hold() {
     let loading =
         r#"{"tabs":[{"tabId":"t1","url":"https://docs.rs/","current":true,"loading":true}]}"#;
     let cases = [
@@ -379,6 +391,10 @@ fn a_step_that_must_be_held_where_spade_cant_place_or_hold_it_is_refused_not_ask
     for step in cases {
         for call in every_way(step.call(ALL_ON)) {
             let route = route(call);
+            if call.mode == Mode::FullAccess {
+                assert_eq!(route, Route::Run, "{} {}", step.tool, step.arguments);
+                continue;
+            }
             let Route::Refuse(line) = &route else {
                 panic!("{} {}: {route:?}", step.tool, step.arguments);
             };
@@ -402,7 +418,13 @@ fn a_step_that_must_be_held_where_spade_cant_place_or_hold_it_is_refused_not_ask
         ..step.call(ALL_ON)
     };
     for call in every_way(unheld) {
-        assert_eq!(route(call), Route::Refuse(drive::UNHELD.to_owned()));
+        assert_eq!(
+            route(call),
+            match call.mode {
+                Mode::AutoReview => Route::Refuse(drive::UNHELD.to_owned()),
+                Mode::FullAccess => Route::Run,
+            }
+        );
     }
 }
 
@@ -466,7 +488,7 @@ fn on_an_organizations_shared_bot_a_step_under_a_switch_still_goes_to_its_approv
 }
 
 #[test]
-fn sends_payments_and_connected_apps_are_refused_while_their_switch_is_off() {
+fn full_access_bypasses_off_switches_but_still_asks_for_sends_and_payments() {
     let cases = [
         (
             call("send_message", Some(Effect::SendAsPerson), ALL_ON),
@@ -496,13 +518,20 @@ fn sends_payments_and_connected_apps_are_refused_while_their_switch_is_off() {
             Switch::Pay => permits.pay = false,
             _ => permits.apps = false,
         }
-        // Off, refused in every mode, over an Always allow and a grant.
+        // Full access still asks on a send or payment even with an Always allow and a grant.
         for off in every_way(Call {
             permits,
             granted: Granted::Typed,
             ..on
         }) {
-            assert_eq!(route(off), Route::Refuse(switch.off()), "{}", on.tool);
+            let expected = match (off.mode, switch, off.tool) {
+                (Mode::AutoReview, _, _) => Route::Refuse(switch.off()),
+                (Mode::FullAccess, Switch::Send, GIT_PUSH) => Route::ask(PUSHES),
+                (Mode::FullAccess, Switch::Send, _) => Route::ask(SENDS_AS_YOU),
+                (Mode::FullAccess, Switch::Pay, _) => Route::ask(SPENDS),
+                (Mode::FullAccess, _, _) => Route::Run,
+            };
+            assert_eq!(route(off), expected, "{}", on.tool);
         }
     }
     let ask = |line: &str| Route::Ask {

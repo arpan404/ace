@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-mcp"
+description = "The MCP server's core in Rust (docs/mcp-server/porting-guide.md): the catalog both backends read, then the server (M2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: the catalog's values keep JSON.parse/JSON.stringify semantics, never serde_json's.
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error for a catalog that isn't the shape this crate reads.
+thiserror = "2"

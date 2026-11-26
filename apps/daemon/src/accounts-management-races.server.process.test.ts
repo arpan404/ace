@@ -26,6 +26,7 @@ test("restart isolates an outside home while healthy managed accounts restore th
     const restarted = await openRegistry(join(f.dataDir, "accounts.sqlite"));
     registry = restarted;
     management = new AccountManagement({
+      platform: process.platform,
       registry: restarted,
       accounts: new AccountService({
         registry: restarted,
@@ -264,6 +265,7 @@ test("restart restores safe sign-in status and the selected account's model cata
   const registry = await openRegistry(join(f.dataDir, "accounts.sqlite"));
   const accounts = new AccountService({ registry, env: f.env, now: () => 100, timeZone: "UTC" });
   const management = new AccountManagement({
+    platform: process.platform,
     registry,
     accounts,
     dataDir: f.dataDir,

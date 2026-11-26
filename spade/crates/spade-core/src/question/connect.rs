@@ -79,6 +79,7 @@ pub fn question(why: String, connect: Connect) -> Question {
         id: None,
         prompt: why,
         kind: Kind::Connect(Box::new(connect)),
+        default: None,
     }
 }
 
