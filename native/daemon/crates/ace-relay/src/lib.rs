@@ -33,6 +33,9 @@ pub use codec::{
     Message, PLAIN_HIGH_WATER, REKEY_INTERVAL, Received,
 };
 pub use error::RelayError;
+pub use host::connect::{HostConnect, HostRelay, LinkChannel, NkAcceptor, connect_host};
+pub use host::frame_io::FrameIo;
+pub use host::link::{Link, Timeouts, relay_address};
 pub use host::{
     Backoff, ClientSlots, ControlMessage, FirstMessage, HTTP_FEATURE, HostOptions, HttpAnswer,
     MEDIA_FEATURE, Registration, RegistrationWait, RejectReason, Reservation, authorize_first,

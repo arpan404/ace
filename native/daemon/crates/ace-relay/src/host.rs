@@ -11,6 +11,8 @@ use crate::error::RelayError;
 use crate::noise::KeyPair;
 
 pub mod backoff;
+pub mod connect;
+pub mod frame_io;
 pub mod link;
 
 pub use backoff::Backoff;

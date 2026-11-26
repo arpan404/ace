@@ -204,7 +204,7 @@ impl Link {
     }
 
     /// The close handshake once what was queued has gone out.
-    pub fn close(mut self) {
+    pub fn close(&mut self) {
         if self.finished {
             return;
         }

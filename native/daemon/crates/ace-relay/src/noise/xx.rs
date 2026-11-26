@@ -248,12 +248,17 @@ impl NoiseXx {
         self.remote_static.as_ref()
     }
 
-    pub fn into_transport(mut self) -> Result<SessionKeys, RelayError> {
+    /// The finished handshake's keys, taken out of a state the shell still owns.
+    pub fn take_transport(&mut self) -> Result<SessionKeys, RelayError> {
         if self.failed {
             return Err(RelayError::Noise("Handshake closed"));
         }
         self.transport
             .take()
             .ok_or(RelayError::Noise("Handshake incomplete"))
+    }
+
+    pub fn into_transport(mut self) -> Result<SessionKeys, RelayError> {
+        self.take_transport()
     }
 }
