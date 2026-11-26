@@ -72,16 +72,6 @@ fn shells_go_first_then_the_tree_deepest_first() {
 }
 
 #[test]
-fn an_unestablished_tree_cleans_nothing() {
-    // `if (!ownership.root) return`: the TypeScript never reaches the shells.
-    let mut ownership = SessionOwnership::new("/work", "", None);
-    ownership
-        .shells_mut()
-        .insert(String::from("sh_1"), String::from("root"));
-    assert!(plan(&ownership).expect("no plan").is_empty());
-}
-
-#[test]
 fn a_tree_ace_does_not_own_is_not_cleaned() {
     let mut ownership = SessionOwnership::new("/work", "", None);
     ownership.establish(&snapshot("root", "")).expect("root");

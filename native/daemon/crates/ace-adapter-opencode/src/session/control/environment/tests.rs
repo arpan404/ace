@@ -4,7 +4,10 @@
 //! refusal a failed set leaves, and the retry the gate's RPC gets.
 
 use super::readiness::Step;
-use super::{GATE_MS, MESSAGE_MAX_UTF16, apply, refusal, session_shell_environment, settle_step};
+use super::{
+    MESSAGE_MAX_UTF16, SETTLE_BUDGET_MS, apply, refusal, session_shell_environment, settle_step,
+    truncate_utf16,
+};
 use ace_json::{Map, Value, json};
 
 fn map(value: Value) -> Map {
@@ -90,28 +93,36 @@ fn a_failed_set_refuses_the_gates_tools_with_the_reason() {
         request.call.body,
         Some(json!({ "input": { "sessionID": "ses_1", "ok": false, "message": "set failed" } }))
     );
-    // The contract bounds the message at 1,024 UTF-16 units.
-    let long = "😀".repeat(MESSAGE_MAX_UTF16);
-    let request = refusal("ses_1", "/w", &long).expect("a request");
-    let fields = ace_json::to_string(&request.call.body.expect("a body"));
-    let body = ace_json::parse(&fields).expect("JSON");
-    let message = crate::translate::data::s_in(
-        crate::translate::data::fields(
-            crate::translate::data::fields(&body)
-                .get("input")
-                .expect("input"),
-        ),
-        "message",
-    );
-    assert_eq!(message.encode_utf16().count(), MESSAGE_MAX_UTF16);
+}
+
+#[test]
+fn the_reason_is_cut_in_utf16_units_even_inside_a_surrogate_pair() {
+    // `String.prototype.slice` cuts between the halves of an emoji; the message the plugin
+    // receives carries the lone high surrogate, one unit shorter than a whole-pair cut.
+    let reason = format!("{}😀y", "x".repeat(1_023));
+    let message = ace_json::to_string(&Value::String(truncate_utf16(&reason, MESSAGE_MAX_UTF16)));
+    assert!(message.ends_with("\\ud83d\""), "{message}");
+    assert_eq!(message.len(), 1 + 1_023 + 6 + 1, "{message}");
+    // An emoji that ends exactly at the bound stays whole.
+    let whole = "😀".repeat(MESSAGE_MAX_UTF16 / 2);
+    let message = ace_json::to_string(&Value::String(truncate_utf16(&whole, MESSAGE_MAX_UTF16)));
+    assert_eq!(message, format!("\"{whole}\""), "whole pairs stay whole");
 }
 
 #[test]
 fn the_gates_rpc_is_retried_while_its_plugin_is_unregistered() {
-    // The gate shares the readiness RPC's policy, with its own budget.
+    // The settle retries on the client's ten-second budget (`aceToolsReadyBudgetMs`), not the
+    // plugin's thirty-second tool gate.
     let unregistered = json!({ "type": "rpc.unavailable" });
     assert_eq!(settle_step(&unregistered, 0.0), Step::Retry { in_ms: 100 });
-    assert_eq!(settle_step(&unregistered, GATE_MS), Step::Unconfirmed);
+    assert_eq!(
+        settle_step(&unregistered, SETTLE_BUDGET_MS - 500.0),
+        Step::Retry { in_ms: 500 }
+    );
+    assert_eq!(
+        settle_step(&unregistered, SETTLE_BUDGET_MS - 499.0),
+        Step::Unconfirmed
+    );
     assert_eq!(
         settle_step(&json!({ "type": "rpc.internal" }), 0.0),
         Step::Fail

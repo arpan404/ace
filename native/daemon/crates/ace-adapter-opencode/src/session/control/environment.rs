@@ -17,7 +17,8 @@ use super::readiness::{self, Step};
 use crate::session::api;
 
 /// Credentials no agent's shell ever needs: OpenCode's server's own, and ace's
-/// (`agent-env.ts:28`-`:39`).
+/// (`agent-env.ts:28`-`:39`). This is the one list: the owned server removes the
+/// `ACE_` names from it too (`agent-env.ts:42`-`:46`'s `withoutAceSecrets`).
 pub const WITHHELD: [&str; 10] = [
     "OPENCODE_PASSWORD",
     "OPENCODE_SERVER_PASSWORD",
@@ -31,8 +32,11 @@ pub const WITHHELD: [&str; 10] = [
     "ACE_ACCOUNT_ENCRYPTION_KEY",
 ];
 
-/// How long a tool waits for ace to settle its session before it is refused.
-pub const GATE_MS: f64 = 30_000.0;
+/// How long the client retries a settle whose plugin is not activated yet
+/// (`aceToolsReadyBudgetMs`, `agent-env.ts:78,88`). The plugin's own 30 s tool
+/// gate (`environmentGateMs`, `agent-env-contract.ts:31`) is the server's, not
+/// this side's: ace gives up at ten seconds and says the gate never registered.
+pub const SETTLE_BUDGET_MS: f64 = 10_000.0;
 /// The settle verdict's message bound (`agent-env-contract.ts`), in UTF-16 units.
 pub const MESSAGE_MAX_UTF16: usize = 1024;
 
@@ -92,7 +96,7 @@ pub fn refusal(session_id: &str, directory: &str, reason: &str) -> Result<Reques
                 "input": {
                     "sessionID": session_id,
                     "ok": false,
-                    "message": truncate_utf16(reason, MESSAGE_MAX_UTF16),
+                    "message": Value::String(truncate_utf16(reason, MESSAGE_MAX_UTF16)),
                 },
             }),
         )?,
@@ -103,24 +107,14 @@ pub fn refusal(session_id: &str, directory: &str, reason: &str) -> Result<Reques
 /// location, so a missing method is retried; anything else, or running out of
 /// time, fails. `None` settles, `Some(step)` names what to do next.
 pub fn settle_step(error: &Value, elapsed_ms: f64) -> Step {
-    readiness::step(error, elapsed_ms, GATE_MS)
+    readiness::step(error, elapsed_ms, SETTLE_BUDGET_MS)
 }
 
-/// `string.slice(0, units)`: a cut in UTF-16 units. Where the cut would split a
-/// surrogate pair the pair is kept whole, so the result is one unit short rather
-/// than holding a lone surrogate Rust strings cannot represent.
-fn truncate_utf16(text: &str, units: usize) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut used = 0;
-    for character in text.chars() {
-        let width = character.len_utf16();
-        if used + width > units {
-            break;
-        }
-        out.push(character);
-        used += width;
-    }
-    out
+/// `reason.slice(0, units)`: a cut in UTF-16 units that may split a surrogate
+/// pair, exactly as `String.prototype.slice` does, so the refusal the plugin
+/// receives is the same one the TypeScript sends.
+fn truncate_utf16(text: &str, units: usize) -> ace_json::JsString {
+    ace_json::JsString::from(text).slice_units(0, units)
 }
 
 #[cfg(test)]

@@ -27,7 +27,10 @@ pub enum CleanupError {
 /// the root's descendants and the root itself, each interrupted in its own
 /// directory.
 pub fn plan(ownership: &SessionOwnership) -> Result<Vec<Request>, CleanupError> {
-    // Nothing is owned until a root establishes: nothing is cleaned.
+    // The TypeScript returns before the shells when there is no root (`cleanup.ts:8`).
+    // Ownership is only written by `establish`/`admit`, and a shell is recorded against a
+    // session that was already owned, so this cannot change today's plan; it keeps the
+    // TypeScript's order for when a shell can exist before a root does.
     if ownership.root().is_empty() {
         return Ok(Vec::new());
     }

@@ -106,14 +106,26 @@ fn a_body_only_carries_the_routes_fields() {
             body: Some(json!({ "config": { "type": "remote" } })),
         }
     );
+    for op in ["mcp.connect", "mcp.disconnect"] {
+        assert_eq!(
+            call(
+                op,
+                &json!({ "server": "ace", "location": { "directory": "/w" }, "config": { "type": "remote" } })
+            )
+            .expect("a call")
+            .body,
+            None,
+            "{op} sends no body"
+        );
+    }
     assert_eq!(
         call(
-            "mcp.connect",
-            &json!({ "server": "ace", "location": { "directory": "/w" }, "config": { "type": "remote" } })
+            "mcp.disconnect",
+            &json!({ "server": "ace", "location": { "directory": "/w" } })
         )
         .expect("a call")
-        .body,
-        None
+        .target(),
+        "/api/experimental/mcp/ace/disconnect?location%5Bdirectory%5D=%2Fw"
     );
 }
 
@@ -199,5 +211,25 @@ fn a_query_null_is_the_text_null_and_an_array_repeats_its_key() {
             .expect("a call")
             .target(),
         "/api/session?limit=2&cursor=null"
+    );
+    // No route has an array field yet, so the serializer's array rule is pinned here: the SDK
+    // repeats the key rather than indexing it (`appendQuery`, `:1386`-`:1404`).
+    let mut pairs = Vec::new();
+    super::encode::flatten("key", &json!(["a", "b"]), &mut pairs);
+    assert_eq!(
+        pairs,
+        [
+            (String::from("key"), String::from("a")),
+            (String::from("key"), String::from("b")),
+        ]
+    );
+    let mut pairs = Vec::new();
+    super::encode::flatten("key", &json!({ "nested": [1, null] }), &mut pairs);
+    assert_eq!(
+        pairs,
+        [
+            (String::from("key[nested]"), String::from("1")),
+            (String::from("key[nested]"), String::from("null")),
+        ]
     );
 }

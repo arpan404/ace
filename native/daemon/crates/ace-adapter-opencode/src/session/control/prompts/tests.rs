@@ -5,7 +5,7 @@
 use super::{Direction, Outcome, Prompts};
 
 fn observed(prompts: &mut Prompts, direction: Direction, path: &str, status: Option<f64>) {
-    prompts.observe(direction, path, status);
+    prompts.observe(direction, "http", path, status);
 }
 
 #[test]
@@ -90,25 +90,49 @@ fn only_prompt_and_command_requests_count() {
 }
 
 #[test]
-fn a_reply_that_is_not_an_http_status_is_not_a_refusal() {
+fn only_a_4xx_reply_marks_a_refusal() {
+    // The send went out, so an uncertain outcome is what a 2xx must leave: a 2xx
+    // that marked a refusal would turn this into `Rejected`.
     let mut prompts = Prompts::new();
     prompts.begin();
-    observed(&mut prompts, Direction::Recv, "/api/session/s/prompt", None);
-    assert_eq!(prompts.outcome(false), Outcome::Rejected);
-    // A 2xx never marks a refusal either, and begin clears a previous send.
+    observed(&mut prompts, Direction::Send, "/api/session/s/prompt", None);
+    observed(
+        &mut prompts,
+        Direction::Recv,
+        "/api/session/s/prompt",
+        Some(200.0),
+    );
+    assert_eq!(prompts.outcome(false), Outcome::Uncertain);
+    // A reply with no status says nothing either.
+    let mut unseen = Prompts::new();
+    unseen.begin();
+    seen_recv_without_status(&mut unseen);
+    assert_eq!(unseen.outcome(false), Outcome::Rejected);
+    // The 4xx does, once the request went out.
     observed(
         &mut prompts,
         Direction::Recv,
         "/api/session/s/prompt",
         Some(400.0),
     );
-    prompts.begin();
     assert_eq!(prompts.outcome(false), Outcome::Rejected);
-    observed(
-        &mut prompts,
+}
+
+fn seen_recv_without_status(prompts: &mut Prompts) {
+    prompts.observe(Direction::Recv, "http", "/api/session/s/prompt", None);
+}
+
+#[test]
+fn a_frame_on_another_channel_is_not_this_sends() {
+    // A non-http frame whose path ends `/prompt` must not mark a send started.
+    let mut prompts = Prompts::new();
+    prompts.begin();
+    prompts.observe(Direction::Send, "stdout", "/api/session/s/prompt", None);
+    prompts.observe(
         Direction::Recv,
+        "stdout",
         "/api/session/s/prompt",
-        Some(200.0),
+        Some(404.0),
     );
     assert_eq!(prompts.outcome(false), Outcome::Rejected);
 }

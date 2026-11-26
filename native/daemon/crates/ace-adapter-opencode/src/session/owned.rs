@@ -12,6 +12,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use indexmap::IndexMap;
 
+use crate::session::control::environment::WITHHELD;
 use crate::translate::boundaries::check_loopback;
 use crate::translate::data::fields;
 
@@ -22,25 +23,15 @@ pub const NAME: &str = "opencode-server";
 /// `serve --stdio --hostname 127.0.0.1 --port 0` (`owned-server.ts:29`).
 pub const ARGS: [&str; 6] = ["serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"];
 
-/// ace's own credentials, never the server's (`agent-env.ts:28`-`:39`).
-const ACE_SECRETS: [&str; 8] = [
-    "ACE_MCP_BEARER_TOKEN",
-    "ACE_MCP_TOKEN",
-    "ACE_DAEMON_TOKEN",
-    "ACE_DAEMON_TOKEN_FILE",
-    "ACE_MARKET_SIGNER_TOKEN",
-    "ACE_GRANT_KEY",
-    "ACE_GRANT_PREVIOUS_KEY",
-    "ACE_ACCOUNT_ENCRYPTION_KEY",
-];
-
 /// The server's environment (`owned-server.ts:26`-`:33`): ace's credentials
 /// gone, the password only in `OPENCODE_PASSWORD`, and its own two password
-/// names dropped so the server takes the one it was given.
+/// names dropped so the server takes the one it was given. The names come from
+/// the one list (`agent-env.ts`'s `withheld`): `withoutAceSecrets` removes the
+/// `ACE_` entries of it.
 pub fn spawn_env(env: &[(String, String)], password: &str) -> IndexMap<String, String> {
     let mut out: IndexMap<String, String> = env.iter().cloned().collect();
-    for name in ACE_SECRETS {
-        out.shift_remove(name);
+    for name in WITHHELD.iter().filter(|name| name.starts_with("ACE_")) {
+        out.shift_remove(*name);
     }
     out.insert(String::from("OPENCODE_PASSWORD"), password.to_owned());
     out.shift_remove("OPENCODE_SERVER_PASSWORD");

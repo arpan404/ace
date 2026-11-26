@@ -599,6 +599,22 @@
       "target": "/api/experimental/mcp/ace/connect?location%5Bdirectory%5D=%2Fwork"
     },
     {
+      "op": "mcp.disconnect",
+      "params": {
+        "server": "ace",
+        "location": {
+          "directory": "/work"
+        },
+        "config": {
+          "type": "remote"
+        },
+        "kind": "noise",
+        "unused": "noise"
+      },
+      "method": "POST",
+      "target": "/api/experimental/mcp/ace/disconnect?location%5Bdirectory%5D=%2Fwork"
+    },
+    {
       "op": "agent.environment.settle",
       "params": {
         "location": {

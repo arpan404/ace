@@ -43,9 +43,19 @@ impl Prompts {
         Self::default()
     }
 
-    /// `observe`: a `prompt` or `command` request that went out started this
-    /// send; a reply with a 4xx status is the server turning it down.
-    pub fn observe(&mut self, direction: Direction, path: &str, status: Option<f64>) {
+    /// `observe`: a `prompt` or `command` request that went out on the `http`
+    /// channel started this send; a reply with a 4xx status is the server turning
+    /// it down. Any other channel is not this send's (`prompts.ts:38`).
+    pub fn observe(
+        &mut self,
+        direction: Direction,
+        channel: &str,
+        path: &str,
+        status: Option<f64>,
+    ) {
+        if channel != "http" {
+            return;
+        }
         if !path.ends_with("/prompt") && !path.ends_with("/command") {
             return;
         }

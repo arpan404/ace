@@ -83,7 +83,12 @@ interface Client {
   readonly skill: { readonly list: Method };
   readonly agent: { readonly list: Method };
   readonly plugin: { readonly list: Method };
-  readonly mcp: { readonly list: Method; readonly add: Method; readonly connect: Method };
+  readonly mcp: {
+    readonly list: Method;
+    readonly add: Method;
+    readonly connect: Method;
+    readonly disconnect: Method;
+  };
   readonly integration: { readonly list: Method };
   readonly rpc: { readonly call: Method };
   readonly event: { readonly subscribe: () => AsyncIterable<unknown> };
@@ -318,6 +323,12 @@ const probes: readonly Probe[] = [
     params: { server: "ace", location, config: { type: "remote" }, ...noise },
   },
   {
+    // No body, like connect: the location is the query and the server the path.
+    op: "mcp.disconnect",
+    send: (c, p) => c.mcp.disconnect(p),
+    params: { server: "ace", location, config: { type: "remote" }, ...noise },
+  },
+  {
     op: "agent.environment.settle",
     send: (c, p) =>
       c.rpc.call({
@@ -389,6 +400,12 @@ async function generate(): Promise<string> {
   };
   if (manifest.name !== "@opencode/client")
     throw new Error(`${dir} is ${manifest.name}, not @opencode/client`);
+  // The golden is only trustworthy for the version the adapter pins: a drifted install (or a
+  // hand-pointed OPENCODE_CLIENT_DIR) would record another release's routes under this name.
+  if (manifest.version !== pinnedVersion())
+    throw new Error(
+      `${dir} is @opencode/client ${manifest.version}, but adapter-opencode pins ${pinnedVersion()}`,
+    );
   // The client package resolves by path at run time, so its types arrive by hand.
   const { make } = (await import(
     pathToFileURL(join(dir, "dist/promise/client.js")).href
