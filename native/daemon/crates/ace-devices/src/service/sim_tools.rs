@@ -40,7 +40,8 @@ const PUBLIC_CODES: [&str; 15] = [
 fn device_id_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
     PATTERN.get_or_init(|| {
-        Regex::new(r"^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$").expect("device id pattern")
+        Regex::new(r"^(?:ios:[\da-fA-F-]{36}|android:(?-u:[a-zA-Z0-9_.-]{1,200}))$")
+            .expect("device id pattern")
     })
 }
 
@@ -49,6 +50,16 @@ fn js_string(value: &Value) -> Option<JsString> {
         .as_js_str()
         .cloned()
         .or_else(|| value.as_str().map(JsString::from))
+}
+
+fn optional_string(device: &Map, key: &str) -> bool {
+    let Some(value) = device.get(key) else {
+        return true;
+    };
+    let Some(text) = value.as_str() else {
+        return false;
+    };
+    text.chars().count() <= 256
 }
 
 fn valid_device(device: &Map) -> bool {
@@ -69,7 +80,12 @@ fn valid_device(device: &Map) -> bool {
     if platform != "ios" && platform != "android" {
         return false;
     }
-    matches!(state, "booted" | "shutdown" | "offline" | "unauthorized")
+    if !matches!(state, "booted" | "shutdown" | "offline" | "unauthorized") {
+        return false;
+    }
+    optional_string(device, "runtime")
+        && optional_string(device, "serial")
+        && optional_string(device, "model")
 }
 
 fn valid_posture(value: &Value) -> bool {

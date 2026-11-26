@@ -9,7 +9,7 @@ use super::{
     android_without_video, public_failure, screenshot_note, summary, with_guidance, without_video,
 };
 use crate::error::{DeviceErrorCode, DeviceFailure};
-use ace_json::{JsString, Value, json};
+use ace_json::{JsString, Number, Value, json};
 
 const IOS: &str = "ios:00000000-0000-4000-8000-000000000001";
 
@@ -83,6 +83,69 @@ fn a_start_or_stop_answers_with_the_summary_not_the_whole_state() {
     assert_eq!(summary(&invalid_posture), invalid_posture);
 
     assert_eq!(summary(&json!("raw")), json!("raw"));
+}
+
+#[test]
+fn an_invalid_android_id_and_device_fields_are_returned_intact_not_reduced() {
+    let non_ascii = json!({
+        "device": {
+            "id": "android:émulator",
+            "name": "Phone",
+            "state": "booted",
+            "platform": "android"
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&non_ascii), non_ascii);
+
+    let mut numeric_runtime = valid_state();
+    if let Value::Object(ref mut object) = numeric_runtime {
+        if let Some(Value::Object(device)) = object.get_mut("device") {
+            device.insert("runtime".to_owned(), Value::Number(Number::from(42)));
+        }
+    }
+    assert_eq!(summary(&numeric_runtime), numeric_runtime);
+
+    let long_model = json!({
+        "device": {
+            "id": IOS,
+            "name": "Phone",
+            "state": "booted",
+            "platform": "ios",
+            "model": "m".repeat(257)
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&long_model), long_model);
+}
+
+#[test]
+fn a_name_at_the_code_point_cap_passes_validation() {
+    let emoji = "📱";
+    let prefix = "x".repeat(255);
+    let name = format!("{prefix}{emoji}");
+    assert_eq!(name.chars().count(), 256);
+    let state = json!({
+        "device": {
+            "id": IOS,
+            "name": name,
+            "state": "booted",
+            "platform": "ios"
+        },
+        "lifecycle": "live",
+        "controller": "agent"
+    });
+    let reduced = summary(&state);
+    if let Value::Object(object) = reduced {
+        assert_eq!(
+            object.get("name").and_then(Value::as_str),
+            Some(name.as_str())
+        );
+    } else {
+        panic!("expected a summary");
+    }
 }
 
 #[test]
