@@ -19,6 +19,9 @@ pub mod state;
 pub mod task;
 pub mod timer;
 
+#[cfg(test)]
+mod tests;
+
 pub use deps::{
     ActorDeps, ActorLinks, ActorRepo, ActorTranslator, BatchAck, JsBatchTranslator, Route,
     ScheduleView, TranslatedFrame, Unported,
@@ -137,6 +140,13 @@ pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineErr
     positions.sort_unstable_by_key(|(index, _)| std::cmp::Reverse(*index));
     for (index, victim) in positions {
         if let Some((victim_actor, seat)) = core.with_state(|state| state.actors.remove(&victim))? {
+            let instance = victim_actor.borrow().instance;
+            core.with_state(|state| {
+                state
+                    .actors
+                    .aside
+                    .insert(instance, Rc::clone(&victim_actor));
+            })?;
             aside.push((index, seat, victim_actor));
         }
     }
@@ -225,20 +235,87 @@ pub fn close_stop(core: &Rc<Core>) {
     }
 }
 
-/// Close can cut a parked mailbox short, so it takes over the task's cleanup.
+/// Close can cut a parked mailbox short, so it takes over the task's cleanup. Both registries are
+/// retired: no actor stays current, so a late frame finds none to admit, and nothing an actor held
+/// (a frame payload, a batch's acknowledgement, a waker) outlives the close.
 pub(crate) fn finish_close(core: &Core) {
-    let (wakers, stopping) = core
+    let actors: Vec<ActorRef> = core
         .with_state(|state| {
-            let wakers: Vec<_> = state
+            state
                 .actors
                 .instances()
-                .filter_map(|actor| actor.borrow_mut().waker.take())
-                .collect();
-            (wakers, std::mem::take(&mut state.actors.stopping))
+                .chain(state.actors.aside.values())
+                .cloned()
+                .collect()
         })
         .unwrap_or_default();
-    drop(wakers);
-    drop(stopping);
+    for actor in &actors {
+        retire_instance(core, actor);
+    }
+    core.with_state(|state| {
+        state.actors.by_thread.clear();
+        state.actors.seats.clear();
+        state.actors.aside.clear();
+        state.actors.stopping.clear();
+        state.actors.reserved.clear();
+        state.actors.pledges.clear();
+    })
+    .ok();
+}
+
+/// One actor at close: refused for good, its held work released and its acknowledgements rejected.
+/// The frames are dropped rather than sealed, since the executor is shut and no mailbox will fold
+/// them: a sealed batch would keep its payloads and senders alive with nothing to run them.
+pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
+    let (pending, ack, mailbox, flush_waiters, drains, timers) = {
+        let mut state = actor.borrow_mut();
+        state.stopped = true;
+        state.pressure = false;
+        state.waker = None;
+        for shared in state.staged.values() {
+            *shared.borrow_mut() = mailbox::Staged::Discarded;
+        }
+        (
+            std::mem::take(&mut state.pending),
+            state.pending_ack.take(),
+            std::mem::take(&mut state.mailbox),
+            std::mem::take(&mut state.flush_waiters),
+            std::mem::take(&mut state.drains),
+            [
+                state.timer.take().map(|(timer, _)| timer.key),
+                state.batch_timer.take().map(|timer| timer.key),
+            ],
+        )
+    };
+    for key in timers.into_iter().flatten() {
+        core.ports.cancel_timer(key);
+    }
+    intake::release_handles(core, actor, &pending);
+    let mut acks = Vec::new();
+    if let Some(ack) = ack {
+        acks.push(ack);
+    }
+    for op in mailbox {
+        match op {
+            mailbox::Op::Batch(batch) => {
+                mailbox::release_owned(core, actor, &batch.handles);
+                acks.push(batch.ack);
+            }
+            mailbox::Op::Settle(ack) => acks.push(ack),
+            _ => {}
+        }
+    }
+    for ack in &mut acks {
+        // The facade's own promises reject with Engine closed through `reject_pending`; a native
+        // session's gate is failed here, so it stops reading instead of waiting forever.
+        ack.reject("Engine closed");
+    }
+    for waiter in flush_waiters {
+        let _ = waiter.send(());
+    }
+    for drain in drains {
+        let _ = drain.send(());
+    }
 }
 
 /// Whether the actors hold no work E5.1 must wait for.
@@ -257,6 +334,26 @@ pub fn live_thread_ids(state: &State) -> Vec<ThreadId> {
 
 /// `observeInputs`, called by E5.3's apply.
 pub use leases::observe_inputs;
+
+/// `workload()`'s figures (`index.ts:795`–`:806`): attached sessions, then the frames and bytes
+/// every actor the engine still owes work for holds. An evicted actor's accepted tail is still
+/// engine work while it stops, so it counts; TypeScript forgets it the moment the actor leaves its
+/// map, which is the one place Rust is deliberately stricter (behaviour.md §20).
+pub fn workload_counts(state: &State) -> (usize, usize, usize) {
+    let mut sessions = 0;
+    let mut frames = 0;
+    let mut bytes = 0;
+    for actor in state.actors.instances() {
+        let actor = actor.borrow();
+        if actor.session_attached {
+            sessions += 1;
+        }
+        let (actor_frames, actor_bytes) = actor.backlog();
+        frames += actor_frames;
+        bytes += actor_bytes;
+    }
+    (sessions, frames, bytes)
+}
 
 /// A thread's own rules, for E5.3's calls.
 pub use rules::has_running_foreground_command;

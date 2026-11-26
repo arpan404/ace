@@ -41,6 +41,9 @@ pub fn commit_promotion(core: &Rc<Core>, promotion: &Rc<state::Promotion>) {
     spawn_mailbox(core, &thread);
     let aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
     for (_, _, actor) in aside {
+        let instance = actor.borrow().instance;
+        core.with_state(|state| state.actors.aside.shift_remove(&instance))
+            .ok();
         stop_evicted(core, actor);
     }
 }
@@ -98,9 +101,20 @@ pub fn restore_promotion(core: &Rc<Core>, promotion: &state::Promotion) -> (usiz
         .flatten();
     let mut aside = std::mem::take(&mut *promotion.kept_aside.borrow_mut());
     aside.sort_unstable_by_key(|(index, _, _)| *index);
+    let closing = core.closing.get();
     for (index, seat, actor) in aside {
         let id = actor.borrow().id.clone();
+        let instance = actor.borrow().instance;
+        if closing {
+            // Close already retired every registry a promotion could restore into: the kept-aside
+            // actor is retired with the rest rather than resurrected into a closed engine.
+            core.with_state(|state| state.actors.aside.shift_remove(&instance))
+                .ok();
+            crate::actor::retire_instance(core, &actor);
+            continue;
+        }
         core.with_state(|state| {
+            state.actors.aside.shift_remove(&instance);
             let at = index.min(state.actors.by_thread.len());
             state.actors.seats.insert(id.clone(), seat);
             state.actors.by_thread.shift_insert(at, id, actor);

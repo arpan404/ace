@@ -273,6 +273,9 @@ pub(crate) fn seal_instance(core: &Rc<Core>, actor: &ActorRef) {
     let Some((frames, bytes, ack)) = batch else {
         return;
     };
+    let handles = Rc::new(std::cell::RefCell::new(mailbox::Handles::from_frames(
+        &frames,
+    )));
     accept_batch(
         core,
         actor,
@@ -282,6 +285,7 @@ pub(crate) fn seal_instance(core: &Rc<Core>, actor: &ActorRef) {
             ack,
             admitted: false,
             memory: Default::default(),
+            handles,
         },
     );
 }

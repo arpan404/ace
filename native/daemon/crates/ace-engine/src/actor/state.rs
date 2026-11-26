@@ -210,7 +210,12 @@ pub(crate) fn discard_acks(core: &Core, actor: &ActorRef) {
     crate::actor::intake::release_handles(core, actor, &pending);
     for op in mailbox.iter() {
         if let Op::Batch(batch) = op {
-            crate::actor::intake::release_handles(core, actor, &batch.frames);
+            // Only what the batch still owns: a fold that ran before the discard already took the
+            // live handles.
+            let owned = batch.handles.borrow_mut().take_all();
+            if !owned.is_empty() {
+                crate::actor::mailbox::release_js_handles(core, actor, &owned);
+            }
         }
     }
     let mut acks: Vec<BatchAck> = Vec::new();
@@ -247,6 +252,10 @@ pub struct Seat {
 pub struct Actors {
     pub by_thread: IndexMap<ThreadId, ActorRef>,
     pub seats: IndexMap<ThreadId, Seat>,
+    /// Pledged victims kept aside for a rollback, by instance. Their session still holds them, so
+    /// a frame or flow call made during the transaction resolves here: the actor comes back
+    /// untouched on a rollback, and its batch is sealed when a commit evicts it.
+    pub aside: IndexMap<u64, ActorRef>,
     /// Evicted actors whose accepted tail still belongs to engine flush and close.
     pub stopping: IndexMap<u64, ActorRef>,
     /// Slots held by actors created in a transaction that has not committed.
@@ -287,6 +296,18 @@ impl Actors {
         self.by_thread.values().chain(self.stopping.values())
     }
 
+    /// The actor one session holds, by its instance: current, kept aside for a rollback, or
+    /// stopped but still finishing its accepted tail.
+    pub fn instance(&self, thread: &str, instance: u64) -> Option<ActorRef> {
+        self.by_thread
+            .get(thread)
+            .filter(|actor| actor.borrow().instance == instance)
+            .or_else(|| self.aside.get(&instance))
+            .or_else(|| self.stopping.get(&instance))
+            .filter(|actor| actor.borrow().id == thread)
+            .cloned()
+    }
+
     /// Actors in insertion order, skipping actors kept aside for a rollback.
     pub fn live(&self) -> impl Iterator<Item = Ref<'_, ActorInstance>> {
         self.by_thread.values().map(|actor| actor.borrow())
@@ -316,21 +337,7 @@ pub fn reentrant(core: &Core, error: EngineError) {
 
 /// Resolves a session's original actor, even after its seat has been reused.
 pub fn session_instance(core: &Core, thread: &str, instance: u64) -> Option<ActorRef> {
-    core.with_state(|state| {
-        state
-            .actors
-            .by_thread
-            .get(thread)
-            .filter(|actor| actor.borrow().instance == instance)
-            .or_else(|| {
-                state
-                    .actors
-                    .stopping
-                    .get(&instance)
-                    .filter(|actor| actor.borrow().id == thread)
-            })
-            .cloned()
-    })
-    .ok()
-    .flatten()
+    core.with_state(|state| state.actors.instance(thread, instance))
+        .ok()
+        .flatten()
 }

@@ -7,6 +7,7 @@ use crate::actor::state::{ActorRef, current};
 use crate::actor::{failure, fold, intake, mailbox};
 use crate::executor::Lane;
 use crate::{Core, EngineError, ThreadId};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Spawns an actor's mailbox task and records its id.
@@ -68,18 +69,27 @@ async fn run_op(core: &Rc<Core>, actor: &ActorRef, op: mailbox::Op) -> bool {
         mailbox::Op::Batch(mut batch) => {
             let frames = batch.frames.len();
             let bytes = batch.bytes;
-            let handles = mailbox::js_handles(&batch.frames);
+            let handles = Rc::clone(&batch.handles);
             let ack = std::mem::take(&mut batch.ack);
             let mut run: mailbox::RunFn =
                 Box::new(move |core, actor| fold::fold_batch(core, actor, &mut batch));
-            run_and_settle(core, actor, &mut run, frames, bytes, Some(ack), handles).await
+            run_and_settle(
+                core,
+                actor,
+                &mut run,
+                frames,
+                bytes,
+                Some(ack),
+                Some(handles),
+            )
+            .await
         }
         mailbox::Op::Run(mut run_op) => {
             let mut call = run_op.run;
             let frames = run_op.frames;
             let bytes = run_op.bytes;
             let ack = run_op.ack.take();
-            run_and_settle(core, actor, &mut call, frames, bytes, ack, Vec::new()).await
+            run_and_settle(core, actor, &mut call, frames, bytes, ack, None).await
         }
         mailbox::Op::Settle(ack) => mailbox::settle_rejected_instance(core, actor, ack),
         mailbox::Op::Overflow => {
@@ -102,7 +112,7 @@ async fn run_and_settle(
     frames: usize,
     bytes: usize,
     ack: Option<BatchAck>,
-    handles: Vec<u32>,
+    handles: Option<Rc<RefCell<mailbox::Handles>>>,
 ) -> bool {
     // The pump never runs inside a transaction; the check confirms it.
     let outcome = if core.store.is_open() {
@@ -117,9 +127,10 @@ async fn run_and_settle(
             false
         }
     };
-    if !ran {
-        // The batch never translated: the shell's frame objects go with its acknowledgement.
-        mailbox::release_js_handles(core, actor, &handles);
+    if !ran && let Some(handles) = handles {
+        // The batch never translated, or the failure came after translation consumed the live
+        // handles: only what the batch still owns goes back to the shell.
+        mailbox::release_owned(core, actor, &handles);
     }
     mailbox::task::settle_instance(core, actor, frames, bytes, ack.unwrap_or_default())
 }

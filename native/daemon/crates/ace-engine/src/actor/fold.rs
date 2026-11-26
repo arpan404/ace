@@ -69,15 +69,7 @@ pub fn fold_batch(core: &Rc<Core>, actor: &ActorRef, op: &mut BatchOp) -> Result
     };
     let thread = &id;
     let deps = instance_deps(core, actor);
-    let stale: Vec<u32> = op
-        .frames
-        .iter()
-        .filter(|pending| pending.generation != generation)
-        .filter_map(|pending| match &pending.frame {
-            FrameRef::Js { handle, .. } => Some(*handle),
-            FrameRef::Native(_) => None,
-        })
-        .collect();
+    let stale = op.handles.borrow_mut().take_stale(&op.frames, generation);
     if !stale.is_empty() {
         deps.acks.release(&stale);
     }
@@ -99,8 +91,11 @@ pub fn fold_batch(core: &Rc<Core>, actor: &ActorRef, op: &mut BatchOp) -> Result
         // Translation runs once per batch: translators keep state, a JS frame handle is consumed
         // once, and enrichment (which can fail with a retryable store error) runs again instead.
         if memory.translated.is_none() {
+            // The live handles leave the batch's ownership here: the shell's translator deletes
+            // them as it reads them, and a non-JS translator has its objects released below.
+            let handed = op.handles.borrow_mut().take_live(&op.frames, generation);
             memory.translated = Some(translate_batch(
-                core, actor, &deps, thread, &live, cursor_sdk,
+                core, actor, &deps, thread, &live, &handed, cursor_sdk,
             )?);
         }
         if let Some(translated) = memory.translated.as_ref()
@@ -191,21 +186,13 @@ fn translate_batch(
     deps: &ActorDeps,
     thread: &ThreadId,
     frames: &[&FrameRef],
+    handles: &[u32],
     cursor_sdk: bool,
 ) -> Result<Translation, EngineError> {
     let now = core.ports.now();
     let mut taken = actor.borrow_mut().translator.take();
-    if !matches!(taken, Some((_, ActorTranslator::Js(_)))) {
-        let handles: Vec<_> = frames
-            .iter()
-            .filter_map(|frame| match frame {
-                FrameRef::Js { handle, .. } => Some(*handle),
-                FrameRef::Native(_) => None,
-            })
-            .collect();
-        if !handles.is_empty() {
-            deps.acks.release(&handles);
-        }
+    if !matches!(taken, Some((_, ActorTranslator::Js(_)))) && !handles.is_empty() {
+        deps.acks.release(handles);
     }
     let translated = match &mut taken {
         Some((_, ActorTranslator::Js(js))) => js.translate_batch(frames, now),

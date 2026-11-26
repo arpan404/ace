@@ -6,10 +6,12 @@
 pub mod queue;
 pub mod task;
 
-pub use queue::{BatchMemory, BatchOp, Next, Op, RunFn, RunOp, Staged, enqueue, take_next};
+pub use queue::{
+    BatchMemory, BatchOp, Handles, Next, Op, RunFn, RunOp, Staged, enqueue, take_next,
+};
 pub use task::{
     actor_quiescent, backlog, fire_tick, flush, frame_is_sdk, js_handles, park, release_js_handles,
-    resolve_flush_waiters, run_when_writable, settle,
+    release_owned, resolve_flush_waiters, run_when_writable, settle,
 };
 
 use crate::Core;

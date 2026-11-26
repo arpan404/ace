@@ -5,10 +5,12 @@
 use super::RunFn;
 use super::queue::admit_instance_run;
 use crate::actor::deps::BatchAck;
+use crate::actor::mailbox::Handles;
 use crate::actor::state::{ActorInstance, ActorRef, FrameRef, current, instance_deps};
 use crate::actor::{flow, fold, intake, timer};
 use crate::futures::channel::oneshot;
 use crate::{Core, EngineError, ThreadId};
+use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -100,6 +102,12 @@ pub fn release_js_handles(core: &Core, actor: &ActorRef, handles: &[u32]) {
     if !handles.is_empty() {
         instance_deps(core, actor).acks.release(handles);
     }
+}
+
+/// Releases only the handles the batch still owns: translation already consumed the live ones.
+pub fn release_owned(core: &Core, actor: &ActorRef, handles: &Rc<RefCell<Handles>>) {
+    let taken = handles.borrow_mut().take_all();
+    release_js_handles(core, actor, &taken);
 }
 
 /// A refused batch settles after the work ahead of it.

@@ -3,7 +3,7 @@
 
 use super::limits;
 use crate::actor::deps::BatchAck;
-use crate::actor::state::{ActorInstance, ActorRef, Pending, current};
+use crate::actor::state::{ActorInstance, ActorRef, FrameRef, Pending, current};
 use crate::actor::{flow, fold, intake};
 use crate::executor::Deferred;
 use crate::{Core, EngineError, ThreadId};
@@ -23,6 +23,56 @@ pub struct BatchMemory {
     pub journal_written: bool,
 }
 
+/// The JavaScript frame handles a batch still owns. Translation consumes the live ones (the
+/// shell's `translate` deletes each object as it reads it), and a release consumes the rest, so a
+/// retry or a fatal failure only ever releases what is still here: no handle is released twice.
+#[derive(Default)]
+pub struct Handles(Vec<u32>);
+
+impl Handles {
+    pub fn from_frames(frames: &[Pending]) -> Handles {
+        Handles(
+            frames
+                .iter()
+                .filter_map(|pending| match &pending.frame {
+                    FrameRef::Js { handle, .. } => Some(*handle),
+                    FrameRef::Native(_) => None,
+                })
+                .collect(),
+        )
+    }
+
+    /// The handles of frames whose generation is stale, no longer owned.
+    pub fn take_stale(&mut self, frames: &[Pending], generation: u64) -> Vec<u32> {
+        self.take_where(frames, |pending| pending.generation != generation)
+    }
+
+    /// The handles of the live frames, handed to translation, no longer owned.
+    pub fn take_live(&mut self, frames: &[Pending], generation: u64) -> Vec<u32> {
+        self.take_where(frames, |pending| pending.generation == generation)
+    }
+
+    /// Everything still owned, for a batch that will never translate.
+    pub fn take_all(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.0)
+    }
+
+    fn take_where(&mut self, frames: &[Pending], wanted: impl Fn(&Pending) -> bool) -> Vec<u32> {
+        let mut taken = Vec::new();
+        self.0.retain(|handle| {
+            let owns = frames.iter().any(|pending| {
+                matches!(&pending.frame, FrameRef::Js { handle: own, .. } if own == handle)
+                    && wanted(pending)
+            });
+            if owns {
+                taken.push(*handle);
+            }
+            !owns
+        });
+        taken
+    }
+}
+
 /// One sealed frame batch.
 pub struct BatchOp {
     pub frames: Vec<Pending>,
@@ -30,6 +80,8 @@ pub struct BatchOp {
     pub ack: BatchAck,
     pub admitted: bool,
     pub memory: BatchMemory,
+    /// Shared with the mailbox task's run: whichever path releases a handle takes it from here.
+    pub handles: Rc<RefCell<Handles>>,
 }
 
 /// One generic operation (`enqueue`), wrapped in `store.atomic` as `accept` wraps it.

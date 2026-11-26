@@ -34,20 +34,7 @@ impl NativeEngine {
         let core = self.engine.core();
         let deps = core.actor_deps.borrow().clone();
         let (sessions, frames, bytes) = core
-            .with_state(|state| {
-                let mut sessions = 0;
-                let mut frames = 0;
-                let mut bytes = 0;
-                for actor in state.actors.live() {
-                    if actor.session_attached {
-                        sessions += 1;
-                    }
-                    let (actor_frames, actor_bytes) = actor.backlog();
-                    frames += actor_frames;
-                    bytes += actor_bytes;
-                }
-                (sessions, frames, bytes)
-            })
+            .with_state(|state| ace_engine::actor::workload_counts(state))
             .map_err(engine_error)?;
         let mut sends = 0;
         for thread in self.live_thread_ids() {

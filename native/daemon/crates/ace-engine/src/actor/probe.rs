@@ -19,7 +19,7 @@ pub fn run_op_opened(core: &Rc<Core>, thread: &ThreadId, op: mailbox::Op) -> boo
     failure::fail_instance(core, &actor, EngineError::NotOutermost);
     let settled = match op {
         mailbox::Op::Batch(batch) => {
-            crate::actor::intake::release_handles(core, &actor, &batch.frames);
+            mailbox::release_owned(core, &actor, &batch.handles);
             mailbox::task::settle_instance(core, &actor, batch.frames.len(), batch.bytes, batch.ack)
         }
         mailbox::Op::Run(run) => mailbox::task::settle_instance(
