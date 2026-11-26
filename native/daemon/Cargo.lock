@@ -230,6 +230,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-models"
+version = "0.1.0"
+dependencies = [
+ "ace-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ace-projection"
 version = "0.1.0"
 dependencies = [

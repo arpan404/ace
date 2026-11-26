@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-models"
+description = "Model discovery for ace-daemon-bin: provider catalogs, effort mapping, search (ADR 0226, slice 4)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-protocol: the catalog row is its generated `CatalogModel` (one shape, generated).
+ace-protocol = { path = "../ace-protocol" }
+# serde: provider payloads and catalog rows (de)serialize by field name.
+serde = { version = "1", features = ["derive"] }
+# serde_json: bounded raw metadata and tests compare the generated row shape.
+serde_json = { version = "1", features = ["preserve_order"] }
