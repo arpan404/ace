@@ -3,7 +3,9 @@
 //! the fake and the recordings show.
 
 use super::{parse, text};
-use crate::host::{elicitation_request, error, permission_options, success, user_dialog_request};
+use crate::host::{
+    elicitation_request, permission_options, success, unsupported, user_dialog_request,
+};
 use crate::message::{HostRequest, Line, classify};
 use ace_json::{Map, Value};
 
@@ -34,10 +36,7 @@ fn an_unknown_control_request_is_answered_with_the_error_envelope() {
     };
     assert_eq!(subtype, "future_kind");
     assert_eq!(text(&value), text(&parse(json)));
-    let answer = error(
-        &request_id,
-        &format!("Unsupported control request: {subtype}"),
-    );
+    let answer = unsupported(&request_id, &subtype);
     assert_eq!(
         text(&answer),
         r#"{"type":"control_response","response":{"subtype":"error","request_id":"request-9","error":"Unsupported control request: future_kind"}}"#

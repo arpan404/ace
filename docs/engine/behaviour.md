@@ -474,6 +474,11 @@ itself. Every implementation keeps this order exactly; the status tests (section
   stderr floods become at most one note a second (`droppedLineNotes`).
 - **Binary output** is elided into blobs within the payload budget (`binary-elision.ts`,
   `maxProviderPayloadBytes` 1 MiB, `provider-kit/src/payload.ts:4`).
+- **A capture that cannot be built ends the session (native Claude).** In TypeScript a `frame()`
+  throw inside `sdk-process.ts`'s line listener (`adapter-claude/src/sdk-process.ts:63`–`:99`)
+  propagates to the readline consumer (`provider-kit/src/line-reader.ts:99`) and stops stdout;
+  the native wire reports `Fatal` with `String(error)`, so the facade closes the session the same
+  way instead of leaving it silent.
 - **Raw is post-redaction; the wire is not.** The provider receives the original bytes; only the
   capture is redacted. Pi sends the original `line` and builds the `send` frame from
   `this.redact(line)` after the write (`adapter-pi/src/rpc.ts:70`–`:78`). Every adapter redacts a
