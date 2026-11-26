@@ -132,6 +132,18 @@ fn a_flush_while_the_transport_is_still_backed_up_rearms() {
 }
 
 #[test]
+fn a_flush_with_nothing_waiting_stays_idle() {
+    let mut delivery = ControlDelivery::new();
+    assert_eq!(delivery.fire(1, 0), Flush::Idle);
+    assert_eq!(delivery.pending(), 0);
+    delivery
+        .send(reply("result"), 0)
+        .expect("replies write immediately");
+    assert_eq!(delivery.pending(), 0);
+    assert_eq!(delivery.fire(1, 0), Flush::Idle);
+}
+
+#[test]
 fn a_stale_timer_does_nothing_and_close_refuses_every_send() {
     let mut delivery = ControlDelivery::new();
     assert_eq!(delivery.fire(7, 0), Flush::Idle);
