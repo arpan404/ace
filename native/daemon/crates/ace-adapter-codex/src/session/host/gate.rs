@@ -33,6 +33,8 @@ struct GateInner {
     backlog: bool,
     /// A close started: every chunk is taken and no channel pauses the drain.
     draining: bool,
+    /// A commit failed: the pumps never resume.
+    failed: bool,
     control: Option<OutputControl>,
 }
 
@@ -85,6 +87,11 @@ impl HostGate {
         self.set_paused(tenant, false);
     }
 
+    /// A frame could not be committed: intake stops for good.
+    pub fn fail(&self) {
+        self.lock().failed = true;
+    }
+
     pub fn paused(&self) -> bool {
         let inner = self.lock();
         held(&inner)
@@ -131,7 +138,7 @@ impl HostGate {
 /// Whether any pause holds the pumps: a channel out of room, or the host's own
 /// backlog. A close never holds them.
 fn held(inner: &GateInner) -> bool {
-    !inner.draining && (!inner.paused.is_empty() || inner.backlog)
+    inner.failed || (!inner.draining && (!inner.paused.is_empty() || inner.backlog))
 }
 
 /// Resumes both pumps when nothing holds them any more.

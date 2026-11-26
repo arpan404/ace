@@ -68,7 +68,7 @@ impl Inner {
                     dir: Direction::Send,
                     value,
                 } => {
-                    refused = self.sent(&value);
+                    refused = self.sent(value);
                 }
                 PeerEffect::Frame {
                     dir: Direction::Recv,
