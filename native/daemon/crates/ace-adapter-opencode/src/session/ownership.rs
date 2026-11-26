@@ -165,6 +165,11 @@ impl SessionOwnership {
         &self.shells
     }
 
+    /// `this.shells`: the tenant's shell bookkeeping (`session.ts:406`-`:410`).
+    pub fn shells_mut(&mut self) -> &mut IndexMap<String, String> {
+        &mut self.shells
+    }
+
     /// `atLocation(directory)`.
     pub fn at_location(&self, directory: &str) -> &IndexSet<String> {
         self.locations.get(directory).unwrap_or(&NO_IDS)

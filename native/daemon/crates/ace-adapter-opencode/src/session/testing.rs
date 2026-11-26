@@ -8,7 +8,7 @@ use ace_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::server::Tenant;
+use super::server::{Tenant, TenantError};
 
 /// One call the core made on a tenant, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,31 +166,35 @@ impl Tenant for Fake {
         (self.accept)(data, watermark)
     }
 
-    fn receive(&self, data: &Value) {
+    fn receive(&self, data: &Value, _watermark: u64) -> Result<(), TenantError> {
         self.flush_notes();
         let json = ace_json::to_string(data);
         self.record(format!("receive:{json}"));
         self.lock().push(Call::Receive(json));
+        Ok(())
     }
 
-    fn buffered(&self, data: &Value, watermark: u64) {
+    fn buffered(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
         self.flush_notes();
         let json = ace_json::to_string(data);
         self.record(format!("buffered:{json}"));
         self.lock().push(Call::Buffered(json, watermark));
+        Ok(())
     }
 
     fn disconnected(&self, started: u64) {
         self.lock().push(Call::Disconnected(started));
     }
 
-    fn reconcile(&self, data: &Value, watermark: u64) {
+    fn reconcile(&self, data: &Value, watermark: u64) -> Result<(), TenantError> {
         self.lock()
             .push(Call::Reconcile(ace_json::to_string(data), watermark));
+        Ok(())
     }
 
-    fn finalize_snapshots(&self) {
+    fn finalize_snapshots(&self) -> Result<(), TenantError> {
         self.lock().push(Call::Finalize);
+        Ok(())
     }
 
     fn recovered(&self) {

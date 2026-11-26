@@ -14,7 +14,8 @@ use ace_json::Value;
 use indexmap::IndexMap;
 use std::collections::HashSet;
 
-use crate::translate::boundaries::NativeEvent;
+use ace_json::Map;
+
 use crate::translate::data::{arr_in, fields, get, n_in, num_str, s_in, s_in_fb, utf16_len};
 
 use super::coverage::covered_prefix;
@@ -113,16 +114,17 @@ impl RecoveryEvidence {
         self.shells.clear();
     }
 
-    /// `observe`: one event that was buffered while recovering.
+    /// `observe`: one event that was buffered while recovering. `typ` and
+    /// `payload` are the envelope's fields, which the server already checked.
     pub fn observe(
         &mut self,
-        event: &NativeEvent<'_>,
+        typ: &str,
+        payload: &Map,
         watermark: u64,
     ) -> Result<(), EvidenceError> {
-        let payload = event.data;
         let session = s_in(payload, "sessionID");
-        if event.typ == "session.text.delta" || event.typ == "session.reasoning.delta" {
-            let kind = if event.typ.contains("reasoning") {
+        if typ == "session.text.delta" || typ == "session.reasoning.delta" {
+            let kind = if typ.contains("reasoning") {
                 "reasoning"
             } else {
                 "text"
@@ -147,17 +149,17 @@ impl RecoveryEvidence {
                 .or_default()
                 .chunks
                 .push(Chunk { text, watermark });
-        } else if event.typ.starts_with("permission.") || event.typ.starts_with("form.") {
+        } else if typ.starts_with("permission.") || typ.starts_with("form.") {
             // `string(object(p.form).sessionID, session)`.
             let form = fields(get(payload, "form"));
             let id = s_in_fb(form, "sessionID", session).to_owned();
             self.interactions.insert(id, watermark);
-        } else if event.typ.starts_with("session.inbox.") {
+        } else if typ.starts_with("session.inbox.") {
             self.inbox.insert(session.to_owned(), watermark);
             self.work.insert(session.to_owned(), watermark);
-        } else if event.typ.starts_with("session.execution.")
-            || event.typ.starts_with("session.tool.")
-            || event.typ == "session.synthetic"
+        } else if typ.starts_with("session.execution.")
+            || typ.starts_with("session.tool.")
+            || typ == "session.synthetic"
         {
             self.work.insert(session.to_owned(), watermark);
         }
@@ -209,43 +211,47 @@ impl RecoveryEvidence {
 
     /// `covered`: whether a replayed snapshot already says this event.
     /// `session` is the event's `eventSession`, which the caller already read.
-    pub fn covered(&self, event: &NativeEvent<'_>, session: &str, watermark: u64) -> bool {
-        let payload = event.data;
-        if event.typ == "shell.created" {
+    pub fn covered(
+        &self,
+        typ: &str,
+        payload: &Map,
+        session: &str,
+        created: Option<f64>,
+        watermark: u64,
+    ) -> bool {
+        if typ == "shell.created" {
             let id = s_in(fields(get(payload, "info")), "id");
             return self
                 .shells
                 .get(id)
                 .is_some_and(|state| state.owner == session && watermark <= state.started);
         }
-        if event.typ == "permission.asked"
-            || event.typ == "form.created"
-            || event.typ == "session.execution.started"
+        if typ == "permission.asked" || typ == "form.created" || typ == "session.execution.started"
         {
             return self.snapshots.iter().any(|snapshot| {
                 if snapshot.session != session || watermark > snapshot.started {
                     return false;
                 }
                 let data = fields(&snapshot.data);
-                if event.typ == "session.execution.started" {
+                if typ == "session.execution.started" {
                     let idle_at = data.get("idleAt");
                     let running = data.get("running");
                     return snapshot.channel == "snapshot.active"
                         && running == Some(&Value::Bool(false))
                         && idle_at.and_then(Value::as_f64).is_some()
-                        && (event.created.is_none()
+                        && (created.is_none()
                             || idle_at.and_then(Value::as_f64).unwrap_or(0.0)
-                                >= event.created.unwrap_or(0.0));
+                                >= created.unwrap_or(0.0));
                 }
                 if snapshot.channel != "snapshot.interactions" {
                     return false;
                 }
-                let interaction = if event.typ == "form.created" {
+                let interaction = if typ == "form.created" {
                     fields(get(payload, "form"))
                 } else {
                     payload
                 };
-                let prefix = if event.typ == "form.created" {
+                let prefix = if typ == "form.created" {
                     "form"
                 } else {
                     "permission"
@@ -255,10 +261,10 @@ impl RecoveryEvidence {
                     .is_ok_and(|keys| !keys.contains(&key))
             });
         }
-        if event.typ != "session.text.delta" && event.typ != "session.reasoning.delta" {
+        if typ != "session.text.delta" && typ != "session.reasoning.delta" {
             return false;
         }
-        let kind = if event.typ.contains("reasoning") {
+        let kind = if typ.contains("reasoning") {
             "reasoning"
         } else {
             "text"

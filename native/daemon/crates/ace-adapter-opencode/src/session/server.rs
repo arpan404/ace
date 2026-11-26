@@ -46,16 +46,17 @@ pub trait Tenant: Send + Sync {
     /// `routes.select`'s filter: whether this session owns the event at this
     /// watermark.
     fn accepts(&self, data: &Value, watermark: u64) -> bool;
-    /// One routed event while not recovering.
-    fn receive(&self, data: &Value);
+    /// One routed event while not recovering. `Err` is the TypeScript's thrown
+    /// body, which fails the stream.
+    fn receive(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
     /// One routed event while recovering, replayed later at `watermark`.
-    fn buffered(&self, data: &Value, watermark: u64);
+    fn buffered(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
     /// Recovery began at `started`.
     fn disconnected(&self, started: u64);
     /// One buffered event replayed, in the buffer's order.
-    fn reconcile(&self, data: &Value, watermark: u64);
+    fn reconcile(&self, data: &Value, watermark: u64) -> Result<(), TenantError>;
     /// The pass's snapshots are complete (`finalizeSnapshots`).
-    fn finalize_snapshots(&self);
+    fn finalize_snapshots(&self) -> Result<(), TenantError>;
     /// The pass settled (`recovered`).
     fn recovered(&self);
 }
@@ -64,8 +65,15 @@ pub trait Tenant: Send + Sync {
 /// is subscribed.
 pub type TenantId = u64;
 
+/// Why a tenant refused an event, as the TypeScript's thrown `Error` or
+/// `ZodError` text. The server fails the stream with it, so the facade
+/// reconnects exactly as `consumeEvents` does when the body throws.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct TenantError(pub String);
+
 /// What one body chunk changed (`server.ts:413`-`:454`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkOutcome {
     /// The stream has seen `server.connected`: a later failure reconnects
     /// instead of failing the server (`server.ts:456`-`:468`).
@@ -224,11 +232,14 @@ impl ServerCore {
         }
         for entry in std::mem::take(&mut self.buffered) {
             for tenant in self.tenants.values() {
-                tenant.reconcile(&entry.data, entry.watermark);
+                if tenant.reconcile(&entry.data, entry.watermark).is_err() {
+                    // The TypeScript's per-consumer failure ends that session;
+                    // this seam has no per-tenant exit, so the pass proceeds.
+                }
             }
         }
         for tenant in self.tenants.values() {
-            tenant.finalize_snapshots();
+            let _ = tenant.finalize_snapshots();
         }
         self.buffered_bytes = 0;
         self.recovering = false;
@@ -356,12 +367,14 @@ impl ServerCore {
                 return Ok(());
             }
             for tenant in &targets {
-                tenant.buffered(&self.buffered[at].data, watermark);
+                tenant
+                    .buffered(&self.buffered[at].data, watermark)
+                    .map_err(fail)?;
                 publish(tenant.as_ref(), BUFFERED, text.clone());
             }
         } else {
             for tenant in &targets {
-                tenant.receive(value);
+                tenant.receive(value, watermark).map_err(fail)?;
             }
         }
         Ok(())
@@ -373,6 +386,11 @@ impl ServerCore {
             publish(tenant.as_ref(), channel, text.clone());
         }
     }
+}
+
+/// A tenant's refusal as a stream failure (the TypeScript reconnects).
+fn fail(error: TenantError) -> StreamError {
+    StreamError::Tenant(error.0)
 }
 
 /// Why a tenant could not join: "OpenCode session limit reached".

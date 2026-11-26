@@ -10,7 +10,7 @@
 use crate::translate::boundaries::BoundaryError;
 
 /// One stream failure. Copy so a `ChunkOutcome` can carry it out of the core.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StreamError {
     /// `boundedSse`'s per-event bound: "OpenCode event exceeds byte limit"
     /// (`observation.ts:63`-`:70`).
@@ -26,24 +26,27 @@ pub enum StreamError {
     /// failed schema position, as `boundaries.ts`'s messages name it.
     #[error("OpenCode event failed its native envelope check: {0}")]
     Envelope(&'static str),
+    /// A tenant refused the event: the TypeScript's thrown Error or ZodError.
+    #[error("{0}")]
+    Tenant(String),
 }
 
 impl StreamError {
     /// The `ClientError` reason the SDK raises, or `None` where the TypeScript
     /// throws a plain `Error` (the event bound) or a `ZodError` (the envelope
     /// check, `boundaries.ts`).
-    pub fn code(self) -> Option<&'static str> {
+    pub fn code(&self) -> Option<&'static str> {
         match self {
             StreamError::SseEventTooLarge => Some("SseEventTooLarge"),
             StreamError::MalformedResponse => Some("MalformedResponse"),
-            StreamError::EventBytes | StreamError::Envelope(_) => None,
+            StreamError::EventBytes | StreamError::Envelope(_) | StreamError::Tenant(_) => None,
         }
     }
 
     /// The TypeScript's message. `ClientError`'s is its reason alone unless it
     /// has a cause; `MalformedResponse`'s cause is V8's `JSON.parse` text,
     /// which this does not reproduce, and a `ZodError` has no single line.
-    pub fn message(self) -> String {
+    pub fn message(&self) -> String {
         match self {
             StreamError::EventBytes => String::from("OpenCode event exceeds byte limit"),
             StreamError::SseEventTooLarge => String::from("SseEventTooLarge"),
@@ -53,6 +56,7 @@ impl StreamError {
                 // this build can name, and the daemon's log carries the text.
                 format!("OpenCode event failed its native envelope check: {field}")
             }
+            StreamError::Tenant(message) => message.clone(),
         }
     }
 }
