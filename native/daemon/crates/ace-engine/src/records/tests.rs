@@ -18,10 +18,7 @@ fn database() -> Arc<Connection> {
     let path = std::env::temp_dir().join(format!(
         "ace-engine-records-{}-{}.sqlite",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or(0)
+        super::tests_support::next_home()
     ));
     let conn = Connection::open(
         path.to_str().unwrap_or_default(),

@@ -17,6 +17,8 @@ pub mod budget;
 mod persist;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_support;
 
 pub use append::{Append, PathStep, restore_append};
 pub use budget::{BudgetSection, Cached, MAX_BYTES, MAX_ENTRIES, RecordBudget, section};

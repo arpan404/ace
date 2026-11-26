@@ -315,12 +315,11 @@ mod tests {
     /// A temp store with only the tables the scan reads: the scan's own SQL is what is under
     /// test, and the opener's full schema is proven by the seam tests.
     fn database() -> Arc<Connection> {
-        // A counter, not the clock: two parallel tests can read the same nanosecond.
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        // One counter for both modules: the scan tests and these share the file-name prefix.
         let path = std::env::temp_dir().join(format!(
             "ace-engine-scan-{}-{}.sqlite",
             std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            crate::repository::testsupport::next_home()
         ));
         let conn = Connection::open(
             path.to_str().unwrap_or_default(),
@@ -343,6 +342,13 @@ mod tests {
     }
 
     /// One thread row, its engine state, and the status the scan reads.
+    /// A bulk seed in one transaction, so the file stays fast.
+    fn bulk(conn: &Arc<Connection>, run: impl FnOnce(())) {
+        conn.exec("BEGIN").unwrap();
+        run(());
+        conn.exec("COMMIT").unwrap();
+    }
+
     fn thread(conn: &Arc<Connection>, id: &str, status: &str) {
         stmt_cache::run(
             conn,
@@ -452,9 +458,11 @@ mod tests {
     fn a_thread_a_recovery_makes_eligible_behind_an_advanced_cursor_is_recovered_in_the_next_page()
     {
         let conn = database();
-        for index in 0..64 {
-            thread(&conn, &format!("t{index:02}"), "working");
-        }
+        bulk(&conn, |()| {
+            for index in 0..64 {
+                thread(&conn, &format!("t{index:02}"), "working");
+            }
+        });
         // Idle, and scanned past by every source while the first page is built.
         thread(&conn, "u", "done");
         let mut scan = Scan::new(String::new());
@@ -475,10 +483,12 @@ mod tests {
     #[test]
     fn pages_close_at_64_candidates_as_the_typescripts_do() {
         let conn = database();
-        for index in 0..2000 {
-            let status = if index < 130 { "working" } else { "done" };
-            thread(&conn, &format!("t{index:04}"), status);
-        }
+        bulk(&conn, |()| {
+            for index in 0..2000 {
+                let status = if index < 130 { "working" } else { "done" };
+                thread(&conn, &format!("t{index:04}"), status);
+            }
+        });
         let mut scan = Scan::new(String::new());
         let mut sizes = Vec::new();
         loop {
@@ -534,14 +544,39 @@ mod scan_tests {
     use super::*;
     use ace_store::OpenOptions;
 
+    /// A bulk seed in one transaction, so the file stays fast.
+    fn bulk(conn: &Arc<Connection>, run: impl FnOnce(())) {
+        conn.exec("BEGIN").unwrap();
+        run(());
+        conn.exec("COMMIT").unwrap();
+    }
+
+    fn thread(conn: &Arc<Connection>, id: &str, status: &str) {
+        stmt_cache::run(
+            conn,
+            "INSERT INTO threads VALUES (?, ?)",
+            vec![
+                Value::Text(id.to_owned()),
+                Value::Text(format!("{{\"state\":\"{status}\"}}")),
+            ],
+        )
+        .unwrap();
+        stmt_cache::run(
+            conn,
+            "INSERT INTO thread_state VALUES (?, ?, 0)",
+            vec![
+                Value::Text(id.to_owned()),
+                Value::Text(r#"{"engineSnapshot":9}"#.to_owned()),
+            ],
+        )
+        .unwrap();
+    }
+
     fn home() -> Arc<Connection> {
         let path = std::env::temp_dir().join(format!(
             "ace-engine-scan-{}-{}.sqlite",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_nanos())
-                .unwrap_or(0)
+            crate::repository::testsupport::next_home()
         ));
         let conn = Connection::open(
             path.to_str().unwrap_or_default(),
@@ -567,48 +602,16 @@ mod scan_tests {
         // it finds no candidate and the page does not close. Scanning the whole table in one
         // step would find all 64 and close the page immediately.
         let conn = home();
-        for index in 0..256 {
-            let id = format!("done-{index:04}");
-            stmt_cache::run(
-                &conn,
-                "INSERT INTO threads VALUES (?, ?)",
-                vec![
-                    Value::Text(id.clone()),
-                    Value::Text(r#"{"state":"done"}"#.to_owned()),
-                ],
-            )
-            .unwrap();
-            stmt_cache::run(
-                &conn,
-                "INSERT INTO thread_state VALUES (?, ?, 0)",
-                vec![
-                    Value::Text(id),
-                    Value::Text(r#"{"engineSnapshot":9}"#.to_owned()),
-                ],
-            )
-            .unwrap();
-        }
-        for index in 0..64 {
-            let id = format!("live-{index:04}");
-            stmt_cache::run(
-                &conn,
-                "INSERT INTO threads VALUES (?, ?)",
-                vec![
-                    Value::Text(id.clone()),
-                    Value::Text(r#"{"state":"working"}"#.to_owned()),
-                ],
-            )
-            .unwrap();
-            stmt_cache::run(
-                &conn,
-                "INSERT INTO thread_state VALUES (?, ?, 0)",
-                vec![
-                    Value::Text(id),
-                    Value::Text(r#"{"engineSnapshot":9}"#.to_owned()),
-                ],
-            )
-            .unwrap();
-        }
+        bulk(&conn, |()| {
+            for index in 0..256 {
+                thread(&conn, &format!("done-{index:04}"), "done");
+            }
+        });
+        bulk(&conn, |()| {
+            for index in 0..64 {
+                thread(&conn, &format!("live-{index:04}"), "working");
+            }
+        });
         let mut scan = Scan::new(String::new());
         assert!(
             scan.step(&conn).unwrap().is_none(),

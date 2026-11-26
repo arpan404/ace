@@ -23,19 +23,32 @@ import { engineSeam, type EngineSeam } from "./testing.ts";
 
 const native = engineBackend() === "native";
 
-/** A header a fresh thread would have: the core's own state, version 9. */
+/** A header a started thread would have: the root agent and the core's own state, version 9. */
 function freshHeader(threadId: string): string {
+  const agent = {
+    agent: {
+      id: "root",
+      threadId,
+      origin: "root",
+      native: { provider: "claude", nativeId: "native-root" },
+      fidelity: "full",
+      cwd: "/tmp",
+      status: { state: "starting" },
+      createdAt: 0,
+    },
+    activity: "starting_turn",
+    lastSignalAt: 0,
+  };
   const state = createThreadState({
     threadId: threadId as never,
-    rootAgent: {
-      agent: "root" as never,
-      fidelity: "full" as never,
-      native: { provider: "claude", nativeId: "native-root" } as never,
-      cwd: "/tmp",
-    },
     config: { provider: "claude", silenceMs: 30_000 },
   });
-  return JSON.stringify({ ...state, engineSnapshot: 9 });
+  return JSON.stringify({
+    ...state,
+    rootKey: "root",
+    agents: { root: agent },
+    engineSnapshot: 9,
+  });
 }
 
 /** A thread with a stored engine state, so `apply` has one to fold into. */
@@ -81,7 +94,6 @@ function turnFacts(text: string, agent = "root"): unknown[] {
       item: "item-1",
       draft: {
         id: "item-1",
-        threadId: "t",
         agentId: agent,
         createdAt: 1,
         complete: true,
@@ -287,6 +299,7 @@ describe.runIf(native)("engine persistence", () => {
       seam.probe.apply(threadId, turnFacts("stored"), 1_000);
       const before = engineRows(seam, threadId);
       expect(before.records.length).toBeGreaterThan(0);
+      expect(seam.probe.holds(threadId)).toBe(true);
       expect(() => seam.probe.applyRolledBack(threadId, turnFacts("rolled back"), 2_000)).toThrow();
       const after = engineRows(seam, threadId);
       expect(after.records).toEqual(before.records);
