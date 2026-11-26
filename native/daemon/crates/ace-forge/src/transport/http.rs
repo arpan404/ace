@@ -937,73 +937,94 @@ fn only_missing_fields(data: Option<&Value>, errors: &[Value]) -> bool {
         })
 }
 
-/// `unprocessableKind`: the host's reason, as the fixed categories name it.
+/// `unprocessableKind`: GitHub's 422 body names the refused field or explains the refusal,
+/// mapped to the fixed categories in the TypeScript's order (`http-errors.ts:19-46`).
 fn unprocessable_kind(text: &str) -> Kind {
-    static NO_COMMITS: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(r"(?i)no commits between|must have at least one commit").expect("compiles")
-    });
+    static NO_COMMITS: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)no commits between").expect("compiles"));
     static PR_EXISTS: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(r"(?i)already exists|A pull request already").expect("compiles")
+        Regex::new(r"(?i)pull request already exists").expect("compiles")
     });
-    static CONFLICT: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(r"(?i)not mergeable|merge conflict|stale").expect("compiles")
-    });
-    let message = body_message(text);
-    // A validation failure names the field it refused (`http-errors.ts:19-46`).
-    let mut head = false;
-    let mut base = false;
-    let mut already_exists = false;
-    if let Ok(body) = ace_json::parse(text)
-        && let Some(errors) = body
-            .as_object()
-            .and_then(|fields| fields.get("errors"))
-            .and_then(|errors| errors.as_array())
-    {
-        for error in errors.iter().filter_map(|error| error.as_object()) {
-            let field = error.get("field").and_then(|value| value.as_str());
-            let invalid = error.get("code").and_then(|value| value.as_str()) == Some("invalid");
-            match field {
-                Some("head") if invalid => head = true,
-                Some("base") if invalid => base = true,
-                _ => {}
-            }
-            if error.get("code").and_then(|value| value.as_str()) == Some("already_exists") {
-                already_exists = true;
-            }
+    static ALREADY: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)already exists").expect("compiles"));
+    let Ok(body) = ace_json::parse(text) else {
+        return Kind::Unprocessable;
+    };
+    let Some(fields) = body.as_object() else {
+        return Kind::Unprocessable;
+    };
+    let text_field = |value: Option<&Value>, max: usize| -> Option<Option<String>> {
+        match value {
+            None => Some(None),
+            Some(Value::Null) => Some(None),
+            Some(field) => field
+                .as_str()
+                .filter(|text| text.chars().count() <= max)
+                .map(|text| Some(text.to_owned())),
         }
+    };
+    let Some(message) = text_field(fields.get("message"), 4_096) else {
+        return Kind::Unprocessable;
+    };
+    let entries: Vec<(Option<String>, Option<String>, Option<String>)> = match fields.get("errors")
+    {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(errors)) if errors.len() <= 100 => {
+            let mut entries = Vec::with_capacity(errors.len());
+            for error in errors {
+                match error {
+                    // A bare string is the refusal's message.
+                    Value::String(message) if message.chars().count() <= 4_096 => {
+                        entries.push((None, None, Some(message.as_str().to_owned())));
+                    }
+                    Value::Object(detail) => {
+                        let Some(field) = text_field(detail.get("field"), 256) else {
+                            return Kind::Unprocessable;
+                        };
+                        let Some(code) = text_field(detail.get("code"), 256) else {
+                            return Kind::Unprocessable;
+                        };
+                        let Some(detail_message) = text_field(detail.get("message"), 4_096) else {
+                            return Kind::Unprocessable;
+                        };
+                        entries.push((field, code, detail_message));
+                    }
+                    _ => return Kind::Unprocessable,
+                }
+            }
+            entries
+        }
+        _ => return Kind::Unprocessable,
+    };
+    let mut messages: Vec<String> = message.into_iter().collect();
+    messages.extend(entries.iter().filter_map(|(_, _, message)| message.clone()));
+    if messages.iter().any(|message| NO_COMMITS.is_match(message)) {
+        return Kind::NoCommits;
     }
-    // A validation detail's message is the reason before the envelope's own message.
-    let detail = ace_json::parse(text)
-        .ok()
-        .and_then(|body| {
-            body.as_object()
-                .and_then(|fields| fields.get("errors"))
-                .and_then(|errors| errors.as_array())
-                .and_then(|errors| {
-                    errors.iter().find_map(|error| {
-                        error
-                            .as_object()
-                            .and_then(|error| error.get("message"))
-                            .and_then(|message| message.as_str().map(str::to_owned))
-                    })
-                })
+    if messages.iter().any(|message| PR_EXISTS.is_match(message)) {
+        return Kind::PrExists;
+    }
+    let invalid = |field: &str| {
+        entries.iter().any(|(entry_field, code, _)| {
+            entry_field.as_deref() == Some(field) && code.as_deref() == Some("invalid")
         })
-        .unwrap_or_default();
-    if head {
-        Kind::HeadMissing
-    } else if base {
-        Kind::BaseMissing
-    } else if already_exists {
-        Kind::Conflict
-    } else if NO_COMMITS.is_match(&detail) || NO_COMMITS.is_match(&message) {
-        Kind::NoCommits
-    } else if PR_EXISTS.is_match(&detail) || PR_EXISTS.is_match(&message) {
-        Kind::PrExists
-    } else if CONFLICT.is_match(&detail) || CONFLICT.is_match(&message) {
-        Kind::Conflict
-    } else {
-        Kind::Unprocessable
+    };
+    if invalid("head") {
+        return Kind::HeadMissing;
     }
+    if invalid("base") {
+        return Kind::BaseMissing;
+    }
+    // Name collisions stay a conflict with the existing resource; nothing else does.
+    if entries.iter().any(|(_, code, message)| {
+        code.as_deref() == Some("already_exists")
+            || message
+                .as_deref()
+                .is_some_and(|text| ALREADY.is_match(text))
+    }) {
+        return Kind::Conflict;
+    }
+    Kind::Unprocessable
 }
 
 /// `repos/<owner>/<name>/pulls/<n>/merge`.
@@ -1083,15 +1104,6 @@ fn rate_limited_body(text: &str) -> bool {
         .is_some_and(|message| LIMITED.is_match(&message))
 }
 
-/// A reply's `message`, or the text itself when it is not a JSON body.
-fn body_message(text: &str) -> String {
-    ace_json::parse(text)
-        .ok()
-        .and_then(|body| {
-            body.as_object()
-                .and_then(|fields| fields.get("message"))
-                .and_then(|message| message.as_str().map(str::to_owned))
-        })
         .unwrap_or_else(|| text.to_owned())
 }
 
@@ -1746,6 +1758,18 @@ mod tests {
             ),
             (
                 r#"{"message":"Validation Failed","errors":[{"field":"head","code":"missing"}]}"#,
+                Kind::Unprocessable,
+            ),
+            (
+                r#"{"message":"Validation Failed","errors":["No commits between main and work"]}"#,
+                Kind::NoCommits,
+            ),
+            (
+                r#"{"message":"Validation Failed","errors":[{"field":"head","code":"invalid"},{"message":"A pull request already exists for octo:work"}]}"#,
+                Kind::PrExists,
+            ),
+            (
+                r#"{"message":"Pull Request is not mergeable","errors":[{"code":"other"}]}"#,
                 Kind::Unprocessable,
             ),
         ] {
