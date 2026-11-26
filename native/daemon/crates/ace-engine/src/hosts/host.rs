@@ -239,24 +239,58 @@ pub fn post_host_notice(
 #[cfg(test)]
 mod tests {
     //! `guest-admission.process.test.ts` seeds through `engine.guests.create`; these pin the host
-    //! thread's creation turn, its access and provider updates, and the mirrored approval's row.
+    //! thread's creation turn, its access and provider updates, the mirrored approval's row and a
+    //! notice, on a real engine rather than the probe.
 
     use super::*;
+    use crate::actor::ActorDeps;
+    use crate::executor::{Notified, Notifier};
+    use crate::frames::live::UnportedLive;
     use crate::repository::testsupport::{Shell, header, home};
+    use crate::{Engine, EngineError, Inputs};
+    use std::rc::Rc;
 
-    fn setup(name: &str) -> (std::sync::Arc<ace_store::Connection>, EngineStore, State) {
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    fn engine(name: &str) -> Engine {
         let conn = home(name, &header(name));
-        let store = Shell::store(&conn);
-        let mut state = State::default();
-        // These cases fold facts on a bare state, where the probe's pass-through answers the
-        // collaborators an engine would.
-        state.repo.probe_passthrough = true;
-        (conn, store, state)
+        let (_, shell) = Shell::store_with_controls(&conn);
+        Engine::new(
+            shell.clone(),
+            shell,
+            Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            &conn,
+            Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+        )
+        .expect("the test engine constructs")
+    }
+
+    fn with<R>(
+        engine: &Engine,
+        run: impl FnOnce(&mut State, &EngineStore) -> Result<R, EngineError>,
+    ) -> R {
+        let core = engine.core().clone();
+        core.with_state(|state| {
+            // E5.5, E5.6 and E5.9's collaborators are not in this branch yet; the probe answers
+            // those. Attribution reads the engine and the embedded catalog, never the probe.
+            state.repo.probe_passthrough = true;
+            run(state, &core.store)
+        })
+        .expect("the engine's state")
+        .expect("the host call")
     }
 
     #[test]
     fn a_host_thread_is_created_once_and_leaves_one_ended_turn() {
-        let (_conn, store, mut state) = setup("host");
+        let engine = engine("host");
         let input = HostThreadInput {
             id: "host".to_owned(),
             workspace_id: "workspace".to_owned(),
@@ -268,44 +302,40 @@ mod tests {
             host_key: None,
         };
         let mut created = 0u32;
-        let root = HostThreads
-            .create(&mut state, &store, &input, |state, store| {
+        with(&engine, |state, store| {
+            let root = HostThreads.create(state, store, &input, |state, store| {
                 created += 1;
                 state.permission_ensure(store, "host")?;
                 Ok(())
-            })
-            .expect("create");
+            })?;
+            assert!(
+                root.is_some(),
+                "the root agent is announced by the empty turn"
+            );
+            let snapshot = state.repo.require_state(store, "host")?;
+            let borrowed = snapshot.borrow();
+            assert_eq!(borrowed.state.agents.len(), 1);
+            let root = borrowed.state.root_key.clone().expect("root key");
+            assert!(borrowed.state.agents.contains_key(&root));
+            let run = borrowed.state.runs.values().next().expect("a run");
+            assert_ne!(run.state, "active");
+            Ok(())
+        });
         assert_eq!(created, 1);
-        assert!(
-            root.is_some(),
-            "the root agent is announced by the empty turn"
-        );
-        let snapshot = state.repo.require_state(&store, "host").expect("state");
-        let borrowed = snapshot.borrow();
-        assert_eq!(borrowed.state.agents.len(), 1);
-        let root = borrowed.state.root_key.clone().expect("root key");
-        assert!(borrowed.state.agents.contains_key(&root));
-        // The empty turn ended: its run is settled, never still active.
-        let run = borrowed.state.runs.values().next().expect("a run");
-        assert_ne!(run.state, "active");
     }
 
     #[test]
     fn a_host_threads_ceiling_and_provider_follow_its_owner() {
-        let (_conn, store, mut state) = setup("host2");
-        state
-            .permission_ensure(&store, "host2")
-            .expect("permission row");
-        HostThreads
-            .set_access(&mut state, &store, "host2", "ask")
-            .expect("access");
-        let permission = state.permission_state(&store, "host2").expect("state");
-        assert_eq!(permission.effective.as_deref(), Some("ask"));
-        assert!(!permission.pending);
-        // The provider is recorded only when it changes, as one thread.updated event.
-        HostThreads
-            .set_provider(&mut state, &store, "host2", "codex")
-            .expect("provider");
+        let engine = engine("host2");
+        with(&engine, |state, store| {
+            state.permission_ensure(store, "host2")?;
+            HostThreads.set_access(state, store, "host2", "ask")?;
+            let permission = state.permission_state(store, "host2")?;
+            assert_eq!(permission.effective.as_deref(), Some("ask"));
+            assert!(!permission.pending);
+            HostThreads.set_provider(state, store, "host2", "codex")?;
+            Ok(())
+        });
         // The event is the change: the recorded provider and an empty execution selection.
         assert_eq!(
             provider_event("codex"),
@@ -315,53 +345,92 @@ mod tests {
 
     #[test]
     fn a_host_approval_raised_during_an_ace_call_reads_on_that_calls_row() {
-        let (_conn, store, mut state) = setup("host3");
-        state.apply_facts(
-            &store,
-            "host3",
-            &[
-                ace_json::parse(
+        let engine = engine("host3");
+        with(&engine, |state, store| {
+            // A host thread has its session row from `createEngineThread`; the ledger names its
+            // binding.
+            store.conn().exec("INSERT INTO engine_sessions (thread_id,cwd,native_session_id) VALUES ('host3','/tmp','native-1')")?;
+            state.apply_facts(
+                store,
+                "host3",
+                &[
+                    ace_json::parse(
+                        r#"{"type":"agent.seen","agent":"root","origin":"root","fidelity":"full","native":{"provider":"claude","nativeId":"root"},"cwd":"/tmp"}"#,
+                    )
+                    .unwrap(),
+                    ace_json::parse(
+                        r#"{"type":"item.upsert","agent":"root","item":"call","draft":{"type":"tool_call","complete":false,"call":{"kind":"mcp","title":"browser_open","status":"running","detail":{"kind":"mcp","server":"ace","tool":"browser_open","arguments":{}}}}}"#,
+                    )
+                    .unwrap(),
+                ],
+                1.0,
+            )?;
+            let request = ace_json::parse(
+                r#"{"kind":"approval","title":"studio: run a command","target":{"tool":"browser_open","access":"execute"},"options":[{"id":"allow_once","label":"Allow once","kind":"allow_once"}]}"#,
+            )
+            .unwrap();
+            let id = open_host_interaction(
+                state,
+                store,
+                "host3",
+                "machine-request:studio:1",
+                request,
+                Vec::new(),
+                None,
+            )?;
+            let snapshot = state.repo.require_state(store, "host3")?;
+            let call_id = snapshot
+                .borrow_mut()
+                .items
+                .read("call")?
+                .expect("the live ace call")
+                .id()
+                .to_owned();
+            let borrowed = snapshot.borrow();
+            let interaction = borrowed
+                .state
+                .interactions
+                .values()
+                .find(|interaction| interaction.id == id)
+                .expect("interaction");
+            assert_eq!(interaction.tool_call_id.as_deref(), Some(call_id.as_str()));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn a_host_notice_lands_on_the_root_agent() {
+        let engine = engine("host4");
+        with(&engine, |state, store| {
+            state.apply_facts(
+                store,
+                "host4",
+                &[ace_json::parse(
                     r#"{"type":"agent.seen","agent":"root","origin":"root","fidelity":"full","native":{"provider":"claude","nativeId":"root"},"cwd":"/tmp"}"#,
                 )
-                .unwrap(),
-                ace_json::parse(
-                    r#"{"type":"item.upsert","agent":"root","item":"call","draft":{"type":"tool_call","complete":false,"call":{"kind":"mcp","title":"browser_open","status":"running","detail":{"kind":"mcp","server":"ace","tool":"browser_open","arguments":{}}}}}"#,
-                )
-                .unwrap(),
-            ],
-            1.0,
-        )
-        .expect("call");
-        let request = ace_json::parse(
-            r#"{"kind":"approval","title":"studio: run a command","target":{"tool":"browser_open","access":"execute"},"options":[{"id":"allow_once","label":"Allow once","kind":"allow_once"}]}"#,
-        )
-        .unwrap();
-        let id = open_host_interaction(
-            &mut state,
-            &store,
-            "host3",
-            "machine-request:studio:1",
-            request,
-            Vec::new(),
-            None,
-        )
-        .expect("opened");
-        let snapshot = state.repo.require_state(&store, "host3").expect("state");
-        let call_id = snapshot
-            .borrow_mut()
-            .items
-            .read("call")
-            .expect("the item")
-            .expect("the live ace call")
-            .id()
-            .to_owned();
-        let borrowed = snapshot.borrow();
-        let interaction = borrowed
-            .state
-            .interactions
-            .values()
-            .find(|interaction| interaction.id == id)
-            .expect("interaction");
-        assert_eq!(interaction.tool_call_id.as_deref(), Some(call_id.as_str()));
+                .unwrap()],
+                1.0,
+            )?;
+            post_host_notice(
+                state,
+                store,
+                "host4",
+                "notice:1",
+                "Machine offline",
+                "error",
+            )?;
+            let snapshot = state.repo.require_state(store, "host4")?;
+            let item = snapshot
+                .borrow_mut()
+                .items
+                .read("notice:1")?
+                .expect("notice");
+            let ace_core::items::Item::Notice { text, level, .. } = item else {
+                panic!("a notice item");
+            };
+            assert_eq!(text.as_str(), "Machine offline");
+            assert_eq!(level.as_str(), "error");
+            Ok(())
+        });
     }
 }

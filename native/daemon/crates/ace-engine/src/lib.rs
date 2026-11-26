@@ -43,6 +43,7 @@ pub mod snapshot;
 mod state;
 pub mod steering;
 mod store;
+mod text;
 pub mod transitions;
 pub mod workers;
 

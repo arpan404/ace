@@ -16,9 +16,6 @@ use crate::repository::residency::cell_text;
 const READ: &str = "SELECT override,effective,parent,ceiling_provider,ceiling_mode,ceiling_identity FROM engine_permissions WHERE thread_id=?";
 const ENSURE: &str = "INSERT OR IGNORE INTO engine_permissions(thread_id,override,effective,parent) VALUES (?,?,?,NULL)";
 
-/// The four ace modes (`AccessMode`).
-const MODES: [&str; 4] = ["read-only", "ask", "auto-review", "full-access"];
-
 /// One thread's stored permission row (`permission-storage.ts:8`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PermissionRecord {
@@ -64,7 +61,7 @@ impl PermissionState {
 
 fn mode(stored: Option<&str>) -> Option<String> {
     stored
-        .filter(|value| MODES.contains(value))
+        .filter(|value| crate::access::modes::is_access_mode(value))
         .map(str::to_owned)
 }
 
@@ -95,7 +92,7 @@ pub fn permission_state(record: &PermissionRecord) -> PermissionState {
     }
 }
 
-fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
+pub(crate) fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
     row.get(column).and_then(cell_text).map(str::to_owned)
 }
 
@@ -227,7 +224,7 @@ fn field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn permission_event(state: &PermissionState) -> String {
+pub(crate) fn permission_event(state: &PermissionState) -> String {
     let mut event = ace_json::Map::new();
     event.insert("type", Value::from("thread.updated"));
     event.insert("permission", state.to_json());
@@ -257,6 +254,29 @@ mod tests {
                 .to_string(),
             "{\"override\":null,\"effective\":null,\"pending\":false}"
         );
+    }
+
+    #[test]
+    fn a_stored_selection_migrates_to_its_ace_mode_and_a_custom_one_stays() {
+        // `permission-storage.ts:23`: native ids map once; an ace value or a `custom:` stays.
+        assert_eq!(
+            migrate_selection("claude", Some("plan")).as_deref(),
+            Some("read-only")
+        );
+        assert_eq!(
+            migrate_selection("claude", Some("acceptEdits")).as_deref(),
+            Some("auto-review")
+        );
+        assert_eq!(
+            migrate_selection("claude", Some("full-access")).as_deref(),
+            Some("full-access")
+        );
+        assert_eq!(
+            migrate_selection("claude", Some("custom:dontAsk")).as_deref(),
+            Some("custom:dontAsk")
+        );
+        assert_eq!(migrate_selection("pi", Some("unrestricted")), None);
+        assert_eq!(migrate_selection("claude", None), None);
     }
 
     #[test]

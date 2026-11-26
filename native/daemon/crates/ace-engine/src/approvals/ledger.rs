@@ -8,7 +8,7 @@ use ace_json::Value;
 use ace_store::{Value as Cell, stmt_cache};
 
 use super::closed_outcome;
-use crate::repository::residency::cell_text;
+use crate::access::storage::row_text;
 use crate::{EngineError, EngineStore};
 
 const OUTCOME: &str =
@@ -22,14 +22,9 @@ const INSERT: &str = "INSERT OR IGNORE INTO engine_interaction_requests VALUES (
 const OBSERVE: &str =
     "UPDATE engine_interaction_requests SET state=? WHERE thread_id=? AND interaction_id=?";
 const ROW: &str = "SELECT thread_id,native_key,native_item FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?";
-const EVENT_ROW: &str = "SELECT thread_id,native_key,native_item FROM engine_interaction_requests WHERE interaction_id=? LIMIT 1";
 const OWNER: &str = "SELECT generation FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=? AND state='pending'";
 
 const STATES: [&str; 4] = ["pending", "resolved", "cancelled", "expired"];
-
-fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
-    row.get(column).and_then(cell_text).map(str::to_owned)
-}
 
 fn state(value: &str) -> Result<String, EngineError> {
     if STATES.contains(&value) {
@@ -225,26 +220,17 @@ pub fn observe(store: &EngineStore, id: &str, events: &[Value]) -> Result<(), En
     Ok(())
 }
 
-/// The thread an event's interaction belongs to, for the fold's `interactions.closed` call.
-pub fn event_thread(store: &EngineStore, event: &Value) -> Result<Option<String>, EngineError> {
-    let Some(interaction) = event.get("interactionId").and_then(Value::as_str) else {
-        return Ok(None);
-    };
-    Ok(stmt_cache::get_row(
-        store.conn(),
-        EVENT_ROW,
-        vec![Cell::Text(interaction.to_owned())],
-    )?
-    .and_then(|row| row_text(&row, "thread_id")))
-}
-
 /// `InteractionLedger.closed`: the facts a settled interaction emits for its tool call.
 pub fn closed(
     store: &EngineStore,
     state: &mut ThreadState,
-    event: &Value,
+    event: &mut Value,
 ) -> Result<Vec<Value>, EngineError> {
-    let Some(interaction) = event.get("interactionId").and_then(Value::as_str) else {
+    let Some(interaction) = event
+        .get("interactionId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
         return Ok(Vec::new());
     };
     let Some(row) = stmt_cache::get_row(
@@ -252,7 +238,7 @@ pub fn closed(
         ROW,
         vec![
             Cell::Text(state.thread_id.clone()),
-            Cell::Text(interaction.to_owned()),
+            Cell::Text(interaction.clone()),
         ],
     )?
     else {
@@ -261,11 +247,15 @@ pub fn closed(
     let Some(key) = row_text(&row, "native_key") else {
         return Ok(Vec::new());
     };
-    if event.get("state").and_then(Value::as_str) == Some("expired")
-        && let Some(entry) = state.interactions.get_mut(&key)
-        && entry.id == interaction
-    {
-        entry.expiration_reason = Some("provider_disconnected".to_owned());
+    if event.get("state").and_then(Value::as_str) == Some("expired") {
+        if let Some(map) = event.as_object_mut() {
+            map.insert("expirationReason", Value::from("provider_disconnected"));
+        }
+        if let Some(entry) = state.interactions.get_mut(&key)
+            && entry.id == interaction
+        {
+            entry.expiration_reason = Some("provider_disconnected".to_owned());
+        }
     }
     let Some(item) = row_text(&row, "native_item") else {
         return Ok(Vec::new());
@@ -332,6 +322,147 @@ mod tests {
             Some("resolved".to_owned())
         );
         assert_eq!(owner(&store, "ledger", "i1").expect("owner"), None);
+    }
+
+    fn thread(thread_id: &str) -> ThreadState {
+        use ace_core::reduce::apply;
+        use ace_core::state::{ApplyContext, CoreConfig, IdSource, create_thread_state};
+        struct Ids(u64);
+        impl IdSource for Ids {
+            fn next(&mut self, kind: &str) -> Option<String> {
+                self.0 += 1;
+                Some(format!("{kind}-{}", self.0))
+            }
+        }
+        let mut state = create_thread_state(
+            thread_id.to_owned(),
+            None,
+            CoreConfig {
+                provider: "claude".to_owned(),
+                silence_ms: 90_000.0,
+                liveness: None,
+            },
+        )
+        .expect("state");
+        let mut ids = Ids(0);
+        for fact in [
+            r#"{"type":"agent.seen","agent":"root","origin":"root","fidelity":"full","native":{"provider":"claude","nativeId":"root"},"cwd":"/tmp"}"#,
+            r#"{"type":"item.upsert","agent":"root","item":"execution","draft":{"type":"tool_call","complete":false,"call":{"kind":"shell","title":"Offline","status":"awaiting_approval","detail":{"kind":"shell","command":"offline"}}}}"#,
+            r#"{"type":"interaction.opened","agent":"root","interaction":"approval","item":"execution","blocking":true,"request":{"kind":"approval","title":"Run?","options":[{"id":"decision","label":"Decide","kind":"allow_once"}]}}"#,
+        ] {
+            let fact = ace_json::parse(fact).expect("fact");
+            let mut events = Vec::new();
+            apply(
+                &mut state,
+                &fact,
+                &mut ApplyContext {
+                    now: 100,
+                    ids: &mut ids,
+                    resolving_interactions: None,
+                },
+                &mut events,
+            );
+        }
+        state
+    }
+
+    #[test]
+    fn an_opened_interaction_keeps_its_generation_and_a_settled_event_moves_its_row() {
+        let (_conn, store) = seeded("ledger2");
+        let state = thread("ledger2");
+        let opened_fact = ace_json::parse(
+            r#"{"type":"interaction.opened","agent":"root","interaction":"approval","item":"execution"}"#,
+        )
+        .unwrap();
+        opened(&store, &state, &opened_fact, Some(3.0)).expect("opened");
+        let interaction = state
+            .interactions
+            .get("approval")
+            .expect("interaction")
+            .id
+            .clone();
+        assert_eq!(
+            owner(&store, "ledger2", &interaction).expect("owner"),
+            Some(3)
+        );
+        let event = ace_json::parse(
+            r#"{"type":"interaction.closed","interactionId":"ignored","state":"resolved"}"#,
+        )
+        .unwrap();
+        let mut event = event;
+        if let Some(map) = event.as_object_mut() {
+            map.insert("interactionId", Value::from(interaction.as_str()));
+        }
+        observe(&store, "ledger2", &[event]).expect("observe");
+        assert_eq!(
+            outcome(&store, "ledger2", &interaction)
+                .expect("outcome")
+                .as_deref(),
+            Some("resolved")
+        );
+        assert_eq!(owner(&store, "ledger2", &interaction).expect("owner"), None);
+    }
+
+    #[test]
+    fn a_closed_approval_settles_its_tool_call_and_an_expiry_marks_the_event_and_interaction() {
+        let (conn, store) = seeded("ledger3");
+        let mut state = thread("ledger3");
+        let interaction = state
+            .interactions
+            .get("approval")
+            .expect("interaction")
+            .id
+            .clone();
+        conn.exec(&format!(
+            "INSERT INTO engine_interaction_requests VALUES ('ledger3','{interaction}','approval','execution','claude:n',1,'pending')"
+        ))
+        .unwrap();
+        let mut allowed = ace_json::parse(&format!(
+            r#"{{"type":"interaction.closed","interactionId":"{interaction}","state":"resolved","closedAt":200,"resolution":{{"kind":"approval","optionId":"decision"}}}}"#
+        ))
+        .unwrap();
+        let facts = closed(&store, &mut state, &mut allowed).expect("closed");
+        assert_eq!(facts.len(), 1);
+        assert_eq!(
+            facts[0]
+                .get("draft")
+                .and_then(|draft| draft.get("call"))
+                .and_then(|call| call.get("status"))
+                .and_then(Value::as_str),
+            Some("running")
+        );
+
+        let mut expired = ace_json::parse(&format!(
+            r#"{{"type":"interaction.closed","interactionId":"{interaction}","state":"expired","closedAt":300}}"#
+        ))
+        .unwrap();
+        let facts = closed(&store, &mut state, &mut expired).expect("expired");
+        assert_eq!(
+            expired.get("expirationReason").and_then(Value::as_str),
+            Some("provider_disconnected")
+        );
+        assert_eq!(
+            state
+                .interactions
+                .get("approval")
+                .and_then(|interaction| interaction.expiration_reason.as_deref()),
+            Some("provider_disconnected")
+        );
+        assert_eq!(
+            facts[0]
+                .get("draft")
+                .and_then(|draft| draft.get("call"))
+                .and_then(|call| call.get("status"))
+                .and_then(Value::as_str),
+            Some("cancelled")
+        );
+        assert_eq!(
+            facts[0]
+                .get("draft")
+                .and_then(|draft| draft.get("complete"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]

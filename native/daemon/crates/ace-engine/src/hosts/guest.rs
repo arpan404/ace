@@ -5,6 +5,8 @@
 
 use crate::{EngineError, EngineStore, State, ThreadId};
 use ace_core::items::Item;
+
+use crate::text::utf16_prefix;
 use ace_json::Value;
 
 /// The machine and name a guest thread serves.
@@ -224,6 +226,16 @@ impl GuestThreads {
         let Some(snapshot) = state.repo.state(store, thread_id)? else {
             return Ok(Vec::new());
         };
+        let mut touched = crate::snapshot::touched::Touched::default();
+        touched.tasks.extend(
+            snapshot
+                .borrow_mut()
+                .tasks
+                .keys()?
+                .into_iter()
+                .filter(|key| key.starts_with(prefix)),
+        );
+        snapshot.borrow_mut().hydrate(&touched)?;
         let borrowed = snapshot.borrow();
         Ok(borrowed
             .state
@@ -261,55 +273,61 @@ fn guest_agent(
         .ok_or_else(|| EngineError::Records("Guest thread has no root agent yet".to_owned()))
 }
 
-/// JavaScript's `String#slice(0, 200)` counts UTF-16 units (rule 17): keep whole scalars until
-/// the next one would cross the bound.
-fn utf16_prefix(text: &str, max: usize) -> &str {
-    let mut units = 0usize;
-    for (index, character) in text.char_indices() {
-        let width = character.len_utf16();
-        if units + width > max {
-            return &text[..index];
-        }
-        units += width;
-    }
-    text
-}
-
 #[cfg(test)]
 mod tests {
     //! `guest-admission.process.test.ts` seeds through `engine.guests.create`; these pin the
-    //! creation, a stopped command row and the bounded title JavaScript's `slice(0, 200)` gives.
+    //! creation, a stopped command row, a hold that keeps the thread waiting, and the bounded
+    //! title JavaScript's `slice(0, 200)` gives. They fold on a real engine, not the probe.
 
     use super::*;
+    use crate::actor::ActorDeps;
+    use crate::executor::{Notified, Notifier};
+    use crate::frames::live::UnportedLive;
     use crate::repository::testsupport::{Shell, header, home};
+    use crate::{Engine, EngineError, Inputs};
+    use std::rc::Rc;
 
-    fn setup(name: &str) -> (std::sync::Arc<ace_store::Connection>, EngineStore, State) {
-        let conn = home(name, &header(name));
-        let store = Shell::store(&conn);
-        let mut state = State::default();
-        // These cases fold facts on a bare state, where the probe's pass-through answers the
-        // collaborators an engine would.
-        state.repo.probe_passthrough = true;
-        (conn, store, state)
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
     }
 
-    fn seed_root(state: &mut State, store: &EngineStore, thread: &str) {
-        state
-            .apply_facts(
-                store,
-                thread,
-                &[ace_json::parse(
-                    r#"{"type":"agent.seen","agent":"root","origin":"root","fidelity":"full","native":{"provider":"codex","nativeId":"root"},"cwd":"/tmp"}"#,
-                )
-                .unwrap()],
-                0.0,
-            )
-            .expect("root");
+    fn engine(name: &str) -> Engine {
+        let conn = home(name, &header(name));
+        let (_, shell) = Shell::store_with_controls(&conn);
+        Engine::new(
+            shell.clone(),
+            shell,
+            Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            &conn,
+            Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+        )
+        .expect("the test engine constructs")
+    }
+
+    fn with<R>(
+        engine: &Engine,
+        run: impl FnOnce(&mut State, &EngineStore) -> Result<R, EngineError>,
+    ) -> R {
+        let core = engine.core().clone();
+        core.with_state(|state| {
+            // E5.5, E5.6 and E5.9's collaborators are not in this branch yet; the probe answers
+            // those. Attribution reads the engine and the embedded catalog, never the probe.
+            state.repo.probe_passthrough = true;
+            run(state, &core.store)
+        })
+        .expect("the engine's state")
+        .expect("the guest call")
     }
 
     #[test]
     fn a_guest_thread_is_created_through_the_injected_creation_step() {
-        let (_conn, store, mut state) = setup("guest");
+        let engine = engine("guest");
         let input = GuestThreadInput {
             id: "guest".to_owned(),
             workspace_id: "workspace".to_owned(),
@@ -322,28 +340,37 @@ mod tests {
             },
         };
         let mut created = 0u32;
-        GuestThreads::default()
-            .create(&mut state, &store, &input, |state, store| {
+        with(&engine, |state, store| {
+            GuestThreads::default().create(state, store, &input, |state, store| {
                 created += 1;
                 state.permission_ensure(store, "guest")?;
                 Ok(())
-            })
-            .expect("create");
+            })?;
+            assert!(state.permission_state(store, "guest").is_ok());
+            Ok(())
+        });
         assert_eq!(created, 1);
-        assert!(state.permission_state(&store, "guest").is_ok());
     }
 
     #[test]
     fn a_stopped_command_ends_running_shell_calls_and_wakes_the_thread() {
-        let (_conn, store, mut state) = setup("guest2");
-        seed_root(&mut state, &store, "guest2");
-        let woke = std::rc::Rc::new(std::cell::Cell::new(0u32));
-        let counter = std::rc::Rc::clone(&woke);
+        let engine = engine("guest2");
+        let woke = Rc::new(std::cell::Cell::new(0u32));
+        let counter = Rc::clone(&woke);
         let guests = GuestThreads::new(Box::new(move |_| counter.set(counter.get() + 1)));
-        guests
-            .command(
-                &mut state,
-                &store,
+        with(&engine, |state, store| {
+            state.apply_facts(
+                store,
+                "guest2",
+                &[ace_json::parse(
+                    r#"{"type":"agent.seen","agent":"root","origin":"root","fidelity":"full","native":{"provider":"codex","nativeId":"root"},"cwd":"/tmp"}"#,
+                )
+                .unwrap()],
+                0.0,
+            )?;
+            guests.command(
+                state,
+                store,
                 "guest2",
                 "remote:1",
                 GuestCommand {
@@ -354,22 +381,68 @@ mod tests {
                     started_at: 1,
                     ended_at: None,
                 },
-            )
-            .expect("command");
-        let ended = guests
-            .end_commands(&mut state, &store, "guest2", "remote:")
-            .expect("end");
-        assert_eq!(ended, 1);
+            )?;
+            assert_eq!(guests.end_commands(state, store, "guest2", "remote:")?, 1);
+            Ok(())
+        });
+        assert_eq!(woke.get(), 1);
+    }
+
+    #[test]
+    fn a_hold_keeps_the_thread_waiting_and_ending_it_wakes_it() {
+        let engine = engine("guest3");
+        let woke = Rc::new(std::cell::Cell::new(0u32));
+        let counter = Rc::clone(&woke);
+        let guests = GuestThreads::new(Box::new(move |_| counter.set(counter.get() + 1)));
+        with(&engine, |state, store| {
+            state.apply_facts(
+                store,
+                "guest3",
+                &[ace_json::parse(
+                    r#"{"type":"agent.seen","agent":"root","origin":"root","fidelity":"full","native":{"provider":"codex","nativeId":"root"},"cwd":"/tmp"}"#,
+                )
+                .unwrap()],
+                0.0,
+            )?;
+            guests.hold(
+                state,
+                store,
+                "guest3",
+                "remote:build",
+                &GuestHold::Start {
+                    title: "Build".to_owned(),
+                },
+            )?;
+            assert_eq!(
+                guests.running(state, store, "guest3", "remote:")?,
+                vec!["remote:build".to_owned()]
+            );
+            guests.hold(
+                state,
+                store,
+                "guest3",
+                "remote:build",
+                &GuestHold::End {
+                    status: "completed".to_owned(),
+                },
+            )?;
+            assert!(
+                guests
+                    .running(state, store, "guest3", "remote:")?
+                    .is_empty()
+            );
+            Ok(())
+        });
         assert_eq!(woke.get(), 1);
     }
 
     #[test]
     fn a_guest_commands_title_counts_utf16_units_like_javascript_slice() {
-        // 100 astral characters are 200 UTF-16 units: they fit exactly.
+        // JavaScript's `slice` can end on a lone high surrogate; a Rust string keeps the whole
+        // scalar, so it is one unit shorter at that boundary.
         let text = "😀".repeat(150);
         assert_eq!(utf16_prefix(&text, 200).encode_utf16().count(), 200);
         assert_eq!(utf16_prefix(&text, 200).chars().count(), 100);
-        // A boundary inside a surrogate pair keeps the whole scalar.
         let mixed = format!("a{}", "😀".repeat(150));
         assert_eq!(utf16_prefix(&mixed, 2), "a");
         assert_eq!(utf16_prefix("short", 200), "short");

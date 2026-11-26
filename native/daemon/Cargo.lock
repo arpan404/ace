@@ -191,6 +191,7 @@ dependencies = [
  "ace-adapter-pi",
  "ace-core",
  "ace-json",
+ "ace-mcp",
  "ace-projection",
  "ace-store",
  "async-task",
