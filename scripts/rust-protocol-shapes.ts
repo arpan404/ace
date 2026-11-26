@@ -9,13 +9,18 @@
 import { z } from "zod";
 
 /** One shape the walk emits: `Copy`, or an object's field statics. */
+type Extra = "strip" | "reject" | "keep" | "shaped";
+
 type Node =
   | { kind: "copy" }
-  | { kind: "object"; plan: Plan }
+  | { kind: "object"; plan: Plan; extra: Extra; rest?: Node }
+  | { kind: "trim" }
+  | { kind: "later"; name: string; root: string }
   | { kind: "array"; inner: Node }
   | { kind: "record"; inner: Node }
   | { kind: "nullable"; inner: Node }
-  | { kind: "tagged"; key: string; options: { literal: string; shape: Node }[] };
+  | { kind: "tagged"; key: string; options: { literal: string; shape: Node }[] }
+  | { kind: "oneOf"; options: Node[] };
 
 interface Plan {
   readonly fields: { key: string; presence: Presence; shape: Node }[];
@@ -40,6 +45,9 @@ interface Def {
   defaultValue?: unknown;
   coerce?: boolean;
   checks?: unknown[];
+  left?: z.ZodType;
+  right?: z.ZodType;
+  items?: z.ZodType[];
 }
 
 function defOf(schema: z.ZodType): Def {
@@ -50,18 +58,38 @@ function fail(path: string, reason: string): never {
   throw new Error(`rust-protocol-shapes: ${path}: ${reason}`);
 }
 
-/** A Zod check that normalizes its input (`trim`, `toLowerCase`, `slugify`, ...). */
-function normalizes(check: unknown): boolean {
-  // oxlint-disable-next-line no-underscore-dangle -- Zod 4 keeps a check's kind here.
-  const zod = (check as { _zod?: { def?: { check?: unknown } } })._zod;
-  return zod?.def?.check === "overwrite";
+/** A check that rewrites its input, as `z.string().trim()` does. */
+function overwrite(check: unknown): ((payload: { value: unknown }) => void) | undefined {
+  // Zod 4 keeps a check's kind and function on `_zod`.
+  const zod = (check as Record<string, { def?: { check?: unknown }; check?: unknown }>)["_zod"];
+  if (zod?.def?.check !== "overwrite") return undefined;
+  const run = zod.check;
+  return typeof run === "function" ? (run as (payload: { value: unknown }) => void) : undefined;
 }
 
-function checkTypes(def: Def): void {
-  if (def.coerce === true) throw new Error("coercion changes the value");
-  for (const check of def.checks ?? []) {
-    if (normalizes(check)) throw new Error("a check normalizes the value");
+/** What an overwrite check does to a string, or `null` when the table can't express it. */
+function normalization(check: unknown): "trim" | null {
+  const run = overwrite(check);
+  if (run === undefined) return null;
+  const probe = { value: "\u{feff} \t x \n " };
+  try {
+    run(probe);
+  } catch {
+    return null;
   }
+  return probe.value === "x" ? "trim" : null;
+}
+
+/** The check kinds a value can carry, refusing any that rewrites it in a way we can't. */
+function checkTypes(def: Def): boolean {
+  if (def.coerce === true) throw new Error("coercion changes the value");
+  let trim = false;
+  for (const check of def.checks ?? []) {
+    if (overwrite(check) === undefined) continue;
+    if (normalization(check) === "trim") trim = true;
+    else throw new Error("a check rewrites the value in a way the table can't describe");
+  }
+  return trim;
 }
 
 function snake(text: string): string {
@@ -88,13 +116,25 @@ function rustString(text: string): string {
   return `${out}"`;
 }
 
-/** One primitive default, as JSON text, or a refusal. */
+/** A default, as the JSON text Zod inserts: the literal as written, key order included. */
 function defaultText(path: string, value: unknown): string {
-  if (value === null) return "null";
-  if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number" && Number.isFinite(value)) return JSON.stringify(value);
-  return fail(path, "a default is not a JSON primitive");
+  try {
+    return JSON.stringify(value) ?? fail(path, "a default is undefined");
+  } catch {
+    return fail(path, "a default is not JSON");
+  }
+}
+
+/**
+ * The schema whose output a `.meta({ "x-ace-json-input" })` names, when the transform's own
+ * output can't be described: `records()` keeps every own key, and the hello's `lastClose`
+ * turns an unparsable report into `undefined`.
+ */
+function metaInput(schema: z.ZodType): z.ZodType | undefined {
+  const meta = (schema as unknown as { meta?: () => Record<string, unknown> }).meta?.();
+  const input = meta?.["x-ace-json-input"];
+  if (input === null || typeof input !== "object") return undefined;
+  return (input as { def?: unknown }).def === undefined ? undefined : (input as z.ZodType);
 }
 
 /**
@@ -105,15 +145,22 @@ class Planner {
   readonly objects = new Map<z.ZodType, Plan>();
   readonly order: Plan[] = [];
   readonly used = new Set<string>();
+  /** Lazy schemas, planned once: their statics hold a `Shape` that may name itself. */
+  readonly lazies = new Map<z.ZodType, { name: string; node: Node | undefined; root: string }>();
   root = "";
 
   /** The object node for `schema`, filling its fields the first time it is reached. */
   object(schema: z.ZodType, name: string, path: string): Node {
     const existing = this.objects.get(schema);
-    if (existing !== undefined) return { kind: "object", plan: existing };
+    if (existing !== undefined) {
+      return {
+        kind: "object",
+        plan: existing,
+        extra: defOf(schema).catchall === undefined ? "strip" : extraOf(schema, path),
+      };
+    }
     const def = defOf(schema);
-    if (def.catchall !== undefined)
-      fail(path, "an object has a catchall (passthrough, strict or catchall)");
+    const extra = def.catchall === undefined ? "strip" : extraOf(schema, path);
     const shape = def.shape;
     if (shape === undefined) fail(path, "an object has no shape");
     let unique = name;
@@ -125,36 +172,63 @@ class Planner {
     for (const [key, field] of Object.entries(shape)) {
       plan.fields.push(this.field(key, field, `${path}.${key}`));
     }
-    return { kind: "object", plan };
+    return { kind: "object", plan, extra };
+  }
+
+  /** A recursive schema: one static per lazy node, referenced wherever it is reached. */
+  private lazy(schema: z.ZodType, name: string, path: string): Node {
+    const existing = this.lazies.get(schema);
+    if (existing !== undefined) return { kind: "later", name: existing.name, root: existing.root };
+    const getter = (defOf(schema) as unknown as { getter?: () => z.ZodType }).getter;
+    if (getter === undefined) return fail(path, "a lazy schema has no getter");
+    let unique = name;
+    for (let suffix = 2; this.used.has(unique); suffix += 1) unique = `${name}_${suffix}`;
+    this.used.add(unique);
+    const entry = { name: unique, node: undefined as Node | undefined, root: this.root };
+    this.lazies.set(schema, entry);
+    entry.node = this.shape(getter(), path);
+    return { kind: "later", name: unique, root: this.root };
   }
 
   /** One object field, applying `.optional()` or `.default()` as its presence. */
   private field(key: string, schema: z.ZodType, path: string): Plan["fields"][number] {
-    const def = defOf(schema);
     let presence: Presence = { kind: "required" };
     let inner = schema;
-    if (def.type === "optional") {
-      presence = { kind: "optional" };
-      inner = requireInner(def, path);
-    } else if (def.type === "default") {
-      presence = { kind: "default", text: defaultText(path, def.defaultValue) };
-      inner = requireInner(def, path);
+    // The outermost wrapper decides an absent key's fate: `.optional()` on a default keeps
+    // the key absent, `.default()` on an optional inserts the default.
+    for (let wrapper = defOf(inner); ; wrapper = defOf(inner)) {
+      if (wrapper.type === "optional") {
+        if (presence.kind === "required") presence = { kind: "optional" };
+        inner = requireInner(wrapper, path);
+        continue;
+      }
+      if (wrapper.type === "default") {
+        if (presence.kind === "required")
+          presence = { kind: "default", text: defaultText(path, wrapper.defaultValue) };
+        inner = requireInner(wrapper, path);
+        continue;
+      }
+      break;
     }
-    const innerType = defOf(inner).type;
-    if (innerType === "optional" || innerType === "default")
-      fail(path, `a field wraps .${innerType}() in or around its presence`);
     return { key, presence, shape: this.shape(inner, path) };
   }
 
   private shape(schema: z.ZodType, path: string): Node {
     const def = defOf(schema);
+    let trims = false;
     try {
-      checkTypes(def);
+      trims = checkTypes(def);
     } catch (error) {
       return fail(path, message(error));
     }
+    // A transform that keeps a schema we can describe names it: `records()` keeps the
+    // record's own keys with the value shape it names, and the hello's `lastClose` reads a
+    // report that doesn't parse as absent. Walk the named schema.
+    const named = metaInput(schema);
+    if (named !== undefined) return this.shape(named, path);
     switch (def.type) {
       case "string":
+        return trims ? { kind: "trim" } : { kind: "copy" };
       case "number":
       case "boolean":
       case "null":
@@ -175,13 +249,22 @@ class Planner {
         const inner = this.shape(element, `${path}[]`);
         return inner.kind === "copy" ? { kind: "copy" } : { kind: "array", inner };
       }
+      case "tuple": {
+        const items = def.items;
+        if (items === undefined) return fail(path, "a tuple has no items");
+        const planned = items.map((item, index) => this.shape(item, `${path}[${index}]`));
+        return planned.every((item) => item.kind === "copy")
+          ? { kind: "copy" }
+          : { kind: "array", inner: mergeTuple(planned, path) };
+      }
       case "record": {
         const keyType = def.keyType;
         const valueType = def.valueType;
         if (keyType === undefined || valueType === undefined)
           return fail(path, "a record has no key or value type");
         const keyDef = defOf(keyType);
-        if (keyDef.type !== "string") return fail(path, "a record's key is not a string");
+        if (keyDef.type !== "string" && keyDef.type !== "enum")
+          return fail(path, "a record's key is not a string");
         try {
           checkTypes(keyDef);
         } catch (error) {
@@ -199,13 +282,27 @@ class Planner {
         const options = def.options;
         if (options === undefined) return fail(path, "a union has no options");
         if (def.discriminator !== undefined) return this.tagged(def.discriminator, options, path);
-        for (const option of options) {
-          const planned = this.shape(option, `${path}|`);
-          if (planned.kind !== "copy")
-            return fail(path, "a union has an option the table can't copy");
-        }
-        return { kind: "copy" };
+        const planned = options.map((option, index) => this.shape(option, `${path}|${index}`));
+        if (planned.every((option) => option.kind === "copy")) return { kind: "copy" };
+        return { kind: "oneOf", options: planned };
       }
+      case "intersection": {
+        const left = def.left;
+        const right = def.right;
+        if (left === undefined || right === undefined)
+          return fail(path, "an intersection has no sides");
+        return this.merge(this.shape(left, `${path}&0`), this.shape(right, `${path}&1`), path);
+      }
+      case "pipe":
+        return fail(path, "a pipe names no input schema (x-ace-json-input)");
+      case "transform":
+        return fail(path, "a transform names no input schema (x-ace-json-input)");
+      case "catch":
+        return fail(path, "a catch has a fallback the table can't choose");
+      case "custom":
+        return fail(path, "a custom check names no schema");
+      case "lazy":
+        return this.lazy(schema, snake(path), path);
       case "optional":
       case "default":
         return fail(path, `.${def.type}() is not directly on an object field`);
@@ -216,35 +313,115 @@ class Planner {
 
   private tagged(key: string, options: z.ZodType[], path: string): Node {
     const planned: { literal: string; shape: Node }[] = [];
+    const add = (option: { literal: string; shape: Node }): void => {
+      const existing = planned.find((plannedOption) => plannedOption.literal === option.literal);
+      if (existing === undefined) {
+        planned.push(option);
+        return;
+      }
+      // One tag with two shapes (a message and a nested union's members): the first the value
+      // fits, as Zod tries its options.
+      existing.shape =
+        existing.shape.kind === "oneOf"
+          ? { kind: "oneOf", options: [...existing.shape.options, option.shape] }
+          : { kind: "oneOf", options: [existing.shape, option.shape] };
+    };
     for (const [index, option] of options.entries()) {
       const optionPath = `${path}|${index}`;
       const def = defOf(option);
-      if (def.type !== "object") return fail(optionPath, "a discriminated option is not an object");
+      // A union among the options (`ClientMessage` spreads several, and some are plain unions
+      // of objects that carry the same discriminator): its options are this union's options.
+      if (def.type === "union") {
+        // The inner union's own discriminator (`operation` under an `action`) is just another
+        // field of each option; the outer key decides the option here.
+        for (const nested of this.tagged(key, def.options ?? [], optionPath).options) add(nested);
+        continue;
+      }
+      if (def.type !== "object") return fail(optionPath, `a discriminated option is a ${def.type}`);
       const field = def.shape?.[key];
       if (field === undefined) return fail(optionPath, `an option has no \`${key}\``);
       const fieldDef = defOf(field);
-      if (fieldDef.type !== "literal")
-        return fail(optionPath, `the discriminator \`${key}\` is not a literal`);
-      const values = (fieldDef as { values?: unknown[] }).values ?? [];
+      const values =
+        fieldDef.type === "enum"
+          ? (fieldDef as unknown as { entries?: Record<string, string> }).entries === undefined
+            ? []
+            : Object.values((fieldDef as unknown as { entries: Record<string, string> }).entries)
+          : fieldDef.type === "literal"
+            ? ((fieldDef as { values?: unknown[] }).values ?? [])
+            : fail(optionPath, `the discriminator \`${key}\` is not a literal or enum`);
       if (values.length === 0)
         return fail(optionPath, `the discriminator \`${key}\` has no literal value`);
       const shape = this.shape(option, optionPath);
       for (const value of values) {
-        if (typeof value !== "string")
-          return fail(optionPath, `the discriminator \`${key}\` is not a string literal`);
-        const literal = JSON.stringify(value);
-        if (planned.some((plannedOption) => plannedOption.literal === literal))
-          fail(path, `the discriminated union has a duplicate tag ${literal}`);
-        planned.push({ literal, shape });
+        const literal = JSON.stringify(value) ?? fail(optionPath, "a tag is not JSON");
+        add({ literal, shape });
       }
     }
     return { kind: "tagged", key, options: planned };
+  }
+
+  /**
+   * `a.and(b)`: Zod's output is `{ ...left, ...right }`, so the left object's keys keep their
+   * place and the right object's follow; a tagged left merges each option.
+   */
+  merge(a: Node, b: Node, path: string): Node {
+    if (a.kind === "copy") return b.kind === "copy" ? { kind: "copy" } : b;
+    if (b.kind === "copy") return a;
+    if (a.kind === "record" && b.kind === "object") return { ...b, extra: "shaped", rest: a.inner };
+    if (a.kind === "object" && b.kind === "record") return { ...a, extra: "shaped", rest: b.inner };
+    if (a.kind === "object" && b.kind === "object") return this.mergeObjects(a, b);
+    if (a.kind === "tagged" && b.kind === "object")
+      return {
+        kind: "tagged",
+        key: a.key,
+        options: a.options.map((option) => ({
+          literal: option.literal,
+          shape: this.merge(option.shape, b, path),
+        })),
+      };
+    if (a.kind === "object" && b.kind === "tagged")
+      return {
+        kind: "tagged",
+        key: b.key,
+        options: b.options.map((option) => ({
+          literal: option.literal,
+          shape: this.merge(a, option.shape, path),
+        })),
+      };
+    return fail(path, `an intersection joins ${a.kind} and ${b.kind}`);
+  }
+
+  private mergeObjects(
+    a: { kind: "object"; plan: Plan; extra: Extra },
+    b: { kind: "object"; plan: Plan; extra: Extra },
+  ): Node {
+    const fields = [...a.plan.fields];
+    for (const field of b.plan.fields) {
+      if (!fields.some((candidate) => candidate.key === field.key)) fields.push(field);
+    }
+    let name = a.plan.name;
+    for (let suffix = 2; this.used.has(name); suffix += 1) name = `${a.plan.name}_${suffix}`;
+    this.used.add(name);
+    const plan: Plan = { name, fields, root: this.root, file: "" };
+    this.order.push(plan);
+    return {
+      kind: "object",
+      plan,
+      extra:
+        a.extra === "keep" || b.extra === "keep"
+          ? "keep"
+          : a.extra === "reject"
+            ? "reject"
+            : b.extra,
+    };
   }
 
   /** The deepest `Shape` nesting under `node`. */
   depth(node: Node): number {
     switch (node.kind) {
       case "copy":
+      case "trim":
+      case "later":
         return 0;
       case "object": {
         return 1 + Math.max(0, ...node.plan.fields.map((field) => this.depth(field.shape)));
@@ -255,8 +432,26 @@ class Planner {
         return 1 + this.depth(node.inner);
       case "tagged":
         return 1 + Math.max(0, ...node.options.map((option) => this.depth(option.shape)));
+      case "oneOf":
+        return 1 + Math.max(0, ...node.options.map((option) => this.depth(option)));
     }
   }
+}
+
+/** A loose object keeps unnamed keys, a strict one rejects them, a plain one drops them. */
+function extraOf(schema: z.ZodType, path: string): Extra {
+  const catchall = defOf(schema).catchall;
+  if (catchall === undefined) return "strip";
+  const type = defOf(catchall).type;
+  if (type === "never") return "reject";
+  if (type === "unknown") return "keep";
+  return fail(path, `an object has a ${type} catchall`);
+}
+
+function extraExpr(extra: Extra): string {
+  if (extra === "strip") return "Extra::Strip";
+  if (extra === "reject") return "Extra::Reject";
+  return "Extra::Keep";
 }
 
 function requireInner(def: Def, path: string): z.ZodType {
@@ -275,9 +470,13 @@ function shapeExpr(node: Node, file: string): string {
       return "Shape::Copy";
     case "object": {
       const name = `${node.plan.name}_FIELDS`;
-      return node.plan.file === file
-        ? `Shape::Object(&${name})`
-        : `Shape::Object(&crate::shapes::${node.plan.file}::${name})`;
+      const fields =
+        node.plan.file === file ? `${name}` : `crate::shapes::${node.plan.file}::${name}`;
+      const extra =
+        node.extra === "shaped" && node.rest !== undefined
+          ? `Extra::Shaped(&${shapeExpr(node.rest, file)})`
+          : extraExpr(node.extra);
+      return `Shape::Object { fields: &${fields}, extra: ${extra} }`;
     }
     case "array":
       return `Shape::Array(&${shapeExpr(node.inner, file)})`;
@@ -290,6 +489,18 @@ function shapeExpr(node: Node, file: string): string {
         .map((option) => `(${rustString(option.literal)}, ${shapeExpr(option.shape, file)})`)
         .join(", ");
       return `Shape::Tagged { key: ${rustString(node.key)}, options: &[${options}] }`;
+    }
+    case "oneOf": {
+      const options = node.options.map((option) => shapeExpr(option, file)).join(", ");
+      return `Shape::OneOf(&[${options}])`;
+    }
+    case "trim":
+      return "Shape::Trim";
+    case "later": {
+      const lazyFile = `${snake(node.root).toLowerCase()}_lazy`;
+      return lazyFile === file
+        ? `Shape::Later(&${node.name})`
+        : `Shape::Later(&crate::shapes::${lazyFile}::${node.name})`;
     }
   }
 }
@@ -343,20 +554,36 @@ export function shapesSource(roots: Record<string, z.ZodType>): Map<string, stri
   const names = Object.keys(roots);
   for (const name of names) {
     const schema = roots[name];
-    const def = defOf(schema);
-    if (def.type !== "object") fail(name, "a root is not an object");
     planner.root = name;
-    rootNodes.push([name, planner.object(schema, name, name)]);
+    rootNodes.push([name, planner.shape(schema, name)]);
   }
   const depth = Math.max(0, ...rootNodes.map(([, node]) => planner.depth(node)));
   const files = chunks(names, planner.order);
-  for (const entry of rootNodes)
-    if (entry[1].kind === "object")
-      files.find((chunk) => chunk.file === entry[1].plan.file)?.roots.push(entry);
+  const lazyFiles = new Map<string, string[]>();
+  for (const entry of planner.lazies.values()) {
+    if (entry.node === undefined) continue;
+    const file = `${snake(entry.root).toLowerCase()}_lazy`;
+    files.push({ file, plans: [], roots: [] });
+    lazyFiles.set(file, [...(lazyFiles.get(file) ?? []), entry.name]);
+  }
+  for (const entry of rootNodes) {
+    const [root, node] = entry;
+    if (node.kind === "object") {
+      const chunk = files.find((candidate) => candidate.file === node.plan.file);
+      if (chunk !== undefined) chunk.roots.push(entry);
+      continue;
+    }
+    // A root that is a union or a primitive has no plan of its own: its own file holds the
+    // static that names the shapes its options use.
+    const file = `${snake(root).toLowerCase()}_root`;
+    files.push({ file, plans: [], roots: [entry] });
+  }
   const head = [
     "// SPDX-License-Identifier: Apache-2.0",
     "// Generated by scripts/generate-rust-protocol.ts -- do not edit.",
-    "// The shape table for the thread column encoders (porting guide 5.3b).",
+    "// The shape table for the wire and the thread column encoders (porting guide 5.3b).",
+    "#![allow(dead_code)]",
+    "#![allow(unused_imports)]",
     "",
   ];
   const module = [
@@ -371,13 +598,14 @@ export function shapesSource(roots: Record<string, z.ZodType>): Map<string, stri
     module.push(
       `mod ${chunk.file};`,
       ...chunk.roots.map(([root]) => `pub use ${chunk.file}::${root};`),
+      ...(lazyFiles.get(chunk.file) ?? []).map((lazy) => `pub use ${chunk.file}::${lazy};`),
     );
   const result = new Map([["mod.rs", `${module.join("\n").trimEnd()}\n`]]);
   for (const chunk of files) {
     const lines = [
       ...head,
       `// Part ${chunk.file}.`,
-      "use crate::shape::{Field, Presence, Shape};",
+      "use crate::shape::{Extra, Field, Presence, Shape};",
       "",
     ];
     for (const plan of chunk.plans) {
@@ -393,6 +621,18 @@ export function shapesSource(roots: Record<string, z.ZodType>): Map<string, stri
     }
     for (const [root, node] of chunk.roots)
       lines.push(`pub static ${root}: Shape = ${shapeExpr(node, chunk.file)};`, "");
+    for (const entry of planner.lazies.values())
+      if (
+        entry.node !== undefined &&
+        chunk.file === `${snake(entry.root).toLowerCase()}_lazy` &&
+        lazyFiles.get(chunk.file)?.includes(entry.name)
+      ) {
+        lines.push(`pub static ${entry.name}: Shape = ${shapeExpr(entry.node, chunk.file)};`, "");
+        lazyFiles.set(
+          chunk.file,
+          (lazyFiles.get(chunk.file) ?? []).filter((name) => name !== entry.name),
+        );
+      }
     result.set(`${chunk.file}.rs`, `${lines.join("\n").trimEnd()}\n`);
   }
   return result;

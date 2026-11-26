@@ -19,6 +19,12 @@ export type Owner = "js:main" | `rust:${string}`;
 export const messageOwners: Record<string, Owner> = {};
 
 /**
+ * Server message producers: a message the daemon sends is TypeScript's unless named here.
+ * Every key must be a type `ServerMessage` defines, or the generator fails.
+ */
+export const serverMessageOwners: Record<string, Owner> = {};
+
+/**
  * Each listener's HTTP request chain in order (behaviour.md §3): the first handler that claims a
  * request answers it. The generator writes these rows to `routes.json` as they are.
  */

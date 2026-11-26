@@ -241,6 +241,7 @@ dependencies = [
 name = "ace-protocol"
 version = "0.1.0"
 dependencies = [
+ "ace-json",
  "serde",
  "serde_json",
 ]
@@ -308,6 +309,16 @@ dependencies = [
  "tokio-util",
  "tungstenite",
  "zeroize",
+]
+
+[[package]]
+name = "ace-wire"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "ace-protocol",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-wire"
+description = "The client-daemon wire: envelope decode, the generated body types, and ace-json output in Zod's key order (ADR 0226 §3)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: every wire value is parsed and written with JavaScript's key order, numbers and
+# lone surrogates; no serde_json on a wire value (ADR 0225 safeguard 1).
+ace-json = { path = "../ace-json" }
+# ace-protocol: the generated message types and the shape table Zod's parse defines.
+ace-protocol = { path = "../ace-protocol" }
+# serde: only the derive-generated `Serialize`/`Deserialize` impls are used, through ace-json's
+# own serializer and deserializer.
+serde = { version = "1" }
+# thiserror: one error type for the transport and the daemon program.
+thiserror = "2"

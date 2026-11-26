@@ -30,6 +30,7 @@
     "check:cli": "node scripts/check-cli.ts",
     "cli:table": "bun scripts/cli-table.ts",
     "check:daemon-native": "node scripts/check-daemon-native.ts",
+    "check:wire-fixtures": "bun scripts/check-wire-fixtures.ts",
     "check:builtins": "node packages/plugins/scripts/builtins-lock.ts --check",
     "builtins:lock": "node packages/plugins/scripts/builtins-lock.ts",
     "check:size": "node scripts/check-file-size.ts",

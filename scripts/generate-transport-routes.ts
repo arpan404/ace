@@ -27,18 +27,21 @@ import {
   BrowserBackendClientMessage,
   BrowserClientMessage,
   ClientMessage,
+  ServerMessage,
   UserBrowserExtensionMessage,
 } from "@ace/protocol";
 import { MarketClientMessage } from "@ace/protocol/marketplace";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { SuitClientMessage, SuitReportMessage } from "@ace/protocol/suits";
-import { httpStages, messageOwners, type Owner } from "./transport-owners.ts";
+import { httpStages, messageOwners, serverMessageOwners, type Owner } from "./transport-owners.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
 /**
  * The schemas whose message types the daemon accepts, one line per entry point named in the
  * porting guide. `SocketMessage` in `apps/daemon/src/services/socket.ts` is the union of them.
+ * `ServerMessage` is the other direction: every type the daemon can send, so a new one has an
+ * owner (Rust or TypeScript) the moment it exists.
  */
 const messageSchemas: readonly { name: string; schema: z.core.$ZodType }[] = [
   { name: "ClientMessage", schema: ClientMessage },
@@ -49,6 +52,7 @@ const messageSchemas: readonly { name: string; schema: z.core.$ZodType }[] = [
   { name: "SuitClientMessage", schema: SuitClientMessage },
   { name: "SuitReportMessage", schema: SuitReportMessage },
   { name: "MarketClientMessage", schema: MarketClientMessage },
+  { name: "ServerMessage", schema: ServerMessage },
 ];
 
 /** Every distinct schema object seen for one `type` value, with the roots that define it. */
@@ -204,14 +208,28 @@ function ownerOf(type: string): Owner {
   return "js:main";
 }
 
+/** A server message's declared producer, or the TypeScript main thread. */
+function serverOwnerOf(type: string): Owner {
+  if (Object.hasOwn(serverMessageOwners, type)) return serverMessageOwners[type] ?? "js:main";
+  return "js:main";
+}
+
 function generate(): string {
   const found = new Map<string, FoundTag>();
+  const server = new Map<string, FoundTag>();
   const problems: string[] = [];
-  for (const { name, schema } of messageSchemas) walk(schema, name, found, problems);
+  for (const { name, schema } of messageSchemas) {
+    walk(schema, name, name === "ServerMessage" ? server : found, problems);
+  }
   problems.push(...conflicts(found));
+  problems.push(...conflicts(server));
   for (const type of Object.keys(messageOwners).toSorted()) {
     if (!found.has(type))
-      problems.push(`scripts/transport-owners.ts names ${type}, which no schema defines`);
+      problems.push(`scripts/transport-owners.ts names ${type}, which no client schema defines`);
+  }
+  for (const type of Object.keys(serverMessageOwners).toSorted()) {
+    if (!server.has(type))
+      problems.push(`scripts/transport-owners.ts names ${type}, which no server schema defines`);
   }
   if (problems.length > 0)
     throw new Error(`the transport route table cannot be generated:\n  ${problems.join("\n  ")}`);
@@ -220,8 +238,11 @@ function generate(): string {
   const messages: Record<string, Owner> = Object.fromEntries(
     [...found.keys()].toSorted().map((type): [string, Owner] => [type, ownerOf(type)]),
   );
+  const serverMessages: Record<string, Owner> = Object.fromEntries(
+    [...server.keys()].toSorted().map((type): [string, Owner] => [type, serverOwnerOf(type)]),
+  );
   const http = httpStages.map(({ listener, stage, owner }) => ({ listener, stage, owner }));
-  return `${JSON.stringify({ messages, http }, null, 2)}\n`;
+  return `${JSON.stringify({ messages, serverMessages, http }, null, 2)}\n`;
 }
 
 const target = join(root, "native", "daemon", "catalog", "routes.json");

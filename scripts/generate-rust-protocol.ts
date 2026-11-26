@@ -17,12 +17,18 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
+  BrowserBackendClientMessage,
+  ClientMessage,
+  ServerMessage,
+  UserBrowserExtensionMessage,
+  CoreClientMessage,
+  CoreServerMessage,
   AccessMode,
   AcpIdentity,
   AcpSessionSupport,
@@ -55,6 +61,11 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 
 /** The schemas the engine reads and writes, each emitted as one Rust type. */
 const roots: Record<string, z.ZodType> = {
+  // Flattened into one root per message type below; deleted from the typify document after.
+  ClientMessage,
+  BrowserBackendClientMessage,
+  UserBrowserExtensionMessage,
+  ServerMessage,
   EventPayload,
   Event,
   AgentItem,
@@ -221,6 +232,21 @@ function hoistNullableBranches(document: unknown): void {
 const schema = JSON.parse(JSON.stringify(rawSchema)) as unknown;
 stripValidation(schema);
 /*
+ * `typify` only recognises a discriminated union when each branch's tag property is a
+ * constant *inline*; with `reused: "ref"` a shared `type` string is a `$ref`, so every union
+ * would stay untagged, and serde would try variants by shape (losing the fields of the right
+ * one). Inline a reference whose target is a constant, and only those.
+ */
+inlineConstantRefs(schema);
+/*
+ * `typify` names an inline object or enum after its parent and property (`EventPayloadState`),
+ * so two messages' `state` enums become one Rust type and the second silently reuses the
+ * first. Name every inline object and enum after its whole path instead, so each one is its
+ * own generated type.
+ */
+splitEnumTags(schema);
+titleInlineSchemas(schema);
+/*
  * `typify` names `$defs` entries by their key, not their `title`. Point the
  * titled entries at their titles so the Rust types are named for the schema
  * (`ContentPart`, not `__schema128`); untitled entries keep their generated
@@ -235,6 +261,424 @@ renameTitledDefs(schema);
  * takes `<entry>Inner`. Semantics do not change; the branch was used once.
  */
 hoistNullableBranches(schema);
+
+/*
+ * Typify turns a `oneOf` into one untagged Rust enum, whose variants serde tries by shape:
+ * two messages with the same fields decode as whichever comes first, and the body is lost.
+ * The wire's two unions are therefore flattened into one root per message type, named for it,
+ * so a decoder dispatches on the envelope's `type` and reads exactly that message's type.
+ * `wireMessages` is what `wire.rs` is generated from.
+ */
+interface WireMessage {
+  type: string;
+  name: string;
+}
+const wireMessages: { client: WireMessage[]; server: WireMessage[] } = { client: [], server: [] };
+{
+  const properties = (schema as Record<string, unknown>).properties as Record<string, unknown>;
+  for (const [union, direction] of [
+    ["ClientMessage", "client"],
+    ["BrowserBackendClientMessage", "client"],
+    ["UserBrowserExtensionMessage", "client"],
+    ["ServerMessage", "server"],
+  ] as const) {
+    const unionRoot = properties[union] as Record<string, unknown>;
+    const oneOf = (unionRoot.oneOf ?? unionRoot.anyOf) as unknown[] | undefined;
+    if (!Array.isArray(oneOf))
+      throw new Error(
+        `${union}: no oneOf/anyOf branches to flatten (${Object.keys(unionRoot).join(", ")})`,
+      );
+    delete properties[union];
+    const prefix = direction === "client" ? "Client" : "Server";
+    const found = new Map<string, { name: string; schemas: unknown[] }>();
+    for (const branch of oneOf) {
+      for (const [typeName, named] of flattenBranch(schema, branch, prefix, direction)) {
+        const entry = found.get(typeName);
+        if (entry === undefined) found.set(typeName, { name: named.name, schemas: [named.schema] });
+        else entry.schemas.push(named.schema);
+      }
+    }
+    for (const [typeName, entry] of found) {
+      // One `type` may name two shapes (a request and a reply that share it): Zod tries its
+      // options in order, so the type decodes as an untagged union of the same shapes.
+      const schemas = [
+        ...new Map(
+          entry.schemas.map((candidate) => [JSON.stringify(candidate), candidate]),
+        ).values(),
+      ];
+      properties[entry.name] =
+        schemas.length === 1
+          ? schemas[0]
+          : { title: entry.name, oneOf: schemas.map((candidate) => ({ allOf: [candidate] })) };
+      wireMessages[direction].push({ type: typeName, name: entry.name });
+    }
+  }
+}
+
+/** One branch of a wire union, as the root typify should give a name. */
+function flattenBranch(
+  document: unknown,
+  branch: unknown,
+  prefix: string,
+  direction: string,
+): [string, { name: string; schema: unknown }][] {
+  const types = branchTypes(document, branch);
+  if (types.length === 0) {
+    const record = branch as Record<string, unknown> | null;
+    const nested = record?.oneOf ?? record?.anyOf;
+    if (record !== null && typeof record === "object" && Array.isArray(nested))
+      return nested.flatMap((option) => flattenBranch(document, option, prefix, direction));
+    throw new Error(`${direction} union: a branch has no \`type\` const to name it`);
+  }
+  return types.map((typeName) => {
+    const name = `${prefix}${pascal(typeName)}`;
+    const record = branch as Record<string, unknown>;
+    const copy = JSON.parse(JSON.stringify(record)) as Record<string, unknown>;
+    if (copy.properties !== null && typeof copy.properties === "object") {
+      const properties = copy.properties as Record<string, unknown>;
+      if (properties.type !== undefined) properties.type = { type: "string", const: typeName };
+    }
+    delete copy.title;
+    const named =
+      typeof record.$ref === "string" ? { title: name, allOf: [copy] } : { ...copy, title: name };
+    return [typeName, { name, schema: named }] as [string, { name: string; schema: unknown }];
+  });
+}
+
+/** `browser.backend.register` → `BrowserBackendRegister`. */
+function pascal(type_: string): string {
+  const parts = type_.split(/[^A-Za-z0-9]+/).filter((part) => part.length > 0);
+  const name = parts.map((part) => part[0]?.toUpperCase() + part.slice(1)).join("");
+  return /^[A-Za-z]/.test(name) ? name : `T${name}`;
+}
+
+/** The `type` values one branch carries: a `const`, an `enum`, or a nested union. */
+function branchTypes(document: unknown, branch: unknown): string[] {
+  if (branch === null || typeof branch !== "object") return [];
+  const record = branch as Record<string, unknown>;
+  if (typeof record.$ref === "string") {
+    const defs = (document as Record<string, unknown>).$defs;
+    const name = record.$ref.replace(/^#\/\$defs\//, "");
+    if (defs !== null && typeof defs === "object")
+      return branchTypes(document, (defs as Record<string, unknown>)[name]);
+    return [];
+  }
+  const properties =
+    record.properties !== null && typeof record.properties === "object"
+      ? (record.properties as Record<string, unknown>)
+      : undefined;
+  const typeField = properties?.type as Record<string, unknown> | undefined;
+  if (typeField !== undefined && typeof typeField === "object") {
+    const ref = typeField.$ref;
+    if (typeof ref === "string") return branchTypes(document, typeField);
+    if (typeof typeField.const === "string") return [typeField.const];
+    if (Array.isArray(typeField.enum))
+      return typeField.enum.filter((value): value is string => typeof value === "string");
+  }
+  if (typeof record.const === "string") return [record.const];
+  const nested = record.oneOf ?? record.anyOf;
+  if (Array.isArray(nested)) return nested.flatMap((option) => branchTypes(document, option));
+  return [];
+}
+
+/** Replace every `$ref` to a constant schema with that schema, in place. */
+function inlineConstantRefs(document: unknown): void {
+  if (document === null || typeof document !== "object" || Array.isArray(document)) return;
+  const defs = (document as Record<string, unknown>).$defs;
+  const table =
+    defs !== null && typeof defs === "object" ? (defs as Record<string, unknown>) : undefined;
+  const inline = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) inline(item);
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    const ref = record.$ref;
+    if (typeof ref === "string" && table !== undefined) {
+      const name = ref.replace(/^#\/\$defs\//, "");
+      const target = table[name];
+      if (
+        target !== null &&
+        typeof target === "object" &&
+        !Array.isArray(target) &&
+        (target as Record<string, unknown>).const !== undefined
+      ) {
+        for (const key of Object.keys(record)) delete record[key];
+        Object.assign(record, JSON.parse(JSON.stringify(target)));
+        return;
+      }
+    }
+    for (const value of Object.values(record)) inline(value);
+  };
+  inline(document);
+}
+
+/**
+ * A union whose branches fix their discriminator with an `enum` (one branch can be
+ * `kind: "browser" | "notebook" | "custom"`) is not detected as tagged by typify, which only
+ * reads a single `const`; serde then tries variants by shape and drops the fields of the right
+ * one. Expand such a branch into one branch per value, each with a `const`.
+ */
+function splitEnumTags(document: unknown): void {
+  const walk = (node: unknown): void => {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) return;
+    const record = node as Record<string, unknown>;
+    for (const combinator of ["oneOf", "anyOf"]) {
+      const branches = record[combinator];
+      if (!Array.isArray(branches)) continue;
+      // A branch that is a reference to a tagged union hides its tags from typify, which then
+      // treats the whole union as untagged. Splice such a branch's options in.
+      const resolved = resolveTaggedBranches(document, branches);
+      const candidates = discriminatorKeys(resolved);
+      const key = candidates[0];
+      if (key !== undefined) {
+        const expanded: unknown[] = [];
+        for (const branch of resolved) {
+          const branchRecord = branch as Record<string, unknown> | null;
+          const properties =
+            branchRecord !== null && typeof branchRecord === "object"
+              ? (branchRecord.properties as Record<string, unknown> | undefined)
+              : undefined;
+          const field =
+            properties !== undefined
+              ? (properties[key] as Record<string, unknown> | undefined)
+              : undefined;
+          const values = field?.enum;
+          if (Array.isArray(values) && values.every((value) => typeof value === "string")) {
+            for (const value of values) {
+              const copy = JSON.parse(JSON.stringify(branchRecord)) as Record<string, unknown>;
+              const copyProperties = copy.properties as Record<string, unknown>;
+              copyProperties[key] = { type: "string", const: value };
+              delete copy.title;
+              expanded.push(copy);
+            }
+          } else {
+            expanded.push(branch);
+          }
+        }
+        record[combinator] = expanded;
+        for (const branch of expanded) walk(branch);
+        continue;
+      }
+      for (const branch of resolved) walk(branch);
+    }
+    for (const value of Object.values(record)) walk(value);
+  };
+  walk(document);
+}
+
+/** A union's branches, with a `$ref` to a tagged union or object spliced in for its options. */
+function resolveTaggedBranches(document: unknown, branches: unknown[]): unknown[] {
+  const defs = (document as Record<string, unknown>).$defs;
+  if (defs === null || typeof defs !== "object") return branches;
+  const resolve = (ref: string): unknown => {
+    const name = ref.replace(/^#\/\$defs\//, "");
+    return (defs as Record<string, unknown>)[name];
+  };
+  return branches.flatMap((branch) => {
+    const record = branch as Record<string, unknown> | null;
+    if (record === null || typeof record !== "object" || typeof record.$ref !== "string")
+      return [branch];
+    const target = resolve(record.$ref) as Record<string, unknown> | undefined;
+    if (target === undefined || typeof target !== "object") return [branch];
+    const options = Array.isArray(target.oneOf) ? target.oneOf : [target];
+    const every = options.every((option) => {
+      const optionRecord = option as Record<string, unknown> | null;
+      return optionRecord !== null && typeof optionRecord === "object";
+    });
+    if (!every) return [branch];
+    return options.map((option) => JSON.parse(JSON.stringify(option)) as unknown);
+  });
+}
+
+/** Keys every branch fixes with a `const` or a string `enum`, sorted as typify sorts them. */
+function discriminatorKeys(branches: unknown[]): string[] {
+  let common: Set<string> | undefined;
+  for (const branch of branches) {
+    const record = branch as Record<string, unknown> | null;
+    if (record === null || typeof record !== "object") return [];
+    const properties = record.properties as Record<string, unknown> | undefined;
+    const required = record.required;
+    if (properties === undefined || !Array.isArray(required)) return [];
+    const fixed = new Set(
+      Object.entries(properties)
+        .filter(([key, fieldSchema]) => {
+          if (!required.includes(key)) return false;
+          if (fieldSchema === null || typeof fieldSchema !== "object") return false;
+          const field = fieldSchema as Record<string, unknown>;
+          if (typeof field.const === "string") return true;
+          const values = field.enum;
+          return Array.isArray(values) && values.every((value) => typeof value === "string");
+        })
+        .map(([key]) => key),
+    );
+    common = common === undefined ? fixed : new Set([...common].filter((key) => fixed.has(key)));
+  }
+  return [...(common ?? [])].toSorted();
+}
+
+/** Give every inline object and enum a title from its path, so typify names each one uniquely. */
+function titleInlineSchemas(document: unknown): void {
+  const properties = (document as Record<string, unknown>).properties;
+  if (properties !== null && typeof properties === "object")
+    for (const [name, child] of Object.entries(properties as Record<string, unknown>))
+      walkInline(child, pascal(name));
+  const defs = (document as Record<string, unknown>).$defs;
+  if (defs !== null && typeof defs === "object")
+    for (const [key, child] of Object.entries(defs as Record<string, unknown>)) {
+      const title = (child as Record<string, unknown> | null)?.title;
+      walkInline(child, typeof title === "string" ? pascal(title) : pascal(key));
+    }
+}
+
+/** One node of [`titleInlineSchemas`]. */
+function walkInline(node: unknown, parent: string): void {
+  if (node === null || typeof node !== "object") return;
+  if (Array.isArray(node)) return;
+  const record = node as Record<string, unknown>;
+  if (typeof record.$ref === "string") return;
+  const kind = record.type;
+  const named = kind === "object" || Array.isArray(record.enum);
+  if (named && typeof record.title !== "string" && parent !== "") record.title = parent;
+  const properties = record.properties;
+  if (properties !== null && typeof properties === "object" && !Array.isArray(properties)) {
+    for (const [key, child] of Object.entries(properties as Record<string, unknown>)) {
+      if (child === null || typeof child !== "object" || Array.isArray(child)) continue;
+      const childRecord = child as Record<string, unknown>;
+      if (typeof childRecord.$ref === "string") continue;
+      walkInline(child, `${parent}${pascal(key)}`);
+    }
+  }
+  const items = record.items;
+  if (items !== undefined) walkInline(items, `${parent}Item`);
+  const additional = record.additionalProperties;
+  if (additional !== null && typeof additional === "object")
+    walkInline(additional, `${parent}Value`);
+  for (const combinator of ["anyOf", "oneOf"]) {
+    const branches = record[combinator];
+    if (!Array.isArray(branches)) continue;
+    for (const [index, branch] of branches.entries()) {
+      if (branch === null || typeof branch !== "object" || Array.isArray(branch)) continue;
+      const branchRecord = branch as Record<string, unknown>;
+      if (typeof branchRecord.$ref === "string") continue;
+      const tag = constOf(branch);
+      walkInline(branch, `${parent}${tag === null ? `Branch${index}` : pascal(tag)}`);
+    }
+  }
+}
+
+/** The string a branch's own `type` field is fixed to, when it is inline. */
+function constOf(branch: Record<string, unknown>): string | null {
+  const properties = branch.properties;
+  if (properties === null || typeof properties !== "object") return null;
+  const value = (
+    (properties as Record<string, unknown>).type as Record<string, unknown> | undefined
+  )?.const;
+  return typeof value === "string" ? value : null;
+}
+
+/** `ace-protocol/src/wire.rs`: the per-message dispatch the transport and the daemon use. */
+function wireSource(messages: { client: WireMessage[]; server: WireMessage[] }): string {
+  const names = (list: WireMessage[]): void => {
+    const seen = new Map<string, string>();
+    const used = new Set<string>();
+    for (const message of list) {
+      const previous = seen.get(message.type);
+      if (previous !== undefined)
+        throw new Error(`${message.type} is defined twice (${previous}, ${message.name})`);
+      seen.set(message.type, message.name);
+      if (used.has(message.name)) throw new Error(`two message types are named ${message.name}`);
+      used.add(message.name);
+    }
+  };
+  names(messages.client);
+  names(messages.server);
+  const variants = (list: WireMessage[]) =>
+    list.map((message) => `    ${message.name}(${message.name}),`).join("\n");
+  const typeArms = (list: WireMessage[], union: string) =>
+    list
+      .map(
+        (message) => `            ${union}::${message.name}(_) => ${JSON.stringify(message.type)},`,
+      )
+      .join("\n");
+  const decodeArms = (list: WireMessage[], union: string) =>
+    list
+      .map(
+        (message) =>
+          `        ${JSON.stringify(message.type)} => Some(\n            ace_json::from_value(value)\n                .map(${union}::${message.name})\n                .map_err(|error| error.to_string()),\n        ),`,
+      )
+      .join("\n");
+  const encodeArms = (list: WireMessage[], union: string) =>
+    list
+      .map(
+        (message) =>
+          `        ${union}::${message.name}(body) => {\n            ace_json::ser::to_string(body).map_err(|error| error.to_string())\n        }`,
+      )
+      .join("\n");
+  const enumOf = (
+    direction: "client" | "server",
+    union: string,
+  ) => `/// One ${direction} message body, as its own generated type.
+#[derive(Clone, Debug)]
+pub enum ${union} {
+${variants(messages[direction])}
+}
+
+impl ${union} {
+    /// The wire \`type\` this body is.
+    pub fn type_(&self) -> &'static str {
+        match self {
+${typeArms(messages[direction], union)}
+        }
+    }
+}`;
+  return `// SPDX-License-Identifier: Apache-2.0
+// Generated by scripts/generate-rust-protocol.ts -- do not edit.
+//! The wire's dispatch (ADR 0226 §3): the envelope names a \`type\`, and the body decodes with
+//! that message's own generated type. One variant per type, in the schema's own order.
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::unwrap_used)]
+
+use ace_json::Value;
+
+use crate::generated::*;
+
+${enumOf("client", "ClientBody")}
+
+/// Decode a client body as its \`type\` names it; \`None\` when no message has that type.
+pub fn decode_client(type_: &str, value: &Value) -> Option<Result<ClientBody, String>> {
+    match type_ {
+${decodeArms(messages.client, "ClientBody")}
+        _ => None,
+    }
+}
+
+/// \`body\` as the bytes a client parses, through \`ace-json\`.
+pub fn encode_client(body: &ClientBody) -> Result<String, String> {
+    match body {
+${encodeArms(messages.client, "ClientBody")}
+    }
+}
+
+${enumOf("server", "ServerBody")}
+
+/// Decode a server body as its \`type\` names it; \`None\` when no message has that type.
+pub fn decode_server(type_: &str, value: &Value) -> Option<Result<ServerBody, String>> {
+    match type_ {
+${decodeArms(messages.server, "ServerBody")}
+        _ => None,
+    }
+}
+
+/// \`body\` as the bytes a client parses, through \`ace-json\`.
+pub fn encode_server(body: &ServerBody) -> Result<String, String> {
+    match body {
+${encodeArms(messages.server, "ServerBody")}
+    }
+}
+`;
+}
 
 function runMain(): void {
   const scratchDir = mkdtempSync(join(tmpdir(), "ace-protocol-"));
@@ -279,10 +723,11 @@ function generate(scratchDir: string): void {
   const schemaPath = join(scratchDir, "protocol.json");
   writeFileSync(schemaPath, `${JSON.stringify(schema)}\n`);
   const raw = join(scratchDir, "generated.raw.rs");
-  const out = cargo(["run", "--quiet", "-p", "ace-protocol-gen", "--", schemaPath], {
+  const typed = cargo(["run", "--quiet", "-p", "ace-protocol-gen", "--", schemaPath], {
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
   });
+  const out = typed;
   // The file is committed and never hand-edited; the header marks it as
   // generated and silences lints inherent to typify's output style: casing
   // from wire values (`-1`, `+1`), infallible conversions it emits as
@@ -294,9 +739,27 @@ function generate(scratchDir: string): void {
 #![allow(clippy::derivable_impls)]
 #![allow(clippy::infallible_try_from)]
 #![allow(clippy::large_enum_variant)]
+#![allow(clippy::unwrap_used)]
 `;
+  // `typify` spells an unconstrained value as `serde_json::Value`, whose map is sorted by key.
+  // A wire value keeps the key order it was given (`z.unknown()` payloads go to clients
+  // verbatim), so the same tree is `ace_json::Value`, which parses and writes in JS order.
   writeFileSync(raw, `${header}${out}`);
-  // Format with the pinned toolchain's rustfmt, as `cargo fmt` would.
+  // Format with the pinned toolchain's rustfmt, as `cargo fmt` would; replace, then format
+  // again so the replacements' own line lengths are the formatter's decision.
+  runRustfmt(raw);
+  const replaced = readFileSync(raw, "utf8")
+    .replaceAll(
+      "::serde_json::Map<::std::string::String, ::serde_json::Value>",
+      "::ace_json::Map",
+    )
+    .replaceAll("::serde_json::Map::is_empty", "::ace_json::Map::is_empty")
+    .replaceAll("::serde_json::Value", "::ace_json::Value")
+    .replaceAll("::serde_json::Map", "::ace_json::Map")
+    // typify's `Default` for an unconstrained object's `{}`: `ace_json::Map`'s item type is
+    // fixed, so the empty literal can't infer it.
+    .replaceAll("[].into_iter().collect()", "Default::default()");
+  writeFileSync(raw, replaced);
   runRustfmt(raw);
   const generated = join(root, "native", "daemon", "crates", "ace-protocol", "src", "generated.rs");
   const formatted = readFileSync(raw, "utf8");
@@ -317,7 +780,43 @@ function generate(scratchDir: string): void {
     THREAD_CLIENT_COLUMN: ThreadClientFields.omit({ details: true }),
     THREAD_DETAILS: ThreadDetails,
     THREAD_PROVIDER_METADATA: ThreadProviderMetadata,
+    // The wire's roots (ADR 0226 §3): what Zod's parse keeps of every client and server
+    // message, in schema order, so a Rust decoder strips, defaults and orders like Zod.
+    CLIENT_MESSAGE: ClientMessage,
+    BROWSER_BACKEND_CLIENT_MESSAGE: BrowserBackendClientMessage,
+    USER_BROWSER_EXTENSION_MESSAGE: UserBrowserExtensionMessage,
+    SERVER_MESSAGE: ServerMessage,
+    CORE_CLIENT_MESSAGE: CoreClientMessage,
+    CORE_SERVER_MESSAGE: CoreServerMessage,
   });
+  // The wire's dispatch: one variant per message type, decoded by the envelope's `type`.
+  const wireTarget = join(root, "native", "daemon", "crates", "ace-protocol", "src", "wire.rs");
+  const wirePath = join(scratchDir, "wire.rs");
+  writeFileSync(wirePath, wireSource(wireMessages));
+  runRustfmt(wirePath);
+  const wire = readFileSync(wirePath, "utf8");
+  if (process.argv.includes("--check")) {
+    let committed = "";
+    try {
+      committed = readFileSync(wireTarget, "utf8");
+    } catch {
+      // Missing files are stale too, and the message below names them.
+    }
+    if (wire !== committed)
+      throw new Error(`${wireTarget} is stale; run bun scripts/generate-rust-protocol.ts`);
+    console.log("ace-protocol/src/wire.rs is fresh");
+  } else {
+    writeFileSync(wireTarget, wire);
+    console.log(`wrote ${wireTarget}`);
+  }
+  // Files a previous generation wrote for roots that are gone would otherwise linger. Only
+  // touch the directory when writing; `--check` compares what the table names.
+  if (!process.argv.includes("--check")) {
+    const written = new Set(shapeFiles.keys());
+    for (const name of readdirSync(shapesDir)) {
+      if (name.endsWith(".rs") && !written.has(name)) rmSync(join(shapesDir, name));
+    }
+  }
   // Write every part first, so rustfmt can resolve `mod` from `mod.rs` in the scratch dir.
   const rawPaths = [...shapeFiles].map(([name, source]) => {
     const path = join(scratchDir, name);

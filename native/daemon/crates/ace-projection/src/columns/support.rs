@@ -24,7 +24,7 @@ pub(super) fn simple(thread: &Map, column: Column) -> Result<ColumnValue, Column
 /// The object one shape leaves of the thread, its fields in schema order.
 pub(super) fn shaped(thread: &Map, shape: &'static Shape) -> Value {
     match shape {
-        Shape::Object(fields) => Value::Object(strip_object(fields, thread)),
+        Shape::Object { fields, .. } => Value::Object(strip_object(fields, thread)),
         _ => Value::Object(thread.clone()),
     }
 }
@@ -82,7 +82,7 @@ pub(super) fn columns_equal(previous: &Map, next: &Map, column: Column) -> bool 
 /// `JSON.stringify(clientKeys.map((key) => thread[key]))`: the shape's keys, null when absent.
 fn client_compare(thread: &Map) -> JsString {
     let fields = match &THREAD_CLIENT_COLUMN {
-        Shape::Object(fields) => *fields,
+        Shape::Object { fields, .. } => *fields,
         _ => &[],
     };
     let mut items = ace_json::Array::new();

@@ -38,6 +38,10 @@ execFileSync("bun", ["scripts/generate-transport-routes.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+// The wire contract (ADR 0226 §3): every sample the repository already has goes through Zod
+// and through the generated Rust types, and both encoders' bytes must be the same. Zod's
+// answer stands, so a mismatch is a Rust bug.
+execFileSync("bun", ["scripts/check-wire-fixtures.ts"], { cwd: root, stdio: "inherit" });
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),

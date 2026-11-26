@@ -13,6 +13,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# ace-json: the shape table's walk keeps values in JavaScript's key order, numbers and lone
+# surrogates, as Zod's parse does.
+ace-json = { path = "../ace-json" }
 # serde: generated types serialize for tests and stored rows.
 serde = { version = "1", features = ["derive"] }
 # serde_json: generated types keep stored JSON as stored (RawValue), never re-encoded.
