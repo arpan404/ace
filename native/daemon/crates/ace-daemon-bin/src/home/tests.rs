@@ -255,14 +255,11 @@ fn a_fresh_start_carries_an_installed_release() {
     let _ = std::fs::write(root.join("old.txt"), "old data");
     let _ = std::fs::write(
         root.join(release).join("release.json"),
-        "{\"version\":\"1.2.3\",\"target\":\"darwin-arm64\"}",
+        "{\"version\":\"1.2.3\",\"channel\":\"stable\",\"target\":\"darwin-arm64\"}",
     );
     let _ = std::fs::write(
         root.join("bin/ace"),
-        format!(
-            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\n",
-            root.display()
-        ),
+        super::release::render_launcher(&root, super::release::Platform::Unix).unwrap_or_default(),
     );
     let _ = std::os::unix::fs::symlink(release, root.join("current"));
     let state = prepare(&root, 1, 1);
@@ -311,14 +308,11 @@ fn a_launcher_for_another_home_is_not_carried() {
     let _ = std::fs::write(root.join("old.txt"), "old data");
     let _ = std::fs::write(
         root.join(release).join("release.json"),
-        "{\"version\":\"1.2.3\",\"target\":\"darwin-arm64\"}",
+        "{\"version\":\"1.2.3\",\"channel\":\"stable\",\"target\":\"darwin-arm64\"}",
     );
     let _ = std::fs::write(
         root.join("bin/ace"),
-        format!(
-            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\n",
-            other.display()
-        ),
+        super::release::render_launcher(&other, super::release::Platform::Unix).unwrap_or_default(),
     );
     let _ = std::os::unix::fs::symlink(release, root.join("current"));
     let state = prepare(&root, 1, 1);
@@ -343,14 +337,11 @@ fn a_half_applied_update_is_not_carried() {
     let _ = std::fs::write(root.join("update.json"), "{}");
     let _ = std::fs::write(
         root.join(release).join("release.json"),
-        "{\"version\":\"1.2.3\",\"target\":\"darwin-arm64\"}",
+        "{\"version\":\"1.2.3\",\"channel\":\"stable\",\"target\":\"darwin-arm64\"}",
     );
     let _ = std::fs::write(
         root.join("bin/ace"),
-        format!(
-            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\n",
-            root.display()
-        ),
+        super::release::render_launcher(&root, super::release::Platform::Unix).unwrap_or_default(),
     );
     let _ = std::os::unix::fs::symlink(release, root.join("current"));
     match prepare(&root, 1, 1) {
@@ -359,6 +350,85 @@ fn a_half_applied_update_is_not_carried() {
         }) => assert_eq!(carried, None),
         other => panic!("expected no carried release: {other:?}"),
     }
+}
+
+/// The launcher is compared whole (`home-release.ts:37`–`:39`), not by the home it
+/// names: a script that sets this home but is not the one `install.sh` writes is
+/// another build's, and is not carried.
+#[test]
+fn a_launcher_that_is_not_the_installed_script_is_not_carried() {
+    let parent = TempDir::new("ace-home-release-script");
+    let root = parent.path().join(".ace");
+    let release = "releases/1.2.3-darwin-arm64";
+    let _ = std::fs::create_dir_all(root.join(release));
+    let _ = std::fs::create_dir_all(root.join("bin"));
+    let _ = std::fs::write(
+        root.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"channel\":\"stable\",\"target\":\"darwin-arm64\"}",
+    );
+    let _ = std::fs::write(
+        root.join("bin/ace"),
+        format!(
+            "#!/bin/sh\nACE_HOME='{}'\nexport ACE_HOME\nexec \"$ACE_HOME/current/bin/node\" \"$ACE_HOME/current/ace.mjs\" \"$@\"\n",
+            root.display()
+        ),
+    );
+    let _ = std::os::unix::fs::symlink(release, root.join("current"));
+    assert_eq!(
+        super::release::carried_version(&root, &root, super::release::Platform::Unix),
+        None
+    );
+}
+
+/// `home-release.ts:73`–`:96`: on Windows `current` is a pointer file and the
+/// launcher is `bin\ace.cmd`, the same batch file for every home: the whole file
+/// is compared with `renderLauncher`, and a release manifest needs its channel.
+#[test]
+fn a_windows_home_carries_its_pointer_release() {
+    let parent = TempDir::new("ace-home-release-windows");
+    let backup = parent.path().join(".ace");
+    // The batch file is the same for every home, so the home it is carried into differs.
+    let home = parent.path().join(".ace-next");
+    let release = "releases/1.2.3-win32-x64";
+    let _ = std::fs::create_dir_all(backup.join(release));
+    let _ = std::fs::create_dir_all(backup.join("bin"));
+    let _ = std::fs::write(
+        backup.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"channel\":\"preview\",\"target\":\"win32-x64\"}",
+    );
+    let _ = std::fs::write(backup.join("current"), "releases/1.2.3-win32-x64\r\n");
+    let launcher = super::release::render_launcher(&home, super::release::Platform::Windows)
+        .unwrap_or_default();
+    let _ = std::fs::write(backup.join("bin/ace.cmd"), &launcher);
+    assert_eq!(
+        super::release::carried_version(&backup, &home, super::release::Platform::Windows),
+        Some("1.2.3".to_owned())
+    );
+    // A launcher that is not exactly `renderCmdLauncher` is another build's.
+    let _ = std::fs::write(backup.join("bin/ace.cmd"), format!("{launcher}\r\n"));
+    assert_eq!(
+        super::release::carried_version(&backup, &home, super::release::Platform::Windows),
+        None
+    );
+    // The same home, read as a POSIX home: no symlink at `current`, so no release.
+    let _ = std::fs::write(
+        backup.join("bin/ace.cmd"),
+        super::release::render_launcher(&home, super::release::Platform::Windows)
+            .unwrap_or_default(),
+    );
+    assert_eq!(
+        super::release::carried_version(&backup, &home, super::release::Platform::Unix),
+        None
+    );
+    // The manifest needs the channel `InstalledRelease` reads.
+    let _ = std::fs::write(
+        backup.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"target\":\"win32-x64\"}",
+    );
+    assert_eq!(
+        super::release::carried_version(&backup, &home, super::release::Platform::Windows),
+        None
+    );
 }
 
 /// `home-claim.ts`: an older ace (0.x keeps no daemon-lock) that still holds a
@@ -395,4 +465,37 @@ fn an_older_ace_holding_the_home_is_refused() {
     }
     assert!(root.join("userdata/state.sqlite").exists());
     assert!(!parent.path().join(".ace-v0").exists());
+}
+
+/// `home-claim.ts`: a recorded pid file naming a running process refuses the home as an
+/// older ace's, and nothing moves; a pid that is gone lets the fresh start through.
+#[test]
+#[cfg(unix)]
+fn a_recorded_live_pid_refuses_the_home_and_a_stale_pid_does_not() {
+    let parent = TempDir::new("ace-home-pid");
+    let root = parent.path().join(".ace");
+    let _ = std::fs::create_dir_all(root.join("userdata"));
+    let _ = std::fs::write(root.join("userdata/state.sqlite"), "old ace data");
+    let mut holder = std::process::Command::new("/bin/sleep")
+        .arg("30")
+        .spawn()
+        .expect("a live process");
+    let _ = std::fs::write(root.join("daemon.pid"), holder.id().to_string());
+    match prepare(&root, 1, 1) {
+        Err(HomeError::Live { message, pid, .. }) => {
+            assert!(message.contains("older ace"), "{message}");
+            assert!(message.contains("Nothing was moved"), "{message}");
+            assert_eq!(pid, Some(i64::from(holder.id())));
+        }
+        other => panic!("a recorded live pid is refused: {other:?}"),
+    }
+    assert!(root.join("userdata/state.sqlite").exists());
+    assert!(!parent.path().join(".ace-v0").exists());
+
+    let _ = holder.kill();
+    let _ = holder.wait();
+    // A pid that is gone records nobody: the old home is backed up and a fresh one starts.
+    let _ = std::fs::write(root.join("daemon.pid"), "4294967");
+    assert!(matches!(prepare(&root, 1, 1), Ok(State::Fresh { .. })));
+    assert!(parent.path().join(".ace-v0/daemon.pid").exists());
 }

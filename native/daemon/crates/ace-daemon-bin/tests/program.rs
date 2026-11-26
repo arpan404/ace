@@ -7,7 +7,7 @@ mod support;
 
 use std::time::Duration;
 
-use support::{Home, request, token_is_64_hex};
+use support::{Home, answer_to_an_unfinished_chunked_body, request, token_is_64_hex};
 
 /// `cli-start.process.test.ts`: a fresh home starts, listens, and writes every
 /// file the CLI reads; a second start is refused as lock-held; SIGTERM stops it in
@@ -348,21 +348,38 @@ fn a_pairing_link_cannot_grant_scopes_the_creator_does_not_hold() {
 }
 
 /// `access-http.ts:35`–`:50`: a body over 16 KiB is refused while it streams, not
-/// collected first; the daemon stays up.
+/// collected first. The body is chunked and left open one byte past the limit, so the
+/// daemon's answer has to come before any body could have been collected; a
+/// collect-then-check reader sends nothing and the read times out.
 #[test]
 fn an_oversized_body_is_refused_at_its_limit() {
     let home = Home::new("body-limit");
     let mut daemon = home.start(false);
     let endpoint = daemon.ready(&home);
     let token = home.token();
-    let huge = "x".repeat(512 * 1024);
-    let pair_body = format!("{{\"code\":\"abc\",\"name\":\"Phone\",\"padding\":\"{huge}\"}}");
-    let (status, body) = request(&endpoint, "POST", "/v1/pair", "", &pair_body);
-    assert_eq!(status, 413, "{body}");
-    assert!(body.contains("Request too large"));
-    let stop_body = format!("{{\"padding\":\"{huge}\"}}");
-    let (status, body) = request(&endpoint, "POST", "/v1/stop", &token, &stop_body);
-    assert_eq!(status, 413, "{body}");
+    // 16 KiB is the limit; one byte past it is refused.
+    for (path, auth) in [("/v1/pair", ""), ("/v1/stop", token.as_str())] {
+        let answered = answer_to_an_unfinished_chunked_body(&endpoint, path, auth, 16 * 1024 + 1);
+        assert_eq!(
+            answered,
+            Some(413),
+            "{path} answers 413 while its body is still open"
+        );
+    }
+    // A body at the limit is not refused for its size: `/v1/pair` rejects its code, not the
+    // body. (The body ends here, so this also proves the reader accepts a complete one.)
+    let prefix = "{\"code\":\"abc\",\"padding\":\"";
+    let suffix = "\"}";
+    let at_limit = format!(
+        "{prefix}{}{suffix}",
+        "x".repeat(16 * 1024 - prefix.len() - suffix.len())
+    );
+    assert_eq!(at_limit.len(), 16 * 1024);
+    let (status, body) = request(&endpoint, "POST", "/v1/pair", "", &at_limit);
+    assert_ne!(
+        status, 413,
+        "a body at the limit is read, not refused: {body}"
+    );
     // The daemon is still serving.
     let (status, _) = request(&endpoint, "GET", "/v1/status", &token, "");
     assert_eq!(status, 200);

@@ -279,6 +279,45 @@ pub fn exchange_headers(
     String::from_utf8_lossy(&response).into_owned()
 }
 
+/// What the daemon answers to a chunked body that is sent up to `size` bytes and then left
+/// open: the status its answer carries, or `None` when it answers nothing before the read
+/// timeout.
+///
+/// The body never ends, so an implementation that collects a body before checking its limit
+/// cannot answer at all; one that checks as it reads answers `413` while the body is still open.
+pub fn answer_to_an_unfinished_chunked_body(
+    endpoint: &str,
+    path: &str,
+    token: &str,
+    size: usize,
+) -> Option<u16> {
+    let port = endpoint
+        .trim_start_matches("http://127.0.0.1:")
+        .trim_end_matches('/')
+        .parse::<u16>()
+        .unwrap_or(0);
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .ok()?;
+    let head = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+    );
+    // One chunk of exactly `size` bytes, and no terminating zero chunk.
+    let chunk = format!("{size:x}\r\n{}\r\n", "x".repeat(size));
+    if stream.write_all(head.as_bytes()).is_err() || stream.write_all(chunk.as_bytes()).is_err() {
+        return None;
+    }
+    let _ = stream.flush();
+    let mut response = Vec::new();
+    let _ = stream.read_to_end(&mut response);
+    String::from_utf8_lossy(&response)
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+}
+
 pub fn token_is_64_hex(token: &str) -> bool {
     token.len() == 64
         && token

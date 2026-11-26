@@ -7,6 +7,7 @@
 //! modules beside it; no behaviour lives here.
 
 mod auth;
+mod bounded_command;
 mod clock;
 mod config;
 mod daemon;

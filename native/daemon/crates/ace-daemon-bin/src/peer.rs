@@ -147,26 +147,30 @@ fn linux_holds(pid: i64, client: (u16, u16)) -> bool {
     false
 }
 
-/// `lsof -Fn` asked about this one process.
+/// `lsof -Fn` asked about this one process, bounded at 2 s and 1 MB
+/// (`peer-process.ts:77`–`:86`): a listing that never answers proves nobody.
 #[cfg(target_os = "macos")]
 fn lsof_holds(pid: i64, client: (u16, u16)) -> bool {
-    let output = std::process::Command::new("/usr/sbin/lsof")
-        .args([
-            "-nP",
-            "-a",
-            "-p",
-            &pid.to_string(),
-            "-iTCP",
-            "-sTCP:ESTABLISHED",
-            "-Fn",
-        ])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output();
-    let Ok(output) = output else {
+    let args: Vec<std::ffi::OsString> = [
+        "-nP".to_owned(),
+        "-a".to_owned(),
+        "-p".to_owned(),
+        pid.to_string(),
+        "-iTCP".to_owned(),
+        "-sTCP:ESTABLISHED".to_owned(),
+        "-Fn".to_owned(),
+    ]
+    .into_iter()
+    .map(Into::into)
+    .collect();
+    let Some(stdout) = crate::bounded_command::stdout(
+        std::path::Path::new("/usr/sbin/lsof"),
+        &args,
+        crate::bounded_command::LSOF_PROCESS,
+    ) else {
         return false;
     };
-    parse_lsof_tcp(&String::from_utf8_lossy(&output.stdout))
+    parse_lsof_tcp(&String::from_utf8_lossy(&stdout))
         .into_iter()
         .any(|pair| pair == client)
 }
@@ -276,5 +280,59 @@ mod tests {
         assert!(
             verified_with(&hint, connection, |_| true, |_| vec![(10, "a".to_owned())]).is_empty()
         );
+    }
+
+    /// The real edge (`native-loopback.process.test.ts:324`–`:426`): this process holds a
+    /// real socket's client end, so its own chain is verified for that connection and
+    /// nothing else is. The holder is read from the kernel (`lsof` or `/proc`), not
+    /// injected.
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn the_process_holding_a_real_connection_is_the_one_verified() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+        let address = listener.local_addr().expect("listener address");
+        let client = std::net::TcpStream::connect(address).expect("connect to the listener");
+        let (server, peer) = listener.accept().expect("accept the client");
+        let connection = Connection {
+            // The server's peer is this process's client socket.
+            remote_port: peer.port(),
+            local_port: server.local_addr().expect("server address").port(),
+        };
+        let me = i64::from(std::process::id());
+        let chain = real_chain(me);
+        assert!(!chain.is_empty(), "this process has a chain");
+        assert_eq!(
+            verified(&chain, connection),
+            chain,
+            "the process holding the client end is spared"
+        );
+
+        // A connection nothing holds spares nobody, though the chain is this process's.
+        let idle = Connection {
+            remote_port: 1,
+            local_port: 2,
+        };
+        assert!(verified(&chain, idle).is_empty());
+
+        // A real process that holds no such connection spares nobody, even when the
+        // chain it claims is its own (`hint: "test"` in `native-loopback.process.test.ts`).
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("a live process that holds nothing");
+        let child_chain = real_chain(i64::from(child.id()));
+        assert_eq!(verified(&child_chain, connection), Vec::new());
+        let _ = child.kill();
+        let _ = child.wait();
+
+        // A claimed start that is not the holder's real one spares nobody.
+        let mut forged = chain.clone();
+        if let Some(first) = forged.first_mut() {
+            first.1 = "0".to_owned();
+        }
+        assert!(verified(&forged, connection).is_empty());
+
+        drop(client);
+        drop(server);
     }
 }

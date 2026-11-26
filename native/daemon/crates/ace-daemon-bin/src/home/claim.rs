@@ -196,17 +196,18 @@ fn openers(files: &[PathBuf]) -> Vec<i64> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let output = std::process::Command::new("lsof")
-            .arg("-t")
-            .arg("--")
-            .args(files)
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output();
-        let Ok(output) = output else {
+        // `lsofOpeners`: bounded to 5 s (`home-openers.ts:110`–`:120`). A host without
+        // lsof, or one that times out, reports nobody, so a fresh start never sticks.
+        let mut args: Vec<std::ffi::OsString> = vec!["-t".into(), "--".into()];
+        args.extend(files.iter().map(|file| file.as_os_str().to_owned()));
+        let Some(stdout) = crate::bounded_command::stdout(
+            std::path::Path::new("lsof"),
+            &args,
+            crate::bounded_command::LSOF_OPENERS,
+        ) else {
             return Vec::new();
         };
-        String::from_utf8_lossy(&output.stdout)
+        String::from_utf8_lossy(&stdout)
             .lines()
             .filter_map(|line| line.trim().parse::<i64>().ok())
             .filter(|pid| *pid > 0)
