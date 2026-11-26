@@ -12,16 +12,19 @@
 //! annotations travel with its descriptor, and ace only hides what the caller's scope or a
 //! switched-off group cannot reach. It never adds an approval.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ace_json::{JsString, Map, Value};
 
 use crate::credentials::{CredentialRegistry, LeaseId, Principal};
-use crate::jsonrpc::{INTERNAL_ERROR, INVALID_PARAMS, Id, METHOD_NOT_FOUND, Message, RpcError};
+use crate::jsonrpc::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, Id, METHOD_NOT_FOUND, Message, RpcError,
+};
 use crate::limits::{
-    MAX_HEADER_BYTES, MAX_REQUESTS, NOTIFICATION_STREAMS_TOTAL, PROGRESS_INTERVAL_MS,
+    LEGACY_SESSIONS_PER_LEASE, LISTEN_STREAMS_PER_LEASE, MAX_HEADER_BYTES, MAX_REQUESTS,
+    NOTIFICATION_STREAMS_TOTAL, PROGRESS_INTERVAL_MS,
 };
 use crate::public_error::{PublicIssue, PublicToolError, ToolFailure, fixed_failure, tool_failure};
 use crate::registry::{CallOptions, ToolRegistry};
@@ -29,6 +32,7 @@ use crate::result::CallToolResult;
 use crate::scope::{ScopeChallenge, ScopeCheck, bearer, bearer_challenge, scope_refusal};
 use crate::sessions::{LegacySessions, SessionIds};
 use crate::signal::{Abort, Scheduler, TokioScheduler};
+use crate::streams::{NotificationStream, Streams};
 use crate::tool_names::{ACE_TOOL_DISPATCH, ACE_TOOL_SEARCH, DispatchedCall, dispatched_ace_call};
 use crate::toolsets::{
     CALL_BUDGET_HEADER, CODEX_CLIENT_HEADER, CORE_TOOLS_HEADER, OpenToolsets, ToolListing,
@@ -78,12 +82,25 @@ impl HttpRequest {
     }
 }
 
-/// One response the listener writes.
-#[derive(Debug, Clone)]
+/// One response the listener writes. A notification stream is written after the headers, as SSE
+/// frames, until it yields `None`.
 pub struct HttpResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    pub stream: Option<NotificationStream>,
+}
+
+impl std::fmt::Debug for HttpResponse {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HttpResponse")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .field("body", &self.body)
+            .field("stream", &self.stream)
+            .finish()
+    }
 }
 
 impl HttpResponse {
@@ -92,6 +109,7 @@ impl HttpResponse {
             status,
             headers: Vec::new(),
             body: Vec::new(),
+            stream: None,
         }
     }
 
@@ -100,6 +118,7 @@ impl HttpResponse {
             status,
             headers: vec![("content-type".to_owned(), "application/json".to_owned())],
             body: ace_json::to_string(value).into_bytes(),
+            stream: None,
         }
     }
 
@@ -107,92 +126,23 @@ impl HttpResponse {
     pub fn rpc_failure(status: u16, error: RpcError) -> HttpResponse {
         HttpResponse::json(status, &Message::failure(None, error))
     }
+
+    /// The SSE response a subscription is served as.
+    pub fn events(stream: NotificationStream) -> HttpResponse {
+        HttpResponse {
+            status: 200,
+            headers: vec![
+                ("content-type".to_owned(), "text/event-stream".to_owned()),
+                ("cache-control".to_owned(), "no-cache".to_owned()),
+            ],
+            body: Vec::new(),
+            stream: Some(stream),
+        }
+    }
 }
 
 /// A notification the server sends outside the request's reply (progress, list changes).
 pub type Emitter = Arc<dyn Fn(Value) + Send + Sync>;
-
-/// The listen streams a lease may hold and the server's total (`principal-bus.ts`).
-///
-/// A newer stream from a lease closes its oldest, so a reconnecting client is never refused; at
-/// the server-wide cap a stream is refused instead.
-#[derive(Default)]
-pub struct Streams {
-    leases: HashMap<LeaseId, VecDeque<u64>>,
-    frames: HashMap<u64, Vec<Value>>,
-    next: u64,
-}
-
-impl Streams {
-    /// Opens one stream for `lease`. `None` only when the server-wide total is reached.
-    pub fn open(&mut self, lease: LeaseId, per_lease: usize, total: usize) -> Option<u64> {
-        let owned = self.leases.entry(lease).or_default();
-        if owned.len() >= per_lease.max(1) {
-            if let Some(oldest) = owned.pop_front() {
-                self.frames.remove(&oldest);
-            }
-        } else if self.frames.len() >= total {
-            return None;
-        }
-        self.next += 1;
-        let id = self.next;
-        owned.push_back(id);
-        self.frames.insert(id, Vec::new());
-        Some(id)
-    }
-
-    /// Ends one stream; false when it was already gone.
-    pub fn close(&mut self, id: u64) -> bool {
-        self.frames.remove(&id).is_some() && {
-            for owned in self.leases.values_mut() {
-                owned.retain(|held| *held != id);
-            }
-            self.leases.retain(|_, owned| !owned.is_empty());
-            true
-        }
-    }
-
-    /// Queues `notifications/tools/list_changed` for every stream of `lease`.
-    pub fn tools_changed(&mut self, lease: LeaseId) {
-        let Some(owned) = self.leases.get(&lease) else {
-            return;
-        };
-        let ids: Vec<u64> = owned.iter().copied().collect();
-        for id in ids {
-            if let Some(frames) = self.frames.get_mut(&id) {
-                frames.push(Message::notification(
-                    "notifications/tools/list_changed",
-                    Value::Object(Map::new()),
-                ));
-            }
-        }
-    }
-
-    /// The frames waiting for one stream; the daemon's SSE writer calls this.
-    pub fn drain(&mut self, id: u64) -> Vec<Value> {
-        self.frames
-            .get_mut(&id)
-            .map(std::mem::take)
-            .unwrap_or_default()
-    }
-
-    pub fn held(&self, lease: LeaseId) -> usize {
-        self.leases.get(&lease).map_or(0, VecDeque::len)
-    }
-
-    /// Ends every stream of a lease that ended.
-    pub fn close_lease(&mut self, lease: LeaseId) {
-        if let Some(owned) = self.leases.remove(&lease) {
-            for id in owned {
-                self.frames.remove(&id);
-            }
-        }
-    }
-
-    pub fn total(&self) -> usize {
-        self.frames.len()
-    }
-}
 
 /// One JSON-RPC request as a lease spied it: request ids are per caller, never per session name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -206,7 +156,10 @@ struct CallKey {
 struct Shared {
     calls: Mutex<HashMap<CallKey, Abort>>,
     toolsets: Mutex<OpenToolsets>,
-    streams: Mutex<Streams>,
+    /// `subscriptions/listen` streams (two a lease).
+    listen: Mutex<Streams>,
+    /// Legacy transport GET streams (one per session, four sessions a lease).
+    legacy_streams: Mutex<Streams>,
     legacy: Mutex<LegacySessions>,
     watched: Mutex<HashSet<LeaseId>>,
 }
@@ -230,7 +183,11 @@ impl Shared {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .forget(lease);
-        self.streams
+        self.listen
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .close_lease(lease);
+        self.legacy_streams
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .close_lease(lease);
@@ -239,6 +196,36 @@ impl Shared {
             .unwrap_or_else(|error| error.into_inner())
             .forget_lease(lease);
     }
+
+    /// Ends one stream the listener dropped. A legacy GET's stream also ends its transport
+    /// session, as a disconnected stream owns no usable transport state
+    /// (`legacy-sessions.ts:47`).
+    fn end_stream(&self, kind: StreamKind, id: u64, session: Option<&str>) {
+        self.stream(kind)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .close(id);
+        if let Some(session) = session {
+            self.legacy
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .close_any(session);
+        }
+    }
+
+    fn stream(&self, kind: StreamKind) -> &Mutex<Streams> {
+        match kind {
+            StreamKind::Listen => &self.listen,
+            StreamKind::Legacy => &self.legacy_streams,
+        }
+    }
+}
+
+/// Which bound a notification stream is counted against (`http.ts:93`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamKind {
+    Listen,
+    Legacy,
 }
 
 /// One MCP endpoint's state: the registry, the authority and the bounds.
@@ -303,7 +290,8 @@ impl McpServer {
             shared: Arc::new(Shared {
                 calls: Mutex::new(HashMap::new()),
                 toolsets: Mutex::new(OpenToolsets::new()),
-                streams: Mutex::new(Streams::default()),
+                listen: Mutex::new(Streams::default()),
+                legacy_streams: Mutex::new(Streams::default()),
                 legacy: Mutex::new(LegacySessions::new(
                     NOTIFICATION_STREAMS_TOTAL,
                     options
@@ -330,13 +318,39 @@ impl McpServer {
             .close_all();
     }
 
-    /// Announces a changed tool list to every open stream of `lease`.
+    /// Announces a changed tool list to every open stream of `lease`, modern and legacy.
     pub fn tools_changed(&self, lease: LeaseId) {
         self.shared
-            .streams
+            .listen
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .tools_changed(lease);
+        self.shared
+            .legacy_streams
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .tools_changed(lease);
+    }
+
+    /// Opens one notification stream for `lease`; `None` at the server-wide cap.
+    fn open_stream(
+        &self,
+        kind: StreamKind,
+        lease: LeaseId,
+        per_lease: usize,
+        session: Option<&str>,
+    ) -> Option<NotificationStream> {
+        let (id, frames) = self
+            .shared
+            .stream(kind)
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .open(lease, per_lease, NOTIFICATION_STREAMS_TOTAL)?;
+        let shared = Arc::clone(&self.shared);
+        let session = session.map(str::to_owned);
+        Some(NotificationStream::new(id, frames, move || {
+            shared.end_stream(kind, id, session.as_deref());
+        }))
     }
 
     /// Forgets a lease's calls, families, streams and sessions the moment it ends (`forget`,
@@ -405,8 +419,13 @@ impl McpServer {
             return response;
         };
         self.watch(&principal);
-        // A named legacy session must exist and belong to this lease.
+        // A legacy transport session exists only for a client that opted into its notification
+        // stream (`http.ts:619`); every other client is served statelessly.
+        let legacy_client = header(&request.headers, "x-ace-notifications") == Some("stream");
         if let Some(id) = request.header("mcp-session-id").map(str::to_owned) {
+            if !legacy_client {
+                return HttpResponse::empty(404);
+            }
             if request.method == "DELETE" {
                 let removed = self
                     .shared
@@ -430,14 +449,33 @@ impl McpServer {
             if !known {
                 return HttpResponse::empty(404);
             }
-            if request.method != "POST" {
-                return HttpResponse::empty(405);
-            }
-            return self.post(request, principal, emit).await;
+            return match request.method.as_str() {
+                "POST" => self.post(request, principal, emit).await,
+                // The session's GET is its server-to-client stream (`legacy-sessions.ts:47`).
+                "GET" => match self.open_stream(
+                    StreamKind::Legacy,
+                    principal.lease,
+                    LEGACY_SESSIONS_PER_LEASE,
+                    Some(&id),
+                ) {
+                    Some(stream) => HttpResponse::events(stream),
+                    None => HttpResponse::empty(503),
+                },
+                _ => HttpResponse::empty(405),
+            };
+        }
+        // A listen request is a `subscriptions/listen` whose header and body agree
+        // (`http.ts:624`).
+        if header(&request.headers, "mcp-method") == Some("subscriptions/listen") {
+            return self.listen(&principal, &request);
+        }
+        if legacy_client && request.method != "POST" {
+            // The legacy route answers a method it cannot serve with 400, not 405.
+            return HttpResponse::empty(400);
         }
         match request.method.as_str() {
             "POST" => {
-                let creates = is_legacy_initialize(&request);
+                let creates = legacy_client && is_legacy_initialize(&request);
                 let mut response = self.post(request, principal.clone(), emit).await;
                 if creates && response.status == 200 {
                     let opened = self
@@ -456,6 +494,41 @@ impl McpServer {
             "DELETE" => HttpResponse::empty(400),
             "GET" | "HEAD" => HttpResponse::empty(405),
             _ => HttpResponse::empty(405),
+        }
+    }
+
+    /// Opens one `subscriptions/listen` stream for the lease (`principal-bus.ts`). At the
+    /// server-wide cap the request is refused, as the SDK refuses its own listen.
+    fn listen(&self, principal: &Principal, request: &HttpRequest) -> HttpResponse {
+        if request.body.len() > self.max_body_bytes {
+            return HttpResponse::empty(413);
+        }
+        let Ok(Message::Request { id, method, .. }) = Message::parse(&request.body) else {
+            return HttpResponse::rpc_failure(
+                400,
+                RpcError::new(INVALID_REQUEST, "Invalid Request"),
+            );
+        };
+        if method != "subscriptions/listen" {
+            return HttpResponse::rpc_failure(
+                400,
+                RpcError::new(INVALID_REQUEST, "Invalid Request"),
+            );
+        }
+        match self.open_stream(
+            StreamKind::Listen,
+            principal.lease,
+            LISTEN_STREAMS_PER_LEASE,
+            None,
+        ) {
+            Some(stream) => HttpResponse::events(stream),
+            None => HttpResponse::json(
+                200,
+                &Message::failure(
+                    Some(&id),
+                    RpcError::new(INTERNAL_ERROR, "Subscription limit reached"),
+                ),
+            ),
         }
     }
 
@@ -486,6 +559,7 @@ impl McpServer {
                         status,
                         headers,
                         body: body.into_bytes(),
+                        stream: None,
                     };
                 }
             }
@@ -931,8 +1005,15 @@ fn initialize(params: Option<&Value>, headers: &[(String, String)]) -> Value {
     let version = requested
         .filter(|version| PROTOCOL_VERSIONS.contains(version))
         .unwrap_or(LATEST_PROTOCOL);
+    // Never advertise what cannot be delivered: a 2026 client's listen is routed, and a legacy
+    // client that opted into its GET stream can hear changes; anyone else cannot.
+    let deliverable = requested == Some(LATEST_PROTOCOL)
+        || header(headers, "mcp-method").is_some()
+        || header(headers, "x-ace-notifications") == Some("stream");
     let mut tools = Map::with_capacity(1);
-    tools.insert("listChanged", Value::Bool(true));
+    if deliverable {
+        tools.insert("listChanged", Value::Bool(true));
+    }
     let mut capabilities = Map::with_capacity(2);
     capabilities.insert("tools", Value::Object(tools));
     capabilities.insert("resources", Value::Object(Map::new()));

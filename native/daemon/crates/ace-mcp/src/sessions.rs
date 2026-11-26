@@ -126,6 +126,12 @@ impl LegacySessions {
         }
     }
 
+    /// Ends `id` whatever lease owns it. Used by a listener that dropped a GET stream: the
+    /// session was already authenticated when it opened, and its stream owned the transport.
+    pub(crate) fn close_any(&mut self, id: &str) -> bool {
+        self.entries.shift_remove(id).is_some()
+    }
+
     pub fn close_all(&mut self) {
         self.entries.clear();
     }

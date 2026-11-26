@@ -734,40 +734,6 @@ async fn a_scoped_endpoint_refuses_a_call_before_it_runs() {
     let _ = &fixture.secrets;
 }
 
-#[test]
-fn notification_streams_are_bounded_per_lease_and_in_all() {
-    let mut streams = Streams::default();
-    let first = streams.open(LeaseId(1), 2, 3).expect("first");
-    let second = streams.open(LeaseId(1), 2, 3).expect("second");
-    // A newer stream from the same lease closes its oldest rather than being refused.
-    let third = streams
-        .open(LeaseId(1), 2, 3)
-        .expect("the lease's third replaces its oldest");
-    assert_ne!(third, first);
-    assert_eq!(streams.held(LeaseId(1)), 2);
-    assert!(
-        streams.drain(first).is_empty(),
-        "the replaced stream still had frames"
-    );
-    assert!(streams.open(LeaseId(2), 2, 3).is_some());
-    // The server-wide cap refuses a stream from a lease with no room of its own.
-    assert!(
-        streams.open(LeaseId(3), 2, 3).is_none(),
-        "a fourth stream in all"
-    );
-    streams.tools_changed(LeaseId(1));
-    let frames = streams.drain(second);
-    assert_eq!(frames.len(), 1);
-    assert_eq!(
-        frames[0].get("method").and_then(Value::as_str),
-        Some("notifications/tools/list_changed")
-    );
-    assert!(streams.close(second));
-    assert_eq!(streams.held(LeaseId(1)), 1);
-    assert!(streams.open(LeaseId(3), 2, 3).is_some());
-    assert!(!streams.close(second));
-}
-
 #[tokio::test]
 async fn rejects_missing_and_mismatched_mirrored_custom_headers_before_effects_and_decodes_encoded_values()
  {
@@ -879,6 +845,20 @@ async fn rejects_missing_and_mismatched_mirrored_custom_headers_before_effects_a
     );
 }
 
+/// A request from a client that opted into its legacy notification stream.
+fn stream_opt_in(mut request: HttpRequest) -> HttpRequest {
+    if !request
+        .headers
+        .iter()
+        .any(|(name, _)| name == "x-ace-notifications")
+    {
+        request
+            .headers
+            .push(("x-ace-notifications".to_owned(), "stream".to_owned()));
+    }
+    request
+}
+
 #[tokio::test]
 async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
     let fixture = Fixture::new(&[], 16, 4096);
@@ -895,13 +875,20 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
             .find(|(name, _)| name == "mcp-session-id")
             .map(|(_, value)| value.clone())
     };
-    let first = fixture.handle(&initialize(1)).await;
+    let first = fixture
+        .server
+        .handle(
+            stream_opt_in(fixture.request(&initialize(1))),
+            Arc::new(|_| {}),
+        )
+        .await;
     let first_id = session_of(&first).expect("the initialize opened no session");
     assert!(first_id.starts_with("legacy-"));
     // A later request names its session.
-    let mut call = fixture.request(
+    let call = stream_opt_in(fixture.request(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ace_echo","arguments":{"value":"legacy"}}}"#,
-    );
+    ));
+    let mut call = call;
     call.headers
         .push(("mcp-session-id".to_owned(), first_id.clone()));
     assert_eq!(
@@ -916,12 +903,7 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
             &Abort::new(),
         )
         .expect("lease");
-    let mut foreign = fixture.request("{}");
-    for (name, value) in foreign.headers.iter_mut() {
-        if name == "authorization" {
-            *value = format!("Bearer {}", other.bearer);
-        }
-    }
+    let mut foreign = as_lease(stream_opt_in(fixture.request("{}")), &other);
     foreign
         .headers
         .push(("mcp-session-id".to_owned(), first_id.clone()));
@@ -934,13 +916,8 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
         404
     );
     // A foreign DELETE is refused too, and leaves the owner's session open.
-    let mut foreign_delete = fixture.request("{}");
+    let mut foreign_delete = as_lease(stream_opt_in(fixture.request("{}")), &other);
     foreign_delete.method = "DELETE".to_owned();
-    for (name, value) in foreign_delete.headers.iter_mut() {
-        if name == "authorization" {
-            *value = format!("Bearer {}", other.bearer);
-        }
-    }
     foreign_delete
         .headers
         .push(("mcp-session-id".to_owned(), first_id.clone()));
@@ -953,7 +930,8 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
         404,
         "another lease ended this session"
     );
-    let mut owned_ping = fixture.request(r#"{"jsonrpc":"2.0","id":8,"method":"ping"}"#);
+    let mut owned_ping =
+        stream_opt_in(fixture.request(r#"{"jsonrpc":"2.0","id":8,"method":"ping"}"#));
     owned_ping
         .headers
         .push(("mcp-session-id".to_owned(), first_id.clone()));
@@ -969,12 +947,18 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
     // Reinitializing supersedes the oldest of the lease's four.
     let mut ids = vec![first_id.clone()];
     for id in 2..=5 {
-        let response = fixture.handle(&initialize(id)).await;
+        let response = fixture
+            .server
+            .handle(
+                stream_opt_in(fixture.request(&initialize(id))),
+                Arc::new(|_| {}),
+            )
+            .await;
         ids.push(session_of(&response).expect("no session"));
     }
     assert_eq!(ids.len(), 5);
     assert_ne!(ids[0], ids[4]);
-    let mut superseded = fixture.request("{}");
+    let mut superseded = stream_opt_in(fixture.request("{}"));
     superseded
         .headers
         .push(("mcp-session-id".to_owned(), ids[0].clone()));
@@ -986,7 +970,7 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
             .status,
         404
     );
-    let mut newest = fixture.request(r#"{"jsonrpc":"2.0","id":9,"method":"ping"}"#);
+    let mut newest = stream_opt_in(fixture.request(r#"{"jsonrpc":"2.0","id":9,"method":"ping"}"#));
     newest
         .headers
         .push(("mcp-session-id".to_owned(), ids[4].clone()));
@@ -995,7 +979,7 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
         200
     );
     // DELETE ends it; a second DELETE is 404. Without an id there is nothing to end: 400.
-    let mut delete = fixture.request("{}");
+    let mut delete = stream_opt_in(fixture.request("{}"));
     delete.method = "DELETE".to_owned();
     delete
         .headers
@@ -1004,7 +988,7 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
         fixture.server.handle(delete, Arc::new(|_| {})).await.status,
         200
     );
-    let mut again = fixture.request("{}");
+    let mut again = stream_opt_in(fixture.request("{}"));
     again.method = "DELETE".to_owned();
     again
         .headers
@@ -1013,7 +997,7 @@ async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
         fixture.server.handle(again, Arc::new(|_| {})).await.status,
         404
     );
-    let mut anonymous_delete = fixture.request("{}");
+    let mut anonymous_delete = stream_opt_in(fixture.request("{}"));
     anonymous_delete.method = "DELETE".to_owned();
     assert_eq!(
         fixture
@@ -1438,5 +1422,213 @@ async fn codexs_fixed_list_names_destructive_tools_and_tools_call_refuses_them()
             .and_then(|value| value.get("value"))
             .and_then(Value::as_str),
         Some("read")
+    );
+}
+
+/// A guide and a family tool, so a call can open a toolset and announce its list change.
+fn register_family(fixture: &Fixture) {
+    for name in ["guide", "thread_start"] {
+        let toolset = (name != "guide").then(|| "ace-threads".to_owned());
+        let mut entry = descriptor(
+            name,
+            None,
+            name,
+            "read-only",
+            None,
+            1_000,
+            if name == "guide" {
+                parse("{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\"}}}")
+                    .expect("schema")
+            } else {
+                parse("{\"type\":\"object\"}").expect("schema")
+            },
+            None,
+        );
+        entry.toolset = toolset;
+        fixture
+            .registry()
+            .register(ToolEntry::new(
+                entry,
+                Arc::new(FnTool(|input: Value, _context| async move { Ok(input) })),
+            ))
+            .expect("registration");
+    }
+}
+
+fn initialize_body(version: &str) -> String {
+    format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"{version}"}}}}"#
+    )
+}
+
+fn list_changed_capability(response: &HttpResponse) -> Option<bool> {
+    result_of(response)
+        .get("capabilities")
+        .and_then(|capabilities| capabilities.get("tools"))
+        .and_then(|tools| tools.get("listChanged"))
+        .and_then(Value::as_bool)
+}
+
+fn session_header(response: &HttpResponse) -> Option<&str> {
+    response
+        .headers
+        .iter()
+        .find(|(name, _)| name == "mcp-session-id")
+        .map(|(_, value)| value.as_str())
+}
+
+#[tokio::test]
+async fn list_changes_are_advertised_only_where_the_client_can_receive_them() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    let modern = fixture.handle(&initialize_body("2026-07-28")).await;
+    assert_eq!(
+        list_changed_capability(&modern),
+        Some(true),
+        "a modern client's listen stream is routed"
+    );
+    // A 2025 client without the opt-in is served statelessly: no session, and no list changes.
+    let plain = fixture.handle(&initialize_body("2025-06-18")).await;
+    assert_eq!(list_changed_capability(&plain), None);
+    assert_eq!(
+        session_header(&plain),
+        None,
+        "an un-opted legacy client got a session"
+    );
+    // With the opt-in its GET stream can deliver them.
+    let mut opted = fixture.request(&initialize_body("2025-06-18"));
+    opted
+        .headers
+        .push(("x-ace-notifications".to_owned(), "stream".to_owned()));
+    let opted = fixture.server.handle(opted, Arc::new(|_| {})).await;
+    assert_eq!(list_changed_capability(&opted), Some(true));
+    let id = session_header(&opted)
+        .expect("an opted legacy client got no session")
+        .to_owned();
+    let mut ping = fixture.request(r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#);
+    ping.headers
+        .push(("x-ace-notifications".to_owned(), "stream".to_owned()));
+    ping.headers.push(("mcp-session-id".to_owned(), id));
+    assert_eq!(
+        fixture.server.handle(ping, Arc::new(|_| {})).await.status,
+        200,
+        "the opted legacy session is not usable"
+    );
+}
+
+#[tokio::test]
+async fn a_modern_listen_stream_hears_its_lease_and_ends_when_the_lease_does() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    register_family(&fixture);
+    let mut listen =
+        fixture.request(r#"{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{}}"#);
+    listen
+        .headers
+        .push(("mcp-method".to_owned(), "subscriptions/listen".to_owned()));
+    let response = fixture.server.handle(listen, Arc::new(|_| {})).await;
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        response
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.as_str()),
+        Some("text/event-stream")
+    );
+    let mut stream = response.stream.expect("listen opened no stream");
+    let mut guide = fixture.request(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"guide","arguments":{"topic":"ace-threads"}}}"#,
+    );
+    guide
+        .headers
+        .push(("x-ace-tools".to_owned(), "core".to_owned()));
+    assert_eq!(
+        fixture.server.handle(guide, Arc::new(|_| {})).await.status,
+        200
+    );
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(1), stream.recv())
+        .await
+        .expect("no list change reached the stream")
+        .expect("the stream ended early");
+    assert_eq!(
+        frame.get("method").and_then(Value::as_str),
+        Some("notifications/tools/list_changed")
+    );
+    // Ending the lease ends its stream.
+    fixture.lease.end();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), stream.recv())
+            .await
+            .expect("the stream outlived its lease")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn a_legacy_get_stream_needs_the_opt_in_and_owns_its_session() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    register_family(&fixture);
+    let opt_in = |mut request: HttpRequest| {
+        request
+            .headers
+            .push(("x-ace-notifications".to_owned(), "stream".to_owned()));
+        request
+    };
+    let initialized = fixture
+        .server
+        .handle(
+            opt_in(fixture.request(&initialize_body("2025-06-18"))),
+            Arc::new(|_| {}),
+        )
+        .await;
+    let id = session_header(&initialized).expect("no session").to_owned();
+    // The event stream carries a list change.
+    let mut get = opt_in(fixture.request("{}"));
+    get.method = "GET".to_owned();
+    get.headers.push(("mcp-session-id".to_owned(), id.clone()));
+    let response = fixture.server.handle(get, Arc::new(|_| {})).await;
+    assert_eq!(response.status, 200);
+    let mut stream = response.stream.expect("GET opened no stream");
+    let mut guide = opt_in(fixture.request(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"guide","arguments":{"topic":"ace-threads"}}}"#,
+    ));
+    guide
+        .headers
+        .push(("x-ace-tools".to_owned(), "core".to_owned()));
+    guide
+        .headers
+        .push(("mcp-session-id".to_owned(), id.clone()));
+    assert_eq!(
+        fixture.server.handle(guide, Arc::new(|_| {})).await.status,
+        200
+    );
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(1), stream.recv())
+        .await
+        .expect("no list change reached the legacy stream")
+        .expect("the legacy stream ended early");
+    assert_eq!(
+        frame.get("method").and_then(Value::as_str),
+        Some("notifications/tools/list_changed")
+    );
+    // A disconnected stream owns no usable transport state: its session is gone.
+    drop(stream);
+    let mut after = opt_in(fixture.request(r#"{"jsonrpc":"2.0","id":3,"method":"ping"}"#));
+    after
+        .headers
+        .push(("mcp-session-id".to_owned(), id.clone()));
+    assert_eq!(
+        fixture.server.handle(after, Arc::new(|_| {})).await.status,
+        404,
+        "a session outlived its stream"
+    );
+    // Without the opt-in the id is not a session at all.
+    let mut uninvited = fixture.request(r#"{"jsonrpc":"2.0","id":4,"method":"ping"}"#);
+    uninvited.headers.push(("mcp-session-id".to_owned(), id));
+    assert_eq!(
+        fixture
+            .server
+            .handle(uninvited, Arc::new(|_| {}))
+            .await
+            .status,
+        404
     );
 }

@@ -19,5 +19,6 @@ pub mod result;
 pub mod scope;
 pub mod sessions;
 pub mod signal;
+pub mod streams;
 pub mod tool_names;
 pub mod toolsets;
