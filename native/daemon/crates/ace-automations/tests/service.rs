@@ -1466,3 +1466,77 @@ fn inputs_prompt(action: &Action) -> String {
         other => panic!("expected execute, got {other:?}"),
     }
 }
+
+// durability.test.ts: a watcher failure after install, health across restart, and a retry
+// that only clears the error when it succeeds.
+
+#[test]
+fn a_watcher_failure_reaches_the_service_without_stopping_healthy_work() {
+    let h = Harness::new();
+    let mut service = h.started();
+    let mut flaky = definition();
+    flaky.id = "flaky".to_owned();
+    flaky.workspace = "/flaky".to_owned();
+    flaky.trigger = Trigger::File {
+        paths: vec!["src/**".to_owned()],
+    };
+    let mut steady = definition();
+    steady.id = "steady".to_owned();
+    steady.workspace = "/steady".to_owned();
+    steady.trigger = Trigger::File {
+        paths: vec!["src/**".to_owned()],
+    };
+    service.put(&flaky, None).expect("flaky");
+    service.put(&steady, None).expect("steady");
+    let revision = service.watch_revision("flaky").expect("revision");
+    service
+        .watch_error("flaky", revision, "watcher lost")
+        .expect("error");
+    let listed = service.handle(&json(r#"{"type":"automation.list","requestId":"broken"}"#));
+    let entries = arr(&listed, "schedules");
+    let flaky_entry = entries
+        .iter()
+        .find(|entry| sv(entry, "id") == Some("flaky"))
+        .expect("flaky entry");
+    assert_eq!(
+        sv(at(flaky_entry, "triggerError").expect("error"), "message"),
+        Some("watcher lost")
+    );
+    service
+        .receive_file_event("steady", "steady-1", variables("src/ok.ts"))
+        .expect("steady");
+    let actions = service.take_actions();
+    assert_eq!(actions.len(), 1);
+    let (id, input) = execute(&actions[0]);
+    assert_eq!(sv(&input, "automationId"), Some("steady"));
+    service
+        .complete(&id, "succeeded", Some("thread"), Some("done"))
+        .expect("finish");
+}
+
+#[test]
+fn a_corrupted_count_cursor_parks_the_schedule_with_health_instead_of_hot_looping() {
+    let h = Harness::new();
+    let mut auto = scheduled("skip", 0);
+    if let Trigger::Schedule { schedule } = &mut auto.trigger {
+        schedule.expression = "FREQ=DAILY;COUNT=3".to_owned();
+    }
+    let mut service = h.started();
+    service.put(&auto, None).expect("put");
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("UPDATE automation_state SET state='not json' WHERE id='triage'")
+        .expect("corrupt");
+    raw.close().expect("close");
+    service.stop();
+    service.start().expect("start");
+    let job = h.store.metadata("triage").expect("get").expect("job");
+    assert!(job.trigger_error.is_some());
+    assert_eq!(job.due, None);
+}

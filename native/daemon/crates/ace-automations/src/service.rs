@@ -276,6 +276,11 @@ impl<'a> Service<'a> {
         self.watches.get(id).map(|watch| watch.revision)
     }
 
+    /// The revision a watcher's hooks carry, for the host to hand back on readiness or failure.
+    pub fn watch_revision(&self, id: &str) -> Option<u64> {
+        self.watch_current(id)
+    }
+
     /// The watcher reported readiness: clear the trigger's stored error if it is still current.
     pub fn watch_ready(&mut self, id: &str, revision: u64) -> Result<()> {
         if !self.lives.live() || self.watch_current(id) != Some(revision) {
