@@ -39,6 +39,35 @@ fn closed_error() -> SettingsError {
 /// One change a listener sees: the layer that changed and its keys.
 pub type ChangeListener = std::rc::Rc<dyn Fn(&Layer, &[String])>;
 
+/// What a subscriber hears: the effective entries that changed, or a file's diagnostic.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Notification {
+    Changed { entries: Vec<Entry> },
+    Diagnostic(FileDiagnostic),
+}
+
+/// A scoped subscription's listener.
+pub type Subscriber = Rc<dyn Fn(&Notification)>;
+
+/// One subscription: the keys it watches, the layers its scope has, and the effective
+/// entries it last saw, so a change that doesn't move its value stays quiet.
+struct Subscription {
+    keys: Vec<String>,
+    layers: Vec<Layer>,
+    last: RefCell<BTreeMap<String, Entry>>,
+    listener: Subscriber,
+}
+
+impl Subscription {
+    fn last(&self, key: &str) -> Option<Entry> {
+        self.last.borrow().get(key).cloned()
+    }
+
+    fn remember(&self, entry: Entry) {
+        self.last.borrow_mut().insert(entry.key.clone(), entry);
+    }
+}
+
 /// A change a file committed, waiting until no file borrow is held to be delivered.
 #[derive(Debug, Clone)]
 struct Pending {
@@ -60,6 +89,7 @@ pub struct SettingsService {
     /// Files a subscription holds: never evicted.
     pinned: BTreeSet<PathBuf>,
     listeners: Vec<ChangeListener>,
+    subscriptions: Vec<Rc<Subscription>>,
     pending: Rc<RefCell<Vec<Pending>>>,
     closed: bool,
     /// One pending debounced reload per file: a new change cancels the one before it.
@@ -104,6 +134,7 @@ impl SettingsService {
             order: Vec::new(),
             pinned: BTreeSet::new(),
             listeners: Vec::new(),
+            subscriptions: Vec::new(),
             pending: Rc::new(RefCell::new(Vec::new())),
             closed: false,
             timers: BTreeMap::new(),
@@ -309,8 +340,72 @@ impl SettingsService {
                 for listener in listeners {
                     listener(&event.layer, &event.change.keys);
                 }
+                Self::deliver_subscriptions(service, &event);
             }
         }
+    }
+
+    /// Delivers one file's change to the subscriptions whose scope has that layer. A
+    /// subscription hears only entries whose effective value moved, so a global change a
+    /// workspace overrides is silent.
+    fn deliver_subscriptions(service: &Rc<RefCell<Self>>, event: &Pending) {
+        let subscriptions: Vec<Rc<Subscription>> = service.borrow().subscriptions.clone();
+        for subscription in subscriptions {
+            if !subscription.layers.contains(&event.layer) {
+                continue;
+            }
+            let mut notifications = Vec::new();
+            let keys: Vec<String> = event
+                .change
+                .keys
+                .iter()
+                .filter(|key| subscription.keys.contains(key))
+                .cloned()
+                .collect();
+            if !keys.is_empty() {
+                let mut changed = Vec::new();
+                for key in keys {
+                    let entry = Self::resolve_in(service, &key, &subscription.layers);
+                    if subscription.last(&key).as_ref() != Some(&entry) {
+                        subscription.remember(entry.clone());
+                        changed.push(entry);
+                    }
+                }
+                if !changed.is_empty() {
+                    notifications.push(Notification::Changed { entries: changed });
+                }
+            }
+            if let Some(diagnostic) = &event.change.diagnostic {
+                let mut diagnostic = diagnostic.clone();
+                diagnostic.layer = event.layer.kind();
+                notifications.push(Notification::Diagnostic(diagnostic));
+            }
+            for notification in notifications {
+                (subscription.listener)(&notification);
+            }
+        }
+    }
+
+    /// `resolve` over a subscription's own layers.
+    fn resolve_in(service: &Rc<RefCell<Self>>, key: &str, layers: &[Layer]) -> Entry {
+        let borrowed = service.borrow();
+        let values: Vec<(Provenance, BTreeMap<String, Value>)> = layers
+            .iter()
+            .filter_map(|layer| {
+                let path = layer.path(&borrowed.data_dir).ok()?;
+                let file = borrowed.files.get(&path)?;
+                let settings = file.borrow().settings().clone();
+                Some((layer.kind(), settings))
+            })
+            .collect();
+        let layer_values: Vec<LayerValues<'_>> = values
+            .iter()
+            .map(|(layer, settings)| LayerValues {
+                layer: *layer,
+                settings,
+            })
+            .collect();
+        resolve(key, &layer_values, &borrowed.overrides, None)
     }
 
     /// One effective value.
@@ -447,6 +542,77 @@ impl SettingsService {
         result
     }
 
+    /// Watches effective values in one scope. The listener hears an entry only when its
+    /// effective value changes, and a file diagnostic for a layer in the scope.
+    pub fn subscribe(
+        service: &Rc<RefCell<Self>>,
+        keys: &[String],
+        scope: &Scope,
+        listener: Subscriber,
+    ) -> Result<Stop, SettingsError> {
+        if service.borrow().closed {
+            return Err(closed_error());
+        }
+        if service.borrow().subscriptions.len() >= 1024 {
+            return Err(SettingsError::new(
+                SettingsCode::Limit,
+                "Settings subscription limit reached",
+            ));
+        }
+        let keys = Self::key_list(keys)?;
+        let layers = Self::layers(service, scope)?;
+        let mut last = BTreeMap::new();
+        for key in &keys {
+            last.insert(key.clone(), Self::resolve_in(service, key, &layers));
+        }
+        let paths = Self::paths(service, &layers);
+        let subscription = Rc::new(Subscription {
+            keys,
+            layers,
+            last: RefCell::new(last),
+            listener,
+        });
+        {
+            let mut borrowed = service.borrow_mut();
+            borrowed.subscriptions.push(subscription.clone());
+            for path in &paths {
+                borrowed.pinned.insert(path.clone());
+            }
+        }
+        let weak: Weak<RefCell<Self>> = Rc::downgrade(service);
+        Ok(Box::new(move || {
+            let Some(service) = weak.upgrade() else {
+                return;
+            };
+            let remaining = {
+                let mut borrowed = service.borrow_mut();
+                borrowed
+                    .subscriptions
+                    .retain(|current| !Rc::ptr_eq(current, &subscription));
+                borrowed.subscriptions.clone()
+            };
+            let held: Vec<PathBuf> = remaining
+                .iter()
+                .flat_map(|subscription| Self::paths(&service, &subscription.layers))
+                .collect();
+            let mut borrowed = service.borrow_mut();
+            for path in paths {
+                if !held.contains(&path) {
+                    borrowed.pinned.remove(&path);
+                }
+            }
+        }))
+    }
+
+    /// The file paths a set of layers reads.
+    fn paths(service: &Rc<RefCell<Self>>, layers: &[Layer]) -> Vec<PathBuf> {
+        let borrowed = service.borrow();
+        layers
+            .iter()
+            .filter_map(|layer| layer.path(&borrowed.data_dir).ok())
+            .collect()
+    }
+
     /// Observes committed writes at the daemon boundary. At most 64 listeners.
     pub fn on_change(
         service: &Rc<RefCell<Self>>,
@@ -484,6 +650,7 @@ impl SettingsService {
         borrowed.order.clear();
         borrowed.pinned.clear();
         borrowed.listeners.clear();
+        borrowed.subscriptions.clear();
     }
 }
 
@@ -960,6 +1127,96 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("{error}"));
         assert!(diagnostics.is_empty(), "the recovered watch is quiet");
+    }
+
+    #[test]
+    fn a_subscription_hears_only_a_change_that_moves_its_effective_value() {
+        let io = Arc::new(MemoryIo::default());
+        let service = service(io);
+        let repo = workspace("subscribe");
+        let scope = Scope {
+            workspace: Some(repo.clone()),
+            thread: None,
+        };
+        let layer = Layer::Workspace {
+            workspace: repo.clone(),
+        };
+        SettingsService::set(&service, "threads.sortBy", &json!("manual"), &layer)
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        let notices: Rc<RefCell<Vec<Notification>>> = Rc::new(RefCell::new(Vec::new()));
+        let captured = notices.clone();
+        let listener: Subscriber = Rc::new(move |notification| {
+            captured.borrow_mut().push(notification.clone());
+        });
+        let stop =
+            SettingsService::subscribe(&service, &["threads.sortBy".to_owned()], &scope, listener)
+                .unwrap_or_else(|error| panic!("{error}"));
+
+        // The workspace value shadows a global change: the effective entry did not move.
+        SettingsService::set(
+            &service,
+            "threads.sortBy",
+            &json!("created"),
+            &Layer::Global,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert!(notices.borrow().is_empty(), "{:?}", notices.borrow());
+
+        SettingsService::set(&service, "threads.sortBy", &json!("created"), &layer)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            *notices.borrow(),
+            vec![Notification::Changed {
+                entries: vec![Entry {
+                    key: "threads.sortBy".to_owned(),
+                    value: json!("created"),
+                    provenance: Provenance::Workspace,
+                    local_value: None,
+                }]
+            }]
+        );
+        stop();
+        assert!(
+            !service
+                .borrow()
+                .pinned
+                .contains(&repo.join(".ace").join("settings.json")),
+            "a stopped subscription releases the file it held"
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_subscription_hears_a_diagnostic_from_a_file_in_its_scope() {
+        let io = Arc::new(MemoryIo::default());
+        let service = service(io.clone());
+        let notices: Rc<RefCell<Vec<Notification>>> = Rc::new(RefCell::new(Vec::new()));
+        let captured = notices.clone();
+        let listener: Subscriber = Rc::new(move |notification| {
+            captured.borrow_mut().push(notification.clone());
+        });
+        let _stop = SettingsService::subscribe(
+            &service,
+            &["threads.settleOnClose".to_owned()],
+            &Scope::default(),
+            listener,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        io.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(PathBuf::from("/data/settings.json"), "{".to_owned());
+        SettingsService::refresh(&service, &Layer::Global)
+            .unwrap_or_else(|error| panic!("{error}"));
+        match &notices.borrow()[0] {
+            Notification::Diagnostic(diagnostic) => {
+                assert_eq!(diagnostic.code, SettingsCode::Parse);
+                assert_eq!(diagnostic.layer, Provenance::Global);
+            }
+            other => panic!("{:?}", other),
+        }
     }
 
     #[test]
