@@ -5,8 +5,8 @@
 //!
 //! Sans-IO: `acquire` grants at once or queues the caller's id; `release` hands
 //! the lock to the next waiter; `abort` takes a waiter out (the caller's signal
-//! fired). The prompt machine (E3-opencode.control) drives it in the
-//! TypeScript's order: acquire, then the barrier, then the steer check.
+//! fired). The prompt machine (E3-opencode.6) drives it in the TypeScript's
+//! order: acquire, then the barrier, then the steer check.
 
 use std::collections::VecDeque;
 
@@ -44,9 +44,14 @@ impl Admission {
         Self::default()
     }
 
-    /// `acquire`: the lock when it is free, else a place in the queue, bounded
-    /// at 64 waiters.
-    pub fn acquire(&mut self) -> Result<Acquire, AdmissionError> {
+    /// `acquire(signal)`: an aborted caller fails first, before the lock or the
+    /// queue is looked at (the TypeScript's `throwIfAborted`), so it never takes
+    /// either. Otherwise the lock when it is free, else a place in the queue,
+    /// bounded at 64 waiters.
+    pub fn acquire(&mut self, aborted: bool) -> Result<Acquire, AdmissionError> {
+        if aborted {
+            return Err(AdmissionError::Cancelled);
+        }
         if !self.active {
             self.active = true;
             return Ok(Acquire::Granted);

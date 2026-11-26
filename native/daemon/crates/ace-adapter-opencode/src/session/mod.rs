@@ -6,6 +6,7 @@
 pub mod admission;
 pub mod ancestry;
 pub mod api;
+pub mod control;
 pub mod coverage;
 pub mod error;
 pub mod evidence;

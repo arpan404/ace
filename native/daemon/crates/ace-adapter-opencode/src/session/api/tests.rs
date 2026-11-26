@@ -15,13 +15,6 @@ fn golden() -> Value {
     ace_json::parse(include_str!("routes.golden.json")).expect("the golden table is JSON")
 }
 
-fn entry<'a>(routes: &'a [Value], op: &str) -> &'a Value {
-    routes
-        .iter()
-        .find(|route| s_in(fields(route), "op") == op)
-        .unwrap_or_else(|| panic!("{op} is in the golden table"))
-}
-
 #[test]
 fn every_call_is_the_one_the_sdk_sends() {
     let table = golden();
