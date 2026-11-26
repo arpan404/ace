@@ -17,6 +17,14 @@ pub fn error(request_id: &str, message: &str) -> Value {
     envelope(request_id, "error", ("error", Value::from(message)))
 }
 
+/// The Q10 answer to a `control_request` subtype this crate does not know.
+pub fn unsupported(request_id: &str, subtype: &str) -> Value {
+    error(
+        request_id,
+        &format!("Unsupported control request: {subtype}"),
+    )
+}
+
 fn envelope(request_id: &str, subtype: &str, field: (&str, Value)) -> Value {
     let mut inner = Map::with_capacity(3);
     inner.insert("subtype", Value::from(subtype));
@@ -101,6 +109,7 @@ pub fn user_dialog_request(request: &Map) -> Map {
 
 /// Move one field across under its new name; an absent one stays absent.
 fn copy(from: &Map, to: &mut Map, from_key: &str, to_key: &str) {
+    // This runs once per interaction, never per line, so the copy costs nothing on the hot path.
     if let Some(value) = from.get(from_key) {
         to.insert(to_key, value.clone());
     }
