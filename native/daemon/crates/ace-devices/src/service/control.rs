@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Who takes a device, and how control moves between holders
 //! (`packages/devices/src/service.ts`: `claimForAgent`, `authorize` and
-//! `assignController`.
+//! `assignController`).
 //!
 //! Priority 1 (behaviour.md §3): a person's takeover invalidates every pending
 //! agent command, including one still waiting on a cleanup. Every takeover bumps
 //! `controlRevision`, releases the lease before anything is awaited, and a holder
 //! that comes back to a different revision loses with `busy`.
 
-use super::binding::{Bind, Bound, begin_bind, finish_bind};
+use super::binding::{Bind, Bound, begin_bind, begin_bind_for_person, finish_bind};
 use super::lease::{Actor, ActorKind, ControllerLease};
 use super::session::Session;
 use super::words;
@@ -85,6 +85,16 @@ fn require_agent_caller(actor: &Actor) -> Result<(&str, &str), DeviceError> {
     Ok((thread_id, agent_id))
 }
 
+fn abort_stale_bind(session: &mut Session) {
+    if session.changing_binding {
+        session.changing_binding = false;
+    }
+}
+
+fn control_still_current(session: &Session, bind: &Bind) -> bool {
+    bind.control_revision() == session.control_revision
+}
+
 /// Shared gates before an agent may take or bind a device.
 fn agent_takeover_allowed(
     session: &mut Session,
@@ -140,6 +150,60 @@ pub fn start_bind_for_agent(
     begin_bind(session, thread_id)
 }
 
+/// `controller` with a thread for a person: reserve control, then supersede any
+/// agent bind and move the device to that thread.
+pub fn start_human_controller_with_thread(
+    session: &mut Session,
+    person: &Actor,
+    thread_id: &str,
+    now: f64,
+) -> Result<(Assignment, Bind), DeviceError> {
+    if person.kind != ActorKind::Human {
+        return Err(words::refusal(PERSON_ONLY_KEY));
+    }
+    let assignment = begin_assign(session, person, now)?;
+    let bind = begin_bind_for_person(session, thread_id)?;
+    Ok((assignment, bind))
+}
+
+/// Finishes a person's threaded controller after bind cleanup.
+pub fn resume_human_controller_with_thread(
+    session: &mut Session,
+    assignment: Assignment,
+    bind: Bind,
+    thread_id: &str,
+    holder: Option<&Actor>,
+    cleanup_failed: bool,
+    enabled: bool,
+    now: f64,
+) -> Result<(), DeviceError> {
+    if !control_still_current(session, &bind) {
+        abort_stale_bind(session);
+        return Err(words::refusal(CONTROL_CHANGED_KEY));
+    }
+    match bind {
+        Bind::Unchanged { .. } => {}
+        Bind::Cleanup { epoch, .. } => {
+            match finish_bind(session, thread_id, epoch, cleanup_failed, enabled) {
+                Ok(Bound::CleanupFailed) => {
+                    cancel_assign(session, assignment);
+                    return Ok(());
+                }
+                Ok(Bound::Bound) => {}
+                Err(error) => {
+                    abort_stale_bind(session);
+                    return Err(error);
+                }
+            }
+        }
+    }
+    if !control_still_current(session, &bind) {
+        abort_stale_bind(session);
+        return Err(words::refusal(CONTROL_CHANGED_KEY));
+    }
+    finish_assign(session, assignment, holder, now)
+}
+
 /// After a bind's cleanup: revalidate the claim, then begin handing control to the
 /// agent — the same path `claimForAgent` resumes on.
 pub fn resume_claim_for_agent(
@@ -151,15 +215,26 @@ pub fn resume_claim_for_agent(
     now: f64,
 ) -> Result<Option<Assignment>, DeviceError> {
     let (thread_id, _) = require_agent_caller(actor)?;
+    if !control_still_current(session, &bind) {
+        abort_stale_bind(session);
+        return Err(words::refusal(CONTROL_CHANGED_KEY));
+    }
     match bind {
-        Bind::Unchanged => {}
-        Bind::Cleanup { epoch } => {
+        Bind::Unchanged { .. } => {}
+        Bind::Cleanup { epoch, .. } => {
             match finish_bind(session, thread_id, epoch, cleanup_failed, enabled) {
                 Ok(Bound::CleanupFailed) => return Ok(None),
                 Ok(Bound::Bound) => {}
-                Err(error) => return Err(error),
+                Err(error) => {
+                    abort_stale_bind(session);
+                    return Err(error);
+                }
             }
         }
+    }
+    if !control_still_current(session, &bind) {
+        abort_stale_bind(session);
+        return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     agent_takeover_allowed(session, actor, now, true)?;
     if session.thread_id.as_deref() != Some(thread_id) {
@@ -244,7 +319,9 @@ pub fn begin_assign(
 ) -> Result<Assignment, DeviceError> {
     if requester.kind == ActorKind::Agent {
         agent_takeover_allowed(session, requester, now, false)?;
-    } else if session.pending_controller_kind == Some(ActorKind::Human) {
+    } else if session.pending_controller_kind == Some(ActorKind::Human)
+        && session.pending_controller.as_deref() != Some(requester.owner.as_str())
+    {
         return Err(words::refusal(PERSON_CONTROLLING_KEY));
     }
     session.control_revision = session.control_revision.saturating_add(1);

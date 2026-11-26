@@ -31,9 +31,32 @@ pub const DISABLE_ALL_CLEANUP_FAILED: &str = "Devices disable cleanup failed";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bind {
     /// The device already belongs to this thread.
-    Unchanged,
+    Unchanged { control_revision: u64 },
     /// Run the cleanup, then report it with [`finish_bind`].
-    Cleanup { epoch: u64 },
+    Cleanup { epoch: u64, control_revision: u64 },
+}
+
+impl Bind {
+    pub fn control_revision(&self) -> u64 {
+        match self {
+            Self::Unchanged { control_revision } => *control_revision,
+            Self::Cleanup {
+                control_revision, ..
+            } => *control_revision,
+        }
+    }
+}
+
+/// A person's takeover supersedes an agent's bind that is still cleaning up.
+pub fn supersede_inflight_bind(session: &mut Session) {
+    if !session.changing_binding {
+        return;
+    }
+    session.binding_epoch = session.binding_epoch.saturating_add(1);
+    session.changing_binding = false;
+    session.thread_id = None;
+    session.log_owners.clear();
+    session.lease.release(None);
 }
 
 /// What finishing a bind decided.
@@ -48,8 +71,9 @@ pub enum Bound {
 /// `bindDevice`'s first half: refuse a second bind, then free the device from
 /// its thread and let go of control before anything is awaited.
 pub fn begin_bind(session: &mut Session, thread_id: &str) -> Result<Bind, DeviceError> {
+    let control_revision = session.control_revision;
     if session.thread_id.as_deref() == Some(thread_id) {
-        return Ok(Bind::Unchanged);
+        return Ok(Bind::Unchanged { control_revision });
     }
     if session.changing_binding {
         return Err(words::refusal(CHANGING_THREADS_KEY));
@@ -60,7 +84,22 @@ pub fn begin_bind(session: &mut Session, thread_id: &str) -> Result<Bind, Device
     session.thread_id = None;
     session.log_owners.clear();
     session.lease.release(None);
-    Ok(Bind::Cleanup { epoch })
+    Ok(Bind::Cleanup {
+        epoch,
+        control_revision,
+    })
+}
+
+/// `controller` with a thread after control is reserved: supersede an agent bind,
+/// then move the device like [`begin_bind`].
+pub fn begin_bind_for_person(session: &mut Session, thread_id: &str) -> Result<Bind, DeviceError> {
+    let control_revision = session.control_revision;
+    if session.thread_id.as_deref() == Some(thread_id) {
+        supersede_inflight_bind(session);
+        return Ok(Bind::Unchanged { control_revision });
+    }
+    supersede_inflight_bind(session);
+    begin_bind(session, thread_id)
 }
 
 /// `bindDevice`'s second half: the cleanup ran (the caller's `guard` already
