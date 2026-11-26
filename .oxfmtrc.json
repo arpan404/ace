@@ -25,6 +25,7 @@
     "native/daemon/catalog/instructions.json",
     "native/daemon/catalog/control-hints.json",
     "native/daemon/catalog/session-guidance.json",
-    "native/daemon/catalog/listing-headers.json"
+    "native/daemon/catalog/listing-headers.json",
+    "native/daemon/crates/ace-adapter-opencode/src/session/api/routes.golden.json"
   ]
 }

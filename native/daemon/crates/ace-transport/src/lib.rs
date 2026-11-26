@@ -42,7 +42,7 @@ pub use proxy::ProxyTarget;
 pub use remote::RemoteListener;
 pub use socket::{SendResult, SocketEvent, SocketEvents, SocketHandle, underflow_count};
 pub use stats::{Counts, Stats};
-pub use tls::{SniResolver, TlsIdentity, process_provider};
+pub use tls::{Pin, PinnedVerifier, SniResolver, TlsIdentity, process_provider};
 pub use upgrade::{
     AdmissionDecision, AdmissionOutcome, SocketSink, UpgradeAdmission, UpgradeRequest,
     WebSocketUpgrades,

@@ -129,23 +129,25 @@ export function probeFor(
         thread: string,
         stream: string | null,
         generation: number | null,
-      ) => void;
+      ) => string;
       const retire = required("probeRetire") as (thread: string) => void;
       const logOf = required("probeActorLog") as (thread: string) => string;
-      frames.attach(threadId, spec.translator);
-      // The context installs the batch helper, so it comes before the actor starts.
+      native.attachTranslatorHelper?.((_thread, request) =>
+        frames.translate(spec.translator, request),
+      );
+      const instance = attach(threadId, spec.stream ?? null, spec.generation ?? null);
       const context = actorContext(
         native,
         frames,
         facade,
         threadId,
+        instance,
         spec.generation ?? 0,
         options.limits?.maxFrameBytes ?? 4 * 1024 * 1024,
       ) as ActorContext;
-      attach(threadId, spec.stream ?? null, spec.generation ?? null);
       return {
         context,
-        aborted: () => (JSON.parse(logOf(threadId)) as ProbeActorLog).aborted,
+        aborted: () => required("probeSessionAborted")(instance) as number,
         retire: () => retire(threadId),
         log: () => JSON.parse(logOf(threadId)) as ProbeActorLog,
       };
@@ -159,11 +161,14 @@ export function probeFor(
     failApplyFatal: (thread, times) => required("probeFailApplyFatal")(thread, times),
     loseReservation: (thread) => required("probeLoseReservation")(thread),
     seal: (thread) => required("probeSeal")(thread),
+    schedule: (thread) => required("probeSchedule")(thread),
     enqueue: (thread, label) => required("probeEnqueue")(thread, label),
     enqueueRetire: (thread) => required("probeEnqueueRetire")(thread),
     runInTransaction: (thread) => required("probeRunInTransaction")(thread),
     generation: (thread) => required("probeGeneration")(thread) as number,
     registeredWakers: () => required("probeRegisteredWakers")() as number,
+    stopActor: (thread) => required("probeStopActor")(thread),
+    stoppingCount: () => required("probeStoppingCount")() as number,
     liveFrames: () => facade.frames.size,
     nativeFrame(threadId, generation, seq, channel, data) {
       const open = nativeBatches.get(threadId);

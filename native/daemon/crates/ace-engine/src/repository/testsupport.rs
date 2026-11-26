@@ -94,6 +94,15 @@ pub(crate) struct Shell {
     /// Each buffered live write: thread, events, time and callback token.
     pub buffered: RefCell<Vec<(String, String, f64, u64)>>,
     rolled_back: RefCell<Vec<String>>,
+    /// Whether `after_commit` defers: off by default, so `Core::defer` releases at once as the
+    /// binding does outside a transaction. A case that needs a commit or rollback to take effect
+    /// turns it on and hands the tokens to the engine's sink with `take_released`/`take_dropped`.
+    defer_commits: Cell<bool>,
+    /// The after-commit tokens this frame deferred: released by an outermost commit, dropped by a
+    /// rollback, while `defer_commits` is on.
+    deferred: RefCell<Vec<u64>>,
+    released: RefCell<Vec<u64>>,
+    dropped: RefCell<Vec<u64>>,
     /// Armed timers, by key: the sender a test fires, or drops to cancel.
     timers: RefCell<Vec<(u64, Option<futures::channel::oneshot::Sender<()>>)>>,
     next_timer: Cell<u64>,
@@ -127,6 +136,11 @@ impl Shell {
         self.pinned.set(pinned);
     }
 
+    /// Defers after-commit tokens to the frame, for a case that drives the commit itself.
+    pub fn defer_commits(&self) {
+        self.defer_commits.set(true);
+    }
+
     /// A rollback: the store bumps the generation.
     pub fn rollback(&self) {
         self.generation.set(self.generation.get() + 1.0);
@@ -135,6 +149,30 @@ impl Shell {
     /// The head sequence `headSeq` answers, so a case can read history through a cutoff.
     pub fn head(&self, seq: f64) {
         self.seq.set(seq);
+    }
+
+    /// The tokens a committed frame released, out of the shell so the engine's sink can run them.
+    #[allow(dead_code)]
+    pub fn take_released(&self) -> Vec<u64> {
+        std::mem::take(&mut self.released.borrow_mut())
+    }
+
+    /// The tokens a rolled-back frame dropped, out of the shell so the engine's sink can drop them.
+    pub fn take_dropped(&self) -> Vec<u64> {
+        std::mem::take(&mut self.dropped.borrow_mut())
+    }
+
+    fn finish_frame(&self, outer: bool, committed: bool) {
+        if !outer {
+            return;
+        }
+        let mut deferred = self.deferred.borrow_mut();
+        let target = if committed {
+            &self.released
+        } else {
+            &self.dropped
+        };
+        target.borrow_mut().append(&mut deferred);
     }
 
     /// Fires one armed timer, as the clock would.
@@ -190,6 +228,10 @@ impl Shell {
             pinned: Cell::new(false),
             buffered: RefCell::new(Vec::new()),
             rolled_back: RefCell::new(Vec::new()),
+            defer_commits: Cell::new(false),
+            deferred: RefCell::new(Vec::new()),
+            released: RefCell::new(Vec::new()),
+            dropped: RefCell::new(Vec::new()),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(0),
             cancelled: RefCell::new(Vec::new()),
@@ -314,6 +356,8 @@ impl Ports for Shell {
                 // A nested rollback bumps the generation too (`store.ts:624`, `:629`).
                 self.generation.set(self.generation.get() + 1.0);
                 self.rolled_back.borrow_mut().push(message);
+                // Whatever this frame deferred never fires, nested or outer.
+                self.finish_frame(true, false);
             }
             None => {
                 let commit = if depth == 0 {
@@ -322,6 +366,7 @@ impl Ports for Shell {
                     format!("RELEASE s{depth}")
                 };
                 conn.exec(&commit).map_err(store)?;
+                self.finish_frame(depth == 0, true);
             }
         }
         Ok(())
@@ -447,10 +492,14 @@ impl EngineStack for Shell {
     fn is_open(&self) -> bool {
         self.depth.get() > 0
     }
-    fn after_commit(&self, _token: u64) -> bool {
-        false
+    fn after_commit(&self, token: u64) -> bool {
+        if !self.defer_commits.get() || self.depth.get() == 0 {
+            return false;
+        }
+        self.deferred.borrow_mut().push(token);
+        true
     }
     fn detach(&self) -> Vec<u64> {
-        Vec::new()
+        std::mem::take(&mut self.deferred.borrow_mut())
     }
 }

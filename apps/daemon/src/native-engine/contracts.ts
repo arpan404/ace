@@ -48,6 +48,7 @@ export interface NativeEngineHandle {
   rootAgent?(threadId: string): string | undefined;
   actorFrame?(
     threadId: string,
+    instance: string,
     generation: number,
     handle: number,
     frame: unknown,
@@ -57,8 +58,8 @@ export interface NativeEngineHandle {
     bytes: number | null,
     error: string | null,
   ): string;
-  actorPaused?(threadId: string): boolean;
-  actorWait?(threadId: string, call: number): void;
+  actorPaused?(threadId: string, instance: string): boolean;
+  actorWait?(threadId: string, instance: string, call: number): void;
   actorFlushDue?(): void;
   actorQuarantine?(threadId: string, message: string): void;
   persistLive?(token: number): void;
