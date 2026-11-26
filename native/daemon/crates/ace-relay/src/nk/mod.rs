@@ -3,3 +3,9 @@
 //! ask for early, and the host admission that spends its ticket or grant.
 
 pub mod admission;
+pub mod early_reads;
+pub mod hello;
+pub mod host;
+
+#[cfg(test)]
+pub(crate) mod tests_support;

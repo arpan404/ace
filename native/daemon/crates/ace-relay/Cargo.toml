@@ -31,3 +31,5 @@ snow = { version = "0.10", default-features = false, features = [
 ] }
 
 [dev-dependencies]
+# tempfile: each test home is a temp directory removed with it.
+tempfile = { version = "3" }

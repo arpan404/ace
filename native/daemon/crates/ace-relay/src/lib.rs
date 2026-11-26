@@ -10,4 +10,26 @@ pub mod error;
 pub mod nk;
 
 pub use error::RelayError;
-pub use nk::admission::{NK_LIMITS, NkAdmission, NkClock, NkLimits, NkSession, Rate, Suppression};
+pub use nk::admission::{
+    Held, NK_LIMITS, NkAdmission, NkClock, NkLimits, NkSession, Rate, Remaining, Suppression,
+    Suppressive,
+};
+pub use nk::early_reads::{
+    BoundedRead, CursorUnreadable, EARLY_REPLAY_BYTES, EarlyEncoder, EarlyReads, EarlyStore,
+    answer_early,
+};
+pub use nk::hello::{
+    EARLY_SIDEBAR_WINDOWS, EARLY_SUBSCRIBES, EARLY_THREAD_SUBSCRIBES, EarlyScope, EarlySubscribe,
+    HelloConfirm, HelloEarly, PairingLinkProof, RELAY_NK_HANDSHAKE, Tail, Window,
+};
+pub use nk::host::{
+    AccountAdmission, NkAccepted, NkAccount, NkHost, account_device_actor, main_actor,
+};
+
+/// The 64 lowercase hex characters a one-use ticket is.
+pub fn is_ticket(text: &str) -> bool {
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
