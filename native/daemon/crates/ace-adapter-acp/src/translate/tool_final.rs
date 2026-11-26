@@ -10,7 +10,7 @@ use ace_json::Value;
 
 /// Every path picks MCP arguments from collected input once finalized.
 pub fn current_tool_detail(tool: &ToolState, quirks: QuirksKind) -> Value {
-    let mut detail = tool_detail(&Value::Object(tool.data.clone()), quirks);
+    let mut detail = tool_detail(&tool.data, quirks);
     if detail.get("kind").and_then(Value::as_str) == Some("mcp")
         && let Some(completed) = tool.completed_input.clone()
         && let Some(obj) = detail.as_object_mut()

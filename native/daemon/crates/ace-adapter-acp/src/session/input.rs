@@ -67,6 +67,19 @@ pub struct InputSend<'a> {
     pub fence: Option<Fence>,
 }
 
+/// The prompt a fence is aimed at, when that fence names a turn. A runless fence (the engine's
+/// yield, `delivery.ts:216`) says nothing about which prompt it means, so it never turns a
+/// queued job stale on the strength of the prompt that happened to be running
+/// (`session.ts:717`-`:723`).
+fn aimed_at(
+    fence: Option<&Fence>,
+    prompt: &Option<ace_supervisor::jsonrpc::RpcId>,
+) -> Option<ace_supervisor::jsonrpc::RpcId> {
+    fence
+        .filter(|fence| fence.as_dyn().turn().is_some())
+        .and(prompt.clone())
+}
+
 impl AcpCore {
     /// `send` (`session.ts:591`): refuse before queueing, so the agent provably took none
     /// of the input, then steer or queue, then drain.
@@ -102,7 +115,10 @@ impl AcpCore {
     ///    still current sends it, and so does a job whose batch already wrote a prompt
     ///    (`session.ts:718`, `!next.batch.written`).
     /// 8. `steerViaCancel`: this agent has no steering extension, so a steer is queued as
-    ///    the next prompt like any other input (`session.ts:617`).
+    ///    the next prompt like any other input (`session.ts:617`). The engine hands it over
+    ///    after yielding the run, with a fence that names no turn (`delivery.ts:216`), so it
+    ///    is never stale on the strength of the prompt that was running: only a fence naming
+    ///    a turn can go stale that way (`aimed_at`).
     ///
     /// Everything that can await happened before this call (the facade's preparation), or
     /// happens after it as its own effect (the steer's reply, the prompt's end).
@@ -151,6 +167,7 @@ impl AcpCore {
             && self.prompt_id.is_some()
         {
             let batch = self.new_batch(operation, 0);
+            let aim = aimed_at(send.fence.as_ref(), &self.prompt_id);
             let fallback = Job {
                 input: prompts[0]
                     .as_array()
@@ -159,6 +176,7 @@ impl AcpCore {
                 command_id: command_id.clone(),
                 origin: send.origin,
                 fence: send.fence.clone(),
+                aim,
                 batch,
                 bytes,
             };
@@ -196,6 +214,11 @@ impl AcpCore {
                 } else {
                     None
                 },
+                aim: if send.delivery == Delivery::Steer {
+                    aimed_at(send.fence.as_ref(), &self.prompt_id)
+                } else {
+                    None
+                },
                 batch,
                 bytes,
             });
@@ -215,6 +238,7 @@ impl AcpCore {
                 operation,
                 open,
                 written: false,
+                sent_prompt: false,
                 settled: false,
             },
         );
@@ -261,15 +285,13 @@ impl AcpCore {
         ) {
             Ok(peer_effects) => {
                 // `written` means the line left the writer, not that it was taken: the
-                // ticket the peer hands out here is confirmed by the shell's
+                // ticket the peer gave this request is confirmed by the shell's
                 // acknowledgement (`AcpCore::written`), and until then the steer is unread
-                // (`session.ts:630`, `intent-delivery.ts:140`-`:147`). A request the peer
-                // settled instead of writing (a refused enqueue, an oversized line) has no
-                // ticket, and its failure is a refusal.
-                let ticket = peer_effects.iter().find_map(|effect| match effect {
-                    ace_supervisor::peer::PeerEffect::Write { ticket, .. } => Some(*ticket),
-                    _ => None,
-                });
+                // (`session.ts:630`, `intent-delivery.ts:140`-`:147`). It is this call's
+                // own ticket even when the line queued behind another: a line queued ahead
+                // (a cancel, an answer) must never stand for the steer. A request the peer
+                // settled instead of writing has no ticket, and its failure is a refusal.
+                let ticket = self.peer.write_ticket(call);
                 if let Some(flight) = self.steering.get_mut(&call) {
                     flight.ticket = ticket;
                 }

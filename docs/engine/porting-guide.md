@@ -1368,7 +1368,13 @@ Later, not part of the pilot (owner decision 4).
   `apps/daemon/src/engine/` `acp-selection.process`, `acp-resume-failure.process`,
   `acp-stop-shell.process`, `acp-access.process`, `adapter-echo.process`.
 - **Cross-mode**, both ways: `adapter-acp/src/integration-restart.test.ts`,
-  `engine/acp-resume-failure.process`, `engine/acp-selection.process`.
+  `engine/acp-resume-failure.process`, `engine/acp-selection.process`. Only a file that reopens
+  the store root shows alternation (`noteDatabaseBoot`): the two engine files restart the engine
+  over the same `Store`, so no root boots twice (the adapter file opens no store at all), and
+  the gate reports "no restart" for all three. No ACP test reopens a root;
+  `engine/restart-resume.process.test.ts` is the smallest that does (12 roots alternate both
+  ways, run 2026-11-25) but runs a scripted provider, so it proves the switch's boot value, not
+  an ACP session across a reopen. That needs a `crashCopy` variant of `acp-resume-failure.process`.
 - **Bench**: `session-stream.ts` with the ACP fake.
 
 ### E3-opencode: OpenCode (HTTP and SSE to a pooled `opencode serve`)
