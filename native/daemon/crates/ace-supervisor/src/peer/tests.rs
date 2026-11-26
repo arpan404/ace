@@ -2,6 +2,8 @@
 //! The JSON-RPC peer's input/output tables: limits, ids, null cases and the
 //! shared writer's ordering.
 
+use ace_json::{JsString, Value};
+
 use super::*;
 
 fn new_peer() -> RpcPeer {
