@@ -120,7 +120,7 @@ fn a_public_failure_keeps_the_code_and_ace_keeps_its_message() {
     let failure = DeviceFailure {
         code: DeviceErrorCode::StaleRef,
         message: JsString::from("@e3 is no longer on screen"),
-        hint: JsString::from("Read sim_ui again and act on a current ref."),
+        hint: JsString::from(crate::service::words::tool_hint("simStaleRefHint")),
         permission: None,
         platform: None,
     };

@@ -706,6 +706,9 @@ every promise chain are the shell's, and each module returns what to do next.
 | `sim-refs`, `sim-state`   | `service/sim_refs.rs`, `sim_state.rs` | refs that survive reads, the two caps, the first-start how-to                            |
 | `sim-activity`, `sim-guidance` | `service/sim_activity.rs`, `sim_guidance.rs` | what a viewer is told about an action, and the how-to                        |
 | `sim-act`                 | `service/sim_act.rs`              | a ref's refusals, the label a message names, a tap's fallback point                          |
+| `sim-schemas`             | `service/sim_schemas.rs`          | the tools' bounds, each action's fields, and the tap's ref-or-coordinates rule               |
+| `sim-tools`               | `service/sim_tools.rs`            | the start/stop summary, the no-video answer, the screenshot's note, the public failure       |
+| `device-tools-wire`       | `service/device_tools_wire.rs`    | the install request's and reply's bounds (`serve_sim` owns their shapes)                     |
 | `bridge`                  | `service/bridge.rs`               | who may speak, whose thread a device may be seen from, the 32-request budget                 |
 | `devices-setting` (daemon) | `service/devices_setting.rs`      | the next step, a busy retry, and what counts as a new choice                                 |
 
