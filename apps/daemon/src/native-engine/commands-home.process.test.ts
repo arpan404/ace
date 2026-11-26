@@ -16,6 +16,10 @@
  *   `:10`.
  * - run binding: `queued-run-binding.process` `:101`.
  *
+ * E5.4c's input fate (`testing/commands-home.ts`'s fate thread):
+ *
+ * - `inputFate`'s precedence: `input-fate.process` `:8`, `:38`, `:66`, `:115`.
+ *
  * The seed is a second process, so the real edge is a TypeScript writer and a native reader over
  * the same SQLite file.
  */
@@ -50,10 +54,15 @@ function queueUpdated(store: Store, id: string): number {
   return Number(row.n);
 }
 
-async function seeded(): Promise<{ seam: EngineSeam; queue: string; stale: string }> {
+async function seeded(): Promise<{
+  seam: EngineSeam;
+  queue: string;
+  stale: string;
+  fate: string;
+}> {
   const seam = await engineSeam({ seedWithTypeScript: { script: queueChild } });
-  const [queue, stale] = threads(seam.store) as [string, string];
-  return { seam, queue, stale };
+  const [queue, stale, fate] = threads(seam.store) as [string, string, string];
+  return { seam, queue, stale, fate };
 }
 
 async function seededInputs(): Promise<{ seam: EngineSeam; thread: string }> {
@@ -404,6 +413,36 @@ describe.runIf(native)("E5.4b input facts on a TypeScript-written home", () => {
       expect(eighth).toHaveLength(1);
       expect(eighth[0]!.item.runId).toBe("run-later");
       expect(eighth[0]!.item.parts.map((part) => part.text)).toEqual(["two"]);
+    } finally {
+      await seam.close();
+    }
+  });
+});
+
+describe.runIf(native)("E5.4c input fate on a TypeScript-written home", () => {
+  test("inputFate follows its precedence on a TypeScript-written home", async () => {
+    const { seam, fate } = await seeded();
+    try {
+      const at = (command: string) =>
+        seam.engine.inputFate(fate as never, CommandId.parse(command));
+      // Replaced wins over the uncertain intent the person sent again.
+      expect(at("resent")).toEqual({ state: "replaced", by: CommandId.parse("again") });
+      // An uncertain input is uncertain before it is waiting.
+      expect(at("uncertain-fate")).toEqual({ state: "uncertain" });
+      // Waiting wins over the run the journal recorded for it.
+      expect(at("waiting-fate")).toEqual({ state: "waiting" });
+      // A written input the journal handed to a run: the run comes back, so the read above is
+      // a real waiting answer and not a missing run.
+      expect(at("delivered-fate")).toEqual({ state: "delivered", runId: "run-recorded" });
+      // Written before a Stop cancelled it: failed, not delivered.
+      expect(at("cancelled-fate")).toEqual({
+        state: "failed",
+        error: "Cancelled before delivery",
+      });
+      expect(at("removed-fate")).toEqual({ state: "removed" });
+      // In the transcript with no intent at all.
+      expect(at("written")).toEqual({ state: "delivered" });
+      expect(at("never-sent")).toEqual({ state: "unknown" });
     } finally {
       await seam.close();
     }
