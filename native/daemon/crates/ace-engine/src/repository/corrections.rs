@@ -86,9 +86,9 @@ impl State {
         let current = store
             .get_thread(id)?
             .and_then(|json| ace_json::parse(&json).ok())
-            .and_then(|value| value.get("goal").and_then(Value::as_str).map(str::to_owned));
-        let goal = input.get("goal").and_then(Value::as_str);
-        if let Some(goal) = self.goal_change(current.as_deref(), goal)? {
+            .and_then(|value| value.get("goal").cloned());
+        let goal = input.get("goal");
+        if let Some(goal) = self.goal_change(current.as_ref(), goal)? {
             let events = format!(
                 "[{{\"type\":\"thread.updated\",\"goal\":{}}}]",
                 ace_json::to_string(&goal)

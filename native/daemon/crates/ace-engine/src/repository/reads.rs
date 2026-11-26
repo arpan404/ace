@@ -92,13 +92,11 @@ impl State {
     }
 
     /// `cancelled` (`:487`).
-    pub fn cancelled(&mut self, store: &EngineStore, intent_id: u32) -> Result<bool, EngineError> {
-        Ok(stmt_cache::get_row(
-            store.conn(),
-            CANCELLED,
-            vec![Value::Integer(i64::from(intent_id))],
-        )?
-        .is_some())
+    pub fn cancelled(&mut self, store: &EngineStore, intent_id: i64) -> Result<bool, EngineError> {
+        Ok(
+            stmt_cache::get_row(store.conn(), CANCELLED, vec![Value::Integer(intent_id)])?
+                .is_some(),
+        )
     }
 
     /// `latestIntent` (`:607`).

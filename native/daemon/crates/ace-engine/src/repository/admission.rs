@@ -39,7 +39,7 @@ impl State {
         store: &EngineStore,
         id: &str,
         command_id: &str,
-    ) -> Result<Vec<u32>, EngineError> {
+    ) -> Result<Vec<i64>, EngineError> {
         store.atomic(|tx| {
             let rows =
                 stmt_cache::all_rows(tx.conn(), CORRELATED, vec![text(id), text(command_id)])?;
@@ -52,7 +52,7 @@ impl State {
         &mut self,
         store: &EngineStore,
         id: &str,
-    ) -> Result<Vec<u32>, EngineError> {
+    ) -> Result<Vec<i64>, EngineError> {
         let rows = stmt_cache::all_rows(store.conn(), ACK, vec![text(id), text(id)])?;
         Ok(ids(&rows))
     }
@@ -87,10 +87,9 @@ fn sql_int(value: &SqlValue) -> Option<i64> {
     }
 }
 
-fn ids(rows: &[ace_store::stmt_cache::Row]) -> Vec<u32> {
+fn ids(rows: &[ace_store::stmt_cache::Row]) -> Vec<i64> {
     rows.iter()
         .filter_map(|row| row.get("id").and_then(sql_int))
-        .map(|id| id as u32)
         .collect()
 }
 
