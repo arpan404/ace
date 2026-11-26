@@ -1306,3 +1306,163 @@ fn backfills_finished_at_from_ts_shaped_run_bodies_in_bounded_batches() {
     );
     assert_eq!(store.inbox(50, None, None, None).expect("inbox").0.len(), 1);
 }
+
+// github.process.test.ts and monitoring.test.ts: polling decisions through the service's
+// injected gh client, with the state and errors the store keeps.
+
+type GhStep = (u16, Option<String>, Option<ace_json::Value>);
+
+#[derive(Default)]
+struct FakeGh {
+    responses: RefCell<Vec<GhStep>>,
+    etags: RefCell<Vec<Option<String>>>,
+}
+
+impl ace_automations::github::GhClient for FakeGh {
+    fn get(
+        &self,
+        _endpoint: &str,
+        etag: Option<&str>,
+    ) -> ace_automations::Result<ace_automations::github::GhResponse> {
+        self.etags.borrow_mut().push(etag.map(str::to_owned));
+        let (status, next_etag, data) = self.responses.borrow_mut().remove(0);
+        Ok(ace_automations::github::GhResponse {
+            status,
+            etag: next_etag,
+            next: None,
+            data,
+        })
+    }
+}
+
+fn github() -> Definition {
+    Definition {
+        id: "github".to_owned(),
+        prompt: "Review {{number}}".to_owned(),
+        trigger: Trigger::Github {
+            repository: "user/project".to_owned(),
+            event: "pr_changed".to_owned(),
+            label: None,
+            pull_request: None,
+            poll_interval_ms: 60_000,
+        },
+        ..definition()
+    }
+}
+
+fn pull(id: i64, version: &str) -> ace_json::Value {
+    json(&format!(
+        r#"{{"id":{id},"number":{id},"updated_at":"{version}","html_url":"https://github.com/user/project/pull/{id}"}}"#
+    ))
+}
+
+#[test]
+fn github_polls_establish_a_baseline_emit_changes_and_keep_etags_across_restart() {
+    let h = Harness::new();
+    let gh = FakeGh::default();
+    {
+        let mut service = h.started();
+        service.put(&github(), None).expect("put");
+        gh.responses.borrow_mut().push((
+            200,
+            Some("\"v1\"".to_owned()),
+            Some(ace_json::Value::Array(
+                vec![pull(1, "2024-01-01T00:00:00Z")].into(),
+            )),
+        ));
+        assert!(
+            service
+                .poll_github_now("github", &gh)
+                .expect("baseline")
+                .is_empty()
+        );
+        gh.responses.borrow_mut().push((
+            200,
+            Some("\"v2\"".to_owned()),
+            Some(ace_json::Value::Array(
+                vec![pull(1, "2024-01-02T00:00:00Z")].into(),
+            )),
+        ));
+        let runs = service.poll_github_now("github", &gh).expect("changed");
+        assert_eq!(runs.len(), 1);
+        let actions = service.take_actions();
+        assert_eq!(inputs_prompt(&actions[0]), "Review 1");
+        let (id, _) = execute(&actions[0]);
+        service
+            .complete(&id, "succeeded", Some("thread"), Some("done"))
+            .expect("finish");
+    }
+    let store = h.reopen();
+    let mut service = Service::new(
+        &store,
+        Ports {
+            clock: &h.clock,
+            random: &h.random,
+            admission: &h.admission,
+            workspace: Some(&h.workspace),
+            model_loading: None,
+        },
+    );
+    service.start().expect("start");
+    gh.responses
+        .borrow_mut()
+        .push((304, Some("\"v2\"".to_owned()), None));
+    assert!(
+        service
+            .poll_github_now("github", &gh)
+            .expect("304")
+            .is_empty()
+    );
+    assert_eq!(
+        gh.etags.borrow().last().and_then(|etag| etag.as_deref()),
+        Some("\"v2\"")
+    );
+    assert_eq!(
+        service.inbox(50, None, None, None).expect("inbox").0.len(),
+        1
+    );
+    assert!(service.take_actions().is_empty());
+}
+
+#[test]
+fn a_failed_github_poll_keeps_the_cursor_and_records_health_until_a_success() {
+    let h = Harness::new();
+    let gh = FakeGh::default();
+    let mut service = h.started();
+    service.put(&github(), None).expect("put");
+    gh.responses.borrow_mut().push((
+        200,
+        Some("v1".to_owned()),
+        Some(ace_json::Value::Array(
+            vec![pull(1, "2024-01-01T00:00:00Z")].into(),
+        )),
+    ));
+    service.poll_github_now("github", &gh).expect("baseline");
+    let before = h.store.read_state("github").expect("state");
+    gh.responses.borrow_mut().push((
+        200,
+        Some("v2".to_owned()),
+        Some(json(r#"[{"id":"invalid"}]"#)),
+    ));
+    assert!(service.poll_github_now("github", &gh).is_err());
+    assert_eq!(h.store.read_state("github").expect("state"), before);
+    let listed = service.handle(&json(r#"{"type":"automation.list","requestId":"list"}"#));
+    assert_eq!(
+        sv(
+            at(&arr(&listed, "schedules")[0], "lastPollError").expect("poll error"),
+            "message"
+        ),
+        Some("Invalid GitHub resource: \"id\"")
+    );
+    gh.responses.borrow_mut().push((304, None, None));
+    service.poll_github_now("github", &gh).expect("recovered");
+    let listed = service.handle(&json(r#"{"type":"automation.list","requestId":"list"}"#));
+    assert!(at(&arr(&listed, "schedules")[0], "lastPollError").is_none());
+}
+
+fn inputs_prompt(action: &Action) -> String {
+    match action {
+        Action::Execute { input, .. } => sv(input, "prompt").expect("prompt").to_owned(),
+        other => panic!("expected execute, got {other:?}"),
+    }
+}

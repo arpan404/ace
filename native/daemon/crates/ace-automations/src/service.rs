@@ -664,6 +664,79 @@ impl<'a> Service<'a> {
     /// The host arms its one timer from [`Service::arm_delay`]; this is its re-arm point.
     fn arm(&mut self) {}
 
+    /// Poll one GitHub automation (`service.ts:703`) through the host's `gh` client: the state
+    /// commits only if the definition did not change under the request, and each delivered event
+    /// is admitted as a GitHub run.
+    pub fn poll_github_now(
+        &mut self,
+        id: &str,
+        client: &dyn crate::github::GhClient,
+    ) -> Result<Vec<Value>> {
+        if !self.lives.live() {
+            return Ok(Vec::new());
+        }
+        let revision = self.store.revision(id)?;
+        let Some(definition) = self.store.definition(id)? else {
+            return Ok(Vec::new());
+        };
+        let Trigger::Github {
+            repository,
+            event,
+            label,
+            pull_request,
+            poll_interval_ms,
+        } = definition.trigger.clone()
+        else {
+            return Ok(Vec::new());
+        };
+        let trigger = crate::github::GithubTrigger {
+            repository,
+            event,
+            label,
+            pull_request,
+            poll_interval_ms,
+        };
+        let state = self.store.read_state(id)?;
+        match crate::github::poll_github(client, &trigger, &state) {
+            Ok(poll) => {
+                if self.store.revision(id)? != revision {
+                    return Ok(Vec::new());
+                }
+                self.store.transaction(|| {
+                    if poll.changed {
+                        let text = ace_json::ser::to_string(&poll.state)
+                            .map_err(|error| AutomationsError::message(error.to_string()))?;
+                        let value = ace_json::parse(&text)
+                            .map_err(|error| AutomationsError::message(error.to_string()))?;
+                        self.store.save_poll(id, &value)?;
+                    }
+                    self.store.clear_poll_error(id)?;
+                    self.store.clear_trigger_error(id)
+                })?;
+                let mut runs = Vec::new();
+                for event in poll.events {
+                    if self.store.revision(id)? != revision {
+                        break;
+                    }
+                    runs.push(self.trigger(id, &event.key, event.variables, "github", None)?);
+                }
+                self.arm();
+                Ok(runs)
+            }
+            Err(error) => {
+                if self.store.revision(id)? == revision {
+                    let mut failure = Map::new();
+                    failure.insert("message", Value::String(error.to_string().as_str().into()));
+                    failure.insert("at", Value::Number(self.now().into()));
+                    let failure = Value::Object(failure);
+                    let _ = self.store.save_poll_error(id, &failure);
+                    let _ = self.store.save_trigger_error(id, &failure);
+                }
+                Err(error)
+            }
+        }
+    }
+
     /// A run's executor settled (`execution-owner.ts:122`).
     pub fn complete(
         &mut self,
