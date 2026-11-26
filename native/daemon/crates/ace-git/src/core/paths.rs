@@ -35,6 +35,14 @@ pub fn display_path(path: &Path) -> String {
     text
 }
 
+/// One Git terminator removed: CRLF only on Windows, as `textOutput`/`singlePath` read it.
+pub fn strip_terminator(text: &str, is_windows: bool) -> &str {
+    if is_windows && let Some(stripped) = text.strip_suffix("\r\n") {
+        return stripped;
+    }
+    text.strip_suffix('\n').unwrap_or(text)
+}
+
 /// Node's `path.resolve` for an already-absolute base: join, then normalise.
 pub fn resolve(base: &str, path: &str) -> String {
     let joined = Path::new(base).join(path);

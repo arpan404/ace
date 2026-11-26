@@ -144,7 +144,16 @@ async fn empty_tree(port: &dyn CommandPort, root: &str) -> Result<String, GitErr
     text_output(&output.stdout)
 }
 
-fn diff_args() -> Vec<String> {
+/// The diff order-file argument: Node's `\\.\nul` reaches Git as `//./nul` on Windows.
+pub fn order_file_arg(is_windows: bool) -> String {
+    if is_windows {
+        "-O/dev/null".to_owned()
+    } else {
+        format!("-O{}", dev_null())
+    }
+}
+
+pub fn diff_args(is_windows: bool) -> Vec<String> {
     let mut args: Vec<String> = [
         "-c",
         "core.quotePath=true",
@@ -155,7 +164,7 @@ fn diff_args() -> Vec<String> {
     .iter()
     .map(|arg| (*arg).to_owned())
     .collect();
-    args.push(format!("-O{}", dev_null()));
+    args.push(order_file_arg(is_windows));
     for arg in [
         "--no-relative",
         "--no-ext-diff",
@@ -173,14 +182,6 @@ fn diff_args() -> Vec<String> {
         args.push(arg.to_owned());
     }
     args
-}
-
-/// Windows: Git for Windows maps `/dev/null` itself; Node's `\\.\nul` reaches it as `//./nul`.
-fn windows_order_file(args: &mut [String]) {
-    let order = format!("-O{}", dev_null());
-    if let Some(index) = args.iter().position(|arg| *arg == order) {
-        args[index] = "-O/dev/null".to_owned();
-    }
 }
 
 fn pathspecs(paths: &[String]) -> Vec<String> {
@@ -351,10 +352,7 @@ pub async fn diff(
     let temp_directory = temp_directory.to_owned();
     let mut a = resolve_side(port, root, &request.from).await?;
     let mut b = resolve_side(port, root, &request.to).await?;
-    let mut args = diff_args();
-    if is_windows {
-        windows_order_file(&mut args);
-    }
+    let args = diff_args(is_windows);
     let mut metadata_args = args.clone();
     for arg in ["--raw", "--no-abbrev", "--numstat", "-z"] {
         metadata_args.push(arg.to_owned());

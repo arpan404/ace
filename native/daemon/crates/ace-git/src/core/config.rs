@@ -55,10 +55,7 @@ pub struct Layout {
 
 /// One path value from Git: strip one LF terminator (CRLF only on Windows).
 pub fn single(raw: &str, is_windows: bool) -> String {
-    if is_windows && let Some(stripped) = raw.strip_suffix("\r\n") {
-        return stripped.to_owned();
-    }
-    raw.strip_suffix('\n').unwrap_or(raw).to_owned()
+    crate::core::paths::strip_terminator(raw, is_windows).to_owned()
 }
 
 fn display(path: &Path) -> String {

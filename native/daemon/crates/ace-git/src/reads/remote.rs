@@ -105,12 +105,13 @@ fn address_of(authority: &str, scheme_default: Option<&str>) -> String {
         },
     };
     let host = raw.to_ascii_lowercase();
-    let port = port.trim_start_matches('0');
-    let port = if port.is_empty() && !host_port.ends_with(':') {
-        ""
-    } else {
-        port
-    };
+    // `/^0+(?=\d)/`: drop leading zeros only while another digit follows, so `0` stays `0`.
+    let bytes = port.as_bytes();
+    let mut start = 0usize;
+    while start + 1 < bytes.len() && bytes[start] == b'0' && bytes[start + 1].is_ascii_digit() {
+        start += 1;
+    }
+    let port = &port[start..];
     if !port.is_empty() && Some(port) != scheme_default {
         format!("{host}:{port}")
     } else {
@@ -476,6 +477,37 @@ mod tests {
         ] {
             assert!(!same(left, right), "{left} vs {right}");
         }
+    }
+
+    #[test]
+    fn a_zero_port_is_kept_and_leading_zeros_are_stripped_only_before_a_digit() {
+        // `:0` is a port and remains part of the address; `:00` normalises to the same `:0`.
+        assert_eq!(
+            normalize_remote_url("ssh://git@forge:0/team/app", "/"),
+            "v2:forge:0/team/app"
+        );
+        assert_eq!(
+            normalize_remote_url("ssh://git@forge:00/team/app", "/"),
+            "v2:forge:0/team/app"
+        );
+        assert!(!same(
+            "ssh://git@forge:0/team/app",
+            "ssh://git@forge/team/app"
+        ));
+        // `:0022` is the scheme's default once its leading zeros go.
+        assert_eq!(
+            normalize_remote_url("ssh://git@forge:0022/team/app", "/"),
+            "v2:forge/team/app"
+        );
+        assert_eq!(
+            normalize_remote_url("ssh://git@forge:00022/team/app", "/"),
+            "v2:forge/team/app"
+        );
+        // A non-default port keeps its remaining digits.
+        assert_eq!(
+            normalize_remote_url("ssh://git@forge:0022/team/app", "/"),
+            normalize_remote_url("ssh://git@forge:22/team/app", "/")
+        );
     }
 
     #[test]

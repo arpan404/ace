@@ -295,11 +295,35 @@ pub fn git_install(exec_path: &str) -> Option<String> {
     Some(paths::win32_normalize(install))
 }
 
+/// ECMAScript's `\s`: WhiteSpace plus LineTerminator. It is not ASCII — U+00A0 and U+FEFF
+/// split, while U+0085 (which Rust's `is_whitespace` also splits on) does not.
+fn js_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0009}'
+            | '\u{000A}'
+            | '\u{000B}'
+            | '\u{000C}'
+            | '\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+    )
+}
+
 /// The paths a configured hook command names: every word holding a `/`, quotes removed, read
 /// against the working tree root (where Git runs hooks). A bare program name on PATH names none.
 pub fn hook_command_paths(command: &str, top: &str) -> Vec<String> {
     command
-        .split_whitespace()
+        .split(js_whitespace)
         .map(|word| {
             let word = word.strip_prefix(['\'', '"']).unwrap_or(word);
             word.strip_suffix(['\'', '"']).unwrap_or(word)
@@ -323,10 +347,7 @@ fn under(path: &str, root: &str) -> bool {
 
 fn text(output: &ConfigOutput) -> String {
     let text = String::from_utf8_lossy(&output.stdout).into_owned();
-    match text.strip_suffix('\n') {
-        Some(stripped) => stripped.to_owned(),
-        None => text,
-    }
+    paths::strip_terminator(&text, false).to_owned()
 }
 
 fn arguments(parts: &[&str]) -> Vec<String> {

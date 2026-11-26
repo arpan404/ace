@@ -13,7 +13,6 @@ use serde::Serialize;
 use crate::core::decode::{hash, path_schema};
 use crate::core::error::{GitError, GitErrorCode};
 use crate::parse::history::{GitLogEntry, LOG_FORMAT, parse_file_log};
-use crate::reads::diff::dev_null;
 use crate::reads::{Command, CommandPort, checked, text_output};
 
 /// `gitLogMaxLimit`: the most commits one read lists.
@@ -162,39 +161,8 @@ pub async fn diff_commit(
             EMPTY_TREE_SHA1.to_owned()
         }
     });
-    let order_file = if is_windows {
-        "-O/dev/null".to_owned()
-    } else {
-        format!("-O{}", dev_null())
-    };
-    let mut args: Vec<String> = [
-        "-c",
-        "core.quotePath=true",
-        "-c",
-        "diff.suppressBlankEmpty=false",
-        "diff",
-    ]
-    .iter()
-    .map(|arg| (*arg).to_owned())
-    .collect();
-    args.push(order_file);
-    for arg in [
-        "--no-relative",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-color",
-        "--ignore-submodules=none",
-        "--submodule=short",
-        "--diff-algorithm=myers",
-        "--indent-heuristic",
-        "--find-renames=50%",
-        "--src-prefix=a/",
-        "--dst-prefix=b/",
-        "--line-prefix=",
-        "--patch",
-        "--unified=3",
-        "--inter-hunk-context=0",
-    ] {
+    let mut args = crate::reads::diff::diff_args(is_windows);
+    for arg in ["--patch", "--unified=3", "--inter-hunk-context=0"] {
         args.push(arg.to_owned());
     }
     args.push(from);

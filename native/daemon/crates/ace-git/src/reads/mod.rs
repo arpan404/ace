@@ -137,10 +137,7 @@ pub async fn checked(port: &dyn CommandPort, command: Command) -> Result<Command
 pub fn text_output(bytes: &[u8]) -> Result<String, GitError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| GitError::new(GitErrorCode::MalformedOutput, "Malformed Git text output"))?;
-    Ok(match text.strip_suffix('\n') {
-        Some(stripped) => stripped.to_owned(),
-        None => text.to_owned(),
-    })
+    Ok(text.strip_suffix('\n').unwrap_or(text).to_owned())
 }
 
 #[cfg(test)]

@@ -22,9 +22,10 @@ pub const MAX_SUFFIXES: usize = 100;
 
 /// A machine name as a branch-name fragment: `Arpan's MacBook Pro` → `arpans-macbook-pro`.
 pub fn machine_slug(machine: &str) -> String {
-    // NFKD folding covers the accents the TypeScript's normalize("NFKD") removes for ASCII.
+    use unicode_normalization::UnicodeNormalization;
+    // The TypeScript normalises NFKD first, so `École` (E + combining acute) becomes `e-cole`.
     let folded: String = machine
-        .chars()
+        .nfkd()
         .map(|character| match character {
             '\u{2019}' => '\'',
             other => other,
@@ -367,9 +368,21 @@ mod tests {
     #[test]
     fn a_machine_name_becomes_a_bounded_branch_fragment() {
         assert_eq!(machine_slug("Arpan's MacBook Pro"), "arpans-macbook-pro");
+        // NFKD first, as the TypeScript does: `École` folds to `e-cole`, not `cole`.
+        assert_eq!(machine_slug("École"), "e-cole");
+        assert_eq!(machine_slug("Ångström"), "a-ngstro-m");
+        assert_eq!(machine_slug("① Box"), "1-box");
+        // Writing systems without ASCII letters leave nothing but the fallback.
+        assert_eq!(machine_slug("東京"), "machine");
+        assert_eq!(machine_slug("🚀 Box"), "box");
         assert_eq!(machine_slug("  --  "), "machine");
         assert_eq!(machine_slug(""), "machine");
         assert_eq!(machine_slug(&"x".repeat(80)).len(), 40);
+        // A cut may leave a trailing dash; the TypeScript strips it again.
+        assert_eq!(
+            machine_slug(&format!("{} x", "a".repeat(40))),
+            "a".repeat(40)
+        );
     }
 
     // Every case of `transfer-names.test.ts` moved here.
