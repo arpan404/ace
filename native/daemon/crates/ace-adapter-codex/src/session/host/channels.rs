@@ -155,6 +155,9 @@ impl Inner {
                         pending.failed.insert(tenant);
                     }
                 }
+                // The notification that follows reads its params from here, so the frame
+                // is kept once rather than copied into a second effect (`peer.rs:line`).
+                pending.data = Some(data);
             }
             Route::Tenant { tenant, claimed } => {
                 for thread in claimed {
@@ -167,6 +170,7 @@ impl Inner {
                 if self.router.opening() == 0 {
                     self.settle_waiting();
                 }
+                pending.data = Some(data);
             }
         }
         pending
@@ -174,15 +178,12 @@ impl Inner {
 
     /// A notification follows its frame; a held one is dispatched on release
     /// (`#notification`, `:521`).
-    pub(super) fn notification(
-        &mut self,
-        pending: Option<Pending>,
-        method: &JsString,
-        params: Option<&Value>,
-    ) {
+    pub(super) fn notification(&mut self, pending: Option<Pending>, method: &JsString) {
         let Some(pending) = pending else {
             return;
         };
+        // The frame the peer already parsed carries `params`; the effect does not copy it.
+        let params = pending.data.as_ref().and_then(|data| data.get("params"));
         if let Some((thread, index)) = &pending.held {
             if let Some(hold) = self.holds.get_mut(thread)
                 && let Some(item) = hold.items.get_mut(*index)

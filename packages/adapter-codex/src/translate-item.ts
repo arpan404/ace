@@ -42,6 +42,8 @@ export function translateItem(
       item: itemId,
       draft: { type: "compaction", complete },
     });
+    // Its own turn reports the work: the strip says "Compacting context…" meanwhile.
+    if (!complete) facts.push({ type: "activity", agent: agent.key, activity: "compacting" });
     return;
   }
   agent.items.add(itemId);

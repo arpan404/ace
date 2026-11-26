@@ -886,3 +886,30 @@ it("OpenCode system tool schemas never appear as an assistant response while use
   const messages = Object.values(h.view.items).filter((item) => item.type === "message");
   expect(messages).toMatchObject([{ role: "user", parts: [{ type: "text", text: "Hello" }] }]);
 });
+
+it("a compaction without an execution reads as working and ends by itself, with one summary row", () => {
+  const h = setup();
+  h.frame("snapshot.info", {
+    root: true,
+    info: {
+      id: "s-root",
+      projectID: "p",
+      location: { directory: "/one" },
+      model: { providerID: "local", id: "model" },
+    },
+  });
+  h.event("session.compaction.started", { reason: "manual", recent: "" });
+  expect(Object.values(h.view.agents)[0]?.status).toEqual({
+    state: "working",
+    activity: "compacting",
+  });
+  h.event(
+    "session.compaction.ended",
+    { reason: "manual", text: "The earlier turns, summarised.", recent: "" },
+    { durable: { aggregateID: "s-root", seq: 1, version: 1 } },
+  );
+  expect(Object.values(h.view.items).filter((item) => item.type === "compaction")).toMatchObject([
+    { type: "compaction", summary: "The earlier turns, summarised." },
+  ]);
+  expect(h.view.thread.status).toEqual({ state: "done" });
+});

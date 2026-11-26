@@ -11,6 +11,8 @@ export type { LongThreadSoakOptions } from "./long-thread-soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
+export { contextMeter } from "./scenarios/context-meter.ts";
+export { contextMeterWaiting } from "./scenarios/context-meter.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
 export {
   nestedDelegation,

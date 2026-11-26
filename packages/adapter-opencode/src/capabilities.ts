@@ -27,6 +27,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
     backgroundTaskControl: supported,
     backgroundVisibility: supported ? "full" : "none",
     planMode: false,
+    // `session.compact` on the session's own native history.
+    compaction: supported,
     tokenUsage: supported,
     imageInput: supported,
     attachmentInput: {
