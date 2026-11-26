@@ -7,7 +7,7 @@
 //! of it.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
@@ -26,6 +26,14 @@ use crate::workspace::{RealWorkspaceFs, WorkspaceFs, WorkspaceGuards};
 pub struct Scope {
     pub workspace: Option<PathBuf>,
     pub thread: Option<String>,
+}
+
+/// How many settings files a service keeps open; the least recently used healthy one is
+/// dropped to make room.
+const MAX_OPEN_FILES: usize = 64;
+
+fn closed_error() -> SettingsError {
+    SettingsError::new(SettingsCode::Io, "Settings service is closed")
 }
 
 /// One change a listener sees: the layer that changed and its keys.
@@ -47,6 +55,10 @@ pub struct SettingsService {
     overrides: BTreeMap<String, Value>,
     workspaces: WorkspaceGuards,
     files: BTreeMap<PathBuf, Rc<RefCell<SettingsFile>>>,
+    /// Open files, least recently used first.
+    order: Vec<PathBuf>,
+    /// Files a subscription holds: never evicted.
+    pinned: BTreeSet<PathBuf>,
     listeners: Vec<ChangeListener>,
     pending: Rc<RefCell<Vec<Pending>>>,
     closed: bool,
@@ -89,6 +101,8 @@ impl SettingsService {
             overrides,
             workspaces: WorkspaceGuards::new(fs, &aliases),
             files: BTreeMap::new(),
+            order: Vec::new(),
+            pinned: BTreeSet::new(),
             listeners: Vec::new(),
             pending: Rc::new(RefCell::new(Vec::new())),
             closed: false,
@@ -106,19 +120,24 @@ impl SettingsService {
         service: &Rc<RefCell<Self>>,
         layer: &Layer,
     ) -> Result<Rc<RefCell<SettingsFile>>, SettingsError> {
+        if service.borrow().closed {
+            return Err(closed_error());
+        }
         let path = layer.path(&service.borrow().data_dir)?;
         let guard = match layer {
             Layer::Workspace { workspace } => Some(service.borrow().workspaces.get(workspace)?),
             _ => service.borrow().workspaces.for_file(&path),
         };
-        if let Some(file) = service.borrow().files.get(&path) {
-            let file = file.clone();
+        let cached = service.borrow().files.get(&path).cloned();
+        if let Some(file) = cached {
             if let Some(guard) = guard {
                 let check = guard.clone();
                 file.borrow_mut().protect(Rc::new(move || check.check()));
             }
+            Self::touch(service, &path);
             return Ok(file);
         }
+        Self::make_room(service)?;
         let provenance = layer.kind();
         // A change is queued, never delivered from inside the file's borrow: a listener may
         // read the value that was just committed.
@@ -176,8 +195,50 @@ impl SettingsService {
                 .insert(scheduled_path.clone(), cancel);
         });
         let _ = file.borrow_mut().watch(schedule);
-        service.borrow_mut().files.insert(path, file.clone());
+        {
+            let mut borrowed = service.borrow_mut();
+            borrowed.files.insert(path.clone(), file.clone());
+            borrowed.order.push(path);
+        }
         Ok(file)
+    }
+
+    /// Moves `path` to the most recently used end of the cache order.
+    fn touch(service: &Rc<RefCell<Self>>, path: &std::path::Path) {
+        let mut borrowed = service.borrow_mut();
+        borrowed.order.retain(|seen| seen != path);
+        borrowed.order.push(path.to_path_buf());
+    }
+
+    /// Evicts the least recently used healthy file when the cache is full. A file a
+    /// subscription holds, or one with a diagnostic, is never evicted.
+    fn make_room(service: &Rc<RefCell<Self>>) -> Result<(), SettingsError> {
+        let full = service.borrow().files.len() >= MAX_OPEN_FILES;
+        if !full {
+            return Ok(());
+        }
+        let candidate = {
+            let borrowed = service.borrow();
+            borrowed.order.iter().find_map(|path| {
+                if borrowed.pinned.contains(path) {
+                    return None;
+                }
+                let file = borrowed.files.get(path)?;
+                file.borrow().diagnostic().is_none().then(|| path.clone())
+            })
+        };
+        let Some(path) = candidate else {
+            return Err(SettingsError::new(
+                SettingsCode::Limit,
+                "Settings file limit reached; release active subscriptions or repair invalid scopes",
+            ));
+        };
+        let file = service.borrow_mut().files.remove(&path);
+        service.borrow_mut().order.retain(|seen| seen != &path);
+        if let Some(file) = file {
+            file.borrow_mut().close();
+        }
+        Ok(())
     }
 
     fn layers(service: &Rc<RefCell<Self>>, scope: &Scope) -> Result<Vec<Layer>, SettingsError> {
@@ -420,6 +481,8 @@ impl SettingsService {
             file.borrow_mut().close();
         }
         borrowed.files.clear();
+        borrowed.order.clear();
+        borrowed.pinned.clear();
         borrowed.listeners.clear();
     }
 }
@@ -446,6 +509,7 @@ mod tests {
         watches: Mutex<usize>,
         changed: Mutex<Option<Rc<dyn Fn()>>>,
         failed: Mutex<Option<Rc<dyn Fn()>>>,
+        stopped: Arc<Mutex<usize>>,
     }
 
     impl MemoryIo {
@@ -525,7 +589,10 @@ mod tests {
                 .failed
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) = Some(failed);
-            Ok(Box::new(|| {}))
+            let stopped = self.stopped.clone();
+            Ok(Box::new(move || {
+                *stopped.lock().unwrap_or_else(|error| error.into_inner()) += 1;
+            }))
         }
     }
 
@@ -783,6 +850,51 @@ mod tests {
             *io.writes.lock().unwrap_or_else(|error| error.into_inner()),
             0,
             "nothing is written over the malformed text"
+        );
+    }
+
+    #[test]
+    fn a_closed_service_refuses_reads_and_writes() {
+        let io = Arc::new(MemoryIo::default());
+        let service = service(io.clone());
+        SettingsService::get(&service, "threads.settleOnClose", &Scope::default())
+            .unwrap_or_else(|error| panic!("{error}"));
+        let writes = MemoryIo::count(&io.writes);
+        SettingsService::close(&service);
+        for refusal in [
+            SettingsService::get(&service, "threads.settleOnClose", &Scope::default()).map(|_| ()),
+            SettingsService::set(
+                &service,
+                "threads.settleOnClose",
+                &json!(true),
+                &Layer::Global,
+            ),
+            SettingsService::refresh(&service, &Layer::Global),
+        ] {
+            assert_eq!(
+                refusal.map_err(|error| error.message),
+                Err("Settings service is closed".into())
+            );
+        }
+        assert_eq!(MemoryIo::count(&io.writes), writes, "nothing was written");
+    }
+
+    #[test]
+    fn the_open_file_cache_evicts_the_least_recently_used_healthy_file() {
+        let io = Arc::new(MemoryIo::default());
+        let service = service(io.clone());
+        for index in 0..65 {
+            let scope = Scope {
+                workspace: None,
+                thread: Some(format!("t{index}")),
+            };
+            SettingsService::get(&service, "threads.settleOnClose", &scope)
+                .unwrap_or_else(|error| panic!("{error}"));
+        }
+        assert_eq!(service.borrow().files.len(), 64, "the cache is bounded");
+        assert!(
+            MemoryIo::count(&io.stopped) >= 1,
+            "an evicted file's watch is stopped"
         );
     }
 

@@ -325,6 +325,12 @@ impl SettingsFile {
         &mut self,
         change: impl FnOnce(&DecodedDocument) -> Result<DecodedDocument, SettingsError>,
     ) -> Result<(), SettingsError> {
+        if self.closed {
+            return Err(SettingsError::new(
+                SettingsCode::Io,
+                "Settings service is closed",
+            ));
+        }
         self.check()?;
         let raw = self
             .io
