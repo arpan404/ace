@@ -9,6 +9,8 @@ use super::{Cancel, NkLimits, Remaining, State};
 pub(super) struct HeldState {
     confirmed: bool,
     closed: bool,
+    /// Set once the session's byte hold was given back, so `Drop` cannot give it twice.
+    released: bool,
     bytes: usize,
     events: usize,
     output: usize,
@@ -27,6 +29,10 @@ impl SessionInner {
     fn release(&self) {
         let (cancel, bytes) = {
             let mut held = self.held.lock().unwrap_or_else(|error| error.into_inner());
+            if held.released {
+                return;
+            }
+            held.released = true;
             (held.cancel.take(), std::mem::take(&mut held.bytes))
         };
         if let Some(cancel) = cancel {
@@ -34,6 +40,14 @@ impl SessionInner {
         }
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.give(self.id, bytes);
+    }
+}
+
+impl Drop for SessionInner {
+    /// A shell that drops its last handle without closing still gives the slot and bytes back,
+    /// as the TypeScript's `#open` set (which holds the session) always does (`admission.ts:164`).
+    fn drop(&mut self) {
+        self.release();
     }
 }
 
@@ -55,6 +69,7 @@ impl NkSession {
                 held: Mutex::new(HeldState {
                     confirmed: false,
                     closed: false,
+                    released: false,
                     bytes: 0,
                     events: 0,
                     output: 0,
@@ -132,7 +147,7 @@ impl NkSession {
         if held.confirmed {
             return true;
         }
-        if held.closed || held.bytes + bytes > self.inner.limits.session_bytes {
+        if held.closed || held.bytes.saturating_add(bytes) > self.inner.limits.session_bytes {
             return false;
         }
         let mut state = self
@@ -153,7 +168,7 @@ impl NkSession {
         if held.confirmed {
             return true;
         }
-        if held.closed || held.events + count > self.inner.limits.session_events {
+        if held.closed || held.events.saturating_add(count) > self.inner.limits.session_events {
             return false;
         }
         held.events += count;
@@ -166,7 +181,7 @@ impl NkSession {
         if held.confirmed {
             return true;
         }
-        if held.closed || held.output + bytes > self.inner.limits.session_output {
+        if held.closed || held.output.saturating_add(bytes) > self.inner.limits.session_output {
             return false;
         }
         held.output += bytes;

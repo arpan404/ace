@@ -150,7 +150,7 @@ impl State {
     }
 
     fn take(&mut self, limits: &NkLimits, bytes: usize) -> bool {
-        if self.bytes + bytes > limits.total_bytes {
+        if self.bytes.saturating_add(bytes) > limits.total_bytes {
             return false;
         }
         self.bytes += bytes;

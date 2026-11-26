@@ -117,10 +117,13 @@ fn a_device_holds_two_unconfirmed_sessions_and_the_daemon_thirty_two() {
     // Confirmed sessions keep working with no limits, and no longer count.
     assert!(first.output(10 * 1024 * 1024));
     assert!(admission.admit("phone", || {}).is_some());
+    // The third phone attempt is dropped at once, which releases its slot (Rust's `Drop` does
+    // what the TypeScript's strong `#open` reference defers to the deadline): 31 are free of the
+    // 32, with the second phone session still holding one.
     let others: Vec<Option<NkSession>> = (0..40)
         .map(|n| admission.admit(&format!("device-{n}"), || {}))
         .collect();
-    assert_eq!(others.iter().filter(|each| each.is_some()).count(), 30);
+    assert_eq!(others.iter().filter(|each| each.is_some()).count(), 31);
     for session in others.into_iter().flatten() {
         session.close();
     }
@@ -216,6 +219,21 @@ fn a_session_that_does_not_confirm_in_five_seconds_is_closed_and_gives_everythin
         }
     );
     assert_eq!(clock.pending(), 0);
+}
+
+#[test]
+fn a_session_dropped_without_closing_still_gives_its_slot_and_bytes_back() {
+    let (_clock, admission) = admission(NK_LIMITS);
+    // 33 sessions dropped before confirming: the 33rd would be over the 32 cap, so it proves the
+    // earlier 32 released as they were dropped.
+    for n in 0..32 {
+        let session = admission.admit(&format!("device-{n}"), || {}).unwrap();
+        assert!(session.reserve_bytes(1024));
+        drop(session);
+    }
+    assert_eq!(admission.held().sessions, 0);
+    assert_eq!(admission.held().bytes, 0);
+    assert!(admission.admit("device-33", || {}).is_some());
 }
 
 #[test]
