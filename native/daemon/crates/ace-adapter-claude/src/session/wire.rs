@@ -236,9 +236,12 @@ impl ClaudeWire {
             Line::Message { kind, value } => {
                 if self.confirms(kind, &value) {
                     self.confirmed = true;
+                    // The bridge calls `ctx[name](...args)`: the payload is an argument list.
                     effects.push(Effect::Callback {
                         name: "onSessionConfirmed",
-                        json: ace_json::to_string(&Value::from(self.config.session_id.as_str())),
+                        json: ace_json::to_string(&Value::from(vec![Value::from(
+                            self.config.session_id.as_str(),
+                        )])),
                     });
                 }
                 match self.frame(FrameDir::Recv, SDK, &value) {
@@ -261,7 +264,7 @@ impl ClaudeWire {
                 {
                     effects.push(Effect::Callback {
                         name: "onRateLimit",
-                        json: ace_json::to_string(info),
+                        json: ace_json::to_string(&Value::from(vec![info.clone()])),
                     });
                 }
             }

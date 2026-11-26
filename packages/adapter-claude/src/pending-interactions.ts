@@ -15,7 +15,7 @@ type Pending = {
   cancel(): void;
   expire(): void;
 };
-const ElicitationAnswer = z.object({
+export const ElicitationAnswer = z.object({
   action: z.enum(["accept", "decline", "cancel"]),
   content: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))

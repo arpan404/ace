@@ -32,6 +32,7 @@ import { AceListing } from "./ace-listing.ts";
 import { claudeToolSearchFacts } from "./tool-search-facts.ts";
 import { readClaudeUsage } from "./usage-read.ts";
 import { CliVersions } from "./cli-versions.ts";
+import { sessionBackend } from "@ace/provider-kit/native-switches";
 export interface ClaudeOptions {
   executable?: string;
   env?: NodeJS.ProcessEnv;
@@ -50,6 +51,9 @@ export async function openSession(
   options: ClaudeOptions = {},
   versions: CliVersions = new CliVersions(),
 ): Promise<ProviderSession> {
+  // E3-claude.4: the Rust session behind the same interface; off unless the switch names it.
+  if (sessionBackend("claude") === "native")
+    return (await import("./native-session.ts")).openNativeClaudeSession(ctx, options, versions);
   const selectedOptions = ClaudeSelectionOptions.parse(ctx.options ?? {});
   const configuration = configurationOptions(options.configuration ?? codingConfiguration);
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");

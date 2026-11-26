@@ -204,5 +204,6 @@ fn input_message(command_id: &str, uuid: &str) -> String {
     let mut map = Map::with_capacity(2);
     map.insert("commandId", Value::from(command_id));
     map.insert("nativeId", Value::from(uuid));
-    ace_json::to_string(&Value::Object(map))
+    // The bridge calls `ctx[name](...args)`: one argument, the identity object.
+    ace_json::to_string(&Value::from(vec![Value::Object(map)]))
 }

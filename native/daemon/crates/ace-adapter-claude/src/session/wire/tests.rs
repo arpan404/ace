@@ -107,7 +107,7 @@ fn a_recorded_init_line_confirms_before_its_frame() {
     match &effects[0] {
         Effect::Callback { name, json } => {
             assert_eq!(*name, "onSessionConfirmed");
-            assert_eq!(json, &format!("\"{session}\""));
+            assert_eq!(json, &format!("[\"{session}\"]"));
         }
         other => panic!("the callback comes first, got {other:?}"),
     }
@@ -208,7 +208,11 @@ fn the_task_index_resolves_and_cascades() {
         wire.task_cascade(Some("spawn-parent")),
         r#"{"ids":["child-task"],"uncertain":false}"#
     );
-    assert_eq!(wire.task_cascade(None), r#"{"ids":[],"uncertain":true}"#);
+    assert_eq!(
+        wire.task_cascade(None),
+        r#"{"ids":["parent-task","child-task"],"uncertain":false}"#,
+        "the no-target branch is every live task, certain"
+    );
     assert_eq!(
         wire.task_target("spawn-child").expect("the child resolves"),
         r#"{"id":"child-task","spawn":"spawn-child","parent":"spawn-parent","live":true,"run":"","route":"spawn-child"}"#
@@ -230,7 +234,7 @@ fn a_rate_limit_event_emits_the_callback_after_its_frame() {
     match &effects[1] {
         Effect::Callback { name, json } => {
             assert_eq!(*name, "onRateLimit");
-            assert_eq!(json, &ace_json::to_string(info));
+            assert_eq!(json, &ace_json::to_string(&Value::from(vec![info.clone()])));
         }
         other => panic!("the callback follows the frame, got {other:?}"),
     }
@@ -781,7 +785,7 @@ fn send_refuses_whole_then_frames_each_write() {
     assert!(matches!(
         &effects[0],
         Effect::Callback { name: "onInputMessage", json }
-            if json == r#"{"commandId":"command-1","nativeId":"uuid-1"}"#
+            if json == r#"[{"commandId":"command-1","nativeId":"uuid-1"}]"#
     ));
     assert!(matches!(&effects[1], Effect::Write { .. }));
     assert_eq!(
