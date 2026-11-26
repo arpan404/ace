@@ -22,6 +22,8 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
     }
     /// The new grid size when the view's size or text size changes.
     var onFit: ((Int, Int) -> Void)?
+    /// A tapped hyperlink, opened by the view; taps elsewhere still focus the keyboard.
+    var onLink: ((URL) -> Void)?
     /// A tap on the surface (focus the keyboard).
     var onTap: (() -> Void)?
     /// Arrow keys (or mouse wheel bytes) from scrolling a full-screen program.
@@ -42,6 +44,8 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
     private(set) var fonts = TerminalFonts(size: 12)
     private var cache: [UInt64: TerminalRowDrawing] = [:]
     private var palette: TerminalPalette?
+    /// The program colours `palette` was built with; a change to them rebuilds it and the rows.
+    private var shownColours: TerminalColours?
     private var following = true
     private var grid = (columns: 0, rows: 0)
     private var totalRows = 0
@@ -60,7 +64,7 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
         drawing.isOpaque = true
         drawing.contentMode = .redraw
         addSubview(drawing)
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.delegate = self
         addGestureRecognizer(pan)
@@ -73,6 +77,7 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
         super.traitCollectionDidChange(previous)
         palette = nil
+        shownColours = nil
         cache = [:]
         drawing.setNeedsDisplay()
     }
@@ -130,7 +135,22 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
         set {}
     }
 
-    @objc private func tapped() { onTap?() }
+    @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+        if let address = link(at: gesture.location(in: self)), let url = TerminalOSC.openable(address), let onLink {
+            onLink(url)
+            return
+        }
+        onTap?()
+    }
+
+    /// The hyperlink under a point in the view, if any.
+    private func link(at point: CGPoint) -> String? {
+        guard let session else { return nil }
+        // A scroll view's own coordinates already include its offset.
+        let row = Int(floor((point.y - inset) / fonts.lineHeight))
+        let column = Int(floor((point.x - inset) / fonts.cellWidth))
+        return session.read { $0.hyperlink(row: row, column: column) }
+    }
 
     /// In a full-screen program there is nothing to scroll: a drag sends arrow keys instead,
     /// one per row dragged, as xterm's alternate scroll mode does.
@@ -150,20 +170,30 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
 
     fileprivate func draw(in context: CGContext, rect: CGRect) {
         guard let session else { return }
-        let palette = self.palette ?? makePalette()
-        self.palette = palette
-        context.setFillColor(palette.background)
-        context.fill(rect)
         let offset = contentOffset.y
         let first = max(0, Int(floor(offset / fonts.lineHeight)))
         let visible = Int(ceil(bounds.height / fonts.lineHeight)) + 1
         let shift = CGFloat(first) * fonts.lineHeight - offset
-        let state = session.read { screen -> (lines: [TerminalLine], history: Int, row: Int, column: Int, cursor: Bool, shape: TerminalCursorShape, reverse: Bool) in
+        let state = session.read { screen -> (lines: [TerminalLine], colours: TerminalColours, history: Int, row: Int, column: Int, cursor: Bool, shape: TerminalCursorShape, reverse: Bool) in
             let total = screen.historyCount + screen.rows
             let end = min(total, first + visible)
             let lines = first < end ? (first..<end).map { screen.line($0) } : []
-            return (lines, screen.historyCount, screen.cursorRow, screen.cursorColumn, screen.modes.cursorVisible, screen.cursorShape, screen.modes.reverseVideo)
+            return (lines, screen.colours, screen.historyCount, screen.cursorRow, screen.cursorColumn,
+                    screen.modes.cursorVisible, screen.cursorShape, screen.modes.reverseVideo)
         }
+        let palette: TerminalPalette
+        if let cached = self.palette, shownColours == state.colours {
+            palette = cached
+        } else {
+            // A program changed a colour (OSC 4, 10, 11, 12): every cached row was drawn with
+            // the old one, so they are rebuilt as they show.
+            palette = makePalette(colours: state.colours)
+            self.palette = palette
+            shownColours = state.colours
+            cache = [:]
+        }
+        context.setFillColor(palette.background)
+        context.fill(rect)
         context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         var seen = Set<UInt64>()
         for (index, line) in state.lines.enumerated() {
@@ -214,11 +244,11 @@ final class TerminalCanvasView: UIScrollView, UIScrollViewDelegate {
         }
     }
 
-    private func makePalette() -> TerminalPalette {
+    private func makePalette(colours: TerminalColours) -> TerminalPalette {
         let traits = traitCollection
         return TerminalPalette(foreground: UIColor(AceTheme.Colours.foreground).resolvedColor(with: traits),
                                background: UIColor(AceTheme.Colours.background).resolvedColor(with: traits),
-                               dark: traits.userInterfaceStyle == .dark)
+                               dark: traits.userInterfaceStyle == .dark, colours: colours)
     }
 
     fileprivate final class DrawingView: UIView {

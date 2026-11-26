@@ -2,9 +2,10 @@ import { spadeStateLine, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
-import { LivePill, readingColumn } from "@/features/thread/index.ts";
+import { readingColumn } from "@/features/thread/index.ts";
 import { usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
+import { SpadeEndPill } from "./spade-end-pill.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { FoldScrollContext, type FoldScroll } from "./spade-fold.tsx";
 import { useMarkSeen, type SeenTarget } from "./use-mark-seen.ts";
@@ -20,10 +21,11 @@ export function useSpadeLine() {
 }
 
 const scrollerClass =
-  "col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]";
+  // Ends above the composer and a strip for Scroll to end, so nothing scrolls under either.
+  "col-start-1 row-start-1 mb-[calc(var(--composer-clearance,0px)+2.5rem)] flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]";
 
 /** The reading column, with room under the last line for the composer floating over it. */
-const columnClass = cn(readingColumn, "w-full pb-[calc(var(--composer-clearance,0px)+1rem)]");
+const columnClass = cn(readingColumn, "w-full pb-6");
 
 /**
  * A page over the composer that isn't a conversation yet (New bot): it opens at its top, so the
@@ -68,13 +70,29 @@ export function Scroller(props: {
   const last = useRef({ top: 0, height: 0 });
   const [away, setAway] = useState(false);
   const pill = usePresence(away);
+  /** How many messages the transcript held when the person scrolled up, and what arrived since. */
+  const heldAt = useRef(0);
+  const [unread, setUnread] = useState(0);
+  const messages = () => content.current?.querySelectorAll('[role="article"]').length ?? 0;
   const reportEnd = useMarkSeen(props.seen);
   /** The person moved up since we last looked: following lets go at once, however near the end. */
   const movedUp = (element: HTMLElement) =>
     element.scrollTop < last.current.top - 1 && element.scrollHeight >= last.current.height;
+  /**
+   * The last message (and its reactions) is out of view: more than the column's bottom padding,
+   * which holds the composer's measured height, lies below. Within it, the end is on screen.
+   */
+  const pastLast = () => {
+    const element = scroller.current;
+    const inner = content.current;
+    if (!element || !inner) return true;
+    const room = Number.parseFloat(getComputedStyle(inner).paddingBottom) || 0;
+    return element.scrollHeight - element.scrollTop - element.clientHeight > room;
+  };
   const letGo = () => {
+    if (atEnd.current) heldAt.current = messages();
     atEnd.current = false;
-    setAway(true);
+    setAway(pastLast());
     reportEnd(false);
   };
   /** At the end, it stays there as the conversation grows; unless the person just moved up. */
@@ -89,6 +107,7 @@ export function Scroller(props: {
   const toEnd = () => {
     atEnd.current = true;
     setAway(false);
+    setUnread(0);
     last.current = { top: 0, height: 0 };
     follow();
     reportEnd(true);
@@ -115,7 +134,10 @@ export function Scroller(props: {
   useLayoutEffect(() => {
     const inner = content.current;
     if (!inner || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => follow());
+    const observer = new ResizeObserver(() => {
+      follow();
+      if (!atEnd.current) setUnread(Math.max(0, messages() - heldAt.current));
+    });
     observer.observe(inner);
     return () => observer.disconnect();
     // `follow` reads only refs: the first one is as good as any.
@@ -151,9 +173,12 @@ export function Scroller(props: {
           const element = event.currentTarget;
           const up = movedUp(element);
           last.current = { top: element.scrollTop, height: element.scrollHeight };
+          const wasAtEnd = atEnd.current;
           atEnd.current =
             !up && element.scrollHeight - element.scrollTop - element.clientHeight < endSlack;
-          setAway(!atEnd.current);
+          if (wasAtEnd && !atEnd.current) heldAt.current = messages();
+          if (atEnd.current) setUnread(0);
+          setAway(!atEnd.current && pastLast());
           reportEnd(atEnd.current);
         }}
         className={scrollerClass}
@@ -162,7 +187,7 @@ export function Scroller(props: {
           <FoldScrollContext value={fold}>{props.children}</FoldScrollContext>
         </div>
       </div>
-      {pill.mounted && <LivePill newItems={0} more={false} phase={pill.phase} onClick={toEnd} />}
+      {pill.mounted && <SpadeEndPill unread={unread} phase={pill.phase} onClick={toEnd} />}
     </>
   );
 }

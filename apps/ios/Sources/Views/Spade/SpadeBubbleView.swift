@@ -37,10 +37,10 @@ struct SpadeBubbleView: View {
                     if !text.isEmpty {
                         Text(text)
                             .aceFont(AceDesign.TextRole.message)
-                            .foregroundStyle(AceDesign.Surface.background)
+                            .foregroundStyle(AceDesign.Ink.onAccent)
                             .padding(.horizontal, AceDesign.Space.margin)
                             .padding(.vertical, AceDesign.Space.related)
-                            .background(AceDesign.Ink.accent, in: AceDesign.Shape.bubble)
+                            .background(AceDesign.Surface.personBubble, in: AceDesign.Shape.bubble)
                             .opacity(sending ? AceTheme.Opacity.disabled(.light) : 1)
                             .textSelection(.enabled)
                     }

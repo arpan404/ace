@@ -108,6 +108,11 @@ pub struct Attestor {
 pub const CLAIMED: &str = "person_stamp:";
 
 impl Attestor {
+    #[cfg(target_os = "macos")]
+    pub(super) fn path(&self) -> Option<&std::path::Path> {
+        self.key.as_deref()
+    }
+
     /// `key`: where the daemon writes the shared key; `None` takes no stamp at all.
     pub fn new(key: Option<PathBuf>) -> Self {
         Self { key }

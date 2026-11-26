@@ -22,6 +22,8 @@ pub struct Outgoing {
     pub devices: Vec<spade_core::named_devices::NamedDevice>,
     /// The id of an earlier message of the conversation the person replied to (ADR 0212).
     pub reply_to: Option<String>,
+    /// The skill or command the person started with it, already resolved (see `invoke`).
+    pub invoke: Option<spade_core::event::Invoked>,
 }
 
 impl Engine {
@@ -34,7 +36,11 @@ impl Engine {
             return Err(SendError::TooManyDocuments);
         }
         let attached = outgoing.images.len() + outgoing.documents.len();
-        self.check_message(&outgoing.text, attached)?;
+        // A skill or command is a message of its own, though the person wrote no words after it.
+        self.check_message(
+            &outgoing.text,
+            attached + usize::from(outgoing.invoke.is_some()),
+        )?;
         if let Some((name, machine)) = self.moving_to(id) {
             return Err(SendError::Moving(name, machine));
         }
@@ -73,6 +79,7 @@ impl Engine {
             from_group: None,
             from_thread: None,
             reply_to: self.quote(id, outgoing.reply_to.as_deref()).map(Box::new),
+            invoke: outgoing.invoke.map(Box::new),
         });
         let message = memory::with_recall(self, id, message);
         let message = with_devices(message, &outgoing_devices);
@@ -198,6 +205,7 @@ fn with_devices(event: Event, devices: &[spade_core::named_devices::NamedDevice]
             from_group,
             from_thread,
             reply_to,
+            invoke,
         }) => Event::Known(Known::UserMessage {
             text,
             context: Some(match context {
@@ -212,6 +220,7 @@ fn with_devices(event: Event, devices: &[spade_core::named_devices::NamedDevice]
             from_group,
             from_thread,
             reply_to,
+            invoke,
         }),
         other => other,
     }

@@ -272,6 +272,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     ),
   );
   let stopping: Stopping | undefined;
+  /** The live registry, and the two services the surface keeps once shutdown withdraws them. */
+  let liveServices: ServiceContext["services"] | undefined;
+  let retainedServices: Pick<ServiceContext["services"], "settings" | "launchPlugins"> | undefined;
   const stopRecord = stopRecorder({ run: () => run, log, now, pid: process.pid });
   // Disposers run in reverse: this record is the last line before the log closes.
   resources.own(() => {
@@ -418,6 +421,17 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const closeResources = (reason: StopReason = { source: "close" }) => {
     if (!stopping) {
       stopping = { reason, at: now() };
+      // The two services that answer a call after their slot is withdrawn keep their own guard:
+      // settings says closed, the plugin launcher says closing. Nothing else is retained.
+      retainedServices =
+        liveServices === undefined
+          ? undefined
+          : {
+              ...(liveServices.settings === undefined ? {} : { settings: liveServices.settings }),
+              ...(liveServices.launchPlugins === undefined
+                ? {}
+                : { launchPlugins: liveServices.launchPlugins }),
+            };
       log.log(
         "info",
         "Daemon stopping",
@@ -678,6 +692,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     );
     await startup.start(serviceFactories);
     const services = serviceContext.services;
+    liveServices = services;
     readyServices(services);
     const handler = services.handler;
     const { token, tokenPath } = loadToken(config.dataDir);
@@ -853,6 +868,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       log,
       pendingShutdown,
       close: (reason?: StopReason) => closeResources(reason),
+      retained: () => retainedServices,
     });
   } catch (error) {
     if (!lifetime.signal.aborted)

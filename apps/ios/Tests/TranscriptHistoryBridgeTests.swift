@@ -9,11 +9,7 @@ import Testing
         #expect(result.ok, "JS error: \(result.errorText)")
         let detail = result.detail
         let pages = detail.int("pages")
-        let counts = detail.numbers("counts")
         #expect(pages >= 2)
-        // The window's bound and the live tail it joins.
-        let bound = Double(detail.int("bound"))
-        #expect(bound > 0 && counts.allSatisfy { $0 <= bound })
         // Successive windows overlap (older pages prepend): shared rows must keep their order,
         // and only older rows may appear, before them.
         #expect(detail.bool("firstMoved"))
@@ -32,12 +28,15 @@ import Testing
         #expect(result.detail.int("lenBefore") == result.detail.int("lenAfter"))
     }
 
-    @Test func theHistoryWindowStaysBounded() throws {
+    /// Every page the reader loaded stays (#2774): evicting rows at the far end left blank room
+    /// that went black when the reader scrolled back into it.
+    @Test func theHistoryWindowKeepsEveryLoadedPage() throws {
         let harness = try HistoryHarness()
         let result = try harness.run("transcriptHistoryWindowBound", snapshot: "window-bound")
         #expect(result.ok, "JS error: \(result.errorText)")
         #expect(result.detail.bool("reachedStart"))
-        #expect(result.detail.int("maxItems") <= result.detail.int("bound"))
+        #expect(!result.detail.bool("evicted"))
+        #expect(result.detail.int("held") == result.detail.int("seen"))
     }
 
     @Test func aCancelledOlderReadRetriesWithAFreshFetch() throws {

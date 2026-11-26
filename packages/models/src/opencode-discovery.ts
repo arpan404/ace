@@ -71,7 +71,9 @@ export async function discoverOpenCodeCatalog(
   // Some v2 servers return no model metadata although `models` still lists choices.
   const proc = spawn({
     command: instance.executable,
-    args: [...instance.args, "models"],
+    // Only an account with no service of its own needs a private one: the implicit account must
+    // keep reusing the person's running service on the default port.
+    args: [...instance.args, "models", ...(instance.isolatedService ? ["--standalone"] : [])],
     cwd: instance.cwd,
     env: instance.env,
     name: "model-discovery",

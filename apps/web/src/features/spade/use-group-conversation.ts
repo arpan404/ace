@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { GroupFollow } from "./conversation-follow.ts";
 import { KeptFollows } from "./kept-follows.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
-import { SpadeRequestError } from "./spade-requests.ts";
+import { spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { postGroupMessage, stopGroup } from "./spade-teams-api.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { followDeps } from "./use-spade-conversation.ts";
@@ -83,6 +83,13 @@ export function useGroupConversation(group: { id: string; conversation: string }
         follow.apply({ kind: "refused", key });
         throw error;
       }
+    },
+    /** The person's reaction to a club message, or taking it back (`emoji` undefined). */
+    async react(message: string, emoji: string | undefined): Promise<void> {
+      const target = `/v1/conversations/${encodeURIComponent(group.conversation)}/messages/${encodeURIComponent(message)}/reactions`;
+      await (emoji === undefined
+        ? spadeHttp(client, "DELETE", target)
+        : spadeHttp(client, "POST", target, { body: { emoji } }));
     },
     async stop(): Promise<void> {
       try {

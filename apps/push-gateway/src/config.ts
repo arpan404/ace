@@ -10,8 +10,12 @@ export const LimitsSchema = z.object({
   registrationsPerDaemon: positive.default(60),
   /** Pushes per daemon key per hour. */
   pushesPerDaemon: positive.default(600),
-  /** Pushes per handle (one phone, one daemon) per hour. */
+  /** Alert pushes per device token per hour. */
   pushesPerHandle: positive.default(120),
+  /** Updates and ends per Live Activity registration per hour. */
+  activityPushesPerHandle: positive.default(240),
+  /** Starts per push-to-start registration per hour. */
+  startsPerHandle: positive.default(12),
   /** Entries each limiter keeps before evicting the oldest. */
   maxEntries: positive.default(20_000),
   /** Concurrent APNs requests. */

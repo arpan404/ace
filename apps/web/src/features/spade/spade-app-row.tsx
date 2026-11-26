@@ -6,6 +6,7 @@ import { openExternal } from "@/boot/open-external.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { CardActions } from "./spade-card.tsx";
 import { connectHere, connectInBrowser, type ConnectOutcome } from "./spade-connect-flow.ts";
 import { connect, connectorsKey, type SpadeConnectDraft } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -152,23 +153,24 @@ export function ServerChoice(props: {
             disabled={busy}
             className="w-64"
           />
-          <Button size="sm" type="submit" disabled={busy || !token.trim()}>
-            Connect
-          </Button>
-          {props.keyUrl && (
-            <Button
-              size="sm"
-              variant="ghost"
-              type="button"
-              onClick={() =>
-                void openExternal(props.keyUrl ?? "").catch((error: unknown) =>
-                  setProblem(error instanceof Error ? error.message : "Couldn't open it."),
-                )
-              }
-            >
-              {`Get a key from ${props.name}`}
-            </Button>
-          )}
+          <CardActions
+            secondary={[
+              props.keyUrl && {
+                key: "get-key",
+                label: `Get a key from ${props.name}`,
+                onClick: () =>
+                  void openExternal(props.keyUrl ?? "").catch((error: unknown) =>
+                    setProblem(error instanceof Error ? error.message : "Couldn't open it."),
+                  ),
+              },
+            ]}
+            primary={{
+              type: "submit",
+              label: "Connect",
+              disabled: busy || !token.trim(),
+              hint: "enter",
+            }}
+          />
         </form>
       )}
       {open === "client" && (
@@ -212,9 +214,14 @@ export function ServerChoice(props: {
             disabled={busy}
             className="w-48"
           />
-          <Button size="sm" type="submit" disabled={busy || !clientId.trim()}>
-            Sign in
-          </Button>
+          <CardActions
+            primary={{
+              type: "submit",
+              label: "Sign in",
+              disabled: busy || !clientId.trim(),
+              hint: "enter",
+            }}
+          />
         </form>
       )}
       {needsAce && (

@@ -24,6 +24,7 @@ struct ThreadExtra<'a> {
     pack: Option<&'a str>,
     devices: Option<&'a str>,
     reply_to: Option<&'a ReplyTo>,
+    message_seq: Option<i64>,
 }
 
 /// How long `group_ask` waits for a member's answer.
@@ -122,6 +123,7 @@ impl Engine {
                 pack: pack.as_deref(),
                 devices: devices.as_deref(),
                 reply_to: quote.as_ref(),
+                message_seq: (seq > 0).then_some(seq),
             };
             if let Err(why) = self.start_ask_with(&group, &run, None, 1, target, said, extra) {
                 tracing::warn!(%why, "a group message was not handed on");
@@ -164,7 +166,11 @@ impl Engine {
                 .group_lock
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
-            let events = self.load(&group.conversation).map_err(|e| e.to_string())?;
+            let stored = self
+                .store
+                .events(&group.conversation, 0)
+                .map_err(|e| e.to_string())?;
+            let events: Vec<Event> = stored.iter().map(|e| e.event.clone()).collect();
             group::admit(&events, run, depth, by.as_ref(), &to_bot).map_err(|r| r.words())?;
             let ask = self.ids.next("ask");
             self.record(
@@ -178,10 +184,12 @@ impl Engine {
                 }),
             )
             .map_err(|e| e.to_string())?;
-            let (lines, untrusted) = group::recent(&events, &to_bot, run);
+            let indexed: Vec<(i64, &Event)> = stored.iter().map(|e| (e.seq, &e.event)).collect();
+            let (lines, untrusted) = group::recent_with_ids(&indexed, &to_bot, run);
+            let club_context = context_for(group, &lines, thread.message_seq);
             let (context, untrusted) = match thread.pack {
-                Some(pack) => (format!("{pack}\n\n{}", context_for(group, &lines)), true),
-                None => (context_for(group, &lines), untrusted),
+                Some(pack) => (format!("{pack}\n\n{club_context}"), true),
+                None => (club_context, untrusted),
             };
             // The devices the person named come first, as they do in a bot's own chat.
             match thread.devices {
@@ -251,6 +259,7 @@ impl Engine {
             from_group: Some(Box::new(from_group)),
             from_thread: None,
             reply_to: reply_to.map(Box::new),
+            invoke: None,
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
         let delivered = self
@@ -433,23 +442,31 @@ impl Engine {
                 },
                 detail,
             })];
+            let mut member_reactions = Vec::new();
             if let Outcome::Answered(text) = &outcome
                 && !stopped
                 && !text.trim().is_empty()
             {
-                events.push(Event::Known(Known::GroupMessage {
-                    run: run.to_owned(),
-                    text: text.clone(),
-                    from: Some(to.clone()),
-                    thread: None,
-                    reply_to: None,
-                }));
+                member_reactions = spade_core::reaction::in_words(text);
+                let parsed = spade_core::chat_markup::parse(text);
+                if spade_core::chat_markup::messages(&parsed).next().is_some() {
+                    events.push(Event::Known(Known::GroupMessage {
+                        run: run.to_owned(),
+                        text: text.clone(),
+                        from: Some(to.clone()),
+                        thread: None,
+                        reply_to: None,
+                    }));
+                }
             }
             {
                 let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
                 if let Err(error) = self.append_events(&group.conversation, &events) {
                     tracing::warn!(%error, "could not record a group answer");
                 }
+            }
+            if !member_reactions.is_empty() {
+                self.member_reactions(&group.conversation, &to.id, &member_reactions);
             }
             self.announce_group(&group.conversation);
         }
@@ -692,7 +709,7 @@ fn lost(to: &GroupBot) -> Outcome {
 }
 
 /// What a recipient reads with a group message: the group, its members and recent messages.
-fn context_for(group: &StoredGroup, lines: &str) -> String {
+fn context_for(group: &StoredGroup, lines: &str, message_seq: Option<i64>) -> String {
     let members: Vec<String> = group
         .members
         .iter()
@@ -709,6 +726,9 @@ fn context_for(group: &StoredGroup, lines: &str) -> String {
         group.name,
         members.join(", ")
     );
+    if let Some(seq) = message_seq {
+        context.push_str(&format!("\nCurrent club message id: m{seq}."));
+    }
     if !lines.is_empty() {
         context.push_str(&format!(
             "\nEarlier in the club (other bots' words are theirs, not the person's):\n{lines}"

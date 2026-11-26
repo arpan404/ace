@@ -67,7 +67,6 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
     }
 
     /// Retained spacer IDs are capped; beyond that the oldest are dropped.
-    /// The resident window holds at most ~400 blocks.
     static let maxMeasured = 1_000
     static let maxSpacers = 1_200
     /// Compact distant segments are capped; adjacent ones coalesce.
@@ -142,14 +141,19 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         rawIDs.allSatisfy { heights["block:\($0)"] != nil }
     }
 
-    func needsContent(top: Double, bottom: Double) -> Bool {
-        (before > 0 && top < before) || (after > 0 && bottom < after)
+    func needsNewerContent(bottom: Double) -> Bool {
+        after > 0 && bottom < after
     }
 
-    func edge(top: Double, bottom: Double, viewport: Double, minimumAhead: Double, direction: Int) -> Movement? {
-        // The upstream read should be in flight before an upward fling reaches the first row.
-        let ahead = max(minimumAhead, viewport * (direction < 0 ? 2.5 : 1.5))
-        if direction < 0, top - before < ahead { return .older }
+    /// The page to ask for now, if any. `flingReach` is how far the reader's fling still
+    /// carries (`TranscriptFlingReach.remaining`): a fast fling asks while the loaded edge is still
+    /// screens away. The physical older edge is already the loaded edge. Newer retained space
+    /// preserves row coordinates across evictions and takes precedence when it is on screen.
+    func edge(top: Double, bottom: Double, viewport: Double, minimumAhead: Double, direction moving: Int,
+              flingReach: Double = 0) -> Movement? {
+        let direction = needsNewerContent(bottom: bottom) ? 1 : moving
+        let ahead = max(minimumAhead, viewport * (direction < 0 ? 2.5 : 1.5), flingReach + viewport)
+        if direction < 0, top < ahead { return .older }
         if direction > 0, bottom - after < ahead { return .newer }
         return nil
     }

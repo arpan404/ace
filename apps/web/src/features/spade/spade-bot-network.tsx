@@ -138,6 +138,7 @@ export function PolicyRows(props: {
         )}
         <Select<SpadeNetworkMode>
           label={`Network for ${props.which}`}
+          {...(props.own !== undefined ? { className: "w-36" } : {})}
           value={policy.mode}
           options={spadeNetworkModes}
           disabled={saving}

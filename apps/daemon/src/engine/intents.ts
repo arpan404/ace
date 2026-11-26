@@ -71,8 +71,8 @@ export class IntentStore {
     }
     return statement;
   }
-  add(command: Command, id: ThreadId, resolutionId?: string, generation?: number): void {
-    this.store.atomic(() => {
+  add(command: Command, id: ThreadId, resolutionId?: string, generation?: number): number {
+    return this.store.atomic(() => {
       const p = command.payload;
       const row = this.sql(`INSERT INTO intents
         (command_id,thread_id,kind,payload,status,resolution_id,position,delivery,trigger,resolution_generation) VALUES (?,?,?,?,'pending',?,?,?,?,?)`).run(
@@ -86,7 +86,9 @@ export class IntentStore {
         p.type === "thread.send" || p.type === "thread.create" ? (p.trigger ?? null) : null,
         generation ?? null,
       );
-      this.queue.track(Number(row.lastInsertRowid), id, command);
+      const intent = Number(row.lastInsertRowid);
+      this.queue.track(intent, id, command);
+      return intent;
     });
   }
   latestGeneration(id: ThreadId): number {
@@ -430,15 +432,14 @@ export class IntentStore {
   }
   /**
    * Puts a send the provider refused unread back in the queue as a plain queued message, so it
-   * goes in when the running turn ends instead of trying to steer again.
+   * goes in when the running turn ends instead of trying to steer again. The turn it was aimed at
+   * is gone: the message keeps no target, so choosing Steer again aims it at the turn running then.
    */
   requeue(intent: IntentHeader, error: string): void {
     this.sql(`UPDATE intents SET status='queued',delivery='queue',
-      payload=json_set(payload,'$.payload.delivery','queue'),awaiting=0,ack_target=NULL,
-      submitted_generation=NULL,uncertain=0,acknowledged=0,error=? WHERE id=?`).run(
-      error,
-      intent.id,
-    );
+      payload=json_remove(json_set(payload,'$.payload.delivery','queue'),'$.payload.runId'),
+      awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0,acknowledged=0,error=?
+      WHERE id=?`).run(error, intent.id);
   }
   mark(intent: IntentHeader, status: string, error?: string): void {
     this.store.atomic(() => {

@@ -16,9 +16,10 @@ export class HourlyLimit {
   /** 0 when admitted (and counted); otherwise milliseconds until one more is allowed. */
   take(key: string, now: number): number {
     const entry = this.#entries.get(key);
+    const at = Math.max(now, entry?.at ?? now);
     let tokens = this.#perHour;
     if (entry) {
-      const elapsed = Math.max(0, now - entry.at);
+      const elapsed = at - entry.at;
       tokens = Math.min(this.#perHour, entry.tokens + (elapsed * this.#perHour) / hourMs);
       this.#entries.delete(key);
     } else if (this.#entries.size >= this.#maxEntries) {
@@ -26,10 +27,10 @@ export class HourlyLimit {
       if (oldest !== undefined) this.#entries.delete(oldest);
     }
     if (tokens < 1) {
-      this.#entries.set(key, { tokens, at: now });
-      return Math.ceil(((1 - tokens) * hourMs) / this.#perHour);
+      this.#entries.set(key, { tokens, at });
+      return at - now + Math.ceil(((1 - tokens) * hourMs) / this.#perHour);
     }
-    this.#entries.set(key, { tokens: tokens - 1, at: now });
+    this.#entries.set(key, { tokens: tokens - 1, at });
     return 0;
   }
 }

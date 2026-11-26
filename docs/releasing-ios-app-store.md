@@ -4,6 +4,22 @@ A checklist for sending ace for iPhone and iPad to App Review. Items marked **Ow
 decision or a dashboard login that only the owner has. The desktop release is in
 [releasing.md](releasing.md).
 
+## Remote push (ADR 0106)
+
+Shipped alerts and Live Activities depend on a reachable push gateway and a Release build that
+carries the `aps-environment` entitlement.
+
+- [ ] **Owner:** complete [push-gateway.md](release/push-gateway.md): Apple push key, sealing
+      key, host, DNS, container secrets, health and capabilities smoke tests.
+- [ ] Release archives from `apps/ios/scripts/archive.ts` (or Xcode with the Release
+      configuration) use `ACE_PUSH: YES` in `apps/ios/project.yml`, so they sign with
+      `Entitlements/AcePush.entitlements` and `AceAPSEnvironment` is `production`.
+- [ ] Debug and CI stay on `ACE_PUSH: NO`; only turn push on explicitly for local device tests.
+- [ ] Before external testers: confirm `curl https://push.acehq.dev/v1/capabilities` lists
+      `alert`, `liveactivity` and `start`; confirm a TestFlight build registers an APNs token on a
+      paired machine; force-quit ace and verify approval, finished and failed alerts show decrypted
+      titles and Allow/Deny works.
+
 ## URLs
 
 - Privacy Policy: https://acehq.dev/privacy-policy/

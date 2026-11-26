@@ -8,8 +8,8 @@ the API is `api/questions.rs`.
 
 ## The tool
 
-`ask_user {questions, wait?}` asks one to five questions as one card. The old form,
-`{question}`, is one `text` question.
+`ask_user {questions, blocking?, wait?}` asks one to five questions as one card. The old form,
+`{question, default?}`, is one `text` question.
 
 | Kind      | Fields                                                 | Answer posted and stored                                        | The bot reads                               |
 | --------- | ------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------- |
@@ -20,19 +20,29 @@ the API is `api/questions.rs`.
 | `number`  | `min?`, `max?`, `unit?`                                | a number                                                        | the number, then the unit                   |
 | `date`    | `time?`                                                | `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MM[:SS][Z\|±HH:MM]` with `time` | the text                                    |
 
-Every question has `prompt` (1 to 2,000 characters) and an optional `id` (unique in the card, up
-to 64 characters). An option is `{label, detail?}` (a bare string is read as its label); labels
-are 1 to 200 characters and unique ignoring case, details up to 500. `choices` counts the own text
-toward `min` and `max`; `max` is at most the options (plus one with `other`). Text answers are 1 to
-4,000 characters.
+Every question has `prompt` (1 to 2,000 characters), an optional `id` (unique in the card, up to
+64 characters), and an optional `default` (checked and normalised against the question's `kind`:
+what the bot will carry on with if the person hasn't answered yet). An option is `{label, detail?}`
+(a bare string is read as its label); labels are 1 to 200 characters and unique ignoring case,
+details up to 500. `choices` counts the own text toward `min` and `max`; `max` is at most the
+options (plus one with `other`). Text answers are 1 to 4,000 characters.
 
 The arguments are checked before anything is stored. A call that breaks a rule (an unknown kind,
-a field its kind doesn't have, too few options, `min` over `max`) is answered with an error naming
-the question and the rule, and nothing waits.
+a field its kind doesn't have, too few options, `min` over `max`, an invalid `default`, or
+conflicting `blocking` and `wait`) is answered with an error naming the question and the rule,
+and nothing waits.
 
-`wait` defaults to `true`: the turn pauses until the person answers, defers or dismisses. With
-`wait: false` the card is stored as deferred from the start, the call is answered at once ("Asked
-without waiting…") and the bot keeps working.
+`blocking` (or its alias `wait`) defaults to `false` when every question in the card states a
+`default`, and `true` otherwise:
+
+- **Blocking** (`blocking: true` / `wait: true`, or no flag with any question lacking a `default`):
+  the turn pauses until the person answers, defers or dismisses. Setting `blocking: true` keeps a
+  card blocking even when `default` values are given as suggestions.
+- **Non-blocking** (`blocking: false` / `wait: false`, or every question states a `default` with
+  neither flag set): the card is stored as deferred from the start (`later: true` and
+  `question_deferred {by_bot: true}`), the call returns at once ("Asked without waiting…",
+  listing any stated defaults to carry on with), and the bot keeps working while the answer can
+  arrive later as a `<question_answer>`.
 
 Two kinds are made by Spade, never by `ask_user`: `connect` (a bot asking for an app,
 [connectors.md](connectors.md) "A bot asks") and `suggest` (a bot suggesting a package,

@@ -5,25 +5,14 @@ import {
   type SpadeBubble,
   type SpadeRequestDetail,
 } from "@ace/ui-core/spade-chat";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useTaskTitle } from "./lanes/lanes-context.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import {
-  CardBody,
-  CardWhy,
-  cardKeyHint,
-  CardFooter,
-  CardPrimary,
-  CardWord,
-  NeedsYouLine,
-  RaisedCard,
-} from "./spade-card.tsx";
+import { CardActions, CardBody, CardWhy, NeedsYouLine, RaisedCard } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 import { useAppAlways } from "./spade-app-always.tsx";
@@ -66,9 +55,8 @@ export function SpadeRequestBubble(props: {
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
 }) {
   const { item } = props;
-  // A task's request leads with the task (ADR 0217 §7), a helper's with whose helper it is.
-  const task = useTaskTitle(item.lane);
-  const who = task ? task : item.helper ? `A helper of ${props.botName}` : props.botName;
+  // Every request is the bot's own, whoever under it needs the answer.
+  const who = props.botName;
   const title = useToolTitle();
   const appName = useAppName();
   // A call to a connected app's tool leads with that app's mark.
@@ -181,31 +169,27 @@ export function SpadeRequestBubble(props: {
       {always.prompt && <CardBody>{always.prompt}</CardBody>}
       {/* A shared bot's request: who may answer it (ADR 0206 §2.3). */}
       <ApproversLine botId={props.botId} />
-      <CardFooter
-        start={
-          <>
-            {offersAlways && (
-              <CardWord disabled={answering !== undefined} onClick={answerAlways}>
-                {answering === "always" ? "Allowing…" : alwaysWord}
-              </CardWord>
-            )}
-            <CardWord disabled={answering !== undefined} onClick={() => answer("deny")}>
-              {answering === "deny" ? "Denying…" : "Deny"}
-            </CardWord>
-          </>
-        }
-        end={
-          <CardPrimary disabled={answering !== undefined} onClick={() => answer(main)}>
-            {answering === main ? "Allowing…" : mainWord}
-            <Kbd
-              aria-hidden
-              keys="enter"
-              resolve={false}
-              variant="on-primary"
-              className={cardKeyHint}
-            />
-          </CardPrimary>
-        }
+      <CardActions
+        secondary={[
+          offersAlways && {
+            key: "always",
+            label: answering === "always" ? "Allowing…" : alwaysWord,
+            disabled: answering !== undefined,
+            onClick: answerAlways,
+          },
+          {
+            key: "deny",
+            label: answering === "deny" ? "Denying…" : "Deny",
+            disabled: answering !== undefined,
+            onClick: () => answer("deny"),
+          },
+        ]}
+        primary={{
+          label: answering === main ? "Allowing…" : mainWord,
+          disabled: answering !== undefined,
+          hint: "enter",
+          onClick: () => answer(main),
+        }}
       />
     </RaisedCard>
   );

@@ -6,7 +6,7 @@ import { spadeForLaterWords } from "./questions.ts";
 import { spadeProblemStep } from "./request-words.ts";
 import { spadeMoveLine } from "./moves.ts";
 import { spadeWorkingPhrase, spadeWorkingWord } from "./working-phrase.ts";
-import { spadeNeedsYouWords } from "./needs-you.ts";
+import { spadeNeedsYouLine } from "./needs-you-line.ts";
 
 /*
  * What Spade's list says about each conversation (docs/design/spade.md §2): its state, which
@@ -78,7 +78,7 @@ export function spadeBotRow(bot: SpadeRowBot, notYet?: string): SpadeRow {
   if (bot.state === "waiting")
     return {
       state: "needs-you",
-      line: spadeNeedsYouWords(bot.status),
+      line: spadeNeedsYouLine(bot.pending, bot.status),
     };
   // Its package update or rollback is being applied (ADR 0200 §6.2): at work, never done.
   if (bot.state === "updating") return { state: "working", line: "Updating" };

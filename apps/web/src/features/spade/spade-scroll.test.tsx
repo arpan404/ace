@@ -70,9 +70,10 @@ test("the smallest scroll up while a reply streams lets go of the end, so the re
     spade.store(bot.conversation, { type: "reply_started", reply: "r9" });
   });
   const scroller = await tallScroller();
-  scrollTo(scroller, 2000);
+  // The real end of a 2,000px page in a 500px window (jsdom has no column padding).
+  scrollTo(scroller, 1500);
   // A nudge of a few pixels, well inside "near the end".
-  scrollTo(scroller, 1990);
+  scrollTo(scroller, 1490);
   await screen.findByRole("button", { name: "Scroll to end" });
   if (api && bot)
     api.store(bot.conversation, {
@@ -81,7 +82,7 @@ test("the smallest scroll up while a reply streams lets go of the end, so the re
       text: "The east bed first",
     });
   await screen.findByText("The east bed first");
-  expect(scroller.scrollTop).toBe(1990);
+  expect(scroller.scrollTop).toBe(1490);
 });
 
 test("a message sent while scrolled up takes the conversation to its end, where it shows", async () => {

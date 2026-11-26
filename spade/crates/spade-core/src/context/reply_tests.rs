@@ -43,6 +43,7 @@ fn replying(event: Event, to: ReplyTo, group: Option<FromGroup>) -> Event {
         from_group: group.map(Box::new),
         from_thread,
         reply_to: Some(Box::new(to)),
+        invoke: None,
     })
 }
 

@@ -16,6 +16,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::effort::Effort;
 use crate::format::Format;
 use crate::known_good::KnownGood;
 
@@ -129,6 +130,8 @@ pub struct Model {
     /// Context window in tokens, when known.
     pub context: Option<u64>,
     pub capabilities: Vec<Capability>,
+    /// Thinking efforts the model supports (ADR 0213), empty when unknown or none.
+    pub efforts: Vec<Effort>,
     /// `None` for a flat-rate plan or a local server.
     pub price: Option<Price>,
 }
@@ -179,6 +182,7 @@ impl Model {
             name: id.to_owned(),
             context: Some(DEFAULT_CONTEXT),
             capabilities: vec![Capability::Tools],
+            efforts: Vec::new(),
             price: None,
         }
     }
@@ -306,6 +310,8 @@ struct FileModel {
     context: Option<u64>,
     #[serde(default)]
     capabilities: Vec<Capability>,
+    #[serde(default)]
+    efforts: Vec<Effort>,
     #[serde(default)]
     price: Option<Price>,
 }
@@ -519,11 +525,17 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
                     }
                 }
             }
+            if model.efforts.contains(&Effort::Provider) {
+                problems.push(format!(
+                    "{label}/{model_id}: efforts cannot include provider"
+                ));
+            }
             Model {
                 id: model_id,
                 name: model.name,
                 context: model.context,
                 capabilities: model.capabilities,
+                efforts: model.efforts,
                 price: model.price,
             }
         })

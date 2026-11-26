@@ -44,6 +44,7 @@ impl Folder {
         Warrant {
             limit,
             bound: binding(&read),
+            credential_guard: false,
             incomplete: false,
         }
     }
@@ -129,6 +130,7 @@ fn an_empty_binding_holds_only_while_the_command_runs_nothing_of_its_own() {
     let nothing = Warrant {
         limit: Authorized::Outside,
         bound: Bound::Nothing,
+        credential_guard: false,
         incomplete: false,
     };
     assert_eq!(
@@ -146,6 +148,7 @@ fn a_command_whose_reading_is_incomplete_never_starts_outside() {
     let any = Warrant {
         limit: Authorized::Outside,
         bound: Bound::Nothing,
+        credential_guard: false,
         incomplete: false,
     };
     // Doesn't parse; a program no `PATH` entry has; a command name built at run time.
@@ -177,6 +180,7 @@ fn a_persons_allow_on_an_incomplete_reading_starts_it_only_while_what_was_read_i
     let allowed = Warrant {
         limit: Authorized::Outside,
         bound: binding(&asked),
+        credential_guard: false,
         incomplete: true,
     };
     assert_eq!(

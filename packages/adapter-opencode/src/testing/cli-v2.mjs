@@ -1,10 +1,30 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
-import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  constants,
+  existsSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
+// OpenCode 2.4.1 fails every command when its data folder lost the owner's search bit: it
+// cannot create `<data>/opencode/log`. A managed home measures this failure.
+if (process.env.XDG_DATA_HOME) {
+  const data = join(process.env.XDG_DATA_HOME, "opencode");
+  if (existsSync(data)) {
+    try {
+      accessSync(data, constants.X_OK);
+    } catch {
+      console.error(`EACCES: permission denied, mkdir '${join(data, "log")}'`);
+      process.exit(1);
+    }
+  }
+}
 const freeModels =
   process.env.ACE_TEST_FREE_MODELS === "1"
     ? ["big-pickle", "mimo-v2.5-free", "ling-3.0-tiny-free"].map((modelID) => ({
@@ -20,6 +40,8 @@ const freeModels =
         cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
       }))
     : [];
+// OpenCode 2.4.2 fills a Location's catalog after its first model read, which answers empty.
+let coldModelReads = Number(process.env.ACE_TEST_COLD_MODELS ?? 0);
 // "release-X" keeps the version itself out of the env values that diagnostics redact.
 const release = process.env.ACE_TEST_RELEASE?.replace(/^release-/, "");
 if (args.includes("--version")) {
@@ -35,7 +57,17 @@ if (args[0] === "auth") {
   process.exit(0);
 }
 if (args[0] === "models") {
-  if (args.length !== 1) process.exit(7);
+  // OpenCode 2 attaches to its background service unless a private one is asked for.
+  const standalone = args.includes("--standalone");
+  if (process.env.ACE_TEST_ARGV_LOG)
+    appendFileSync(process.env.ACE_TEST_ARGV_LOG, `${JSON.stringify(args)}\n`);
+  if (args.filter((arg) => arg !== "--standalone").length !== 1) process.exit(7);
+  if (!standalone && process.env.ACE_TEST_SERVICE_PORT_TAKEN === "1") {
+    console.error(
+      "Managed service port 49374 on 127.0.0.1 is already in use by PID 4242 (opencode serve --service). Configure another port with `opencode service set port <port>` or stop it.",
+    );
+    process.exit(1);
+  }
   console.log("opencode-go/muse-spark-1.3-contributor");
   for (const model of freeModels) console.log(model.id);
   process.exit(0);
@@ -282,6 +314,8 @@ const signInPages = {
   "github-copilot": { url: "https://github.com/login/device", code: "WXYZ-1234" },
 };
 const attempts = new Map();
+/** How many `GET /api/integration` requests this server has served, for ACE_TEST_EMPTY_INTEGRATIONS. */
+let integrationReads = 0;
 const signInLog = (entry) => {
   if (process.env.ACE_TEST_SIGN_IN_LOG)
     appendFileSync(process.env.ACE_TEST_SIGN_IN_LOG, `${JSON.stringify(entry)}\n`);
@@ -631,8 +665,13 @@ const server = createServer(async (req, res) => {
   if (path === "/api/model") {
     const directory =
       process.env.ACE_TEST_MODEL_LOCATION ?? url.searchParams.get("location[directory]");
-    if (process.env.ACE_TEST_EMPTY_MODELS === "true") {
+    if (coldModelReads-- > 0 || process.env.ACE_TEST_EMPTY_MODELS === "true") {
       json({ location: { directory }, data: [] });
+      return;
+    }
+    const sample = process.env.ACE_TEST_CATALOG_FILE;
+    if (sample) {
+      json({ location: { directory }, data: JSON.parse(readFileSync(sample, "utf8")) });
       return;
     }
     json({
@@ -893,7 +932,15 @@ const server = createServer(async (req, res) => {
   }
   // Sign-in, shaped like OpenCode 2.0.32's integration API. No credential is ever stored.
   if (path === "/api/integration" && req.method === "GET") {
-    json({ data: signInIntegrations });
+    integrationReads += 1;
+    // Real OpenCode answers with an empty list for a moment after it announces its URL.
+    const whileLoading = process.env.ACE_TEST_EMPTY_INTEGRATIONS;
+    const loading =
+      whileLoading === "always" ||
+      (Number.isInteger(Number(whileLoading)) &&
+        Number(whileLoading) > 0 &&
+        integrationReads <= Number(whileLoading));
+    json({ data: loading ? [] : signInIntegrations });
     return;
   }
   const connect = /^\/api\/integration\/([^/]+)\/connect\/oauth(?:\/([^/]+))?$/.exec(path);

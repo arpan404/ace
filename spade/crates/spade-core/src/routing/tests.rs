@@ -100,7 +100,7 @@ fn with_no_fast_model_or_a_fast_bot_sub_work_stays_on_the_bots_model() {
 }
 
 #[test]
-fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_weaker_one() {
+fn the_verifier_and_the_reviewer_fall_back_to_the_strongest_model_never_a_weaker_one() {
     let none = Overrides::default();
     for role in [Role::Verify, Role::Review] {
         assert_eq!(
@@ -128,6 +128,28 @@ fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_w
     assert_eq!(
         choose("local/llama", &none, &none, &with_fast(), Role::Review),
         ("a/fast".to_owned(), Source::Default)
+    );
+}
+
+#[test]
+fn review_prefers_the_configured_fast_model_when_it_meets_the_strength_floor() {
+    let none = Overrides::default();
+    let defaults = Defaults {
+        fast: Some("a/strong".to_owned()),
+        in_use: vec!["b/stronger".to_owned()],
+    };
+    assert_eq!(
+        choose("a/mid", &none, &none, &defaults, Role::Review),
+        ("a/strong".to_owned(), Source::Default)
+    );
+    assert_eq!(
+        choose("a/mid", &none, &none, &defaults, Role::Verify),
+        ("b/stronger".to_owned(), Source::Default)
+    );
+    let global = overrides(&[(Role::Review, "b/stronger")]);
+    assert_eq!(
+        choose("a/mid", &none, &global, &defaults, Role::Review),
+        ("b/stronger".to_owned(), Source::Global)
     );
 }
 

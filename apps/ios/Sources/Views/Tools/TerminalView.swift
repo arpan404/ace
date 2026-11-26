@@ -20,6 +20,7 @@ struct TerminalView: View {
     let model: ClientModel
     let threadId: String
     @Environment(\.threadPage) private var threadPage
+    @Environment(\.openURL) private var openURL
     /// The terminal to show first, such as the one a script just started.
     var initial: String? = nil
     @State private var terminals: [TerminalRow] = []
@@ -107,7 +108,7 @@ struct TerminalView: View {
             TextField(currentName, text: $newName)
             Button("Cancel", role: .cancel) {}
             Button("Rename") { rename() }
-        } message: { Text("Shown on this phone. Leave it empty to use “\(shellName)”.") }
+        } message: { Text("Shown on this phone. Leave it empty to show the program's own title, or “\(shellName)”.") }
         .confirmationDialog("End this terminal session?", isPresented: $ending, titleVisibility: .visible) {
             Button("End session", role: .destructive) { Task { await end() } }
             Button("Cancel", role: .cancel) {}
@@ -125,7 +126,8 @@ struct TerminalView: View {
             revealToken: reveal,
             onFit: { columns, rows in fit(columns, rows) },
             onTap: { if canType { typing = true } },
-            onScrollKeys: { up, count in type(Array(repeating: .key(up ? "ArrowUp" : "ArrowDown"), count: min(count, 20))) }
+            onScrollKeys: { up, count in type(Array(repeating: .key(up ? "ArrowUp" : "ArrowDown"), count: min(count, 20))) },
+            onLink: { openURL($0) }
         )
         .id(output.streamId)
         .accessibilityLabel("Terminal output")
@@ -217,8 +219,17 @@ struct TerminalView: View {
     // MARK: Names
 
     private var shellName: String { terminals.first { $0.id == selected }?.name ?? "Terminal" }
-    private var currentName: String { _ = namesVersion; return selected.flatMap { TerminalNames.name(thread: threadId, terminal: $0) } ?? shellName }
-    private func label(_ row: TerminalRow) -> String { _ = namesVersion; return TerminalNames.name(thread: threadId, terminal: row.id) ?? row.name }
+    private var currentName: String { displayName(selected) }
+    private func label(_ row: TerminalRow) -> String { displayName(row.id) }
+    /// A rename on this phone, else the program's own window title (OSC 0/2), else the shell's.
+    /// Only the terminal on screen has a parsed screen, so other rows keep their shell names.
+    private func displayName(_ id: String?) -> String {
+        _ = namesVersion
+        guard let id else { return "Terminal" }
+        let shell = terminals.first { $0.id == id }?.name ?? "Terminal"
+        return TerminalNames.display(renamed: TerminalNames.name(thread: threadId, terminal: id),
+                                     title: id == selected ? output.title : "", shell: shell)
+    }
     private func rename() {
         guard let selected else { return }
         TerminalNames.set(newName, thread: threadId, terminal: selected)

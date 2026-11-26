@@ -16,7 +16,7 @@ struct LargeFileView: View {
     var editable = false
     /// Lines changed since the last commit, by 1-based line: "added", "modified" or "removed".
     var marks: [Int: String] = [:]
-    @AppStorage("files.wrap") private var wrap = false
+    @AppStorage(EditorPreferences.wordWrapKey) private var wrap = false
     @State private var reading = LargeFileText()
     @State private var loading = false
     @State private var failure: String?

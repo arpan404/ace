@@ -87,8 +87,13 @@ impl Engine {
             title: title.clone(),
             asks: asks.clone(),
             untrusted,
+            person_source: lane::person_source(&events, &asks),
+            copied_events: 2,
             moved_from: None,
         };
+        let mut told = lane::told(&title);
+        explain_person_source(&mut told, link.person_source.as_ref());
+        let has_person_source = link.person_source.is_some();
         let mut first = vec![Event::Known(Known::LaneOf(link))];
         // The person's own words first, as theirs, so the lane's reviewer reads the person's
         // request and not a bot's (ADR 0217 §3).
@@ -96,13 +101,20 @@ impl Engine {
             true => brief.to_owned(),
             false => words.join("\n\n"),
         };
-        let mut told = lane::told(&title);
         if !brief.is_empty() && !untrusted && !words.is_empty() {
             told.push_str(&format!(
                 "\n<task_brief from=\"bot\">\n{brief}\n</task_brief>"
             ));
         }
-        first.push(message_with(&text, told));
+        let mut opening = if has_person_source {
+            Event::user_message(text)
+        } else {
+            self.bots_message(main, &text)
+        };
+        if let Event::Known(Known::UserMessage { context, .. }) = &mut opening {
+            *context = Some(told);
+        }
+        first.push(opening);
         // A brief written with untrusted content in view reaches the lane as the bot's message,
         // which taints the lane's turn (ADR 0161's rule).
         if untrusted && !brief.is_empty() {
@@ -126,15 +138,22 @@ impl Engine {
         }
     }
 
-    /// A message from the person with Spade's note on the task in its context.
+    /// A bot-authored message, even when the initiating bot is no longer listed.
     fn bots_message(&self, main: &str, text: &str) -> Event {
         let mut message = Event::user_message(text);
-        if let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message
-            && let Ok(Some(agent)) = self.store.agent_for_conversation(main)
-        {
+        if let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message {
+            let (id, name) = self
+                .store
+                .agent_for_conversation(main)
+                .ok()
+                .flatten()
+                .map_or_else(
+                    || (main.to_owned(), "Spade".to_owned()),
+                    |agent| (agent.id, agent.name),
+                );
             *from_agent = Some(FromAgent {
-                id: agent.id,
-                name: agent.name,
+                id,
+                name,
                 depth: 0,
                 machine: None,
                 contract: None,
@@ -262,7 +281,7 @@ impl Engine {
         let mut answer = json!({ "task": row.conversation, "title": title, "state": state.name() });
         if state == lane::State::Queued {
             answer["note"] = json!(format!(
-                "Queued behind {} running tasks; it starts when one ends. Tell the person.",
+                "Queued behind {} running tasks; it starts when one ends. Its card shows this; say nothing of it.",
                 self.limits.tasks_at_once
             ));
         }
@@ -318,8 +337,23 @@ impl Engine {
                 Some(Event::Known(Known::UserMessage { text, .. })) => lane::title_of(text),
                 _ => lane::title_of(""),
             };
+            let person_source = lane::moved_person_source(events, reply);
+            if person_source.is_none()
+                && let Some(event @ Event::Known(Known::UserMessage { .. })) = moved.first_mut()
+                && let Event::Known(Known::UserMessage { text, context, .. }) = event
+            {
+                let mut message = self.bots_message(main, text);
+                if let Event::Known(Known::UserMessage {
+                    context: copied, ..
+                }) = &mut message
+                {
+                    *copied = context.take();
+                }
+                *event = message;
+            }
             if let Some(Event::Known(Known::UserMessage { context, .. })) = moved.first_mut() {
-                let told = lane::told(&title);
+                let mut told = lane::told(&title);
+                explain_person_source(&mut told, person_source.as_ref());
                 *context = Some(match context.take() {
                     Some(recent) => format!("{told}\n{recent}"),
                     None => told,
@@ -332,6 +366,8 @@ impl Engine {
                 asks: asks.clone(),
                 untrusted: !context::untrusted_in_view(events, &registry).is_empty(),
                 moved_from: Some(reply.to_owned()),
+                person_source,
+                copied_events: moved.len() + 1,
             };
             let mut first = vec![Event::Known(Known::LaneOf(link))];
             first.append(&mut moved);
@@ -488,11 +524,13 @@ fn stays_with_main(name: &str) -> bool {
     name == spade_core::contract::CONTRACT_CALL || crate::tools::reattaches(name)
 }
 
-/// A message from the person with Spade's per-turn `context`.
-fn message_with(text: &str, context: String) -> Event {
-    let mut message = Event::user_message(text);
-    if let Event::Known(Known::UserMessage { context: c, .. }) = &mut message {
-        *c = Some(context);
+fn explain_person_source(context: &mut String, source: Option<&lane::PersonSource>) {
+    if let Some(source) = source {
+        use std::fmt::Write as _;
+        let _ = write!(
+            context,
+            "\nFor a verbatim standing instruction, the latest copied person message has original id {}.",
+            source.id
+        );
     }
-    message
 }

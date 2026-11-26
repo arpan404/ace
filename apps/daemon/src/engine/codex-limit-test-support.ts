@@ -201,6 +201,7 @@ export async function codexThread(
       await writeFile(executable, "#!/bin/sh\nexit 1\n");
       await chmod(executable, 0o755);
       management = new AccountManagement({
+        platform: process.platform,
         registry,
         accounts,
         env: {},

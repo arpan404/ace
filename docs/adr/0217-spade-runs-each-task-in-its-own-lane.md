@@ -518,3 +518,10 @@ moved}`), and a running job's live handle moves to the lane under the lock a job
   at open, never the history.
 - **Not built here:** the UI (a separate thread builds the popover, the lines and the pill against
   `GET /v1/conversations/{id}/tasks` and the events).
+
+## Amendment (2026-11-23) — Keep pending requests with their owner
+
+A move waits for pending approvals and questions in the reply to resolve.
+A question left for later no longer pauses model steps, but still blocks
+the move. This lets the original card stay answerable in main without
+copied events opening a second card in the lane.

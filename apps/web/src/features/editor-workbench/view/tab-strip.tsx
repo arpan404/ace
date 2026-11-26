@@ -2,6 +2,7 @@ import { CaretDownIcon, DotsThreeIcon, SquareSplitHorizontalIcon } from "@ace/ic
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
+import { cn } from "@/lib/cn.ts";
 import { EditorTabView } from "./editor-tab.tsx";
 import type { EditorBuffers } from "./editor-buffers.ts";
 import { carriesGroupDrag, copiesOnDrop, readGroupDrag } from "./drag.ts";
@@ -26,6 +27,8 @@ export function TabStrip(props: {
   tabMenuItems?: ((path: string) => ReactNode) | undefined;
   /** Whose explorer's files may be dropped here. */
   threadId?: string | undefined;
+  /** Extra classes on the strip bar (e.g. hiding desktop chrome in a narrow panel). */
+  className?: string | undefined;
 }) {
   const { group, actions } = props;
   const scroller = useRef<HTMLDivElement>(null);
@@ -80,7 +83,10 @@ export function TabStrip(props: {
   return (
     <div
       data-part="editor-strip"
-      className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5"
+      className={cn(
+        "flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5",
+        props.className,
+      )}
     >
       {props.lead}
       <div
