@@ -110,6 +110,9 @@ pub const fn failure_message(code: GitErrorCode) -> &'static str {
     }
 }
 
+/// A fork of `@ace/redaction`'s text redactor. `ace-redaction` owns the credential pattern
+/// list and the secret keys now; this copy must be deleted when the core is wired to that
+/// crate, so a shape fixed there is not fixed here until then.
 struct RedactPatterns {
     credentials: Vec<(Regex, bool)>,
     file_home: Regex,

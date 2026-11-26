@@ -1,66 +1,81 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Secret-bearing names: the one test that decides whether a key's value must never be seen.
+//! Secret-bearing names: the two key policies the Rust redaction paths use.
 //!
-//! This list is the owner for every Rust redaction path. It is `@ace/redaction`'s
-//! `secret-keys.ts` (`packages/redaction/src/secret-keys.ts`) plus the OpenCode adapter's
-//! words (`packages/adapter-opencode/src/redaction.ts`'s `secretKey`: `headers`, `settings`,
-//! `providerState`, `resultState` and exactly `native`), so a key shape added for one caller
-//! can never leak through another. `api.?key` is the adapter's spelling; it is wider than
-//! `api[_-]?key` and therefore masks strictly more.
+//! There are two TypeScript lists, and this module owns both by name, so no shape can be
+//! fixed in one place and leak in the other. Neither is the union of both: a counter named
+//! `tokens` is usage, not a credential, and the adapter policy must keep it.
 //!
-//! The TypeScript adapter keeps its own list until the engine's TypeScript is deleted (the
-//! owner's Rust-only rule, `docs/engine/behaviour.md` §20); this set is a superset of it, so
-//! the Rust adapter redacts strictly more.
+//! - [`is_secret_key`] is `@ace/redaction`'s `secret-keys.ts`
+//!   (`packages/redaction/src/secret-keys.ts`) exactly, and is what [`crate::Redactor`], the
+//!   environment filter and the JSON credential scanner use.
+//! - [`is_opencode_secret_key`] is the OpenCode adapter's `secretKey`
+//!   (`packages/adapter-opencode/src/redaction.ts`) exactly: it adds `headers`, `settings`,
+//!   `providerState`, `resultState` and exactly `native`, widens `api[_-]?key` to `api.?key`,
+//!   and has no bare `token`, so `tokens`/`inputTokens` survive.
 
 use regex::Regex;
 use std::sync::LazyLock;
 
-/// `token|secret|password|api.?key|authorization|cookie|credential|ticket|
-/// pairing[_-]?code|encryptedContent|headers|settings|providerState|resultState|grant$|
-/// ^standing$|proof$|^native$`, case-insensitive. Matching is unanchored (`RegExp.test`), so
-/// `my_token` and `GH_TOKEN` are both secret; `native` is the one exact match.
+/// `@ace/redaction`'s list: `token|secret|password|api[_-]?key|authorization|cookie|
+/// credential|ticket|pairing[_-]?code|encryptedContent|grant$|^standing$|proof$`,
+/// case-insensitive and unanchored (`RegExp.test`).
 #[allow(clippy::expect_used)]
-static SECRET_KEY: LazyLock<Regex> = LazyLock::new(|| {
+static DEFAULT_SECRET_KEY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)token|secret|password|api.?key|authorization|cookie|credential|ticket|pairing[_-]?code|encryptedContent|headers|settings|providerState|resultState|grant$|^standing$|proof$|^native$",
+        r"(?i)token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code|encryptedContent|grant$|^standing$|proof$",
     )
-    .expect("the secret-key pattern compiles")
+    .expect("the default secret-key pattern compiles")
 });
 
-/// Whether `key` names a secret.
+/// The OpenCode adapter's list: `authorization|password|cookie|api.?key|credential|
+/// access.?token|refresh.?token|headers|settings|providerState|resultState|encryptedContent|
+/// ^native$`, case-insensitive and unanchored.
+#[allow(clippy::expect_used)]
+static OPENCODE_SECRET_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)authorization|password|cookie|api.?key|credential|access.?token|refresh.?token|headers|settings|providerState|resultState|encryptedContent|^native$",
+    )
+    .expect("the OpenCode secret-key pattern compiles")
+});
+
+/// Whether `key` is a secret under `@ace/redaction`'s policy (the default).
 pub fn is_secret_key(key: &str) -> bool {
-    SECRET_KEY.is_match(key)
+    DEFAULT_SECRET_KEY.is_match(key)
+}
+
+/// Whether `key` is a secret under the OpenCode adapter's policy: its own narrower list, which
+/// keeps token counters (`tokens`, `inputTokens`) readable so usage and context facts survive.
+pub fn is_opencode_secret_key(key: &str) -> bool {
+    OPENCODE_SECRET_KEY.is_match(key)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_secret_key;
+    use super::{is_opencode_secret_key, is_secret_key};
 
+    /// `packages/redaction/src/secret-keys.ts`, word for word: `tokens` matches its bare
+    /// `token`, `api.key` does not, and the adapter's extra words are not in it.
     #[test]
-    fn credential_shaped_names_are_secret_and_ordinary_names_are_not() {
+    fn the_default_policy_is_at_ace_redactions_list() {
         for key in [
             "token",
+            "tokens",
             "GH_TOKEN",
             "accessToken",
             "refresh_token",
             "password",
             "api_key",
             "apiKey",
-            "apixkey",
+            "api-key",
             "authorization",
             "cookie",
             "credential",
             "ticket",
             "pairing_code",
             "encryptedContent",
-            "headers",
-            "settings",
-            "providerState",
-            "resultState",
             "grant",
             "standing",
             "proof",
-            "native",
         ] {
             assert!(is_secret_key(key), "{key}");
         }
@@ -70,12 +85,55 @@ mod tests {
             "grants",
             "proofs",
             "author",
+            "api.key",
+            "headers",
+            "settings",
+            "providerState",
+            "resultState",
+            "native",
             "nativeSessionId",
-            "native_name",
-            "headline",
-            "setting",
         ] {
             assert!(!is_secret_key(key), "{key}");
+        }
+    }
+
+    /// `packages/adapter-opencode/src/redaction.ts`'s `secretKey`, word for word: no bare
+    /// `token` (so `tokens` and `inputTokens` are usage), and exactly `native`.
+    #[test]
+    fn the_opencode_policy_is_the_adapters_list() {
+        for key in [
+            "authorization",
+            "password",
+            "cookie",
+            "apiKey",
+            "api-key",
+            "api.key",
+            "credential",
+            "access_token",
+            "refreshToken",
+            "headers",
+            "settings",
+            "providerState",
+            "resultState",
+            "encryptedContent",
+            "native",
+        ] {
+            assert!(is_opencode_secret_key(key), "{key}");
+        }
+        for key in [
+            "tokens",
+            "inputTokens",
+            "outputTokens",
+            "totalTokens",
+            "token",
+            "secret",
+            "ticket",
+            "grant",
+            "visible",
+            "nativeSessionId",
+            "native_name",
+        ] {
+            assert!(!is_opencode_secret_key(key), "{key}");
         }
     }
 }

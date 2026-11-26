@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The Rust port of `@ace/redaction` (ADR 0224 §8a, F0), shared by `ace-forge` and
-//! `ace-git`. Nothing here keeps what it redacts: the environment matcher's values live in
-//! memory for the caller's lifetime and are never written, logged or put in an error.
+//! The Rust port of `@ace/redaction` (ADR 0224 §8a, F0), used by `ace-forge` and the
+//! OpenCode adapter. `ace-git` still carries its own fork of the same rules in
+//! `ace-git/src/core/failure.rs` until its core is wired to this crate, so a shape fixed
+//! here is not fixed there yet. Nothing here keeps what it redacts: the environment
+//! matcher's values live in memory for the caller's lifetime and are never written, logged
+//! or put in an error.
 //!
 //! The public surface mirrors `packages/redaction/src/` name for name, so the test cases
-//! that moved from its eleven test files need no translation; the secret-key set is the
-//! union of `@ace/redaction`'s and the OpenCode adapter's (one owner, see
-//! [`is_secret_key`]):
+//! that moved from its eleven test files need no translation. The two secret-key policies
+//! the Rust paths use are both here, each equal to its TypeScript source (see
+//! [`is_secret_key`] and [`is_opencode_secret_key`]):
 //!
 //! - [`Redactor`] builds the lexical rules once (paths, home, host, user, exact environment
 //!   values and their JSON-escaped spellings) and redacts literal prose ([`Redactor::text`]),
@@ -41,4 +44,4 @@ pub use context::Context;
 pub use environment::{EnvironmentMatcher, EnvironmentSpan};
 pub use literal_spans::{SensitiveSpan, redact_original_text, redact_with_marker, sensitive_spans};
 pub use redactor::{ChunkTooLarge, Redactor, is_sensitive_field};
-pub use secret_keys::is_secret_key;
+pub use secret_keys::{is_opencode_secret_key, is_secret_key};
