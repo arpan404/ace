@@ -37,13 +37,15 @@ const TRANSPORT: &str = "API sign-in does not verify Git clone or push access. C
 /// `gh version <version>` as `gh --version` prints it, when the shape is the known one.
 pub fn parse_version(output: &str) -> Option<String> {
     let rest = output.strip_prefix("gh version ")?;
+    // The regex takes the first 100 characters of the version shape.
     let version: String = rest
         .chars()
         .take_while(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '.' | '+' | '-')
         })
+        .take(100)
         .collect();
-    (!version.is_empty() && version.chars().count() <= 100).then_some(version)
+    (!version.is_empty()).then_some(version)
 }
 
 /// `[{"login":"octo","active":true}]`, at most 100 accounts, each with a valid login.
@@ -57,7 +59,11 @@ pub fn parse_accounts(text: &str) -> Option<Vec<Account>> {
     for item in items {
         let fields = item.as_object()?;
         let login = fields.get("login")?.as_str()?;
-        let active = matches!(fields.get("active"), Some(ace_json::Value::Bool(true)));
+        // Zod drops the whole array when `active` is not the boolean it requires.
+        let active = match fields.get("active") {
+            Some(ace_json::Value::Bool(active)) => *active,
+            _ => return None,
+        };
         if !valid_login(login) {
             return None;
         }
@@ -86,9 +92,10 @@ fn status(cli: &'static str, version: Option<String>) -> Readiness {
 pub async fn github_identity(
     runner: &dyn Runner,
     host: &str,
+    now: std::sync::Arc<dyn Fn() -> f64 + Send + Sync>,
     cancellation: Option<std::sync::Arc<Cancellation>>,
 ) -> Result<String, ForgeError> {
-    let api = GhApi::new(runner, host.to_owned(), std::sync::Arc::new(|| 0.0));
+    let api = GhApi::new(runner, host.to_owned(), now);
     let page = api
         .request("user", None, None, cancellation, Default::default())
         .await?;
@@ -107,6 +114,7 @@ pub async fn github_readiness(
     runner: &dyn Runner,
     host: &str,
     expected: Option<&str>,
+    now: std::sync::Arc<dyn Fn() -> f64 + Send + Sync>,
     cancellation: Option<std::sync::Arc<Cancellation>>,
 ) -> Readiness {
     let mut readiness = status("unavailable", None);
@@ -159,7 +167,7 @@ pub async fn github_readiness(
             readiness.accounts = accounts;
         }
     }
-    match github_identity(runner, host, cancellation.clone()).await {
+    match github_identity(runner, host, now, cancellation.clone()).await {
         Ok(account) => {
             if !readiness
                 .accounts
@@ -289,7 +297,9 @@ mod tests {
             .expect("runtime")
             .block_on(async {
                 let stub = Stub::default();
-                let readiness = github_readiness(&stub, "github.com", None, None).await;
+                let readiness =
+                    github_readiness(&stub, "github.com", None, std::sync::Arc::new(|| 0.0), None)
+                        .await;
                 assert_eq!(readiness.cli, "unavailable");
                 assert_eq!(readiness.api, "unavailable");
                 assert!(readiness.instructions.contains("Install GitHub CLI"));
@@ -313,7 +323,14 @@ mod tests {
                     ]),
                     seen: Mutex::new(Vec::new()),
                 };
-                let readiness = github_readiness(&stub, "github.com", Some("octo"), None).await;
+                let readiness = github_readiness(
+                    &stub,
+                    "github.com",
+                    Some("octo"),
+                    std::sync::Arc::new(|| 0.0),
+                    None,
+                )
+                .await;
                 assert_eq!(readiness.cli, "available");
                 assert_eq!(readiness.version.as_deref(), Some("2.63.2"));
                 assert_eq!(readiness.api, "ready");
@@ -338,7 +355,14 @@ mod tests {
                     ]),
                     seen: Mutex::new(Vec::new()),
                 };
-                let readiness = github_readiness(&stub, "github.com", Some("octo"), None).await;
+                let readiness = github_readiness(
+                    &stub,
+                    "github.com",
+                    Some("octo"),
+                    std::sync::Arc::new(|| 0.0),
+                    None,
+                )
+                .await;
                 assert_eq!(readiness.api, "account_mismatch");
                 assert!(readiness.instructions.contains("gh auth switch"));
             });

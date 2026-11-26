@@ -22,7 +22,7 @@ impl Repository {
     /// The API root for one head commit's checks.
     pub fn checks_path(&self, sha: &str) -> String {
         format!(
-            "repos/{}/{}/commits/{sha}/check-runs?per_page=100",
+            "repos/{}/{}/commits/{sha}/check-runs?per_page=100&filter=latest",
             self.owner, self.name
         )
     }
@@ -30,7 +30,7 @@ impl Repository {
     /// The API root for one head commit's legacy statuses.
     pub fn statuses_path(&self, sha: &str) -> String {
         format!(
-            "repos/{}/{}/commits/{sha}/status?per_page=100",
+            "repos/{}/{}/commits/{sha}/statuses?per_page=100",
             self.owner, self.name
         )
     }
@@ -157,11 +157,11 @@ mod tests {
         };
         assert_eq!(
             repository.checks_path("abc"),
-            "repos/octo/ace/commits/abc/check-runs?per_page=100"
+            "repos/octo/ace/commits/abc/check-runs?per_page=100&filter=latest"
         );
         assert_eq!(
             repository.statuses_path("abc"),
-            "repos/octo/ace/commits/abc/status?per_page=100"
+            "repos/octo/ace/commits/abc/statuses?per_page=100"
         );
     }
 
@@ -191,7 +191,7 @@ mod tests {
                 assert_eq!(aggregate(&rows), "failure");
                 let seen = stub.seen.lock().expect("seen");
                 assert!(seen[0].args[1].contains("check-runs"), "{:?}", seen[0].args);
-                assert!(seen[1].args[1].contains("status?"), "{:?}", seen[1].args);
+                assert!(seen[1].args[1].contains("statuses?"), "{:?}", seen[1].args);
             });
     }
 

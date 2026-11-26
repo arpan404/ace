@@ -14,12 +14,16 @@ pub mod command;
 pub mod error;
 pub mod http;
 pub mod identity;
+pub mod incremental;
 pub mod key;
 pub mod limits;
 pub mod mutation;
 pub mod poll;
 pub mod readiness;
 pub mod redact;
+pub mod reported_capabilities;
+pub mod resource;
+pub mod revisions;
 pub mod ssh;
 pub mod tail;
 

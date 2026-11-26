@@ -237,6 +237,30 @@ impl SupervisedRunner {
     }
 }
 
+/// Windows: the absolute executable a bare command names on PATH, so the checkout can never
+/// stand in for it (`command.ts:141-158`).
+#[cfg(windows)]
+fn windows_command(command: &str, env: &[(String, String)]) -> Result<String, ForgeError> {
+    use std::path::Path;
+    if Path::new(command).is_absolute() || command.contains(['\\', '/']) {
+        return Ok(command.to_owned());
+    }
+    let path = env
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    for directory in path.split(';') {
+        for extension in [".exe", ".EXE", ".com", ".COM"] {
+            let candidate = Path::new(directory).join(format!("{command}{extension}"));
+            if candidate.is_file() {
+                return Ok(candidate.to_string_lossy().into_owned());
+            }
+        }
+    }
+    Err(ForgeError::not_dispatched(Kind::Cli))
+}
+
 /// Sets `name` in place, or appends it: the last value wins, as the object spread does.
 fn set(env: &mut Vec<(String, String)>, name: &str, value: &str) {
     match env.iter_mut().find(|(key, _)| key == name) {
@@ -299,8 +323,12 @@ impl SupervisedRunner {
         *capture.close.lock().expect("capture close lock") = Some(close_tx);
         let (exit_tx, exit_rx) = oneshot::channel();
         *capture.leader_exit.lock().expect("leader exit lock") = Some(exit_tx);
+        #[cfg(windows)]
+        let command = windows_command(&request.command, &env)?;
+        #[cfg(not(windows))]
+        let command = request.command.clone();
         let spec = SpawnSpec {
-            command: request.command.clone(),
+            command,
             args: request.args.clone(),
             cwd: self.options.cwd.clone(),
             env,

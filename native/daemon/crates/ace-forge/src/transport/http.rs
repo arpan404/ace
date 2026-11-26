@@ -22,6 +22,8 @@ const CACHE_BUDGET_BYTES: usize = 8_388_608;
 /// The reply page a caller reads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
+    /// A stable identity for the readers that cache a projection per page.
+    pub id: u64,
     pub body: Value,
     pub headers: Vec<(String, String)>,
     pub bytes: usize,
@@ -47,7 +49,10 @@ pub struct GhApi<'a> {
     now: std::sync::Arc<dyn Fn() -> f64 + Send + Sync>,
     on_write: Option<Box<dyn Fn() + Send + Sync>>,
     cache: Mutex<HashMap<String, Page>>,
+    /// Cache keys in insertion order, so eviction takes the oldest first.
+    order: Mutex<Vec<String>>,
     cache_bytes: Mutex<usize>,
+    next_page_id: std::sync::atomic::AtomicU64,
 }
 
 impl<'a> GhApi<'a> {
@@ -64,7 +69,9 @@ impl<'a> GhApi<'a> {
             now,
             on_write: None,
             cache: Mutex::new(HashMap::new()),
+            order: Mutex::new(Vec::new()),
             cache_bytes: Mutex::new(0),
+            next_page_id: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -268,6 +275,9 @@ impl<'a> GhApi<'a> {
             {
                 let body: Value = ace_json::parse(text).unwrap_or(Value::Null);
                 let page = Page {
+                    id: self
+                        .next_page_id
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
                     body: redact_data(&body),
                     headers: safe_headers(&headers),
                     bytes: text.len(),
@@ -312,6 +322,9 @@ impl<'a> GhApi<'a> {
             redact_data(&parsed)
         };
         let page = Page {
+            id: self
+                .next_page_id
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             body,
             headers: safe_headers(&headers),
             bytes: text.len(),
@@ -330,17 +343,251 @@ impl<'a> GhApi<'a> {
             return;
         }
         let mut cache = self.cache.lock().expect("cache lock");
+        let mut order = self.order.lock().expect("cache order lock");
         let mut bytes = self.cache_bytes.lock().expect("cache bytes lock");
-        if cache.len() >= 128 || bytes.saturating_add(page.bytes) > CACHE_BUDGET_BYTES {
-            cache.clear();
-            *bytes = 0;
-        }
-        if let Some(previous) = cache.get(&key) {
+        // Completing a request replaces the entry actually retained, in place.
+        if let Some(previous) = cache.remove(&key) {
             *bytes = bytes.saturating_sub(previous.bytes);
+            order.retain(|held| held != &key);
+        }
+        while order.len() >= 128 || bytes.saturating_add(page.bytes) > CACHE_BUDGET_BYTES {
+            let Some(oldest) = (!order.is_empty()).then(|| order.remove(0)) else {
+                break;
+            };
+            if let Some(evicted) = cache.remove(&oldest) {
+                *bytes = bytes.saturating_sub(evicted.bytes);
+            }
         }
         *bytes = bytes.saturating_add(page.bytes);
+        order.push(key.clone());
         cache.insert(key, page);
     }
+}
+
+impl GhApi<'_> {
+    /// Up to 20 pages following the `Link` header, each counted against `budget`.
+    pub async fn pages(
+        &self,
+        path: &str,
+        cancellation: Option<Arc<Cancellation>>,
+        budget: &mut crate::transport::limits::ReadBudget,
+    ) -> Result<Vec<Page>, ForgeError> {
+        let mut result = Vec::new();
+        let mut endpoint = Some(path.to_owned());
+        for _ in 0..20 {
+            let Some(current) = endpoint else {
+                return Ok(result);
+            };
+            let page = self
+                .request(
+                    &current,
+                    None,
+                    None,
+                    cancellation.clone(),
+                    Default::default(),
+                )
+                .await?;
+            budget.add(page.bytes as u64)?;
+            endpoint = self.next(&page, path)?;
+            result.push(page);
+        }
+        if endpoint.is_some() {
+            return Err(ForgeError::new(Kind::Limit));
+        }
+        Ok(result)
+    }
+
+    /// The `next` page's endpoint for `page`, validated against this API host and resource.
+    pub fn next(&self, page: &Page, path: &str) -> Result<Option<String>, ForgeError> {
+        self.next_link(page.header("link"), path, "next")
+    }
+
+    /// The number of the `last` page GitHub links, when it links one.
+    pub fn last_page(&self, page: &Page, path: &str) -> Result<Option<i64>, ForgeError> {
+        let Some(last) = self.next_link(page.header("link"), path, "last")? else {
+            return Ok(None);
+        };
+        let number = last
+            .split('?')
+            .nth(1)
+            .and_then(|query| {
+                query.split('&').find_map(|pair| {
+                    let (name, value) = pair.split_once('=')?;
+                    (name == "page").then(|| value.parse::<i64>().ok())?
+                })
+            })
+            .filter(|number| *number >= 1);
+        number
+            .map(Some)
+            .ok_or_else(|| ForgeError::new(Kind::InvalidData))
+    }
+
+    fn next_link(
+        &self,
+        link: Option<&str>,
+        path: &str,
+        rel: &str,
+    ) -> Result<Option<String>, ForgeError> {
+        let Some(link) = link else {
+            return Ok(None);
+        };
+        let target = link.split(',').find_map(|part| {
+            let part = part.trim();
+            let target = part.strip_prefix('<')?.split('>').next()?;
+            let attrs = part.split('>').nth(1)?;
+            attrs
+                .split(';')
+                .any(|attr| attr.trim() == format!("rel=\"{rel}\""))
+                .then(|| target.to_owned())
+        });
+        let Some(target) = target else {
+            return Ok(None);
+        };
+        let Some((host, pathname, search)) = parse_link_url(&target) else {
+            return Err(ForgeError::new(Kind::InvalidData));
+        };
+        let api_host = if self.host == "github.com" {
+            "api.github.com"
+        } else {
+            self.host.as_str()
+        };
+        let prefix = if self.host == "github.com" {
+            "/"
+        } else {
+            "/api/v3/"
+        };
+        if host != api_host || !pathname.starts_with(prefix) {
+            return Err(ForgeError::new(Kind::InvalidData));
+        }
+        let linked = &pathname[prefix.len()..];
+        let requested = path.split('?').next().unwrap_or(path);
+        if linked == requested {
+            return Ok(Some(format!("{linked}{search}")));
+        }
+        // GitHub may address the same resource by repository id; only the part below the
+        // repository may differ, and the request stays scoped to the named repository.
+        let named = requested
+            .strip_prefix("repos/")
+            .and_then(|rest| rest.split_once('/'))
+            .and_then(|(_, rest)| rest.split_once('/').map(|(_, tail)| tail));
+        let by_id = linked
+            .strip_prefix("repositories/")
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(_, tail)| tail);
+        if let (Some(named), Some(by_id)) = (named, by_id)
+            && named == by_id
+        {
+            return Ok(Some(format!("{requested}{search}")));
+        }
+        Err(ForgeError::new(Kind::InvalidData))
+    }
+
+    /// GitHub's rendering of `text` as a comment in `context`: a read, never cached.
+    pub async fn render_markdown(
+        &self,
+        text: &str,
+        context: &str,
+        cancellation: Option<Arc<Cancellation>>,
+    ) -> Result<String, ForgeError> {
+        let input = format!(
+            "{{\"text\":{},\"mode\":\"gfm\",\"context\":{}}}",
+            ace_json::ser::to_string(text).unwrap_or_default(),
+            ace_json::ser::to_string(context).unwrap_or_default()
+        );
+        let request = CommandRequest {
+            command: self.command.clone(),
+            args: vec![
+                String::from("api"),
+                String::from("markdown"),
+                String::from("--hostname"),
+                self.host.clone(),
+                String::from("--include"),
+                String::from("--method"),
+                String::from("POST"),
+                String::from("--header"),
+                String::from("Accept: text/html"),
+                String::from("--input"),
+                String::from("-"),
+            ],
+            input: Some(input),
+            mode: crate::transport::command::Mode::Json,
+            tail_bytes: None,
+            cancellation,
+            dispatch: None,
+        };
+        let output = self.runner.run(request).await?;
+        let Some(split) = blank_line(&output.stdout) else {
+            return Err(no_response(&output, &MutationDispatch::new(None)));
+        };
+        let header_text = &output.stdout[..split];
+        let status = status_of(header_text).ok_or_else(|| ForgeError::new(Kind::InvalidData))?;
+        let body = &output.stdout[split..];
+        if status == 429 || (status == 403 && rate_limited_body(body)) {
+            return Err(ForgeError::retry_at(
+                Kind::RateLimit,
+                (self.now)() + 60_000.0,
+            ));
+        }
+        if status == 401 || status == 403 {
+            return Err(ForgeError::refused(Kind::Forbidden, status));
+        }
+        if status == 404 {
+            return Err(ForgeError::not_dispatched(Kind::NotFound));
+        }
+        if status != 200 || output.code != Some(0) {
+            return Err(ForgeError::new(Kind::Cli));
+        }
+        if output.truncated {
+            return Err(ForgeError::new(Kind::Limit));
+        }
+        Ok(body.to_owned())
+    }
+
+    /// A job log's newest `tail_bytes`; `gh api` follows GitHub's redirect to the text.
+    pub async fn log(
+        &self,
+        job_path: &str,
+        cancellation: Option<Arc<Cancellation>>,
+    ) -> Result<crate::transport::command::CommandResult, ForgeError> {
+        let request = CommandRequest {
+            command: self.command.clone(),
+            args: vec![
+                String::from("api"),
+                job_path.to_owned(),
+                String::from("--hostname"),
+                self.host.clone(),
+                String::from("--method"),
+                String::from("GET"),
+            ],
+            input: None,
+            mode: crate::transport::command::Mode::Tail,
+            tail_bytes: None,
+            cancellation,
+            dispatch: None,
+        };
+        let result = self.runner.run(request).await?;
+        if result.code != Some(0) {
+            return Err(ForgeError::new(Kind::Cli));
+        }
+        Ok(result)
+    }
+}
+
+/// `https://<host><pathname><search>`, refusing userinfo and other schemes.
+fn parse_link_url(url: &str) -> Option<(String, String, String)> {
+    let rest = url.strip_prefix("https://")?;
+    let (authority, pathquery) = match rest.find('/') {
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, ""),
+    };
+    if authority.contains('@') || authority.is_empty() {
+        return None;
+    }
+    let (pathname, search) = match pathquery.find('?') {
+        Some(index) => (&pathquery[..index], &pathquery[index..]),
+        None => (pathquery, ""),
+    };
+    Some((authority.to_owned(), pathname.to_owned(), search.to_owned()))
 }
 
 /// The index of the blank line separating headers from the body (`\r?\n\r?\n`).
@@ -886,6 +1133,7 @@ mod tests {
     #[test]
     fn bodies_are_redacted_before_they_are_kept_and_colliding_keys_are_suffixed() {
         let page: Page = Page {
+            id: 1,
             body: json!({ "visible": "ok", "token": "opaque", "ghp_keyone": { "value": 1 }, "ghp_keytwo": { "value": 2 } }),
             headers: Vec::new(),
             bytes: 1,

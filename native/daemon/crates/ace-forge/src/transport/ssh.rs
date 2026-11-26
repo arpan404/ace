@@ -97,7 +97,7 @@ impl<'a> SshHostAliases<'a> {
         &self,
         remotes: &[String],
         cancellation: Option<std::sync::Arc<Cancellation>>,
-    ) -> HashMap<String, String> {
+    ) -> Result<HashMap<String, String>, crate::transport::error::ForgeError> {
         let mut result = HashMap::new();
         let mut hosts: Vec<String> = Vec::new();
         for remote in remotes {
@@ -110,38 +110,45 @@ impl<'a> SshHostAliases<'a> {
             hosts.push(host);
         }
         for host in hosts {
-            if let Some(resolved) = self.lookup(&host, cancellation.clone()).await
+            if let Some(resolved) = self.lookup(&host, cancellation.clone()).await?
                 && resolved != host
             {
                 result.insert(host, resolved);
             }
         }
-        result
+        Ok(result)
     }
 
     async fn lookup(
         &self,
         host: &str,
         cancellation: Option<std::sync::Arc<Cancellation>>,
-    ) -> Option<String> {
+    ) -> Result<Option<String>, crate::transport::error::ForgeError> {
         let now = (self.now)();
         if let Some(cached) = self.cache.lock().expect("alias cache lock").get(host)
             && now - cached.at >= 0.0
             && now - cached.at < self.ttl_ms
         {
-            return cached.host.clone();
+            return Ok(cached.host.clone());
         }
         let request = CommandRequest::new(
             self.command.clone(),
             vec![String::from("-G"), host.to_owned()],
         );
-        let request = match cancellation {
-            Some(cancellation) => request.cancellable(cancellation),
+        let request = match &cancellation {
+            Some(cancellation) => request.cancellable(cancellation.clone()),
             None => request,
         };
         let resolved = match self.runner.run(request).await {
             Ok(output) if output.code == Some(0) => ssh_config_hostname(&output.stdout),
-            _ => None,
+            // A failed lookup proves nothing, so it is not cached; an abort is rethrown.
+            Ok(_) => None,
+            Err(_) if cancellation_is_set(&cancellation) => {
+                return Err(crate::transport::error::ForgeError::new(
+                    crate::transport::error::Kind::Cancelled,
+                ));
+            }
+            Err(_) => return Ok(None),
         };
         let mut cache = self.cache.lock().expect("alias cache lock");
         cache.insert(
@@ -156,8 +163,15 @@ impl<'a> SshHostAliases<'a> {
         {
             cache.remove(&oldest);
         }
-        resolved
+        Ok(resolved)
     }
+}
+
+/// Whether the caller aborted the lookup.
+fn cancellation_is_set(cancellation: &Option<std::sync::Arc<Cancellation>>) -> bool {
+    cancellation
+        .as_ref()
+        .is_some_and(|cancellation| cancellation.is_cancelled())
 }
 
 #[cfg(test)]
@@ -250,13 +264,13 @@ mod tests {
                 String::from("git@github-work:octo/ace.git"),
                 String::from("git@github.com:octo/ace.git"),
             ];
-            let resolved = aliases.resolve(&remotes, None).await;
+            let resolved = aliases.resolve(&remotes, None).await.expect("resolves");
             assert_eq!(
                 resolved.get("github-work").map(String::as_str),
                 Some("github.com")
             );
             assert_eq!(resolved.len(), 1);
-            let first = aliases.resolve(&remotes, None).await;
+            let first = aliases.resolve(&remotes, None).await.expect("resolves");
             assert_eq!(first, resolved);
             assert_eq!(stub.seen.lock().expect("seen").len(), 1);
         });

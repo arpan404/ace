@@ -61,11 +61,56 @@ fn optional_int(value: &Value, name: &str) -> Result<Option<i64>, Kind> {
 }
 
 fn optional_bool(value: &Value, name: &str) -> Result<Option<bool>, Kind> {
+    // `z.boolean().optional()`: absent is fine, null is not.
+    match value.as_object().and_then(|fields| fields.get(name)) {
+        None => Ok(None),
+        Some(Value::Bool(flag)) => Ok(Some(*flag)),
+        Some(_) => Err(Kind::InvalidData),
+    }
+}
+
+/// `z.boolean().nullable().optional()`: absent and null both read as unknown.
+fn nullable_bool(value: &Value, name: &str) -> Result<Option<bool>, Kind> {
     match value.as_object().and_then(|fields| fields.get(name)) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(flag)) => Ok(Some(*flag)),
         Some(_) => Err(Kind::InvalidData),
     }
+}
+
+/// `str.nullable()`: the key must be present, and its value a string or null.
+fn required_nullable(value: &Value, name: &str) -> Result<Option<String>, Kind> {
+    match value.as_object().and_then(|fields| fields.get(name)) {
+        None => Err(Kind::InvalidData),
+        Some(Value::Null) => Ok(None),
+        Some(field) => field
+            .as_str()
+            .filter(|text| text.chars().count() <= MAX_TEXT)
+            .map(|text| Some(text.to_owned()))
+            .ok_or(Kind::InvalidData),
+    }
+}
+
+/// `str.optional()`: absent is fine; present must be a short string.
+fn optional_string(value: &Value, name: &str) -> Result<Option<String>, Kind> {
+    match value.as_object().and_then(|fields| fields.get(name)) {
+        None => Ok(None),
+        Some(field) => field
+            .as_str()
+            .filter(|text| text.chars().count() <= MAX_TEXT)
+            .map(|text| Some(text.to_owned()))
+            .ok_or(Kind::InvalidData),
+    }
+}
+
+/// `str.nullish().catch(undefined)`: any non-string reads as absent.
+fn catch_string(value: &Value, name: &str) -> Option<String> {
+    value
+        .as_object()
+        .and_then(|fields| fields.get(name))
+        .and_then(|field| field.as_str())
+        .filter(|text| text.chars().count() <= MAX_TEXT)
+        .map(str::to_owned)
 }
 
 /// A commit id the schemas accept: 40 to 64 hexadecimal characters.
@@ -129,7 +174,7 @@ pub fn parse_pull(value: &Value) -> Result<Pull, Kind> {
         draft: optional_bool(value, "draft")?,
         merged: optional_bool(value, "merged")?,
         merged_at: nullable_string(value, "merged_at")?,
-        mergeable: optional_bool(value, "mergeable")?,
+        mergeable: nullable_bool(value, "mergeable")?,
         head_sha,
         head_ref: required_string(head, "ref")?,
     })
@@ -154,9 +199,9 @@ pub fn parse_check(value: &Value) -> Result<Check, Kind> {
         id: positive_int(value, "id")?,
         name: required_string(value, "name")?,
         status: required_string(value, "status")?,
-        conclusion: nullable_string(value, "conclusion")?,
-        completed_at: nullable_string(value, "completed_at")?,
-        started_at: nullable_string(value, "started_at")?,
+        conclusion: required_nullable(value, "conclusion")?,
+        completed_at: required_nullable(value, "completed_at")?,
+        started_at: catch_string(value, "started_at"),
         details_url: nullable_string(value, "details_url")?,
         html_url: nullable_string(value, "html_url")?,
     })
@@ -179,7 +224,7 @@ pub fn parse_legacy_status(value: &Value) -> Result<LegacyStatus, Kind> {
         context: required_string(value, "context")?,
         state: required_string(value, "state")?,
         updated_at: required_string(value, "updated_at")?,
-        target_url: nullable_string(value, "target_url")?,
+        target_url: required_nullable(value, "target_url")?,
     })
 }
 
@@ -207,11 +252,11 @@ pub fn parse_comment(value: &Value) -> Result<Comment, Kind> {
         id: positive_int(value, "id")?,
         body: required_string(value, "body")?,
         user: parse_author(value, "user")?,
-        path: string_field(value, "path"),
+        path: optional_string(value, "path")?,
         line: optional_int(value, "line")?,
         original_line: optional_int(value, "original_line")?,
         updated_at: required_string(value, "updated_at")?,
-        created_at: string_field(value, "created_at"),
+        created_at: optional_string(value, "created_at")?,
         in_reply_to_id,
     })
 }
