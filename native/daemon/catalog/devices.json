@@ -394,6 +394,56 @@
       "code": "busy",
       "message": "Device command queue is full",
       "hint": "Wait for pending device actions."
+    },
+    "bindingBusy": {
+      "code": "busy",
+      "message": "Device is changing threads",
+      "hint": "Retry in a moment."
+    },
+    "bindingDisabled": {
+      "code": "busy",
+      "message": "Devices turned off while binding",
+      "hint": "Turn devices on and retry."
+    },
+    "inputOneFinger": {
+      "code": "not_supported",
+      "message": "This device view supports one finger",
+      "hint": "Send pointer input without a pointerId, or use one finger."
+    },
+    "unsupportedAction": {
+      "code": "invalid_data",
+      "message": "Unsupported queued device action",
+      "hint": "Use a device command."
+    },
+    "screenDisabled": {
+      "code": "permission_denied",
+      "message": "Computer use is off",
+      "hint": "Turn it on in Computer use, then try again."
+    },
+    "frontmostTyping": {
+      "code": "not_supported",
+      "message": "Typing reaches the Simulator only while Simulator is the frontmost app",
+      "hint": "Click the Simulator window once, then type here. Or turn off Simulator's I/O › Keyboard › Connect Hardware Keyboard and tap the on-screen keyboard in the live view. With idb installed, ace types while Simulator stays in the background."
+    },
+    "screenLimit": {
+      "code": "busy",
+      "message": "Another live view is using the screen helper",
+      "hint": "Stop the other simulator's live view or screen session, then start this one."
+    },
+    "permissionScreenRecording": {
+      "code": "permission_denied",
+      "message": "ace needs Screen Recording permission to show the Simulator",
+      "hint": "Open System Settings › Privacy & Security › Screen Recording, turn on Ace Screen Helper, then try again."
+    },
+    "permissionAccessibility": {
+      "code": "permission_denied",
+      "message": "ace needs Accessibility permission to send taps and keys to the Simulator",
+      "hint": "Open System Settings › Privacy & Security › Accessibility, turn on Ace Screen Helper, then try again."
+    },
+    "uiNeedsRef": {
+      "code": "not_supported",
+      "message": "ui needs a ref",
+      "hint": "Read sim_ui and pass one of its refs."
     }
   },
   "adbTransports": {
@@ -426,6 +476,12 @@
     "simulatorPasteTimeoutHint": "Check that the Simulator is booted and responding, then retry.",
     "simulatorPasteFailedHint": "Check that the Simulator is booted, then retry.",
     "androidNoKeyHint": "Use the app's own controls instead.",
-    "iosNoKeyHint": "Use the Simulator Device menu or the app's navigation."
+    "iosNoKeyHint": "Use the Simulator Device menu or the app's navigation.",
+    "foregroundRequiredHint": "Bring the selected Simulator window forward before retrying, or install idb for native device input. ace will not change your desktop focus for an agent.",
+    "personBusyHint": "Try again shortly, or work elsewhere meanwhile.",
+    "simRefUnknownHint": "Read sim_ui and act on one of the refs it returns.",
+    "simStaleRefHint": "Read sim_ui again and act on a current ref.",
+    "simActionUnsupportedHint": "Use one of the element's actions, or tap it.",
+    "simActionNoRefHint": "Pass coordinates or the action's own fields."
   }
 }

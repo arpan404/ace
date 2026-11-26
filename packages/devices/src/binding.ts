@@ -1,4 +1,4 @@
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./catalog.ts";
 import { DeviceLogs } from "./logs.ts";
 import {
   closeDeviceRecording,
@@ -21,8 +21,7 @@ export async function bindDevice(
   guard: () => void,
 ): Promise<void> {
   if (session.threadId === threadId) return;
-  if (session.changingBinding)
-    throw new DeviceError("busy", "Device is changing threads", "Retry in a moment.");
+  if (session.changingBinding) throw catalogRefusal("bindingBusy");
   session.changingBinding = true;
   const epoch = ++session.bindingEpoch;
   try {
@@ -44,12 +43,7 @@ export async function bindDevice(
     );
     if (errors.length) throw new AggregateError(errors, "Device binding cleanup failed");
     guard();
-    if (!owner.enabled() || session.bindingEpoch !== epoch)
-      throw new DeviceError(
-        "busy",
-        "Devices turned off while binding",
-        "Turn devices on and retry.",
-      );
+    if (!owner.enabled() || session.bindingEpoch !== epoch) throw catalogRefusal("bindingDisabled");
     session.threadId = threadId;
   } finally {
     session.changingBinding = false;
