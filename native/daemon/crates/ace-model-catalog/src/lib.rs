@@ -8,3 +8,4 @@
 
 pub mod cache;
 pub mod classification;
+pub mod resolve;
