@@ -248,7 +248,8 @@ fn native_session_line(text: &str) -> bool {
 struct NativeMessage<'a> {
     type_: Option<&'a str>,
     id: Option<&'a str>,
-    session_id: Option<&'a str>,
+    /// Validated only: a wrong type makes the whole message unreadable, as zod's `safeParse`.
+    _session_id: Option<&'a str>,
     assistant_message_id: Option<&'a str>,
     ordinal: Option<f64>,
 }
@@ -260,7 +261,7 @@ fn native_message(data: &Value) -> Option<NativeMessage<'_>> {
     Some(NativeMessage {
         type_: optional_str(data, "type")?,
         id: optional_str(data, "id")?,
-        session_id: optional_str(data, "sessionID")?,
+        _session_id: optional_str(data, "sessionID")?,
         assistant_message_id: optional_str(data, "assistantMessageID")?,
         ordinal: optional_number(data, "ordinal")?,
     })

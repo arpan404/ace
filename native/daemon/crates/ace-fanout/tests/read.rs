@@ -20,6 +20,11 @@ fn parse(text: &str) -> Value {
     ace_json::parse(text).expect("parse JSON")
 }
 
+/// What `read_entity_page` was asked: collection, before, limit, max bytes.
+type EntityCall = (String, Option<Value>, usize, usize);
+/// What `read_bounded_item_page` was asked: before and limit.
+type ItemCall = (Option<Value>, usize);
+
 #[derive(Default)]
 struct Fake {
     receipts: HashMap<String, Value>,
@@ -30,6 +35,8 @@ struct Fake {
     entity: Option<Result<Value, ReadError>>,
     items: Option<Result<Value, ReadError>>,
     item_budget: Cell<usize>,
+    entity_call: std::cell::RefCell<Option<EntityCall>>,
+    item_call: std::cell::RefCell<Option<ItemCall>>,
 }
 
 impl CoreStore for Fake {
@@ -68,22 +75,25 @@ impl CoreStore for Fake {
     fn read_entity_page(
         &self,
         _thread_id: &str,
-        _collection: &str,
-        _before: Option<&Value>,
-        _limit: usize,
-        _max_bytes: usize,
+        collection: &str,
+        before: Option<&Value>,
+        limit: usize,
+        max_bytes: usize,
     ) -> Result<Value, ReadError> {
+        *self.entity_call.borrow_mut() =
+            Some((collection.to_owned(), before.cloned(), limit, max_bytes));
         self.entity.clone().unwrap_or(Err(ReadError))
     }
 
     fn read_bounded_item_page(
         &self,
         _thread_id: &str,
-        _before: Option<&Value>,
-        _limit: usize,
+        before: Option<&Value>,
+        limit: usize,
         max_bytes: usize,
     ) -> Result<Value, ReadError> {
         self.item_budget.set(max_bytes);
+        *self.item_call.borrow_mut() = Some((before.cloned(), limit));
         self.items.clone().unwrap_or(Err(ReadError))
     }
 }
@@ -527,21 +537,6 @@ fn reply_type(value: &Value) -> &str {
     }
 }
 
-fn page_ok(
-    _: &mut Subscriptions,
-    _: &str,
-    _: &ace_fanout::ThreadListCursor,
-    _: &str,
-) -> Result<Value, ReadError> {
-    Ok(parse(
-        r#"{"type":"threads.patch","subscriptionId":"s1","seq":1,"threads":{},"removed":[],"window":{}}"#,
-    ))
-}
-
-fn subscribe_ok(_: &mut Subscriptions, _: &Value) -> Result<(), ReadError> {
-    Ok(())
-}
-
 /// Command status reads the protocol's `commandIds`, sends a settled receipt again as a
 /// `commandResult`, then every command's state in one `command.status`; work on a lane is
 /// running.
@@ -627,17 +622,39 @@ fn every_read_answers_the_protocols_message() {
         ..Fake::default()
     };
 
-    let cases: [(&str, &str, bool); 8] = [
-        ("threadsPage", "threads.patch", true),
-        ("subscribeThread", "", false),
-        ("subscribeWindow", "", false),
-        ("outputRead", "output.data", false),
-        ("interactionRead", "interaction.data", false),
-        ("itemsPage", "items.page", false),
-        ("entitiesPage", "entities.page", false),
-        ("unsubscribe", "", false),
+    let pages: std::cell::RefCell<Vec<(String, u64, String, String)>> =
+        std::cell::RefCell::new(Vec::new());
+    let mut page = |_: &mut Subscriptions,
+                    subscription: &str,
+                    cursor: &ace_fanout::ThreadListCursor,
+                    request: &str| {
+        pages.borrow_mut().push((
+            subscription.to_owned(),
+            cursor.at,
+            cursor.id.clone(),
+            request.to_owned(),
+        ));
+        Ok(parse(
+            r#"{"type":"threads.patch","subscriptionId":"s1","seq":1,"threads":{},"removed":[],"window":{}}"#,
+        ))
+    };
+    let subscriptions: std::cell::RefCell<Vec<Value>> = std::cell::RefCell::new(Vec::new());
+    let mut subscribe = |_: &mut Subscriptions, message: &Value| {
+        subscriptions.borrow_mut().push(message.clone());
+        Ok(())
+    };
+
+    let cases: [(&str, Option<&str>); 8] = [
+        ("threadsPage", Some("threads.patch")),
+        ("subscribeThread", None),
+        ("subscribeWindow", None),
+        ("outputRead", Some("output.data")),
+        ("interactionRead", Some("interaction.data")),
+        ("itemsPage", Some("items.page")),
+        ("entitiesPage", Some("entities.page")),
+        ("unsubscribe", None),
     ];
-    for (name, reply, has_reply) in cases {
+    for (name, reply) in cases {
         let handled = answer(
             &mut socket,
             &store,
@@ -645,17 +662,88 @@ fn every_read_answers_the_protocols_message() {
             None,
             true,
             true,
-            &mut page_ok,
-            &mut subscribe_ok,
+            &mut page,
+            &mut subscribe,
         );
         assert!(handled, "{name} is a core read");
         assert!(socket.failures.is_empty(), "{name} answered a failure");
-        if has_reply {
+        if let Some(reply) = reply {
             assert_eq!(
                 socket.sends.last().map(reply_type),
                 Some(reply),
                 "{name} reply"
             );
         }
+    }
+
+    assert_eq!(
+        pages.borrow().as_slice(),
+        [("s1".to_owned(), 7, "t_tree".to_owned(), "page-1".to_owned())],
+        "threads.page passes its subscription, cursor and request"
+    );
+    let subscriptions = subscriptions.borrow();
+    let thread = &subscriptions[0];
+    let scope = thread.get("scope").expect("scope");
+    assert_eq!(text_of(scope, "kind"), "thread");
+    assert_eq!(text_of(scope, "threadId"), "t_tree");
+    assert_eq!(number_of(thread, "afterSeq"), 5.0);
+    assert_eq!(thread.get("paced"), Some(&Value::Bool(true)));
+    let tail = thread.get("tail").expect("tail");
+    assert_eq!(number_of(tail, "items"), 10.0);
+    assert_eq!(number_of(tail, "bytes"), 4096.0);
+    let window = subscriptions[1]
+        .get("scope")
+        .and_then(|scope| scope.get("window"))
+        .expect("window");
+    assert_eq!(number_of(window, "limit"), 20.0);
+    assert_eq!(text_of(window, "project"), "w_one");
+    assert_eq!(window.get("archived"), Some(&Value::Bool(false)));
+    let resume = window.get("resume").expect("resume");
+    assert_eq!(text_of(resume, "epoch"), "token:activity:0");
+    assert_eq!(number_of(resume, "revision"), 3.0);
+
+    let entity = store.entity_call.borrow();
+    let (collection, before, limit, max_bytes) = entity.as_ref().expect("entity read");
+    assert_eq!(collection, "interactions");
+    assert_eq!(number_value(before.as_ref()), Some(6.0));
+    assert_eq!((*limit, *max_bytes), (10, 16 * 1024));
+    let item = store.item_call.borrow();
+    let (before, limit) = item.as_ref().expect("item read");
+    assert_eq!(number_value(before.as_ref()), Some(6.0));
+    assert_eq!(*limit, 50);
+
+    let output = &socket.sends[1];
+    assert_eq!(text_of(output, "streamId"), "stream-1");
+    assert_eq!(number_of(output, "offset"), 0.0);
+    assert_eq!(text_of(output, "data"), "aGk=");
+    let interaction = &socket.sends[2];
+    assert_eq!(text_of(interaction, "threadId"), "t_tree");
+    assert_eq!(text_of(interaction, "interactionId"), "i1");
+    assert_eq!(text_of(&socket.sends[3], "threadId"), "t_tree");
+    assert_eq!(reply_type(&socket.sends[4]), "entities.page");
+    assert!(
+        !socket.subscriptions.contains("s1"),
+        "unsubscribe removed it"
+    );
+}
+
+fn text_of<'a>(value: &'a Value, key: &str) -> &'a str {
+    match value.get(key) {
+        Some(Value::String(seen)) => seen.as_str(),
+        _ => panic!("{key} is not a string"),
+    }
+}
+
+fn number_of(value: &Value, key: &str) -> f64 {
+    match value.get(key) {
+        Some(Value::Number(seen)) => seen.value(),
+        _ => panic!("{key} is not a number"),
+    }
+}
+
+fn number_value(value: Option<&Value>) -> Option<f64> {
+    match value {
+        Some(Value::Number(seen)) => Some(seen.value()),
+        _ => None,
     }
 }

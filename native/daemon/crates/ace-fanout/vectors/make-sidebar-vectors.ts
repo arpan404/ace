@@ -103,7 +103,11 @@ async function runSidebar(
   },
 ): Promise<Case> {
   const home = mkdtempSync(join(tmpdir(), "ace-fanout-sidebar-"));
-  const store = new Store(join(home, "events.sqlite"));
+  // One fixed clock: the store stamps appends and read cursors from it, so two runs that land
+  // in different milliseconds cannot record different bytes.
+  const store = new Store(join(home, "events.sqlite"), undefined, {
+    now: () => 1_765_000_000_000,
+  });
   const workspace = store.createWorkspace("/repo", "Repo", 1);
   const seeded = seed(store, workspace);
   const reads: Read[] = [];
