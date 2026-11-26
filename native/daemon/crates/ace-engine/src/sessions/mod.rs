@@ -46,9 +46,14 @@ pub async fn prepare_silence(
     thresholds.prepare_global().await
 }
 
-/// Whether sessions hold no work E5.1 must wait for.
-pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
-    true
+/// Whether sessions hold no work E5.1 must wait for: a queue with events still to fold is work,
+/// a session merely waiting for its provider is not.
+pub fn quiescent(state: &State, _exclude: Option<TaskId>) -> bool {
+    state
+        .sessions
+        .attached
+        .values()
+        .all(|attached| attached.inbox.is_empty())
 }
 
 impl SessionFacts for State {

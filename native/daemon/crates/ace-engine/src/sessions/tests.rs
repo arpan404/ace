@@ -226,3 +226,85 @@ fn the_open_route_carries_only_local_diagnostics() {
         "{}"
     );
 }
+
+#[test]
+fn a_session_queue_with_events_is_work_a_flush_waits_for() {
+    // index.ts: a flush waits for the session queues it has not folded yet; a session merely
+    // waiting for its provider is idle, not busy.
+    use crate::sessions::attach::Attached;
+    use crate::sessions::observer::{Event, Inbox};
+    use ace_adapter_api::session::{InterruptTarget, SendInput};
+    use ace_adapter_api::{AdapterApiError, CloseReason, Reopen, Session};
+    use ace_core::Key;
+    use ace_protocol::generated::{ExecutionSelection, GoalChange, InteractionResolution};
+    use futures::future::LocalBoxFuture;
+    use std::sync::Arc;
+
+    struct Idle;
+    impl Session for Idle {
+        fn native_session_id(&self) -> &str {
+            "native"
+        }
+        fn configure(
+            &self,
+            _selection: ExecutionSelection,
+        ) -> LocalBoxFuture<'_, Result<Option<Reopen>, AdapterApiError>> {
+            Box::pin(async { Ok(None) })
+        }
+        fn set_model(&self, _model: String) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn set_mode(&self, _mode: String) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn set_goal(&self, _change: GoalChange) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn clear_goal(&self) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn send(&self, _input: SendInput<'_>) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn interrupt(
+            &self,
+            _target: InterruptTarget,
+        ) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn resolve(
+            &self,
+            _interaction: Key,
+            _resolution: InteractionResolution,
+        ) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn stop_task(&self, _task: Key) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn close(&self, _reason: CloseReason) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    let mut state = crate::State::default();
+    let inbox = Inbox::new();
+    state.sessions.attached.insert(
+        "t".to_owned(),
+        Attached {
+            session: Box::new(Idle),
+            inbox: Arc::clone(&inbox),
+            native_session_id: "native".to_owned(),
+            generation: 0,
+        },
+    );
+    assert!(
+        crate::sessions::quiescent(&state, None),
+        "a waiting session is not work"
+    );
+    inbox.push(Event::Identity("native".to_owned()));
+    assert!(
+        !crate::sessions::quiescent(&state, None),
+        "an unfolded queue is work"
+    );
+}
