@@ -14,6 +14,7 @@ pub mod public_error;
 pub mod registry;
 pub mod result;
 pub mod scope;
+pub mod sessions;
 pub mod signal;
 pub mod tool_names;
 pub mod toolsets;

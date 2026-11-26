@@ -122,6 +122,8 @@ pub struct ToolEntry {
     pub failed: Option<Failed>,
     /// The tool's own output contract, checked before the result leaves.
     pub output_check: Option<OutputCheck>,
+    /// Fields a client mirrors into `Mcp-Param-*` headers (`x-mcp-header`).
+    pub param_headers: Vec<(String, String)>,
     pub handler: Arc<dyn ToolHandler>,
 }
 
@@ -134,6 +136,7 @@ impl ToolEntry {
             max_input_bytes: DEFAULT_MAX_INPUT_BYTES,
             failed: None,
             output_check: None,
+            param_headers: Vec::new(),
             handler,
         }
     }
@@ -163,6 +166,13 @@ impl ToolEntry {
         check: impl Fn(&Value) -> Result<(), String> + Send + Sync + 'static,
     ) -> Self {
         self.output_check = Some(Arc::new(check));
+        self
+    }
+
+    /// A field the client mirrors into `Mcp-Param-<header>` (`x-mcp-header` in its schema).
+    pub fn param_header(mut self, path: &str, header: &str) -> Self {
+        self.param_headers
+            .push((path.to_owned(), header.to_owned()));
         self
     }
 }
@@ -214,6 +224,7 @@ struct Entry {
     max_input_bytes: usize,
     failed: Option<Failed>,
     output_check: Option<OutputCheck>,
+    param_headers: Vec<(String, String)>,
     handler: Arc<dyn ToolHandler>,
 }
 
@@ -317,6 +328,7 @@ impl ToolRegistry {
             max_input_bytes: entry.max_input_bytes,
             failed: entry.failed,
             output_check: entry.output_check,
+            param_headers: entry.param_headers,
             handler: entry.handler,
         });
         entries.push(Arc::clone(&entry));
@@ -391,6 +403,13 @@ impl ToolRegistry {
             })
             .map(|entry| entry.descriptor.clone())
             .collect()
+    }
+
+    /// The fields `name` mirrors into headers, by field path and header name.
+    pub fn param_headers(&self, name: &str) -> Vec<(String, String)> {
+        self.resolve(name)
+            .map(|entry| entry.param_headers.clone())
+            .unwrap_or_default()
     }
 
     /// The input schema a caller may see for `name`.

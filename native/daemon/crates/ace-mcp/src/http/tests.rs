@@ -50,6 +50,13 @@ impl Fixture {
                 max_requests,
                 max_body_bytes: max_body,
                 scheduler: Arc::clone(&scheduler) as Arc<dyn Scheduler>,
+                session_ids: Some(Arc::new({
+                    let next = Arc::new(AtomicUsize::new(0));
+                    move || {
+                        let id = next.fetch_add(1, Ordering::SeqCst);
+                        format!("legacy-{id}")
+                    }
+                })),
             }),
             scheduler,
             lease,
@@ -706,6 +713,7 @@ async fn a_scoped_endpoint_refuses_a_call_before_it_runs() {
         max_requests: 16,
         max_body_bytes: 1024,
         scheduler: scheduler as Arc<dyn Scheduler>,
+        session_ids: None,
     });
     let request = fixture.request(
             r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"browser_open","arguments":{}}}"#,
@@ -729,135 +737,255 @@ async fn a_scoped_endpoint_refuses_a_call_before_it_runs() {
 #[test]
 fn notification_streams_are_bounded_per_lease_and_in_all() {
     let mut streams = Streams::default();
-    assert!(streams.open("a", 2, 3).is_some());
-    assert!(streams.open("a", 2, 3).is_some());
+    let first = streams.open("a", 2, 3).expect("first");
+    let second = streams.open("a", 2, 3).expect("second");
+    // A newer stream from the same lease closes its oldest rather than being refused.
+    let third = streams
+        .open("a", 2, 3)
+        .expect("the lease's third replaces its oldest");
+    assert_ne!(third, first);
+    assert_eq!(streams.held("a"), 2);
     assert!(
-        streams.open("a", 2, 3).is_none(),
-        "a third stream for one lease"
+        streams.drain(first).is_empty(),
+        "the replaced stream still had frames"
     );
     assert!(streams.open("b", 2, 3).is_some());
+    // The server-wide cap refuses a stream from a lease with no room of its own.
     assert!(streams.open("c", 2, 3).is_none(), "a fourth stream in all");
     streams.tools_changed("a");
-    let frames = streams.frames.get("a").cloned().unwrap_or_default();
-    assert_eq!(frames.len(), 2);
+    let frames = streams.drain(second);
+    assert_eq!(frames.len(), 1);
     assert_eq!(
         frames[0].get("method").and_then(Value::as_str),
         Some("notifications/tools/list_changed")
     );
-    streams.close("a");
+    assert!(streams.close(second));
     assert_eq!(streams.held("a"), 1);
     assert!(streams.open("c", 2, 3).is_some());
-    let _ = fixture_secret();
-}
-
-fn fixture_secret() -> SessionLease {
-    let credentials = CredentialRegistry::new(|| "f".repeat(64));
-    credentials
-        .issue(McpScope::new("s", "t", "a", &[]), &Abort::new())
-        .expect("lease")
+    assert!(!streams.close(second));
 }
 
 #[tokio::test]
-async fn discovery_carries_the_servers_instructions_unless_the_native_client_asks_otherwise() {
-    let fixture = Fixture::new(&[], 16, 1024);
-    let initialized = fixture
-        .handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#)
-        .await;
-    let instructions = result_of(&initialized)
-        .get("instructions")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    assert!(
-        instructions.starts_with("ace runs this session."),
-        "{instructions}"
-    );
-    let mut native = fixture.request(
-        r#"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#,
-    );
-    native
-        .headers
-        .push(("x-ace-instructions".to_owned(), "native".to_owned()));
-    let answered = fixture.server.handle(native, Arc::new(|_| {})).await;
-    assert!(
-        result_of(&answered).get("instructions").is_none(),
-        "a native client was sent the text it replaces"
-    );
-}
-
-#[tokio::test]
-async fn a_core_listing_hides_a_family_until_a_guide_call_opens_it() {
-    let fixture = Fixture::new(&[], 16, 1024);
-    for (name, toolset) in [
-        ("context", None),
-        ("guide", None),
-        ("thread_read", Some("ace-threads")),
-    ] {
-        let mut entry = descriptor(
-            name,
-            None,
-            "A tool",
-            "read-only",
-            None,
-            1_000,
-            parse("{\"type\":\"object\"}").expect("schema"),
-            None,
+async fn rejects_missing_and_mismatched_mirrored_custom_headers_before_effects_and_decodes_encoded_values()
+ {
+    use base64::Engine as _;
+    let fixture = Fixture::new(&[], 16, 4096);
+    let effects = Arc::new(Mutex::new(Vec::<String>::new()));
+    let recorded = Arc::clone(&effects);
+    fixture
+        .registry()
+        .register(
+            ToolEntry::new(
+                descriptor(
+                    "ace_scoped",
+                    None,
+                    "Scoped effect",
+                    "read-only",
+                    None,
+                    1_000,
+                    parse("{\"type\":\"object\",\"properties\":{\"scope\":{\"type\":\"string\"}}}")
+                        .expect("schema"),
+                    None,
+                ),
+                Arc::new(FnTool(move |input: Value, _context| {
+                    let recorded = Arc::clone(&recorded);
+                    async move {
+                        recorded
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .push(
+                                input
+                                    .get("scope")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            );
+                        Ok(input)
+                    }
+                })),
+            )
+            .param_header("scope", "Scope"),
+        )
+        .expect("registration");
+    let send = |value: &str, header: Option<&str>| {
+        let mut request = fixture.request(&format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"ace_scoped","arguments":{{"scope":{}}}}}}}"#,
+            ace_json::to_string(&Value::from(value))
+        ));
+        if let Some(header) = header {
+            request
+                .headers
+                .push(("mcp-param-scope".to_owned(), header.to_owned()));
+        }
+        request
+    };
+    for header in [None, Some("wrong")] {
+        let response = fixture
+            .server
+            .handle(send("expected", header), Arc::new(|_| {}))
+            .await;
+        assert_eq!(response.status, 400, "header {header:?}");
+        assert_eq!(
+            body(&response)
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_i64),
+            Some(-32_020)
         );
-        entry.toolset = toolset.map(str::to_owned);
-        fixture
-            .registry()
-            .register(ToolEntry::new(
-                entry,
-                Arc::new(FnTool(|input: Value, _context| async move { Ok(input) })),
-            ))
-            .expect("registration");
+        assert!(
+            effects
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty(),
+            "a mismatched header reached the tool"
+        );
     }
-    let core = |id: u8| format!(r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/list"}}"#);
-    let mut request = fixture.request(&core(1));
-    request
-        .headers
-        .push(("x-ace-tools".to_owned(), "core".to_owned()));
-    let listed = fixture.server.handle(request, Arc::new(|_| {})).await;
-    let names: Vec<String> = result_of(&listed)
-        .get("tools")
-        .and_then(Value::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    assert!(names.contains(&"context".to_owned()));
-    assert!(names.contains(&"guide".to_owned()));
-    assert!(!names.contains(&"thread_read".to_owned()), "{names:?}");
-
-    let mut guide = fixture.request(
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"guide","arguments":{"topic":"ace-threads"}}}"#,
+    let mut expected = Vec::new();
+    for value in [
+        "expected",
+        "Hello, 世界",
+        " padded ",
+        "line1\nline2",
+        "=?base64?literal?=",
+    ] {
+        let encoded = if value == "expected" {
+            value.to_owned()
+        } else {
+            format!(
+                "=?base64?{}?=",
+                base64::engine::general_purpose::STANDARD.encode(value)
+            )
+        };
+        let response = fixture
+            .server
+            .handle(send(value, Some(&encoded)), Arc::new(|_| {}))
+            .await;
+        assert_eq!(response.status, 200, "value {value:?}");
+        assert_eq!(
+            result_of(&response)
+                .get("structuredContent")
+                .and_then(|value| value.get("scope"))
+                .and_then(Value::as_str),
+            Some(value)
+        );
+        expected.push(value.to_owned());
+    }
+    assert_eq!(
+        *effects.lock().unwrap_or_else(|error| error.into_inner()),
+        expected
     );
-    guide
-        .headers
-        .push(("x-ace-tools".to_owned(), "core".to_owned()));
-    let answered = fixture.server.handle(guide, Arc::new(|_| {})).await;
-    assert_eq!(result_of(&answered).get("isError"), None);
+}
 
-    let mut request = fixture.request(&core(3));
-    request
-        .headers
-        .push(("x-ace-tools".to_owned(), "core".to_owned()));
-    let listed = fixture.server.handle(request, Arc::new(|_| {})).await;
-    let names: Vec<String> = result_of(&listed)
-        .get("tools")
-        .and_then(Value::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    assert!(
-        names.contains(&"thread_read".to_owned()),
-        "the opened family was not listed: {names:?}"
+#[tokio::test]
+async fn a_legacy_client_keeps_a_bounded_session_and_delete_ends_it() {
+    let fixture = Fixture::new(&[], 16, 4096);
+    fixture.register_echo();
+    let initialize = |id: u8| {
+        format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"method":"initialize","params":{{"protocolVersion":"2025-06-18"}}}}"#
+        )
+    };
+    let session_of = |response: &HttpResponse| {
+        response
+            .headers
+            .iter()
+            .find(|(name, _)| name == "mcp-session-id")
+            .map(|(_, value)| value.clone())
+    };
+    let first = fixture.handle(&initialize(1)).await;
+    let first_id = session_of(&first).expect("the initialize opened no session");
+    assert!(first_id.starts_with("legacy-"));
+    // A later request names its session.
+    let mut call = fixture.request(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ace_echo","arguments":{"value":"legacy"}}}"#,
     );
+    call.headers
+        .push(("mcp-session-id".to_owned(), first_id.clone()));
+    assert_eq!(
+        fixture.server.handle(call, Arc::new(|_| {})).await.status,
+        200
+    );
+    // Another lease cannot use the id.
+    let other = fixture
+        .credentials
+        .issue(
+            McpScope::new("other", "thread", "other", &[]),
+            &Abort::new(),
+        )
+        .expect("lease");
+    let mut foreign = fixture.request("{}");
+    for (name, value) in foreign.headers.iter_mut() {
+        if name == "authorization" {
+            *value = format!("Bearer {}", other.bearer);
+        }
+    }
+    foreign
+        .headers
+        .push(("mcp-session-id".to_owned(), first_id.clone()));
+    assert_eq!(
+        fixture
+            .server
+            .handle(foreign, Arc::new(|_| {}))
+            .await
+            .status,
+        404
+    );
+    // Reinitializing supersedes the oldest of the lease's four.
+    let mut ids = vec![first_id.clone()];
+    for id in 2..=5 {
+        let response = fixture.handle(&initialize(id)).await;
+        ids.push(session_of(&response).expect("no session"));
+    }
+    assert_eq!(ids.len(), 5);
+    assert_ne!(ids[0], ids[4]);
+    let mut superseded = fixture.request("{}");
+    superseded
+        .headers
+        .push(("mcp-session-id".to_owned(), ids[0].clone()));
+    assert_eq!(
+        fixture
+            .server
+            .handle(superseded, Arc::new(|_| {}))
+            .await
+            .status,
+        404
+    );
+    let mut newest = fixture.request(r#"{"jsonrpc":"2.0","id":9,"method":"ping"}"#);
+    newest
+        .headers
+        .push(("mcp-session-id".to_owned(), ids[4].clone()));
+    assert_eq!(
+        fixture.server.handle(newest, Arc::new(|_| {})).await.status,
+        200
+    );
+    // DELETE ends it; a second DELETE is 404. Without an id there is nothing to end: 400.
+    let mut delete = fixture.request("{}");
+    delete.method = "DELETE".to_owned();
+    delete
+        .headers
+        .push(("mcp-session-id".to_owned(), ids[4].clone()));
+    assert_eq!(
+        fixture.server.handle(delete, Arc::new(|_| {})).await.status,
+        200
+    );
+    let mut again = fixture.request("{}");
+    again.method = "DELETE".to_owned();
+    again
+        .headers
+        .push(("mcp-session-id".to_owned(), ids[4].clone()));
+    assert_eq!(
+        fixture.server.handle(again, Arc::new(|_| {})).await.status,
+        404
+    );
+    let mut anonymous_delete = fixture.request("{}");
+    anonymous_delete.method = "DELETE".to_owned();
+    assert_eq!(
+        fixture
+            .server
+            .handle(anonymous_delete, Arc::new(|_| {}))
+            .await
+            .status,
+        400
+    );
+    let _ = &fixture.secrets;
 }

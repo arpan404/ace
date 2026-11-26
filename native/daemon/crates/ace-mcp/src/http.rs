@@ -12,7 +12,7 @@
 //! annotations travel with its descriptor, and ace only hides what the caller's scope or a
 //! switched-off group cannot reach. It never adds an approval.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -20,9 +20,12 @@ use ace_json::{JsString, Map, Value};
 
 use crate::credentials::{CredentialRegistry, Principal};
 use crate::jsonrpc::{INTERNAL_ERROR, INVALID_PARAMS, Id, METHOD_NOT_FOUND, Message, RpcError};
-use crate::limits::{MAX_HEADER_BYTES, MAX_REQUESTS, PROGRESS_INTERVAL_MS};
+use crate::limits::{
+    MAX_HEADER_BYTES, MAX_REQUESTS, NOTIFICATION_STREAMS_TOTAL, PROGRESS_INTERVAL_MS,
+};
 use crate::registry::{CallOptions, ToolRegistry};
 use crate::scope::{ScopeChallenge, ScopeCheck, bearer, bearer_challenge, scope_refusal};
+use crate::sessions::{LegacySessions, SessionIds};
 use crate::signal::{Abort, Scheduler, TokioScheduler};
 use crate::tool_names::{ACE_TOOL_SEARCH, dispatched_ace_call};
 use crate::toolsets::{
@@ -106,55 +109,76 @@ impl HttpResponse {
 /// A notification the server sends outside the request's reply (progress, list changes).
 pub type Emitter = Arc<dyn Fn(Value) + Send + Sync>;
 
-/// Counts the listen streams a lease may hold and the server's total (`principal-bus.ts`).
+/// The listen streams a lease may hold and the server's total (`principal-bus.ts`).
+///
+/// A newer stream from a lease closes its oldest, so a reconnecting client is never refused; at
+/// the server-wide cap a stream is refused instead.
 #[derive(Default)]
 pub struct Streams {
-    per_lease: HashMap<String, usize>,
-    total: usize,
-    frames: HashMap<String, Vec<Value>>,
+    leases: HashMap<String, VecDeque<u64>>,
+    frames: HashMap<u64, Vec<Value>>,
+    next: u64,
 }
 
 impl Streams {
-    /// Opens one stream for `lease`; `None` when the lease or the server is at its bound.
+    /// Opens one stream for `lease`. `None` only when the server-wide total is reached.
     pub fn open(&mut self, lease: &str, per_lease: usize, total: usize) -> Option<u64> {
-        let held = self.per_lease.get(lease).copied().unwrap_or(0);
-        if held >= per_lease || self.total >= total {
+        let owned = self.leases.entry(lease.to_owned()).or_default();
+        if owned.len() >= per_lease.max(1) {
+            if let Some(oldest) = owned.pop_front() {
+                self.frames.remove(&oldest);
+            }
+        } else if self.frames.len() >= total {
             return None;
         }
-        *self.per_lease.entry(lease.to_owned()).or_insert(0) += 1;
-        self.total += 1;
-        let frames = self.frames.entry(lease.to_owned()).or_default();
-        let id = frames.len() as u64;
-        frames.push(Value::Null);
+        self.next += 1;
+        let id = self.next;
+        owned.push_back(id);
+        self.frames.insert(id, Vec::new());
         Some(id)
     }
 
-    pub fn close(&mut self, lease: &str) {
-        if let Some(held) = self.per_lease.get_mut(lease) {
-            if *held > 0 {
-                *held -= 1;
-                self.total = self.total.saturating_sub(1);
+    /// Ends one stream; false when it was already gone.
+    pub fn close(&mut self, id: u64) -> bool {
+        self.frames.remove(&id).is_some() && {
+            for owned in self.leases.values_mut() {
+                owned.retain(|held| *held != id);
             }
-            if *held == 0 {
-                self.per_lease.remove(lease);
+            self.leases.retain(|_, owned| !owned.is_empty());
+            true
+        }
+    }
+
+    /// Queues `notifications/tools/list_changed` for every stream of `lease`.
+    pub fn tools_changed(&mut self, lease: &str) {
+        let Some(owned) = self.leases.get(lease) else {
+            return;
+        };
+        let ids: Vec<u64> = owned.iter().copied().collect();
+        for id in ids {
+            if let Some(frames) = self.frames.get_mut(&id) {
+                frames.push(Message::notification(
+                    "notifications/tools/list_changed",
+                    Value::Object(Map::new()),
+                ));
             }
         }
     }
 
-    /// Queues `tools/list_changed` for every stream of `lease` (`toolsChanged`).
-    pub fn tools_changed(&mut self, lease: &str) {
-        if let Some(frames) = self.frames.get_mut(lease) {
-            for frame in frames.iter_mut() {
-                *frame = Message::notification(
-                    "notifications/tools/list_changed",
-                    Value::Object(Map::new()),
-                );
-            }
-        }
+    /// The frames waiting for one stream; the daemon's SSE writer calls this.
+    pub fn drain(&mut self, id: u64) -> Vec<Value> {
+        self.frames
+            .get_mut(&id)
+            .map(std::mem::take)
+            .unwrap_or_default()
     }
 
     pub fn held(&self, lease: &str) -> usize {
-        self.per_lease.get(lease).copied().unwrap_or(0)
+        self.leases.get(lease).map_or(0, VecDeque::len)
+    }
+
+    pub fn total(&self) -> usize {
+        self.frames.len()
     }
 }
 
@@ -171,6 +195,7 @@ pub struct McpServer {
     calls: Mutex<HashMap<String, Abort>>,
     toolsets: Mutex<OpenToolsets>,
     streams: Mutex<Streams>,
+    legacy: Mutex<LegacySessions>,
 }
 impl std::fmt::Debug for McpServer {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -190,6 +215,8 @@ pub struct McpServerOptions {
     pub max_requests: usize,
     pub max_body_bytes: usize,
     pub scheduler: Arc<dyn Scheduler>,
+    /// The legacy transport sessions' id generator; the daemon passes its own randomness.
+    pub session_ids: Option<SessionIds>,
 }
 
 impl McpServerOptions {
@@ -201,6 +228,7 @@ impl McpServerOptions {
             max_requests: MAX_REQUESTS,
             max_body_bytes: 64 * 1024,
             scheduler: Arc::new(TokioScheduler),
+            session_ids: None,
         }
     }
 }
@@ -219,6 +247,12 @@ impl McpServer {
             calls: Mutex::new(HashMap::new()),
             toolsets: Mutex::new(OpenToolsets::new()),
             streams: Mutex::new(Streams::default()),
+            legacy: Mutex::new(LegacySessions::new(
+                NOTIFICATION_STREAMS_TOTAL,
+                options
+                    .session_ids
+                    .unwrap_or_else(|| Arc::new(default_session_id)),
+            )),
         })
     }
 
@@ -230,6 +264,10 @@ impl McpServer {
     pub fn close(&self) {
         self.closing.store(true, Ordering::SeqCst);
         self.credentials.close();
+        self.legacy
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .close_all();
     }
 
     /// Announces a changed tool list to every open stream of `lease`.
@@ -280,9 +318,53 @@ impl McpServer {
                 .push(("www-authenticate".to_owned(), bearer_challenge(&parameters)));
             return response;
         };
+        // A named legacy session must exist and belong to this lease.
+        if let Some(id) = request.header("mcp-session-id").map(str::to_owned) {
+            if request.method == "DELETE" {
+                let removed = self
+                    .legacy
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&id);
+                return if removed {
+                    HttpResponse::empty(200)
+                } else {
+                    HttpResponse::empty(404)
+                };
+            }
+            let known = self
+                .legacy
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .find(&id, &principal)
+                .is_some();
+            if !known {
+                return HttpResponse::empty(404);
+            }
+            if request.method != "POST" {
+                return HttpResponse::empty(405);
+            }
+            return self.post(request, principal, emit).await;
+        }
         match request.method.as_str() {
-            "POST" => self.post(request, principal, emit).await,
-            "GET" | "HEAD" | "DELETE" => HttpResponse::empty(405),
+            "POST" => {
+                let creates = is_legacy_initialize(&request);
+                let mut response = self.post(request, principal.clone(), emit).await;
+                if creates && response.status == 200 {
+                    let opened = self
+                        .legacy
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .open(&principal);
+                    if let Some(id) = opened {
+                        response.headers.push(("mcp-session-id".to_owned(), id));
+                    }
+                }
+                response
+            }
+            // A legacy DELETE names its session; without one there is nothing to end.
+            "DELETE" => HttpResponse::empty(400),
+            "GET" | "HEAD" => HttpResponse::empty(405),
             _ => HttpResponse::empty(405),
         }
     }
@@ -322,6 +404,12 @@ impl McpServer {
             Ok(message) => message,
             Err(error) => return HttpResponse::rpc_failure(400, error),
         };
+        if let Message::Request { id, method, params } = &message
+            && method == "tools/call"
+            && let Some(failure) = self.mirrored_headers(id, params.as_ref(), &request.headers)
+        {
+            return failure;
+        }
         match message {
             Message::Notification { method, params } => {
                 if method == "notifications/cancelled"
@@ -373,6 +461,44 @@ impl McpServer {
             "resources/read" => self.resource_read(principal, params).await,
             _ => Err(RpcError::new(METHOD_NOT_FOUND, "Method not found")),
         }
+    }
+
+    /// A field the client mirrors into `Mcp-Param-<header>`: missing or different is 400 before
+    /// any effect, as the SDK validates a `McpServer` product's mirrored parameters.
+    fn mirrored_headers(
+        &self,
+        id: &Id,
+        params: Option<&Value>,
+        headers: &[(String, String)],
+    ) -> Option<HttpResponse> {
+        let params = params?;
+        let name = params.get("name").and_then(Value::as_str)?;
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        let call = dispatched_ace_call(name, &arguments);
+        for (path, header_name) in self.registry.param_headers(&call.name) {
+            let expected = value_at(&call.input, &path);
+            let actual = header(headers, &format!("Mcp-Param-{header_name}")).map(decode_header);
+            let matches = match (expected, actual) {
+                (None, None) => true,
+                (Some(value), Some(actual)) => {
+                    mirror_text(value).as_deref() == Some(actual.as_str())
+                }
+                _ => false,
+            };
+            if !matches {
+                return Some(HttpResponse::json(
+                    400,
+                    &Message::failure(
+                        Some(id),
+                        RpcError::new(-32_020, format!("Header mismatch: Mcp-Param-{header_name}")),
+                    ),
+                ));
+            }
+        }
+        None
     }
 
     /// `grows`: a successful call adds the family it opened to this session's list.
@@ -582,6 +708,95 @@ impl McpServer {
         // The reply names the call the client made, with the result the tool produced.
         Ok(result.to_json())
     }
+}
+
+/// `Mcp-Param-*` carries `=?base64?…?=` for a value a header cannot hold verbatim.
+fn decode_header(value: &str) -> String {
+    if let Some(encoded) = value
+        .strip_prefix("=?base64?")
+        .and_then(|rest| rest.strip_suffix("?="))
+    {
+        use base64::Engine as _;
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded)
+            && let Ok(text) = String::from_utf8(bytes)
+        {
+            return text;
+        }
+    }
+    value.to_owned()
+}
+
+/// A mirrored value as its header spells it: strings verbatim, numbers and booleans as JSON.
+fn mirror_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.as_str().to_owned()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        Value::Number(_) => Some(ace_json::to_string(value)),
+        _ => None,
+    }
+}
+
+/// A value at a dotted field path (`a.b.0`).
+fn value_at<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    let mut current = value;
+    for segment in path.split('.') {
+        current = match current {
+            Value::Object(map) => map.get(segment)?,
+            Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    Some(current)
+}
+
+/// The default session id (`randomUUID`): a UUID v4 from the OS.
+fn default_session_id() -> String {
+    let mut bytes = [0_u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // A machine without an entropy source still gets a unique id, not a secret.
+        static FALLBACK: AtomicUsize = AtomicUsize::new(0);
+        let next = FALLBACK.fetch_add(1, Ordering::SeqCst) as u64;
+        bytes[..8].copy_from_slice(&next.to_be_bytes());
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
+}
+
+/// Whether a POST is a 2025 `initialize` that opens a transport session (`isLegacyRequest`).
+fn is_legacy_initialize(request: &HttpRequest) -> bool {
+    if request.header("mcp-method").is_some() {
+        return false;
+    }
+    let Ok(Message::Request { method, params, .. }) = Message::parse(&request.body) else {
+        return false;
+    };
+    if method != "initialize" {
+        return false;
+    }
+    let version = params
+        .as_ref()
+        .and_then(|params| params.get("protocolVersion"))
+        .and_then(Value::as_str);
+    !matches!(version, Some(LATEST_PROTOCOL))
 }
 
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
