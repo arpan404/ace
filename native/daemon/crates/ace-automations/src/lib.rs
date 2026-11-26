@@ -21,6 +21,7 @@ pub mod webhook_key;
 pub mod webhook_secret_box;
 pub mod webhook_signature;
 pub mod webhooks;
+pub mod wildmatch;
 pub mod workspace;
 
 pub use decisions::{

@@ -388,3 +388,306 @@ fn reconciler_shared(
     )
     .expect("reconciler")
 }
+
+// A3 review: the baseline is built without the state lock, and readiness comes before replay.
+mod subscribe_race {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use ace_automations::scheduler::CounterIds;
+    use ace_automations::workspace::{
+        BaselineStore, Checkout, CheckoutEntry, FileEvent, StoredBaseline, Subscription, Watch,
+        WorkspaceHooks, WorkspaceLimits, WorkspaceOpen, WorkspacePayload, subscribe,
+    };
+
+    use super::FakeCheckout;
+
+    struct SlowCheckout {
+        inner: Arc<FakeCheckout>,
+        delay: Duration,
+    }
+
+    impl Checkout for SlowCheckout {
+        fn walk(&self) -> ace_automations::Result<Vec<CheckoutEntry>> {
+            std::thread::sleep(self.delay);
+            self.inner.walk()
+        }
+
+        fn stat(&self, path: &str) -> ace_automations::Result<Option<CheckoutEntry>> {
+            self.inner.stat(path)
+        }
+
+        fn digest(&self, path: &str) -> ace_automations::Result<Option<String>> {
+            self.inner.digest(path)
+        }
+    }
+
+    struct NoopSubscription;
+
+    impl Subscription for NoopSubscription {
+        fn stop(&mut self) {}
+    }
+
+    type Sink = Box<dyn Fn(WorkspacePayload) + Send + Sync>;
+
+    #[derive(Clone, Default)]
+    struct SlotWatch {
+        sink: Arc<Mutex<Option<Sink>>>,
+    }
+
+    impl Watch for SlotWatch {
+        fn watch(&self, _root: &str, sink: Sink) -> ace_automations::Result<Box<dyn Subscription>> {
+            *self.sink.lock().expect("sink") = Some(sink);
+            Ok(Box::new(NoopSubscription))
+        }
+    }
+
+    #[derive(Default)]
+    struct MemBaselines {
+        entries: Mutex<std::collections::HashMap<String, StoredBaseline>>,
+    }
+
+    impl BaselineStore for MemBaselines {
+        fn load(&self, root: &str) -> ace_automations::Result<Option<StoredBaseline>> {
+            Ok(self.entries.lock().expect("baselines").get(root).cloned())
+        }
+        fn save(&self, root: &str, baseline: &StoredBaseline) -> ace_automations::Result<()> {
+            self.entries
+                .lock()
+                .expect("baselines")
+                .insert(root.to_owned(), baseline.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_persisted_baseline_reports_an_offline_edit_on_the_next_subscribe() {
+        let fake = Arc::new(FakeCheckout::new(&[("src/a.ts", 1, 1)], &[]));
+        let store = Arc::new(MemBaselines::default());
+        let watch = SlotWatch::default();
+        let first_events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let first = Arc::clone(&first_events);
+        let mut subscription = subscribe(WorkspaceOpen {
+            checkout: Box::new(SharedFake(Arc::clone(&fake))),
+            watch: &watch,
+            root: "/project",
+            patterns: &["src/**".to_owned()],
+            limits: WorkspaceLimits::default(),
+            ids: Box::new(CounterIds::new("trigger")),
+            receive: Box::new(move |event: FileEvent| {
+                first
+                    .lock()
+                    .expect("events")
+                    .push(event.variables.get("path").cloned().unwrap_or_default());
+            }),
+            baseline: Some(store.clone()),
+            hooks: WorkspaceHooks::default(),
+        })
+        .expect("first subscribe");
+        assert!(first_events.lock().expect("events").is_empty());
+        subscription.stop();
+        fake.set("src/a.ts", 2, 2);
+        fake.set_digest("src/a.ts", "a2");
+        let second_events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let second = Arc::clone(&second_events);
+        let mut subscription = subscribe(WorkspaceOpen {
+            checkout: Box::new(SharedFake(Arc::clone(&fake))),
+            watch: &watch,
+            root: "/project",
+            patterns: &["src/**".to_owned()],
+            limits: WorkspaceLimits::default(),
+            ids: Box::new(CounterIds::new("trigger")),
+            receive: Box::new(move |event: FileEvent| {
+                second.lock().expect("events").push(format!(
+                    "{}:{}",
+                    event.variables.get("kind").cloned().unwrap_or_default(),
+                    event.variables.get("path").cloned().unwrap_or_default()
+                ));
+            }),
+            baseline: Some(store),
+            hooks: WorkspaceHooks::default(),
+        })
+        .expect("second subscribe");
+        assert_eq!(
+            *second_events.lock().expect("events"),
+            vec!["changed:src/a.ts".to_owned()]
+        );
+        subscription.stop();
+    }
+
+    struct SharedFake(Arc<FakeCheckout>);
+
+    impl Checkout for SharedFake {
+        fn walk(&self) -> ace_automations::Result<Vec<CheckoutEntry>> {
+            self.0.walk()
+        }
+        fn stat(&self, path: &str) -> ace_automations::Result<Option<CheckoutEntry>> {
+            self.0.stat(path)
+        }
+        fn digest(&self, path: &str) -> ace_automations::Result<Option<String>> {
+            self.0.digest(path)
+        }
+    }
+
+    #[test]
+    fn an_event_during_the_seed_is_replayed_after_readiness_exactly_once() {
+        let fake = Arc::new(FakeCheckout::new(
+            &[("src/main.ts", 1, 1), ("src/late.ts", 2, 2)],
+            &[],
+        ));
+        let checkout = SlowCheckout {
+            inner: Arc::clone(&fake),
+            delay: Duration::from_millis(150),
+        };
+        let watch = SlotWatch::default();
+        let order = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&watch.sink);
+        let sender = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(40));
+            let guard = sink.lock().expect("sink");
+            if let Some(sink) = guard.as_ref() {
+                sink(WorkspacePayload::Changes(vec![
+                    ace_automations::workspace::WatchChange {
+                        path: "src/late.ts".to_owned(),
+                        kind: ace_automations::workspace::WatchKind::Created,
+                        directory: false,
+                    },
+                ]));
+            }
+        });
+        let ready_order = Arc::clone(&order);
+        let receive_order = Arc::clone(&order);
+        let mut subscription = subscribe(WorkspaceOpen {
+            checkout: Box::new(checkout),
+            watch: &watch,
+            root: "/project",
+            patterns: &["src/**".to_owned()],
+            limits: WorkspaceLimits::default(),
+            ids: Box::new(CounterIds::new("trigger")),
+            baseline: None,
+            receive: Box::new(move |event: FileEvent| {
+                receive_order.lock().expect("order").push(format!(
+                    "{}:{}",
+                    event.variables.get("kind").cloned().unwrap_or_default(),
+                    event.variables.get("path").cloned().unwrap_or_default()
+                ));
+            }),
+            hooks: WorkspaceHooks {
+                on_ready: Some(Box::new(move || {
+                    ready_order.lock().expect("order").push("ready".to_owned());
+                })),
+                on_error: None,
+            },
+        })
+        .expect("subscribe");
+        sender.join().expect("sender");
+        assert_eq!(
+            *order.lock().expect("order"),
+            vec!["ready".to_owned(), "created:src/late.ts".to_owned()]
+        );
+        subscription.stop();
+    }
+}
+
+// A3 review: a rescan records only the paths it reported, so an untouched directory's live
+// modification is not deduplicated away.
+#[test]
+fn a_rescan_records_only_the_paths_it_reported() {
+    use std::sync::{Arc, Mutex};
+
+    use ace_automations::workspace::{
+        Checkout, CheckoutEntry, Reconciler, WatchChange, WatchKind, WorkspaceLimits,
+        WorkspacePayload,
+    };
+
+    struct ListCheckout {
+        entries: Mutex<Vec<CheckoutEntry>>,
+    }
+
+    impl Checkout for ListCheckout {
+        fn walk(&self) -> ace_automations::Result<Vec<CheckoutEntry>> {
+            Ok(self.entries.lock().expect("entries").clone())
+        }
+        fn stat(&self, path: &str) -> ace_automations::Result<Option<CheckoutEntry>> {
+            Ok(self
+                .entries
+                .lock()
+                .expect("entries")
+                .iter()
+                .find(|entry| entry.path == path)
+                .cloned())
+        }
+        fn digest(&self, path: &str) -> ace_automations::Result<Option<String>> {
+            Ok(Some(path.to_owned()))
+        }
+    }
+
+    let checkout = Arc::new(ListCheckout {
+        entries: Mutex::new(vec![
+            CheckoutEntry {
+                path: "src".to_owned(),
+                version: "directory".to_owned(),
+                file: false,
+                directory: true,
+                ignored: false,
+            },
+            CheckoutEntry {
+                path: "src/a.ts".to_owned(),
+                version: "file:1:1".to_owned(),
+                file: true,
+                directory: false,
+                ignored: false,
+            },
+        ]),
+    });
+    struct Shared(Arc<ListCheckout>);
+    impl Checkout for Shared {
+        fn walk(&self) -> ace_automations::Result<Vec<CheckoutEntry>> {
+            self.0.walk()
+        }
+        fn stat(&self, path: &str) -> ace_automations::Result<Option<CheckoutEntry>> {
+            self.0.stat(path)
+        }
+        fn digest(&self, path: &str) -> ace_automations::Result<Option<String>> {
+            self.0.digest(path)
+        }
+    }
+    let mut reconciler = Reconciler::new(
+        Box::new(Shared(Arc::clone(&checkout))),
+        &["**".to_owned()],
+        WorkspaceLimits::default(),
+        Box::new(ace_automations::scheduler::CounterIds::new("trigger")),
+    )
+    .expect("reconciler");
+    reconciler.seed().expect("seed");
+    checkout
+        .entries
+        .lock()
+        .expect("entries")
+        .push(CheckoutEntry {
+            path: "src/b.ts".to_owned(),
+            version: "file:1:1".to_owned(),
+            file: true,
+            directory: false,
+            ignored: false,
+        });
+    let events = reconciler
+        .receive(WorkspacePayload::Rescan, false)
+        .expect("rescan");
+    assert_eq!(events.len(), 1);
+    let live = reconciler
+        .receive(
+            WorkspacePayload::Changes(vec![WatchChange {
+                path: "src".to_owned(),
+                kind: WatchKind::Modified,
+                directory: true,
+            }]),
+            false,
+        )
+        .expect("live");
+    eprintln!("rescan {:?} live {:?}", events, live);
+    assert_eq!(
+        live[0].variables.get("path").map(String::as_str),
+        Some("src")
+    );
+}

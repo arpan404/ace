@@ -15,10 +15,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ace_json::Value;
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{AutomationsError, Result};
 use crate::scheduler::IdSource;
+use crate::wildmatch::matches_glob;
 
 /// Matching paths one trigger remembers; a lost watcher past this cannot be reconciled.
 pub const DEFAULT_SNAPSHOT_LIMIT: usize = 100_000;
@@ -40,6 +41,28 @@ impl Default for WorkspaceLimits {
     }
 }
 
+/// A baseline as a caller persists it across a daemon restart.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredBaseline {
+    pub entries: Vec<StoredEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredEntry {
+    pub path: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+    pub file: bool,
+}
+
+/// Where a caller keeps a trigger's baseline, so an edit made while ace was off is reconciled
+/// on the next subscribe instead of being absorbed into a fresh seed.
+pub trait BaselineStore: Send + Sync {
+    fn load(&self, root: &str) -> Result<Option<StoredBaseline>>;
+    fn save(&self, root: &str, baseline: &StoredBaseline) -> Result<()>;
+}
+
 /// What one path looks like to a listing or stat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckoutEntry {
@@ -55,6 +78,13 @@ pub struct CheckoutEntry {
 /// current version; a vanished or conflicted file has none.
 pub trait Checkout: Send + Sync {
     fn walk(&self) -> Result<Vec<CheckoutEntry>>;
+    /// The walk with a row budget: a real checkout stops reading once it has `limit` entries, so
+    /// a snapshot bound never collects the whole tree first.
+    fn walk_limited(&self, limit: usize) -> Result<Vec<CheckoutEntry>> {
+        let mut entries = self.walk()?;
+        entries.truncate(limit);
+        Ok(entries)
+    }
     fn stat(&self, path: &str) -> Result<Option<CheckoutEntry>>;
     fn digest(&self, path: &str) -> Result<Option<String>>;
 }
@@ -110,8 +140,8 @@ struct Known {
 
 /// The baseline, live-batch and rescan reconciler, one per subscription.
 pub struct Reconciler {
-    checkout: Box<dyn Checkout>,
-    patterns: GlobSet,
+    checkout: Arc<dyn Checkout>,
+    patterns: Vec<String>,
     limits: WorkspaceLimits,
     known: HashMap<String, Known>,
     /// Versions a rescan has already reported, against a live batch naming the same version.
@@ -126,6 +156,67 @@ pub struct Reconciler {
     warnings: Vec<String>,
 }
 
+/// What a seed needs, cloned out so the baseline can be built without the state lock.
+pub struct SeedPlan {
+    checkout: Arc<dyn Checkout>,
+    patterns: Vec<String>,
+    limits: WorkspaceLimits,
+}
+
+/// A complete baseline, built outside the lock and installed under it.
+pub struct Baseline {
+    known: HashMap<String, Known>,
+    complete: bool,
+}
+
+impl SeedPlan {
+    pub fn build(&self) -> Result<Option<Baseline>> {
+        let mut known: HashMap<String, Known> = HashMap::new();
+        let mut files = Vec::new();
+        let entries = self.checkout.walk_limited(self.limits.snapshot_limit + 1)?;
+        let mut full = false;
+        for entry in entries {
+            if entry.ignored
+                || !self
+                    .patterns
+                    .iter()
+                    .any(|pattern| matches_glob(pattern, &entry.path))
+            {
+                continue;
+            }
+            if known.len() >= self.limits.snapshot_limit {
+                full = true;
+                break;
+            }
+            if entry.file {
+                files.push(entry.path.clone());
+            }
+            known.insert(
+                entry.path.clone(),
+                Known {
+                    version: Reconciler::version(&entry),
+                    digest: None,
+                    file: entry.file,
+                },
+            );
+        }
+        if full {
+            return Ok(None);
+        }
+        for path in files {
+            if let Some(digest) = self.checkout.digest(&path)?
+                && let Some(entry) = known.get_mut(&path)
+            {
+                entry.digest = Some(digest);
+            }
+        }
+        Ok(Some(Baseline {
+            known,
+            complete: true,
+        }))
+    }
+}
+
 impl Reconciler {
     pub fn new(
         checkout: Box<dyn Checkout>,
@@ -133,20 +224,9 @@ impl Reconciler {
         limits: WorkspaceLimits,
         ids: Box<dyn IdSource>,
     ) -> Result<Reconciler> {
-        let mut builder = GlobSetBuilder::new();
-        for pattern in patterns {
-            builder.add(
-                GlobBuilder::new(pattern)
-                    .literal_separator(true)
-                    .build()
-                    .map_err(|error| AutomationsError::message(error.to_string()))?,
-            );
-        }
         Ok(Reconciler {
-            checkout,
-            patterns: builder
-                .build()
-                .map_err(|error| AutomationsError::message(error.to_string()))?,
+            checkout: Arc::from(checkout),
+            patterns: patterns.to_vec(),
             limits,
             known: HashMap::new(),
             reported: HashMap::new(),
@@ -169,7 +249,9 @@ impl Reconciler {
     }
 
     fn matches(&self, path: &str) -> bool {
-        self.patterns.is_match(path)
+        self.patterns
+            .iter()
+            .any(|pattern| matches_glob(pattern, path))
     }
 
     /// The email/listing version of one entry, shared by seed, rescan and live batches.
@@ -186,63 +268,98 @@ impl Reconciler {
         self.buffering = true;
     }
 
-    /// Read the matching tree into a baseline before anything is reported ready.
-    pub fn seed(&mut self) -> Result<()> {
-        let entries = self.checkout.walk()?;
-        let mut seeded = HashMap::new();
-        let mut files = Vec::new();
-        let mut full = false;
-        for entry in entries {
-            if entry.ignored || !self.matches(&entry.path) {
-                continue;
-            }
-            if seeded.len() >= self.limits.snapshot_limit {
-                full = true;
-                break;
-            }
-            if entry.file {
-                files.push(entry.path.clone());
-            }
-            seeded.insert(entry.path.clone(), Self::version(&entry));
-        }
-        if self.closed {
-            return Ok(());
-        }
-        if full {
-            self.known.clear();
-            self.complete = false;
-            self.warnings
-                .push("Automation baseline exceeded its snapshot; changes may be lost".to_owned());
-            return Ok(());
-        }
-        let mut known: HashMap<String, Known> = seeded
-            .into_iter()
-            .map(|(path, version)| {
-                (
-                    path,
-                    Known {
-                        version,
-                        digest: None,
-                        file: false,
-                    },
-                )
+    /// The current complete baseline, in the shape a [`BaselineStore`] keeps.
+    pub fn stored(&self) -> StoredBaseline {
+        let mut entries: Vec<StoredEntry> = self
+            .known
+            .iter()
+            .map(|(path, known)| StoredEntry {
+                path: path.clone(),
+                version: known.version.clone(),
+                digest: known.digest.clone(),
+                file: known.file,
             })
             .collect();
-        for path in files {
-            if let Some(digest) = self.checkout.digest(&path)?
-                && let Some(entry) = known.get_mut(&path)
-            {
-                entry.digest = Some(digest);
-                entry.file = true;
-            } else if let Some(entry) = known.get_mut(&path) {
-                entry.file = true;
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        StoredBaseline { entries }
+    }
+
+    /// Changes between a persisted baseline and the one just seeded: an edit, create or delete
+    /// that happened while nothing was watching.
+    pub fn offline_events(&mut self, old: &StoredBaseline) -> Vec<FileEvent> {
+        let old: HashMap<&str, &StoredEntry> = old
+            .entries
+            .iter()
+            .map(|entry| (entry.path.as_str(), entry))
+            .collect();
+        let mut changes: Vec<(String, &'static str)> = Vec::new();
+        let mut paths: Vec<&String> = self.known.keys().collect();
+        paths.sort();
+        for path in paths {
+            let Some(now) = self.known.get(path) else {
+                continue;
+            };
+            match old.get(path.as_str()) {
+                None => changes.push((path.clone(), "created")),
+                Some(before)
+                    if before.version != now.version
+                        || (before.digest.is_some()
+                            && now.digest.is_some()
+                            && before.digest != now.digest) =>
+                {
+                    changes.push((path.clone(), "changed"));
+                }
+                Some(_) => {}
             }
         }
+        let mut olds: Vec<String> = old
+            .keys()
+            .filter(|path| !self.known.contains_key(**path))
+            .map(|path| (*path).to_owned())
+            .collect();
+        olds.sort();
+        for path in olds {
+            changes.push((path, "deleted"));
+        }
+        self.fire(&changes)
+    }
+
+    /// What a seed needs, cloned so `subscribe` can build the baseline without holding the
+    /// state lock while the walk and hashing run.
+    pub fn seed_plan(&self) -> SeedPlan {
+        SeedPlan {
+            checkout: Arc::clone(&self.checkout),
+            patterns: self.patterns.clone(),
+            limits: self.limits,
+        }
+    }
+
+    /// Install a baseline built by [`Reconciler::seed_plan`]. `None` means the scan could not see
+    /// every matching path; the previous complete baseline is kept.
+    pub fn install_baseline(&mut self, baseline: Option<Baseline>) {
+        match baseline {
+            Some(baseline) => {
+                self.known = baseline.known;
+                self.complete = baseline.complete;
+            }
+            None => {
+                self.known.clear();
+                self.complete = false;
+                self.warnings.push(
+                    "Automation baseline exceeded its snapshot; changes may be lost".to_owned(),
+                );
+            }
+        }
+    }
+
+    /// Read the matching tree into a baseline before anything is reported ready.
+    pub fn seed(&mut self) -> Result<()> {
+        let plan = self.seed_plan();
+        let baseline = plan.build()?;
         if self.closed {
             return Ok(());
         }
-        self.known = known;
-        self.complete = true;
+        self.install_baseline(baseline);
         Ok(())
     }
 
@@ -408,7 +525,7 @@ impl Reconciler {
     }
 
     fn rescan(&mut self) -> Result<Vec<FileEvent>> {
-        let entries = self.checkout.walk()?;
+        let entries = self.checkout.walk_limited(self.limits.snapshot_limit + 1)?;
         let mut current: HashMap<String, Known> = HashMap::new();
         let mut files = Vec::new();
         let mut full = false;
@@ -479,10 +596,16 @@ impl Reconciler {
             }
         }
         self.known = current;
-        self.reported = self
-            .known
+        // Only the paths this rescan actually reported (`automation-workspace.ts:342`); an
+        // untouched directory's later live modification must still fire.
+        self.reported = changes
             .iter()
-            .map(|(path, entry)| (path.clone(), entry.version.clone()))
+            .filter(|(_, kind)| *kind != "deleted")
+            .filter_map(|(path, _)| {
+                self.known
+                    .get(path)
+                    .map(|entry| (path.clone(), entry.version.clone()))
+            })
             .collect();
         Ok(self.fire(&changes))
     }
@@ -510,17 +633,23 @@ impl FilesCheckout {
         }
     }
 
-    fn walk_dir(&self, dir: &str, out: &mut Vec<CheckoutEntry>) -> Result<()> {
+    fn walk_dir(&self, dir: &str, out: &mut Vec<CheckoutEntry>, limit: usize) -> Result<()> {
         let mut cursor = None;
         loop {
+            if out.len() >= limit {
+                return Ok(());
+            }
             let page = self
                 .lister
                 .list_pinned(dir, &Self::list_options(cursor))
                 .map_err(|error| AutomationsError::message(error.to_string()))?;
             for entry in &page.entries {
                 out.push(entry_of(entry));
+                if out.len() >= limit {
+                    return Ok(());
+                }
                 if matches!(entry.kind, files_list::Kind::Directory) {
-                    self.walk_dir(&entry.path, out)?;
+                    self.walk_dir(&entry.path, out, limit)?;
                 }
             }
             match page.next_cursor {
@@ -554,8 +683,12 @@ fn entry_of(entry: &files_list::Entry) -> CheckoutEntry {
 
 impl Checkout for FilesCheckout {
     fn walk(&self) -> Result<Vec<CheckoutEntry>> {
+        self.walk_limited(usize::MAX)
+    }
+
+    fn walk_limited(&self, limit: usize) -> Result<Vec<CheckoutEntry>> {
         let mut out = Vec::new();
-        self.walk_dir("", &mut out)?;
+        self.walk_dir("", &mut out, limit)?;
         Ok(out)
     }
 
@@ -577,27 +710,68 @@ impl Checkout for FilesCheckout {
 }
 
 /// The files backend's own watcher.
-pub struct FilesWatch;
+/// The files backend's own watcher, shared per checkout: one `files-watch` backend per
+/// canonical root fans batches to every automation trigger on it.
+#[derive(Clone, Default)]
+pub struct FilesWatch {
+    hubs: Arc<Mutex<std::collections::HashMap<String, Hub>>>,
+}
+
+type Sinks = Arc<Mutex<Vec<(u64, std::sync::mpsc::Sender<WorkspacePayload>)>>>;
+
+struct Hub {
+    /// Dropping the hub stops the backend; the field itself is only held.
+    _watcher: Option<files_watch::Watcher>,
+    sinks: Sinks,
+    next: u64,
+}
 
 impl FilesWatch {
     pub fn new() -> FilesWatch {
-        FilesWatch
+        FilesWatch::default()
     }
 }
 
-impl Default for FilesWatch {
-    fn default() -> Self {
-        FilesWatch
-    }
+struct HubSubscription {
+    key: String,
+    id: u64,
+    hubs: Arc<Mutex<std::collections::HashMap<String, Hub>>>,
+    sinks: Sinks,
+    forward: Option<std::thread::JoinHandle<()>>,
+    stopped: bool,
 }
 
-struct WatchHandle {
-    watcher: Option<files_watch::Watcher>,
-}
-
-impl Subscription for WatchHandle {
+impl Subscription for HubSubscription {
     fn stop(&mut self) {
-        self.watcher.take();
+        if self.stopped {
+            return;
+        }
+        self.stopped = true;
+        if let Ok(mut sinks) = self.sinks.lock() {
+            sinks.retain(|(id, _)| *id != self.id);
+        }
+        if let Some(forward) = self.forward.take() {
+            let _ = forward.join();
+        }
+        let empty = self
+            .sinks
+            .lock()
+            .map(|sinks| sinks.is_empty())
+            .unwrap_or(false);
+        if empty {
+            let hub = self
+                .hubs
+                .lock()
+                .ok()
+                .and_then(|mut hubs| hubs.remove(&self.key));
+            drop(hub);
+        }
+    }
+}
+
+impl Drop for HubSubscription {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -609,17 +783,64 @@ impl Watch for FilesWatch {
     ) -> Result<Box<dyn Subscription>> {
         let root = files_safe::Root::open(std::path::Path::new(root))
             .map_err(|error| AutomationsError::message(error.to_string()))?;
-        let watcher = files_watch::Watcher::start(
-            root,
-            files_watch::WatchOptions {
-                debounce: Duration::from_millis(75),
-                ..files_watch::WatchOptions::default()
-            },
-            Box::new(move |batch| sink(payload_of(batch))),
-        )
-        .map_err(|error| AutomationsError::message(error.to_string()))?;
-        Ok(Box::new(WatchHandle {
-            watcher: Some(watcher),
+        let key = root.path().to_string_lossy().into_owned();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (sinks, id) = {
+            let mut hubs = self
+                .hubs
+                .lock()
+                .map_err(|_| AutomationsError::message("file watch lock poisoned"))?;
+            if !hubs.contains_key(&key) {
+                let sinks: Sinks = Arc::new(Mutex::new(Vec::new()));
+                let broadcast = Arc::clone(&sinks);
+                let watcher = files_watch::Watcher::start(
+                    root,
+                    files_watch::WatchOptions {
+                        debounce: Duration::from_millis(75),
+                        ..files_watch::WatchOptions::default()
+                    },
+                    Box::new(move |batch| {
+                        let payload = payload_of(batch);
+                        if let Ok(sinks) = broadcast.lock() {
+                            for (_, sink) in sinks.iter() {
+                                let _ = sink.send(payload.clone());
+                            }
+                        }
+                    }),
+                )
+                .map_err(|error| AutomationsError::message(error.to_string()))?;
+                hubs.insert(
+                    key.clone(),
+                    Hub {
+                        _watcher: Some(watcher),
+                        sinks: Arc::clone(&sinks),
+                        next: 0,
+                    },
+                );
+            }
+            let hub = hubs
+                .get_mut(&key)
+                .ok_or_else(|| AutomationsError::message("file watch hub missing"))?;
+            let id = hub.next;
+            hub.next += 1;
+            hub.sinks
+                .lock()
+                .map_err(|_| AutomationsError::message("file watch sinks poisoned"))?
+                .push((id, sender));
+            (Arc::clone(&hub.sinks), id)
+        };
+        let forward = std::thread::spawn(move || {
+            while let Ok(payload) = receiver.recv() {
+                sink(payload);
+            }
+        });
+        Ok(Box::new(HubSubscription {
+            key,
+            id,
+            hubs: Arc::clone(&self.hubs),
+            sinks,
+            forward: Some(forward),
+            stopped: false,
         }))
     }
 }
@@ -689,6 +910,7 @@ pub struct WorkspaceOpen<'a> {
     pub limits: WorkspaceLimits,
     pub ids: Box<dyn IdSource>,
     pub receive: Box<dyn Fn(FileEvent) + Send + Sync>,
+    pub baseline: Option<Arc<dyn BaselineStore>>,
     pub hooks: WorkspaceHooks,
 }
 
@@ -701,6 +923,7 @@ pub fn subscribe(open: WorkspaceOpen<'_>) -> Result<WorkspaceSubscription> {
         limits,
         ids,
         receive,
+        baseline: baseline_store,
         hooks,
     } = open;
     let mut reconciler = Reconciler::new(checkout, patterns, limits, ids)?;
@@ -709,30 +932,75 @@ pub fn subscribe(open: WorkspaceOpen<'_>) -> Result<WorkspaceSubscription> {
     let receive = Arc::new(receive);
     let sink_state = Arc::clone(&state);
     let sink_receive = Arc::clone(&receive);
+    let sink_store = baseline_store.clone();
+    let sink_root = root.to_owned();
     let sink = Box::new(move |payload: WorkspacePayload| {
-        let events = match sink_state.lock() {
-            Ok(mut state) => state.receive(payload, false),
-            Err(_) => return,
-        };
-        if let Ok(events) = events {
-            for event in events {
-                sink_receive(event);
+        let stored = {
+            let events = match sink_state.lock() {
+                Ok(mut state) => state.receive(payload, false),
+                Err(_) => return,
+            };
+            if let Ok(events) = events {
+                for event in events {
+                    sink_receive(event);
+                }
             }
+            sink_state.lock().ok().map(|state| state.stored())
+        };
+        if let (Some(store), Some(stored)) = (&sink_store, stored) {
+            let _ = store.save(&sink_root, &stored);
         }
     });
     let mut watch = watch.watch(root, sink)?;
-    let seeded = match state.lock() {
-        Ok(mut state) => state.seed(),
-        Err(_) => Err(AutomationsError::message(
-            "workspace baseline lock poisoned",
-        )),
-    };
-    if let Err(error) = seeded {
-        watch.stop();
-        if let Some(on_error) = hooks.on_error {
-            on_error(&error.to_string());
+    // Build the baseline without the state lock: the watcher's sink keeps buffering on its own
+    // thread, so a create that lands during the walk is held for replay, not missed.
+    let plan = match state.lock() {
+        Ok(state) => state.seed_plan(),
+        Err(_) => {
+            watch.stop();
+            return Err(AutomationsError::message(
+                "workspace baseline lock poisoned",
+            ));
         }
-        return Err(error);
+    };
+    let baseline = match plan.build() {
+        Ok(baseline) => baseline,
+        Err(error) => {
+            watch.stop();
+            if let Some(on_error) = hooks.on_error {
+                on_error(&error.to_string());
+            }
+            return Err(error);
+        }
+    };
+    let persisted = baseline_store
+        .as_ref()
+        .and_then(|store| store.load(root).ok().flatten());
+    let offline = {
+        let mut state = match state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                watch.stop();
+                return Err(AutomationsError::message(
+                    "workspace baseline lock poisoned",
+                ));
+            }
+        };
+        state.install_baseline(baseline);
+        let offline = match &persisted {
+            Some(old) => state.offline_events(old),
+            None => Vec::new(),
+        };
+        let stored = state.stored();
+        drop(state);
+        if let Some(store) = &baseline_store {
+            let _ = store.save(root, &stored);
+        }
+        offline
+    };
+    // Readiness before replay (`automation-workspace.ts:363-392`).
+    if let Some(on_ready) = hooks.on_ready {
+        on_ready();
     }
     let ready = match state.lock() {
         Ok(mut state) => state.ready(),
@@ -750,10 +1018,7 @@ pub fn subscribe(open: WorkspaceOpen<'_>) -> Result<WorkspaceSubscription> {
             return Err(error);
         }
     };
-    if let Some(on_ready) = hooks.on_ready {
-        on_ready();
-    }
-    for event in events {
+    for event in offline.into_iter().chain(events) {
         receive(event);
     }
     Ok(WorkspaceSubscription {

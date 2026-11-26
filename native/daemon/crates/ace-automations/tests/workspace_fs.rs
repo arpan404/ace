@@ -37,6 +37,7 @@ fn a_created_file_is_reported_through_the_files_backends_own_watcher() {
         patterns: &["src/**".to_owned()],
         limits: WorkspaceLimits::default(),
         ids: Box::new(CounterIds::new("trigger")),
+        baseline: None,
         receive: Box::new(move |event: FileEvent| {
             let _ = event_tx.send(event);
         }),
@@ -65,4 +66,54 @@ fn a_created_file_is_reported_through_the_files_backends_own_watcher() {
         Some("created")
     );
     subscription.stop();
+}
+
+#[test]
+fn triggers_on_one_checkout_share_the_files_backends_watcher() {
+    let dir = tempfile::tempdir().expect("temp");
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).expect("src");
+    std::fs::write(root.join("src/keep.ts"), b"k").expect("seed");
+    let watch = FilesWatch::new();
+    let mut subscriptions = Vec::new();
+    for name in ["first", "second"] {
+        let (event_tx, event_rx) = mpsc::channel();
+        let checkout = FilesCheckout::open(root).expect("checkout");
+        let subscription = subscribe(WorkspaceOpen {
+            checkout: Box::new(checkout),
+            watch: &watch,
+            root: root.to_str().expect("utf8"),
+            patterns: &["src/**".to_owned()],
+            limits: WorkspaceLimits::default(),
+            ids: Box::new(CounterIds::new(name)),
+            receive: Box::new(move |event: FileEvent| {
+                let _ = event_tx.send(event);
+            }),
+            baseline: None,
+            hooks: WorkspaceHooks::default(),
+        })
+        .expect("subscribe");
+        subscriptions.push((subscription, event_rx));
+    }
+    std::fs::write(root.join("src/shared.ts"), b"s").expect("write");
+    for (_, receiver) in &subscriptions {
+        let event = receiver
+            .recv_timeout(Duration::from_secs(4))
+            .expect("shared event");
+        assert_eq!(
+            event.variables.get("path").map(String::as_str),
+            Some("src/shared.ts")
+        );
+    }
+    subscriptions[0].0.stop();
+    std::fs::write(root.join("src/later.ts"), b"l").expect("write");
+    let event = subscriptions[1]
+        .1
+        .recv_timeout(Duration::from_secs(4))
+        .expect("remaining event");
+    assert_eq!(
+        event.variables.get("path").map(String::as_str),
+        Some("src/later.ts")
+    );
+    subscriptions[1].0.stop();
 }
