@@ -87,6 +87,25 @@ fn a_question_answers_every_question_with_its_own_options_or_free_text() {
 }
 
 #[test]
+fn a_duplicate_question_id_keeps_the_last_question_as_the_typescripts_map_does() {
+    // `new Map(...)` keeps the last entry for a repeated id, and the answer count is compared
+    // with the map's size: one question, answered once, whose options are the last one's.
+    let request = value(
+        r#"{"kind":"question","questions":[
+          {"id":"one","text":"first","options":[{"id":"a"}],"multiSelect":false,"allowOther":false},
+          {"id":"one","text":"second","options":[{"id":"b"}],"multiSelect":false,"allowOther":false}
+        ]}"#,
+    );
+    assert!(valid_resolution(&request, &question(r#"{"one":["b"]}"#)));
+    assert!(!valid_resolution(&request, &question(r#"{"one":["a"]}"#)));
+    // Two answers for one map entry is one too many.
+    assert!(!valid_resolution(
+        &request,
+        &question(r#"{"one":["b"],"two":["b"]}"#)
+    ));
+}
+
+#[test]
 fn a_kind_that_is_neither_approval_nor_question_passes_on_its_kind_alone() {
     let request = value(r#"{"kind":"notice"}"#);
     assert!(valid_resolution(&request, &value(r#"{"kind":"notice"}"#)));

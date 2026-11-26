@@ -110,6 +110,26 @@ fn an_ended_turn_has_no_origin_and_an_unknown_agent_reads_none() {
 }
 
 #[test]
+fn a_request_id_is_bounded_in_code_points_as_the_zod_schema_counts() {
+    // `DelegateTask.requestId` is `z.string().min(1).max(256)`, and zod counts code points: 256
+    // emoji pass, 257 do not.
+    let request = |count: usize| {
+        let mut state = state(None, None, 1);
+        state.indexes.live_tools.insert("call".to_owned(), true);
+        state.items.insert(
+            "call".to_owned(),
+            ace_json::from_value(&value(&format!(
+                r#"{{"id":"call","threadId":"thread-1","agentId":"agent-root","createdAt":1,"complete":false,"type":"tool_call","call":{{"id":"call","agentId":"agent-root","kind":"mcp","title":"Delegate","status":"running","detail":{{"kind":"mcp","server":"ace","tool":"delegate","arguments":{{"tasks":[{{"requestId":"{}"}}]}}}},"startedAt":1}}}}"#,
+                "🌱".repeat(count)
+            )))            .expect("item"),
+        );
+        delegations_in_flight(Some(&state))
+    };
+    assert_eq!(request(256), vec!["🌱".repeat(256)]);
+    assert!(request(257).is_empty());
+}
+
+#[test]
 fn a_live_delegate_call_names_its_in_flight_requests_and_other_tools_do_not() {
     let mut state = state(None, None, 1);
     state.indexes.live_tools.insert("call".to_owned(), true);
