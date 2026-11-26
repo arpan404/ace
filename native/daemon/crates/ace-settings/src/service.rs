@@ -31,6 +31,13 @@ pub struct Scope {
 /// One change a listener sees: the layer that changed and its keys.
 pub type ChangeListener = std::rc::Rc<dyn Fn(&Layer, &[String])>;
 
+/// A change a file committed, waiting until no file borrow is held to be delivered.
+#[derive(Debug, Clone)]
+struct Pending {
+    layer: Layer,
+    change: crate::file::FileChange,
+}
+
 /// The settings service.
 pub struct SettingsService {
     data_dir: PathBuf,
@@ -41,6 +48,7 @@ pub struct SettingsService {
     workspaces: WorkspaceGuards,
     files: BTreeMap<PathBuf, Rc<RefCell<SettingsFile>>>,
     listeners: Vec<ChangeListener>,
+    pending: Rc<RefCell<Vec<Pending>>>,
     closed: bool,
     watchers: Vec<Stop>,
 }
@@ -81,6 +89,7 @@ impl SettingsService {
             workspaces: WorkspaceGuards::new(fs, &aliases),
             files: BTreeMap::new(),
             listeners: Vec::new(),
+            pending: Rc::new(RefCell::new(Vec::new())),
             closed: false,
             watchers: Vec::new(),
         })))
@@ -110,15 +119,15 @@ impl SettingsService {
             return Ok(file);
         }
         let provenance = layer.kind();
-        let changed_service: Weak<RefCell<Self>> = Rc::downgrade(service);
+        // A change is queued, never delivered from inside the file's borrow: a listener may
+        // read the value that was just committed.
+        let pending = service.borrow().pending.clone();
         let changed_layer = layer.clone();
         let changed = std::rc::Rc::new(move |change: crate::file::FileChange| {
-            if let Some(service) = changed_service.upgrade() {
-                let listeners: Vec<ChangeListener> = service.borrow().listeners.clone();
-                for listener in listeners {
-                    listener(&changed_layer, &change.keys);
-                }
-            }
+            pending.borrow_mut().push(Pending {
+                layer: changed_layer.clone(),
+                change,
+            });
         });
         let file = Rc::new(RefCell::new(SettingsFile::new(
             path.clone(),
@@ -211,13 +220,37 @@ impl SettingsService {
         Ok(resolve(key, &layer_values, &borrowed.overrides, None))
     }
 
+    /// Delivers queued changes once no file borrow is held, so a listener can read the
+    /// value that was just committed. A listener's own reads queue more and are delivered
+    /// in turn.
+    fn drain(service: &Rc<RefCell<Self>>) {
+        loop {
+            let pending = {
+                let queue = service.borrow().pending.clone();
+                let mut queue = queue.borrow_mut();
+                if queue.is_empty() {
+                    break;
+                }
+                std::mem::take(&mut *queue)
+            };
+            for event in pending {
+                let listeners: Vec<ChangeListener> = service.borrow().listeners.clone();
+                for listener in listeners {
+                    listener(&event.layer, &event.change.keys);
+                }
+            }
+        }
+    }
+
     /// One effective value.
     pub fn get(
         service: &Rc<RefCell<Self>>,
         key: &str,
         scope: &Scope,
     ) -> Result<Entry, SettingsError> {
-        Self::resolve_one(service, key, scope)
+        let result = Self::resolve_one(service, key, scope);
+        Self::drain(service);
+        result
     }
 
     /// Several effective values and every layer's diagnostic.
@@ -242,6 +275,7 @@ impl SettingsService {
                 diagnostics.push(diagnostic);
             }
         }
+        Self::drain(service);
         Ok((entries, diagnostics))
     }
 
@@ -283,7 +317,9 @@ impl SettingsService {
         placement(key, layer)?;
         let value = validate_value(key, value)?;
         let file = Self::file(service, layer)?;
-        file.borrow_mut().set(key, &value)
+        let result = file.borrow_mut().set(key, &value);
+        Self::drain(service);
+        result
     }
 
     /// Writes one value only when its layer does not hold it.
@@ -296,7 +332,9 @@ impl SettingsService {
         placement(key, layer)?;
         let value = validate_value(key, value)?;
         let file = Self::file(service, layer)?;
-        file.borrow_mut().set_if_absent(key, &value)
+        let result = file.borrow_mut().set_if_absent(key, &value);
+        Self::drain(service);
+        result
     }
 
     /// Writes several values on one layer as one commit.
@@ -312,14 +350,18 @@ impl SettingsService {
             checked.push((key.clone(), validate_value(key, value)?));
         }
         let file = Self::file(service, layer)?;
-        file.borrow_mut().set_many(&checked)
+        let result = file.borrow_mut().set_many(&checked);
+        Self::drain(service);
+        result
     }
 
     /// Removes global preferences in one commit.
     pub fn reset(service: &Rc<RefCell<Self>>, keys: &[String]) -> Result<(), SettingsError> {
         let keys = Self::key_list(keys)?;
         let file = Self::file(service, &Layer::Global)?;
-        file.borrow_mut().reset(&keys)
+        let result = file.borrow_mut().reset(&keys);
+        Self::drain(service);
+        result
     }
 
     /// Reloads one layer's file, as an observed external change does.
@@ -329,7 +371,9 @@ impl SettingsService {
 
     fn refresh_shared(service: &Rc<RefCell<Self>>, layer: &Layer) -> Result<(), SettingsError> {
         let file = Self::file(service, layer)?;
-        file.borrow_mut().reload()
+        let result = file.borrow_mut().reload();
+        Self::drain(service);
+        result
     }
 
     /// Observes committed writes at the daemon boundary. At most 64 listeners.
@@ -378,7 +422,6 @@ mod tests {
     //! migrated when the service opens it.
 
     use super::*;
-    use crate::file::FileChange;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
 
@@ -626,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn a_change_listener_sees_the_layer_and_its_keys() {
+    fn a_change_listener_sees_exactly_the_layer_and_keys_that_changed() {
         let io = Arc::new(MemoryIo::default());
         let service = service(io);
         type Seen = Rc<RefCell<Vec<(Layer, Vec<String>)>>>;
@@ -637,12 +680,47 @@ mod tests {
         });
         let _stop = SettingsService::on_change(&service, listener)
             .unwrap_or_else(|error| panic!("{error}"));
-        let file = SettingsService::file(&service, &Layer::Global)
+        SettingsService::set(
+            &service,
+            "threads.sortBy",
+            &json!("created"),
+            &Layer::Global,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            *seen.borrow(),
+            vec![(Layer::Global, vec!["threads.sortBy".to_owned()])]
+        );
+    }
+
+    #[test]
+    fn a_change_listener_can_read_the_value_it_just_saw_committed() {
+        let io = Arc::new(MemoryIo::default());
+        let service = service(io);
+        type Seen = Rc<RefCell<Vec<(Layer, Vec<String>, Value)>>>;
+        let seen: Seen = Rc::new(RefCell::new(Vec::new()));
+        let captured = seen.clone();
+        let weak = Rc::downgrade(&service);
+        let listener: ChangeListener = Rc::new(move |layer, keys| {
+            if let Some(service) = weak.upgrade() {
+                let entry = SettingsService::get(&service, "threads.sortBy", &Scope::default())
+                    .unwrap_or_else(|error| panic!("{error}"));
+                captured
+                    .borrow_mut()
+                    .push((layer.clone(), keys.to_vec(), entry.value));
+            }
+        });
+        let _stop = SettingsService::on_change(&service, listener)
             .unwrap_or_else(|error| panic!("{error}"));
-        let _ = FileChange::default();
-        file.borrow_mut()
-            .set("threads.sortBy", &json!("created"))
+        SettingsService::set(&service, "threads.sortBy", &json!("manual"), &Layer::Global)
             .unwrap_or_else(|error| panic!("{error}"));
-        assert!(!seen.borrow().is_empty());
+        assert_eq!(
+            *seen.borrow(),
+            vec![(
+                Layer::Global,
+                vec!["threads.sortBy".to_owned()],
+                json!("manual")
+            )]
+        );
     }
 }
