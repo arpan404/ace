@@ -1,310 +1,158 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The call table (`contract.ts` `requiredRoutes` and the SDK calls the session
-//! makes): each route's method, its ids in the path, the SDK's bracket query and
-//! the body with the path's ids removed.
+//! The call table against `@opencode/client`'s own routes. `routes.golden.json` is generated
+//! by `scripts/opencode-routes.ts`, which drives the installed SDK with a capturing fetch for
+//! the same params each case uses: every method, request target (path percent-encoding, query
+//! fields, their order and their bracket encoding) and body field whitelist here is the SDK's,
+//! so an SDK bump that moves a route fails both this test and `bun run check:daemon-native`
+//! until the table follows.
 
-use super::{ApiError, Method, call};
+use super::{ApiError, call, ops};
+use crate::translate::data::{arr_in, fields, s_in};
 use ace_json::{Value, json};
 
-fn target(op: &str, params: Value) -> String {
-    call(op, &params).expect("a known call").target()
+/// One recorded SDK request.
+fn golden() -> Value {
+    ace_json::parse(include_str!("routes.golden.json")).expect("the golden table is JSON")
 }
 
-fn body(op: &str, params: Value) -> Value {
-    call(op, &params)
-        .expect("a known call")
-        .body
-        .expect("a body")
+fn entry<'a>(routes: &'a [Value], op: &str) -> &'a Value {
+    routes
+        .iter()
+        .find(|route| s_in(fields(route), "op") == op)
+        .unwrap_or_else(|| panic!("{op} is in the golden table"))
 }
 
 #[test]
-fn the_sessions_own_calls_name_their_ids_in_the_path() {
+fn every_call_is_the_one_the_sdk_sends() {
+    let table = golden();
+    let routes = arr_in(fields(&table), "routes");
+    for route in routes {
+        let e = fields(route);
+        let op = s_in(e, "op");
+        let params = e.get("params").expect("the probe's params");
+        let expected = call(op, params).unwrap_or_else(|error| panic!("{op}: {error}"));
+        assert_eq!(expected.method.as_str(), s_in(e, "method"), "{op} method");
+        assert_eq!(expected.target(), s_in(e, "target"), "{op} target");
+        match e.get("body") {
+            Some(body) => assert_eq!(
+                expected.body.as_ref(),
+                Some(body),
+                "{op} body is the route's field whitelist"
+            ),
+            None => assert_eq!(expected.body, None, "{op} sends no body"),
+        }
+    }
+}
+
+#[test]
+fn the_table_and_the_golden_table_name_the_same_calls() {
+    let table = golden();
+    let routes = arr_in(fields(&table), "routes");
+    let mut recorded: Vec<&str> = routes
+        .iter()
+        .map(|route| s_in(fields(route), "op"))
+        .collect();
+    recorded.sort_unstable();
+    let mut named: Vec<&str> = ops().collect();
+    named.sort_unstable();
+    assert_eq!(named, recorded, "regenerate scripts/opencode-routes.ts");
+}
+
+#[test]
+fn a_body_only_carries_the_routes_fields() {
+    // The TypeScript's interaction and MCP callers pass extra keys; none reaches the wire.
+    let reply = call(
+        "permission.reply",
+        &json!({
+            "kind": "permission",
+            "sessionID": "s",
+            "requestID": "p1",
+            "decision": "once",
+            "message": "yes",
+            "answer": { "q": "a" },
+        }),
+    )
+    .expect("a call");
     assert_eq!(
-        (
-            Method::Get,
-            target("session.get", json!({ "sessionID": "ses_1" }))
-        ),
-        (Method::Get, String::from("/api/session/ses_1"))
+        reply.body,
+        Some(json!({ "decision": "once", "message": "yes" }))
     );
-    assert_eq!(target("session.active", json!({})), "/api/session/active");
+
+    let cancel = call(
+        "session.form.cancel",
+        &json!({
+            "kind": "form",
+            "sessionID": "s",
+            "formID": "f1",
+            "cancel": true,
+            "message": "dismissed",
+            "answer": { "q": "a" },
+        }),
+    )
+    .expect("a call");
+    assert_eq!(cancel.body, None, "the SDK sends no body");
     assert_eq!(
-        (
-            call(
-                "session.switchModel",
-                &json!({ "sessionID": "s", "model": { "providerID": "p", "id": "m" } })
-            )
-            .expect("a call")
-            .method,
-            target(
-                "session.switchModel",
-                json!({ "sessionID": "s", "model": { "providerID": "p", "id": "m" } })
-            )
-        ),
-        (Method::Post, String::from("/api/session/s/model"))
+        cancel.query,
+        vec![(String::from("message"), String::from("dismissed"))]
     );
-    // The body is the params without the ids the path carries.
-    assert_eq!(
-        body(
-            "session.switchModel",
-            json!({ "sessionID": "s", "model": { "providerID": "p", "id": "m", "variant": "high" } })
-        ),
-        json!({ "model": { "providerID": "p", "id": "m", "variant": "high" } })
-    );
-    assert_eq!(
-        target("session.update", json!({ "sessionID": "s" })),
-        "/api/session/s"
-    );
-    assert_eq!(
-        call("session.update", &json!({ "sessionID": "s" }))
-            .expect("a call")
-            .method,
-        Method::Patch
-    );
-    assert_eq!(
-        target(
-            "session.switchAgent",
-            json!({ "sessionID": "s", "agent": "build" })
-        ),
-        "/api/session/s/agent"
-    );
-    assert_eq!(
-        target("session.interrupt", json!({ "sessionID": "s" })),
-        "/api/session/s/interrupt"
-    );
-    assert_eq!(
-        target("session.environment", json!({ "sessionID": "s" })),
-        "/api/session/s/environment"
-    );
+
+    // The MCP server is a path id, and connect has no body.
     assert_eq!(
         call(
-            "session.environment",
-            &json!({ "sessionID": "s", "variables": { "A": "b" } })
+            "mcp.add",
+            &json!({ "server": "ace", "location": { "directory": "/w" }, "config": { "type": "remote" } })
         )
-        .expect("a call")
-        .method,
-        Method::Put
-    );
-    assert_eq!(
-        target(
-            "session.instructions.put",
-            json!({ "sessionID": "s", "key": "ace.tool-guidance", "value": "v" })
-        ),
-        "/api/session/s/instructions/entries/ace.tool-guidance"
-    );
-    assert_eq!(
-        body(
-            "session.instructions.put",
-            json!({ "sessionID": "s", "key": "k", "value": "v" })
-        ),
-        json!({ "value": "v" })
-    );
-    assert_eq!(
-        target("session.create", json!({ "title": "ace" })),
-        "/api/session"
+        .expect("a call"),
+        super::Call {
+            method: super::Method::Put,
+            path: String::from("/api/experimental/mcp/ace"),
+            query: vec![(
+                String::from("location[directory]"),
+                String::from("/w")
+            )],
+            body: Some(json!({ "config": { "type": "remote" } })),
+        }
     );
     assert_eq!(
         call(
-            "session.create",
-            &json!({ "title": "ace", "location": { "directory": "/w" } })
+            "mcp.connect",
+            &json!({ "server": "ace", "location": { "directory": "/w" }, "config": { "type": "remote" } })
         )
         .expect("a call")
         .body,
-        Some(json!({ "title": "ace", "location": { "directory": "/w" } }))
-    );
-    assert_eq!(
-        target("session.prompt", json!({ "sessionID": "s", "id": "msg_1" })),
-        "/api/session/s/prompt"
-    );
-    assert_eq!(
-        target(
-            "session.command",
-            json!({ "sessionID": "s", "name": "init" })
-        ),
-        "/api/session/s/command"
+        None
     );
 }
 
 #[test]
-fn the_sessions_lists_use_the_sdks_bracket_query() {
+fn both_rpcs_wrap_their_input_and_name_the_location() {
+    let settle = call(
+        "agent.environment.settle",
+        &json!({ "location": { "directory": "/w" }, "input": { "sessionID": "s", "ok": true } }),
+    )
+    .expect("a call");
     assert_eq!(
-        target(
-            "session.list",
-            json!({
-                "parentID": "p",
-                "directory": "/work",
-                "project": "pr",
-                "limit": 128,
-                "order": "asc",
-            })
-        ),
-        "/api/session?parentID=p&directory=%2Fwork&project=pr&limit=128&order=asc"
+        settle.target(),
+        "/api/rpc/ace.agent.environment/settle?location%5Bdirectory%5D=%2Fw"
     );
     assert_eq!(
-        target(
-            "session.list",
-            json!({ "parentID": "p", "directory": "/w", "project": "pr", "limit": 128, "cursor": "children:2" })
-        ),
-        "/api/session?parentID=p&directory=%2Fw&project=pr&limit=128&cursor=children%3A2"
+        settle.body,
+        Some(json!({ "input": { "sessionID": "s", "ok": true } }))
     );
-    // An absent or null value is left out, as the SDK omits it.
+    let ready = call(
+        "mcp.readiness.ready",
+        &json!({ "location": { "directory": "/w" }, "input": {} }),
+    )
+    .expect("a call");
     assert_eq!(
-        target("session.list", json!({ "parentID": "p", "cursor": null })),
-        "/api/session?parentID=p"
-    );
-    assert_eq!(
-        target(
-            "message.list",
-            json!({ "sessionID": "s", "limit": 128, "order": "desc" })
-        ),
-        "/api/session/s/message?limit=128&order=desc"
-    );
-    // A nested object is `location[directory]`, the shape the server reads.
-    assert_eq!(
-        target(
-            "model.list",
-            json!({ "location": { "directory": "/work" } })
-        ),
-        "/api/model?location%5Bdirectory%5D=%2Fwork"
+        ready.target(),
+        "/api/rpc/ace.mcp.readiness/ready?location%5Bdirectory%5D=%2Fw"
     );
     assert_eq!(
-        target("shell.list", json!({ "location": { "directory": "/w" } })),
-        "/api/shell?location%5Bdirectory%5D=%2Fw"
+        ready.body,
+        Some(json!({ "input": {} })),
+        "not the bare params"
     );
-    assert_eq!(
-        target(
-            "shell.get",
-            json!({ "id": "sh1", "location": { "directory": "/w" } })
-        ),
-        "/api/shell/sh1?location%5Bdirectory%5D=%2Fw"
-    );
-    assert_eq!(
-        call(
-            "shell.remove",
-            &json!({ "id": "sh1", "location": { "directory": "/w" } })
-        )
-        .expect("a call")
-        .method,
-        Method::Delete
-    );
-}
-
-#[test]
-fn the_messages_permissions_forms_and_inbox_name_their_ids() {
-    assert_eq!(
-        target(
-            "session.message.get",
-            json!({ "sessionID": "s", "messageID": "msg_1" })
-        ),
-        "/api/session/s/message/msg_1"
-    );
-    assert_eq!(
-        target("permission.list", json!({ "sessionID": "s" })),
-        "/api/session/s/permission"
-    );
-    assert_eq!(
-        target(
-            "permission.reply",
-            json!({ "sessionID": "s", "requestID": "p1", "resolution": "once" })
-        ),
-        "/api/session/s/permission/p1/reply"
-    );
-    assert_eq!(
-        body(
-            "permission.reply",
-            json!({ "sessionID": "s", "requestID": "p1", "resolution": "once" })
-        ),
-        json!({ "resolution": "once" })
-    );
-    assert_eq!(
-        target(
-            "session.form.reply",
-            json!({ "sessionID": "s", "formID": "f1", "answer": { "a": 1 } })
-        ),
-        "/api/session/s/form/f1/reply"
-    );
-    assert_eq!(
-        target(
-            "session.form.cancel",
-            json!({ "sessionID": "s", "formID": "f1" })
-        ),
-        "/api/session/s/form/f1"
-    );
-    assert_eq!(
-        call(
-            "session.form.cancel",
-            &json!({ "sessionID": "s", "formID": "f1" })
-        )
-        .expect("a call")
-        .method,
-        Method::Delete
-    );
-    assert_eq!(
-        target("session.form.list", json!({ "sessionID": "s" })),
-        "/api/session/s/form"
-    );
-    assert_eq!(
-        target("session.inbox.list", json!({ "sessionID": "s" })),
-        "/api/session/s/inbox"
-    );
-}
-
-#[test]
-fn the_catalog_mcp_and_plugin_calls_are_the_routes_the_contract_names() {
-    for op in ["skill.list", "agent.list", "plugin.list", "mcp.list"] {
-        assert_eq!(
-            target(op, json!({ "location": { "directory": "/w" } })),
-            format!(
-                "/api/{}{}",
-                op.split('.').next().expect("a resource"),
-                "?location%5Bdirectory%5D=%2Fw"
-            )
-        );
-    }
-    assert_eq!(
-        target("command.list", json!({ "location": { "directory": "/w" } })),
-        "/api/command?location%5Bdirectory%5D=%2Fw"
-    );
-    assert_eq!(target("integration.list", json!({})), "/api/integration");
-    assert_eq!(
-        call(
-            "mcp.add",
-            &json!({ "config": { "type": "remote" }, "location": { "directory": "/w" } })
-        )
-        .expect("a call")
-        .method,
-        Method::Put
-    );
-    assert_eq!(
-        body(
-            "mcp.add",
-            json!({ "config": { "type": "remote" }, "location": { "directory": "/w" } })
-        ),
-        json!({ "config": { "type": "remote" } })
-    );
-    assert_eq!(
-        body(
-            "mcp.connect",
-            json!({ "server": "ace", "location": { "directory": "/w" } })
-        ),
-        json!({ "server": "ace" })
-    );
-    // The two plugin RPCs wrap their argument as `input`.
-    assert_eq!(
-        body(
-            "agent.environment.settle",
-            json!({ "sessionID": "s", "ok": true })
-        ),
-        json!({ "input": { "sessionID": "s", "ok": true } })
-    );
-    assert_eq!(
-        target("agent.environment.settle", json!({})),
-        "/api/rpc/ace.agent.environment/settle"
-    );
-    assert_eq!(
-        target("mcp.readiness.ready", json!({})),
-        "/api/rpc/ace.mcp.readiness/ready"
-    );
-    assert_eq!(target("event.subscribe", json!({})), "/api/event");
 }
 
 #[test]
@@ -325,6 +173,16 @@ fn a_missing_id_or_an_unknown_call_is_named_before_any_request() {
         ))
     );
     assert_eq!(
+        call(
+            "session.instructions.put",
+            &json!({ "sessionID": "s", "value": "v" })
+        ),
+        Err(ApiError::Missing(
+            String::from("session.instructions.put"),
+            "key"
+        ))
+    );
+    assert_eq!(
         call("nope", &json!({})),
         Err(ApiError::Unknown(String::from("nope")))
     );
@@ -332,9 +190,21 @@ fn a_missing_id_or_an_unknown_call_is_named_before_any_request() {
 
 #[test]
 fn a_path_segment_cannot_escape_its_place() {
-    // A slash and a query separator stay in the segment they were given.
     assert_eq!(
-        target("session.get", json!({ "sessionID": "a/b?c" })),
+        call("session.get", &json!({ "sessionID": "a/b?c" }))
+            .expect("a call")
+            .target(),
         "/api/session/a%2Fb%3Fc"
+    );
+}
+
+#[test]
+fn a_query_null_is_the_text_null_and_an_array_repeats_its_key() {
+    // `appendQuery` keeps a null as `null`, repeats an array's key and skips an absent field.
+    assert_eq!(
+        call("session.list", &json!({ "cursor": null, "limit": 2 }))
+            .expect("a call")
+            .target(),
+        "/api/session?limit=2&cursor=null"
     );
 }
