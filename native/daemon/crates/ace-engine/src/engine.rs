@@ -72,10 +72,31 @@ impl Engine {
         *core.self_weak.borrow_mut() = Rc::downgrade(&core);
         let weak: Weak<dyn DeferredHost> = Rc::downgrade(&core) as Weak<dyn DeferredHost>;
         after.attach(weak);
+        // The silence thresholds read `options.resolveSilenceMs` and each thread's workspace.
+        let workspace_conn = std::sync::Arc::clone(connection);
+        let thresholds = crate::meters::SilenceThresholds::new(
+            inputs.silence_ms,
+            Some(Rc::new(crate::sessions::ports::PortSilenceResolver::new(
+                Rc::clone(&ports),
+            ))),
+            Box::new(move |id: &str| {
+                let row = ace_store::stmt_cache::get_row(
+                    &workspace_conn,
+                    "SELECT workspace_id FROM threads WHERE id=?",
+                    vec![ace_store::Value::Text(id.to_owned())],
+                )
+                .ok()
+                .flatten()?;
+                row.get("workspace_id")
+                    .and_then(crate::repository::residency::cell_text)
+                    .map(str::to_owned)
+            }),
+        )?;
         core.with_state(|state| {
             state.engine = Rc::downgrade(&core);
             state.lifecycle = Lifecycle::Starting;
             state.flush_depth = 0;
+            state.sessions.silence = thresholds;
             let _ = idle_ms;
         })?;
         start_sweep(&core);

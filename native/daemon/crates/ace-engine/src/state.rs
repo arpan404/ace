@@ -58,7 +58,7 @@ impl Default for State {
             meters: crate::meters::Meters::default(),
             repo: repository::Repo::default(),
             commands: commands::Commands,
-            sessions: sessions::Sessions,
+            sessions: sessions::Sessions::default(),
             recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions,
             liveness: liveness::Liveness,
@@ -82,6 +82,8 @@ pub trait EngineStack {
 pub struct Inputs {
     pub limits: limits::LimitOverrides,
     pub idle_ms: Option<f64>,
+    /// `options.silenceMs`: the explicit threshold a deterministic engine runs under.
+    pub silence_ms: Option<f64>,
     pub has_preferences: bool,
     pub has_models: bool,
     pub has_providers_activated: bool,

@@ -319,7 +319,11 @@ impl Core {
                 .providers_activated()
                 .await
                 .map_err(EngineError::Port)?;
-            self.with_state(sessions::prepare_silence)??;
+            let mut thresholds =
+                self.with_state(|state| std::mem::take(&mut state.sessions.silence))?;
+            let prepared = sessions::prepare_silence(&mut thresholds).await;
+            self.with_state(|state| state.sessions.silence = thresholds)?;
+            prepared?;
             self.with_state(recovery::prepare)??;
         }
         let mut scan = repository::candidates::Scan::new(String::new());

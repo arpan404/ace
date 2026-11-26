@@ -15,9 +15,12 @@ use crate::{EngineError, EngineStore, State};
 /// hands its frames, identity, failure and terminal exit to one `SessionObserver`, in order.
 pub use ace_adapter_api::{SessionExit, SessionFrame, SessionObserver};
 
-/// The open sessions (E5.6).
-#[derive(Debug, Default)]
-pub struct Sessions;
+/// The open sessions (E5.6): their silence thresholds and the bindings a provider left behind.
+#[derive(Default)]
+pub struct Sessions {
+    pub silence: crate::meters::silence::SilenceThresholds,
+    pub provider_sessions: ProviderSessions,
+}
 
 pub mod background_ports;
 pub mod compact;
@@ -27,14 +30,17 @@ pub mod failure_copy;
 pub mod metadata;
 pub mod observer;
 pub mod open;
+pub mod ports;
 pub mod provider_sessions;
 
 pub use provider_sessions::{LeftSession, ProviderSessions};
 
-/// `silence.prepareGlobal()`: the resolver's global setting, when the engine has one. The async
-/// ready step that awaits it lands with the session open flow.
-pub fn prepare_silence(_state: &mut State) -> Result<(), EngineError> {
-    Ok(())
+/// `silence.prepareGlobal()`: the resolver's global setting, read before recovery settles
+/// threads. The thresholds leave the state for the await and return with the setting applied.
+pub async fn prepare_silence(
+    thresholds: &mut crate::meters::silence::SilenceThresholds,
+) -> Result<(), EngineError> {
+    thresholds.prepare_global().await
 }
 
 /// Whether sessions hold no work E5.1 must wait for.

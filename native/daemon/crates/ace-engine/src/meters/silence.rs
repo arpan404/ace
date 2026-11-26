@@ -66,6 +66,18 @@ pub struct SilenceThresholds {
     workspace_of: WorkspaceOf,
 }
 
+impl Default for SilenceThresholds {
+    /// No resolver: the settings default, as a deterministic engine without settings runs.
+    fn default() -> SilenceThresholds {
+        SilenceThresholds {
+            default_ms: DEFAULT_SILENCE_MS,
+            workspace_ms: std::collections::HashMap::new(),
+            resolver: None,
+            workspace_of: Box::new(|_| None),
+        }
+    }
+}
+
 impl SilenceThresholds {
     pub fn new(
         initial_ms: Option<f64>,
