@@ -27,6 +27,7 @@ pub mod liveness;
 pub mod meters;
 pub mod models;
 pub mod moves;
+pub mod open;
 pub mod ports;
 pub mod queue;
 pub mod records;
