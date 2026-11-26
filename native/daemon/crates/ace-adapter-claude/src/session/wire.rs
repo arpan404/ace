@@ -112,7 +112,8 @@ impl ClaudeWire {
     }
 
     /// A facade note: `{"channel": "<name>", "data": <value>}`. The wire captures `data` and
-    /// emits it on that note channel; an unknown channel is dropped, never fatal.
+    /// emits it on that note channel. A note is the facade's own data, so an unknown channel or
+    /// unparsable JSON is a facade bug: the debug build asserts and the release reports `Fatal`.
     pub fn note(&mut self, json: &str) -> Vec<Effect> {
         if self.finished || self.failed {
             return Vec::new();
@@ -244,8 +245,9 @@ impl ClaudeWire {
             Line::HostRequest { value, .. } | Line::ControlResponse { value, .. } => {
                 effects.extend(self.framed(FrameDir::Recv, WIRE, &value));
             }
-            // An unknown type (or none) is `recv/wire` and then `recv/sdk`: the SDK yields it
-            // to the iterator too, and the pump frames it again (seq 5-8 of the recording).
+            // A string-typed unknown is `recv/wire` and then `recv/sdk`: the SDK yields it to
+            // the iterator too, and the pump frames it again (seq 5-8). A line whose `type` is
+            // not a string stops at `onWire` (`sdk-process.ts:72`-`:75`), so it gets one frame.
             Line::Unknown { value } => match self.frame(FrameDir::Recv, WIRE, &value) {
                 Ok(Effect::Frame { text, .. }) => {
                     effects.push(Effect::Frame {
@@ -253,11 +255,13 @@ impl ClaudeWire {
                         channel: WIRE,
                         text: text.clone(),
                     });
-                    effects.push(Effect::Frame {
-                        dir: FrameDir::Recv,
-                        channel: SDK,
-                        text,
-                    });
+                    if value.get("type").and_then(Value::as_str).is_some() {
+                        effects.push(Effect::Frame {
+                            dir: FrameDir::Recv,
+                            channel: SDK,
+                            text,
+                        });
+                    }
                 }
                 Ok(effect) => effects.push(effect),
                 Err(message) => {
