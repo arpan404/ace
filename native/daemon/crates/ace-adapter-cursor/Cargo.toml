@@ -28,3 +28,8 @@ ace-json = { path = "../ace-json" }
 sha2 = { version = "0.11" }
 # thiserror: the translator's typed budget errors, mapped to the overflow fence.
 thiserror = { version = "2" }
+
+[dev-dependencies]
+# tokio: the stray-line hold test drives the real output pump (E3.0c) to prove the read gate
+# pauses the host while the core holds its events.
+tokio = { version = "1.54", features = ["rt", "time", "io-util"] }

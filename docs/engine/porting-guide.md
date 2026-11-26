@@ -1790,9 +1790,10 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
   `stray`, `connection`, `errorFrame`, `stop`), `ArmTimer`/`CancelTimer` and `Drained`.
 - **The stray-line hold**: a stray line's `host-output` frame takes its place in line order
   (`host.ts:143` emits it before the next line is read). So the core publishes
-  `Port { name: "stray" }` and holds every later event of this session until the facade's
-  `note(host-output)` arrives. The facade answers synchronously inside the same delivery, so the
-  hold lasts one batch. Held events count toward the queue's bound.
+  `Port { name: "stray" }` and holds every later event of this session until the caller's
+  `note(host-output)` arrives. The caller owns the redacted text and answers the port; while the
+  hold is open `holding()` is reported to the read gate, which answers the next delivered chunk
+  `taken(false)`, so a stalled consumer can only grow the hold by the pipes' bounded read-ahead.
 - **(b)**: `frame-batch`'s `unbatch` cases move to `envelope.rs`. Its `FrameBatch` cases stay:
   `FrameBatch` runs in the host child, which stays TypeScript. The six (b) host process files
   are owner question 3.
@@ -1839,11 +1840,14 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
   5. Otherwise it writes the `send cancel` frame and the `cancel` request in that step.
   - A host refusal of `send` is `InputRejected` (`:271`–`:274`). Any other failure sets
     `uncertain` from `terminal`, and the error is rethrown.
-- **The exit**: on the supervisor's `close`, the core publishes `Port { name: "exited" }`. The
-  facade answers `handle.exit(code, signal, reason, detail?)` once `proc.exited` resolves
-  (`reason` is the TypeScript supervisor's, `detail` is the facade's `failureMessage`). Then the
-  core publishes the `host-exit` frame (`:156`–`:171`), a `Callback` for `onExit` with
-  `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units), and `Drained`.
+- **The exit**: the Rust daemon owns the child, so its own wait on the child is the exit input:
+  when it resolves, the caller calls `handle.exit(code, signal, reason, detail?)` directly. There
+  is no `Port { name: "exited" }`: that port existed because a TypeScript facade owned the
+  `proc.exited` promise, and the Rust shell does not need to be asked. `exit` may arrive at the
+  leader's end, before the pipes finish; its `host-exit` frame (`:156`–`:171`), the `onExit`
+  `Callback` with `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units)
+  and `Drained` are published only after the pipes' close (`pipes_closed`) has drained every
+  frame and settle the host wrote, because the queue drops anything after `Drained`.
 - **The stop**: the host's stop stays TypeScript (`host.ts:254`–`:267`, Windows'
   `stopTreeAfterEof`), asked for by `Port { name: "stop" }`.
 - **(b)**: `tool-guidance` stays: it is open-time text, built in the facade.
