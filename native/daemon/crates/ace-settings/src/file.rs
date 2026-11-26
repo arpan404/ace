@@ -141,7 +141,12 @@ impl SettingsFile {
         }
         keys.sort();
         self.document = prepared.settings.clone().into_iter().collect();
-        self.prepared = prepared;
+        // The migration has been written back: a later read of the same text must not
+        // rewrite the file again. `file.ts:91` does the same.
+        self.prepared = DecodedDocument {
+            migrated: false,
+            ..prepared
+        };
         self.diagnostic = None;
         if !keys.is_empty() {
             (self.changed)(FileChange {
@@ -453,6 +458,34 @@ mod tests {
         assert!(text.contains("\"future.note\": 1"));
         assert!(text.contains("\"threads.settleOnClose\": true"));
         assert!(!text.contains("remote.transport"));
+    }
+
+    #[test]
+    fn a_migrated_document_is_written_back_exactly_once() {
+        let io = std::sync::Arc::new(MemoryIo::default());
+        io.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                PathBuf::from("/settings.json"),
+                "{\"version\":1,\"values\":{\"threads.settleOnClose\":true}}".to_owned(),
+            );
+        let mut file = file(io.clone());
+        for _ in 0..3 {
+            file.reload().unwrap_or_else(|error| panic!("{error}"));
+        }
+        assert_eq!(
+            *io.writes.lock().unwrap_or_else(|error| error.into_inner()),
+            1,
+            "the migration is written once, not on every load"
+        );
+        file.set("threads.sortBy", &json!("manual"))
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            *io.writes.lock().unwrap_or_else(|error| error.into_inner()),
+            2,
+            "a later write is the only other write"
+        );
     }
 
     #[test]
