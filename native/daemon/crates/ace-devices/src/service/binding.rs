@@ -33,7 +33,10 @@ pub enum Bind {
     /// The device already belongs to this thread.
     Unchanged { control_revision: u64 },
     /// Run the cleanup, then report it with [`finish_bind`].
-    Cleanup { epoch: u64, control_revision: u64 },
+    Cleanup {
+        epoch: u64,
+        control_revision: u64,
+    },
 }
 
 impl Bind {
@@ -43,6 +46,20 @@ impl Bind {
             Self::Cleanup {
                 control_revision, ..
             } => *control_revision,
+        }
+    }
+
+    pub fn binding_epoch(&self) -> Option<u64> {
+        match self {
+            Self::Unchanged { .. } => None,
+            Self::Cleanup { epoch, .. } => Some(*epoch),
+        }
+    }
+
+    pub fn owns_binding_epoch(&self, session: &Session) -> bool {
+        match self.binding_epoch() {
+            Some(epoch) => session.binding_epoch == epoch && session.changing_binding,
+            None => false,
         }
     }
 }
@@ -104,7 +121,8 @@ pub fn begin_bind_for_person(session: &mut Session, thread_id: &str) -> Result<B
 
 /// `bindDevice`'s second half: the cleanup ran (the caller's `guard` already
 /// checked the caller's lifetime), so bind the device unless devices were turned
-/// off or a newer bind passed this one.
+/// off or a newer bind passed this one. Only the bind that owns `epoch` may end
+/// the in-flight flag or clear published recordings.
 pub fn finish_bind(
     session: &mut Session,
     thread_id: &str,
@@ -112,15 +130,20 @@ pub fn finish_bind(
     cleanup_failed: bool,
     enabled: bool,
 ) -> Result<Bound, DeviceError> {
-    session.changing_binding = false;
+    if session.binding_epoch != epoch {
+        return Err(words::refusal(TURNED_OFF_KEY));
+    }
     session.completed = None;
     session.recording_artifact = None;
     if cleanup_failed {
+        session.changing_binding = false;
         return Ok(Bound::CleanupFailed);
     }
-    if !enabled || session.binding_epoch != epoch {
+    if !enabled {
+        session.changing_binding = false;
         return Err(words::refusal(TURNED_OFF_KEY));
     }
+    session.changing_binding = false;
     session.thread_id = Some(thread_id.to_owned());
     Ok(Bound::Bound)
 }

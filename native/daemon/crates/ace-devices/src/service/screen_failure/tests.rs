@@ -4,7 +4,7 @@
 //! `screen-failure.ts` has no test file of its own (behaviour.md §5 lists none),
 //! so these cases are the module's only guard.
 
-use super::{ScreenError, permission_denied, screen_failure};
+use super::{ScreenError, permission_denied, permission_denied_from_key, screen_failure};
 use crate::error::{DeviceError, DeviceErrorCode, DevicePermission};
 use crate::service::words;
 
@@ -69,6 +69,28 @@ fn a_permission_refusal_takes_its_code_from_the_catalog_not_a_hardcoded_default(
     let catalog = crate::platform::words::refusal("permissionScreenRecording");
     assert_eq!(failed.code().as_str(), catalog.code.as_str());
     assert_ne!(catalog.code.as_str(), "busy");
+}
+
+#[test]
+fn a_missing_catalog_permission_word_falls_back_to_command_failed_with_permission() {
+    let failed = permission_denied_from_key(
+        "notARealPermissionKey",
+        DevicePermission::Accessibility,
+    );
+    assert_eq!(failed.code(), DeviceErrorCode::CommandFailed);
+    let DeviceError::Coded {
+        permission,
+        message,
+        ..
+    } = failed
+    else {
+        panic!("coded failure");
+    };
+    assert_eq!(permission, Some(DevicePermission::Accessibility));
+    assert!(
+        message.as_str().contains("catalog"),
+        "missing words keep the catalog hint"
+    );
 }
 
 #[test]

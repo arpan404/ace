@@ -21,7 +21,12 @@ pub fn permission_key(permission: DevicePermission) -> &'static str {
 /// `permissionDenied`: which permission and how to grant it, carrying the
 /// permission on the failure so a client can offer the right fix.
 pub fn permission_denied(permission: DevicePermission) -> DeviceError {
-    let mut error = words::refusal(permission_key(permission));
+    permission_denied_from_key(permission_key(permission), permission)
+}
+
+/// Like [`permission_denied`], but the catalog key is supplied directly.
+pub fn permission_denied_from_key(key: &str, permission: DevicePermission) -> DeviceError {
+    let mut error = words::refusal(key);
     if let DeviceError::Coded {
         permission: slot, ..
     } = &mut error

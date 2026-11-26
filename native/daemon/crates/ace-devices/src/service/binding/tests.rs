@@ -128,6 +128,29 @@ fn a_newer_bind_makes_the_older_one_refuse() {
 }
 
 #[test]
+fn a_stale_finish_leaves_a_newer_binds_reservation_intact() {
+    let mut session = bound("t1");
+    let Bind::Cleanup {
+        epoch: first_epoch, ..
+    } = begin_bind(&mut session, "t2").expect("first bind")
+    else {
+        panic!("expected cleanup");
+    };
+    begin_disable(&mut session);
+    session.completed = Some(String::from("keep-until-owned"));
+    assert_eq!(
+        finish_bind(&mut session, "t2", first_epoch, false, true).expect_err("stale epoch"),
+        words::refusal("bindingDisabled")
+    );
+    assert!(session.changing_binding, "the newer bind still owns the flag");
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("keep-until-owned"),
+        "only the owning bind may clear recordings"
+    );
+}
+
+#[test]
 fn disabling_frees_every_device_and_bumps_its_epoch() {
     let mut session = bound("t1");
     let before = session.binding_epoch;

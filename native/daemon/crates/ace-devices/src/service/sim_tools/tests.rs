@@ -86,6 +86,21 @@ fn a_start_or_stop_answers_with_the_summary_not_the_whole_state() {
 }
 
 #[test]
+fn an_ios_id_with_a_non_ascii_digit_is_returned_intact() {
+    let state = json!({
+        "device": {
+            "id": "ios:00000000-0000-4000-8000-00000000０001",
+            "name": "Phone",
+            "state": "booted",
+            "platform": "ios"
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&state), state);
+}
+
+#[test]
 fn an_invalid_android_id_and_device_fields_are_returned_intact_not_reduced() {
     let non_ascii = json!({
         "device": {
@@ -119,6 +134,19 @@ fn an_invalid_android_id_and_device_fields_are_returned_intact_not_reduced() {
         "controller": "none"
     });
     assert_eq!(summary(&long_model), long_model);
+
+    let bad_serial = json!({
+        "device": {
+            "id": IOS,
+            "name": "Phone",
+            "state": "booted",
+            "platform": "ios",
+            "serial": 42
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&bad_serial), bad_serial);
 }
 
 #[test]
@@ -146,6 +174,25 @@ fn a_name_at_the_code_point_cap_passes_validation() {
     } else {
         panic!("expected a summary");
     }
+}
+
+#[test]
+fn a_name_one_code_point_over_the_cap_is_returned_intact() {
+    let emoji = "📱";
+    let prefix = "x".repeat(256);
+    let name = format!("{prefix}{emoji}");
+    assert_eq!(name.chars().count(), 257);
+    let state = json!({
+        "device": {
+            "id": IOS,
+            "name": name,
+            "state": "booted",
+            "platform": "ios"
+        },
+        "lifecycle": "live",
+        "controller": "agent"
+    });
+    assert_eq!(summary(&state), state);
 }
 
 #[test]

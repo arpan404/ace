@@ -40,7 +40,7 @@ const PUBLIC_CODES: [&str; 15] = [
 fn device_id_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
     PATTERN.get_or_init(|| {
-        Regex::new(r"^(?:ios:[\da-fA-F-]{36}|android:(?-u:[a-zA-Z0-9_.-]{1,200}))$")
+        Regex::new(r"^(?:ios:[0-9a-fA-F-]{36}|android:(?-u:[a-zA-Z0-9_.-]{1,200}))$")
             .expect("device id pattern")
     })
 }
@@ -56,7 +56,8 @@ fn optional_string(device: &Map, key: &str) -> bool {
     let Some(value) = device.get(key) else {
         return true;
     };
-    let Some(text) = value.as_str() else {
+    let text = value.as_str().or_else(|| value.as_js_str().map(JsString::as_str));
+    let Some(text) = text else {
         return false;
     };
     text.chars().count() <= 256

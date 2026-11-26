@@ -10,7 +10,8 @@ use super::{
 };
 use crate::error::DeviceError;
 use crate::error::DeviceErrorCode;
-use crate::service::lease::{Actor, Controller};
+use crate::service::binding::Bind;
+use crate::service::lease::{Actor, Controller, LEASE_MS};
 use crate::service::session::Session;
 use crate::service::words;
 
@@ -22,7 +23,19 @@ fn person() -> Actor {
     Actor::human("person")
 }
 
+fn other_person() -> Actor {
+    Actor::human("person-2")
+}
+
 const NOW: f64 = 0.0;
+
+fn complete_agent_take(session: &mut Session, actor: &Actor, now: f64) {
+    let bind = start_bind_for_agent(session, actor, now).expect("bind");
+    let assignment = resume_claim_for_agent(session, actor, bind, false, true, now)
+        .expect("resume")
+        .expect("assign");
+    finish_assign(session, assignment, Some(actor), now).expect("agent holds");
+}
 
 #[test]
 fn an_agent_takes_a_free_device_for_its_thread() {
@@ -174,10 +187,9 @@ fn a_stale_agent_claim_after_a_person_hands_back_is_rejected_and_a_fresh_claim_s
     assert_eq!(refused, words::refusal("controlChanged"));
     assert!(!session.changing_binding);
     assert_eq!(session.thread_id, None);
-    assert_eq!(
-        claim_for_agent(&mut session, &agent(), NOW),
-        Ok(Claim::Take)
-    );
+    complete_agent_take(&mut session, &agent(), NOW);
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
 }
 
 #[test]
@@ -189,11 +201,120 @@ fn a_stale_agent_claim_after_the_person_dropped_mid_takeover_is_rejected() {
     let refused =
         resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW).expect_err("stale");
     assert_eq!(refused, words::refusal("controlChanged"));
+    complete_agent_take(&mut session, &agent(), NOW);
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+    let _ = person_assign;
+}
+
+#[test]
+fn invalidate_pending_owner_only_touches_the_named_owner() {
+    let mut session = Session::new("ios:AAAA");
+    begin_assign(&mut session, &agent(), NOW).expect("agent");
+    let revision = session.control_revision;
+    invalidate_pending_owner(&mut session, "not-agent-1");
+    assert_eq!(session.control_revision, revision);
+    assert_eq!(session.pending_controller.as_deref(), Some("agent-1"));
+    invalidate_pending_owner(&mut session, "agent-1");
+    assert_eq!(session.pending_controller, None);
+    assert!(session.control_revision > revision);
+}
+
+#[test]
+fn a_stale_agent_resume_leaves_a_competing_human_bind_in_flight() {
+    let mut session = Session::new("ios:AAAA");
+    let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent bind");
+    let (person_assign, person_bind) =
+        start_human_controller_with_thread(&mut session, &person(), "t-view", NOW).expect("person");
+    let epoch = person_bind.binding_epoch().expect("cleanup");
+    assert_eq!(
+        resume_claim_for_agent(&mut session, &agent(), agent_bind, false, true, NOW).expect_err(
+            "stale"
+        ),
+        words::refusal("controlChanged")
+    );
+    assert!(session.changing_binding);
+    assert_eq!(session.binding_epoch, epoch);
+    resume_human_controller_with_thread(
+        &mut session,
+        person_assign,
+        person_bind,
+        "t-view",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect("person finishes");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
+fn an_agent_resuming_before_a_threaded_human_bind_finishes_is_rejected() {
+    let mut session = Session::new("ios:AAAA");
+    let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent first");
+    let (_person_assign, person_bind) =
+        start_human_controller_with_thread(&mut session, &person(), "t-person", NOW).expect("person");
+    assert_eq!(
+        resume_claim_for_agent(&mut session, &agent(), agent_bind, false, true, NOW).expect_err(
+            "stale"
+        ),
+        words::refusal("controlChanged")
+    );
+    assert!(session.changing_binding);
+    assert_eq!(session.pending_controller.as_deref(), Some("person"));
+    let _ = person_bind;
+}
+
+#[test]
+fn a_threaded_human_takeover_finishes_while_an_agents_bind_is_still_pending() {
+    let mut session = Session::new("ios:AAAA");
+    let (person_assign, person_bind) =
+        start_human_controller_with_thread(&mut session, &person(), "t-human", NOW).expect("person");
+    let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect_err("person pending");
+    assert_eq!(agent_bind, words::refusal("personControlling"));
+    resume_human_controller_with_thread(
+        &mut session,
+        person_assign,
+        person_bind,
+        "t-human",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect("person wins");
+    assert_eq!(
+        resume_claim_for_agent(&mut session, &agent(), Bind::Cleanup {
+            epoch: 0,
+            control_revision: 0
+        }, false, true, NOW)
+        .expect_err("stale epoch"),
+        words::refusal("controlChanged")
+    );
+}
+
+#[test]
+fn devices_disabled_during_a_threaded_human_bind_clears_the_pending_assignment() {
+    let mut session = Session::new("ios:AAAA");
+    let (person_assign, person_bind) =
+        start_human_controller_with_thread(&mut session, &person(), "t-view", NOW).expect("person");
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        person_assign,
+        person_bind,
+        "t-view",
+        Some(&person()),
+        false,
+        false,
+        NOW,
+    )
+    .expect_err("disabled");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.pending_controller, None);
     assert_eq!(
         claim_for_agent(&mut session, &agent(), NOW),
         Ok(Claim::Take)
     );
-    let _ = person_assign;
 }
 
 #[test]
@@ -373,6 +494,38 @@ fn an_agents_takeover_is_refused_while_a_persons_is_pending() {
     let refused = begin_assign(&mut session, &agent(), NOW).expect_err("the person began first");
     assert_eq!(refused, words::refusal("personControlling"));
     finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("the person wins");
+}
+
+#[test]
+fn a_different_human_may_begin_while_another_humans_takeover_is_pending() {
+    let mut session = Session::new("ios:AAAA");
+    let first = begin_assign(&mut session, &person(), NOW).expect("first person");
+    let second = begin_assign(&mut session, &other_person(), NOW).expect("second person");
+    finish_assign(&mut session, second, Some(&other_person()), NOW).expect("second wins");
+    let refused = finish_assign(&mut session, first, Some(&person()), NOW).expect_err("stale");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
+fn a_stale_agent_claim_after_lease_expiry_still_leaves_a_fresh_claim_free_to_finish() {
+    let mut session = Session::new("ios:AAAA");
+    session.lease.claim(agent(), NOW);
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("bind");
+    let person_assign = begin_assign(&mut session, &person(), NOW).expect("person");
+    finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("person");
+    session.lease.status(NOW + LEASE_MS + 1.0);
+    assert_eq!(session.lease.status(NOW + LEASE_MS + 1.0).controller, Controller::None);
+    assert_eq!(
+        resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW + LEASE_MS + 1.0)
+            .expect_err("stale"),
+        words::refusal("controlChanged")
+    );
+    complete_agent_take(&mut session, &agent(), NOW + LEASE_MS + 1.0);
+    assert_eq!(
+        session.lease.status(NOW + LEASE_MS + 1.0).controller,
+        Controller::Agent
+    );
 }
 
 #[test]
