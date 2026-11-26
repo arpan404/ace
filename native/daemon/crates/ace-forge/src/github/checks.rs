@@ -43,43 +43,32 @@ pub async fn check_rows(
     sha: &str,
     cancellation: Option<std::sync::Arc<Cancellation>>,
 ) -> Result<Vec<CheckRow>, ForgeError> {
-    let runs = api
-        .request(
+    let mut budget = crate::transport::limits::ReadBudget::new();
+    let mut rows = Vec::new();
+    let run_pages = api
+        .pages(
             &repository.checks_path(sha),
-            None,
-            None,
             cancellation.clone(),
-            Default::default(),
+            &mut budget,
         )
         .await?;
-    let mut rows = Vec::new();
-    for check in parse_check_page(&runs.body).map_err(|_| ForgeError::new(Kind::InvalidData))? {
-        let value = value_of(&runs.body, "check_runs", &check.id);
-        match value {
-            Some(value) => {
-                rows.push(map_check(&value).map_err(|_| ForgeError::new(Kind::InvalidData))?)
-            }
-            None => return Err(ForgeError::new(Kind::InvalidData)),
+    for runs in run_pages {
+        for check in parse_check_page(&runs.body).map_err(|_| ForgeError::new(Kind::InvalidData))? {
+            let value = value_of(&runs.body, "check_runs", &check.id)
+                .ok_or_else(|| ForgeError::new(Kind::InvalidData))?;
+            rows.push(map_check(&value).map_err(|_| ForgeError::new(Kind::InvalidData))?);
         }
     }
-    let statuses = api
-        .request(
-            &repository.statuses_path(sha),
-            None,
-            None,
-            cancellation,
-            Default::default(),
-        )
+    let status_pages = api
+        .pages(&repository.statuses_path(sha), cancellation, &mut budget)
         .await?;
-    let legacy = statuses
-        .body
-        .as_object()
-        .and_then(|fields| fields.get("statuses"))
-        .ok_or_else(|| ForgeError::new(Kind::InvalidData))?;
-    for status in
-        page(legacy, |value| Ok(value.clone())).map_err(|_| ForgeError::new(Kind::InvalidData))?
-    {
-        rows.push(map_legacy_status(&status).map_err(|_| ForgeError::new(Kind::InvalidData))?);
+    for statuses in status_pages {
+        // `StatusPage` is a top-level array (`github-schemas.ts:47`), not a wrapper object.
+        for status in page(&statuses.body, |value| Ok(value.clone()))
+            .map_err(|_| ForgeError::new(Kind::InvalidData))?
+        {
+            rows.push(map_legacy_status(&status).map_err(|_| ForgeError::new(Kind::InvalidData))?);
+        }
     }
     Ok(rows)
 }
@@ -175,7 +164,7 @@ mod tests {
                 let stub = Stub {
                     replies: Mutex::new(vec![
                         String::from(r#"{"check_runs":[{"id":11,"name":"test","status":"completed","conclusion":"failure","completed_at":"2026-10-02T10:00:07Z","details_url":"https://github.com/octo/ace/actions/runs/42/job/99"}]}"#),
-                        String::from(r#"{"statuses":[{"id":3,"context":"deploy","state":"success","updated_at":"now","target_url":null}]}"#),
+                        String::from(r#"[{"id":3,"context":"deploy","state":"success","updated_at":"now","target_url":null}]"#),
                     ]),
                     seen: Mutex::new(Vec::new()),
                 };

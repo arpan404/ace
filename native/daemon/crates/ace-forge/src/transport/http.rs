@@ -302,16 +302,17 @@ impl<'a> GhApi<'a> {
             return Err(ForgeError::new(Kind::Cli));
         }
         // A missing exit code is a signal death, not success (`http.ts:285`).
-        if output.code != Some(0) {
-            return Err(ForgeError::new(Kind::Cli));
-        }
         if path == "graphql" {
             if output.truncated {
                 return Err(ForgeError::new(Kind::InvalidData));
             }
             let body: Value =
                 ace_json::parse(text).map_err(|_| ForgeError::new(Kind::InvalidData))?;
+            // A structured refusal is classified before the CLI's exit code (`http.ts:272-285`).
             assert_graphql_result(&body, &dispatch, retry_at, !write)?;
+        }
+        if output.code != Some(0) {
+            return Err(ForgeError::new(Kind::Cli));
         }
         let version = sha256_hex(text);
         if let Some(mut cached) = cached
@@ -679,7 +680,8 @@ fn safe_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
             _ => false,
         };
         if keep {
-            kept.push((name.clone(), value.clone()));
+            // Headers come from the host: redact before they are returned or cached (guide 2).
+            kept.push((name.clone(), super::redact::redact(value, None)));
         }
     }
     kept
@@ -731,6 +733,30 @@ fn assert_graphql_result(
     let Some(object) = body.as_object() else {
         return Err(ForgeError::new(Kind::InvalidData));
     };
+    // The schema's error shape: an object whose `type` is a string and whose `extensions`,
+    // when present, is an object (`http.ts:18-38`). Anything else is unreadable, so the
+    // mutation stays uncertain.
+    if let Some(errors) = object.get("errors").and_then(|errors| errors.as_array()) {
+        for error in errors {
+            let Some(fields) = error.as_object() else {
+                return Err(ForgeError::new(Kind::InvalidData));
+            };
+            if fields
+                .get("type")
+                .is_some_and(|kind| kind.as_str().is_none())
+            {
+                return Err(ForgeError::new(Kind::InvalidData));
+            }
+            match fields.get("extensions") {
+                None | Some(Value::Null) if fields.get("extensions").is_some() => {
+                    return Err(ForgeError::new(Kind::InvalidData));
+                }
+                None => {}
+                Some(Value::Object(_)) => {}
+                Some(_) => return Err(ForgeError::new(Kind::InvalidData)),
+            }
+        }
+    }
     let data = match object.get("data") {
         None | Some(Value::Null) => None,
         Some(Value::Object(_)) => object.get("data"),
@@ -1253,6 +1279,81 @@ mod tests {
                 .await;
             (outcome, dispatch)
         })
+    }
+
+    #[test]
+    fn a_malformed_graphql_error_leaves_a_mutation_uncertain() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = stub(&[&api(
+                    r#"{"data":null,"errors":[{"type":"NOT_FOUND","extensions":null}]}"#,
+                    "",
+                )]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let dispatch =
+                    std::sync::Arc::new(crate::transport::mutation::MutationDispatch::new(None));
+                let error = api_client
+                    .request(
+                        "graphql",
+                        Some(json!({ "query": "mutation { x }" })),
+                        None,
+                        None,
+                        dispatch.clone(),
+                    )
+                    .await
+                    .expect_err("unreadable");
+                assert_eq!(error.kind, Kind::OutcomeUncertain);
+                assert!(!dispatch.definitely_failed(), "the fence stays");
+            });
+    }
+
+    #[test]
+    fn a_graphql_refusal_is_classified_before_a_nonzero_exit() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let mut output =
+                    reply(&api(r#"{"data":null,"errors":[{"type":"NOT_FOUND"}]}"#, ""));
+                output.code = Some(1);
+                let stub = Stub {
+                    replies: Mutex::new(vec![output]),
+                    seen: Mutex::new(Vec::new()),
+                };
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let error = api_client
+                    .request(
+                        "graphql",
+                        Some(json!({ "query": "query { x }" })),
+                        None,
+                        None,
+                        Default::default(),
+                    )
+                    .await
+                    .expect_err("refused");
+                assert_eq!(error.kind, Kind::NotFound);
+            });
+    }
+
+    #[test]
+    fn a_host_header_is_redacted_before_it_is_returned() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = stub(&[&api(r#"[]"#, "ETag: \"ghp_12345678901234567890\"\r\n")]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let page = api_client
+                    .request("user/repos", None, None, None, Default::default())
+                    .await
+                    .expect("a page");
+                assert_eq!(page.header("etag"), Some("\"[REDACTED]\""));
+            });
     }
 
     #[test]

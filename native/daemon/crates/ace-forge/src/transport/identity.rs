@@ -188,6 +188,8 @@ impl<'a> Pinned<'a> {
         let write = is_forge_mutation(&request);
         if write {
             self.verify(&request).await?;
+            // The selection may have moved while the probe ran: recheck before dispatch.
+            self.current()?;
             let result = self.runner.run(request.clone()).await;
             let mut result = match result {
                 Ok(result) => result,
@@ -445,14 +447,53 @@ mod tests {
                 None,
             )
             .assert_current(Box::new(move || {
-                // The first ask (before the request) passes; the post-write one does not.
-                let _ = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
+                // Before and after the probe the selection still holds; after the write
+                // it has moved, which must be an observable effect.
+                if seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+                    Ok(())
+                } else {
+                    Err(crate::transport::error::ForgeError::new(
+                        crate::transport::error::Kind::PreferencesChanged,
+                    ))
+                }
             }));
             let result = pinned.run(write()).await.expect("a dispatched write");
-            assert!(!result.identity_changed);
-            let seen = calls.load(std::sync::atomic::Ordering::SeqCst);
-            assert_eq!(seen, 2, "asked before and after the write");
+            assert!(result.identity_changed, "a moved preference is an effect");
+        });
+    }
+
+    #[test]
+    fn a_preference_that_moves_during_the_probe_never_dispatches_the_write() {
+        runtime().block_on(async {
+            let stub = Stub {
+                replies: Mutex::new(vec![user("octo")]),
+                seen: Mutex::new(Vec::new()),
+            };
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let seen = calls.clone();
+            let pinned = Pinned::new(
+                &stub,
+                "github.com",
+                "octo",
+                std::sync::Arc::new(|| 0.0),
+                None,
+            )
+            .assert_current(Box::new(move || {
+                // Ask 1 (before) passes; ask 2 (after the probe) sees the move.
+                if seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Ok(())
+                } else {
+                    Err(crate::transport::error::ForgeError::new(
+                        crate::transport::error::Kind::PreferencesChanged,
+                    ))
+                }
+            }));
+            let error = pinned.run(write()).await.expect_err("never dispatched");
+            assert_eq!(
+                error.kind,
+                crate::transport::error::Kind::PreferencesChanged
+            );
+            assert_eq!(stub.seen.lock().expect("seen").len(), 1, "the probe only");
         });
     }
 

@@ -175,7 +175,7 @@ impl<'a> Repositories<'a> {
         if !matches!(input.visibility.as_str(), "all" | "public" | "private")
             || !matches!(input.archived.as_str(), "all" | "yes" | "no")
             || !matches!(input.fork.as_str(), "all" | "yes" | "no")
-            || input.query.chars().count() > 1_024
+            || input.query.chars().count() > 256
         {
             return Err(ForgeError::new(Kind::InvalidData));
         }
@@ -252,6 +252,9 @@ impl<'a> Repositories<'a> {
         name: &str,
         cancellation: Option<std::sync::Arc<Cancellation>>,
     ) -> Result<Option<HostedRepository>, ForgeError> {
+        if !valid_name(owner) || !valid_name(name) {
+            return Err(ForgeError::new(Kind::InvalidData));
+        }
         match self
             .api
             .request(
@@ -278,7 +281,11 @@ impl<'a> Repositories<'a> {
         cancellation: Option<std::sync::Arc<Cancellation>>,
         dispatch: std::sync::Arc<MutationDispatch>,
     ) -> Result<HostedRepository, ForgeError> {
-        if !valid_name(&input.owner) || !valid_name(&input.name) {
+        if !valid_name(&input.owner)
+            || !valid_name(&input.name)
+            || !matches!(input.visibility.as_str(), "public" | "private")
+            || input.description.chars().count() > 350
+        {
             return Err(ForgeError::new(Kind::InvalidData));
         }
         if input.host != self.host || input.account != self.account {
@@ -316,7 +323,9 @@ impl<'a> Repositories<'a> {
         if response.identity_changed {
             // The result exists but cannot be published under this identity: keep it.
             let mut error = ForgeError::new(Kind::OutcomeUncertain);
-            error.receipt = ace_json::ser::to_string(&repository).ok().map(Value::from);
+            error.receipt = ace_json::ser::to_string(&repository)
+                .ok()
+                .and_then(|text| ace_json::parse(&text).ok());
             return Err(error);
         }
         Ok(repository)
@@ -465,6 +474,63 @@ mod tests {
                 input.account = String::from("someone-else");
                 let error = repositories.list(&input, None).await.expect_err("refused");
                 assert_eq!(error.kind, Kind::Forbidden);
+                assert!(stub.seen.lock().expect("seen").is_empty());
+            });
+    }
+
+    #[test]
+    fn a_publish_refuses_a_visibility_or_description_the_schema_refuses() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = Stub::default();
+                let repositories = client(&stub);
+                let mut publish = PublishInput {
+                    host: String::from("github.com"),
+                    account: String::from("octo"),
+                    owner: String::from("octo"),
+                    name: String::from("new-one"),
+                    description: String::new(),
+                    visibility: String::from("PRIVATE"),
+                };
+                assert_eq!(
+                    repositories
+                        .create(&publish, None, Default::default())
+                        .await
+                        .expect_err("invalid")
+                        .kind,
+                    Kind::InvalidData
+                );
+                publish.visibility = String::from("public");
+                publish.description = "d".repeat(351);
+                assert_eq!(
+                    repositories
+                        .create(&publish, None, Default::default())
+                        .await
+                        .expect_err("invalid")
+                        .kind,
+                    Kind::InvalidData
+                );
+                assert!(stub.seen.lock().expect("seen").is_empty(), "no process");
+            });
+    }
+
+    #[test]
+    fn a_lookup_refuses_an_owner_that_is_not_a_name() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = Stub::default();
+                let repositories = client(&stub);
+                let error = repositories
+                    .find("bad/name", "ace", None)
+                    .await
+                    .expect_err("invalid");
+                assert_eq!(error.kind, Kind::InvalidData);
                 assert!(stub.seen.lock().expect("seen").is_empty());
             });
     }
