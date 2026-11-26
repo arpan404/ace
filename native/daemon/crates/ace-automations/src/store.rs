@@ -61,7 +61,24 @@ pub struct Claim<'a> {
 pub struct AutomationStore {
     pub(crate) conn: Arc<Connection>,
     pub(crate) depth: Cell<u32>,
+    /// Where the bounded `finished_at` backfill resumes, and how many rows it last examined.
+    idle_cursor: Cell<i64>,
+    idle_examined: Cell<usize>,
 }
+
+/// Which `automation_finished` the file holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FinishedIndex {
+    Missing,
+    /// The TypeScript's `Number.MAX_SAFE_INTEGER` expression.
+    Current,
+    /// A build's older `i64::MAX` expression; queries cannot use it.
+    Outdated,
+}
+
+/// Rebuilding over more rows than this is left to an explicit maintenance call; idle drops the
+/// bad index instead (a constant-time repair) and the inbox scans until then.
+const REBUILD_INDEX_ROWS: i64 = 10_000;
 
 impl AutomationStore {
     pub fn open(path: &str) -> Result<AutomationStore> {
@@ -75,6 +92,8 @@ impl AutomationStore {
         let store = AutomationStore {
             conn,
             depth: Cell::new(0),
+            idle_cursor: Cell::new(0),
+            idle_examined: Cell::new(0),
         };
         store.ensure_schema()?;
         Ok(store)
@@ -126,19 +145,98 @@ impl AutomationStore {
             .is_empty())
     }
 
-    /// `store.ts:92`'s backfill, bounded so opening never rewrites history (ADR 0170): fill
-    /// `finished_at` for at most `limit` rows whose body already has `finishedAt`, and let the
-    /// host call it again from idle until it returns less than `limit`. Rows written by the
-    /// TypeScript or by an older build otherwise read as unfinished forever.
+    /// The `automation_finished` expression this file holds, read from its SQL.
+    pub fn finished_index(&self) -> Result<FinishedIndex> {
+        let rows = self.query(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='automation_finished'",
+            &[],
+        )?;
+        let Some(sql) = rows.first().and_then(|row| row_text(row, 0)) else {
+            return Ok(FinishedIndex::Missing);
+        };
+        if sql.contains("9007199254740991") && !sql.contains("9223372036854775807") {
+            Ok(FinishedIndex::Current)
+        } else {
+            Ok(FinishedIndex::Outdated)
+        }
+    }
+
+    /// One bounded append of the `finished_at` backfill (`store.ts:92`), keyed by `seq` so each
+    /// call reads at most `limit` rows and holds the write lock for at most `limit` updates.
+    /// Rows written by the TypeScript or an older build otherwise read as unfinished forever.
     pub fn backfill_finished_at(&self, limit: usize) -> Result<usize> {
-        crate::store_schema::ensure_run_indexes(self)?;
+        self.idle_examined.set(0);
         if limit == 0 {
             return Ok(0);
         }
-        self.execute_changes(
-            "UPDATE automation_runs SET finished_at=json_extract(body,'$.finishedAt') WHERE seq IN (SELECT seq FROM automation_runs WHERE finished_at IS NULL AND json_extract(body,'$.finishedAt') IS NOT NULL ORDER BY seq LIMIT ?)",
-            &[Some(SqlValue::Integer(limit.min(i64::MAX as usize) as i64))],
-        )
+        self.repair_finished_index()?;
+        let limit = limit.min(i64::MAX as usize) as i64;
+        let rows = self.query(
+            "SELECT seq,json_extract(body,'$.finishedAt') FROM automation_runs WHERE seq > ? ORDER BY seq LIMIT ?",
+            &[
+                Some(SqlValue::Integer(self.idle_cursor.get())),
+                Some(SqlValue::Integer(limit)),
+            ],
+        )?;
+        self.idle_examined.set(rows.len());
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let mut changed = 0;
+        self.transaction(|| {
+            for row in &rows {
+                let (Some(seq), Some(finished)) = (row_int(row, 0), row_int(row, 1)) else {
+                    continue;
+                };
+                changed += self.execute_changes(
+                    "UPDATE automation_runs SET finished_at=? WHERE seq=? AND finished_at IS NULL",
+                    &[
+                        Some(SqlValue::Integer(finished)),
+                        Some(SqlValue::Integer(seq)),
+                    ],
+                )?;
+            }
+            Ok(())
+        })?;
+        if let Some(last) = rows.last().and_then(|row| row_int(row, 0)) {
+            self.idle_cursor.set(last);
+        }
+        Ok(changed)
+    }
+
+    /// Rows the last [`AutomationStore::backfill_finished_at`] examined, for the bounded-work
+    /// test and the host's idle metrics.
+    pub fn idle_examined(&self) -> usize {
+        self.idle_examined.get()
+    }
+
+    /// Repair a wrong `automation_finished` expression without history-sized work: a small file
+    /// is rebuilt correctly here; a large one only drops the unusable index (constant time) and
+    /// leaves the rebuild to [`AutomationStore::create_run_indexes`], with the inbox's indexed
+    /// path falling back until then.
+    fn repair_finished_index(&self) -> Result<()> {
+        if self.finished_index()? != FinishedIndex::Outdated {
+            return Ok(());
+        }
+        let runs = self
+            .query("SELECT COUNT(*) FROM automation_runs", &[])?
+            .first()
+            .and_then(|row| row_int(row, 0))
+            .unwrap_or(0);
+        self.execute("DROP INDEX automation_finished", &[])?;
+        if runs <= REBUILD_INDEX_ROWS {
+            self.execute(
+                "CREATE INDEX automation_finished ON automation_runs(coalesce(finished_at, 9007199254740991))",
+                &[],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Build every run index in one write. History-sized by nature: an explicit maintenance call,
+    /// never open or idle.
+    pub fn create_run_indexes(&self) -> Result<()> {
+        crate::store_schema::ensure_run_indexes(self)
     }
 
     /// One commit for `operation`; a transaction opened inside it joins the outer one.
@@ -721,7 +819,8 @@ impl AutomationStore {
             .max(0) as usize)
     }
 
-    /// The query plan for [`AutomationStore::inbox`] with a finish time, for the index test.
+    /// The query plan for [`AutomationStore::inbox`] with a finish time, through the same
+    /// index decision the inbox makes.
     pub fn inbox_query_plan(&self, finished_after: i64) -> Result<Vec<String>> {
         let where_clause = vec![
             "seq < ?".to_owned(),
@@ -731,7 +830,8 @@ impl AutomationStore {
             Some(SqlValue::Integer(NOT_FINISHED)),
             Some(SqlValue::Integer(finished_after)),
         ];
-        let (sql, values) = inbox_query(50, &where_clause, values, true);
+        let indexed = self.finished_index()? == FinishedIndex::Current;
+        let (sql, values) = inbox_query(50, &where_clause, values, indexed);
         Ok(self
             .query(&format!("EXPLAIN QUERY PLAN {sql}"), &values)?
             .iter()
@@ -992,7 +1092,7 @@ impl AutomationStore {
             where_clause.push(format!("coalesce(finished_at, {NOT_FINISHED}) > ?"));
             values.push(Some(SqlValue::Integer(finished_after)));
         }
-        let indexed = finished_after.is_some() && self.has_index("automation_finished")?;
+        let indexed = finished_after.is_some() && self.finished_index()? == FinishedIndex::Current;
         let (sql, values) = inbox_query(limit, &where_clause, values, indexed);
         let rows = self.query(&sql, &values)?;
         let mut runs = Vec::new();

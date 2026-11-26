@@ -114,7 +114,7 @@ fn the_finished_index_and_inbox_query_use_the_typescripts_max_safe_integer() {
 }
 
 #[test]
-fn an_older_home_without_the_finished_index_still_reads_and_idle_creates_it() {
+fn an_older_home_without_the_finished_index_still_reads_and_maintenance_creates_it() {
     let dir = tempfile::tempdir().expect("temp");
     let path = dir.path().join("auto.sqlite");
     let store = open(&path);
@@ -129,7 +129,10 @@ fn an_older_home_without_the_finished_index_still_reads_and_idle_creates_it() {
     conn.exec("DROP INDEX IF EXISTS automation_finished")
         .expect("drop");
     conn.close().expect("close");
-    assert!(!store.has_index("automation_finished").expect("index"));
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Missing
+    );
     assert!(
         store
             .inbox(50, None, None, Some(0))
@@ -137,14 +140,178 @@ fn an_older_home_without_the_finished_index_still_reads_and_idle_creates_it() {
             .0
             .is_empty()
     );
+    // Idle never builds a history-sized index; the host's maintenance call does.
     store.backfill_finished_at(1).expect("idle");
-    assert!(store.has_index("automation_finished").expect("index"));
-    assert!(
-        store
-            .inbox(50, None, None, Some(0))
-            .expect("indexed read")
-            .0
-            .is_empty()
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Missing
     );
+    store.create_run_indexes().expect("maintenance");
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Current
+    );
+    let plan = store.inbox_query_plan(0).expect("plan");
+    assert!(
+        plan.iter()
+            .any(|step| step.contains("SEARCH") && step.contains("automation_finished")),
+        "plan: {plan:?}"
+    );
+    store.close().expect("close");
+}
+
+#[test]
+fn idle_repairs_the_previous_rust_index_for_a_small_file() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw
+    .exec("DROP INDEX automation_finished; CREATE INDEX automation_finished ON automation_runs(coalesce(finished_at, 9223372036854775807))")
+    .expect("old index");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    for index in 0..20 {
+        let body = format!(
+            r#"{{"id":"old-{index}","finishedAt":{}}}"#,
+            1_704_099_600_000i64 + index
+        );
+        let statement = raw
+      .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,NULL)")
+      .expect("prepare");
+        statement
+            .bind(&[
+                Some(Value::Text(format!("old-{index}"))),
+                Some(Value::Text("a".to_owned())),
+                Some(Value::Text(format!("old-{index}"))),
+                Some(Value::Text("succeeded".to_owned())),
+                Some(Value::Text(body)),
+            ])
+            .expect("bind");
+        statement.step().expect("insert");
+    }
+    raw.exec("COMMIT").expect("commit");
+    raw.close().expect("close");
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Outdated
+    );
+    let plan = store.inbox_query_plan(0).expect("plan");
+    assert!(
+        !plan.iter().any(|step| step.contains("automation_finished")),
+        "plan: {plan:?}"
+    );
+    assert_eq!(store.backfill_finished_at(5).expect("idle"), 5);
+    assert!(store.idle_examined() <= 5);
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Current
+    );
+    let plan = store.inbox_query_plan(0).expect("plan");
+    assert!(
+        plan.iter()
+            .any(|step| step.contains("SEARCH") && step.contains("automation_finished")),
+        "plan: {plan:?}"
+    );
+    store.close().expect("close");
+}
+
+#[test]
+fn idle_examines_and_updates_at_most_the_batch_over_a_large_legacy_history() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    for index in 0..500 {
+        let body = format!(
+            r#"{{"id":"old-{index}","finishedAt":{}}}"#,
+            1_704_099_600_000i64 + index
+        );
+        let statement = raw
+      .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,NULL)")
+      .expect("prepare");
+        statement
+            .bind(&[
+                Some(Value::Text(format!("old-{index}"))),
+                Some(Value::Text("a".to_owned())),
+                Some(Value::Text(format!("old-{index}"))),
+                Some(Value::Text("succeeded".to_owned())),
+                Some(Value::Text(body)),
+            ])
+            .expect("bind");
+        statement.step().expect("insert");
+    }
+    raw.exec("COMMIT").expect("commit");
+    raw.close().expect("close");
+    let mut changed = 0;
+    for _ in 0..50 {
+        let batch = store.backfill_finished_at(10).expect("batch");
+        assert!(store.idle_examined() <= 10);
+        changed += batch;
+    }
+    assert_eq!(changed, 500);
+    assert_eq!(store.backfill_finished_at(10).expect("caught up"), 0);
+    assert_eq!(store.idle_examined(), 0);
+    store.close().expect("close");
+}
+
+#[test]
+fn a_huge_legacy_index_is_dropped_in_idle_not_rebuilt_over_history() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw
+    .exec("DROP INDEX automation_finished; CREATE INDEX automation_finished ON automation_runs(coalesce(finished_at, 9223372036854775807))")
+    .expect("old index");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    for index in 0..10_001 {
+        let statement = raw
+      .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,NULL)")
+      .expect("prepare");
+        statement
+            .bind(&[
+                Some(Value::Text(format!("bulk-{index}"))),
+                Some(Value::Text("a".to_owned())),
+                Some(Value::Text(format!("bulk-{index}"))),
+                Some(Value::Text("running".to_owned())),
+                Some(Value::Text(format!(r#"{{"id":"bulk-{index}"}}"#))),
+            ])
+            .expect("bind");
+        statement.step().expect("insert");
+    }
+    raw.exec("COMMIT").expect("commit");
+    raw.close().expect("close");
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Outdated
+    );
+    store.backfill_finished_at(1).expect("idle");
+    assert_eq!(
+        store.finished_index().expect("index"),
+        ace_automations::store::FinishedIndex::Missing
+    );
+    assert!(store.idle_examined() <= 1);
     store.close().expect("close");
 }
