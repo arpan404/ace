@@ -636,7 +636,7 @@ fn parse_link_url(url: &str) -> Option<(String, String, String)> {
 /// `value` with every configured value masked in its strings, depth-first.
 fn mask_environment_value(value: &Value, environment: &ace_redaction::EnvironmentMatcher) -> Value {
     match value {
-        Value::String(text) => Value::from(super::redact::redact(text.as_str(), Some(environment))),
+        Value::String(text) => Value::String(super::redact::redact_js(text, Some(environment))),
         Value::Array(items) => Value::Array(
             items
                 .iter()
@@ -647,7 +647,7 @@ fn mask_environment_value(value: &Value, environment: &ace_redaction::Environmen
             let mut result = Map::new();
             for (key, entry) in fields.iter() {
                 result.insert(
-                    super::redact::redact(key.as_str(), Some(environment)),
+                    super::redact::redact_js(key, Some(environment)),
                     mask_environment_value(entry, environment),
                 );
             }

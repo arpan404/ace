@@ -76,6 +76,49 @@ fn mask_environment(text: String, environment: Option<&EnvironmentMatcher>) -> S
     out
 }
 
+/// `text` with every mask applied, keeping the string's UTF-16 units: a lone surrogate is a
+/// separator the mask never touches, and each well-formed segment between surrogates is
+/// redacted as text (`redact.ts:8-25` masks the string, not a lossy copy of it).
+pub fn redact_js(
+    text: &ace_json::JsString,
+    environment: Option<&EnvironmentMatcher>,
+) -> ace_json::JsString {
+    if text.as_well_formed().is_some() {
+        return ace_json::JsString::from(redact(text.as_str(), environment));
+    }
+    let units: Vec<u16> = text.units().collect();
+    let mut out: Vec<u16> = Vec::with_capacity(units.len());
+    let mut segment: Vec<u16> = Vec::new();
+    let mut index = 0;
+    while index < units.len() {
+        let unit = units[index];
+        let paired = (0xd800..=0xdbff).contains(&unit)
+            && units
+                .get(index + 1)
+                .is_some_and(|low| (0xdc00..=0xdfff).contains(low));
+        if paired {
+            segment.push(unit);
+            segment.push(units[index + 1]);
+            index += 2;
+            continue;
+        }
+        if (0xd800..=0xdfff).contains(&unit) {
+            // A lone surrogate: redact what came before it, then keep it as its own unit.
+            let plain = ace_json::JsString::from_units(&segment);
+            out.extend(redact(plain.as_str(), environment).encode_utf16());
+            segment.clear();
+            out.push(unit);
+            index += 1;
+            continue;
+        }
+        segment.push(unit);
+        index += 1;
+    }
+    let plain = ace_json::JsString::from_units(&segment);
+    out.extend(redact(plain.as_str(), environment).encode_utf16());
+    ace_json::JsString::from_units(&out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{REDACTED, redact};
@@ -122,6 +165,23 @@ mod tests {
         assert_eq!(
             redact("said opaque-echoed-value twice", Some(&environment)),
             "said [REDACTED] twice"
+        );
+    }
+
+    #[test]
+    fn a_lone_surrogate_survives_while_the_secret_beside_it_is_masked() {
+        let mut units: Vec<u16> = vec![0xd800];
+        units.extend("ghp_12345678901234567890".encode_utf16());
+        units.push(0xdc00);
+        let text = ace_json::JsString::from_units(&units);
+        let masked = super::redact_js(&text, None);
+        let output: Vec<u16> = masked.units().collect();
+        assert_eq!(output.first(), Some(&0xd800));
+        assert_eq!(output.last(), Some(&0xdc00));
+        let display: Vec<u16> = output[1..output.len() - 1].to_vec();
+        assert_eq!(
+            String::from_utf16(&display).expect("well-formed masked text"),
+            "[REDACTED]"
         );
     }
 
