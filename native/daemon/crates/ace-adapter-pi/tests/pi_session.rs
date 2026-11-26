@@ -616,3 +616,103 @@ fn the_default_clock_advances() {
     std::thread::sleep(Duration::from_millis(2));
     assert!(clock.now() >= first);
 }
+
+/// "opening failure revokes the injected ace MCP lease" (`session.process.test.ts`).
+#[test]
+fn an_opening_failure_revokes_the_injected_ace_mcp_lease() -> TestResult {
+    let harness = Harness::new("lease")?;
+    let ended = Arc::new(AtomicU64::new(0));
+    let input = PiLaunchInput {
+        executable: env!("CARGO_BIN_EXE_fake-pi").to_owned(),
+        version: Some("0.86.0".to_owned()),
+        cwd: std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .to_string_lossy()
+            .to_string(),
+        env: vec![
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            (
+                "FAKE_PI_HOME".to_owned(),
+                harness.home.to_string_lossy().to_string(),
+            ),
+            ("FAKE_PI_LOAD_FAILURE".to_owned(), "1".to_owned()),
+        ],
+        extension_path: "/ace/extension.ts".to_owned(),
+        ..PiLaunchInput::default()
+    };
+    let flag = Arc::clone(&ended);
+    let open = PiSessionOpen {
+        launch: input,
+        root_key: "root".to_owned(),
+        control_secret: "b".repeat(64),
+        lease: Some(ace_adapter_pi::session::control::PiLease::new(
+            "http://127.0.0.1:1/mcp".to_owned(),
+            "c".repeat(64),
+            move || {
+                flag.fetch_add(1, Ordering::SeqCst);
+            },
+        )),
+        reference_dir: harness.home.join("references"),
+        config_root: harness.home.join("config"),
+        nonce: "lease".to_owned(),
+        process_id: "rust-pi-process".to_owned(),
+        resume: None,
+        observer: Arc::clone(&harness.observer) as Arc<dyn ace_adapter_api::SessionObserver>,
+        clock: Arc::new(FixedClock),
+        max_output_bytes: None,
+    };
+    let error = harness
+        .runtime
+        .block_on(open_pi_session(open, harness.runtime.handle()))
+        .err()
+        .ok_or("the open succeeded")?;
+    assert!(matches!(
+        error,
+        PiSessionError::Uncertain(_) | PiSessionError::Refused(_)
+    ));
+    assert_eq!(
+        ended.load(Ordering::SeqCst),
+        1,
+        "the lease ended exactly once"
+    );
+    // The private credential file ended with the session.
+    assert!(!harness.home.join("config").join("ace-mcp-lease").exists());
+    Ok(())
+}
+
+/// A new case: the fence is read before the first write, so a steer aimed at an ended turn is
+/// refused unread and never reaches Pi. No TypeScript case covers the Rust fence path.
+#[test]
+fn a_fenced_steer_whose_turn_ended_is_refused_before_any_write() -> TestResult {
+    struct Ended;
+    impl ace_adapter_api::SteerFence for Ended {
+        fn turn(&self) -> Option<&str> {
+            Some("native-turn")
+        }
+        fn current(&self) -> bool {
+            false
+        }
+    }
+    let harness = Harness::new("fence")?;
+    let session = harness.open(Vec::new(), None, |_| {}, None)?;
+    let parts = text("late");
+    let fence = Ended;
+    let error = harness
+        .runtime
+        .block_on(session.send(ace_adapter_api::SendInput {
+            input: &parts,
+            delivery: Delivery::Steer,
+            command_id: None,
+            origin: None,
+            fence: Some(&fence),
+        }))
+        .err()
+        .ok_or("the steer was not refused")?;
+    assert!(matches!(
+        error,
+        ace_adapter_api::AdapterApiError::SteerTargetLost(_)
+    ));
+    assert!(harness.observer.sends("prompt").is_empty());
+    harness.close(&session)?;
+    Ok(())
+}

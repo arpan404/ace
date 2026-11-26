@@ -541,7 +541,10 @@ async fn drain(inner: Arc<Inner>) {
                     channel,
                     text,
                 } => {
+                    // Admission already proved the text is JSON; a failure here would be a
+                    // bug in the wire, so it is logged rather than silently lost.
                     let Ok(data) = Raw::from_string(text) else {
+                        eprintln!("pi session: a frame's text was not JSON");
                         continue;
                     };
                     let t = (inner.clock.now() - inner.started).round().max(0.0) as i64;
