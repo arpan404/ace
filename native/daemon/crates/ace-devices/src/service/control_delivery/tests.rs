@@ -140,6 +140,22 @@ fn a_reply_never_arms_a_timer_so_a_flush_is_idle_without_a_backed_up_push() {
     );
     assert_eq!(delivery.pending(), 0);
     assert_eq!(delivery.fire(1, 0), Flush::Idle);
+
+    // The first push that has to wait arms a timer; a flush leaves none behind.
+    assert_eq!(
+        delivery.send(inventory("inventory"), BUFFERED_LIMIT + 1),
+        Ok(Sent::Held { arm: Some(1) })
+    );
+    let Flush::Write(writes) = delivery.fire(1, 0) else {
+        panic!("the armed timer writes what waits");
+    };
+    assert_eq!(messages(&writes), ["inventory"]);
+    assert_eq!(delivery.fire(1, 0), Flush::Idle, "the timer retired");
+    assert_eq!(
+        delivery.send(state("d1", "state"), BUFFERED_LIMIT + 1),
+        Ok(Sent::Held { arm: Some(2) }),
+        "the next wait arms its own timer"
+    );
 }
 
 #[test]
