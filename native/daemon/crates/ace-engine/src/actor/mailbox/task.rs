@@ -3,12 +3,13 @@
 //! flush (`actor.ts:254`-`:266`, `:431`-`:442`, `:589`-`:608`).
 
 use super::RunFn;
-use super::queue::admit_run;
-use crate::actor::deps::BatchAck;
-use crate::actor::state::{Actor, FrameRef};
+use super::queue::{SharedAck, admit_instance_run};
+use crate::actor::mailbox::Handles;
+use crate::actor::state::{ActorInstance, ActorRef, FrameRef, current, instance_deps};
 use crate::actor::{flow, fold, intake, timer};
 use crate::futures::channel::oneshot;
 use crate::{Core, EngineError, ThreadId};
+use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -17,40 +18,17 @@ use std::task::Poll;
 /// `runWhenWritable` (`actor.ts:254`): the store's gate, re-checked in the turn that runs the op.
 pub async fn run_when_writable(
     core: &Rc<Core>,
-    thread: &ThreadId,
-    instance: u64,
+    actor: &ActorRef,
     run: &mut RunFn,
-) -> Result<(), EngineError> {
+) -> Result<bool, EngineError> {
     loop {
-        // A retry resumes after an eviction: the batch belongs to the actor that queued it.
-        let alive = core
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(thread)
-                    .is_some_and(|actor| actor.instance == instance)
-            })
-            .unwrap_or(false);
-        if !alive {
-            return Ok(());
+        if actor.borrow().poisoned {
+            return Ok(false);
         }
-        let poisoned = core
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(thread)
-                    .is_none_or(|actor| actor.poisoned)
-            })
-            .unwrap_or(true);
-        if poisoned {
-            return Ok(());
-        }
-        let live = core.actor_deps.borrow().live.clone();
+        let live = instance_deps(core, actor).live.clone();
         if live.writable_now() {
-            match run(core) {
-                Ok(()) => return Ok(()),
+            match run(core, actor) {
+                Ok(()) => return Ok(true),
                 Err(error) => {
                     if live.is_store_retry(&error) {
                         let timer = core.ports.set_timer(100.0);
@@ -66,79 +44,92 @@ pub async fn run_when_writable(
 }
 
 /// Settles every acknowledgement attached to an op after it ran (`actor.ts:431`).
-pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: BatchAck) -> bool {
-    let reject = core
-        .with_state(|state| {
-            let limits = state.limits;
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
-                return true;
-            };
-            actor.queued = actor.queued.saturating_sub(frames);
-            actor.queued_bytes = actor.queued_bytes.saturating_sub(bytes);
-            flow::update_pressure(actor, &limits);
-            actor.poisoned || actor.overflowed
-        })
-        .unwrap_or(true);
-    let mut ack = ack;
-    let js = ack.js;
-    if reject {
-        ack.reject("Provider frame failed to commit");
-    } else {
-        ack.resolve();
-    }
+pub fn settle(core: &Core, thread: &ThreadId, frames: usize, bytes: usize, ack: SharedAck) -> bool {
+    let Some(actor) = current(core, thread) else {
+        return settle_ack(&core.actor_deps.borrow().clone(), ack, true);
+    };
+    settle_instance(core, &actor, frames, bytes, ack)
+}
+
+pub(crate) fn settle_instance(
+    core: &Core,
+    actor: &ActorRef,
+    frames: usize,
+    bytes: usize,
+    ack: SharedAck,
+) -> bool {
+    let limits = super::limits(core);
+    let reject = {
+        let mut actor = actor.borrow_mut();
+        actor.queued = actor.queued.saturating_sub(frames);
+        actor.queued_bytes = actor.queued_bytes.saturating_sub(bytes);
+        flow::update_pressure(&mut actor, &limits);
+        actor.poisoned || actor.overflowed
+    };
+    settle_ack(&instance_deps(core, actor), ack, reject)
+}
+
+fn settle_ack(deps: &crate::actor::ActorDeps, ack: SharedAck, reject: bool) -> bool {
+    let js = {
+        let mut ack = ack.borrow_mut();
+        let js = ack.js;
+        if reject {
+            ack.reject("Provider frame failed to commit");
+        } else {
+            ack.resolve();
+        }
+        js
+    };
     if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
         deps.acks.settle(
             call,
             reject.then(|| "Provider frame failed to commit".to_string()),
         );
-        return true;
     }
-    false
+    js.is_some()
 }
 
-/// An op whose actor was replaced under it: its acknowledgement rejects, and nothing is charged
-/// to the actor that now owns the thread.
-pub fn settle_orphaned(core: &Core, ack: BatchAck) -> bool {
-    let mut ack = ack;
-    let js = ack.js;
-    ack.reject("Provider frame failed to commit");
-    if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
-        deps.acks
-            .settle(call, Some("Provider frame failed to commit".to_string()));
-        return true;
-    }
-    false
+/// The JavaScript frame objects a batch holds, by handle.
+pub fn js_handles(frames: &[crate::actor::state::Pending]) -> Vec<u32> {
+    frames
+        .iter()
+        .filter_map(|pending| match &pending.frame {
+            crate::actor::state::FrameRef::Js { handle, .. } => Some(*handle),
+            crate::actor::state::FrameRef::Native(_) => None,
+        })
+        .collect()
 }
 
-/// A refused batch's settle-only marker: it rejects whatever the actor's state now.
-pub fn settle_rejected(core: &Core, ack: BatchAck) -> bool {
-    let mut ack = ack;
-    let js = ack.js;
-    ack.reject("Provider frame failed to commit");
-    if let Some(call) = js {
-        let deps = core.actor_deps.borrow().clone();
-        deps.acks
-            .settle(call, Some("Provider frame failed to commit".to_string()));
-        return true;
+/// Releases the shell's frame objects for a batch that will never translate.
+pub fn release_js_handles(core: &Core, actor: &ActorRef, handles: &[u32]) {
+    if !handles.is_empty() {
+        instance_deps(core, actor).acks.release(handles);
     }
-    false
+}
+
+/// Releases only the handles the batch still owns: translation already consumed the live ones.
+pub fn release_owned(core: &Core, actor: &ActorRef, handles: &Rc<RefCell<Handles>>) {
+    let taken = handles.borrow_mut().take_all();
+    release_js_handles(core, actor, &taken);
+}
+
+/// A refused batch settles after the work ahead of it.
+pub(crate) fn settle_rejected_instance(core: &Core, actor: &ActorRef, ack: SharedAck) -> bool {
+    settle_ack(&instance_deps(core, actor), ack, true)
 }
 
 /// The mailbox task's own wait: the front entry, or a park on both timers.
-pub async fn park(core: &Rc<Core>, thread: &ThreadId) -> bool {
+pub async fn park(actor: &ActorRef) {
     let mut once = false;
-    let ready = futures::future::poll_fn(|cx| {
+    futures::future::poll_fn(|cx| {
         if once {
-            return Poll::Ready(true);
+            actor.borrow_mut().waker = None;
+            return Poll::Ready(());
         }
         once = true;
-        core.register_waker(thread.clone(), cx.waker().clone());
-        let polled = core.with_state(|state| {
-            let Some(actor) = state.actors.by_thread.get_mut(thread) else {
-                return Poll::Ready(false);
-            };
+        {
+            let mut actor = actor.borrow_mut();
+            actor.waker = Some(cx.waker().clone());
             let mut fired = false;
             if let Some(timer) = actor.batch_timer.as_mut()
                 && Pin::new(&mut timer.fired).poll(cx).is_ready()
@@ -151,17 +142,13 @@ pub async fn park(core: &Rc<Core>, thread: &ThreadId) -> bool {
                 fired = true;
             }
             if fired {
-                Poll::Ready(true)
+                Poll::Ready(())
             } else {
                 Poll::Pending
             }
-        });
-        match polled {
-            Ok(polled) => polled,
-            Err(_) => Poll::Ready(false),
         }
-    });
-    ready.await
+    })
+    .await
 }
 
 /// `backlog()` (`actor.ts:583`).
@@ -169,9 +156,8 @@ pub fn backlog(core: &Core, thread: &ThreadId) -> (usize, usize) {
     core.with_state(|state| {
         state
             .actors
-            .by_thread
             .get(thread)
-            .map(Actor::backlog)
+            .map(|actor| actor.backlog())
             .unwrap_or((0, 0))
     })
     .unwrap_or((0, 0))
@@ -179,37 +165,43 @@ pub fn backlog(core: &Core, thread: &ThreadId) -> (usize, usize) {
 
 /// `flush()` (`actor.ts:589`): seal, wait for writability, then until the mailbox is idle.
 pub async fn flush(core: Rc<Core>, thread: ThreadId, exclude: Option<crate::executor::TaskId>) {
-    intake::catch_up(&core, &thread);
-    intake::seal(&core, &thread);
-    let live = core.actor_deps.borrow().live.clone();
+    if let Some(actor) = current(&core, &thread) {
+        flush_instance(&core, &actor, exclude).await;
+    } else {
+        let live = core.actor_deps.borrow().live.clone();
+        live.writable().await;
+        live.flush_live_writes();
+    }
+}
+
+pub(crate) async fn flush_instance(
+    core: &Rc<Core>,
+    actor: &ActorRef,
+    exclude: Option<crate::executor::TaskId>,
+) {
+    intake::catch_up_instance(core, actor);
+    intake::seal_instance(core, actor);
+    let live = instance_deps(core, actor).live.clone();
     live.writable().await;
     loop {
-        let waiter = core.with_state(|state| {
-            let actor = state.actors.by_thread.get_mut(&thread)?;
-            let own = actor.mailbox_task.is_some() && actor.mailbox_task == exclude;
-            if own || (!actor.running && actor.mailbox.is_empty()) {
-                return None;
+        let receiver = {
+            let mut state = actor.borrow_mut();
+            let own = state.mailbox_task.is_some() && state.mailbox_task == exclude;
+            if own || (!state.running && state.mailbox.is_empty()) {
+                break;
             }
             let (sender, receiver) = oneshot::channel();
-            actor.flush_waiters.push(sender);
-            Some(receiver)
-        });
-        match waiter {
-            // The mailbox is idle (or this flush was reached from its own op): done.
-            Ok(None) | Err(_) => break,
-            Ok(Some(receiver)) => {
-                // The mailbox may already be parked; waking it makes it look again and resolve
-                // the waiter this flush just added.
-                core.record_wake(&thread);
-                let _ = receiver.await;
-            }
-        }
+            state.flush_waiters.push(sender);
+            receiver
+        };
+        core.record_actor_wake(actor);
+        let _ = receiver.await;
     }
     live.flush_live_writes();
 }
 
 /// The mailbox's idle step: resolve the flush waiters once nothing is left.
-pub fn resolve_flush_waiters(actor: &mut Actor) -> bool {
+pub fn resolve_flush_waiters(actor: &mut ActorInstance) -> bool {
     if actor.running || !actor.mailbox.is_empty() {
         return false;
     }
@@ -225,32 +217,21 @@ pub fn frame_is_sdk(frame: &FrameRef) -> bool {
 }
 
 /// `quiescent`: no pending frames, no ops, no running op.
-pub fn actor_quiescent(actor: &Actor) -> bool {
+pub fn actor_quiescent(actor: &ActorInstance) -> bool {
     actor.pending.is_empty() && actor.mailbox.is_empty() && !actor.running
 }
 
 /// The tick a fired actor timer stands for (`actor.ts:564`).
-pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
-    let op_thread = thread.clone();
+pub fn fire_tick(core: &Rc<Core>, actor: &ActorRef) {
     admit_now(
         core,
-        thread,
-        Box::new(move |core: &Rc<Core>| {
-            let thread: &String = &op_thread;
+        actor,
+        Box::new(move |core, actor| {
+            let id = actor.borrow().id.clone();
+            let thread = &id;
             let now = core.ports.now();
-            let deps = core.actor_deps.borrow().clone();
-            let generation = core
-                .with_state(|state| {
-                    state
-                        .actors
-                        .by_thread
-                        .get(thread)
-                        .map(|actor| actor.generation)
-                })
-                .ok()
-                .flatten()
-                .unwrap_or(0);
-            let mut taken = deps.take_translator(thread);
+            let deps = instance_deps(core, actor);
+            let mut taken = actor.borrow_mut().translator.take();
             let mut facts: Vec<ace_json::Value> = match &mut taken {
                 Some((_, crate::actor::deps::ActorTranslator::Js(js))) => {
                     js.tick(now).unwrap_or_default()
@@ -262,30 +243,15 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
                     .collect(),
                 None => Vec::new(),
             };
-            deps.return_translator(thread, generation, taken);
+            actor.borrow_mut().return_translator(taken);
             facts.push(ace_json::json!({"type": "tick"}));
             // A busy store retries the tick, as the TypeScript's `runWhenWritable` does; any
             // other failure reaches the mailbox's own failure path.
-            fold::apply(core, thread, &facts)?;
-            let idle_ms = deps.idle_ms;
-            let release = core
-                .with_state(|state| {
-                    state
-                        .actors
-                        .by_thread
-                        .get(thread)
-                        .and_then(|actor| timer::release_at(actor, idle_ms))
-                })
-                .ok()
-                .flatten();
+            fold::apply_instance(core, actor, &facts)?;
+            let release = timer::release_at(&actor.borrow(), deps.idle_ms);
             if release.is_some_and(|release| now >= release) {
-                core.with_state(|state| {
-                    if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-                        actor.idle_due = true;
-                    }
-                })
-                .ok();
-                timer::disarm(core, thread);
+                actor.borrow_mut().idle_due = true;
+                timer::disarm_instance(core, actor);
             }
             deps.links.wake(core, thread);
             Ok(())
@@ -295,7 +261,7 @@ pub fn fire_tick(core: &Rc<Core>, thread: &ThreadId) {
 
 /// Work of the first kind: a zone that does not depend on an enclosing transaction (a timer's
 /// tick) seals and admits at once, so a rollback cannot discard it.
-pub fn admit_now(core: &Rc<Core>, thread: &ThreadId, run: RunFn) {
-    intake::seal(core, thread);
-    admit_run(core, thread, run);
+fn admit_now(core: &Rc<Core>, actor: &ActorRef, run: RunFn) {
+    intake::seal_instance(core, actor);
+    admit_instance_run(core, actor, run);
 }

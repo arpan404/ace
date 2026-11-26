@@ -110,7 +110,9 @@ impl ClaudeWire {
         messages_json: &str,
         command_id: Option<&str>,
     ) -> Result<Vec<Effect>, ClaudeError> {
-        if self.finished || self.failed {
+        // Input closed is the session's close (`input.ts:20`: `push` throws once `close` ran),
+        // so nothing reaches a pipe that already took its EOF.
+        if self.finished || self.failed || !self.input_open {
             return Err(ClaudeError::Refused(CLOSED.to_owned()));
         }
         if let Some(message) = self.writes.failed() {
@@ -204,5 +206,6 @@ fn input_message(command_id: &str, uuid: &str) -> String {
     let mut map = Map::with_capacity(2);
     map.insert("commandId", Value::from(command_id));
     map.insert("nativeId", Value::from(uuid));
-    ace_json::to_string(&Value::Object(map))
+    // The bridge calls `ctx[name](...args)`: one argument, the identity object.
+    ace_json::to_string(&Value::from(vec![Value::Object(map)]))
 }

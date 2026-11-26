@@ -126,6 +126,16 @@ pub(super) fn live_fence(
     )
 }
 
+/// A fence that names no turn: what the engine hands a steer after it yielded the run
+/// (`delivery.ts:216`-`:228`, `steer-selection.ts:39`). It reads current while no run is active.
+pub(super) fn runless_fence(current: bool) -> crate::session::input::Fence {
+    let fence = TestFence {
+        turn: None,
+        current: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(current)),
+    };
+    crate::session::input::Fence::new(std::sync::Arc::new(fence))
+}
+
 pub(super) fn text(value: &str) -> Value {
     json!({ "type": "text", "text": value })
 }

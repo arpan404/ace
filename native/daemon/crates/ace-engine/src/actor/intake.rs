@@ -6,7 +6,7 @@
 use crate::actor::deps::BatchAck;
 use crate::actor::flow;
 use crate::actor::mailbox::{self, BatchOp};
-use crate::actor::state::{FrameRef, Pending};
+use crate::actor::state::{ActorRef, FrameRef, Pending, current, instance_deps};
 use crate::frames::envelope::{Envelope, envelope_error};
 use crate::futures::channel::oneshot;
 use crate::ports::PortError;
@@ -48,51 +48,45 @@ fn fired(timer: &mut crate::ports::Timer) -> bool {
 /// Decision 3, synchronous catch-up: a fired actor timer enqueues its tick (which seals first),
 /// and a fired batch timer seals.
 pub fn catch_up(core: &Rc<Core>, thread: &ThreadId) {
-    let fired_now = core.with_state(|state| {
-        let Some(actor) = state.actors.by_thread.get_mut(thread) else {
-            return (false, false);
-        };
+    if let Some(actor) = current(core, thread) {
+        catch_up_instance(core, &actor);
+    }
+}
+
+pub(crate) fn catch_up_instance(core: &Rc<Core>, actor: &ActorRef) {
+    let (tick, batch) = {
+        let mut actor = actor.borrow_mut();
         let tick = actor.timer.as_mut().is_some_and(|(timer, _)| fired(timer));
         let batch = actor.batch_timer.as_mut().is_some_and(fired);
+        if !tick && !batch {
+            return;
+        }
         (tick, batch)
-    });
-    let Ok((tick, batch)) = fired_now else {
-        return;
     };
     if tick {
-        mailbox::fire_tick(core, thread);
+        mailbox::fire_tick(core, actor);
     }
     if batch {
-        seal(core, thread);
+        seal_instance(core, actor);
     }
 }
 
 /// `frame()`: the checks and the batch join, in `actor.ts:303`'s order.
-pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameInput) -> Ack {
-    catch_up(core, thread);
+pub fn frame(core: &Rc<Core>, actor: &ActorRef, generation: u64, input: FrameInput) -> Ack {
     let mut input = input;
     let mut native_ack = input.native_ack.take();
-    let state = core.with_state(|state| {
-        state.actors.by_thread.get(thread).map(|actor| {
-            (
-                actor.stopped,
-                actor.generation,
-                actor.poisoned,
-                actor.overflowed,
-            )
-        })
-    });
-    let Ok(Some((stopped, current, poisoned, overflowed))) = state else {
-        // A native session's acknowledgement resolves: the frame was dropped, not failed.
-        if let Some(sender) = native_ack.take() {
-            let _ = sender.send(Ok(()));
-        }
-        return Ack::Done;
+    catch_up_instance(core, actor);
+    let (stopped, current, poisoned, overflowed) = {
+        let state = actor.borrow();
+        (
+            state.stopped,
+            state.generation,
+            state.poisoned,
+            state.overflowed,
+        )
     };
     if stopped || generation != current {
-        if let Some(sender) = native_ack.take() {
-            let _ = sender.send(Ok(()));
-        }
+        finish_stale(native_ack);
         return Ack::Done;
     }
     if poisoned {
@@ -102,33 +96,33 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     if let Some(field) = envelope_error(&input.envelope) {
         let message = format!("Provider frame envelope is malformed: {field}");
         refuse(native_ack.take(), "Provider frame failed to commit");
-        enqueue_failure(core, thread, message);
-        return Ack::AfterFlush(after_flush(core, thread));
+        enqueue_failure(core, actor, message);
+        return Ack::AfterFlush(after_flush(actor));
     }
     let certified = matches!(&input.measure, Measure::Certified { .. });
     if input.channel_sdk && !certified {
         refuse(native_ack.take(), "Provider frame failed to commit");
         enqueue_failure(
             core,
-            thread,
+            actor,
             "SDK frame lacks matching encoded admission certificate".to_string(),
         );
-        return Ack::AfterFlush(after_flush(core, thread));
+        return Ack::AfterFlush(after_flush(actor));
     }
     let limits = core.with_state(|state| state.limits).unwrap_or_default();
     let bytes = match input.measure {
         Measure::Certified { bytes } => bytes + 512,
         Measure::Bounded(Err(message)) => {
             refuse(native_ack.take(), "Provider frame failed to commit");
-            enqueue_failure(core, thread, message);
-            return Ack::AfterFlush(after_flush(core, thread));
+            enqueue_failure(core, actor, message);
+            return Ack::AfterFlush(after_flush(actor));
         }
         Measure::Bounded(Ok(bytes)) => bytes,
     };
     if bytes as u64 > limits.max_frame_bytes {
         refuse(native_ack.take(), "Provider frame failed to commit");
-        enqueue_failure(core, thread, "Provider frame capacity exceeded".to_string());
-        return Ack::AfterFlush(after_flush(core, thread));
+        enqueue_failure(core, actor, "Provider frame capacity exceeded".to_string());
+        return Ack::AfterFlush(after_flush(actor));
     }
     if overflowed {
         refuse(native_ack.take(), "Provider frame failed to commit");
@@ -136,31 +130,31 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
     }
     // One promise per batch: the binding allocates it when this frame opens a batch, never per
     // frame, and a joined frame carries none of its own.
-    let opens_batch = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .is_some_and(|actor| actor.pending_ack.is_none())
-        })
-        .unwrap_or(false);
-    let js_ack = if opens_batch {
-        core.actor_deps.borrow().clone().acks.alloc()
-    } else {
-        None
+    let deps = instance_deps(core, actor);
+    let opens_batch = actor.borrow().pending_ack.is_none();
+    let js_ack = if opens_batch { deps.acks.alloc() } else { None };
+    let stale = {
+        let state = actor.borrow();
+        state.stopped || generation != state.generation
     };
+    if stale {
+        if let Some(call) = js_ack {
+            deps.acks.settle(call, None);
+        }
+        finish_stale(native_ack);
+        return Ack::Done;
+    }
     let decision = core
         .with_state(|state| {
             let limits = state.limits;
-            let actor = state.actors.by_thread.get_mut(thread)?;
+            let mut actor = actor.borrow_mut();
             actor.pending.push(Pending {
                 frame: input.frame,
                 generation,
                 bytes,
             });
             actor.pending_bytes += bytes;
-            flow::update_pressure(actor, &limits);
+            flow::update_pressure(&mut actor, &limits);
             let ack = actor.pending_ack.get_or_insert_with(BatchAck::default);
             if let Some(sender) = native_ack {
                 ack.native.push(sender);
@@ -190,28 +184,25 @@ pub fn frame(core: &Rc<Core>, thread: &ThreadId, generation: u64, input: FrameIn
         // allocation called re-entered and opened one) settles at once; the caller returns the
         // batch's.
         if let Some(call) = js_ack {
-            core.actor_deps.borrow().clone().acks.settle(call, None);
+            deps.acks.settle(call, None);
         }
     }
-    arm_batch_timer(core, thread);
+    arm_batch_timer(core, actor);
     if seal_now {
-        seal(core, thread);
+        seal_instance(core, actor);
     }
     Ack::Batch(batch_call)
 }
 
-/// Releases the shell's frame objects a batch will never translate.
-pub(crate) fn release_handles(core: &Core, frames: &[Pending]) {
-    let handles: Vec<u32> = frames
-        .iter()
-        .filter_map(|pending| match &pending.frame {
-            FrameRef::Js { handle, .. } => Some(*handle),
-            FrameRef::Native(_) => None,
-        })
-        .collect();
-    if !handles.is_empty() {
-        core.actor_deps.borrow().clone().acks.release(&handles);
+fn finish_stale(ack: Option<oneshot::Sender<Result<(), String>>>) {
+    if let Some(sender) = ack {
+        let _ = sender.send(Ok(()));
     }
+}
+
+/// Releases the shell's frame objects a batch will never translate.
+pub(crate) fn release_handles(core: &Core, actor: &ActorRef, frames: &[Pending]) {
+    mailbox::release_js_handles(core, actor, &mailbox::js_handles(frames));
 }
 
 /// A native session's acknowledgement for a frame that never became a batch: its gate fails.
@@ -222,66 +213,61 @@ fn refuse(ack: Option<oneshot::Sender<Result<(), String>>>, message: &str) {
 }
 
 /// A frame the actor must refuse visibly: the failing op, then the flush its promise waits on.
-fn enqueue_failure(core: &Rc<Core>, thread: &ThreadId, message: String) {
-    mailbox::enqueue(
+fn enqueue_failure(core: &Rc<Core>, actor: &ActorRef, message: String) {
+    mailbox::queue::enqueue_instance(
         core,
-        thread,
-        Box::new(move |_core: &Rc<Core>| Err(EngineError::Port(PortError::Threw(message.clone())))),
+        actor,
+        Box::new(move |_, _| Err(EngineError::Port(PortError::Threw(message.clone())))),
     );
 }
 
 /// The receiver the shell's promise for an unaccepted frame waits on.
-fn after_flush(core: &Rc<Core>, thread: &ThreadId) -> oneshot::Receiver<()> {
+fn after_flush(actor: &ActorRef) -> oneshot::Receiver<()> {
     let (sender, receiver) = oneshot::channel();
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.flush_waiters.push(sender);
-        }
-    })
-    .ok();
+    actor.borrow_mut().flush_waiters.push(sender);
     receiver
 }
 
 /// Arms the 1 ms batch timer when none is armed (`actor.ts:340`).
-pub fn arm_batch_timer(core: &Rc<Core>, thread: &ThreadId) {
-    let needs = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .is_some_and(|actor| actor.batch_timer.is_none())
-        })
-        .unwrap_or(false);
-    if !needs {
+fn arm_batch_timer(core: &Rc<Core>, actor: &ActorRef) {
+    if actor.borrow().batch_timer.is_some() {
         return;
     }
     let timer = core.ports.set_batch_timer(1.0);
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.batch_timer = Some(timer);
+    {
+        let mut state = actor.borrow_mut();
+        if state.stopped || state.batch_timer.is_some() || state.pending.is_empty() {
+            drop(state);
+            core.ports.cancel_timer(timer.key);
+            return;
         }
-    })
-    .ok();
-    core.record_wake(thread);
+        state.batch_timer = Some(timer);
+    }
+    core.record_actor_wake(actor);
 }
 
 /// `sealFrames()`'s take: cancel the batch timer and move the pending frames into one op.
 pub fn seal(core: &Rc<Core>, thread: &ThreadId) {
-    let taken = core.with_state(|state| {
-        let actor = state.actors.by_thread.get_mut(thread)?;
-        let timer = actor.batch_timer.take();
-        if actor.pending.is_empty() {
-            return Some((None, None));
-        }
-        let frames = std::mem::take(&mut actor.pending);
-        let bytes = actor.pending_bytes;
-        actor.pending_bytes = 0;
-        let ack = actor.pending_ack.take().unwrap_or_default();
-        Some((timer, Some((frames, bytes, ack))))
-    });
-    let Ok(Some((timer, batch))) = taken else {
-        return;
+    if let Some(actor) = current(core, thread) {
+        seal_instance(core, &actor);
+    }
+}
+
+pub(crate) fn seal_instance(core: &Rc<Core>, actor: &ActorRef) {
+    let (timer, batch) = {
+        let mut state = actor.borrow_mut();
+        let timer = state.batch_timer.take();
+        let batch = if state.pending.is_empty() {
+            None
+        } else {
+            let frames = std::mem::take(&mut state.pending);
+            let bytes = std::mem::take(&mut state.pending_bytes);
+            let ack = Rc::new(std::cell::RefCell::new(
+                state.pending_ack.take().unwrap_or_default(),
+            ));
+            Some((frames, bytes, ack))
+        };
+        (timer, batch)
     };
     if let Some(timer) = timer {
         core.ports.cancel_timer(timer.key);
@@ -289,79 +275,49 @@ pub fn seal(core: &Rc<Core>, thread: &ThreadId) {
     let Some((frames, bytes, ack)) = batch else {
         return;
     };
-    let op = BatchOp {
-        frames,
-        bytes,
-        ack,
-        admitted: false,
-        memory: Default::default(),
-    };
-    accept_batch(core, thread, op);
+    let handles = Rc::new(std::cell::RefCell::new(mailbox::Handles::from_frames(
+        &frames,
+    )));
+    accept_batch(
+        core,
+        actor,
+        BatchOp {
+            frames,
+            bytes,
+            ack,
+            admitted: false,
+            memory: Default::default(),
+            handles,
+        },
+    );
 }
 
-/// The batch's admission: a refused batch still settles its acknowledgement after the ops before
-/// it (`actor.ts:430`).
-fn accept_batch(core: &Rc<Core>, thread: &ThreadId, mut op: BatchOp) {
+/// Refused batches settle their acknowledgements after the ops before them.
+fn accept_batch(core: &Rc<Core>, actor: &ActorRef, mut op: BatchOp) {
     let frames = op.frames.len();
-    let refused = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .is_none_or(|actor| actor.stopped || actor.overflowed)
-        })
-        .unwrap_or(true);
-    if refused {
-        // The batch never translates, so the shell's frame objects are released with it.
-        release_handles(core, &op.frames);
-        push_settle(core, thread, op.ack);
-        return;
-    }
-    let limits = core.with_state(|state| state.limits).unwrap_or_default();
-    let over = core
-        .with_state(|state| {
-            let actor = state.actors.by_thread.get(thread)?;
-            Some(
-                actor.queued + frames > limits.max_queued_frames as usize
-                    || actor.queued_bytes + op.bytes > limits.max_queued_bytes as usize,
-            )
-        })
-        .ok()
-        .flatten()
-        .unwrap_or(true);
-    if over {
-        release_handles(core, &op.frames);
-        core.with_state(|state| {
-            if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-                actor.overflowed = true;
-                actor.mailbox.push_back(mailbox::Op::Overflow);
+    let limits = mailbox::limits(core);
+    let release = {
+        let mut state = actor.borrow_mut();
+        let over = state.queued + frames > limits.max_queued_frames as usize
+            || state.queued_bytes + op.bytes > limits.max_queued_bytes as usize;
+        if state.stopped || state.overflowed || over {
+            if over && !state.stopped && !state.overflowed {
+                state.overflowed = true;
+                state.mailbox.push_back(mailbox::Op::Overflow);
             }
-        })
-        .ok();
-        push_settle(core, thread, op.ack);
-        return;
+            state.mailbox.push_back(mailbox::Op::Settle(op.ack));
+            Some(op.frames)
+        } else {
+            op.admitted = true;
+            state.queued += frames;
+            state.queued_bytes += op.bytes;
+            flow::update_pressure(&mut state, &limits);
+            state.mailbox.push_back(mailbox::Op::Batch(Box::new(op)));
+            None
+        }
+    };
+    if let Some(frames) = release {
+        release_handles(core, actor, &frames);
     }
-    op.admitted = true;
-    core.with_state(|state| {
-        let limits = state.limits;
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.queued += frames;
-            actor.queued_bytes += op.bytes;
-            flow::update_pressure(actor, &limits);
-            actor.mailbox.push_back(mailbox::Op::Batch(Box::new(op)));
-        }
-    })
-    .ok();
-    core.record_wake(thread);
-}
-
-fn push_settle(core: &Rc<Core>, thread: &ThreadId, ack: BatchAck) {
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.mailbox.push_back(mailbox::Op::Settle(ack));
-        }
-    })
-    .ok();
-    core.record_wake(thread);
+    core.record_actor_wake(actor);
 }

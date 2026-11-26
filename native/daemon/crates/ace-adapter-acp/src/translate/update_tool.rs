@@ -259,7 +259,7 @@ pub fn handle_tool_call(
                 && prior_status.as_deref() == Some(tool.status.as_str())
             {
                 state.notice(facts, frame, "session/update", None, Some(agent_key));
-                let is_shell = tool_detail(&Value::Object(tool.data.clone()), state.quirks)
+                let is_shell = tool_detail(&tool.data, state.quirks)
                     .get("kind")
                     .and_then(Value::as_str)
                     .is_some_and(|kind| kind == "shell");

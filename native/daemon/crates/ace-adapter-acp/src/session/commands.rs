@@ -371,8 +371,9 @@ impl AcpCore {
         // `ctx.mcp?.end()` (`session.ts:912`): the lease goes with the session. The facade
         // owns the lease, so it hears it as a context callback.
         self.end_lease(effects);
-        let closed = self.peer.close("ACP session closed");
-        self.apply_peer_effects(closed, effects);
+        // The peer is not closed here: TS's `rpc.close()` follows the stop (`:914`-`:919`),
+        // so the frames a child sends on SIGTERM still arrive. `finish` closes it at the
+        // pipe barrier.
     }
 }
 

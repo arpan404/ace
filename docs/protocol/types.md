@@ -9665,6 +9665,7 @@ Example:
 | subagentTranscripts | yes | boolean |  |
 | backgroundTaskControl | yes | boolean |  |
 | goals | no | boolean |  |
+| compaction | no | boolean |  |
 | backgroundVisibility | yes | ["full","partial","none"] |  |
 | planMode | yes | boolean |  |
 | tokenUsage | yes | boolean |  |
@@ -9677,18 +9678,13 @@ Example:
 ```json
 {
   "accessModes": [],
-  "attachmentInput": {
-    "documents": [],
-    "embeddedContext": true,
-    "format": "acp",
-    "maxInlineBytes": 2
-  },
   "backgroundTaskControl": false,
-  "backgroundVisibility": "full",
+  "backgroundVisibility": "partial",
+  "compaction": false,
   "fork": false,
   "forkPoints": [],
   "forkSubagents": false,
-  "imageInput": true,
+  "imageInput": false,
   "interruptCascades": false,
   "permissions": {
     "modes": [],
@@ -9696,14 +9692,14 @@ Example:
     "permissionModes": [],
     "toolGate": false
   },
-  "planMode": false,
+  "planMode": true,
   "resume": true,
-  "rewindFiles": false,
+  "rewindFiles": true,
   "sessionOptions": true,
   "steer": true,
   "steeringMode": "queue",
   "subagentTranscripts": true,
-  "tokenUsage": false
+  "tokenUsage": true
 }
 ```
 
@@ -13235,20 +13231,28 @@ Example:
 {
   "capabilities": {
     "approvals": "interactive",
+    "attachmentInput": {
+      "documents": [],
+      "embeddedContext": true,
+      "format": "opencode",
+      "interleaved": false,
+      "maxInlineBytes": 1
+    },
     "backgroundTaskControl": false,
-    "backgroundVisibility": "full",
+    "backgroundVisibility": "partial",
+    "compaction": true,
     "fork": true,
     "forkPoints": [],
     "goals": false,
-    "imageInput": false,
+    "imageInput": true,
     "interruptCascades": true,
-    "planMode": true,
+    "planMode": false,
     "resume": false,
-    "rewindFiles": true,
+    "rewindFiles": false,
     "sessionOptions": true,
     "steer": false,
     "subagentTranscripts": true,
-    "tokenUsage": false
+    "tokenUsage": true
   },
   "key": "example",
   "type": "provider.capabilities"
@@ -13445,62 +13449,27 @@ Example:
 
 ```json
 {
-  "seq": 3,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "partial": {
-      "previews": []
+    "kind": "threads",
+    "seq": 7,
+    "shares": {
+      "effectiveCapabilities": [],
+      "rows": {},
+      "workspaces": []
     },
-    "runs": {},
-    "seq": 3,
-    "thread": {
-      "activityAt": 3,
-      "autoSettle": false,
-      "capabilitiesRef": "example",
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
+    "threads": {},
+    "window": {
+      "before": {
+        "at": 8,
+        "id": "example"
       },
-      "createdAt": 4,
-      "host": "spade-bot",
-      "hostKey": "example",
-      "id": "example",
-      "instanceId": "example",
-      "provider": "opencode",
-      "queue": {
-        "exited": false,
-        "lastFailure": null,
-        "paused": true,
-        "reason": "limit",
-        "resumeAt": null,
-        "revision": 1
-      },
-      "queuedLaunch": {
-        "queuePosition": 10,
-        "text": "example"
-      },
-      "settledAt": 7,
-      "settledReason": "inactivity",
-      "snoozedUntil": 0,
-      "status": {
-        "agents": 9,
-        "state": "working"
-      },
-      "title": "example",
-      "updatedAt": 0,
-      "workspaceId": "example"
-    },
-    "usage": {},
-    "usageSnapshots": {}
+      "counts": [],
+      "epoch": "example",
+      "total": 0
+    }
   }
 }
 ```
@@ -48483,28 +48452,35 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
   "acpSupport": {
     "capabilities": {
       "imageInput": false,
       "planMode": false,
       "resume": true
     },
-    "coverage": "legacy",
-    "mcp": "http",
-    "modeSelection": false,
+    "coverage": "generic",
+    "mcp": "unavailable",
+    "modeSelection": true,
     "modelSelection": true,
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "visibility": "limited"
   },
-  "archivedAt": 8,
+  "archivedAt": 4,
   "autoSettle": false,
   "capabilities": {
     "approvals": "sandbox-only",
+    "attachmentInput": {
+      "documents": [],
+      "embeddedContext": true,
+      "format": "codex",
+      "maxInlineBytes": 6
+    },
     "backgroundTaskControl": false,
-    "backgroundVisibility": "none",
+    "backgroundVisibility": "full",
     "childControls": "native",
     "fork": true,
     "imageInput": false,
@@ -48513,12 +48489,13 @@ Example:
     "permissionModes": [],
     "planMode": true,
     "resume": true,
-    "rewindFiles": true,
+    "rewindFiles": false,
     "steer": false,
     "subagentTranscripts": true,
-    "tokenUsage": true
+    "tokenUsage": false
   },
-  "createdAt": 7,
+  "createdAt": 3,
+  "delegatedBy": "example",
   "details": {
     "ahead": 9,
     "baseBranch": "example",
@@ -48566,11 +48543,6 @@ Example:
     },
     "worktreeMissing": true
   },
-  "execution": {
-    "instanceId": "example",
-    "model": "example",
-    "provider": "claude"
-  },
   "goal": {
     "objective": "example",
     "setAt": 4,
@@ -48580,22 +48552,12 @@ Example:
   "host": "spade-bot",
   "hostKey": "example",
   "id": "example",
-  "imported": {
-    "importedAt": 3,
-    "instanceId": "example",
-    "native": {
-      "acpAgentId": "example",
-      "path": "example",
-      "provider": "acp"
-    },
-    "sourceId": "example"
-  },
-  "installationId": "example",
   "listOrder": 1,
   "permission": {
+    "custom": "example",
     "effective": null,
-    "override": "auto-review",
-    "pending": true
+    "override": null,
+    "pending": false
   },
   "provider": "codex",
   "queue": {
@@ -48609,7 +48571,6 @@ Example:
     "resumeAt": null,
     "revision": 1
   },
-  "rootAgentId": "example",
   "settledOverQueue": 7,
   "snoozeWoke": {
     "at": 1,
@@ -48617,11 +48578,12 @@ Example:
     "outcome": "failed"
   },
   "status": {
-    "state": "limited"
+    "agents": 9,
+    "state": "working"
   },
   "title": "example",
   "titleSource": "provisional",
-  "updatedAt": 8,
+  "updatedAt": 7,
   "workspaceId": "example"
 }
 ```
@@ -49199,7 +49161,13 @@ Example:
     "reason": "cursor_cli_retired",
     "state": "read_only"
   },
-  "createdAt": 4,
+  "createdAt": 6,
+  "delegatedFrom": {
+    "hostId": "example",
+    "rootThreadId": "example",
+    "threadId": "example",
+    "threadTitle": "example"
+  },
   "details": {
     "base": {
       "head": "0a5ab0f174d7db6a0eabbc2696f7c96436c0bdae402468543",
@@ -49285,25 +49253,20 @@ Example:
   },
   "effectiveCapabilities": {
     "approvals": "sandbox-only",
-    "attachmentInput": {
-      "documents": [],
-      "embeddedContext": false,
-      "format": "acp",
-      "maxInlineBytes": 7
-    },
     "backgroundTaskControl": true,
-    "backgroundVisibility": "full",
+    "backgroundVisibility": "partial",
     "childControls": "native",
+    "compaction": false,
     "fork": false,
-    "imageInput": true,
+    "imageInput": false,
     "interruptCascades": true,
-    "planMode": false,
+    "planMode": true,
     "resume": false,
-    "rewindFiles": true,
+    "rewindFiles": false,
     "sessionOptions": false,
     "steer": true,
     "subagentTranscripts": false,
-    "tokenUsage": false
+    "tokenUsage": true
   },
   "goal": {
     "objective": "example",
@@ -49311,19 +49274,8 @@ Example:
     "tokensUsed": 4
   },
   "id": "example",
-  "lineage": {
-    "lossy": true,
-    "mode": "native",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "itemId": "example",
-      "type": "item"
-    }
-  },
   "pinOrder": 5,
   "place": {
-    "band": "pinned",
     "rank": [
       6
     ],
@@ -49341,16 +49293,7 @@ Example:
     "on": "needs_you"
   },
   "status": {
-    "raw": {},
-    "state": "unknown"
-  },
-  "switch": {
-    "at": 4,
-    "lossy": true,
-    "selection": {
-      "provider": "pi"
-    },
-    "state": "queued"
+    "state": "new"
   },
   "title": "example",
   "unread": true,
@@ -49992,23 +49935,50 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
-  "itemsBefore": null,
+  "itemsBefore": 8,
   "kind": "thread",
+  "partial": {
+    "previews": []
+  },
   "runs": {},
   "seq": 4,
   "thread": {
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": false,
+        "planMode": false,
+        "resume": true
+      },
+      "coverage": "generic",
+      "mcp": "stdio",
+      "modeSelection": true,
+      "modelSelection": true,
+      "raw": {
+        "json": "example",
+        "truncated": false
+      },
+      "subagentSessions": true,
+      "visibility": "limited"
+    },
+    "archivedAt": 1,
     "autoSettle": false,
     "capabilities": {
       "accessModes": [],
+      "attachmentInput": {
+        "documents": [],
+        "embeddedContext": false,
+        "format": "claude",
+        "interleaved": true,
+        "maxInlineBytes": 1
+      },
       "backgroundTaskControl": true,
       "backgroundVisibility": "none",
       "childFidelity": "placeholder",
       "fork": false,
       "forkMode": "none",
       "forkTranscript": false,
-      "imageInput": true,
+      "imageInput": false,
       "interruptCascades": false,
       "planMode": false,
       "resume": true,
@@ -50016,22 +49986,14 @@ Example:
       "steer": false,
       "steeringMode": "interrupt-restart",
       "subagentTranscripts": true,
-      "tokenUsage": false
+      "tokenUsage": true
     },
-    "capabilitiesRef": "example",
     "continuation": {
       "actionId": "thread.continue_new",
       "reason": "cursor_cli_retired",
       "state": "read_only"
     },
-    "createdAt": 1,
-    "delegatedBy": "example",
-    "delegatedFrom": {
-      "hostId": "example",
-      "hostName": "example",
-      "rootThreadId": "example",
-      "threadId": "example"
-    },
+    "createdAt": 7,
     "deletedAt": 9,
     "details": {
       "baseBranch": "example",
@@ -50093,13 +50055,9 @@ Example:
       "tokenBudget": 8,
       "tokensUsed": 4
     },
-    "handoff": {
-      "bytes": 1,
-      "sourceThreadId": "example",
-      "truncated": true
-    },
     "host": "spade-bot",
     "id": "example",
+    "instanceId": "example",
     "listOrder": 3,
     "live": {
       "contextMeter": {
@@ -50131,6 +50089,9 @@ Example:
       "resumeAt": null,
       "revision": 4
     },
+    "queuedLaunch": {
+      "text": "example"
+    },
     "readAt": 3,
     "settleWhenDone": true,
     "settledAt": 0,
@@ -50139,15 +50100,16 @@ Example:
       "on": "needs_you"
     },
     "status": {
-      "state": "unresponsive"
+      "agents": 5,
+      "state": "working"
     },
     "title": "example",
-    "treeRootId": "example",
     "unread": true,
-    "updatedAt": 1,
+    "updatedAt": 5,
     "workspaceId": "example"
   },
-  "usage": {}
+  "usage": {},
+  "usageSnapshots": {}
 }
 ```
 

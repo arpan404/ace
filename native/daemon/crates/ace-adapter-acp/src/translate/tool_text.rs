@@ -120,7 +120,12 @@ pub fn merge_tool_data(data: &mut Map, update: &Value) {
             if value.is_null() || !value.is_object() || value.is_array() {
                 continue;
             }
-            let previous = object(data.get(field).unwrap_or(&Value::Null)).clone();
+            // The previous input is moved out of the store, not copied: only the named
+            // fields below survive the merge.
+            let mut previous = match data.shift_remove(field) {
+                Some(Value::Object(map)) => map,
+                _ => Map::new(),
+            };
             let mut retained = Map::new();
             for key in [
                 "_toolName",
@@ -151,8 +156,8 @@ pub fn merge_tool_data(data: &mut Map, update: &Value) {
                 "plan",
                 "todos",
             ] {
-                if let Some(existing) = previous.get(key) {
-                    retained.insert(key.to_owned(), existing.clone());
+                if let Some(existing) = previous.shift_remove(key) {
+                    retained.insert(key.to_owned(), existing);
                 }
             }
             for (key, next) in object(value).iter() {
@@ -161,7 +166,10 @@ pub fn merge_tool_data(data: &mut Map, update: &Value) {
             data.insert(field.to_owned(), Value::Object(retained));
         } else if field == "rawOutput" {
             let output = object(value);
-            let mut merged = object(data.get(field).unwrap_or(&Value::Null)).clone();
+            let mut merged = match data.shift_remove(field) {
+                Some(Value::Object(map)) => map,
+                _ => Map::new(),
+            };
             for key in ["exitCode", "totalFiles", "isBackground"] {
                 if let Some(next) = output.get(key) {
                     merged.insert(key.to_owned(), next.clone());
