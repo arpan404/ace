@@ -149,6 +149,16 @@ pub trait Session {
         resolution: InteractionResolution,
     ) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
     fn stop_task(&self, task: Key) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
+    /// The provider's own context compaction (`thread.compact`). Providers without one omit it, so
+    /// the engine refuses with `unsupported_compact` before it ever asks; this default keeps the
+    /// refusal where the engine calls anyway.
+    fn compact(&self) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+        Box::pin(async {
+            Err(AdapterApiError::Frame(
+                "provider has no native compaction".to_owned(),
+            ))
+        })
+    }
     fn close(&self, reason: CloseReason) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
 }
 
