@@ -122,7 +122,7 @@ pub fn admit(
     if let Some(map) = out.as_object_mut() {
         map.insert("payload", replaced);
     }
-    Ok(Some(out))
+    Ok(Some(crate::intents::command::normalize(&out)?))
 }
 
 /// A send or create: the payloads new input arrives as.
@@ -165,5 +165,5 @@ fn without_restated_selection(
     if let Some(map) = out.as_object_mut() {
         map.insert("payload", stripped);
     }
-    Ok(out)
+    crate::intents::command::normalize(&out)
 }

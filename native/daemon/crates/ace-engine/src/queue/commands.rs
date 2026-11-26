@@ -128,6 +128,7 @@ fn run(
             if let Some(map) = edited_command.as_object_mut() {
                 map.insert("payload", payload);
             }
+            let edited_command = crate::intents::command::normalize(&edited_command)?;
             let steer =
                 crate::steering::selection::admit_steer(core, state, &edited_command, thread)?;
             let edited = steer.send.clone();
@@ -235,6 +236,7 @@ fn run(
             if let Some(map) = replacement.as_object_mut() {
                 map.insert("payload", payload);
             }
+            let replacement = crate::intents::command::normalize(&replacement)?;
             crate::queue::messages::remove(core.store.conn(), intent)?;
             state.remove_input(
                 &core.store,
