@@ -239,9 +239,8 @@ fn confirm_model_here(
     value: &Value,
     facts: &mut Vec<RawFact>,
 ) {
-    let model = match value {
-        Value::String(s) if !s.is_empty() && s.encode_utf16().count() <= 256 => s.clone(),
-        _ => return,
+    let Some(model) = super::model::bounded_model(value).cloned() else {
+        return;
     };
     let current = translator.agents.get(native).and_then(|a| a.model.clone());
     if current.as_deref() == Some(model.as_str()) {

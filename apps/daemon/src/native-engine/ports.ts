@@ -64,6 +64,8 @@ export interface EngineBindings {
   hasLiveWrite(threadId: string): boolean;
   rollbackGeneration(): number;
   getThread(id: string): string | null;
+  /** The person's message that named a thread, called at the receipt's commit (E5.4c). */
+  onNamingPrompt(threadId: string, inputJson: string): void;
   capRaw(rawJson: string, threadId: string): string;
   prepareLiveWrite(bytes: number): void;
   /** The store's one live buffer; its `persist`/`committed` callbacks are keyed by `token`. */
@@ -150,6 +152,8 @@ export function engineBindings(input: {
       const thread = store.getThread(id as never);
       return thread === undefined ? null : JSON.stringify(thread);
     },
+    onNamingPrompt: (threadId, inputJson) =>
+      options.onNamingPrompt?.(threadId as never, JSON.parse(inputJson) as never),
     capRaw: (rawJson, threadId) =>
       JSON.stringify(store.capRaw(JSON.parse(rawJson) as never, threadId as never)),
     prepareLiveWrite: (bytes) => store.prepareLiveWrite(bytes),

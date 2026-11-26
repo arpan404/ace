@@ -218,9 +218,7 @@ impl CodexTranslator {
                 .map(|a| a.key.clone())
                 .unwrap_or_default();
             let current_model = self.agents.get(id).and_then(|a| a.model.clone());
-            if let Some(Value::String(model_str)) = &model
-                && !model_str.is_empty()
-                && model_str.encode_utf16().count() <= 256
+            if let Some(model_str) = model.as_ref().and_then(super::model::bounded_model)
                 && current_model.as_deref() != Some(model_str.as_str())
             {
                 if let Some(agent) = self.agents.get_mut(id) {

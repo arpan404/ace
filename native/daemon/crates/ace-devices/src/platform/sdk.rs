@@ -174,7 +174,7 @@ pub fn xcode_probe_failure() -> Refusal {
 pub fn xcode_selection(code: Option<i32>, stdout: &str) -> Result<(), Refusal> {
     // probeOutput trims; trimming again keeps the check honest for any caller.
     let selected = stdout.trim_end();
-    let units = selected.encode_utf16().count();
+    let units = selected.chars().count();
     let absolute = Path::new(selected).is_absolute();
     if code != Some(0) || units > 4096 || !absolute || selected.ends_with("CommandLineTools") {
         return Err(words::refusal("xcodeNotFull"));
@@ -385,5 +385,13 @@ mod tests {
         );
         let longest = format!("/{}", "a".repeat(4095));
         assert_eq!(xcode_selection(Some(0), &longest), Ok(()));
+    }
+
+    #[test]
+    fn xcode_selection_bounds_the_path_in_code_points() {
+        for length in [4095, 4096] {
+            let path = format!("/{}", "😀".repeat(length));
+            assert_eq!(xcode_selection(Some(0), &path).is_ok(), length == 4095);
+        }
     }
 }

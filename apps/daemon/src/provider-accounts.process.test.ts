@@ -106,6 +106,7 @@ else {console.log('Open https://auth.openai.com/codex/device\\nEnter code: ABCD-
   const login = context.services.providerLogin;
   if (!login) throw new Error("Login unavailable");
   const management = new AccountManagement({
+    platform: process.platform,
     registry,
     accounts,
     env,

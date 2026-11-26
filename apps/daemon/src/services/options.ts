@@ -140,6 +140,28 @@ export type DaemonOptions = {
   >[0]["spawn"];
   notificationChannels?: Omit<NotificationChannels, "websocket">;
   modelInstances?: readonly InstanceInput[];
+  /**
+   * Tests hold ace's model admission to prove work that needs a model waits for it; never set by
+   * the app. Model lists finish starting behind `services.modelsReady`.
+   */
+  modelsReady?: Promise<void>;
+  /**
+   * Tests answer when a provider's (or instance's) model discovery has finished, instead of
+   * waiting on the real catalog; unset waits on `ModelCatalog.loadMissing`.
+   */
+  modelSettled?: (filter: import("@ace/protocol").ModelFilter) => Promise<unknown>;
+  /**
+   * Tests shorten how long the automation scheduler waits for model admission before arming;
+   * the app uses 30 s (`automation-lifecycle.ts`).
+   */
+  automationModelWaitMs?: number;
+  /**
+   * Tests shorten how long one occurrence waits for that provider's discovery before its model
+   * counts as unavailable; the app uses 30 s (`@ace/automations`).
+   */
+  automationModelHoldMs?: number;
+  /** Tests shorten the held scheduler's recheck interval; the app uses 30 s. */
+  automationModelRetryMs?: number;
   workload?: HealthOptions["workload"];
   browser?: Omit<BrowserServiceOptions, "dataDir" | "onArtifact">;
   /** Outside MCP clients (ADR 0122), for tests: how client metadata is fetched, request lifetime. */

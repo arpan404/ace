@@ -94,34 +94,15 @@ async fn the_reviewer_reads_the_script_a_command_runs_and_an_approval_runs_it() 
     Ok(())
 }
 
-/// Allows the request for `call` once.
-async fn allow(spade: &Spade, conversation: &str, call: &str) -> Result {
-    let (status, body) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/{call}"),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 202, "{body}");
-    Ok(())
-}
-
-fn asked<'a>(events: &'a [Value], call: &str) -> Vec<&'a Value> {
-    events
-        .iter()
-        .filter(|e| e["type"] == "approval_requested" && e["call_id"] == call)
-        .collect()
-}
-
 #[tokio::test]
-async fn a_script_changed_after_its_review_is_put_to_the_person_as_it_is_now() -> Result {
+async fn a_changed_script_is_refused_after_its_review() -> Result {
     let setup = start(vec![
         Script::reply("").call("c1", "shell", json!({ "command": "sh build.sh" })),
         // The reviewer takes a moment; the script changes meanwhile.
         Script::reply("")
             .plain(APPROVE)
             .held(Duration::from_millis(500)),
-        Script::reply("Ran it as it is now."),
+        Script::reply("Left it."),
         Script::reply("").plain(r#"{"title":"Build"}"#),
     ])
     .await?;
@@ -137,42 +118,28 @@ async fn a_script_changed_after_its_review_is_put_to_the_person_as_it_is_now() -
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     std::fs::write(root.join("build.sh"), "echo changed > changed.txt\n")?;
-    let events = setup
-        .spade
-        .wait_for(&conversation, "approval_requested")
-        .await?;
-    // The reviewer's approval of the old script never runs: the person is asked on the new one.
-    let request = asked(&events, "c1");
-    let request = request.first().ok_or("not asked")?;
-    assert_eq!(
-        request["reviewer_reason"],
-        spade_core::autonomy::escalate::CHANGED_AT_LAUNCH
-    );
-    assert_eq!(request["stopped"], "changed");
-    assert!(result(&events, "c1").is_none(), "the bot was told no");
-    assert!(!root.join("changed.txt").exists(), "nothing ran");
-    assert!(!root.join("done.txt").exists());
-    allow(&setup.spade, &conversation, "c1").await?;
-    let events = setup
-        .spade
-        .wait_for(&conversation, "reply_finished")
-        .await?;
+    let events = setup.spade.wait_for(&conversation, "tool_finished").await?;
     let finished = result(&events, "c1").ok_or("no result")?;
-    assert_eq!(finished["is_error"], false, "{finished}");
+    assert_eq!(finished["is_error"], true, "{finished}");
     assert!(
-        root.join("changed.txt").exists(),
-        "what the person allowed ran"
+        finished["content"]
+            .as_str()
+            .is_some_and(|line| line.contains("changed")),
+        "{finished}"
     );
-    assert!(!root.join("done.txt").exists(), "the old script never ran");
-    assert_eq!(asked(&events, "c1").len(), 1);
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["type"] == "approval_requested")
+    );
+    assert!(!root.join("changed.txt").exists());
+    assert!(!root.join("done.txt").exists());
     Ok(())
 }
 
 #[tokio::test]
-async fn a_script_spade_cant_read_whole_is_put_to_the_person_and_runs_once_on_their_allow() -> Result
-{
-    // Outside the workspace: Spade can't read it whole, so neither the rules nor a reviewer can
-    // vouch for it there; the person decides (ADR 0163, amendment 3).
+async fn a_script_spade_cant_read_whole_is_refused() -> Result {
+    // Spade cannot bind a launch to an unreadable script (ADR 0163, amendment 4).
     let outside = tempfile::tempdir()?;
     let mark = outside.path().join("ran.txt");
     std::fs::write(
@@ -182,40 +149,32 @@ async fn a_script_spade_cant_read_whole_is_put_to_the_person_and_runs_once_on_th
     let command = format!("sh {}", outside.path().join("run.sh").display());
     let setup = start(vec![
         Script::reply("").call("c1", "shell", json!({ "command": command })),
-        Script::reply("Ran it."),
+        Script::reply("Left it."),
         Script::reply("").plain(r#"{"title":"Run"}"#),
     ])
     .await?;
     let (_, conversation) = bot(&setup.spade).await?;
     setup.spade.say(&conversation, "Run it").await?;
-    let events = setup
-        .spade
-        .wait_for(&conversation, "approval_requested")
-        .await?;
-    let request = asked(&events, "c1");
-    let request = request.first().ok_or("not asked")?;
-    let reason = request["reviewer_reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("couldn't be read whole"), "{reason}");
-    assert_eq!(request["stopped"], "incomplete");
-    assert!(
-        !events.iter().any(|e| e["type"] == "tool_started"),
-        "it ran"
-    );
-    // No reviewer was paid for: it can't read the call whole either.
-    assert!(
-        !setup.spade.fake.seen().iter().any(|seen| seen
-            .body
-            .to_string()
-            .contains("You approve or refuse one step")),
-        "a reviewer was asked"
-    );
-    allow(&setup.spade, &conversation, "c1").await?;
-    let events = setup
-        .spade
-        .wait_for(&conversation, "reply_finished")
-        .await?;
+    let events = setup.spade.wait_for(&conversation, "tool_finished").await?;
     let finished = result(&events, "c1").ok_or("no result")?;
-    assert_eq!(finished["is_error"], false, "{finished}");
-    assert_eq!(std::fs::read_to_string(&mark)?, "hi\n", "ran exactly once");
+    assert!(
+        finished["content"]
+            .as_str()
+            .is_some_and(|line| line.contains("read")),
+        "{finished}"
+    );
+    assert!(!events.iter().any(|e| matches!(
+        e["type"].as_str(),
+        Some("approval_requested" | "tool_started")
+    )));
+    assert!(
+        !setup
+            .spade
+            .fake
+            .seen()
+            .iter()
+            .any(|seen| seen.body.to_string().contains("You review one step"))
+    );
+    assert!(!mark.exists());
     Ok(())
 }

@@ -75,7 +75,7 @@ fn below_threshold(value: &str) -> bool {
     if value.len() < BINARY_ELISION_CHARS {
         return true;
     }
-    value.encode_utf16().count() < BINARY_ELISION_CHARS
+    ace_json::utf16_len(value) < BINARY_ELISION_CHARS
 }
 
 fn is_elision_alphabet(byte: u8) -> bool {
@@ -173,7 +173,7 @@ fn elide_value(value: &mut Value) {
 /// attachment bytes is visited string by string.
 pub fn elided_json(value: &Value) -> String {
     let plain = ace_json::to_string(value);
-    if plain.len() < BINARY_ELISION_CHARS {
+    if below_threshold(&plain) {
         return plain;
     }
     let mut owned = value.clone();
@@ -301,6 +301,39 @@ mod tests {
             }
             _ => {}
         }
+    }
+
+    #[test]
+    fn astral_text_at_the_elision_threshold_is_recorded_whole() {
+        // 8,187 emoji are 16,374 UTF-16 units, and the JSON wrapper adds 11:
+        // 16,385 units, 8,187 code points and 32,759 bytes. Only the unit
+        // `JSON.stringify(value).length` counts reaches the threshold, so
+        // `elided_json` scans only the longer value and both are recorded
+        // whole, as prose always is.
+        for (emoji, at_limit) in [(8_186, false), (8_187, true)] {
+            let value = json!({ "text": "😀".repeat(emoji) });
+            let plain = ace_json::to_string(&value);
+            assert_eq!(
+                ace_json::utf16_len(&plain) >= BINARY_ELISION_CHARS,
+                at_limit,
+                "{emoji} emoji"
+            );
+            assert!(plain.len() > BINARY_ELISION_CHARS, "{emoji} emoji in bytes");
+            assert_eq!(elided_json(&value), plain);
+            assert_eq!(elided_text(&value), plain);
+        }
+    }
+
+    #[test]
+    fn a_marker_label_is_bounded_in_utf16_units_like_its_length() {
+        let digest = "a".repeat(64);
+        let marker = |label: String| format!("[ace: 3 bytes of {label} elided; sha256 {digest}]");
+        // 150 emoji are 300 units (the label's limit) and 600 bytes.
+        assert_eq!(
+            elided_digest(&marker("😀".repeat(150))),
+            Some(digest.as_str())
+        );
+        assert_eq!(elided_digest(&marker("😀".repeat(151))), None);
     }
 
     #[test]

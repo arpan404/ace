@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "vitest";
 import { Command, type ThreadId } from "@ace/protocol";
 import { Store, Engine } from "@ace/daemon";
 import { harness, scriptFrames, start, end, question, task } from "./test-support.ts";
+import { crashCopy, cleanupRecovery } from "./recovery-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
+  await cleanupRecovery();
 });
 function track<T extends Awaited<ReturnType<typeof harness>>>(h: T): T {
   cleanups.push(h.close);
@@ -157,24 +159,57 @@ test("a committed unattempted send waits after restart and runs after explicit r
 
 test("an intent with uncertain provider delivery is reported after restart without replay", async () => {
   const frames = scriptFrames();
-  const h = track(await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames));
-  const id = await h.create();
-  await h.engine.close();
-  h.store.atomic((db) => db.prepare("UPDATE intents SET status = 'running'").run());
-  const restartedStore = new Store(h.path);
-  const recovered = new Engine(restartedStore, { registry: h.registry, clock: h.clock });
+  const h = track(await harness([{ on: "send" }], frames));
+  const provider = h.adapter;
+  const observed = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  let sends = 0;
+  h.registry.register(
+    {
+      ...provider,
+      async openSession(ctx) {
+        const session = await provider.openSession(ctx);
+        return {
+          ...session,
+          async send(parts, delivery, commandId) {
+            // The provider has the input; the daemon dies before it answers. Only the first
+            // attempt is held: a replayed delivery still reaches the scripted session, so a
+            // recovery that tried to send again can't block the crash copy's flush.
+            const first = commandId === "uncertain-send" && sends === 0;
+            sends++;
+            if (!first) return session.send(parts, delivery, commandId);
+            observed.resolve();
+            await held.promise;
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const receipt = h.command(
+    { type: "thread.create", workspaceId: h.workspace, provider: "codex", input },
+    "device",
+    "uncertain-send",
+  );
+  expect(receipt.ok).toBe(true);
+  const id = receipt.threadId;
+  if (!id) throw new Error("Missing created thread");
+  // Copy only once the send is in the provider's hands and before any reply can acknowledge it:
+  // a graceful close would settle the send, and a send step that returned would retire it.
+  let restartedStore!: Store;
   try {
-    await recovered.flush();
-    expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
-    expect(
-      Object.values(transcript(restartedStore, id).items).some(
-        (item) => item.type === "notice" && item.detail?.includes("execution is uncertain"),
-      ),
-    ).toBe(true);
+    await observed.promise;
+    ({ store: restartedStore } = await crashCopy(h));
   } finally {
-    await recovered.close();
-    restartedStore.close();
+    // Even a failed copy must not leave the first send (and teardown) waiting on `held`.
+    held.resolve();
   }
+  expect(sends).toBe(1);
+  expect(
+    Object.values(transcript(restartedStore, id).items).some(
+      (item) => item.type === "notice" && item.detail?.includes("execution is uncertain"),
+    ),
+  ).toBe(true);
 });
 
 test("recovery uses the saved state from the same commit as the final turn events", async () => {

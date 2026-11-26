@@ -17,6 +17,10 @@ execFileSync("bun", ["scripts/generate-rust-protocol.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+execFileSync("bun", ["scripts/stored-command-vectors.ts", "--check"], {
+  cwd: root,
+  stdio: "inherit",
+});
 execFileSync("bun", ["scripts/store-vectors.ts", "--check"], {
   cwd: root,
   stdio: "inherit",

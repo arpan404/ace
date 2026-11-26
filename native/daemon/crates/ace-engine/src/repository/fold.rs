@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::repository::apply::{FoldedFrame, ended_root_run};
 use crate::repository::collaborators::{
     AccessFacts, FrameFacts, InputFacts, MoveFacts, SessionFacts,
 };
@@ -65,16 +66,16 @@ impl State {
         &mut self,
         store: &EngineStore,
         id: &str,
-        snapshot: &Rc<RefCell<Snapshot>>,
         facts_json: &str,
         now: f64,
         generation: Option<f64>,
-    ) -> Result<(), EngineError> {
+    ) -> Result<FoldedFrame, EngineError> {
+        let snapshot = self.repo.require_state(store, id)?;
         snapshot.borrow_mut().begin()?;
         let deadline = snapshot.borrow_mut().deadline(None);
         let mut batch = FactBatch::new(Some(deadline));
         let opening = self.repo.opening.contains(id);
-        let root = self.root_key(snapshot);
+        let root = self.root_key(&snapshot);
         let facts = Self::facts(facts_json)?;
         let facts = self.coalesce_facts(facts)?;
         {
@@ -146,7 +147,8 @@ impl State {
             {
                 set(&mut input, "type", Value::from("item.reconciled"));
             }
-            let Some(correlated) = self.correlate(id, input)? else {
+            let echo_generation = if opening { None } else { generation };
+            let Some(correlated) = self.correlate(id, input, echo_generation)? else {
                 continue;
             };
             let attributed = self.attribute_input(id, correlated)?;
@@ -177,7 +179,7 @@ impl State {
                 start_takes_input = Some(takes);
             }
             if kind(&fact) == "turn.ended" && text_field(&fact, "agent") == Some(root.as_str()) {
-                let trigger = self.root_turn_trigger(snapshot, &fact);
+                let trigger = self.root_turn_trigger(&snapshot, &fact);
                 if let Some(trigger) = trigger {
                     set(&mut fact, "trigger", Value::from(trigger.as_str()));
                 }
@@ -297,8 +299,9 @@ impl State {
                 snapshot.borrow_mut().finish_prepare(&item);
             }
             if kind(&fact) == "tick" {
-                let state = snapshot.borrow();
-                self.readiness_refresh_blocked(&state.state)?;
+                // The hook reads the snapshot's records: release the fold's borrow first.
+                let thread = snapshot.borrow().state.thread_id.clone();
+                self.refresh_blocked_now(&thread, now as i64)?;
             }
             emitted.extend(events);
         }
@@ -307,11 +310,11 @@ impl State {
             let flushed = batch.flush(&mut borrowed.state);
             emitted.extend(events_of(&flushed));
         }
-        self.shape_failed_statuses(snapshot, &mut emitted)?;
+        self.shape_failed_statuses(&snapshot, &mut emitted)?;
         self.admission_block(
             store,
             id,
-            snapshot,
+            &snapshot,
             &root,
             &mut emitted,
             &takes_input,
@@ -324,37 +327,17 @@ impl State {
             self.queue_set(id, "{\"continuation\":null,\"trigger\":null}", now)?;
             self.finish_continuation(id)?;
         }
-        if generation.is_some()
+        if let Some(generation) = generation
             && !opening
-            && emitted.iter().any(|event| kind(event) == "run.ended")
+            && ended_root_run(&snapshot.borrow().state, &root, &emitted)
         {
-            let ended_root = emitted.iter().any(|event| {
-                kind(event) == "run.ended"
-                    && text_field(event, "runId").is_some_and(|run_id| {
-                        snapshot
-                            .borrow()
-                            .state
-                            .runs
-                            .get(run_id)
-                            .is_some_and(|run| run.agent_id == root)
-                    })
-            });
-            if ended_root && let Some(generation) = generation {
-                self.retire_ended_turn_inputs(id, generation, now)?;
-            }
-        }
-        {
-            let raw = Self::facts(facts_json)?;
-            let borrowed_events = emitted.clone();
-            snapshot
-                .borrow_mut()
-                .update_deadlines(&raw, &borrowed_events, now as i64);
+            self.retire_ended_turn_inputs(id, generation, now)?;
         }
         let raw_facts = Self::facts(facts_json)?;
-        let touched = crate::snapshot::touched::Touched::values(&raw_facts, &emitted);
-        let events_json = ace_json::to_string(&Value::Array(emitted.into()));
-        self.save(store, id, snapshot, &events_json, now, &touched)?;
-        Ok(())
+        snapshot
+            .borrow_mut()
+            .update_deadlines(&raw_facts, &emitted, now as i64);
+        Ok(FoldedFrame::new(snapshot, &raw_facts, emitted))
     }
 
     /// `provider-facts.ts:131`-`:137`: a root turn's run trigger says why it ended.

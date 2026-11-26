@@ -47,14 +47,14 @@ export const ProjectGit = z.object({
     )
     .max(64),
 });
-const iconUrl = z.url();
+export const ProjectIconUrl = z.url();
 /** Small raster uploads or explicitly selected remote icons. SVG and executable schemes are excluded. */
 export const ProjectIcon = z.union([
   z
     .string()
     .max(4096)
     .regex(/^(?![\s\S]*[\t\r\n])[hH][tT][tT][pP][sS]?:\/\/[\s\S]*[^\s]$/)
-    .refine((value) => iconUrl.safeParse(value).success)
+    .refine((value) => ProjectIconUrl.safeParse(value).success)
     .meta({
       format: "ace-whatwg-url",
       "x-ace-url-maxLength": 4096,

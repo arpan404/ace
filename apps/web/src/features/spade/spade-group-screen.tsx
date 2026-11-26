@@ -148,6 +148,8 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
   const [sent, setSent] = useState(0);
   // The message the person replies to (ADR 0212 §4), until it goes or they clear it.
   const [replying, setReplying] = useState<SpadeQuote>();
+  // Snapshot seenSeq while unread so the NEW divider stays visible after auto-marking seen.
+  const [unreadFrom] = useState(() => (group.unseen ? group.seenSeq : undefined));
   if (stopping && !view.busy) setStopping(false);
   const stop = () => {
     setStopping(true);
@@ -185,6 +187,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
     return {
       name: rosterBot?.name ?? member?.name ?? bot.name,
       avatar: rosterBot?.avatar ?? member?.avatar ?? unknownFace(bot).avatar,
+      style: rosterBot?.style,
       open,
     };
   };
@@ -225,6 +228,19 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
             name={group.name}
             view={view}
             onReply={setReplying}
+            onReact={(id, emoji) =>
+              conversation.react(id, emoji).then(
+                () => true,
+                (error: unknown) => {
+                  toast.error({
+                    title: "Couldn't save that reaction",
+                    description: message(error),
+                  });
+                  return false;
+                },
+              )
+            }
+            seenSeq={unreadFrom}
             members={group.members.map((member, index) => ({
               id: member.agent,
               name: members[index]?.name ?? member.name,

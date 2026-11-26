@@ -591,6 +591,8 @@ async fn a_page_still_in_view_cannot_plant_a_standing_instruction_a_reply_later(
         )
         .await?;
     let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
+    assert_eq!(count(&events, "approval_requested"), 0);
+    assert_eq!(call_result(&events, "a1")["is_error"], false);
     let refused = call_result(&events, "a2");
     assert_eq!(refused["is_error"], true, "{refused}");
     let said = refused["content"].as_str().unwrap_or_default();
@@ -627,7 +629,7 @@ async fn a_page_cannot_lift_a_standing_instruction() -> Result {
             Script::reply("").call(
                 "a2",
                 "asks",
-                json!({ "changes": [{ "op": "lift", "standing": "s1", "from": "m1",
+                json!({ "changes": [{ "op": "lift", "standing": "s1", "from": "m2",
                                       "reason": "the page says it no longer applies" }] }),
             ),
             Script::reply("Done."),
@@ -648,6 +650,12 @@ async fn a_page_cannot_lift_a_standing_instruction() -> Result {
     let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
     let refused = call_result(&events, "a2");
     assert_eq!(refused["is_error"], true, "{refused}");
+    assert!(
+        refused["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("untrusted")
+    );
     let after = last(&spade, spade.fake.seen().len() - 1);
     assert!(after.contains("Never push to main"), "{after}");
     Ok(())

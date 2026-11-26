@@ -107,7 +107,7 @@ impl Work<'_> {
         id: &str,
         prompt: &Prompt,
         mut draft: Event,
-        judge: impl Future<Output = Option<(Verdict, String, u64)>>,
+        judge: impl Future<Output = Option<(Verdict, String, u64, bool)>>,
     ) -> ReviewResult {
         let Event::Known(Known::CallReviewed { model, call_id, .. }) = &draft else {
             return ReviewResult::Stopped;
@@ -116,19 +116,23 @@ impl Work<'_> {
         if let Some(previous) = self.prepared_review(engine, id, call_id, request).await {
             draft = previous;
         } else {
-            let Some((verdict, reason, cost)) = judge.await else {
+            let Some((verdict, reason, cost, judged)) = judge.await else {
                 return ReviewResult::Stopped;
             };
             if let Event::Known(Known::CallReviewed {
                 verdict: stored,
                 reason: line,
                 cost_micros,
+                memo,
                 ..
             }) = &mut draft
             {
                 *stored = verdict;
                 *line = reason;
                 *cost_micros = cost;
+                if !judged {
+                    *memo = None;
+                }
             }
         }
         if let Self::Early(prepared) = self {

@@ -44,7 +44,7 @@ export interface ApnsRequest {
   environment: ApnsEnvironment;
   token: string;
   topic: string;
-  pushType: "alert" | "background";
+  pushType: "alert" | "background" | "liveactivity";
   priority: 5 | 10;
   /** Seconds since the epoch after which APNs stops trying. */
   expiration: number;

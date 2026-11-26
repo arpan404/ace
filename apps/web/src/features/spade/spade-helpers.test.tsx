@@ -5,7 +5,7 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
-test("a helper is one plain line in the bot's words, with no expander and none of its steps", async () => {
+test("a helper is the bot's own work: the chat shows no line, expander or steps for it, only the bot's words", async () => {
   await spadeApp("/spade/logs", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -24,8 +24,8 @@ test("a helper is one plain line in the bot's words, with no expander and none o
     spade.store(chat, { type: "reply_finished", reply: "r1", text: "A helper is on it." });
   });
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Logs" }));
-  const line = await chat.findByText("Helper looking into: Read the build log");
-  expect(line.closest("summary")).toBeNull();
-  expect(chat.queryByRole("button", { name: /Helper looking into/ })).toBeNull();
+  await chat.findByText("A helper is on it.");
+  expect(chat.queryByText(/Helper looking into/)).toBeNull();
+  expect(chat.queryByRole("button", { name: /Helper/ })).toBeNull();
   expect(chat.queryByRole("list", { name: "Its steps" })).toBeNull();
 });

@@ -29,10 +29,10 @@ test("a bot carrying on by itself says so in its chat and its row, and the line 
   await userEvent.click(row);
   const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
   await waitFor(() =>
-    expect(within(feed).getByRole("status").textContent).toContain(
-      "Scout is working on it · Checking easyJet",
-    ),
+    expect(within(feed).getByRole("status").textContent).toContain("Checking easyJet"),
   );
+  // The line names only what it is doing; the face already says who.
+  expect(within(feed).getByRole("status").textContent).not.toContain("working on it");
   // Stop stays while it carries on.
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
 
@@ -125,4 +125,22 @@ test("a task pause shows once after replay, and continuation nudges stay out of 
   ).toHaveLength(1);
   expect(feed.queryByText("private nudge")).toBeNull();
   expect(feed.queryByText("Refused action reason")).toBeNull();
+});
+
+test("the line under the chat says why the bot needs you, in the same words as its list row", async () => {
+  await spadeApp("/spade/errands", (api) => {
+    withSpade(api);
+    const errands = api.addAgent({
+      id: "errands",
+      name: "Errands",
+      state: "waiting",
+      waiting_for: "question",
+      task_state: { status: "blocked_on_person" },
+    });
+    api.card(errands, "q1", [{ prompt: "Q2 or Q3 last year?", kind: "text" }]);
+  });
+  const feed = await screen.findByRole("feed", { name: "Conversation with Errands" });
+  await waitFor(() =>
+    expect(within(feed).getByRole("status").textContent).toBe("Errands asks: Q2 or Q3 last year?"),
+  );
 });

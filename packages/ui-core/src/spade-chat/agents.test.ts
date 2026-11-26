@@ -134,6 +134,31 @@ test("an agent from a Spade that only says whether it works reads as working or 
 const read = (fields: Record<string, unknown>) =>
   parseSpadeAgent(JSON.stringify({ agent: agent(fields) }));
 
+test("an agent lists what it waits on, leaves out entries it can't read, and an older Spade sends none", () => {
+  const sent = read({
+    state: "waiting",
+    waiting_for: "approval",
+    pending: [
+      { kind: "approval", name: "shell", arguments: { command: "ls" }, effect: "read" },
+      { kind: "question", prompt: "Which hotel?" },
+      { kind: "connect", app: "GitHub" },
+      { kind: "mystery" },
+    ],
+  });
+  expect(sent?.pending).toEqual([
+    {
+      kind: "approval",
+      name: "shell",
+      arguments: { command: "ls" },
+      effect: "read",
+      reason: undefined,
+    },
+    { kind: "question", prompt: "Which hotel?" },
+    { kind: "connect", app: "GitHub" },
+  ]);
+  expect(read({})?.pending).toEqual([]);
+});
+
 test("an agent says where its seen cursor is and whether it finished unseen, and an older Spade reads as seen", () => {
   const sent = read({
     seen_seq: 7,

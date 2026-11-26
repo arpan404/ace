@@ -3,21 +3,23 @@ import { BrowserTabList, ProviderKind, ThreadId, type CatalogEntry } from "@ace/
 import {
   commandArguments,
   commandSuggestions,
-  mentionSuggestions,
   type MentionTab,
   type MentionThread,
+  type PickerDevice,
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { CatalogReads, type Target } from "./composer-catalog.ts";
+import { mentionRows, type MentionAgent } from "./composer-mentions.ts";
 import { rowReference, suggestionRow, type RowSource } from "./composer-rows.ts";
 
 /*
  * What the phone's composer suggests while typing `@` or a leading `/`, and what its + offers
  * (`composer-rows.ts` shapes each row). The rules are `@ace/ui-core`'s, shared with the web;
- * this shell reads the catalog, completes files and lists the thread's browser tabs and the
- * project's other threads. Swift sends each query as the person types; file reads wait for a
- * pause and only the newest query is answered, so typing never waits on the daemon.
+ * this shell reads the catalog, completes files and lists the thread's browser tabs, the
+ * project's other threads and working agents, the machine's devices and its apps. Swift sends
+ * each query as the person types; file reads wait for a pause and only the newest query is
+ * answered, so typing never waits on the daemon.
  */
 
 const id = z.string().min(1).max(128);
@@ -86,6 +88,10 @@ export interface SuggestPorts {
   thread(): { threadId: string; workspaceId: string; provider: ProviderKind } | undefined;
   /** Every thread the inbox knows, for `@` a thread. */
   threads(): readonly MentionThread[];
+  /** Other threads whose agent is working or waiting, for `@` an agent. */
+  agents?(): readonly MentionAgent[];
+  /** The devices of the machine the thread runs on, for `@` a device. */
+  devices?(): Promise<readonly PickerDevice[]>;
   /** New thread's draft scope in a project, and its file completion. */
   draft: {
     draftScope(workspaceId: string): Promise<string>;
@@ -112,6 +118,8 @@ export class ComposerSuggest {
   }
   readonly #recent = new Map<string, string[]>();
   #tabs: { threadId: string; at: number; tabs: MentionTab[] } | undefined;
+  /** The machine's devices, read again after `fresh`. */
+  #devices: { at: number; devices: PickerDevice[] } | undefined;
   /** The newest query; anything older is never answered. */
   #seq = -1;
   #cancel: (() => void) | undefined;
@@ -266,30 +274,33 @@ export class ComposerSuggest {
     const seq = this.#seq;
     const recent = query ? [] : (this.#recent.get(workspaceId) ?? []);
     const threadId = scope.type === "thread" ? scope.threadId : undefined;
-    const rows = (paths: readonly string[], tabs: readonly MentionTab[]) =>
-      mentionSuggestions({
+    const target = this.#target(scope);
+    const entries = () => (target ? (this.#catalogs.get(target.key)?.entries ?? []) : []);
+    const agents = threadId ? (this.#agents() ?? []) : [];
+    const rows = (
+      paths: readonly string[],
+      tabs: readonly MentionTab[],
+      devices: readonly PickerDevice[],
+    ) =>
+      mentionRows({
         query,
         recent,
         paths,
         tabs,
-        threads: this.#ports.threads(),
+        threads: this.#threads(),
         threadId,
         workspaceId,
-      }).map((item) =>
-        Object.assign(item, {
-          id: item.path
-            ? `file:${item.path}`
-            : item.tab
-              ? `tab:${item.tab.tabId}`
-              : `thread:${item.threadId ?? item.label}`,
-        }),
-      );
-    // Recent files and matching threads show at once; completed files join them.
-    const early = rows([], []);
+        agents,
+        devices,
+        entries: entries(),
+      });
+    // Recent files, agents, apps and matching threads show at once; files and devices join them.
+    const early = rows([], [], []);
     put(early.length ? "ready" : "loading", early);
     // The browser's tabs are the phone's own lookup with its own timeout: a slow one neither
     // spends the file deadline below nor is cut short by it.
     const tabs = threadId ? this.#browserTabs(threadId) : Promise.resolve([]);
+    const devices = threadId ? this.#mentionDevices() : Promise.resolve([]);
     // One deadline starts before the first file request and every request and sleep after it
     // spends what is left, so a slow daemon and the retries it causes cannot outlast the wait.
     const deadline = this.#ports.now() + buildingWait.deadlineMs;
@@ -304,10 +315,39 @@ export class ComposerSuggest {
       completion = await this.#complete(scope, workspaceId, query, deadline).catch(() => undefined);
     }
     if (seq !== this.#seq) return;
-    const all = rows(completion?.paths ?? [], await tabs);
+    const all = rows(completion?.paths ?? [], await tabs, await devices);
     if (all.length) put("ready", all);
     else if (completion?.ready === false) put("failed", early);
     else put(completion ? "empty" : "failed");
+  }
+
+  /** The machine's devices, read again after `fresh`; a failed read offers none. */
+  async #mentionDevices(): Promise<readonly PickerDevice[]> {
+    const kept = this.#devices;
+    if (kept && this.#ports.now() - kept.at < fresh) return kept.devices;
+    try {
+      const devices = (await this.#ports.devices?.()) ?? [];
+      this.#devices = { at: this.#ports.now(), devices: [...devices] };
+      return this.#devices.devices;
+    } catch {
+      return [];
+    }
+  }
+
+  /** The inbox's threads and working agents; none once the client is closed. */
+  #threads(): readonly MentionThread[] {
+    try {
+      return this.#ports.threads();
+    } catch {
+      return [];
+    }
+  }
+  #agents(): readonly MentionAgent[] {
+    try {
+      return this.#ports.agents?.() ?? [];
+    } catch {
+      return [];
+    }
   }
 
   /** Wait before asking again; a newer query or `close` ends the wait early. */
@@ -420,6 +460,30 @@ export function sidebarThreads(owner: Pick<ClientCore, "threads">): MentionThrea
     return sidebar.store.ids.slice(0, 2_000).flatMap((threadId) => {
       const entry = sidebar.store.thread(threadId);
       return entry ? [{ id: entry.id, title: entry.title, workspaceId: entry.workspaceId }] : [];
+    });
+  } finally {
+    sidebar.release();
+  }
+}
+
+/** Other threads whose agent is working or waiting, for `@` an agent (the web's rule). */
+export function sidebarAgents(owner: Pick<ClientCore, "threads">): MentionAgent[] {
+  const sidebar = owner.threads();
+  try {
+    return sidebar.store.ids.slice(0, 2_000).flatMap((threadId) => {
+      const entry = sidebar.store.thread(threadId);
+      if (!entry) return [];
+      const state = entry.status.state;
+      if (state !== "working" && state !== "needs_you") return [];
+      return [
+        {
+          threadId: entry.id,
+          title: entry.title || "Untitled thread",
+          provider: entry.provider,
+          state: state === "working" ? ("working" as const) : ("waiting" as const),
+          workspaceId: entry.workspaceId,
+        },
+      ];
     });
   } finally {
     sidebar.release();

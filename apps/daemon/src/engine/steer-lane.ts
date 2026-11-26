@@ -1,4 +1,5 @@
 import type { Capabilities, ThreadId } from "@ace/protocol";
+import type { ProviderSession } from "@ace/engine-api";
 import type { ThreadActor } from "./actor.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
@@ -90,9 +91,17 @@ export class SteerLane {
     const run = rootRun(repo.requireState(actor.id));
     const session = actor.session;
     if (run === undefined || !session) return;
-    const target = repo.pending.steerTarget(intent.id);
-    if (target !== undefined && steerLostRun(repo, actor.id, target))
-      return this.deliver(actor, intent);
+    const target = this.aim(intent, session);
+    if (target !== undefined && steerLostRun(repo, actor.id, target)) {
+      // A native steer naming a turn that ended goes through delivery, whose fence returns it
+      // to the queue, as before.
+      if (!session.steerViaCancel) return this.deliver(actor, intent);
+      // The turn this steer was sent into is gone. Handing it over now would join the running
+      // turn with no fence and hold this lane until that turn ends, so a newer steer could not
+      // cancel it. It goes back to the queue as the next message: the sends lane delivers it.
+      repo.pending.requeue(intent, "Steer target lost");
+      return this.ports.wake(actor.id);
+    }
     actor.steerYield = { run, state: "pending", intentId: intent.id };
     try {
       await session.interrupt({ cascade: false });
@@ -102,6 +111,16 @@ export class SteerLane {
       this.ports.report(error);
     }
     this.ports.wake(actor.id);
+  }
+  /**
+   * The turn a steer was aimed at: the one its payload names (any provider, as a sender's explicit
+   * target always fenced it), else, only where the session steers by cancelling, the one recorded
+   * as it was admitted. `undefined` when it names none. Native providers never read the record.
+   */
+  private aim(intent: IntentHeader, session: ProviderSession): string | null | undefined {
+    const stamped = this.ports.repo.pending.steerTarget(intent.id);
+    if (stamped !== undefined) return stamped;
+    return session.steerViaCancel ? this.ports.repo.steerAims.aim(intent.id) : undefined;
   }
   private route(intent: IntentHeader): SteerRoute {
     const { repo } = this.ports;
@@ -136,6 +155,14 @@ export class SteerLane {
     const run = rootRun(state);
     if (actor.steerYield && run !== undefined && actor.steerYield.run !== run)
       actor.steerYield = undefined;
+    if (actor.session.steerViaCancel) {
+      const target = this.aim(intent, actor.session);
+      // The turn this steer was sent into has ended, so it must not cancel the one running now
+      // or hold the lane behind it: yieldTurn sees the lost target and hands the message back to
+      // the queue as the next one. A steer admitted before its session opened has no payload
+      // target; its recorded aim is what keeps it from cancelling the turn its first prompt starts.
+      if (target !== undefined && steerLostRun(repo, intent.threadId, target)) return "yield";
+    }
     const person = isPersonSteer(intent, repo.steerNotes.personChose(intent.id));
     return steerRoute({ person }, state, capabilities, actor.steerYield, actor.session);
   }

@@ -286,33 +286,31 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     /// The avatar leads. Usage on iPhone, Code review on Projects, scope and iPad compose
-    /// share the trailing glass capsule with ace's bar glyphs.
+    /// share one trailing glass capsule, packed in a single toolbar item so the system adds
+    /// no padding between them: the capsule hugs its buttons.
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
         AccountToolbarItem(open: header.account)
-        if sizeClass == .compact {
-            ToolbarItem(placement: .topBarTrailing) {
-                UsageToolbarButton(client: usageClient) { header.place(.usage) }
-            }
-        }
-        if !chats {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: header.review) { Image(bar: HomeTabs.icon(.review)) }
-                    .accessibilityLabel(HomeTabs.title(.review))
-                    .accessibilityIdentifier("inbox.review")
-            }
-        }
-        if !chats || inbox.showsMachineNames {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu { titleMenu } label: { Image(bar: .funnelSimple) }
-                    .accessibilityLabel(chats ? "Machine" : "Scope, sort and select")
-                    .accessibilityIdentifier("inbox.projects")
-            }
-        }
-        if inbox.canStartThreads && sizeClass == .regular {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: header.compose) { Image(bar: HomeTabs.icon(.compose)) }
-                    .accessibilityLabel(chats ? "New chat" : "New thread")
-                    .accessibilityIdentifier("inbox.compose")
+        ToolbarItem(placement: .topBarTrailing) {
+            HStack(spacing: AceTheme.Spacing.none) {
+                if sizeClass == .compact {
+                    UsageToolbarButton(client: usageClient) { header.place(.usage) }
+                        .barButton()
+                }
+                if !chats {
+                    Button(action: header.review) { Image(bar: HomeTabs.icon(.review)).barButton() }
+                        .accessibilityLabel(HomeTabs.title(.review))
+                        .accessibilityIdentifier("inbox.review")
+                }
+                if !chats || inbox.showsMachineNames {
+                    Menu { titleMenu } label: { Image(bar: .funnelSimple).barButton() }
+                        .accessibilityLabel(chats ? "Machine" : "Scope, sort and select")
+                        .accessibilityIdentifier("inbox.projects")
+                }
+                if inbox.canStartThreads && sizeClass == .regular {
+                    Button(action: header.compose) { Image(bar: HomeTabs.icon(.compose)).barButton() }
+                        .accessibilityLabel(chats ? "New chat" : "New thread")
+                        .accessibilityIdentifier("inbox.compose")
+                }
             }
         }
     }
@@ -353,5 +351,12 @@ private struct ListTitle: ViewModifier {
         } else {
             content.nativeTitle(title, subtitle: subtitle)
         }
+    }
+}
+
+private extension View {
+    /// One button's slot in the header capsule: a tap tall, `barButton` wide, all of it tappable.
+    func barButton() -> some View {
+        frame(width: AceDesign.Size.barButton, height: AceDesign.Size.tap).contentShape(Rectangle())
     }
 }

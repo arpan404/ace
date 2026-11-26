@@ -1,9 +1,17 @@
-import { FileIcon, FolderIcon, MagnifyingGlassIcon, StackIcon, XIcon } from "@ace/icons";
+import {
+  CaretRightIcon,
+  FileIcon,
+  FolderIcon,
+  MagnifyingGlassIcon,
+  StackIcon,
+  XIcon,
+} from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { SettingList, SettingListItem } from "@/components/setting-row.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import { knowledgeKey, readEpisodes, readKnowledge } from "./spade-knowledge-api.ts";
@@ -12,7 +20,14 @@ import { episodeLine, newestClosed } from "./spade-library-past.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { notesKey } from "./spade-notes.tsx";
 import { readNotes } from "./spade-notes-api.ts";
-import { ProfileEmpty, ProfileProblem, ProfileSection } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileNone,
+  ProfileProblem,
+  ProfileSection,
+  profileRowClass,
+  rowPill,
+} from "./spade-profile-parts.tsx";
 import { readSkillStore } from "./spade-skills-api.ts";
 import { readFolder } from "./spade-workspace-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -25,8 +40,8 @@ export function LibrarySearchField(props: {
 }) {
   const field = useRef<HTMLInputElement>(null);
   return (
-    <div className="mb-1 flex h-(--spade-pill-button) items-center gap-2 rounded-full bg-surface-1 pr-1 pl-3 text-subtle-foreground has-focus-visible:shadow-[inset_0_0_0_1px_var(--foreground)]">
-      <Icon icon={MagnifyingGlassIcon} size={16} />
+    <div className="flex h-(--spade-pill-button) items-center gap-2 rounded-full bg-surface-1 pr-1 pl-3 text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-hover/70 has-focus-visible:bg-surface-1 has-focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]">
+      <Icon icon={MagnifyingGlassIcon} size={16} className="shrink-0" />
       <input
         ref={field}
         type="search"
@@ -40,7 +55,7 @@ export function LibrarySearchField(props: {
             props.onChange("");
           }
         }}
-        className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:hidden"
+        className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
       />
       {props.value && (
         <button
@@ -50,9 +65,9 @@ export function LibrarySearchField(props: {
             props.onChange("");
             field.current?.focus();
           }}
-          className="grid size-7 place-items-center rounded-full text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+          className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground"
         >
-          <Icon icon={XIcon} size={14} />
+          <Icon icon={XIcon} size={16} />
         </button>
       )}
     </div>
@@ -68,6 +83,7 @@ const has = (text: string, query: string) => text.toLowerCase().includes(query.t
 export function LibraryResults(props: {
   bot: RosterBot;
   query: string;
+  onClear?(): void;
   onOpenPage(id: string): void;
   onOpenEpisode(id: string): void;
   onOpenFile(files: FilesAt): void;
@@ -104,7 +120,11 @@ export function LibraryResults(props: {
   });
   const reads = [notes, pages, past, files, skills, ...(bot.kind === "main" ? [shared] : [])];
   if (reads.some((read) => read.isPending && read.fetchStatus !== "idle"))
-    return <ListSkeleton label="results" shape="row" rows={3} />;
+    return (
+      <div className="mt-6">
+        <ProfileCardSkeleton card label="results" rows={3} />
+      </div>
+    );
   const failed = reads.find((read) => read.isError);
   const noteHits = [...(shared.data ?? []), ...(notes.data ?? [])].filter(
     (note) => !note.suggested,
@@ -122,18 +142,36 @@ export function LibraryResults(props: {
   return (
     <>
       {failed && (
-        <ProfileProblem
-          text="Couldn't search all of it."
-          onRetry={() => reads.forEach((read) => void read.refetch())}
-        />
+        <div className="mt-6">
+          <ProfileProblem
+            card
+            text="Couldn't search all of it."
+            onRetry={() => reads.forEach((read) => void read.refetch())}
+          />
+        </div>
       )}
       {nothing && !failed && (
-        <ProfileEmpty className="mx-1">{`Nothing matches “${query}”.`}</ProfileEmpty>
+        <div className="mt-6">
+          <ProfileNone
+            action={
+              props.onClear && (
+                <Button size="sm" variant="ghost" className={rowPill} onClick={props.onClear}>
+                  Clear
+                </Button>
+              )
+            }
+          >
+            {`Nothing matches “${query}”.`}
+          </ProfileNone>
+        </div>
       )}
       <Group label="Notes" shown={noteHits.length > 0}>
         <SettingList aria-label="Notes">
           {noteHits.map((note) => (
-            <SettingListItem key={note.id} className="text-ui wrap-anywhere text-foreground">
+            <SettingListItem
+              key={note.id}
+              className="min-h-11 px-4 py-3 text-ui wrap-anywhere text-foreground"
+            >
               <span className="min-w-0">
                 <Marked text={note.text} query={query} />
               </span>
@@ -182,14 +220,15 @@ export function LibraryResults(props: {
                 entry.kind === "folder" ? { folder: entry.path } : { folder: "", file: entry.path },
               )
             }
-            className="flex min-h-11 min-w-0 items-center gap-3 py-2 text-left text-ui text-foreground focus-ring hover:underline"
+            className={cn(profileRowClass, "min-h-11 py-2.5")}
           >
-            <Icon
-              icon={entry.kind === "folder" ? FolderIcon : FileIcon}
-              size={16}
-              className="text-muted-foreground"
-            />
-            <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+            <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+              <Icon icon={entry.kind === "folder" ? FolderIcon : FileIcon} size={16} />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
+              {entry.name}
+            </span>
+            <Icon icon={CaretRightIcon} size={16} className="shrink-0 text-faint-foreground" />
           </button>
         ))}
       </Group>
@@ -198,9 +237,11 @@ export function LibraryResults(props: {
           <div
             key={skill.id}
             data-setting-slot=""
-            className="flex min-h-11 min-w-0 items-center gap-3 py-2 text-ui text-foreground"
+            className="flex min-h-11 min-w-0 items-center gap-3 px-4 py-2.5 text-ui font-medium text-foreground"
           >
-            <Icon icon={StackIcon} size={16} className="text-muted-foreground" />
+            <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+              <Icon icon={StackIcon} size={16} />
+            </span>
             <span className="min-w-0 flex-1 truncate">{skill.name}</span>
           </div>
         ))}
@@ -210,5 +251,9 @@ export function LibraryResults(props: {
 }
 
 function Group(props: { label: string; shown: boolean; children: ReactNode }) {
-  return props.shown ? <ProfileSection label={props.label}>{props.children}</ProfileSection> : null;
+  return props.shown ? (
+    <ProfileSection label={props.label} flush>
+      {props.children}
+    </ProfileSection>
+  ) : null;
 }

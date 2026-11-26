@@ -112,9 +112,9 @@ test("Something else… answers a choice question in the person's own words, off
   const asked = await card("Travel asks: Window or aisle?");
   // Nothing is said about what's missing before the person tries to send.
   expect(asked.queryByRole("alert")).toBeNull();
-  await userEvent.click(asked.getByRole("radio", { name: "Window" }));
-  // The digit after the options opens the field, and typing replaces the pick.
-  await userEvent.keyboard("3");
+  asked.getByRole("radio", { name: "Window" }).focus();
+  // The letter after the options opens the field.
+  await userEvent.keyboard("c");
   const own = asked.getByRole("textbox", { name: "Window or aisle?: your own answer" });
   await waitFor(() => expect(document.activeElement).toBe(own));
   expect(asked.getByRole("radio", { name: "Window" }).getAttribute("aria-checked")).toBe("false");
@@ -284,4 +284,29 @@ test("when the card closes, focus goes back to the composer", async () => {
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message Travel" })),
   );
+});
+
+test("on a lone pick-one question, a letter key chooses the option and sends it", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) =>
+    api.card(travel(api), "q1", [
+      { prompt: "Window or aisle?", kind: "choice", options: ["Window", "Aisle"] },
+    ]),
+  );
+  const asked = await card("Travel asks: Window or aisle?");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(asked.getByRole("radio", { name: "Window" })),
+  );
+  await userEvent.keyboard("b");
+  await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: ["Aisle"] }]));
+});
+
+test("clicking an option row answers a lone pick-one question", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) =>
+    api.card(travel(api), "q1", [
+      { prompt: "Window or aisle?", kind: "choice", options: ["Window", "Aisle"] },
+    ]),
+  );
+  const asked = await card("Travel asks: Window or aisle?");
+  await userEvent.click(asked.getByRole("radio", { name: "Window" }));
+  await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: ["Window"] }]));
 });

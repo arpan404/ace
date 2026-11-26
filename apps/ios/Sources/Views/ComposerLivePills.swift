@@ -1,18 +1,19 @@
 import SwiftUI
 
 /// What floats over the transcript's end while the person reads away from it: a round glass
-/// Scroll to end, centred above the composer's foot, counting the rows that landed meanwhile. It
-/// sits over the foot rather than in it, so showing it never changes the room the transcript keeps
-/// at its end.
+/// Scroll to end on the trailing edge, above the composer's foot and aligned to the capsule's
+/// right margin, clear of the live pills on the left. It sits over the foot rather than in it,
+/// so showing it never changes the room the transcript keeps at its end.
 struct ComposerFloaters: View {
     let behind: Bool
-    /// Rows that landed since the person left the end (`TranscriptNewRows`).
-    var unseen = 0
     let scrollToEnd: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
         HStack {
-            if behind { ScrollToEndButton(unseen: unseen, action: scrollToEnd).transition(.opacity) }
+            Spacer(minLength: 0)
+            if behind { ScrollToEndButton(action: scrollToEnd).transition(.opacity) }
         }
+        .padding(.trailing, ComposerCapsuleMetrics.side(sizeClass))
         .frame(maxWidth: .infinity)
         .animation(.default, value: behind)
     }
@@ -113,14 +114,16 @@ private struct LivePillLabel: View {
         switch item.part {
         case .status(let status):
             let tone = AceTone(status.tone)
-            // A working tree whose main agent only waits on others shows the subagents' mark.
-            let state: GlyphState = tone == .working && !status.live && status.opens == "agents" ? .subagents : GlyphState(tone: tone)
-            StatusGlyph(state, tone: tone)
+            // As the web's composer strip: a wait on subagents or commands is its words alone;
+            // only live work wears the working ring. The words carry the state.
+            if !(tone == .working && !status.live && status.opens == "agents") {
+                StatusGlyph(GlyphState(tone: tone), tone: tone, size: AceDesign.Size.chipGlyph)
+            }
         case .segment(let segment):
             switch segment.kind {
-            case "subagents": StatusGlyph(.subagents, tone: .working)
-            case "commands": StatusGlyph(.background, tone: .background)
-            case "queue": StatusGlyph(.queued, tone: .waiting)
+            case "subagents": StatusGlyph(.subagents, tone: .working, size: AceDesign.Size.chipGlyph)
+            case "commands": StatusGlyph(.background, tone: .background, size: AceDesign.Size.chipGlyph)
+            case "queue": StatusGlyph(.queued, tone: .waiting, size: AceDesign.Size.chipGlyph)
             case "goal":
                 AceIcon(.target, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                     .foregroundStyle(AceDesign.Ink.muted)
@@ -171,42 +174,20 @@ private struct StatusWords: View {
     }
 }
 
-/// Back to the live end: a round glass button with a down caret.
+/// Back to the live end: a round glass button, a tap wide, with a down caret.
 struct ScrollToEndButton: View {
-    var unseen = 0
     let action: () -> Void
     var body: some View {
-        let badge = TranscriptNewRows.badge(unseen)
         Button(action: action) {
-            AceIcon(.caretDown, size: AceDesign.Size.icon, relativeTo: .body)
+            AceIcon(.caretDown, size: AceDesign.Size.barIcon, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceDesign.Size.chip, height: AceDesign.Size.chip)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .aceGlass(in: Circle(), interactive: true)
-        // The count sits on the glass's top-right corner, drawn over it: the button keeps its size.
-        .overlay(alignment: .topTrailing) {
-            if let badge {
-                Text(badge)
-                    .aceFont(AceTheme.Typography.small, relativeTo: .caption2)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .foregroundStyle(AceTheme.Colours.onAccent)
-                    .padding(.horizontal, AceDesign.Space.tight)
-                    .frame(minWidth: AceDesign.Space.row + AceDesign.Space.related)
-                    .frame(height: AceDesign.Space.row + AceDesign.Space.related)
-                    .background(AceTheme.Colours.accent, in: AceShape.capsule)
-                    .fixedSize()
-                    .offset(x: AceDesign.Space.tight, y: -AceDesign.Space.tight)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.default, value: badge)
-        .tapBand(drawn: AceDesign.Size.chip, width: AceDesign.Size.chip)
+        .tapBand(drawn: AceDesign.Size.tap, width: AceDesign.Size.tap)
         .accessibilityLabel("Scroll to end")
-        .accessibilityValue(badge.map { unseen == 1 ? "1 new message" : "\($0) new messages" } ?? "")
         .accessibilityIdentifier("transcript.latest")
     }
 }

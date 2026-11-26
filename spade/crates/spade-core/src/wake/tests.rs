@@ -72,6 +72,7 @@ fn from_bot(id: &str, name: &str) -> Event {
         from_group: None,
         from_thread: None,
         reply_to: None,
+        invoke: None,
     })
 }
 

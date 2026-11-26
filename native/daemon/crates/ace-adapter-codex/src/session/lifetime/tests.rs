@@ -299,3 +299,18 @@ fn host_exit(reason: ExitReason) -> HostExit {
         output_drained: true,
     }
 }
+
+#[test]
+fn the_exit_note_keeps_a_split_low_surrogate_in_the_stderr_summary() {
+    let mut lifetime = Lifetime::new("g1".to_owned(), unredacted(), None);
+    let frames = Frames::new(None);
+    lifetime.stderr_line(&frames, &format!("😀{}", "x".repeat(STDERR_SUMMARY - 2)));
+    let effects = lifetime.exited(&frames, &host_exit(ExitReason::Exit));
+    let notes = notes(&effects);
+    let summary = notes[0]
+        .get("stderrSummary")
+        .and_then(Value::as_js_str)
+        .expect("summary");
+    assert_eq!(summary.len_utf16(), STDERR_SUMMARY);
+    assert_eq!(summary.units().next(), Some(0xde00));
+}

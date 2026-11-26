@@ -1,4 +1,4 @@
-import { RowSnapshots, type KeptSnapshot, type SnapshotRows } from "@ace/client";
+import { RowSnapshots, deviceRetention, type KeptSnapshot, type SnapshotRows } from "@ace/client";
 import type { HostRequest } from "@ace/native-host";
 import { z } from "zod";
 
@@ -7,12 +7,12 @@ import { z } from "zod";
  * IndexedDB: what the SDK held for the inbox and opened threads paints from disk on the next
  * launch, unconfirmed, while the socket connects. Threads are kept as one row per item, each
  * finished item written once (ADR 0105); `RowSnapshots` decides what to write and what to let
- * go. The native store sits beside this machine's outbox, so it is already scoped to one daemon
+ * go. Each thread's archive is kept here too, until the person clears it (ADR 0225). The native store sits beside this machine's outbox, so it is already scoped to one daemon
  * and device; the SDK files records under the daemon's verified identity on top. A failure of
  * any kind is a miss.
  */
 export function nativeReadSnapshots(call: HostRequest, now: () => number): RowSnapshots {
-  return new RowSnapshots(nativeSnapshotRows(call), { now });
+  return new RowSnapshots(nativeSnapshotRows(call), { now, policy: deviceRetention });
 }
 
 const Kept = z.array(

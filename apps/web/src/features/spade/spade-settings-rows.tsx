@@ -98,6 +98,8 @@ export function ModelSettingRow(props: {
   follows?: string | undefined;
   /** The picker beside the title at every width, as a bot's profile has it. */
   inline?: boolean;
+  /** Stack the model and beside controls vertically at full width inside narrow panels. */
+  stacked?: boolean;
   /** It picks a model that runs bots: one that can't call tools can't be picked. */
   forBots?: boolean | undefined;
   /** A control beside the model: how hard it thinks (`EffortSelect`). */
@@ -125,9 +127,9 @@ export function ModelSettingRow(props: {
       description={refusal ? <Refusal>{refusal}</Refusal> : props.description}
       htmlFor={id}
       density="compact"
-      inline={props.inline === true}
+      inline={props.inline === true && !props.stacked}
     >
-      <Beside beside={props.beside}>
+      <Beside beside={props.beside} stacked={props.stacked}>
         <SpadeModelPicker
           id={id}
           label={props.title}
@@ -135,6 +137,7 @@ export function ModelSettingRow(props: {
           none={props.none}
           follows={props.follows}
           forBots={props.forBots}
+          className={props.stacked ? "w-full" : undefined}
           onChange={(value) => void choose(value)}
         />
       </Beside>
@@ -142,11 +145,21 @@ export function ModelSettingRow(props: {
   );
 }
 
-/** A row's control with another beside it, wrapping under it when the row is narrow. */
-export function Beside(props: { beside?: ReactNode; children: ReactNode }) {
+/** A row's control with another beside it, or stacked vertically in a narrow panel. */
+export function Beside(props: {
+  beside?: ReactNode;
+  stacked?: boolean | undefined;
+  children: ReactNode;
+}) {
   if (!props.beside) return props.children;
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div
+      className={
+        props.stacked
+          ? "flex w-full flex-col items-stretch gap-1.5"
+          : "flex items-center justify-end gap-2"
+      }
+    >
       {props.children}
       {props.beside}
     </div>

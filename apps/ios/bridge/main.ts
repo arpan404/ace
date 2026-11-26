@@ -40,7 +40,8 @@ import { ChangesKept } from "./changes-kept.ts";
 import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
-import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
+import { ComposerSuggest, sidebarAgents, sidebarThreads } from "./composer-suggest.ts";
+import { readMentionDevices } from "./composer-devices.ts";
 import { CatalogPage } from "./catalog-page.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
@@ -347,8 +348,10 @@ async function start(json: string): Promise<void> {
         },
       },
     },
-    // The inbox and opened threads paint from what this phone read last time (ADR 0030).
+    // The inbox and opened threads paint from what this phone read last time (ADR 0030), and
+    // every thread read stays answerable from the phone (ADR 0225).
     readSnapshots: snapshots,
+    archive: {},
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
@@ -523,6 +526,8 @@ async function start(json: string): Promise<void> {
         : undefined;
     },
     threads: () => sidebarThreads(owner),
+    agents: () => sidebarAgents(owner),
+    devices: () => readMentionDevices(owner, () => host.uuid()),
     draft: search,
   });
   compose.newThread.readCatalogFrom((workspaceId, provider) =>

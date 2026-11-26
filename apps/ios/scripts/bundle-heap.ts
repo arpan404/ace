@@ -1,6 +1,7 @@
 import { heapStats } from "bun:jsc";
 import { createContext, runInContext } from "node:vm";
 import { createNodeHost } from "@ace/native-host/node";
+import { buildBridge } from "./build-bridge.ts";
 
 /**
  * How much JavaScriptCore heap the phone's shared client costs before it does anything: builds
@@ -13,16 +14,7 @@ import { createNodeHost } from "@ace/native-host/node";
  *
  *   bun scripts/bundle-heap.ts
  */
-const bridge = new URL("../bridge/main.ts", import.meta.url).pathname;
-const built = await Bun.build({
-  entrypoints: [bridge],
-  target: "browser",
-  format: "iife",
-  minify: true,
-});
-const output = built.outputs[0];
-if (!built.success || !output) throw new AggregateError(built.logs, "The bridge didn't build");
-const source = await output.text();
+const source = await buildBridge();
 
 const aceHost = createNodeHost({
   now: () => 0,

@@ -150,12 +150,14 @@ impl ConnectorCall {
     /// What Spade reads it as doing with `arguments`, from its server's word, its own name and
     /// description, what the arguments reach, and whether its definition changed since pinned.
     fn reading(&self, arguments: &Value, changed: bool) -> spade_core::effect::AppReading {
-        use spade_core::effect::{app_tool, named, shape};
+        use spade_core::effect::app_call;
         let tool = &self.tool.tool;
-        app_tool(
+        app_call(
             self.facts(),
-            named(&tool.name, &tool.description),
-            shape(&tool.name, &tool.input_schema, arguments),
+            &tool.name,
+            &tool.description,
+            &tool.input_schema,
+            arguments,
             changed,
         )
     }

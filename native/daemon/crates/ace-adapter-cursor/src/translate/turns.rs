@@ -33,7 +33,7 @@ fn is_content_part(value: &Value) -> bool {
                 return false;
             }
             if let Some(name) = value.get("name")
-                && !matches!(name, Value::String(units) if units.len_utf16() <= 255)
+                && !matches!(name, Value::String(units) if units.len_code_points() <= 255)
             {
                 return false;
             }
@@ -44,11 +44,11 @@ fn is_content_part(value: &Value) -> bool {
                     match string(content.get("encoding").unwrap_or(&Value::Null)) {
                         Some(encoding) if units_eq(encoding, "base64") => matches!(
                             content.get("data"),
-                            Some(Value::String(data)) if data.len_utf16() <= 44 * 1024 * 1024
+                            Some(Value::String(data)) if data.len_code_points() <= 44 * 1024 * 1024
                         ),
                         Some(encoding) if units_eq(encoding, "text") => matches!(
                             content.get("data"),
-                            Some(Value::String(data)) if data.len_utf16() <= 128 * 1024
+                            Some(Value::String(data)) if data.len_code_points() <= 128 * 1024
                         ),
                         _ => false,
                     }
@@ -62,15 +62,15 @@ fn is_content_part(value: &Value) -> bool {
             let name =
                 string(value.get("name").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
             !entry.is_empty()
-                && entry.len_utf16() <= 256
+                && entry.len_code_points() <= 256
                 && !name.is_empty()
-                && name.len_utf16() <= 256
+                && name.len_code_points() <= 256
         }
         _ => false,
     }
 }
 
-/// The first `max` UTF-16 code units of text, whole characters only.
+/// The first `max` UTF-16 code units of text.
 pub(crate) fn utf16_head(text: &JsString, max: usize) -> JsString {
     text.slice_units(0, max)
 }
@@ -339,5 +339,25 @@ impl Step<'_> {
         }
         facts.push(ended);
         Ok(facts)
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn an_admitted_file_or_mention_accepts_text_at_its_code_point_bound() {
+        for (field, limit) in [("file", 255), ("mention", 256)] {
+            for length in [limit, limit + 1] {
+                let name = "😀".repeat(length);
+                let part = if field == "file" {
+                    ace_json::json!({"type": "file", "path": "/tmp/file", "name": name})
+                } else {
+                    ace_json::json!({"type": "mention", "entryId": name, "name": name})
+                };
+                assert_eq!(is_content_part(&part), length == limit, "{field}");
+            }
+        }
     }
 }

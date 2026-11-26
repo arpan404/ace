@@ -122,8 +122,8 @@ private struct AttachmentThumb: View {
         .accessibilityLabel(more > 0 ? "\(more) more images" : line.name)
         .accessibilityAddTraits(.isImage)
         .accessibilityIdentifier("attachment.image.\(ref)")
-        // Loads when the row is on screen; a cancelled load (scrolled away) starts again on return.
-        // A read the host was too busy for (its previews' places full) is tried again a little
+        // Loads when the row is on screen. A tile scrolled away stops waiting but its read runs on
+        // into the cache (`ThumbnailReads`), so on return it draws at once or joins it. A read the host was too busy for (its previews' places full) is tried again a little
         // later, twice, while the tile stays on screen.
         .task(id: ref) {
             guard image == nil, let access, !ref.isEmpty else { return }
@@ -192,6 +192,8 @@ struct AttachmentBytes: Decodable, Sendable {
     static func key(_ scope: String, _ itemId: String, _ ref: String) -> NSString {
         "\(scope)|\(itemId)|\(ref)" as NSString
     }
+    /// Reads in flight: a tile recycled mid-fling leaves its read running into `cache`.
+    static let reads = ThumbnailReads()
 }
 
 /// Where a message's attachments are read from: a thread, because the message carries them, or
@@ -303,17 +305,18 @@ struct MessageAttachmentRoutes: ViewModifier {
             cached: { itemId, ref in AttachmentThumbnails.cache.object(forKey: AttachmentThumbnails.key(source.scope, itemId, ref)) },
             thumbnail: { itemId, ref, pixels in
                 let key = AttachmentThumbnails.key(source.scope, itemId, ref)
-                if let hit = AttachmentThumbnails.cache.object(forKey: key) { return hit }
-                let payload = source.request(itemId, ref, variant: "thumbnail")
-                guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
-                let image = await Task.detached(priority: .userInitiated) {
-                    Data(base64Encoded: reply.data).flatMap(ImageDecoding.source).flatMap { ImageDecoding.preview($0, pixels: pixels) }
-                }.value
-                if let image {
-                    let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
-                    AttachmentThumbnails.cache.setObject(image, forKey: key, cost: cost)
+                return await AttachmentThumbnails.reads.read(key as String, kept: { AttachmentThumbnails.cache.object(forKey: key) }) {
+                    let payload = source.request(itemId, ref, variant: "thumbnail")
+                    guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
+                    let image = await Task.detached(priority: .userInitiated) {
+                        Data(base64Encoded: reply.data).flatMap(ImageDecoding.source).flatMap { ImageDecoding.preview($0, pixels: pixels) }
+                    }.value
+                    if let image {
+                        let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+                        AttachmentThumbnails.cache.setObject(image, forKey: key, cost: cost)
+                    }
+                    return image
                 }
-                return image
             },
             open: { itemId, line, pictures in open(itemId, line, pictures) },
             original: { itemId, ref in

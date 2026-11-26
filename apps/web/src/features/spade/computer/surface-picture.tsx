@@ -30,7 +30,7 @@ export function SurfacePicture(props: {
 }
 
 /** The page's address: its host, then the rest muted. Read-only: the bot or the person browses. */
-function AddressBar(props: { url: string | undefined }) {
+export function AddressBar(props: { url: string | undefined }) {
   const host = spadeHostOf(props.url);
   let rest = "";
   try {
