@@ -26,13 +26,15 @@ mod json_credentials;
 mod literal_spans;
 mod patterns;
 mod record_environment;
+mod redactor;
 mod secret_keys;
 mod token_counters;
 
 #[cfg(test)]
 mod tests;
 
-pub use context::{ChunkTooLarge, Context, Redactor, is_sensitive_field};
+pub use context::Context;
 pub use environment::{EnvironmentMatcher, EnvironmentSpan};
 pub use literal_spans::{SensitiveSpan, redact_original_text, sensitive_spans};
+pub use redactor::{ChunkTooLarge, Redactor, is_sensitive_field};
 pub use secret_keys::is_secret_key;
