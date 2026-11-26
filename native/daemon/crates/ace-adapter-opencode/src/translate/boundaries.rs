@@ -4,7 +4,7 @@
 //! deserializes into these views; an unknown one stays raw. Bounds match the
 //! TypeScript schemas, so oversized or misshapen events fail the same way.
 
-use crate::translate::data::{fields, get, s_in};
+use crate::translate::data::{fields, get};
 use ace_json::{Map, Value};
 use thiserror::Error;
 
@@ -103,24 +103,31 @@ fn parse_durable(cursor: &Map) -> Result<Durable<'_>, BoundaryError> {
 
 /// The session an envelope reports, read through its fallbacks: the event's
 /// own id, its form's, or its info metadata's.
-pub fn event_session(value: &Value) -> String {
+///
+/// Borrowed from the event: this runs once per event on the hot path, so it
+/// copies nothing (the TypeScript built up to three strings here). As `string`
+/// does, a field that *is* a string wins even when empty.
+pub fn event_session(value: &Value) -> &str {
     let envelope = fields(value);
     let data = fields(get(envelope, "data"));
-    let form = fields(get(data, "form"));
-    let info = fields(get(data, "info"));
-    let metadata = fields(get(info, "metadata"));
-    // Mirror the nested fallback directly: inner first, outer last.
-    let inner = s_in(metadata, "sessionID");
-    let middle = if inner.is_empty() {
-        s_in(form, "sessionID")
-    } else {
-        inner
-    };
-    let outer = s_in(data, "sessionID");
-    if !outer.is_empty() {
-        outer.to_owned()
-    } else {
-        middle.to_owned()
+    if let Some(session) = string_field(data, "sessionID") {
+        return session;
+    }
+    if let Some(session) = string_field(fields(get(data, "form")), "sessionID") {
+        return session;
+    }
+    string_field(
+        fields(get(fields(get(data, "info")), "metadata")),
+        "sessionID",
+    )
+    .unwrap_or("")
+}
+
+/// One field that is a string, borrowed; anything else is absent.
+fn string_field<'a>(map: &'a Map, key: &str) -> Option<&'a str> {
+    match map.get(key) {
+        Some(Value::String(text)) => Some(text.as_str()),
+        _ => None,
     }
 }
 

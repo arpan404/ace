@@ -1534,7 +1534,21 @@ never from `Object.keys(variants)` (the dead `--verbose` path) and never from `s
   its six types (`extension-catalog.ts:100`–`:107`). Each is a `Port` event published at the
   point the TypeScript called it, in order with the frames. Each starts with an await or only
   marks work as dirty, so starting it one batch later changes nothing a test can see.
-  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock.
+  `reconcileNow`'s synchronous part (`beginRecovery`) runs in Rust, under the same lock: the
+  tenant keeps the request as a flag the server core takes after every `accepts` and `receive`
+  it calls, so `beginRecovery(watermark)` runs inside the same `consumeEvents` loop and the
+  events after it are buffered, exactly as the inline call made them. The `reconcile` port stays
+  for the paths that run outside the loop (a `session.moved` reply, a barrier's `uncertain`).
+- **Reply inputs**, each a synchronous handle call on the tenant: `establish_root` (`:277`,
+  `ownership.establish`), `root_snapshot` (`:277`'s `snapshot.info` with `root: true`),
+  `admit_stopped` (`:105`, the refused environment's note), and `moved_reply` (`:345`–`:362`:
+  `verify`, then `snapshot.info`, or a reconcile, and `moved_done` either way). The requests that
+  produce them are not this item's: `session.create`/`session.get` and the environment call are
+  the facade's (E3-opencode.4), and the `session.moved` GET and the ancestry chain are
+  E3-opencode.3's `lookup.rs`. `ServerCore::replay` returns a tenant's refusal to the facade,
+  which retries as `recoverUntilSettled` does; a failed pass never settles `recovering` and never
+  releases a barrier. `ServerCore::accepts` returns the tenant's refusal, so a shell past its
+  2,048 bound fails the stream as `routes.select`'s throw does.
 - **The flow gate**: the tenant's `ReadGate` has no pump. The facade waits on each session's
   `outputFlow` between body chunks, as `server.ts:413` waits between events (E3-opencode.4).
   `port.fail()` changes nothing observable, because TypeScript ignores `onFrame`'s promise here
@@ -1580,7 +1594,20 @@ never from `Object.keys(variants)` (the dead `--verbose` path) and never from `s
 - **Must not**: issue a request any way but the effect; retry inside Rust (the server's retry
   loop is TypeScript's).
 - **Reviewer checks**: each `await` in `recoverSessions` is one stage, in order; a pass started
-  while one is in flight joins it.
+  while one is in flight joins it. The tenant side this item answers is already E3-opencode.2's
+  (`moved_reply`, the pass's `reconciled` through `prepareReplay`); this item owns the GETs and the
+  `http` ports that fill them, and `.4` owns the facade that answers them.
+- **Landed so far**: `http.rs` (one request per SDK call, and `reply`'s two refusal shapes);
+  `history.rs` (`HistoryReader`'s paging machine: the head per session, the repeated cursor, the
+  512-page bound, the message checks); `lookup.rs` (the ancestry chain: 16 hops, the cycle check,
+  a fork or root ends it, the identity check, and the `needsRecovery` branch); and the tenant's
+  reply routing — `reply(id, ok, json)` drops a reply nobody waits on, `Owner::Moved` lands in
+  `moved_reply`, and `Owner::Ancestry` walks the chain, admits it oldest first, then replays the
+  held receipts or fails the probe. `finalize_snapshots` and `recovered` have direct tests.
+- **Left for this item**: `recovery.rs` — the `recoverSessions` walk itself (the visit stack, the
+  64-page child listing with its pagination bound, the live messages, the history read, the
+  interaction and inbox staging, then the global active read and the per-directory shell listing
+  with the exact-shell read), and `Owner::Recovery`/`Owner::Replay` in the tenant's `reply`.
 
 #### E3-opencode.4 Binding, facades, the twin pool and the switch
 
