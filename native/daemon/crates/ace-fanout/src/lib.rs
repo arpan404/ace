@@ -41,9 +41,9 @@ pub use sidebar::{
     SidebarSubscription, SidebarWindow, ThreadListCursor, ThreadListResume,
 };
 pub use subscription::{
-    DEFAULT_PROGRESS_INTERVAL_MS, DEFAULT_REPLAY_LIMIT, REPLAY_COMPARE_BYTES, REPLAY_FRAME_BYTES,
-    REPLAY_READ_BYTES, Scope, SnapshotTail, SubscribeError, SubscribeOptions, Subscription,
-    SubscriptionFrame, SubscriptionStore,
+    DEFAULT_PROGRESS_INTERVAL_MS, DEFAULT_REPLAY_LIMIT, EventRead, REPLAY_COMPARE_BYTES,
+    REPLAY_FRAME_BYTES, REPLAY_READ_BYTES, Scope, SnapshotTail, SubscribeError, SubscribeOptions,
+    Subscription, SubscriptionFrame, SubscriptionStore,
 };
 pub use wire_trim::{
     SUPPORTED_TRIMS, WireRestorer, WireTrimmer, restore_thread_list, share_thread_list, trim_item,

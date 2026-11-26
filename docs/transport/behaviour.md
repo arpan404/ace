@@ -294,6 +294,12 @@ backpressure`; each message is charged 256 bytes on top of its payload (`:21`–
   implementation's bounded read must either return every event through the head it reports or say
   it overflowed; it must never return a prefix and move the cursor to the head, because the client
   checks only that `afterSeq` matches (`thread-store.ts:374`–`:378`) and would accept the hole.
+  **Intended difference from the TypeScript (2026-11-26).** `subscription.ts:283`–`:318` weighs the
+  replay after summarizing interactions, so a read the byte budget stopped can look complete once
+  its largest event is summarized, and the prefix then advances the cursor to the head. The Rust
+  core takes the read's own coverage (`EventRead.complete`) and sends a snapshot whenever the read
+  did not cover the watermark; the summarized bytes weigh only a complete replay against a
+  snapshot.
 - **Cursors are contiguous.** Every `events` and `progress` message carries `afterSeq` equal to the
   previous message's `throughSeq` (`:179`–`:198`); events the subscription filters out (another
   thread's, non-sidebar ones) still advance the cursor through a `progress` frame, sent within

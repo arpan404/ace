@@ -13,8 +13,8 @@ use std::cell::Cell;
 
 use ace_fanout::encode::EventsMessage;
 use ace_fanout::{
-    DeliveryEvent, Scope, SnapshotTail, SubscribeOptions, Subscription, SubscriptionFrame,
-    SubscriptionStore, WHOLE_EVENTS, WireEncoder,
+    DeliveryEvent, EventRead, Scope, SnapshotTail, SubscribeOptions, Subscription,
+    SubscriptionFrame, SubscriptionStore, WHOLE_EVENTS, WireEncoder,
 };
 use ace_json::{JsString, Value};
 
@@ -207,8 +207,9 @@ impl SubscriptionStore for Scripted {
         after: u64,
         limit: usize,
         byte_limit: usize,
+        _head: u64,
         thread: Option<&str>,
-    ) -> Vec<DeliveryEvent> {
+    ) -> EventRead {
         let entry = self.take("readEvents");
         assert_eq!(entry_arg(&entry, 0).and_then(as_u64), Some(after));
         assert_eq!(entry_arg(&entry, 1).and_then(as_u64), Some(limit as u64));
@@ -220,7 +221,7 @@ impl SubscriptionStore for Scripted {
             entry_arg(&entry, 3).and_then(entry_text_value),
             thread.map(str::to_owned)
         );
-        match Self::result(&entry) {
+        let events: Vec<DeliveryEvent> = match Self::result(&entry) {
             Value::Array(items) => items
                 .iter()
                 .map(|event| match event {
@@ -231,6 +232,16 @@ impl SubscriptionStore for Scripted {
                 })
                 .collect(),
             _ => panic!("readEvents result is not an array"),
+        };
+        // The recorded reads stop below both budgets; the fixture never models a byte overflow.
+        let encoder = WireEncoder::new();
+        let bytes: usize = events
+            .iter()
+            .map(|event| encoder.event_bytes(event, WHOLE_EVENTS))
+            .sum();
+        EventRead {
+            complete: events.len() < limit && bytes <= byte_limit,
+            events,
         }
     }
 }

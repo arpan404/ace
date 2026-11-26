@@ -16,7 +16,7 @@
 //! on its reader pool and feeds the results in; nothing here owns a thread, a timer or a global.
 
 use ace_json::{JsString, Map, Number, Value};
-use ace_projection::{changed_item_id, is_sidebar_event, wire_event, wire_thread_view};
+use ace_projection::{changed_item_id, is_sidebar_event, wire_thread_view};
 
 use crate::encode::{EventsMessage, WHOLE_EVENTS, WireEncoder};
 use crate::event::DeliveryEvent;
@@ -127,15 +127,51 @@ pub trait SubscriptionStore {
         let _ = (thread, after, through, limit);
         None
     }
-    /// `readEvents`: at most `limit` events above `after`, stopping after the event that
-    /// crosses `byte_limit`, for one thread or the whole log.
+    /// `readEvents`: at most `limit` events above `after` and through `head`, stopping after the
+    /// event that crosses `byte_limit`, for one thread or the whole log. `complete` says whether
+    /// the read reached the end of that range or the budget stopped it first.
     fn read_events(
         &self,
         after: u64,
         limit: usize,
         byte_limit: usize,
+        head: u64,
         thread: Option<&str>,
-    ) -> Vec<DeliveryEvent>;
+    ) -> EventRead;
+}
+
+/// A bounded replay read's result (`readEvents`): the events and whether the read reached the
+/// end of its range.
+///
+/// §9's rule is that a replay covers through the head it reports or becomes a snapshot. A read
+/// that stopped at its byte budget with more events still in `(after, head]` must say so
+/// (`complete: false`); the subscription then sends a snapshot instead of claiming a cursor it
+/// never read. Summarizing an interaction can hide that overflow from the byte count, so the
+/// count alone can never decide this.
+#[derive(Debug, Default)]
+pub struct EventRead {
+    pub events: Vec<DeliveryEvent>,
+    /// `true` when the read returned every event in its range; `false` when its byte budget
+    /// stopped it first.
+    pub complete: bool,
+}
+
+impl EventRead {
+    /// A read that reached the end of its range.
+    pub fn complete(events: Vec<DeliveryEvent>) -> EventRead {
+        EventRead {
+            events,
+            complete: true,
+        }
+    }
+
+    /// A read the byte budget stopped before its range ended.
+    pub fn incomplete(events: Vec<DeliveryEvent>) -> EventRead {
+        EventRead {
+            events,
+            complete: false,
+        }
+    }
 }
 
 /// Why a subscription could not start. The socket answers `subscribe_failed` with the
@@ -434,31 +470,40 @@ impl Subscription {
                 .is_some_and(|count| count > self.options.replay_limit),
             None => false,
         };
-        let events: Vec<DeliveryEvent> = if overflows {
-            Vec::new()
+        let read = if overflows {
+            EventRead::default()
         } else {
-            store
-                .read_events(
-                    after,
-                    self.options.replay_limit + 1,
-                    REPLAY_READ_BYTES,
-                    self.scope.thread(),
-                )
-                .into_iter()
-                .filter(|event| event.seq().is_some_and(|seq| seq as u64 <= head))
-                .map(wire)
-                .collect()
+            store.read_events(
+                after,
+                self.options.replay_limit + 1,
+                REPLAY_READ_BYTES,
+                head,
+                self.scope.thread(),
+            )
         };
+        // §9: a prefix never advances the cursor. The read says whether it covered the range;
+        // the byte count after summarizing cannot, since a summary can hide an overflow.
+        let incomplete = !read.complete;
+        let events: Vec<DeliveryEvent> = read
+            .events
+            .into_iter()
+            .filter(|event| event.seq().is_some_and(|seq| seq as u64 <= head))
+            .map(|event| event.wired())
+            .collect();
         let bytes: usize = events
             .iter()
             .map(|event| self.encoder.event_bytes(event, WHOLE_EVENTS))
             .sum();
-        let cheaper = if self.scope.thread().is_some() && bytes > REPLAY_COMPARE_BYTES {
+        // Only a complete replay is worth weighing against a snapshot.
+        let cheaper = if incomplete || overflows {
+            None
+        } else if self.scope.thread().is_some() && bytes > REPLAY_COMPARE_BYTES {
             self.smaller_snapshot(store, after, &events, bytes, head)
         } else {
             None
         };
         if overflows
+            || incomplete
             || events.len() > self.options.replay_limit
             || bytes > REPLAY_READ_BYTES
             || events
@@ -573,7 +618,7 @@ impl Subscription {
                     .is_some_and(|seq| seq as u64 > cursor && seq as u64 <= head)
                     && self.scope.matches(event)
             })
-            .map(wire)
+            .map(|event| event.wired())
             .collect();
         self.progress_head = self.progress_head.max(head);
         if !selected.is_empty() {
@@ -609,15 +654,6 @@ impl Subscription {
         } else if self.progress_due.is_none() {
             self.progress_due = Some(now_ms + self.options.progress_interval_ms);
         }
-    }
-}
-
-/// `wireEvent(event)`: an `interaction.opened` event carries its interaction as clients get it;
-/// every other event goes as it is.
-fn wire(event: DeliveryEvent) -> DeliveryEvent {
-    match wire_event(event.value()) {
-        Some(value) => DeliveryEvent::from_value(value),
-        None => event,
     }
 }
 

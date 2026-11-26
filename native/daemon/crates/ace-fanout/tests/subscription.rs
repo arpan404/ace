@@ -25,7 +25,7 @@ use std::cell::{Cell, RefCell};
 
 use ace_fanout::encode::WireEncoder;
 use ace_fanout::{
-    DEFAULT_PROGRESS_INTERVAL_MS, DeliveryEvent, Scope, SnapshotTail, SubscribeError,
+    DEFAULT_PROGRESS_INTERVAL_MS, DeliveryEvent, EventRead, Scope, SnapshotTail, SubscribeError,
     SubscribeOptions, Subscription, SubscriptionFrame, SubscriptionStore, WHOLE_EVENTS,
 };
 use ace_json::{JsString, Value};
@@ -174,27 +174,42 @@ impl SubscriptionStore for Mem {
         after: u64,
         limit: usize,
         byte_limit: usize,
+        head: u64,
         thread: Option<&str>,
-    ) -> Vec<DeliveryEvent> {
+    ) -> EventRead {
         self.read("readEvents");
         let encoder = WireEncoder::new();
+        let expected = thread.map(JsString::from);
+        let matching: Vec<DeliveryEvent> = self
+            .events
+            .borrow()
+            .iter()
+            .filter(|event| {
+                event
+                    .seq()
+                    .is_some_and(|seq| seq as u64 > after && seq as u64 <= head)
+                    && expected
+                        .as_ref()
+                        .is_none_or(|thread| event.thread_id() == Some(thread))
+            })
+            .cloned()
+            .collect();
         let mut out = Vec::new();
         let mut bytes = 0;
-        for event in self.events.borrow().iter() {
-            if event.seq().is_none_or(|seq| seq as u64 <= after) {
-                continue;
-            }
-            if thread.is_some() && event.thread_id() != Some(&JsString::from(thread.unwrap_or("")))
-            {
-                continue;
-            }
+        let mut at = 0;
+        while let Some(event) = matching.get(at) {
             out.push(event.clone());
             bytes += encoder.event_bytes(event, WHOLE_EVENTS);
+            at += 1;
             if out.len() >= limit || bytes > byte_limit {
                 break;
             }
         }
-        out
+        // The budget stopped the read only if the range went on past the last event returned.
+        EventRead {
+            events: out,
+            complete: at >= matching.len(),
+        }
     }
 }
 
@@ -562,4 +577,40 @@ fn a_replay_is_weighed_after_interactions_are_summarized() {
         panic!("interaction");
     };
     assert!(interaction.contains_key("truncated"));
+}
+
+/// §9: a bounded replay returns every event through the head it reports or the client gets a
+/// snapshot. A 2 MiB interaction at seq 1 makes the read stop at its byte budget; the status
+/// change at seq 2 was never read, so no frame may claim `throughSeq: 2` without it.
+#[test]
+fn an_incomplete_byte_limited_replay_never_skips_a_committed_event() {
+    let mem = Mem::new(2);
+    let interaction = format!(
+        r#"{{"id":"i","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{}"}}}}}}"#,
+        "x".repeat(2 * 1024 * 1024)
+    );
+    *mem.events.borrow_mut() = vec![
+        event(
+            1,
+            "t",
+            &format!(r#"{{"type":"interaction.opened","interaction":{interaction}}}"#),
+        ),
+        event(2, "t", r#"{"type":"thread.updated","title":"settled"}"#),
+    ];
+    let mut subscription = Subscription::new(
+        JsString::from("s"),
+        Scope::Thread("t".to_owned()),
+        Some(0),
+        options(),
+    );
+    let frames = subscription.start(&mem, 0).expect("start");
+    match &frames[0] {
+        SubscriptionFrame::Snapshot { seq, .. } => assert_eq!(*seq, 2),
+        SubscriptionFrame::Events(message) => assert!(
+            message.events.iter().any(|event| event.seq() == Some(2.0)),
+            "an events frame claimed throughSeq {} without seq 2",
+            message.through_seq
+        ),
+        other => panic!("unexpected frame: {other:?}"),
+    }
 }

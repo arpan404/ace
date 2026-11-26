@@ -29,6 +29,9 @@ struct Inner {
     value: Value,
     whole: OnceLock<String>,
     trimmed: OnceLock<Option<String>>,
+    /// `wireEvent(event)`: made once for every subscriber that shares this event (an
+    /// `interaction.opened` whose request goes summarized).
+    wired: OnceLock<Option<DeliveryEvent>>,
 }
 
 impl std::fmt::Debug for DeliveryEvent {
@@ -51,6 +54,7 @@ impl DeliveryEvent {
                 value: canonical_envelope(value),
                 whole: OnceLock::new(),
                 trimmed: OnceLock::new(),
+                wired: OnceLock::new(),
             }),
         }
     }
@@ -82,6 +86,19 @@ impl DeliveryEvent {
     /// `event.payload.type`.
     pub fn payload_type(&self) -> Option<&JsString> {
         field(&self.inner.value, "payload").and_then(|payload| field_text(payload, "type"))
+    }
+
+    /// `wireEvent(event)`: the event clients get, made once for every subscriber that shares
+    /// this event. An `interaction.opened` whose request is too large carries its summary; any
+    /// other event is itself.
+    pub fn wired(&self) -> DeliveryEvent {
+        self.inner
+            .wired
+            .get_or_init(|| {
+                ace_projection::wire_event(&self.inner.value).map(DeliveryEvent::from_value)
+            })
+            .clone()
+            .unwrap_or_else(|| self.clone())
     }
 }
 

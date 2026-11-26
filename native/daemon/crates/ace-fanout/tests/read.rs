@@ -215,9 +215,10 @@ impl ace_fanout::SubscriptionStore for MemStore {
         _after: u64,
         _limit: usize,
         _byte_limit: usize,
+        _head: u64,
         _thread: Option<&str>,
-    ) -> Vec<ace_fanout::DeliveryEvent> {
-        Vec::new()
+    ) -> ace_fanout::EventRead {
+        ace_fanout::EventRead::complete(Vec::new())
     }
 }
 
