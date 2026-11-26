@@ -2,7 +2,7 @@
 
 [package]
 name = "ace-adapter-claude"
-description = "The claude provider's translator (E1) and session (E3, except Claude) behind @ace/engine-api"
+description = "The claude provider's translator (E1) and session (E3) behind @ace/engine-api"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,14 +13,21 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-# ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
+# ace-adapter-api: the Adapter, Translator and Session traits this provider implements, plus the
+# frame direction, elision and JSON helpers the session shares with every adapter.
 ace-adapter-api = { path = "../ace-adapter-api" }
-# serde: typed views of provider frames decode from the redacted capture (lenient, never fatal).
-serde = { version = "1", features = ["derive"] }
 # ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
 # JSON.stringify semantics, no recursion, raw splices).
 ace-json = { path = "../ace-json" }
+# ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly; its
+# JSONL framing and output budgets are the session's framers.
+ace-supervisor = { path = "../ace-supervisor" }
+# agent-stream-json: the CLI's stream-json protocol (argv, control envelopes, classification),
+# sans-IO and shared with no other provider.
+agent-stream-json = { path = "../agent-stream-json" }
+# indexmap: the task index's insertion-ordered maps, as SessionTasks' JavaScript Maps were.
+indexmap = { version = "2" }
+# serde: typed views of provider frames decode from the redacted capture (lenient, never fatal).
+serde = { version = "1", features = ["derive"] }
 # thiserror: the translator's typed errors, mapped to diagnostics (never thrown on provider data).
 thiserror = { version = "2" }
-# ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
-ace-supervisor = { path = "../ace-supervisor" }
