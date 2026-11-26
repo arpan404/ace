@@ -474,6 +474,16 @@
       "code": "lease_required",
       "message": "Control of this device changed during the read",
       "hint": "Call sim_start again, then read the clipboard again."
+    },
+    "liveViewH264Only": {
+      "code": "not_supported",
+      "message": "Device live views are H.264 video only",
+      "hint": "Update ace on this device; live views no longer stream JPEG."
+    },
+    "captureNoVideo": {
+      "code": "not_supported",
+      "message": "This device's capture can't stream video for a live view",
+      "hint": "Live views are H.264 only. Restart the device's live view; if it persists, check its capture tools."
     }
   },
   "adbTransports": {

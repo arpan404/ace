@@ -709,11 +709,14 @@ every promise chain are the shell's, and each module returns what to do next.
 | `sim-schemas`             | `service/sim_schemas.rs`          | the tools' bounds, each action's fields, and the tap's ref-or-coordinates rule               |
 | `sim-tools`               | `service/sim_tools.rs`            | the start/stop summary, the no-video answer, the screenshot's note, the public failure       |
 | `device-tools-wire`       | `service/device_tools_wire.rs`    | the install request's and reply's bounds (`serve_sim` owns their shapes)                     |
+| `stream-control`          | `service/stream_control.rs`       | the four device streams, the JPEG refusal, a recording's idle stream, the codec check        |
+| `stream-owners`           | `service/stream_owners.rs`        | overlapping views while a resubscribe is set up, and a disconnect that retains nothing       |
 | `bridge`                  | `service/bridge.rs`               | who may speak, whose thread a device may be seen from, the 32-request budget                 |
 | `devices-setting` (daemon) | `service/devices_setting.rs`      | the next step, a busy retry, and what counts as a new choice                                 |
 
 The shell keeps the composition: the promise chains, the timers, the capture, the media binding,
-the stills and the settings loop. `sim-schemas.ts` stays TypeScript until D5 pins the typed
+the stills and the settings loop. `@ace/screen`'s `StreamOwners` arbitration and `commonStream`
+stay that package's (screen S-items); `stream_control` is the device's rules around them. `sim-schemas.ts` stays TypeScript until D5 pins the typed
 decoding; the ref pattern it reads moved with `sim-refs`.
 
 Intended differences, each proven in Rust:
