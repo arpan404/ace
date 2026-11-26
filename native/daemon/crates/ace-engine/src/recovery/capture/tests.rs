@@ -5,9 +5,8 @@
 //! Ported cases: `restart-resume.process.test.ts:345` ("a turn waiting on the person's answer
 //! doesn't resume after a graceful restart"), `:188` ("a thread stopped while its turn wound down
 //! stays stopped across a restart"), `:406` ("a provider that dies mid-turn while ace keeps
-//! running holds its queue until Resume"); `queue-recovery.process.test.ts:486` ("an
-//! unacknowledged send is never replayed: Resume refuses it and the next message goes ahead
-//! without it").
+//! running holds its queue until Resume"). The Resume that refuses an unacknowledged send
+//! (`queue-recovery.process.test.ts:486`) is E5.4d's receipt and E5.5's delivery, not a capture.
 
 use super::*;
 use crate::repository::testsupport::{Shell, home};
