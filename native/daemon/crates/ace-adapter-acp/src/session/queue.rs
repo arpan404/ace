@@ -186,6 +186,9 @@ impl AcpCore {
                     if !wrote_any {
                         self.drop_batch(job.batch, effects);
                     }
+                    // The job left the queue; the recorder's count must say so (`send`'s
+                    // `finally` reports in TS, `session.ts:671`-`:675`).
+                    self.queue_changed(effects);
                     continue;
                 }
             };
