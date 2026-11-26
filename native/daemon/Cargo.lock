@@ -83,6 +83,7 @@ dependencies = [
  "ace-json",
  "ace-redaction",
  "ace-supervisor",
+ "base64",
  "indexmap",
  "serde",
  "thiserror",
