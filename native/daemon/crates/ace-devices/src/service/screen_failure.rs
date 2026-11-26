@@ -21,15 +21,14 @@ pub fn permission_key(permission: DevicePermission) -> &'static str {
 /// `permissionDenied`: which permission and how to grant it, carrying the
 /// permission on the failure so a client can offer the right fix.
 pub fn permission_denied(permission: DevicePermission) -> DeviceError {
-    let word = crate::platform::words::refusal(permission_key(permission));
-    DeviceError::Coded {
-        // The code is the catalog's too, so the two backends cannot drift on it.
-        code: DeviceErrorCode::parse(word.code.as_str())
-            .unwrap_or(DeviceErrorCode::PermissionDenied),
-        message: word.message.into(),
-        hint: word.hint.into(),
-        permission: Some(permission),
+    let mut error = words::refusal(permission_key(permission));
+    if let DeviceError::Coded {
+        permission: slot, ..
+    } = &mut error
+    {
+        *slot = Some(permission);
     }
+    error
 }
 
 /// The error a screen helper or manager reported: its stable message and code.

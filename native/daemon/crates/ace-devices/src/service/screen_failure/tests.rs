@@ -64,6 +64,14 @@ fn a_focus_message_is_foreground_too() {
 }
 
 #[test]
+fn a_permission_refusal_takes_its_code_from_the_catalog_not_a_hardcoded_default() {
+    let failed = permission_denied(DevicePermission::ScreenRecording);
+    let catalog = crate::platform::words::refusal("permissionScreenRecording");
+    assert_eq!(failed.code().as_str(), catalog.code.as_str());
+    assert_ne!(catalog.code.as_str(), "busy");
+}
+
+#[test]
 fn screen_recording_permission_denied_carries_the_permission() {
     for message in [
         "Screen Recording permission denied",
