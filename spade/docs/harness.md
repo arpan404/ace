@@ -26,6 +26,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `asks_updated`                               | `call_id`, `changes[]`                                                                  | What one `asks` call changed in the person's asks, as Spade accepted it; the ledger reads only this (ADR 0215)                                                                                                                                                                                                                                                     |
 | `asks_checked`                               | `reply`, `asks[]`, `note`                                                               | The stop check ran in `reply`, naming those open asks; the model reads `note` as Spade's, and the reply takes one more step                                                                                                                                                                                                                                        |
 | `asks_reminded`                              | `reply`, `steers[]`, `note`                                                             | The first step that read these steers made calls but didn't answer them; the model reads `note` as Spade's (ADR 0215 §4)                                                                                                                                                                                                                                           |
+| `asks_shown`                                 | `text`                                                                                  | The asks block as it read before a model call, stored where it is read (ADR 0215 amendment): the model reads it as the person's words at that place, so every call's prompt is a prefix of the next                                                                                                                                                                |
 | `asks_noted`                                 | the ledger                                                                              | A copy of the person's asks, stored every 500 events it reads, so a fold after a restart reads only what came since (ADR 0215)                                                                                                                                                                                                                                     |
 | `command_ran`                                | `reply`, `call_id`, `contained`, `exit_code?`, `timed_out?`, `reached[]`, `refused[]`   | Where a `shell` command (or a `python` run) ran and how: `contained` when Spade's sandbox held it, the hosts it reached and the ones the network policy refused (`{host, port, reason}`). Stored right after its `tool_finished` (or, for a command that became a job, before its `job_finished`); the model never reads it, the app shows it in the reply's steps |
 | `job_started`                                | `reply`, `job`, `name`                                                                  | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                                                                                                                                                                                                 |
@@ -96,14 +97,16 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   `spade_core::asks`): every message from the person (for a worker, its maker's) opens an ask,
   marked when it came while a reply ran. The bot sorts and closes asks with the `asks` tool
   (open, split, done, dropped, changed, waiting, chat, and standing instructions it records and
-  lifts); while untrusted content is in the prompt's view (the rule notes follow) it may only change states, and only a later message from the person lifts a standing instruction. Each model call ends
-  with a short `<asks>` block rebuilt from the ledger: standing instructions, open asks newest
-  first (at most 12, the rest counted), then new messages not yet sorted. It is never stored and
-  comes after everything stored, so every earlier byte is what the previous call sent and the
-  provider's cached prefix holds. A `cli:` brain gets it at the end of each turn's message; a helper gets none. The
-  ledger is folded from its latest stored copy (`asks_noted` or a compaction's, looked for in
-  the last 2,000 events) and kept in memory per conversation, so a step reads only the events
-  since the last one.
+  lifts); while untrusted content is in the prompt's view (the rule notes follow) it may only
+  change states, and only a later message from the person lifts a standing instruction. Before a
+  model call whose ledger's block differs from the one stored since the last compaction, Spade
+  stores that block as `asks_shown`: standing instructions, open asks newest first (at most 12,
+  the rest counted), then new messages not yet sorted. The model reads it as the person's words
+  where it was stored, so every call's prompt is a prefix of the next (a step's `seen` counts it)
+  and a provider that binds thinking to what came before keeps it. A `cli:` brain gets it at the
+  end of each turn's message; a helper gets none. The ledger is folded from its latest stored
+  copy (`asks_noted` or a compaction's, looked for in the last 2,000 events) and kept in memory
+  per conversation, so a step reads only the events since the last one.
 - **Steers** (ADR 0215 §4): a message the person types while a reply runs (not a typed answer
   to a waiting card) reads to the model as `<steer>…</steer>`, in the place steering puts it,
   and to a `cli:` brain the same way. The bot is told to answer it in words and record it with
@@ -180,8 +183,9 @@ lane's row and first events, and in main `lane_started`, `reply_moved` and the r
 from its next step. `Limits::move_long_work` turns this on (Spade does; tests choose). A lane's
 own work never moves, and `task::next` never carries a moved task on in main.
 
-Each step of main's ends with a `<tasks>` block after the `<asks>` block while lanes haven't
-ended: one line each with its id, state, title and the asks it owns, read from the events.
+Main learns its lanes from the stored `lane_started` line, each lane's report
+(`worker_reported`) and the `tasks` tool when it asks: no live view is rebuilt into a prompt per
+call (ADR 0217 amendment of 2026-11-25).
 
 ## Tools
 

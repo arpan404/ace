@@ -1,6 +1,6 @@
-//! The short block every model call ends with (ADR 0215 §2): standing instructions, open asks
-//! newest first, then new messages not yet sorted. Built from the ledger and stored where it is
-//! read, so every prompt is a prefix of the next.
+//! The short block that tells the model the person's asks (ADR 0215 §2): standing instructions,
+//! open asks newest first, then new messages not yet sorted. Built from the ledger and stored
+//! where it is read, so every prompt is a prefix of the next.
 
 use crate::event::{Event, Known};
 

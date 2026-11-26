@@ -241,7 +241,7 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   write that opens a reply of it), and `lane_copies` the lanes whose requests have copies in main
   (listed in the write that copies one, cleared at open once nothing of it is left open there);
   Spade reconciles only those at open. A lane leaves `lanes_live` with its last report and comes
-  back when it opens a reply. Slots, roll-up, Stop, the tasks block, the tree,
+  back when it opens a reply. Slots, roll-up, Stop, the tree,
   resuming and startup read only those, never every lane a bot ran (ADR 0170).
 - **Spend.** Each lane's steps are recorded under its bot as the `task` role; a row's
   `cost_micros` is what its steps cost. Nothing stops on it (ADR 0166).
