@@ -1,7 +1,7 @@
 import type { Client } from "@ace/client";
-import type { Scenario } from "@ace/fake-daemon";
+import { contextMeter, type Scenario } from "@ace/fake-daemon";
 import type { AutomationResponse } from "@ace/protocol";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
 
@@ -123,4 +123,15 @@ test("an approval takes the strip over the automation's line", async () => {
   await waitFor(() =>
     expect(screen.queryByRole("status", { name: / · runs every day at/ })).toBeNull(),
   );
+});
+
+test("a context sample never hides the automation's line or its Pause", async () => {
+  const app = harness({ client: (daemon) => withThreadAutomations(fakeClient(daemon)) });
+  app.play(contextMeter({ id: threadId })).runUntilBlocked();
+  await app.open(`/t/${threadId}`);
+
+  const line = await screen.findByRole("status", { name: / · runs every day at/ });
+  expect(within(line).getByRole("button", { name: "Pause" })).toBeTruthy();
+  // The readout sits beside the line instead of replacing it.
+  expect(screen.getByTitle("124,000 of 200,000 tokens in context")).toBeTruthy();
 });

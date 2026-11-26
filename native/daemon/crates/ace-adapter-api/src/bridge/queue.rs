@@ -157,10 +157,16 @@ impl EventQueue {
     /// The queue with the gate that paces the child's pumps. The session core
     /// makes both, so a full queue stops its own provider.
     pub fn new(pace: ReadGate) -> Self {
+        EventQueue::starting_at(pace, 0)
+    }
+
+    /// The queue whose first frame is `first`: the Cursor session numbers its
+    /// frames from 1, as `session.ts:76` does.
+    pub fn starting_at(pace: ReadGate, first: u64) -> Self {
         Self {
             state: Arc::new(Mutex::new(QueueState {
                 events: VecDeque::new(),
-                next_seq: 0,
+                next_seq: first,
                 drained: false,
                 bytes: 0,
                 pace,
@@ -211,6 +217,16 @@ impl EventQueue {
     /// Whether the queue is at its bound: the child's pumps stop while it is.
     pub fn at_bound(&self) -> bool {
         self.lock().at_bound()
+    }
+
+    /// Reserves the next frame number without publishing a frame, under the queue's
+    /// lock: what a session's fallback operation id takes (`session.ts:260`), so the
+    /// frame it precedes is numbered exactly as `++seq` numbered it.
+    pub fn reserve_seq(&self) -> u64 {
+        let mut state = self.lock();
+        let seq = state.next_seq;
+        state.next_seq = state.next_seq.saturating_add(1);
+        seq
     }
 
     /// Takes at most `max_frames` frames, or the frames up to `max_bytes` of frame
@@ -288,8 +304,22 @@ impl EventQueue {
 fn numbered(event: SessionEvent, next_seq: &mut u64) -> SessionEvent {
     match event {
         SessionEvent::Frame {
-            dir, channel, text, ..
+            dir,
+            channel,
+            text,
+            seq,
         } => {
+            // A frame that already carries its number keeps it: `reserve_seq` took it
+            // from this same counter, so the sequence stays contiguous. Zero means the
+            // queue numbers it, as producers that never reserve do.
+            if seq != 0 {
+                return SessionEvent::Frame {
+                    seq,
+                    dir,
+                    channel,
+                    text,
+                };
+            }
             let seq = *next_seq;
             *next_seq = next_seq.saturating_add(1);
             SessionEvent::Frame {
@@ -326,5 +356,61 @@ impl SessionEvent {
             SessionEvent::Fatal { message } => message.len(),
             SessionEvent::Drained => 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EventQueue, ReadGate, SessionEvent};
+    use crate::frame::FrameDirection;
+
+    fn frame(text: &str) -> SessionEvent {
+        SessionEvent::Frame {
+            seq: 0,
+            dir: FrameDirection::Recv,
+            channel: "sdk".to_owned(),
+            text: text.to_owned(),
+        }
+    }
+
+    fn seqs(events: &[SessionEvent]) -> Vec<u64> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::Frame { seq, .. } => Some(*seq),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_queue_starting_at_one_numbers_its_first_frame_one() {
+        let queue = EventQueue::starting_at(ReadGate::new(), 1);
+        queue.publish(vec![frame("a"), frame("b")]);
+        assert_eq!(seqs(&queue.take_batch(16, 16_384)), vec![1, 2]);
+    }
+
+    #[test]
+    fn a_reserved_number_is_skipped_by_the_frames_around_it() {
+        let queue = EventQueue::starting_at(ReadGate::new(), 1);
+        queue.publish(vec![frame("a")]);
+        // The fallback operation id takes one, as `session.ts:260` does.
+        assert_eq!(queue.reserve_seq(), 2);
+        queue.publish(vec![frame("b")]);
+        assert_eq!(seqs(&queue.take_batch(16, 16_384)), vec![1, 3]);
+    }
+
+    #[test]
+    fn a_frame_that_reserved_its_own_number_keeps_it() {
+        let queue = EventQueue::starting_at(ReadGate::new(), 1);
+        let seq = queue.reserve_seq();
+        queue.publish(vec![SessionEvent::Frame {
+            seq,
+            dir: FrameDirection::Recv,
+            channel: "sdk".to_owned(),
+            text: "a".to_owned(),
+        }]);
+        queue.publish(vec![frame("b")]);
+        assert_eq!(seqs(&queue.take_batch(16, 16_384)), vec![1, 2]);
     }
 }

@@ -4,7 +4,7 @@
 //! binding, so the shell names one of these and Rust implements it.
 
 use crate::translate::data::{object, string};
-use ace_json::Value;
+use ace_json::{Map, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuirksKind {
@@ -30,7 +30,7 @@ impl QuirksKind {
     }
 
     /// The tool kind an update names, or None.
-    pub fn tool_kind(self, update: &Value) -> Option<String> {
+    pub fn tool_kind(self, update: &Map) -> Option<String> {
         match self {
             QuirksKind::Generic => None,
             QuirksKind::Antigravity => antigravity_tool_kind(update),
@@ -84,7 +84,7 @@ fn error_object(kind: &str, code: Option<&str>, message: &str) -> Value {
     Value::Object(map)
 }
 
-fn antigravity_tool_kind(update: &Value) -> Option<String> {
+fn antigravity_tool_kind(update: &Map) -> Option<String> {
     let name = {
         let direct = string(update.get("name").unwrap_or(&Value::Null));
         if !direct.is_empty() {
@@ -144,7 +144,7 @@ fn antigravity_tool_kind(update: &Value) -> Option<String> {
     None
 }
 
-fn extension_tool_kind(update: &Value) -> Option<String> {
+fn extension_tool_kind(update: &Map) -> Option<String> {
     let raw_input = object(update.get("rawInput").unwrap_or(&Value::Null));
     let tool_name = string(raw_input.get("_toolName").unwrap_or(&Value::Null));
     let title = string(update.get("title").unwrap_or(&Value::Null));

@@ -108,10 +108,17 @@ impl SessionTasks {
         self.resolve(spawn).map(|slot| task_json(&self.slots[slot]))
     }
 
-    /// `cascade(spawn)` as `{ids, uncertain}`. None or an empty spawn is uncertain with no ids.
+    /// `cascade(spawn)` as `{ids, uncertain}`. No target is the TS's no-agent branch: every live
+    /// task, certain (`session.ts:474`).
     pub fn cascade(&self, spawn: Option<&str>) -> String {
         let Some(target) = spawn.filter(|spawn| !spawn.is_empty()) else {
-            return cascade_json(&[], true);
+            let ids = self
+                .live
+                .iter()
+                .filter(|(_, slot)| self.slots[**slot].live)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            return cascade_json(&ids, false);
         };
         let mut ids = Vec::new();
         let mut uncertain = false;

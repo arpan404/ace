@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-redaction"
+description = "The Rust port of @ace/redaction: exact configured values and their JSON-escaped spellings, credential patterns and secret keys, shared by ace-forge and ace-git (ADR 0224 §8a, F0)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: JSON as JSON.parse/JSON.stringify see it (key order, numbers, lone surrogates), and
+# the UTF-16 lengths the TypeScript's `.length` bounds count.
+ace-json = { path = "../ace-json" }
+# regex: the credential patterns, re-expressed from the TypeScript's RegExps, each proven by the
+# test cases that moved from packages/redaction/src.
+regex = { version = "1" }

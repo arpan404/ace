@@ -724,6 +724,28 @@ const server = createServer(async (req, res) => {
   const match = /^\/api\/(?:experimental\/)?session\/([^/]+)(.*)$/.exec(path);
   if (match) {
     const [, id, suffix] = match;
+    if (suffix === "/compact" && req.method === "POST") {
+      const item = {
+        id: `compact-${++serial}`,
+        sessionID: id,
+        type: "compaction",
+        payload: {},
+        time: { created: 1 },
+        delivery: "queue",
+      };
+      const directory = sessions.get(id)?.location?.directory ?? "/one";
+      publish("session.inbox.enqueued", { sessionID: id, inboxID: item.id }, directory);
+      // The server compacts in place and says so on its event stream, as OpenCode does.
+      publish("session.compaction.started", { sessionID: id, reason: "manual" }, directory);
+      publish(
+        "session.compaction.ended",
+        { sessionID: id, reason: "manual", text: "The earlier turns, summarised by OpenCode." },
+        directory,
+        { durable: { aggregateID: id, seq: serial, version: 1 } },
+      );
+      json({ data: item });
+      return;
+    }
     if (suffix === "/command" && req.method === "POST") {
       if (body.name === "reject") {
         res.writeHead(400).end();

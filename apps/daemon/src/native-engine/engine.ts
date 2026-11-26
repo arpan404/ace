@@ -170,6 +170,7 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
   }
 
   private finishClose(): void {
+    this.frames.clear();
     this.closingFlag = true;
     this.calls.releaseHolder();
     this.stopObserving?.();

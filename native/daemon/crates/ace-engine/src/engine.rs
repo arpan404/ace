@@ -255,6 +255,7 @@ async fn close_task(core: Rc<Core>) {
         ));
     }
     // Every terminal path: no timer is left armed and no parked task keeps a sender.
+    actor::finish_close(&core);
     core.ports.cancel_all_timers();
     core.executor.shut();
     core.tasks.borrow_mut().clear();

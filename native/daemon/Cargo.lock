@@ -43,6 +43,7 @@ dependencies = [
  "indexmap",
  "serde",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -71,6 +72,7 @@ dependencies = [
  "serde",
  "sha2 0.11.1",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -79,7 +81,9 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-json",
+ "ace-redaction",
  "ace-supervisor",
+ "base64",
  "indexmap",
  "serde",
  "thiserror",
@@ -150,6 +154,7 @@ dependencies = [
  "ace-store",
  "ace-supervisor",
  "ace-transport",
+ "agent-stream-json",
  "bytes",
  "getrandom 0.4.3",
  "indexmap",
@@ -172,6 +177,7 @@ dependencies = [
  "ace-supervisor",
  "base64",
  "flate2",
+ "indexmap",
  "notify",
  "regex",
  "rustls",
@@ -212,6 +218,20 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror",
  "url",
+]
+
+[[package]]
+name = "ace-forge"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "ace-protocol",
+ "ace-redaction",
+ "ace-store",
+ "ace-supervisor",
+ "regex",
+ "sha2 0.10.9",
+ "thiserror",
 ]
 
 [[package]]
@@ -284,6 +304,14 @@ dependencies = [
  "schemars",
  "serde_json",
  "typify",
+]
+
+[[package]]
+name = "ace-redaction"
+version = "0.1.0"
+dependencies = [
+ "ace-json",
+ "regex",
 ]
 
 [[package]]
