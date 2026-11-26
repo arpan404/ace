@@ -498,3 +498,47 @@ fn a_refused_terminal_write_keeps_the_run_until_a_retry_commits_it_and_promotes_
     let actions = service.take_actions();
     assert_eq!(input_prompt(&actions[0]), "Triage second");
 }
+
+#[test]
+fn a_deduplicated_due_schedule_advances_without_another_run_or_notification() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&scheduled("skip", 0), None).expect("put");
+    let mut scheduled_variables = std::collections::BTreeMap::new();
+    scheduled_variables.insert(
+        "scheduled_at".to_owned(),
+        ace_automations::calendar::iso_string(START),
+    );
+    let existing = service
+        .trigger(
+            "triage",
+            &format!("schedule:{START}"),
+            scheduled_variables,
+            "schedule",
+            None,
+        )
+        .expect("existing");
+    let existing_id = run_id(&existing);
+    service.take_actions();
+    service.take_published();
+
+    h.clock.0.set(START);
+    let dedup = service.tick().expect("tick").expect("deduplicated run");
+    assert_eq!(run_id(&dedup), existing_id);
+    assert!(
+        service.take_actions().is_empty(),
+        "a deduplicated fire starts nothing"
+    );
+    assert!(
+        service.take_published().is_empty(),
+        "a deduplicated fire notifies nothing"
+    );
+    assert_eq!(
+        h.store
+            .metadata("triage")
+            .expect("meta")
+            .and_then(|job| job.due),
+        Some(START + DAY),
+        "the cursor still advances to the next occurrence"
+    );
+}

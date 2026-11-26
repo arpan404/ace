@@ -711,20 +711,24 @@ impl<'a> Service<'a> {
                 return Err(error);
             }
         };
-        let run = outcome.run.map(|claimed| claimed.run);
-        if let Some(run) = &run
-            && run_status(run).as_deref() == Some("running")
-            && self.lives.live()
-            && generation == self.generation
-            && let Some(input) = outcome.input
-            && let Some(run_id) = run_id(run)
-        {
-            self.pending.insert(run_id.clone());
-            self.actions.push(Action::Execute { run_id, input });
-        }
-        if let Some(run) = &run {
-            self.publish(run);
-        }
+        let run = match outcome.run {
+            Some(claimed) => {
+                if claimed.created {
+                    self.publish(&claimed.run);
+                }
+                if claimed.admitted
+                    && self.lives.live()
+                    && generation == self.generation
+                    && let Some(input) = outcome.input
+                    && let Some(run_id) = run_id(&claimed.run)
+                {
+                    self.pending.insert(run_id.clone());
+                    self.actions.push(Action::Execute { run_id, input });
+                }
+                Some(claimed.run)
+            }
+            None => None,
+        };
         self.arm();
         Ok(run)
     }
@@ -1397,13 +1401,6 @@ fn run_automation(run: &Value) -> Option<String> {
             .get("automationId")
             .and_then(Value::as_str)
             .map(str::to_owned),
-        _ => None,
-    }
-}
-
-fn run_status(run: &Value) -> Option<String> {
-    match run {
-        Value::Object(map) => map.get("status").and_then(Value::as_str).map(str::to_owned),
         _ => None,
     }
 }
