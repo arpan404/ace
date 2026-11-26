@@ -49,13 +49,10 @@ const generators = [
   "crates/ace-fanout/vectors/make-sidebar-vectors.ts",
   "crates/ace-fanout/vectors/make-command-vectors.ts",
   "crates/ace-store/vectors/make-stored-vectors.ts",
+  "crates/ace-store/vectors/make-item-page-vectors.ts",
 ];
 for (const generator of generators) {
   execFileSync("bun", [generator, "--check"], {
-    cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
-    stdio: "inherit",
-  });
-}
     cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
     stdio: "inherit",
   });

@@ -85,6 +85,7 @@ type Ctx = {
   sent: string[];
   live: Live[];
   step: (threadId: ThreadId, payloads: Event["payload"][]) => Live;
+  append: (threadId: ThreadId, payloads: Event["payload"][]) => void;
   place: SidebarPlacement;
   places: Record<string, Place | null>;
 };
@@ -110,6 +111,12 @@ async function runSidebar(
   const live: Live[] = [];
   const sent: string[] = [];
   const places: Record<string, Place | null> = {};
+  // Appends carry their own timestamps: a fixture must not depend on the clock's granularity.
+  let clock = 10_000;
+  const append = (threadId: ThreadId, payloads: Event["payload"][]) => {
+    clock += 1;
+    store.appendEvents(threadId, payloads as never, clock);
+  };
   const send = (server_message: ServerMessage) => sent.push(encoder.encode(server_message));
   const place = new SidebarPlacement("token", () => 1_000);
   const recordingPlacement = {
@@ -180,7 +187,7 @@ async function runSidebar(
   };
   const step = (threadId: ThreadId, payloads: Event["payload"][]): Live => {
     const before = sent.length;
-    store.appendEvents(threadId, payloads as never);
+    append(threadId, payloads);
     const batch = liveBatches.at(-1);
     if (!batch) throw new Error(`${name}: an append published no batch`);
     return {
@@ -196,6 +203,7 @@ async function runSidebar(
     sent,
     live,
     step,
+    append,
     place,
     places,
   };
@@ -317,9 +325,7 @@ cases.push(
     const revision = first.window.revision;
     if (revision === undefined) throw new Error("no revision");
     ctx.store.markThreadRead("history-001" as ThreadId, DEVICE as never, ctx.store.headSeq());
-    ctx.store.appendEvents("history-002" as ThreadId, [
-      { type: "thread.updated", title: "changed since" },
-    ]);
+    ctx.append("history-002" as ThreadId, [{ type: "thread.updated", title: "changed since" }]);
     return {
       window: {
         limit: 20,

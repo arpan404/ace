@@ -177,10 +177,7 @@ const trustCases = [
   { name: "every row from the mark", trust: { from: 5, rejected: [] }, seqs: [4, 5, 9] },
   { name: "a rejected sequence is decoded", trust: { from: 5, rejected: [7] }, seqs: [6, 7, 8] },
 ].map(({ name, trust, seqs }) => {
-  const value =
-    trust.from === null
-      ? untrusted()
-      : trustedFrom(trust.from as number);
+  const value = trust.from === null ? untrusted() : trustedFrom(trust.from as number);
   for (const seq of trust.rejected) value.rejected.add(seq);
   return {
     name,
