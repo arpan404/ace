@@ -4125,6 +4125,9 @@ pub enum ServerBody {
     ServerAccountOwnerEnrollConfirmResult(ServerAccountOwnerEnrollConfirmResult),
     ServerAccountStandingResult(ServerAccountStandingResult),
     ServerAccountGrantRefreshResult(ServerAccountGrantRefreshResult),
+    ServerBrowserBackendRegistered(ServerBrowserBackendRegistered),
+    ServerBrowserBackendRequest(ServerBrowserBackendRequest),
+    ServerBrowserBackendFrameAck(ServerBrowserBackendFrameAck),
 }
 
 impl ServerBody {
@@ -4313,6 +4316,9 @@ impl ServerBody {
             }
             ServerBody::ServerAccountStandingResult(_) => "account.standing.result",
             ServerBody::ServerAccountGrantRefreshResult(_) => "account.grant.refresh.result",
+            ServerBody::ServerBrowserBackendRegistered(_) => "browser.backend.registered",
+            ServerBody::ServerBrowserBackendRequest(_) => "browser.backend.request",
+            ServerBody::ServerBrowserBackendFrameAck(_) => "browser.backend.frameAck",
         }
     }
 }
@@ -4514,6 +4520,9 @@ pub fn decode_server(type_: &str, value: &Value) -> Option<Result<ServerBody, St
         "account.grant.refresh.result" => {
             Some(decode_server_serveraccountgrantrefreshresult(value))
         }
+        "browser.backend.registered" => Some(decode_server_serverbrowserbackendregistered(value)),
+        "browser.backend.request" => Some(decode_server_serverbrowserbackendrequest(value)),
+        "browser.backend.frameAck" => Some(decode_server_serverbrowserbackendframeack(value)),
         _ => None,
     }
 }
@@ -5780,6 +5789,27 @@ fn decode_server_serveraccountgrantrefreshresult(value: &Value) -> Result<Server
         .map_err(|error| error.to_string())
 }
 
+/// One server body, decoded as its own type.
+fn decode_server_serverbrowserbackendregistered(value: &Value) -> Result<ServerBody, String> {
+    ace_json::from_value(value)
+        .map(ServerBody::ServerBrowserBackendRegistered)
+        .map_err(|error| error.to_string())
+}
+
+/// One server body, decoded as its own type.
+fn decode_server_serverbrowserbackendrequest(value: &Value) -> Result<ServerBody, String> {
+    ace_json::from_value(value)
+        .map(ServerBody::ServerBrowserBackendRequest)
+        .map_err(|error| error.to_string())
+}
+
+/// One server body, decoded as its own type.
+fn decode_server_serverbrowserbackendframeack(value: &Value) -> Result<ServerBody, String> {
+    ace_json::from_value(value)
+        .map(ServerBody::ServerBrowserBackendFrameAck)
+        .map_err(|error| error.to_string())
+}
+
 /// `body` as the bytes a client parses, through `ace-json`.
 pub fn encode_server(body: &ServerBody) -> Result<String, String> {
     match body {
@@ -6036,6 +6066,15 @@ pub fn encode_server(body: &ServerBody) -> Result<String, String> {
         }
         ServerBody::ServerAccountGrantRefreshResult(body) => {
             encode_server_serveraccountgrantrefreshresult(body)
+        }
+        ServerBody::ServerBrowserBackendRegistered(body) => {
+            encode_server_serverbrowserbackendregistered(body)
+        }
+        ServerBody::ServerBrowserBackendRequest(body) => {
+            encode_server_serverbrowserbackendrequest(body)
+        }
+        ServerBody::ServerBrowserBackendFrameAck(body) => {
+            encode_server_serverbrowserbackendframeack(body)
         }
     }
 }
@@ -7032,6 +7071,27 @@ fn encode_server_serveraccountstandingresult(
 /// One server body, written through `ace-json`.
 fn encode_server_serveraccountgrantrefreshresult(
     body: &ServerAccountGrantRefreshResult,
+) -> Result<String, String> {
+    ace_json::ser::to_string(body).map_err(|error| error.to_string())
+}
+
+/// One server body, written through `ace-json`.
+fn encode_server_serverbrowserbackendregistered(
+    body: &ServerBrowserBackendRegistered,
+) -> Result<String, String> {
+    ace_json::ser::to_string(body).map_err(|error| error.to_string())
+}
+
+/// One server body, written through `ace-json`.
+fn encode_server_serverbrowserbackendrequest(
+    body: &ServerBrowserBackendRequest,
+) -> Result<String, String> {
+    ace_json::ser::to_string(body).map_err(|error| error.to_string())
+}
+
+/// One server body, written through `ace-json`.
+fn encode_server_serverbrowserbackendframeack(
+    body: &ServerBrowserBackendFrameAck,
 ) -> Result<String, String> {
     ace_json::ser::to_string(body).map_err(|error| error.to_string())
 }

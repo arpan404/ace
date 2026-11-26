@@ -7,6 +7,44 @@
 // Part client_message_117.
 use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
+pub(crate) static CLIENT_MESSAGE_195_FIELDS: [Field; 4] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"threads.page\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "subscriptionId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+    Field {
+        key: "before",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &CLIENT_MESSAGE_195_BEFORE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
 pub(crate) static CLIENT_MESSAGE_195_BEFORE_FIELDS: [Field; 2] = [
     Field {
         key: "at",

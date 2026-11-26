@@ -7,6 +7,63 @@
 // Part server_message_132.
 use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
+pub(crate) static SERVER_MESSAGE_153_FIELDS: [Field; 5] = [
+    Field {
+        key: "cursor",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "entries",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_153_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(100),
+        },
+    },
+    Field {
+        key: "retracted",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                min: Some(1),
+                max: Some(200),
+                pattern: None,
+                format: None,
+                trim: false,
+            }),
+            min: None,
+            max: Some(100),
+        },
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"notification.feed.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: Some(200),
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
 pub(crate) static SERVER_MESSAGE_153_ENTRIES_FIELDS: [Field; 2] = [
     Field {
         key: "cursor",

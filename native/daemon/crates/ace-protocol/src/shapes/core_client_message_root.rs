@@ -69,7 +69,7 @@ pub static CORE_CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"threads.page\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_195_FIELDS,
+                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_195_FIELDS,
                 extra: Extra::Strip,
             },
         ),

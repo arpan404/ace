@@ -7,6 +7,31 @@
 // Part server_message_145.
 use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
 
+pub(crate) static SERVER_MESSAGE_166_EVENTS_FIELDS: [Field; 6] = [
+    Field { key: "seq", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: Some(9007199254740991.0), max_inclusive: true, integral: true }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "at", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "payload", presence: Presence::Required, shape: Shape::Tagged { key: "type", options: &[("\"thread.client.updated\"", Shape::Object { fields: &SERVER_MESSAGE_166_EVENTS_PAYLOAD_0_FIELDS, extra: Extra::Strip }), ("\"thread.created\"", Shape::Object { fields: &SERVER_MESSAGE_166_EVENTS_PAYLOAD_1_FIELDS, extra: Extra::Strip }), ("\"thread.updated\"", Shape::Object { fields: &crate::shapes::server_message_146::SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_FIELDS, extra: Extra::Strip }), ("\"agent.created\"", Shape::Object { fields: &crate::shapes::server_message_146::SERVER_MESSAGE_166_EVENTS_PAYLOAD_3_FIELDS, extra: Extra::Strip }), ("\"agent.status\"", Shape::Object { fields: &crate::shapes::server_message_146::SERVER_MESSAGE_166_EVENTS_PAYLOAD_4_FIELDS, extra: Extra::Strip }), ("\"agent.updated\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_5_FIELDS, extra: Extra::Strip }), ("\"run.client.updated\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_6_FIELDS, extra: Extra::Strip }), ("\"input.admitted\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_7_FIELDS, extra: Extra::Strip }), ("\"run.started\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_8_FIELDS, extra: Extra::Strip }), ("\"run.ended\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_9_FIELDS, extra: Extra::Strip }), ("\"item.created\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_10_FIELDS, extra: Extra::Strip }), ("\"item.delta\"", Shape::Object { fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_PAYLOAD_11_FIELDS, extra: Extra::Strip }), ("\"item.updated\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_12_FIELDS, extra: Extra::Strip }), ("\"item.deleted\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_13_FIELDS, extra: Extra::Strip }), ("\"interaction.opened\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_14_FIELDS, extra: Extra::Strip }), ("\"interaction.closed\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_15_FIELDS, extra: Extra::Strip }), ("\"background_task.started\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_16_FIELDS, extra: Extra::Strip }), ("\"background_task.updated\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_17_FIELDS, extra: Extra::Strip }), ("\"unknown\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_18_FIELDS, extra: Extra::Strip }), ("\"queue.updated\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_19_FIELDS, extra: Extra::Strip }), ("\"context_meter.updated\"", Shape::Object { fields: &crate::shapes::server_message_148::SERVER_MESSAGE_166_EVENTS_PAYLOAD_20_FIELDS, extra: Extra::Strip }), ("\"context.sampled\"", Shape::Object { fields: &crate::shapes::server_message_149::SERVER_MESSAGE_166_EVENTS_PAYLOAD_21_FIELDS, extra: Extra::Strip }), ("\"usage.updated\"", Shape::Object { fields: &crate::shapes::server_message_144::SERVER_MESSAGE_165_VIEW_0_USAGE_VALUE_FIELDS, extra: Extra::Strip }), ("\"workspace.files_changed\"", Shape::Object { fields: &crate::shapes::server_message_149::SERVER_MESSAGE_166_EVENTS_PAYLOAD_23_FIELDS, extra: Extra::Strip })] } },
+    Field { key: "firstSeq", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: Some(9007199254740991.0), max_inclusive: true, integral: true }) },
+];
+
+pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_0_FIELDS: [Field; 2] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"thread.client.updated\""]),
+    },
+    Field {
+        key: "changes",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_166_EVENTS_PAYLOAD_0_CHANGES_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
 pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_0_CHANGES_FIELDS: [Field; 25] = [
     Field { key: "pinned", presence: Presence::Optional, shape: Shape::Bool },
     Field { key: "pinOrder", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Num(&NumBounds { min: None, min_inclusive: false, max: None, max_inclusive: false, integral: false })) },

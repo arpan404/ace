@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   BrowserBackendClientMessage,
+  BrowserBackendServerMessage,
   ClientMessage,
   ServerMessage,
   UserBrowserExtensionMessage,
@@ -69,6 +70,7 @@ const roots: Record<string, z.ZodType> = {
   // Flattened into one root per message type below; deleted from the typify document after.
   ClientMessage,
   BrowserBackendClientMessage,
+  BrowserBackendServerMessage,
   UserBrowserExtensionMessage,
   ServerMessage,
   EventPayload,
@@ -327,6 +329,7 @@ const wireMessages: { client: WireMessage[]; server: WireMessage[] } = { client:
     ["BrowserBackendClientMessage", "client"],
     ["UserBrowserExtensionMessage", "client"],
     ["ServerMessage", "server"],
+    ["BrowserBackendServerMessage", "server"],
   ] as const) {
     const unionRoot = properties[union] as Record<string, unknown>;
     const oneOf = (unionRoot.oneOf ?? unionRoot.anyOf) as unknown[] | undefined;
@@ -957,6 +960,7 @@ function generate(scratchDir: string): void {
       BROWSER_BACKEND_CLIENT_MESSAGE: BrowserBackendClientMessage,
       USER_BROWSER_EXTENSION_MESSAGE: UserBrowserExtensionMessage,
       SERVER_MESSAGE: ServerMessage,
+      BROWSER_BACKEND_SERVER_MESSAGE: BrowserBackendServerMessage,
       CORE_CLIENT_MESSAGE: CoreClientMessage,
       CORE_SERVER_MESSAGE: CoreServerMessage,
     },

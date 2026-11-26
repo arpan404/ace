@@ -221,6 +221,28 @@ fn an_unknown_search_state_is_read_as_unknown() {
 }
 
 #[test]
+fn browser_backend_server_messages_decode_on_the_worker_connection() {
+    let cases = [
+        (
+            r#"{"type":"browser.backend.registered","requestId":"r","backendId":"b","connectionId":"c"}"#,
+            r#"{"type":"browser.backend.registered","requestId":"r","backendId":"b","connectionId":"c"}"#,
+        ),
+        (
+            r#"{"type":"browser.backend.request","id":"q","backendId":"b","sessionId":"s","operation":{"kind":"close"}}"#,
+            r#"{"backendId":"b","sessionId":"s","type":"browser.backend.request","id":"q","operation":{"kind":"close"}}"#,
+        ),
+        (
+            r#"{"type":"browser.backend.frameAck","backendId":"b","sessionId":"s","frameId":1}"#,
+            r#"{"backendId":"b","sessionId":"s","type":"browser.backend.frameAck","frameId":1}"#,
+        ),
+    ];
+    for (input, canonical) in cases {
+        let decoded = decode_server(input).expect("a browser-backend server message");
+        assert_eq!(encode_server(&decoded.value).expect("bytes"), canonical);
+    }
+}
+
+#[test]
 fn a_plain_union_message_decodes_and_encodes_by_its_type() {
     let text = r#"{"type":"user_browser.register","requestId":"r","version":1,"browser":{"family":"chrome","version":"1","profileId":"p","extensionVersion":"1"}}"#;
     let decoded = decode_client(text).expect("a client message");

@@ -23,7 +23,8 @@ pub use error::WireError;
 use ace_json::{Map, Value};
 use ace_protocol::shape::{Shape, strip};
 use ace_protocol::shapes::{
-    BROWSER_BACKEND_CLIENT_MESSAGE, CLIENT_MESSAGE, SERVER_MESSAGE, USER_BROWSER_EXTENSION_MESSAGE,
+    BROWSER_BACKEND_CLIENT_MESSAGE, BROWSER_BACKEND_SERVER_MESSAGE, CLIENT_MESSAGE, SERVER_MESSAGE,
+    USER_BROWSER_EXTENSION_MESSAGE,
 };
 use ace_protocol::wire::{ClientBody, ServerBody, decode_client as decode_client_body};
 
@@ -34,6 +35,9 @@ static CLIENT_ROOTS: [&Shape; 3] = [
     &BROWSER_BACKEND_CLIENT_MESSAGE,
     &USER_BROWSER_EXTENSION_MESSAGE,
 ];
+
+/// Every union the daemon accepts from itself toward a browser worker.
+static SERVER_ROOTS: [&Shape; 2] = [&SERVER_MESSAGE, &BROWSER_BACKEND_SERVER_MESSAGE];
 
 /// What the transport reads before it hands a message on: its `type` and its routing ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,7 +136,7 @@ pub fn decode_client_value(value: Value) -> Result<ClientEnvelope, WireError> {
 pub fn decode_server(text: &str) -> Result<ServerEnvelope, WireError> {
     let value = parse(text)?;
     let envelope = envelope(&value)?;
-    let shape = option(&SERVER_MESSAGE, &envelope.type_).ok_or_else(|| WireError::UnknownType {
+    let shape = server_option(&envelope.type_).ok_or_else(|| WireError::UnknownType {
         type_: envelope.type_.clone(),
     })?;
     if !ace_protocol::shape::fits(shape, &value) {
@@ -167,7 +171,7 @@ pub fn encode_client(value: &Value) -> Result<String, WireError> {
 /// `value` as the bytes a client parses: through `ace-json`, in the schema's key order.
 pub fn encode_server(value: &Value) -> Result<String, WireError> {
     let envelope = envelope(value)?;
-    let shape = option(&SERVER_MESSAGE, &envelope.type_).ok_or_else(|| WireError::UnknownType {
+    let shape = server_option(&envelope.type_).ok_or_else(|| WireError::UnknownType {
         type_: envelope.type_.clone(),
     })?;
     write(shape, value)
@@ -187,7 +191,7 @@ pub fn encode_client_body(body: &ClientBody) -> Result<String, WireError> {
 /// `body` as the bytes a client parses, as [`encode_client_body`].
 pub fn encode_server_body(body: &ServerBody) -> Result<String, WireError> {
     let text = ace_protocol::wire::encode_server(body).map_err(WireError::Body)?;
-    let shape = option(&SERVER_MESSAGE, body.type_()).ok_or_else(|| WireError::UnknownType {
+    let shape = server_option(body.type_()).ok_or_else(|| WireError::UnknownType {
         type_: body.type_().to_string(),
     })?;
     Ok(ace_json::to_string(&strip(shape, &parse(&text)?)))
@@ -215,6 +219,11 @@ pub fn canonical(root: &'static Shape, type_: &str, value: &Value) -> Option<Val
 /// The shape one client message type's body has, in any of the client unions.
 fn client_option(type_: &str) -> Option<&'static Shape> {
     CLIENT_ROOTS.iter().find_map(|root| option(root, type_))
+}
+
+/// The shape one server message type's body has, in any of the server unions.
+fn server_option(type_: &str) -> Option<&'static Shape> {
+    SERVER_ROOTS.iter().find_map(|root| option(root, type_))
 }
 
 /// The shape one message type's body has. A union may be tagged (`Tagged`) or a plain union

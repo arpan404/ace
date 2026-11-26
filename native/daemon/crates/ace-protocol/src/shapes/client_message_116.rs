@@ -32,14 +32,33 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_99_FIELDS: [Field; 2] = [
     },
 ];
 
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_100_FIELDS: [Field; 4] = [
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_100_FIELDS: [Field; 2] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"thread.compact\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            min: Some(1),
+            max: None,
+            pattern: None,
+            format: None,
+            trim: false,
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_101_FIELDS: [Field; 4] = [
     Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"interaction.resolve\""]) },
     Field { key: "interactionId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
     Field { key: "resolution", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"approval\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_0_FIELDS, extra: Extra::Strip }), ("\"question\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_1_FIELDS, extra: Extra::Strip }), ("\"plan_review\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_2_FIELDS, extra: Extra::Strip }), ("\"elicitation\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_3_FIELDS, extra: Extra::Strip }), ("\"browser_help\"", Shape::Object { fields: &crate::shapes::client_message_50::CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_4_FIELDS, extra: Extra::Strip })] } },
     Field { key: "readWhole", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }) },
 ];
 
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_101_FIELDS: [Field; 2] = [
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_102_FIELDS: [Field; 2] = [
     Field {
         key: "type",
         presence: Presence::Required,
@@ -284,43 +303,5 @@ pub(crate) static CLIENT_MESSAGE_194_FIELDS: [Field; 7] = [
             max_inclusive: true,
             integral: true,
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_195_FIELDS: [Field; 4] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"threads.page\""]),
-    },
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "subscriptionId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "before",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_195_BEFORE_FIELDS,
-            extra: Extra::Strip,
-        },
     },
 ];

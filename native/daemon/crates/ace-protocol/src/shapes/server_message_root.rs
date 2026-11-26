@@ -1096,7 +1096,7 @@ pub static SERVER_MESSAGE: Shape = Shape::Tagged {
         (
             "\"notification.feed.result\"",
             Shape::Object {
-                fields: &crate::shapes::server_message_131::SERVER_MESSAGE_153_FIELDS,
+                fields: &crate::shapes::server_message_132::SERVER_MESSAGE_153_FIELDS,
                 extra: Extra::Strip,
             },
         ),

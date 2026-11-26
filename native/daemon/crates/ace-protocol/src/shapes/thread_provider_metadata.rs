@@ -15,7 +15,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_FIELDS: [Field; 5] = [
     Field { key: "acpSupport", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_ACP_SUPPORT_FIELDS, extra: Extra::Strip } },
 ];
 
-pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field; 27] = [
+pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field; 28] = [
     Field { key: "permissions", presence: Presence::Optional, shape: Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FIELDS, extra: Extra::Strip } },
     Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
     Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(4) } },
@@ -37,6 +37,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field
     Field { key: "subagentTranscripts", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "backgroundTaskControl", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "goals", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "compaction", presence: Presence::Optional, shape: Shape::Bool },
     Field { key: "backgroundVisibility", presence: Presence::Required, shape: Shape::Enum(&["\"full\"", "\"partial\"", "\"none\""]) },
     Field { key: "planMode", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "tokenUsage", presence: Presence::Required, shape: Shape::Bool },
