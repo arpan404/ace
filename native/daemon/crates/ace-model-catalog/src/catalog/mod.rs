@@ -441,6 +441,8 @@ pub(crate) struct State {
     pub(crate) flight_token: Option<u64>,
     pub(crate) probe_revision: Option<String>,
     pub(crate) acp_due: bool,
+    /// The registration this row's state belongs to.
+    pub(crate) generation: u64,
     pub(crate) abort: Option<crate::signals::Signal>,
     pub(crate) view: Option<(String, Vec<CatalogModel>)>,
 }
@@ -460,6 +462,8 @@ pub(crate) struct Inner {
     pub(crate) invalidations: usize,
     pub(crate) write_tails: BTreeMap<String, crate::signals::Gate>,
     pub(crate) accepted_writes: Vec<crate::signals::Gate>,
+    pub(crate) next_generation: u64,
+    pub(crate) owned: Vec<crate::signals::Gate>,
     pub(crate) listeners: Vec<Arc<dyn Fn(ModelFilter) + Send + Sync>>,
     pub(crate) installations: BTreeMap<String, String>,
     pub(crate) connections_checked_at: Option<f64>,
@@ -528,6 +532,8 @@ impl Catalog {
             invalidations: 0,
             write_tails: BTreeMap::new(),
             accepted_writes: Vec::new(),
+            next_generation: 0,
+            owned: Vec::new(),
             listeners: Vec::new(),
             installations: BTreeMap::new(),
             connections_checked_at: None,
@@ -1019,6 +1025,7 @@ impl Catalog {
             let mut writes: Vec<crate::signals::Gate> =
                 inner.write_tails.values().cloned().collect();
             writes.append(&mut inner.accepted_writes);
+            writes.append(&mut inner.owned);
             (flights, invalidations, observed, writes)
         });
         if let Some(cancel) = observed {
@@ -1215,6 +1222,14 @@ pub(crate) fn validate_instance(instance: &ModelInstance) -> Result<(), CatalogE
 /// The ids a filter selects, for a caller already holding the lock.
 pub(crate) fn selection_for(inner: &mut Inner, filter: &ModelFilter) -> Vec<String> {
     selection_locked(inner, filter)
+}
+
+/// Whether `token` still owns row `id`: a re-registration bumps the generation.
+pub(crate) fn owns(inner: &Inner, id: &str, token: u64) -> bool {
+    inner
+        .states
+        .get(id)
+        .is_some_and(|state| state.generation == token)
 }
 
 pub(crate) fn fresh_status(catalog: &Catalog, id: &str) -> Option<InstanceStatus> {

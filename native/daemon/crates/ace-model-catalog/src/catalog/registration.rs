@@ -136,6 +136,8 @@ impl Catalog {
             let dirty = entry
                 .as_ref()
                 .is_some_and(|entry| entry.revision != revision);
+            inner.next_generation += 1;
+            let generation = inner.next_generation;
             let state = State {
                 config: config.clone(),
                 permission_modes: None,
@@ -158,6 +160,7 @@ impl Catalog {
                 flight_token: None,
                 probe_revision: None,
                 acp_due: false,
+                generation,
                 abort: None,
                 view: None,
             };

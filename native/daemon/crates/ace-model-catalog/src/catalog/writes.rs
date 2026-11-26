@@ -179,6 +179,8 @@ impl Catalog {
         if self.with_inner(|inner| inner.closed) {
             return;
         }
+        let generation =
+            self.with_inner(|inner| inner.states.get(instance).map(|state| state.generation));
         let needs_write = self.with_inner(|inner| {
             let Some(state) = inner.states.get_mut(instance) else {
                 return false;
@@ -197,6 +199,7 @@ impl Catalog {
         // An accepted write is visible to close before its task first runs.
         let gate = crate::signals::Gate::new();
         self.with_inner(|inner| inner.accepted_writes.push(gate.clone()));
+        let token = generation;
         self.options.spawn.spawn(Box::pin(async move {
             struct Accepted(crate::signals::Gate, Catalog, crate::signals::Gate);
             impl Drop for Accepted {
@@ -208,6 +211,11 @@ impl Catalog {
                 }
             }
             let _accepted = Accepted(gate.clone(), catalog.clone(), gate.clone());
+            if token.is_some_and(|token| {
+                catalog.with_inner(|inner| !crate::catalog::owns(inner, &instance, token))
+            }) {
+                return;
+            }
             catalog.persist_permission_modes(&instance, modes).await;
         }));
     }

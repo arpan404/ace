@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use crate::catalog::{
     Catalog, CatalogError, CatalogOptions, DiscoveryDiagnostics, DiscoveryRequest, ErrorReport,
-    Flight, InstanceStatus, StatusError, fresh_status, identity_revision, lock, sha256_json,
+    Flight, InstanceStatus, StatusError, fresh_status, identity_revision, lock, owns, sha256_json,
 };
 use crate::failures::{DiscoveryError, DiscoveryFailure, FailureCode, discovery_error};
 use crate::gate::{AcpRowFacts, RefreshCause, acp_probe_allowed};
@@ -210,6 +210,17 @@ impl Catalog {
         let Some(signal) = signal else {
             return;
         };
+        let token_generation =
+            self.with_inner(|inner| inner.states.get(id).map(|state| state.generation));
+        // A replacement refresh waits for the pending invalidation's delete.
+        if let Some(invalidating) = self.with_inner(|inner| {
+            inner
+                .states
+                .get(id)
+                .and_then(|state| state.invalidating.clone())
+        }) {
+            invalidating.done.wait().await;
+        }
         let started_at = self.now();
         let diagnostics = Arc::new(std::sync::Mutex::new(DiscoveryDiagnostics::default()));
         let sink: crate::catalog::DiagnosticSink = {
@@ -244,7 +255,16 @@ impl Catalog {
         if let Some(admit) = admit
             && let Err(error) = admit().await
         {
+            // An admission result for a superseded registration acts on nothing.
+            if token_generation
+                .is_some_and(|token| self.with_inner(|inner| !owns(inner, id, token)))
+            {
+                return;
+            }
             let current = self.with_inner(|inner| {
+                if token_generation.is_some_and(|token| !owns(inner, id, token)) {
+                    return false;
+                }
                 let Some(state) = inner.states.get_mut(id) else {
                     return false;
                 };

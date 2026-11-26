@@ -416,6 +416,92 @@ fn an_invalidate_of_one_instance_leaves_another_alone() {
 }
 
 #[test]
+fn an_old_logins_admission_result_never_revokes_the_new_login() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let admit: super::Admit = std::sync::Arc::new(move || {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Err("home identity changed".to_owned())
+        })
+    });
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(
+        vec![codex.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        discover,
+    );
+    let catalog = fixture.catalog.clone();
+    catalog
+        .register_instance(codex.clone(), Some(admit))
+        .unwrap_or_else(|error| panic!("{error}"));
+    let mut old = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(poll_once(old.as_mut()).is_pending(), "admission is pending");
+    // A new login replaces the row with its own passing admission; its refresh succeeds.
+    let passing: super::Admit = std::sync::Arc::new(|| Box::pin(async { Ok(()) }));
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            Some(passing),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()))
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(listed(&catalog).models.len(), 1);
+    gate.open();
+    let _ = futures::executor::block_on(old);
+    assert_eq!(
+        listed(&catalog).models.len(),
+        1,
+        "the old admission result revoked nothing"
+    );
+}
+
+#[test]
+fn a_queued_write_for_the_old_login_never_lands_on_the_new_one() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
+    let catalog = fixture.catalog.clone();
+    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    // Accepted, then a new login registers and loads its own row before the queued task runs.
+    catalog.update_permission_modes(
+        "account",
+        vec![serde_json::json!({
+            "id": "plan", "label": "Plan", "description": "", "risk": "low"
+        })],
+    );
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()))
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(listed(&catalog).models.len(), 1, "the new login loaded");
+    fixture.spawn.drain();
+    let mut storage = storage.clone();
+    let stored = storage.load().unwrap_or_default();
+    assert!(
+        stored.iter().all(|entry| entry
+            .permission_modes
+            .as_ref()
+            .is_none_or(|modes| modes.is_empty())),
+        "login A's modes never land on login B"
+    );
+}
+
+#[test]
 fn an_invalidate_waits_out_a_refresh_whose_row_was_replaced() {
     let codex = instance(ProviderKind::Codex, "account");
     let gate = crate::signals::Gate::new();
