@@ -67,12 +67,14 @@ impl Inner {
                 PeerEffect::Frame {
                     dir: Direction::Send,
                     value,
+                    ..
                 } => {
                     refused = self.sent(&value);
                 }
                 PeerEffect::Frame {
                     dir: Direction::Recv,
                     value,
+                    ..
                 } => pending = Some(self.received(value)),
                 PeerEffect::Notification { method } => {
                     self.notification(pending.take(), &method);

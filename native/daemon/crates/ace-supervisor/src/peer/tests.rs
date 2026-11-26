@@ -58,7 +58,18 @@ fn frames(effects: &[PeerEffect]) -> Vec<(Direction, String)> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            PeerEffect::Frame { dir, value } => Some((*dir, value.to_json())),
+            PeerEffect::Frame { dir, value, .. } => Some((*dir, value.to_json())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The text each frame carries, when the peer was asked for it (`PeerConfig::frame_text`).
+fn frame_texts(effects: &[PeerEffect]) -> Vec<(Direction, String, Option<String>)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            PeerEffect::Frame { dir, value, text } => Some((*dir, value.to_json(), text.clone())),
             _ => None,
         })
         .collect()
@@ -125,6 +136,46 @@ fn a_request_writes_javascripts_exact_line_after_its_frame() {
                 .to_owned()
         )]
     );
+}
+
+#[test]
+fn a_peer_asked_for_frame_text_carries_the_line_it_read_and_wrote() {
+    let mut peer = RpcPeer::new(PeerConfig {
+        frame_text: true,
+        ..PeerConfig::default()
+    });
+    // The agent's own spelling of a line whose duplicate key `JSON.parse` collapses.
+    let line = r#"{ "jsonrpc": "2.0", "id": 1, "result": { "a": 1, "a": 2 } }"#;
+    let effects = peer.line(line);
+    assert_eq!(
+        frame_texts(&effects),
+        vec![(
+            Direction::Recv,
+            r#"{"jsonrpc":"2.0","id":1,"result":{"a":2}}"#.to_owned(),
+            Some(line.to_owned())
+        )]
+    );
+    // A sent frame carries the very line the pipe got, minus its newline.
+    let sent = call(&mut peer, "x", None, 2, Timeout::Disabled);
+    let (_, tree, text) = frame_texts(&sent).remove(0);
+    let written = writes(&sent);
+    assert_eq!(written.len(), 1);
+    let wire = written[0].1.clone();
+    assert_eq!(text, Some(wire.clone()));
+    assert_eq!(tree, wire);
+}
+
+#[test]
+fn a_peer_that_reads_the_tree_only_carries_no_frame_text() {
+    let mut peer = new_peer();
+    let effects = peer.line(r#"{"jsonrpc":"2.0","method":"thread/started","params":{}}"#);
+    assert!(
+        frame_texts(&effects)
+            .iter()
+            .all(|(_, _, text)| text.is_none())
+    );
+    let sent = call(&mut peer, "x", None, 1, Timeout::Disabled);
+    assert!(frame_texts(&sent).iter().all(|(_, _, text)| text.is_none()));
 }
 
 #[test]

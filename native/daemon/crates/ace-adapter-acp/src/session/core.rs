@@ -179,7 +179,12 @@ impl AcpCoreConfig {
             model: None,
             effort: None,
             mcp: None,
-            peer_config: PeerConfig::default(),
+            // ACP publishes every frame as text, so its peer carries each line: the frame
+            // is that line, never a re-serialization of the tree it parsed.
+            peer_config: PeerConfig {
+                frame_text: true,
+                ..PeerConfig::default()
+            },
         }
     }
 }
@@ -632,14 +637,14 @@ impl AcpCore {
                 continue;
             }
             match effect {
-                PeerEffect::Frame { dir, value } => {
+                PeerEffect::Frame { dir, value, text } => {
                     // The frame is captured first, so a capture that throws applies none of
                     // the step's effects and no reply it causes is captured before it.
                     let frame_dir = match dir {
                         Direction::Send => FrameDirection::Send,
                         Direction::Recv => FrameDirection::Recv,
                     };
-                    match capture_frame(&value, &self.secrets) {
+                    match capture_frame(&value, text, &self.secrets) {
                         Ok(captured) => effects.push(AcpEffect::Frame {
                             dir: frame_dir,
                             channel: "stdio".to_owned(),
@@ -1086,7 +1091,7 @@ impl AcpCore {
         data: &Value,
         effects: &mut Vec<AcpEffect>,
     ) {
-        match capture_frame(data, &self.secrets) {
+        match capture_frame(data, None, &self.secrets) {
             Ok(captured) => effects.push(AcpEffect::Frame {
                 dir,
                 channel: channel.to_owned(),

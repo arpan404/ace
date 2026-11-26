@@ -437,6 +437,7 @@ impl HostConfig {
                 SHARED_MAX_PENDING
             },
             max_queued_bytes: self.max_queued_bytes.unwrap_or(defaults.max_queued_bytes),
+            frame_text: defaults.frame_text,
             max_incoming: if self.dedicated {
                 defaults.max_incoming
             } else {

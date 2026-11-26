@@ -187,20 +187,13 @@ fn replace_all(haystack: &[u16], needle: &[u16], replacement: &[u16]) -> Vec<u16
     out
 }
 
-/// A frame's JSON with lease secrets redacted.
-pub fn redacted_frame_json(data: &Value, secrets: &[String]) -> (String, Value) {
-    let (json, redacted) = redacted_frame_json_ref(data, secrets);
-    (json, redacted.unwrap_or_else(|| data.clone()))
-}
-
-/// `redacted_frame_json` without the copy: the value is `None` when nothing was redacted,
-/// so a caller that already holds `data` keeps it (`frames.rs`).
-pub fn redacted_frame_json_ref(data: &Value, secrets: &[String]) -> (String, Option<Value>) {
-    let json = ace_json::ser::to_string(data).unwrap_or_else(|_| "null".to_owned());
-    let mut clean = true;
-    for secret in secrets {
+/// Whether a frame's JSON text holds a lease secret, so the tree behind it must be walked
+/// (`frame-redaction.ts:127`-`:132`): a secret JSON would escape is always walked for,
+/// because the text may spell it either way; any other secret is one search.
+pub fn text_holds_secret(text: &str, secrets: &[String]) -> bool {
+    secrets.iter().any(|secret| {
         if secret.is_empty() {
-            continue;
+            return false;
         }
         let escaped = ace_json::ser::to_string(secret)
             .map(|quoted| {
@@ -211,22 +204,13 @@ pub fn redacted_frame_json_ref(data: &Value, secrets: &[String]) -> (String, Opt
                 }
             })
             .unwrap_or_default();
-        if escaped != *secret || json.contains(secret) {
-            clean = false;
-            break;
-        }
-    }
-    if clean {
-        return (json, None);
-    }
-    let value = redact_lease(data, secrets);
-    let text = ace_json::ser::to_string(&value).unwrap_or_else(|_| "null".to_owned());
-    (text, Some(value))
+        escaped != *secret || text.contains(secret)
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LEASE_REDACTION, redact_lease, redacted_frame_json};
+    use super::{LEASE_REDACTION, redact_lease, text_holds_secret};
     use ace_json::{Value, json};
 
     fn nested(depth: usize, leaf: Value) -> Value {
@@ -271,28 +255,25 @@ mod tests {
     }
 
     #[test]
-    fn frame_without_secret_is_published_as_serialized_uncopied() {
+    fn a_frame_without_a_secret_is_never_walked() {
         let secret = "lease-0123456789abcdef".to_owned();
-        let frame = json!({"method": "session/update", "params": {"update": {"text": "hello"}}});
-        let published = redacted_frame_json(&frame, &[secret]);
-        assert_eq!(
-            published.0,
-            ace_json::ser::to_string(&frame).unwrap_or_default()
-        );
-        assert_eq!(published.1, frame);
+        let text = r#"{"method":"session/update","params":{"update":{"text":"hello"}}}"#;
+        assert!(!text_holds_secret(text, &[secret]));
+        assert!(!text_holds_secret(text, &[]));
+        assert!(!text_holds_secret(text, &[String::new()]));
     }
 
     #[test]
-    fn frame_holding_a_secret_even_one_json_escapes_is_published_redacted() {
+    fn a_frame_holding_a_secret_even_one_json_escapes_is_walked() {
         let secret = "lease-0123456789abcdef".to_owned();
         for key in [secret, "lease\"with\\quote".to_owned()] {
             let value = format!("token {key}");
-            let published = redacted_frame_json(&json!({"params": {"value": value}}), &[key]);
-            let parsed: Value = ace_json::parse(&published.0).unwrap_or(Value::Null);
-            assert_eq!(
-                parsed,
-                json!({"params": {"value": format!("token {LEASE_REDACTION}")}})
-            );
+            let text =
+                ace_json::ser::to_string(&json!({"params": {"value": value}})).unwrap_or_default();
+            assert!(text_holds_secret(&text, std::slice::from_ref(&key)));
+            // An escaped secret's text never spells it, and the walk is asked for anyway.
+            let raw = format!(r#"{{"params":{{"value":"token {key}"}}}}"#);
+            assert!(text_holds_secret(&raw, std::slice::from_ref(&key)));
         }
     }
 }

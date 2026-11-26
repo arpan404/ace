@@ -83,6 +83,9 @@ pub enum PeerEffect {
     Frame {
         dir: Direction,
         value: Value,
+        /// The frame's JSON line as it went on or came off the pipe, when
+        /// `PeerConfig::frame_text` asks for it: what a consumer publishes verbatim.
+        text: Option<String>,
     },
     /// One line for stdin, and the ticket `written` names when the pipe took it.
     Write {
@@ -125,10 +128,11 @@ pub enum PeerEffect {
 impl fmt::Debug for PeerEffect {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PeerEffect::Frame { dir, value } => formatter
+            PeerEffect::Frame { dir, value, text } => formatter
                 .debug_struct("Frame")
                 .field("dir", dir)
                 .field("value", &value.to_json())
+                .field("text", text)
                 .finish(),
             PeerEffect::Write { wire, ticket } => formatter
                 .debug_struct("Write")
@@ -179,6 +183,11 @@ pub struct PeerConfig {
     pub max_queued_bytes: usize,
     /// `maxIncomingRequests`: 128 for a dedicated pipe, 512 for a shared host.
     pub max_incoming: usize,
+    /// Carry each frame's own line on `PeerEffect::Frame`, for a consumer that publishes
+    /// the frame as text: ACP shows every line, and the line already is that JSON, so it
+    /// needs neither the text re-serialized from the tree nor the copy. A consumer that
+    /// reads the tree only (codex) leaves this off and copies nothing.
+    pub frame_text: bool,
 }
 
 impl Default for PeerConfig {
@@ -188,6 +197,7 @@ impl Default for PeerConfig {
             max_pending: 256,
             max_queued_bytes: 32 * 1024 * 1024,
             max_incoming: DEFAULT_MAX_INCOMING,
+            frame_text: false,
         }
     }
 }
@@ -525,7 +535,7 @@ impl RpcPeer {
                 result: Err(PeerError::new(message)),
             }]);
         }
-        let wire = wire_bytes(&value);
+        let (text, wire) = wire_frame(&value, self.config.frame_text);
         let mut effects = Vec::new();
         let timer = deadline.map(|ms| {
             let key = timer_key(&request_id);
@@ -552,6 +562,7 @@ impl RpcPeer {
         effects.push(PeerEffect::Frame {
             dir: Direction::Send,
             value,
+            text,
         });
         match self.owner.enqueue(self.owner_id, wire) {
             Ok(ticket) => {
@@ -580,7 +591,7 @@ impl RpcPeer {
             return Err(error.clone());
         }
         let value = notification_value(method, params);
-        let wire = wire_bytes(&value);
+        let (text, wire) = wire_frame(&value, self.config.frame_text);
         let mut effects = Vec::new();
         if wire.len() > MAX_MESSAGE_BYTES {
             effects.push(PeerEffect::Failed {
@@ -591,6 +602,7 @@ impl RpcPeer {
         effects.push(PeerEffect::Frame {
             dir: Direction::Send,
             value,
+            text,
         });
         match self.owner.enqueue(self.owner_id, wire) {
             Ok(_) => self.pump(&mut effects),
@@ -698,6 +710,7 @@ impl RpcPeer {
             0,
             PeerEffect::Frame {
                 dir: Direction::Recv,
+                text: self.config.frame_text.then(|| line.to_owned()),
                 value,
             },
         );
@@ -851,7 +864,7 @@ impl RpcPeer {
             effects.push(PeerEffect::Failed { message });
             return effects;
         }
-        let wire = wire_bytes(&value);
+        let (text, wire) = wire_frame(&value, self.config.frame_text);
         if wire.len() > MAX_MESSAGE_BYTES {
             self.finish_incoming();
             effects.push(PeerEffect::Failed {
@@ -862,6 +875,7 @@ impl RpcPeer {
         effects.push(PeerEffect::Frame {
             dir: Direction::Send,
             value,
+            text,
         });
         match self.owner.enqueue_reply(self.owner_id, wire) {
             Ok(_) => self.pump(&mut effects),
@@ -963,11 +977,19 @@ fn notification_value(method: &str, params: Option<&Value>) -> Value {
     Value::Object(map)
 }
 
-/// The line's UTF-8 bytes plus the newline, exactly what `#send` charges.
-fn wire_bytes(value: &Value) -> Vec<u8> {
-    let mut wire = value.to_json().into_bytes();
+/// A frame's line for stdin, and the text a consumer publishes when the config asks for
+/// it: one serialization, so the published frame is the bytes the pipe reads.
+fn wire_frame(value: &Value, keep_text: bool) -> (Option<String>, Vec<u8>) {
+    let text = value.to_json();
+    if keep_text {
+        let mut wire = Vec::with_capacity(text.len() + 1);
+        wire.extend_from_slice(text.as_bytes());
+        wire.push(b'\n');
+        return (Some(text), wire);
+    }
+    let mut wire = text.into_bytes();
     wire.push(b'\n');
-    wire
+    (None, wire)
 }
 
 #[cfg(test)]
