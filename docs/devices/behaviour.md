@@ -266,6 +266,15 @@ The Rust platform is held to §3, with these deliberate differences, each proven
   `configure` (`platform.ts:623`–`:635`) sets night mode and only then refuses the location on a
   phone, leaving the appearance changed on a request that failed. The Rust platform decides the
   whole request first (`lifecycle::configure`), so a refused configuration changes nothing.
+- **A person's takeover wins even when it began first.** `assignController` releases the lease
+  before it awaits the capture's cleanup, so a person's Take control and an agent's `sim_start`
+  can meet in that gap. Today whichever `assignController` finishes last wins: when the person
+  begins first, an agent's `claimForAgent` sees no controller and takes the device, and the
+  person's takeover is then refused with `busy`. Rust refuses an agent while any takeover is
+  pending (`claimForAgent`) and refuses an agent's takeover while a person's is pending
+  (`begin_assign`), so the person's revision is never superseded and a person always wins
+  (`service/control.rs`). A failed takeover clears its pending marker (`cancel_assign`), which
+  the TypeScript leaves set.
 - **An unreadable `wm size` override refuses the read instead of falling back to the physical
   size.** `androidDimensions` (`commands.ts:115`–`:129`) takes `override ?? physical`, so a
   malformed override line fails the read (as a `ZodError`) rather than reporting the physical

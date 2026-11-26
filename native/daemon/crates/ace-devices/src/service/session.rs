@@ -7,7 +7,7 @@
 //! decide about, so it stays pure and testable.
 
 use super::input_queue::PendingInput;
-use super::lease::ControllerLease;
+use super::lease::{ActorKind, ControllerLease};
 use crate::error::DeviceFailure;
 
 /// `session.lifecycle`.
@@ -68,6 +68,8 @@ pub struct Session {
     pub control_revision: u64,
     /// A Take control being applied; the shared input lane respects it.
     pub pending_controller: Option<String>,
+    /// Who began that takeover: a person's must never be superseded by an agent's.
+    pub pending_controller_kind: Option<ActorKind>,
     pub pending: PendingInput,
     pub generation: u64,
     pub binding_epoch: u64,
@@ -98,6 +100,7 @@ impl Session {
             lease: ControllerLease::new(),
             control_revision: 0,
             pending_controller: None,
+            pending_controller_kind: None,
             pending: PendingInput::new(),
             generation: 0,
             binding_epoch: 0,

@@ -26,6 +26,35 @@ pub const CONTROL_CHANGED_KEY: &str = "controlChanged";
 pub const NOT_TAKEN_KEY: &str = "deviceNotTaken";
 /// Devices off, or a bind in flight (`service.ts:533`).
 pub const DISABLED_KEY: &str = "devicesDisabled";
+/// The operations ace keeps for a person (`service.ts:585`).
+pub const PERSON_ONLY_OPS: [&str; 4] = [
+    "enable",
+    "controller",
+    "stream.configure",
+    "stream.keyframe",
+];
+/// The catalog key of the person-only refusal.
+pub const PERSON_ONLY_KEY: &str = "personOnly";
+/// Downloading the device tools is a person's (`service.ts:636`).
+pub const TOOLS_PERSON_ONLY_KEY: &str = "toolsPersonOnly";
+/// Asking macOS for a permission is a person's (`service.ts:924`).
+pub const HUMAN_AUTHORIZATION_KEY: &str = "humanAuthorization";
+
+/// `perform`'s person-only gate: ace's own actions a person takes, never an
+/// approval gate on a provider's decision.
+pub fn require_person(operation: &str, actor: &Actor) -> Result<(), DeviceError> {
+    if actor.kind == ActorKind::Human {
+        return Ok(());
+    }
+    if PERSON_ONLY_OPS.contains(&operation) {
+        return Err(words::refusal(PERSON_ONLY_KEY));
+    }
+    match operation {
+        "tools.install" => Err(words::refusal(TOOLS_PERSON_ONLY_KEY)),
+        "permissions.request" => Err(words::refusal(HUMAN_AUTHORIZATION_KEY)),
+        _ => Ok(()),
+    }
+}
 
 /// What `claimForAgent` decided for an agent's `sim_start`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +84,13 @@ pub fn claim_for_agent(
         return Err(DeviceError::InvalidInput(String::from(
             AGENT_CALLER_REQUIRED,
         )));
+    }
+    // A takeover in flight decides who is taking the device, and a person's must
+    // always win: an agent's tool call that lands in the gap is refused.
+    match session.pending_controller_kind {
+        Some(ActorKind::Human) => return Err(words::refusal(PERSON_CONTROLLING_KEY)),
+        Some(ActorKind::Agent) => return Err(words::refusal(OTHER_AGENT_KEY)),
+        None => {}
     }
     match session.lease.current(now) {
         Some(current) if current.kind == ActorKind::Human => {
@@ -93,6 +129,7 @@ pub fn authorize(
 pub struct Assignment {
     revision: u64,
     generation: u64,
+    kind: ActorKind,
 }
 
 impl Assignment {
@@ -104,15 +141,35 @@ impl Assignment {
 /// `assignController`'s first half: mark the takeover, then let go of control
 /// before the capture's held input is released. The caller awaits the cleanup and
 /// calls [`finish_assign`] with the result.
-pub fn begin_assign(session: &mut Session, requester_owner: &str) -> Assignment {
+///
+/// A person's takeover is never superseded: an agent that begins while one is
+/// pending is refused, so the person's finish always sees its own revision.
+pub fn begin_assign(session: &mut Session, requester: &Actor) -> Result<Assignment, DeviceError> {
+    if requester.kind == ActorKind::Agent
+        && session.pending_controller_kind == Some(ActorKind::Human)
+    {
+        return Err(words::refusal(PERSON_CONTROLLING_KEY));
+    }
     session.control_revision = session.control_revision.saturating_add(1);
     let assignment = Assignment {
         revision: session.control_revision,
         generation: session.generation,
+        kind: requester.kind,
     };
-    session.pending_controller = Some(requester_owner.to_owned());
+    session.pending_controller = Some(requester.owner.clone());
+    session.pending_controller_kind = Some(requester.kind);
     session.lease.release(None);
-    assignment
+    Ok(assignment)
+}
+
+/// A takeover whose cleanup failed: it clears the marker it set, unless a newer
+/// takeover has already replaced it.
+pub fn cancel_assign(session: &mut Session, assignment: Assignment) {
+    if assignment.revision != session.control_revision {
+        return;
+    }
+    session.pending_controller = None;
+    session.pending_controller_kind = None;
 }
 
 /// `assignController`'s second half: a takeover that is still the newest one takes
@@ -130,6 +187,7 @@ pub fn finish_assign(
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     session.pending_controller = None;
+    session.pending_controller_kind = None;
     match holder {
         Some(holder) => session.lease.claim(holder.clone(), now),
         None => session.lease.release(None),
