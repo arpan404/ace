@@ -31,7 +31,13 @@ import { subagentRetryMessage } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
-import { goalCommand, joinContext, messageContent, type Reference } from "./composer-references.ts";
+import {
+  goalCommand,
+  joinContext,
+  messageContent,
+  type MessageContent,
+  type Reference,
+} from "./composer-references.ts";
 import { interactionRow } from "./interaction-rows.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
@@ -770,7 +776,10 @@ export class ThreadSession {
       ...(joined.context ? { context: joined.context } : {}),
     };
     const tray = this.#tray;
+    // Named up front: the agents and devices it names are addressed `about` this send.
+    const commandId = this.#client.commandId();
     void dispatchCommand(this.#client, message, id, this.#pump, {
+      commandId,
       saved: () => {
         tray.sent(files.ids);
         if (marked) this.annotations.sent();
@@ -780,8 +789,36 @@ export class ThreadSession {
       // The phone settles exactly the notes the message carried (`ClientModel.sendingCodeNotes`).
       admitted: () => carried(coded),
       receipt: ({ ok }) => {
-        if (ok && spends) this.#tune.spent(spends);
+        if (!ok) return;
+        if (spends) this.#tune.spent(spends);
+        // Beside the send, as the web does: the agents it names get the words, and ace records
+        // the devices for their chips.
+        this.#address(content, commandId);
       },
+    });
+  }
+
+  /**
+   * The message went: its agents get it through ace's cross-thread messages, and its devices are
+   * recorded for their chips (`thread.address`, as the web's composer sends). A failure is said
+   * on the send; the message itself went.
+   */
+  #address(content: MessageContent, about: string): void {
+    const to = content.addressees ?? [];
+    const devices = content.devices ?? [];
+    if (!to.length && !devices.length) return;
+    const payload: CommandPayload = {
+      type: "thread.address",
+      threadId: this.#threadId,
+      about,
+      input: content.input,
+      to,
+      devices,
+      share: "thread",
+      files: (content.references?.mentions ?? []).map((mention) => mention.path).slice(0, 16),
+    };
+    void dispatchCommand(this.#client, payload, this.#client.commandId(), this.#pump, {
+      refusal: () => "Not sent to the agents. The agent has the message.",
     });
   }
   /**
