@@ -139,7 +139,7 @@ pub fn access_mode(
 
 /// The thread's provider, for a caller that already holds the store.
 pub fn thread_provider(store: &EngineStore, id: &str) -> Result<Option<String>, EngineError> {
-    Ok(super::permissions::thread_facts(store, id)?.map(|facts| facts.provider))
+    Ok(super::ceiling::thread_facts(store, id)?.map(|facts| facts.provider))
 }
 
 #[cfg(test)]
