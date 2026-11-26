@@ -73,7 +73,7 @@ async fn resolve_side(
     }
 }
 
-async fn resolve_commit(
+pub(crate) async fn resolve_commit(
     port: &dyn CommandPort,
     root: &str,
     reference: &str,

@@ -12,6 +12,7 @@ pub mod conflicts;
 pub mod diff;
 pub mod history;
 pub mod info;
+pub mod line_window;
 pub mod publication;
 pub mod remote;
 pub mod revision_lines;
@@ -32,6 +33,10 @@ pub struct Command {
     pub input: Option<Vec<u8>>,
     /// The caller's capture bound, as `GitCli.call`'s `captureBytes`.
     pub capture_bytes: Option<usize>,
+    /// Stop Git once the capture is full (`stopAtCapture`).
+    pub stop_at_capture: bool,
+    /// The work budget (`stopAfterMs`), enforced by the supervisor when wired.
+    pub stop_after_ms: Option<u64>,
     /// True when a non-zero exit is an answer, as `allowFailure` is.
     pub allow_failure: bool,
 }
@@ -45,6 +50,8 @@ impl Command {
             write: false,
             input: None,
             capture_bytes: None,
+            stop_at_capture: false,
+            stop_after_ms: None,
             allow_failure: false,
         }
     }
@@ -57,6 +64,8 @@ impl Command {
             write: false,
             input: None,
             capture_bytes: None,
+            stop_at_capture: false,
+            stop_after_ms: None,
             allow_failure: false,
         }
     }
@@ -86,6 +95,16 @@ impl Command {
 
     pub fn with_capture_bytes(mut self, bytes: usize) -> Self {
         self.capture_bytes = Some(bytes);
+        self
+    }
+
+    pub fn stopping_at_capture(mut self) -> Self {
+        self.stop_at_capture = true;
+        self
+    }
+
+    pub fn stopping_after(mut self, milliseconds: u64) -> Self {
+        self.stop_after_ms = Some(milliseconds);
         self
     }
 }
