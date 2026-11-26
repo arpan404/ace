@@ -14,6 +14,8 @@ pub mod devices;
 pub mod error;
 pub mod grant;
 pub mod hello;
+pub mod http_body;
+pub mod identity;
 pub mod org;
 pub mod pairing;
 pub mod remote_auth;
@@ -28,6 +30,11 @@ pub use grant::{
     grant_refresh_outcome,
 };
 pub use hello::{Hello, HelloRefusal, hello_actor};
+pub use identity::{
+    HostIdentity, IconColor, IdentityFacts, IdentityRefusal, IdentitySession, MachineIcon,
+    MachineIconKind, NameHost, SettingValue, computer_name, host_identity, known_platform,
+    pretty_hostname,
+};
 pub use pairing::{
     IssuedPairing, PairingCodeStore, PairingConnection, PairingTerms, PendingCode, pairing_link_url,
 };
