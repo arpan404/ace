@@ -7,6 +7,7 @@ pub mod adapter;
 pub mod bridge;
 pub mod error;
 pub mod frame;
+pub mod payload;
 pub mod session;
 pub mod translator;
 pub mod util;
