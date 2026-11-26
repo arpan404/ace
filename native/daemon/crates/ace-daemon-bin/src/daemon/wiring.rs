@@ -45,7 +45,6 @@ pub(super) async fn remote_plan(
     };
     Ok(Some(RemotePlan {
         listen: config.listen,
-        home: config.data_dir.clone(),
         identity,
         advertised,
         port: config.remote_port,

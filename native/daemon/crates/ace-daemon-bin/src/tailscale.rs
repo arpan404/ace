@@ -15,7 +15,6 @@
 //! address and MagicDNS name from tailscale status", "gives the pairing guidance
 //! when Tailscale is not running").
 
-use std::path::Path;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -92,22 +91,26 @@ pub async fn certificate(name: &str) -> Result<String, String> {
 pub struct TailscalePem {
     pub chain_pem: String,
     pub key_pem: String,
+    /// When the leaf stops being valid, in epoch milliseconds.
+    pub expires_ms: u64,
 }
 
 /// `parseTailscaleCertificate`: the first certificate chain and its key, only
 /// when the leaf names `name` and is valid now. Undefined otherwise, so a bad
 /// issuance never replaces a working certificate.
-pub async fn parse(output: &str, name: &str, home: &Path) -> Option<TailscalePem> {
+pub fn parse(output: &str, name: &str, now_ms: u64) -> Option<TailscalePem> {
     let (chain, key) = split_pem(output)?;
-    if !host_checked(&chain, name, home).await {
+    if !host_checked(&chain, name, now_ms) {
         return None;
     }
     // `certificate.checkPrivateKey`: re-encoding refuses a key that is not the
     // leaf's.
     ace_transport::TlsIdentity::from_pem(chain.as_bytes(), key.as_bytes()).ok()?;
+    let expires_ms = certificate::valid_until(&chain)?;
     Some(TailscalePem {
         chain_pem: chain,
         key_pem: key,
+        expires_ms,
     })
 }
 
@@ -136,13 +139,12 @@ async fn run(args: &[&str], timeout: Duration) -> Result<String, String> {
 pub fn spawn_refresh(
     resolver: std::sync::Arc<ace_transport::SniResolver>,
     name: String,
-    home: std::path::PathBuf,
     log: std::sync::Arc<crate::log::Log>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             let wait = match certificate(&name).await {
-                Ok(output) => match parse(&output, &name, &home).await {
+                Ok(output) => match parse(&output, &name, crate::home::now_ms()) {
                     Some(pem) => {
                         match ace_transport::TlsIdentity::from_pem(
                             pem.chain_pem.as_bytes(),
@@ -150,12 +152,14 @@ pub fn spawn_refresh(
                         ) {
                             Ok(identity) => {
                                 resolver.set_trusted(&name, identity);
+                                let now = crate::home::now_ms();
+                                let remaining = pem.expires_ms.saturating_sub(now);
                                 log.log(
                                     "info",
                                     "Serving Tailscale's certificate",
-                                    serde_json::json!({"name": name}),
+                                    serde_json::json!({"name": name, "expiresInMs": remaining}),
                                 );
-                                Duration::from_secs(12 * 60 * 60)
+                                Duration::from_millis(remaining.min(12 * 60 * 60 * 1000))
                             }
                             Err(error) => {
                                 log.log(
@@ -177,6 +181,8 @@ pub fn spawn_refresh(
                     }
                 },
                 Err(error) => {
+                    // A certificate past its expiry is no use: serve the pinned one.
+                    resolver.clear_trusted();
                     log.log(
                         "warn",
                         "Tailscale's certificate could not be fetched",

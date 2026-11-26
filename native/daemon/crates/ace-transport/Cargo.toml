@@ -67,6 +67,9 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = [
   "tls12",
   "logging",
 ] }
+# sha2: the pinned certificate's public-key fingerprint, the one value every
+# paired device stores; one owner for the DER and the digest.
+sha2 = { version = "0.10.9" }
 # zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove,
 # and a TLS identity's key PEM is held only in a `Zeroizing` buffer while it is
 # parsed.

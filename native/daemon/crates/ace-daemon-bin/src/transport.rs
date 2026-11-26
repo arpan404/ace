@@ -86,6 +86,7 @@ struct Sink {
     auth: Arc<dyn session::Authenticator>,
     /// Startup's gate: a hello before it opens is told services are starting.
     ready: Arc<std::sync::atomic::AtomicBool>,
+    limits: session::Limits,
     /// The loopback listener admits the host token; remote listeners never do.
     local: bool,
 }
@@ -107,6 +108,7 @@ impl SocketSink for Sink {
             Arc::clone(&self.auth),
             self.local,
             Arc::clone(&self.ready),
+            self.limits,
             Arc::new(move || signed_in.authenticated(reservation)),
             Arc::new(move || closed.closed(reservation)),
         );
@@ -137,8 +139,6 @@ impl std::error::Error for TransportError {}
 /// A remote listener to start, decided by `wiring::remote_plan`.
 pub struct RemotePlan {
     pub listen: Listen,
-    /// The home whose `tls/` holds the pinned identity.
-    pub home: std::path::PathBuf,
     pub identity: crate::identity::Identity,
     /// The host clients use, which is not always the address the listener binds.
     pub advertised: String,
@@ -177,6 +177,7 @@ impl Transport {
         plan: Option<RemotePlan>,
         authenticator: Arc<dyn session::Authenticator>,
         ready: Arc<std::sync::atomic::AtomicBool>,
+        limits: session::Limits,
         log: Arc<Log>,
     ) -> Result<Self, TransportError> {
         let secret = Arc::new(HopSecret::generate().map_err(TransportError::Loopback)?);
@@ -198,6 +199,7 @@ impl Transport {
                 live: Arc::clone(&live),
                 auth: Arc::clone(&authenticator),
                 ready: Arc::clone(&ready),
+                limits,
                 local: true,
             }),
         ));
@@ -210,13 +212,12 @@ impl Transport {
         let mut remote_listener = None;
         let mut tailscale_task = None;
         if let Some(plan) = plan {
-            match bind_remote(&live, http.addr, &plan, authenticator, ready).await {
+            match bind_remote(&live, http.addr, &plan, authenticator, ready, limits).await {
                 Ok((listener, tailnet)) => {
                     if let Some((resolver, name)) = tailnet {
                         tailscale_task = Some(crate::tailscale::spawn_refresh(
                             resolver,
                             name,
-                            std::path::PathBuf::from(&plan.home),
                             Arc::clone(&log),
                         ));
                     }
@@ -296,6 +297,7 @@ async fn bind_remote(
     plan: &RemotePlan,
     authenticator: Arc<dyn session::Authenticator>,
     ready: Arc<std::sync::atomic::AtomicBool>,
+    limits: session::Limits,
 ) -> Result<
     (
         RemoteListener,
@@ -319,6 +321,7 @@ async fn bind_remote(
             live: Arc::clone(live),
             auth: authenticator,
             ready,
+            limits,
             local: false,
         }),
     ));

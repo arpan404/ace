@@ -58,6 +58,15 @@ impl Env {
     }
 }
 
+/// `webOriginAllowlist`'s always-allowed pages (`apps/daemon/src/web-origins.ts:8`–`:46`):
+/// the packaged desktop renderer and ace's stable and beta web apps. They are
+/// admitted with no configuration, on the socket and on the HTTP CORS routes.
+pub const DEFAULT_WEB_ORIGINS: [&str; 3] = [
+    "app://ace",
+    "https://app.acehq.dev",
+    "https://beta.app.acehq.dev",
+];
+
 /// `ACE_LISTEN`: where clients may reach the daemon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Listen {
@@ -219,15 +228,39 @@ pub fn read(env: &Env, home: &Path) -> Result<Config, ConfigError> {
     if let Some(value) = env.get("ACE_PUSH_GATEWAY_URL") {
         push_gateway(value)?;
     }
-    let web_origins = match env.get("ACE_WEB_ORIGINS") {
+    let configured_origins = match env.get("ACE_WEB_ORIGINS") {
         None => Vec::new(),
         Some(value) => web_origins(value)?,
     };
+    let mut web_origins: Vec<String> = DEFAULT_WEB_ORIGINS
+        .iter()
+        .map(|origin| (*origin).to_owned())
+        .collect();
+    for origin in configured_origins {
+        if !web_origins.contains(&origin) {
+            web_origins.push(origin);
+        }
+    }
+    let data_dir = resolve_data_dir(env, home)?;
+    // A test's forgotten ACE_HOME must never write into the real home
+    // (`assertTestHomeIsolation`).
+    if let Some(real) = env.get("ACE_TEST_REAL_HOME") {
+        let real = resolve(Path::new(real));
+        if data_dir == real || data_dir.starts_with(&real) {
+            return Err(invalid(
+                "ACE_HOME",
+                format!(
+                    "refusing the test's real home {}; set ACE_HOME to a temporary home",
+                    real.display()
+                ),
+            ));
+        }
+    }
     let version = env.get("ACE_VERSION").unwrap_or("development").to_owned();
     let _account_origin = account_url.unwrap_or_else(|| "https://cloud.acehq.dev".to_owned());
     let _hosted_relay_url = hosted_relay;
     Ok(Config {
-        data_dir: resolve_data_dir(env, home)?,
+        data_dir,
         port: local_port,
         remote_port,
         listen,
@@ -253,11 +286,24 @@ fn resolve_data_dir(env: &Env, home: &Path) -> Result<PathBuf, ConfigError> {
 /// `resolve()`: absolute paths stay as they are; relative ones join the
 /// current directory, with no requirement that anything exists.
 pub fn resolve(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        return path.to_path_buf();
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        match std::env::current_dir() {
+            Ok(current) => current.join(path),
+            Err(_) => path.to_path_buf(),
+        }
+    };
+    // `path.resolve` normalises `.` and `..` without touching the filesystem.
+    let mut normal = PathBuf::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normal.pop();
+            }
+            other => normal.push(other.as_os_str()),
+        }
     }
-    match std::env::current_dir() {
-        Ok(current) => current.join(path),
-        Err(_) => path.to_path_buf(),
-    }
+    normal
 }

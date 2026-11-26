@@ -23,6 +23,9 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 tokio-tungstenite = { version = "0.30" }
 
 [dependencies]
+# ace-supervisor: this process's kernel start time, so the run marker names the
+# daemon by evidence another daemon's sweep can match.
+ace-supervisor = { path = "../ace-supervisor" }
 # ace-auth: the daemon token's reader and comparison (T2), so the Rust program and
 # the CLI read a Bun-written home's token the same way.
 ace-auth = { path = "../ace-auth" }
@@ -51,8 +54,11 @@ rustix = { version = "1.1.6", features = ["process"] }
 # serde: the run marker, the shutdown receipt and the status answer.
 serde = { version = "1", features = ["derive"] }
 # sha2: the TLS identity's fingerprint over the certificate's SPKI DER, as
-# `publicKeyFingerprint` computes it.
+# `publicKeyFingerprint` computes it, and the certificate's signature.
 sha2 = { version = "0.10.9" }
+# rsa: the pinned TLS identity's RSA-2048 key and signature, made in memory on
+# every platform (Windows ships no OpenSSL).
+rsa = { version = "0.9", features = ["sha2"] }
 # serde_json: the same JSON files the TypeScript daemon writes.
 serde_json = { version = "1" }
 # tokio: the runtime the listener, the HTTP server and signal handling run on.

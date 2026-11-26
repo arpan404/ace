@@ -157,6 +157,69 @@ fn a_host_token_welcomes_the_socket_and_a_second_hello_is_refused() {
     assert_eq!(status.code(), Some(0));
 }
 
+/// One upgrade with a browser `Origin`, as the desktop renderer sends.
+fn websocket_with_origin(endpoint: &str, origin: &str) -> Option<u16> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    let url = endpoint.replacen("http://", "ws://", 1);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    runtime.block_on(async move {
+        let mut request = url.into_client_request().ok()?;
+        request
+            .headers_mut()
+            .insert("origin", http::HeaderValue::from_str(origin).ok()?);
+        let connected = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio_tungstenite::connect_async(request),
+        )
+        .await;
+        match connected {
+            Ok(Ok((mut socket, _))) => {
+                // A completed upgrade is admitted; a 101 is the proof.
+                let _ = socket.close(None).await;
+                Some(101)
+            }
+            Ok(Err(tokio_tungstenite::tungstenite::Error::Http(response))) => {
+                Some(response.status().as_u16())
+            }
+            _ => None,
+        }
+    })
+}
+
+/// `socket-admission.server.process.test.ts`: "loopback rejects foreign origins while
+/// remote paired clients authenticate independently of Origin" — the loopback half,
+/// with the desktop renderer's `app://ace` admitted without configuration.
+#[test]
+fn loopback_admits_the_desktop_origin_and_rejects_foreign_ones() {
+    let home = Home::new("origins");
+    let mut daemon = home.start(false);
+    let endpoint = daemon.ready(&home);
+    for allowed in [
+        "app://ace",
+        "https://app.acehq.dev",
+        "https://beta.app.acehq.dev",
+    ] {
+        assert_eq!(
+            websocket_with_origin(&endpoint, allowed),
+            Some(101),
+            "{allowed}"
+        );
+    }
+    for refused in ["https://attacker.example", "null"] {
+        assert_eq!(
+            websocket_with_origin(&endpoint, refused),
+            Some(403),
+            "{refused}"
+        );
+    }
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
 /// `handed-ticket.server.process.test.ts`: a ticket minted over HTTP opens the
 /// socket by naming its device, exactly as the host token opens loopback.
 #[test]
@@ -232,6 +295,55 @@ fn a_hello_before_startup_finishes_is_told_services_are_starting() {
         .collect();
     assert_eq!(kinds, vec!["starting", "welcome"], "{messages:?}");
     assert_eq!(close, None);
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `socket-admission.ts`: a socket that never says hello is terminated after the
+/// five-second window (a test-only override here), freeing its pre-authentication
+/// slot instead of holding the budget forever.
+#[test]
+fn a_silent_socket_is_terminated_after_the_hello_window() {
+    let home = Home::new("hello-deadline");
+    let mut daemon = home.start_with(false, &[("ACE_TEST_HELLO_MS", "150")]);
+    let endpoint = daemon.ready(&home);
+    let started = std::time::Instant::now();
+    let (messages, close) = websocket(&endpoint, &[]);
+    assert!(messages.is_empty(), "{messages:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "the window is short"
+    );
+    // A terminated socket sends no close frame; the conversation simply ends.
+    assert!(close.is_none() || close == Some(1006));
+    // The freed slot admits the next socket.
+    let token = home.token();
+    let hello = format!(
+        "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"after\",\"token\":\"{token}\"}}"
+    );
+    let (messages, _) = websocket(&endpoint, &[text_frame(&hello)]);
+    assert!(messages.iter().any(|message| {
+        message.get("type").and_then(serde_json::Value::as_str) == Some("welcome")
+    }));
+    let status = daemon.terminate();
+    assert_eq!(status.code(), Some(0));
+}
+
+/// `server.ts:733`–`:734`: an idle socket is closed with `4008 Idle timeout`.
+#[test]
+fn an_idle_socket_is_closed_with_4008() {
+    let home = Home::new("idle");
+    let mut daemon = home.start_with(false, &[("ACE_TEST_IDLE_MS", "200")]);
+    let endpoint = daemon.ready(&home);
+    let token = home.token();
+    let hello = format!(
+        "{{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"idle\",\"token\":\"{token}\"}}"
+    );
+    let (messages, close) = websocket(&endpoint, &[text_frame(&hello)]);
+    assert!(messages.iter().any(|message| {
+        message.get("type").and_then(serde_json::Value::as_str) == Some("welcome")
+    }));
+    assert_eq!(close, Some(4008));
     let status = daemon.terminate();
     assert_eq!(status.code(), Some(0));
 }

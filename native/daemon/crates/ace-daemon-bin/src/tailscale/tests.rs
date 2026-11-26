@@ -33,22 +33,24 @@ fn a_chain_and_its_key_are_split_out() {
 }
 
 /// `tailscale-certificate.test.ts`: a certificate for another name is refused;
-/// the identity OpenSSL makes is `CN=ace`.
-#[tokio::test]
-async fn a_certificate_for_another_name_is_refused() {
+/// the identity is `CN=ace` and valid now.
+#[test]
+fn a_certificate_for_another_name_is_refused() {
     let home = TempDir::new("ace-tailscale");
-    let identity = crate::identity::load(home.path()).await;
-    let Ok(identity) = identity else {
-        // No OpenSSL on this machine: the case needs it to make a certificate.
+    let identity = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()
+        .and_then(|runtime| runtime.block_on(crate::identity::load(home.path())).ok());
+    let Some(identity) = identity else {
         return;
     };
     let chain = String::from_utf8_lossy(&identity.cert_pem).into_owned();
     let key = String::from_utf8_lossy(&identity.key_pem).into_owned();
     let output = format!("{chain}{key}");
-    assert!(parse(&output, "ace", home.path()).await.is_some());
-    assert!(
-        parse(&output, "mac.tailnet.ts.net", home.path())
-            .await
-            .is_none()
-    );
+    let now = crate::home::now_ms();
+    assert!(parse(&output, "ace", now).is_some());
+    assert!(parse(&output, "mac.tailnet.ts.net", now).is_none());
+    // Past the certificate's ten years, it is no longer valid.
+    assert!(parse(&output, "ace", now + 20 * 365 * 86_400_000).is_none());
 }

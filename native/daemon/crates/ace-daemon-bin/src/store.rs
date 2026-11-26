@@ -98,6 +98,25 @@ impl Store {
         Ok(Self { connection })
     }
 
+    /// The one connection this daemon owns (ADR 0222): `ace-auth`'s devices and
+    /// pairing tables ride it rather than opening a second, busy-timeout-free one.
+    pub fn connection(&self) -> Arc<Connection> {
+        Arc::clone(&self.connection)
+    }
+
+    /// The highest event sequence, or 0 before any row exists.
+    pub fn head_seq(&self) -> i64 {
+        self.connection
+            .prepare("SELECT coalesce(max(seq), 0) FROM events")
+            .ok()
+            .and_then(|statement| statement.step().ok().flatten())
+            .and_then(|row| match row.first() {
+                Some(ace_store::Value::Integer(seq)) => Some(*seq),
+                _ => None,
+            })
+            .unwrap_or(0)
+    }
+
     /// Close the connection as the daemon stops.
     pub fn close(self) {
         let _ = self.connection.close();

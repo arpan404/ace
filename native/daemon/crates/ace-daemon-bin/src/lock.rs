@@ -211,3 +211,25 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod extra {
+    use super::*;
+    use crate::test_support::TempDir;
+
+    /// The lock database cannot be made: that is said as it is, never "another daemon".
+    #[test]
+    fn a_lock_database_that_cannot_be_opened_is_not_another_daemon() {
+        let home = TempDir::new("ace-lock-not-a-db");
+        let _ = std::fs::create_dir_all(home.path().join("daemon-lock.sqlite"));
+        match Lock::acquire(home.path()) {
+            Err(LockError::Failed(message)) => {
+                assert!(!message.contains("Another daemon"));
+            }
+            other => panic!(
+                "a directory at the lock database fails the open: {}",
+                other.is_ok()
+            ),
+        }
+    }
+}

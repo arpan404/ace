@@ -219,11 +219,21 @@ async fn answer(state: Arc<HttpState>, request: Request<Incoming>) -> Response {
                     &json!({"error": "Admin scope required"}),
                 )
             } else {
+                let remote = state
+                    .config
+                    .pairing
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .clone()
+                    .map(|pairing| {
+                        json!({"origin": pairing.origin, "fingerprint": pairing.fingerprint})
+                    });
+                // `remote`: the LAN/Tailscale address a device pairs at, or null.
                 let body = json!({
                     "running": true,
                     "ready": true,
                     "version": state.config.version,
-                    "remote": serde_json::Value::Null,
+                    "remote": remote,
                 });
                 json_body(StatusCode::OK, &body)
             }

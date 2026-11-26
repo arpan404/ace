@@ -22,8 +22,10 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+mod claim;
 mod files;
 mod marker;
+mod release;
 #[cfg(test)]
 mod tests;
 
@@ -106,10 +108,12 @@ pub fn plan(facts: Facts, current: u32) -> Plan {
 pub enum State {
     Created,
     Reused,
-    /// The old home was renamed to `backup`; `root` is a fresh, empty home.
+    /// The old home was renamed to `backup`; `root` is a fresh, empty home, with
+    /// an installed release carried back into it when the backup held one.
     Fresh {
         backup: PathBuf,
         previous_format: String,
+        release: Option<String>,
     },
 }
 
@@ -123,6 +127,12 @@ pub enum HomeError {
         supported: String,
         message: String,
     },
+    /// A daemon still holds the old home: nothing was moved (`LiveHomeError`).
+    Live {
+        home: PathBuf,
+        pid: Option<i64>,
+        message: String,
+    },
     Io {
         action: String,
         source: io::Error,
@@ -132,7 +142,9 @@ pub enum HomeError {
 impl std::fmt::Display for HomeError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NewerData { message, .. } => formatter.write_str(message),
+            Self::NewerData { message, .. } | Self::Live { message, .. } => {
+                formatter.write_str(message)
+            }
             Self::Io { action, source } => write!(formatter, "{action}: {source}"),
         }
     }
@@ -161,6 +173,15 @@ impl HomeError {
     /// logged into the home (the startup refusal line names both formats).
     pub fn is_newer_data(&self) -> bool {
         matches!(self, Self::NewerData { .. })
+    }
+
+    /// A daemon still holds the old home; nothing was moved.
+    pub fn live(home: &Path, pid: Option<i64>) -> Self {
+        Self::Live {
+            home: home.to_path_buf(),
+            pid,
+            message: claim::live_message(home, pid),
+        }
     }
 }
 
@@ -196,11 +217,20 @@ pub fn prepare(root: &Path, version: u32, now_ms: u64) -> Result<State, HomeErro
                 }
             }
             Plan::BackUp { from } => {
-                let backup = rename_aside(&root, from)?;
+                // Claim the old home first: a daemon still using it is refused and
+                // nothing moves (`home-fresh-start.ts:207`).
+                let claim = claim::claim(&root)?;
+                let moved = rename_aside(&root, from);
+                claim.release();
+                let backup = moved?;
                 create(&root, version, now_ms)?;
+                // An install.sh release is the program, not data: it keeps running
+                // from the fresh home (`carryRelease`).
+                let release = crate::home::release::carry(&backup, &root);
                 return Ok(State::Fresh {
                     backup: backup.clone(),
                     previous_format: format_name(from),
+                    release,
                 });
             }
         }
@@ -256,6 +286,15 @@ pub fn secure_data_dir(data_dir: &Path) -> Result<(), HomeError> {
 }
 
 fn read_facts(root: &Path) -> Result<Facts, HomeError> {
+    if let Ok(metadata) = fs::symlink_metadata(root)
+        && !metadata.is_dir()
+        && !metadata.file_type().is_symlink()
+    {
+        return Err(io_error(
+            format!("Refusing ace data home {}", root.display()),
+            io::Error::other("it is not a directory"),
+        ));
+    }
     let names = match fs::read_dir(root) {
         Ok(entries) => {
             let mut names = Vec::new();
@@ -341,7 +380,13 @@ fn rename_aside(root: &Path, from: u32) -> Result<PathBuf, HomeError> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| ".ace".to_owned());
-    let name = backup_name(&base, from, |candidate| parent.join(candidate).exists());
+    let name =
+        backup_name(&base, from, |candidate| parent.join(candidate).exists()).ok_or_else(|| {
+            io_error(
+                format!("Too many ace data backups named {base}-v{from}"),
+                io::Error::other("remove the ones you no longer need"),
+            )
+        })?;
     let backup = parent.join(name);
     match fs::rename(root, &backup) {
         Ok(()) => Ok(backup),

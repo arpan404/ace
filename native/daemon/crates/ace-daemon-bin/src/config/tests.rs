@@ -150,3 +150,53 @@ fn web_origins_are_trimmed_and_bounded() {
     );
     assert!(web_origins("https://example.com/path").is_err());
 }
+
+/// `web-origins.ts`: `webOriginAllowlist` always admits the desktop renderer and
+/// ace's stable and beta web apps, with or without `ACE_WEB_ORIGINS`.
+#[test]
+fn the_desktop_and_hosted_web_origins_are_always_allowed() {
+    let Ok(config) = read(&[]) else {
+        panic!("an empty environment is valid");
+    };
+    for origin in [
+        "app://ace",
+        "https://app.acehq.dev",
+        "https://beta.app.acehq.dev",
+    ] {
+        assert!(
+            config.web_origins.iter().any(|entry| entry == origin),
+            "{origin}"
+        );
+    }
+    let Ok(config) = read(&[("ACE_WEB_ORIGINS", "https://ace.example")]) else {
+        panic!("a configured origin is valid");
+    };
+    assert!(
+        config
+            .web_origins
+            .iter()
+            .any(|entry| entry == "https://ace.example")
+    );
+    assert_eq!(
+        config
+            .web_origins
+            .iter()
+            .filter(|entry| *entry == "app://ace")
+            .count(),
+        1,
+        "the defaults are not duplicated"
+    );
+}
+
+/// `assertTestHomeIsolation`: a test run without its own `ACE_HOME` refuses the
+/// real home instead of writing into it.
+#[test]
+fn a_test_home_inside_the_real_home_is_refused() {
+    match read(&[
+        ("ACE_TEST_REAL_HOME", "/home/person"),
+        ("ACE_HOME", "/home/person/.ace"),
+    ]) {
+        Ok(_) => panic!("the real home is refused"),
+        Err(error) => assert_eq!(error.variable, "ACE_HOME"),
+    }
+}

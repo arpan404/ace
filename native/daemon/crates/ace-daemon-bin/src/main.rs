@@ -17,6 +17,7 @@ mod identity;
 mod ids;
 mod lock;
 mod log;
+mod process;
 mod receipt;
 mod run_marker;
 mod session;
@@ -66,7 +67,9 @@ fn main() {
         }
     };
     let environment = config::Env::from_process();
+    // Node's `homedir()`: HOME, or USERPROFILE on Windows.
     let user_home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
     let config = match config::read(&environment, &user_home) {

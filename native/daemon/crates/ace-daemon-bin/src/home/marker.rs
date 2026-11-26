@@ -2,18 +2,18 @@
 //! The home's marker bytes, backup names and ISO times.
 
 /// `backupName`: `<home>-v<from>`, then `.1`, `.2` and so on; never an existing one.
-pub fn backup_name(home: &str, from: u32, taken: impl Fn(&str) -> bool) -> String {
+pub fn backup_name(home: &str, from: u32, taken: impl Fn(&str) -> bool) -> Option<String> {
     let base = format!("{home}-v{from}");
     if !taken(&base) {
-        return base;
+        return Some(base);
     }
     for index in 1..=10_000 {
         let name = format!("{base}.{index}");
         if !taken(&name) {
-            return name;
+            return Some(name);
         }
     }
-    format!("{base}.overflow")
+    None
 }
 
 /// `new Date(ms).toISOString()`, without a calendar crate: UTC, milliseconds.

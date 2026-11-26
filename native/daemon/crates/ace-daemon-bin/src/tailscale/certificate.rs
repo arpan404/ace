@@ -2,7 +2,7 @@
 //! The certificate checks `tailscale-certificate.ts` makes: the chain and key split
 //! out of the CLI's output, the leaf's names, its validity, and its key.
 
-use std::path::Path;
+use ace_transport::tls::identity::{pem_certificate, tlv};
 
 /// The certificate chain and the first private key in a PEM document.
 pub(super) fn split_pem(output: &str) -> Option<(String, String)> {
@@ -29,9 +29,10 @@ pub(super) fn split_pem(output: &str) -> Option<(String, String)> {
     Some((format!("{}\n", chain.join("\n")), format!("{}\n", key?)))
 }
 
-/// `certificate.checkHost(name)` and its validity window: the leaf must name
-/// `name` (SAN DNS or subject CN), still be valid, and match its key.
-pub(super) async fn host_checked(chain: &str, name: &str, home: &Path) -> bool {
+/// `certificate.checkHost(name)` and its validity window, in memory
+/// (`tailscale-certificate.ts:34`–`:42`): the leaf must name `name`, be valid now,
+/// and (checked by the caller) match its key.
+pub(super) fn host_checked(chain: &str, name: &str, now_ms: u64) -> bool {
     let Some(der) = leaf_der(chain) else {
         return false;
     };
@@ -41,27 +42,85 @@ pub(super) async fn host_checked(chain: &str, name: &str, home: &Path) -> bool {
     {
         return false;
     }
-    let id = crate::ids::uuid_v4().unwrap_or_else(|_| "certificate".to_owned());
-    let directory = home.join(format!("tls-check-{id}"));
-    if std::fs::create_dir_all(&directory).is_err() {
-        return false;
+    valid_at(&der, now_ms)
+}
+
+/// `now < validTo` and `now >= validFrom`, from the certificate's validity.
+fn valid_at(der: &[u8], now_ms: u64) -> bool {
+    validity(der).is_some_and(|(from, until)| now_ms >= from && now_ms < until)
+}
+
+pub(super) fn valid_until(chain: &str) -> Option<u64> {
+    validity(&leaf_der(chain)?).map(|(_, until)| until)
+}
+
+/// The validity SEQUENCE's two times, in epoch milliseconds.
+fn validity(der: &[u8]) -> Option<(u64, u64)> {
+    let (tag, value, _) = tlv(der)?;
+    if tag != 0x30 {
+        return None;
     }
-    let cert = directory.join("cert.pem");
-    let written = std::fs::write(&cert, chain).is_ok();
-    let valid = written
-        && matches!(
-            tokio::process::Command::new("openssl")
-                .args(["x509", "-checkend", "0", "-noout", "-in"])
-                .arg(&cert)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .await,
-            Ok(status) if status.success()
-        );
-    let _ = std::fs::remove_dir_all(&directory);
-    valid
+    let (tag, tbs, _) = tlv(value)?;
+    if tag != 0x30 {
+        return None;
+    }
+    let mut rest = tbs;
+    let (tag, _, after) = tlv(rest)?;
+    if tag == 0xa0 {
+        rest = after;
+    }
+    // serial, signature, issuer, then validity.
+    for _ in 0..3 {
+        let (_, _, after) = tlv(rest)?;
+        rest = after;
+    }
+    let (tag, times, _) = tlv(rest)?;
+    if tag != 0x30 {
+        return None;
+    }
+    let (first_tag, first, after) = tlv(times)?;
+    let (second_tag, second, _) = tlv(after)?;
+    Some((
+        time_value(first_tag, first)?,
+        time_value(second_tag, second)?,
+    ))
+}
+
+/// UTCTime (`YYMMDDHHMMSSZ`) or GeneralizedTime (`YYYYMMDDHHMMSSZ`), to epoch ms.
+fn time_value(tag: u8, text: &[u8]) -> Option<u64> {
+    let text = std::str::from_utf8(text).ok()?.strip_suffix('Z')?;
+    let (year, rest) = match (tag, text.len()) {
+        (0x17, 12) => {
+            let year: i64 = text.get(..2)?.parse().ok()?;
+            // RFC 5280: 50–99 is 1950–1999, 00–49 is 2000–2049.
+            (
+                if year >= 50 { 1900 + year } else { 2000 + year },
+                text.get(2..)?,
+            )
+        }
+        (0x18, 14) => (text.get(..4)?.parse().ok()?, text.get(4..)?),
+        _ => return None,
+    };
+    let month: u32 = rest.get(0..2)?.parse().ok()?;
+    let day: u32 = rest.get(2..4)?.parse().ok()?;
+    let hour: u64 = rest.get(4..6)?.parse().ok()?;
+    let minute: u64 = rest.get(6..8)?.parse().ok()?;
+    let second: u64 = rest.get(8..10)?.parse().ok()?;
+    let days = days_from_civil(year, month, day);
+    if days < 0 {
+        return None;
+    }
+    Some(days as u64 * 86_400_000 + (hour * 3600 + minute * 60 + second) * 1000)
+}
+
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = if month > 2 { month - 3 } else { month + 9 } as i64;
+    let doy = (153 * mp + 2) / 5 + day as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 /// Whether a certificate name matches `name`: exact, or one wildcard label.
@@ -196,64 +255,5 @@ fn collect_san(extensions: &[u8], found: &mut Vec<String>) {
 
 /// The DER bytes of the leaf certificate in a PEM chain.
 fn leaf_der(chain: &str) -> Option<Vec<u8>> {
-    let begin = chain.find("-----BEGIN CERTIFICATE-----")? + "-----BEGIN CERTIFICATE-----".len();
-    let end = chain[begin..].find("-----END CERTIFICATE-----")? + begin;
-    base64_decode(&chain[begin..end])
-}
-
-/// One DER element: its tag, its value and what follows it.
-fn tlv(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
-    let (&tag, rest) = input.split_first()?;
-    let (&first, after_first) = rest.split_first()?;
-    let (length, body) = if first < 0x80 {
-        (usize::from(first), after_first)
-    } else {
-        let count = usize::from(first & 0x7f);
-        if count == 0 || count > 4 || after_first.len() < count {
-            return None;
-        }
-        let mut length = 0_usize;
-        for byte in &after_first[..count] {
-            length = length.checked_mul(256)?.checked_add(usize::from(*byte))?;
-        }
-        (length, &after_first[count..])
-    };
-    if body.len() < length {
-        return None;
-    }
-    Some((tag, &body[..length], &body[length..]))
-}
-
-/// Standard base64 with padding, whitespace ignored.
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(text.len() * 3 / 4);
-    let mut chunk = [0_u8; 4];
-    let mut filled = 0;
-    for byte in text.bytes() {
-        if byte.is_ascii_whitespace() {
-            continue;
-        }
-        let value = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' => 64,
-            _ => return None,
-        };
-        chunk[filled] = value;
-        filled += 1;
-        if filled == 4 {
-            out.push((chunk[0] << 2) | (chunk[1] >> 4));
-            if chunk[2] != 64 {
-                out.push((chunk[1] << 4) | (chunk[2] >> 2));
-            }
-            if chunk[3] != 64 && chunk[2] != 64 {
-                out.push((chunk[2] << 6) | chunk[3]);
-            }
-            filled = 0;
-        }
-    }
-    (filled == 0).then_some(out)
+    pem_certificate(chain.as_bytes())
 }

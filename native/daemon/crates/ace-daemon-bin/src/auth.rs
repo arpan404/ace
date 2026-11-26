@@ -13,8 +13,9 @@
 //! `apps/daemon/src/handed-ticket.server.process.test.ts` drive the same
 //! `hello_actor`, and this crate's program test drives the frames.
 
-use std::path::Path;
 use std::sync::Mutex;
+
+use std::sync::Arc;
 
 use ace_auth::devices::{Device, Devices, PairedDevice, Scope, SessionActor};
 use ace_auth::hello::{FirstFrame, HelloGate};
@@ -32,16 +33,20 @@ use crate::session::{Answer, Welcome};
 pub struct DaemonAuth {
     auth: Mutex<RemoteAuth>,
     host_id: String,
-    /// A stable id for the store's sidebar reads; the host id until slice 2 owns
-    /// the real sidebar token.
-    database_id: String,
+    /// The store's highest event sequence when this daemon started; a client
+    /// resumes from it. Slice 2 owns live reads.
+    head_seq: i64,
 }
 
 impl DaemonAuth {
     /// Open the devices and pairing tables in the same database the event store
     /// uses, and the host token this daemon answered with.
-    pub fn open(home: &Path, token: &str, host_id: &str) -> Result<Self, ace_auth::AuthError> {
-        let database = home.join("events.sqlite");
+    pub fn open(
+        connection: Arc<ace_store::Connection>,
+        token: &str,
+        host_id: &str,
+        head_seq: i64,
+    ) -> Result<Self, ace_auth::AuthError> {
         let credentials = CredentialRuntime::new(
             || {
                 crate::ids::uuid_v4()
@@ -49,8 +54,10 @@ impl DaemonAuth {
             },
             |size| crate::ids::bytes(size).unwrap_or_else(|_| vec![0_u8; size]),
         );
-        let devices = Devices::open(&database.to_string_lossy(), credentials)?;
-        let codes = SqlitePairingCodes::new(devices.connection().clone())?;
+        let devices = Devices::new(Arc::clone(&connection), credentials);
+        // The tables the TypeScript store also owns; constant DDL, never history.
+        devices.migrate()?;
+        let codes = SqlitePairingCodes::new(connection)?;
         let runtime = Runtime::new(
             || crate::home::now_ms() as i64,
             || crate::ids::random_hex_32().unwrap_or_else(|_| "0".repeat(64)),
@@ -66,7 +73,7 @@ impl DaemonAuth {
         Ok(Self {
             auth: Mutex::new(auth),
             host_id: host_id.to_owned(),
-            database_id: host_id.to_owned(),
+            head_seq,
         })
     }
 
@@ -155,10 +162,12 @@ impl DaemonAuth {
 
     /// The welcome frame, in the schema's field order.
     fn welcome(&self, ticket: Option<(String, i64)>) -> Vec<u8> {
+        // `databaseId` is slice 2's sidebar token; omitted (the schema allows it)
+        // rather than lying with an id that will change owner.
         let mut frame = format!(
-            "{{\"type\":\"welcome\",\"hostId\":{},\"protocolVersion\":1,\"headSeq\":0,\"databaseId\":{}",
+            "{{\"type\":\"welcome\",\"hostId\":{},\"protocolVersion\":1,\"headSeq\":{}",
             Value::String(self.host_id.clone()),
-            Value::String(self.database_id.clone())
+            self.head_seq
         );
         if let Some((ticket, ttl_ms)) = ticket {
             frame.push_str(&format!(

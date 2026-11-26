@@ -22,6 +22,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use ace_transport::deflate::Deflate;
 use ace_transport::driver::UpgradeIo;
@@ -31,6 +32,23 @@ use serde_json::Value;
 
 /// What a session tells the daemon when it ends.
 pub type Closed = Arc<dyn Fn() + Send + Sync>;
+
+/// The socket timers (`socket-admission.ts:26`, `server.ts:733`): a hello within
+/// five seconds, and an idle socket closed with `4008` after a minute.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    pub hello: Duration,
+    pub idle: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            hello: Duration::from_secs(5),
+            idle: Duration::from_secs(60),
+        }
+    }
+}
 
 /// What a hello authenticated.
 // T2's authenticator constructs these; slice 1's refuses every hello.
@@ -80,6 +98,7 @@ pub fn start(
     local: bool,
     // Whether startup finished; a hello before it gets `starting` first.
     ready: Arc<std::sync::atomic::AtomicBool>,
+    limits: Limits,
     authenticated: Arc<dyn Fn() + Send + Sync>,
     closed: Closed,
 ) -> SocketHandle {
@@ -88,7 +107,29 @@ pub fn start(
     let next = Arc::new(AtomicU64::new(1));
     tokio::spawn(async move {
         let mut state = State::default();
-        while let Some(event) = events.recv().await {
+        let hello = tokio::time::sleep(limits.hello);
+        let idle = tokio::time::sleep(limits.idle);
+        tokio::pin!(hello);
+        tokio::pin!(idle);
+        loop {
+            let event = tokio::select! {
+                event = events.recv() => event,
+                // An unauthenticated socket is terminated after the hello window,
+                // freeing its pre-authentication slot (`socket-admission.ts:120`).
+                _ = &mut hello, if !state.signed_in => {
+                    sending.terminate();
+                    None
+                }
+                _ = &mut idle => {
+                    let _ = sending.close(Some(4008), "Idle timeout".to_owned());
+                    // Let the close frame reach the peer, then stop.
+                    let _ = tokio::time::timeout(Duration::from_secs(1), events.recv()).await;
+                    None
+                }
+            };
+            let Some(event) = event else { break };
+            idle.as_mut()
+                .reset(tokio::time::Instant::now() + limits.idle);
             match event {
                 SocketEvent::Message { data, binary } => {
                     let charge = data.len() as u64 + MESSAGE_OVERHEAD;

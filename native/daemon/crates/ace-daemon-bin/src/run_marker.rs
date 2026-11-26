@@ -43,6 +43,7 @@ pub struct Run {
     pid: i64,
     started_at: f64,
     owner: Option<String>,
+    kernel_start: Option<String>,
 }
 
 impl Run {
@@ -52,6 +53,7 @@ impl Run {
         pid: i64,
         now_ms: f64,
         owner: Option<&str>,
+        kernel_start: Option<&str>,
     ) -> Result<Self, io::Error> {
         crate::home::secure_data_dir(home).map_err(|error| io::Error::other(error.to_string()))?;
         let previous = read_previous(home);
@@ -64,6 +66,10 @@ impl Run {
         if let Some(owner) = &owner {
             marker.insert("owner".into(), owner.clone().into());
         }
+        // The kernel start names this process to another daemon's sweep.
+        if let Some(start) = kernel_start {
+            marker.insert("start".into(), start.into());
+        }
         publish(&path, &serde_json::Value::Object(marker))?;
         Ok(Self {
             previous,
@@ -71,6 +77,7 @@ impl Run {
             pid,
             started_at: now_ms,
             owner,
+            kernel_start: kernel_start.map(str::to_owned),
         })
     }
 
@@ -86,6 +93,9 @@ impl Run {
         );
         if let Some(owner) = &self.owner {
             marker.insert("owner".into(), owner.clone().into());
+        }
+        if let Some(start) = &self.kernel_start {
+            marker.insert("start".into(), start.clone().into());
         }
         marker.insert("source".into(), source.into());
         if let Some(signal) = signal {
@@ -224,12 +234,12 @@ mod tests {
     #[test]
     fn a_run_marks_itself_live_and_its_stop_is_read_by_the_next_start() {
         let home = TempDir::new("ace-run-marker");
-        let first = Run::begin(home.path(), 1234, 1000.0, Some("owner-1"));
+        let first = Run::begin(home.path(), 1234, 1000.0, Some("owner-1"), Some("100:200"));
         assert!(first.is_ok(), "a fresh home takes a run marker");
         let Ok(first) = first else { return };
         assert_eq!(first.previous, Previous::None);
         first.stopped("signal", Some("SIGTERM"), &[]);
-        let second = Run::begin(home.path(), 4321, 2000.0, Some("owner-2"));
+        let second = Run::begin(home.path(), 4321, 2000.0, Some("owner-2"), Some("100:200"));
         let Ok(second) = second else {
             panic!("the second run reads the first");
         };
@@ -255,10 +265,10 @@ mod tests {
     #[test]
     fn a_marker_left_running_is_a_crash_and_unreadable_text_is_said_so() {
         let home = TempDir::new("ace-run-crash");
-        let first = Run::begin(home.path(), 1, 1.0, None);
+        let first = Run::begin(home.path(), 1, 1.0, None, None);
         assert!(first.is_ok());
         drop(first);
-        let second = Run::begin(home.path(), 2, 2.0, None);
+        let second = Run::begin(home.path(), 2, 2.0, None, None);
         let Ok(second) = second else {
             panic!("a crashed marker does not stop the next start");
         };
@@ -268,7 +278,7 @@ mod tests {
         assert!(message.contains("ended without stopping"));
         drop(second);
         let _ = std::fs::write(home.path().join(RUN_MARKER_FILE), "not json");
-        let third = Run::begin(home.path(), 3, 3.0, None);
+        let third = Run::begin(home.path(), 3, 3.0, None, None);
         let Ok(third) = third else {
             panic!("an unreadable marker does not stop the next start");
         };
@@ -279,7 +289,7 @@ mod tests {
     #[test]
     fn the_first_run_says_no_previous_run_was_recorded() {
         let home = TempDir::new("ace-run-first");
-        let run = Run::begin(home.path(), 1, 1.0, None);
+        let run = Run::begin(home.path(), 1, 1.0, None, None);
         let Ok(run) = run else {
             panic!("a fresh home takes a run marker");
         };

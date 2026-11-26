@@ -184,9 +184,113 @@ fn a_symlinked_data_directory_is_refused() {
 /// `backupName`: `.ace-v0`, then `.ace-v0.1`; never an existing name.
 #[test]
 fn a_backup_name_never_reuses_one() {
-    assert_eq!(backup_name(".ace", 0, |_| false), ".ace-v0");
     assert_eq!(
-        backup_name(".ace", 0, |name| name == ".ace-v0"),
-        ".ace-v0.1"
+        backup_name(".ace", 0, |_| false).as_deref(),
+        Some(".ace-v0")
     );
+    assert_eq!(
+        backup_name(".ace", 0, |name| name == ".ace-v0").as_deref(),
+        Some(".ace-v0.1")
+    );
+    assert_eq!(backup_name(".ace", 0, |_| true), None);
+}
+
+/// `home-fresh-start.process.test.ts`: "a live home is never renamed": a daemon
+/// still holds the old home's lock, so the fresh start refuses and nothing moves.
+#[test]
+fn a_live_home_is_never_renamed() {
+    let parent = TempDir::new("ace-home-live");
+    let root = parent.path().join(".ace");
+    let _ = std::fs::create_dir_all(&root);
+    let _ = std::fs::write(root.join("old.txt"), "in use");
+    let lock = crate::lock::Lock::acquire(&root);
+    assert!(lock.is_ok(), "the test holds the home's lock");
+    let refused = prepare(&root, 1, 1);
+    match refused {
+        Err(HomeError::Live { message, .. }) => {
+            assert!(message.contains("still using it"), "{message}");
+            assert!(message.contains("Nothing was moved"), "{message}");
+        }
+        other => panic!("a live home is refused: {other:?}"),
+    }
+    assert!(root.join("old.txt").exists(), "the home was not moved");
+    assert!(
+        !parent.path().join(".ace-v0").exists(),
+        "no backup was made"
+    );
+    if let Ok(lock) = lock {
+        lock.release();
+    }
+}
+
+/// `home-fresh-start.process.test.ts`: "a crashed old daemon's leftover lock does
+/// not block the fresh start": its kernel lock is gone, so the rename proceeds.
+#[test]
+fn a_crashed_daemons_leftover_lock_does_not_block_the_fresh_start() {
+    let parent = TempDir::new("ace-home-crashed");
+    let root = parent.path().join(".ace");
+    let _ = std::fs::create_dir_all(&root);
+    let _ = std::fs::write(root.join("old.txt"), "old data");
+    // A lock database no process holds, and a holder name naming a dead pid.
+    if let Ok(connection) = ace_store::Connection::open(
+        &root.join("daemon-lock.sqlite").to_string_lossy(),
+        ace_store::OpenOptions::default(),
+    ) {
+        let _ = connection.close();
+    }
+    let _ = std::fs::write(root.join("daemon-lock"), "{\"pid\":4294967,\"id\":\"old\"}");
+    assert!(matches!(prepare(&root, 1, 1), Ok(State::Fresh { .. })));
+    assert!(parent.path().join(".ace-v0/old.txt").exists());
+}
+
+/// `home-release.process.test.ts`: "a fresh start keeps the installed release": the
+/// program moves back into the fresh home while its data stays in the backup.
+#[test]
+fn a_fresh_start_carries_an_installed_release() {
+    let parent = TempDir::new("ace-home-release");
+    let root = parent.path().join(".ace");
+    let release = "releases/1.2.3-darwin-arm64";
+    let _ = std::fs::create_dir_all(root.join(release));
+    let _ = std::fs::create_dir_all(root.join("bin"));
+    let _ = std::fs::write(root.join("old.txt"), "old data");
+    let _ = std::fs::write(
+        root.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"target\":\"darwin-arm64\"}",
+    );
+    let _ = std::fs::write(
+        root.join("bin/ace"),
+        format!("#!/bin/sh\n# ace home: {}\n", root.display()),
+    );
+    let _ = std::os::unix::fs::symlink(release, root.join("current"));
+    let state = prepare(&root, 1, 1);
+    match state {
+        Ok(State::Fresh {
+            release: carried, ..
+        }) => assert_eq!(carried.as_deref(), Some("1.2.3")),
+        other => panic!("expected a fresh start carrying the release: {other:?}"),
+    }
+    assert!(
+        root.join("releases/1.2.3-darwin-arm64/release.json")
+            .exists()
+    );
+    assert!(root.join("bin/ace").exists());
+    assert!(root.join("current").exists());
+    assert!(parent.path().join(".ace-v0/old.txt").exists());
+}
+
+/// `home-fresh-start.ts:64`–`:65`: a file at the home path is refused with the
+/// TypeScript's sentence.
+#[test]
+fn a_file_at_the_home_path_is_refused_as_not_a_directory() {
+    let parent = TempDir::new("ace-home-file");
+    let root = parent.path().join(".ace");
+    let _ = std::fs::write(&root, "not a home");
+    match prepare(&root, 1, 1) {
+        Err(error) => {
+            let message = error.to_string();
+            assert!(message.contains("Refusing ace data home"), "{message}");
+            assert!(message.contains("it is not a directory"), "{message}");
+        }
+        Ok(_) => panic!("a file is not a home"),
+    }
 }

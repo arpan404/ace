@@ -16,7 +16,7 @@
 use std::io;
 use std::path::Path;
 
-use sha2::{Digest, Sha256};
+mod certificate;
 
 /// The identity's bytes and the fingerprint a client pins.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +67,7 @@ fn io_error(action: impl Into<String>, source: io::Error) -> IdentityError {
 pub async fn load(home: &Path) -> Result<Identity, IdentityError> {
     let directory = home.join("tls");
     if !directory.exists() {
-        generate(home, &directory).await?;
+        generate(home, &directory)?;
     }
     let key_path = directory.join("key.pem");
     let cert_path = directory.join("cert.pem");
@@ -84,32 +84,23 @@ pub async fn load(home: &Path) -> Result<Identity, IdentityError> {
     })
 }
 
-/// `loadIdentity`'s OpenSSL invocation, into a temporary directory renamed into
-/// place, so a failed generation leaves nothing half made.
-async fn generate(home: &Path, directory: &Path) -> Result<(), IdentityError> {
+/// Make the identity in memory and publish it whole: a temporary directory
+/// renamed into place, so a failure leaves nothing half made.
+fn generate(home: &Path, directory: &Path) -> Result<(), IdentityError> {
+    let pair =
+        certificate::self_signed(crate::home::now_ms(), 3650).ok_or(IdentityError::Generate)?;
     let id = crate::ids::uuid_v4().unwrap_or_else(|_| "identity".to_owned());
     let temporary = home.join(format!("tls-{id}"));
     create_private_dir(&temporary)
         .map_err(|error| io_error("Cannot make the TLS directory", error))?;
-    let outcome = tokio::process::Command::new("openssl")
-        .args([
-            "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650", "-subj",
-            "/CN=ace", "-keyout",
-        ])
-        .arg(temporary.join("key.pem"))
-        .arg("-out")
-        .arg(temporary.join("cert.pem"))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .await;
-    let made = matches!(outcome, Ok(status) if status.success())
-        && temporary.join("key.pem").exists()
-        && temporary.join("cert.pem").exists();
-    if !made {
+    let made = (|| -> io::Result<()> {
+        super::home::create_private(&temporary.join("key.pem"), &pair.key_pem)?;
+        super::home::create_private(&temporary.join("cert.pem"), &pair.cert_pem)?;
+        Ok(())
+    })();
+    if let Err(error) = made {
         let _ = std::fs::remove_dir_all(&temporary);
-        return Err(IdentityError::Generate);
+        return Err(io_error("Cannot write the TLS identity", error));
     }
     let _ = set_private(&temporary.join("key.pem"));
     if let Err(error) = std::fs::rename(&temporary, directory) {
@@ -119,111 +110,10 @@ async fn generate(home: &Path, directory: &Path) -> Result<(), IdentityError> {
     Ok(())
 }
 
-/// The fingerprint `publicKeyFingerprint` computes: SHA-256 over the SPKI DER.
+/// The fingerprint `publicKeyFingerprint` computes: SHA-256 over the SPKI DER,
+/// from its one owner in `ace-transport`.
 pub fn fingerprint(cert_pem: &[u8]) -> Result<String, IdentityError> {
-    let der = pem_certificate(cert_pem).ok_or(IdentityError::Certificate)?;
-    let spki = spki_der(&der).ok_or(IdentityError::Certificate)?;
-    let mut hasher = Sha256::new();
-    hasher.update(spki);
-    let digest = hasher.finalize();
-    let mut text = String::with_capacity(64);
-    for byte in digest {
-        text.push_str(&format!("{byte:02x}"));
-    }
-    Ok(text)
-}
-
-/// The DER bytes of the first certificate in a PEM document.
-fn pem_certificate(pem: &[u8]) -> Option<Vec<u8>> {
-    let text = String::from_utf8_lossy(pem);
-    let begin = text.find("-----BEGIN CERTIFICATE-----")? + "-----BEGIN CERTIFICATE-----".len();
-    let end = text[begin..].find("-----END CERTIFICATE-----")? + begin;
-    base64_decode(&text[begin..end])
-}
-
-/// The SubjectPublicKeyInfo, as the whole DER element, from a DER certificate.
-fn spki_der(certificate: &[u8]) -> Option<&[u8]> {
-    let (tag, value, _) = tlv(certificate)?;
-    if tag != 0x30 {
-        return None;
-    }
-    let (tag, tbs, _) = tlv(value)?;
-    if tag != 0x30 {
-        return None;
-    }
-    let mut rest = tbs;
-    // Version [0] is optional, and comes before serial, signature, issuer,
-    // validity and subject.
-    let (tag, _, after) = tlv(rest)?;
-    if tag == 0xa0 {
-        rest = after;
-    }
-    for _ in 0..5 {
-        let (_, _, after) = tlv(rest)?;
-        rest = after;
-    }
-    let (tag, _, after) = tlv(rest)?;
-    if tag != 0x30 {
-        return None;
-    }
-    Some(&rest[..rest.len() - after.len()])
-}
-
-/// One DER element: its tag, its value and what follows it.
-fn tlv(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
-    let (&tag, rest) = input.split_first()?;
-    let (&first, after_first) = rest.split_first()?;
-    let (length, body) = if first < 0x80 {
-        (usize::from(first), after_first)
-    } else {
-        let count = usize::from(first & 0x7f);
-        if count == 0 || count > 4 || after_first.len() < count {
-            return None;
-        }
-        let mut length = 0_usize;
-        for byte in &after_first[..count] {
-            length = length.checked_mul(256)?.checked_add(usize::from(*byte))?;
-        }
-        (length, &after_first[count..])
-    };
-    if body.len() < length {
-        return None;
-    }
-    Some((tag, &body[..length], &body[length..]))
-}
-
-/// Standard base64 with padding, whitespace ignored.
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(text.len() * 3 / 4);
-    let mut chunk = [0_u8; 4];
-    let mut filled = 0;
-    for byte in text.bytes() {
-        if byte.is_ascii_whitespace() {
-            continue;
-        }
-        let value = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' => 64,
-            _ => return None,
-        };
-        chunk[filled] = value;
-        filled += 1;
-        if filled == 4 {
-            out.push((chunk[0] << 2) | (chunk[1] >> 4));
-            if chunk[2] != 64 {
-                out.push((chunk[1] << 4) | (chunk[2] >> 2));
-            }
-            if chunk[3] != 64 && chunk[2] != 64 {
-                out.push((chunk[2] << 6) | chunk[3]);
-            }
-            filled = 0;
-        }
-    }
-    (filled == 0).then_some(out)
+    ace_transport::tls::identity::public_key_fingerprint(cert_pem).ok_or(IdentityError::Certificate)
 }
 
 #[cfg(unix)]
@@ -252,6 +142,7 @@ fn create_private_dir(path: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::test_support::TempDir;
+    use sha2::{Digest, Sha256};
 
     /// `tls-identity.process.test.ts`: "makes the identity once and keeps it
     /// across loads": a paired device's pin keeps matching after a restart.

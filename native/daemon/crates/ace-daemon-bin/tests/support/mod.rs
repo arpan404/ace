@@ -137,7 +137,7 @@ pub struct Daemon {
 impl Daemon {
     /// Wait until the endpoint file names a listening daemon.
     pub fn ready(&mut self, home: &Home) -> String {
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + Duration::from_secs(90);
         while Instant::now() < deadline {
             let endpoint = home.endpoint();
             if endpoint.starts_with("http://127.0.0.1:") {

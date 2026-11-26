@@ -77,8 +77,8 @@ impl TlsIdentity {
     }
 }
 
-/// The SubjectPublicKeyInfo, as the whole DER element, from a DER certificate.
-fn spki_der(certificate: &[u8]) -> Option<&[u8]> {
+/// The certificate's SubjectPublicKeyInfo, as the whole DER element.
+pub fn spki_der(certificate: &[u8]) -> Option<&[u8]> {
     let (tag, value, _) = tlv(certificate)?;
     if tag != 0x30 {
         return None;
@@ -104,8 +104,67 @@ fn spki_der(certificate: &[u8]) -> Option<&[u8]> {
     Some(&rest[..rest.len() - after.len()])
 }
 
+/// The DER bytes of the first certificate in a PEM document.
+pub fn pem_certificate(pem: &[u8]) -> Option<Vec<u8>> {
+    let text = String::from_utf8_lossy(pem);
+    let begin = text.find("-----BEGIN CERTIFICATE-----")? + "-----BEGIN CERTIFICATE-----".len();
+    let end = text[begin..].find("-----END CERTIFICATE-----")? + begin;
+    base64_decode(&text[begin..end])
+}
+
+/// `publicKeyFingerprint` (`tls-identity.ts:6`): the SHA-256 of the leaf's SPKI,
+/// lower-case hex. One owner, so the pin every paired device stores cannot drift.
+pub fn public_key_fingerprint(cert_pem: &[u8]) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let der = pem_certificate(cert_pem)?;
+    let spki = spki_der(&der)?;
+    let mut hasher = Sha256::new();
+    hasher.update(spki);
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
+}
+
+/// Standard base64 with padding, whitespace ignored.
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut chunk = [0_u8; 4];
+    let mut filled = 0;
+    for byte in text.bytes() {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => 64,
+            _ => return None,
+        };
+        chunk[filled] = value;
+        filled += 1;
+        if filled == 4 {
+            out.push((chunk[0] << 2) | (chunk[1] >> 4));
+            if chunk[2] != 64 {
+                out.push((chunk[1] << 4) | (chunk[2] >> 2));
+            }
+            if chunk[3] != 64 && chunk[2] != 64 {
+                out.push((chunk[2] << 6) | chunk[3]);
+            }
+            filled = 0;
+        }
+    }
+    (filled == 0).then_some(out)
+}
+
 /// One DER element: its tag, its value and what follows it.
-fn tlv(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+pub fn tlv(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
     let (&tag, rest) = input.split_first()?;
     let (&first, after_first) = rest.split_first()?;
     let (length, body) = if first < 0x80 {

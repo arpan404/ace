@@ -78,7 +78,18 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     match home::prepare(&data_dir, home::HOME_FORMAT_VERSION, home::now_ms()) {
         Ok(_) => {}
         Err(error) => {
-            if let home::HomeError::NewerData {
+            if let home::HomeError::Live { home, pid, message } = &error {
+                // Nothing moved: the old home's daemon still holds it.
+                let log = Log::open(&data_dir, config.log_level);
+                log.log(
+                    "warn",
+                    message,
+                    serde_json::json!({
+                        "home": home.display().to_string(),
+                        "pid": pid,
+                    }),
+                );
+            } else if let home::HomeError::NewerData {
                 home,
                 stored,
                 supported,
@@ -149,11 +160,13 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         );
     }
     let owner = crate::ids::uuid_v4().ok();
+    let kernel_start = crate::process::kernel_start();
     let run = match Run::begin(
         &data_dir,
         i64::from(std::process::id()),
         home::now_ms() as f64,
         owner.as_deref(),
+        kernel_start.as_deref(),
     ) {
         Ok(run) => {
             let (level, message, fields) = run.previous_line();
@@ -203,7 +216,13 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         token::load_host_id(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
     // The hello and authentication T2 owns, opened on the store's own database.
     let auth = Arc::new(
-        crate::auth::DaemonAuth::open(&data_dir, &tokens.token, &host_id).map_err(|error| {
+        crate::auth::DaemonAuth::open(
+            store.connection(),
+            &tokens.token,
+            &host_id,
+            store.head_seq(),
+        )
+        .map_err(|error| {
             FailedStart::failed(format!("Cannot open the daemon's devices: {error}"))
         })?,
     );
@@ -256,12 +275,24 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     let authenticator: Arc<dyn session::Authenticator> = auth.clone();
     // Startup's gate: a hello before it opens is told services are starting.
     let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Test-only shorter timers, so a program test need not wait a minute.
+    let test_ms = |name: &str, default_ms: u64| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(default_ms)
+    };
+    let limits = session::Limits {
+        hello: Duration::from_millis(test_ms("ACE_TEST_HELLO_MS", 5000)),
+        idle: Duration::from_millis(test_ms("ACE_TEST_IDLE_MS", 60_000)),
+    };
     let transport = match Transport::bind(
         http,
         config.port,
         plan,
         authenticator,
         Arc::clone(&ready),
+        limits,
         Arc::clone(&log),
     )
     .await
