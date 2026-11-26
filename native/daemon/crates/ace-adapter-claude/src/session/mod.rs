@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Session modules: the sans-IO wire (`wire`), its redacted frame capture (`capture`), the task
-//! index (`tasks`) and the failures the facade maps back to TypeScript (`error`).
+//! index (`tasks`), controls (`controls`), interactions (`interactions`), hooks (`hooks`), input
+//! (`input`) and the failures the facade maps back to TypeScript (`error`).
 
 pub mod capture;
+pub mod controls;
 pub mod error;
+pub mod hooks;
+pub mod input;
+pub mod interactions;
 pub mod tasks;
 pub mod wire;
 
@@ -13,7 +18,7 @@ pub use ace_adapter_api::FrameDirection as FrameDir;
 pub use wire::ClaudeWire;
 
 /// The effects of one input, in the order the state changed.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Effect {
     /// One frame, already captured (elided and redacted).
     Frame {
@@ -60,8 +65,6 @@ pub struct WireConfig {
     pub root_key: String,
     /// The ace MCP bearer scrubbed from every frame, when one was injected.
     pub bearer: Option<String>,
-    /// What the initialize request declares, in order (event, callback ids).
-    pub hooks: Vec<(String, Vec<String>)>,
     /// A resumed session confirmed itself already (`session.ts:79`), so no callback fires.
     pub resume: bool,
 }

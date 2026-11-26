@@ -479,6 +479,10 @@ itself. Every implementation keeps this order exactly; the status tests (section
   propagates to the readline consumer (`provider-kit/src/line-reader.ts:99`) and stops stdout;
   the native wire reports `Fatal` with `String(error)`, so the facade closes the session the same
   way instead of leaving it silent.
+- **An undeclared hook callback is answered at once (native Claude).** A `hook_callback` whose
+  `callback_id` the session never declared in its `initialize` gets `success {}` immediately;
+  the SDK's own answer to an unregistered id is not observable, and leaving it unanswered would
+  block the turn.
 - **Raw is post-redaction; the wire is not.** The provider receives the original bytes; only the
   capture is redacted. Pi sends the original `line` and builds the `send` frame from
   `this.redact(line)` after the write (`adapter-pi/src/rpc.ts:70`–`:78`). Every adapter redacts a

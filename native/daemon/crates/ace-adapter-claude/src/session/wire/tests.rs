@@ -5,8 +5,9 @@
 
 use ace_json::Value;
 
-use super::{ClaudeWire, Effect, FrameDir, WireConfig};
+use super::{ClaudeWire, Effect, FrameDir, LINE_BYTES, WireConfig};
 use crate::session::capture::{CaptureError, capture};
+use crate::session::error::ClaudeError;
 
 const NATIVE_ACE_MCP: &str =
     include_str!("../../../../../../../fixtures/claude/2.1.286/native-ace-mcp.jsonl");
@@ -22,7 +23,6 @@ fn wire_with_session(session_id: &str) -> ClaudeWire {
         session_id: session_id.to_owned(),
         root_key: "root".to_owned(),
         bearer: None,
-        hooks: Vec::new(),
         resume: false,
     })
 }
@@ -153,10 +153,9 @@ fn control_lines_keep_their_frame_channels() {
     ];
     for (line, channel) in cases {
         let effects = push_line(&mut new_wire(), line);
-        assert_eq!(effects.len(), 1, "{line}");
         let (dir, seen, _) = frame(&effects[0]);
-        assert_eq!(dir, FrameDir::Recv);
-        assert_eq!(seen, channel);
+        assert_eq!(dir, FrameDir::Recv, "{line}");
+        assert_eq!(seen, channel, "{line}");
     }
 
     let malformed = push_line(&mut new_wire(), "not json");
@@ -316,7 +315,6 @@ fn a_resumed_wire_starts_confirmed() {
         session_id: "session-1".to_owned(),
         root_key: "root".to_owned(),
         bearer: None,
-        hooks: Vec::new(),
         resume: true,
     });
     let parentless = r#"{"type":"user","session_id":"session-1","parent_tool_use_id":null,"message":{"role":"user","content":[]}}"#;
@@ -403,4 +401,529 @@ fn a_capture_failure_and_a_task_capacity_error_keep_their_class_prefixes() {
         &over[over.len() - 1],
         Effect::Fatal { message } if message == "Error: Claude live task capacity reached"
     ));
+}
+
+#[test]
+fn a_control_request_is_written_then_framed_on_acknowledgement() {
+    let mut wire = new_wire();
+    let cases = [
+        (r#"{"subtype":"mcp_status"}"#, r#"{"subtype":"mcp_status"}"#),
+        (
+            r#"{"subtype":"interrupt","cancel_queued":true}"#,
+            r#"{"subtype":"interrupt","cancel_queued":true}"#,
+        ),
+        (
+            r#"{"subtype":"initialize","hooks":{"SubagentStart":[{"hookCallbackIds":["hook_0"]}]},"forwardSubagentText":true,"perTaskStopAffordance":true}"#,
+            r#"{"subtype":"initialize","hooks":{"SubagentStart":[{"hookCallbackIds":["hook_0"]}]},"forwardSubagentText":true,"perTaskStopAffordance":true}"#,
+        ),
+    ];
+    for (index, (json, expected)) in cases.iter().enumerate() {
+        let effects = wire
+            .control(json, index as u64)
+            .expect("the controls are open");
+        assert_eq!(effects.len(), 1);
+        let Effect::Write { wire: bytes } = &effects[0] else {
+            panic!("a control request writes");
+        };
+        let id = format!("ace-{}", index + 1);
+        assert_eq!(
+            String::from_utf8_lossy(bytes),
+            format!(
+                "{{\"request_id\":\"{id}\",\"type\":\"control_request\",\"request\":{expected}}}\n"
+            )
+        );
+        let frame_text = format!(
+            "{{\"request_id\":\"{id}\",\"type\":\"control_request\",\"request\":{expected}}}"
+        );
+        assert_eq!(
+            frame(&wire.stdin_written()[0]),
+            (FrameDir::Send, "wire", frame_text.as_str())
+        );
+    }
+}
+
+#[test]
+fn a_control_response_frames_first_then_settles_its_tag() {
+    let mut wire = new_wire();
+    wire.control(r#"{"subtype":"interrupt"}"#, 41)
+        .expect("open");
+    let success = push_line(
+        &mut wire,
+        r#"{"type":"control_response","response":{"subtype":"success","request_id":"ace-1","response":{"still_queued":[]}}}"#,
+    );
+    assert_eq!(frame(&success[0]).1, "wire");
+    assert!(matches!(
+        &success[1],
+        Effect::Settle { id: 41, result: Ok(text) } if text == r#"{"still_queued":[]}"#
+    ));
+
+    wire.control(r#"{"subtype":"stop_task","task_id":"t"}"#, 42)
+        .expect("open");
+    let error = push_line(
+        &mut wire,
+        r#"{"type":"control_response","response":{"subtype":"error","request_id":"ace-2","error":"Synthetic stop failure"}}"#,
+    );
+    assert!(matches!(
+        &error[1],
+        Effect::Settle { id: 42, result: Err(ClaudeError::Provider(text)) }
+            if text == "Synthetic stop failure"
+    ));
+
+    let unknown = push_line(
+        &mut wire,
+        r#"{"type":"control_response","response":{"subtype":"success","request_id":"ace-99","response":null}}"#,
+    );
+    assert_eq!(unknown.len(), 1);
+}
+
+#[test]
+fn a_permission_is_framed_peeked_and_answered_in_order() {
+    let mut wire = new_wire();
+    let effects = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"a.ts"},"tool_use_id":"tool-1","permission_suggestions":[]}}"#,
+    );
+    assert_eq!(effects.len(), 2);
+    assert_eq!(frame(&effects[1]).1, "can_use_tool");
+    let data = ace_json::parse(frame(&effects[1]).2).expect("the frame is JSON");
+    assert_eq!(data.get("toolName").and_then(Value::as_str), Some("Edit"));
+    assert_eq!(
+        data.pointer("/options/requestId").and_then(Value::as_str),
+        Some("request-1")
+    );
+    let peek = ace_json::parse(&wire.peek_interaction("request-1").expect("pending"))
+        .expect("the request is JSON");
+    assert_eq!(peek.get("kind").and_then(Value::as_str), Some("approval"));
+
+    let (found, effects) = wire.answer_interaction(
+        "request-1",
+        r#"{"behavior":"allow"}"#,
+        r#"{"kind":"approval","optionId":"allow_once"}"#,
+    );
+    assert!(found);
+    assert_eq!(
+        frame(&effects[0]),
+        (
+            FrameDir::Send,
+            "can_use_tool",
+            r#"{"requestId":"request-1","result":{"behavior":"allow"},"resolution":{"kind":"approval","optionId":"allow_once"}}"#
+        )
+    );
+    assert!(matches!(&effects[1], Effect::Write { .. }));
+    assert_eq!(frame(&wire.stdin_written()[0]).1, "wire");
+    assert!(wire.peek_interaction("request-1").is_none());
+    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
+}
+
+#[test]
+fn an_elicitation_and_a_dialog_keep_their_frame_shapes() {
+    let mut wire = new_wire();
+    let elicitation = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-2","request":{"subtype":"elicitation","mcp_server_name":"project-tools","message":"Pick a color","mode":"form","requested_schema":{"type":"object"}}}"#,
+    );
+    assert_eq!(
+        frame(&elicitation[1]),
+        (
+            FrameDir::Recv,
+            "elicitation",
+            r#"{"requestId":"request-2","request":{"kind":"elicitation","server":"project-tools","message":"Pick a color","mode":"form","schema":{"type":"object"}},"native":{"serverName":"project-tools","message":"Pick a color","mode":"form","requestedSchema":{"type":"object"}}}"#
+        )
+    );
+    assert!(wire.peek_interaction("request-2").is_some());
+
+    let dialog = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-3","request":{"subtype":"request_user_dialog","dialog_kind":"future-kind","payload":{}}}"#,
+    );
+    assert_eq!(
+        frame(&dialog[1]),
+        (
+            FrameDir::Recv,
+            "user_dialog",
+            r#"{"dialogKind":"future-kind","payload":{}}"#
+        )
+    );
+    let Effect::Write { wire: bytes } = &dialog[2] else {
+        panic!("the dialog is answered");
+    };
+    assert_eq!(
+        String::from_utf8_lossy(bytes),
+        "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"request-3\",\"response\":{\"behavior\":\"cancelled\"}}}\n"
+    );
+}
+
+#[test]
+fn a_cancel_and_expire_answer_with_the_kind_default() {
+    let permission = r#"{"type":"control_request","request_id":"request-4","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#;
+    let mut wire = new_wire();
+    push_line(&mut wire, permission);
+    let cancelled = push_line(
+        &mut wire,
+        r#"{"type":"control_cancel_request","request_id":"request-4"}"#,
+    );
+    assert_eq!(
+        frame(&cancelled[0]),
+        (
+            FrameDir::Recv,
+            "interaction_lifecycle",
+            r#"{"requestId":"request-4","state":"cancelled"}"#
+        )
+    );
+    let Effect::Write { wire: bytes } = &cancelled[1] else {
+        panic!("the default answer is written");
+    };
+    assert!(String::from_utf8_lossy(bytes).contains("Claude request ended."));
+    assert_eq!(frame(&cancelled[2]).1, "sdk");
+
+    // A cancel seen before its request cancels the late registration at once.
+    let mut late = new_wire();
+    push_line(
+        &mut late,
+        r#"{"type":"control_cancel_request","request_id":"request-5"}"#,
+    );
+    let late_permission = push_line(
+        &mut late,
+        r#"{"type":"control_request","request_id":"request-5","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    assert_eq!(late_permission.len(), 4);
+    assert_eq!(
+        frame(&late_permission[2]),
+        (
+            FrameDir::Recv,
+            "interaction_lifecycle",
+            r#"{"requestId":"request-5","state":"cancelled"}"#
+        )
+    );
+
+    let mut expiring = new_wire();
+    push_line(&mut expiring, permission);
+    let expired = expiring.expire();
+    assert_eq!(
+        frame(&expired[0]),
+        (
+            FrameDir::Recv,
+            "interaction_lifecycle",
+            r#"{"requestId":"request-4","state":"expired"}"#
+        )
+    );
+    assert!(matches!(&expired[1], Effect::Write { .. }));
+    assert!(expiring.expire().is_empty());
+}
+
+#[test]
+fn the_interaction_cap_and_duplicate_ids_answer_with_an_error() {
+    let mut full = new_wire();
+    for index in 0..256 {
+        push_line(
+            &mut full,
+            &format!(
+                r#"{{"type":"control_request","request_id":"request-{index}","request":{{"subtype":"can_use_tool","tool_name":"Edit","input":{{}}}}}}"#
+            ),
+        );
+    }
+    let over = push_line(
+        &mut full,
+        r#"{"type":"control_request","request_id":"request-256","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    assert_eq!(over.len(), 2);
+    let Effect::Write { wire: bytes } = &over[1] else {
+        panic!("the capacity reply is written");
+    };
+    let text = String::from_utf8_lossy(bytes);
+    assert!(text.contains("\"subtype\":\"error\""), "{text}");
+    assert!(
+        text.contains("Claude interaction capacity reached"),
+        "{text}"
+    );
+
+    let mut duplicate = new_wire();
+    let line = r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#;
+    push_line(&mut duplicate, line);
+    let again = push_line(&mut duplicate, line);
+    let Effect::Write { wire: bytes } = &again[1] else {
+        panic!("the duplicate reply is written");
+    };
+    assert!(String::from_utf8_lossy(bytes).contains("Duplicate Claude request id"));
+    // The session lives: a different id still registers.
+    let fresh = push_line(
+        &mut duplicate,
+        r#"{"type":"control_request","request_id":"request-2","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    assert_eq!(frame(&fresh[1]).1, "can_use_tool");
+}
+
+#[test]
+fn finish_expires_a_pending_interaction_once_and_writes_nothing() {
+    let mut wire = new_wire();
+    push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    let effects = wire.finish();
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Frame { channel, text, .. }
+            if *channel == "interaction_lifecycle" && text.contains("\"state\":\"expired\"")
+    )));
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Write { .. })),
+        "no default answer after the barrier"
+    );
+    assert!(matches!(effects.last(), Some(Effect::Drained)));
+    assert!(wire.peek_interaction("request-1").is_none());
+    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
+    assert!(wire.expire().is_empty());
+}
+
+#[test]
+fn nothing_answers_after_finish_or_a_fatal() {
+    let mut finished = new_wire();
+    finished.finish();
+    assert!(!finished.answer_interaction("r", "{}", "{}").0);
+    assert!(finished.answer_hook("h", "{}").is_empty());
+    assert!(finished.expire().is_empty());
+    assert!(finished.control(r#"{"subtype":"mcp_status"}"#, 1).is_err());
+
+    let mut fatal = new_wire();
+    fatal.stdout_bytes(&vec![b' '; LINE_BYTES + 1]);
+    assert!(!fatal.answer_interaction("r", "{}", "{}").0);
+    assert!(fatal.answer_hook("h", "{}").is_empty());
+    assert!(fatal.expire().is_empty());
+    assert!(fatal.control(r#"{"subtype":"mcp_status"}"#, 1).is_err());
+}
+
+#[test]
+fn a_refused_control_write_settles_its_tag_as_uncertain() {
+    let mut wire = new_wire();
+    wire.control(r#"{"subtype":"mcp_status"}"#, 9)
+        .expect("open");
+    let effects = wire.write_refused();
+    assert!(matches!(
+        &effects[0],
+        Effect::Settle { id: 9, result: Err(ClaudeError::Uncertain(text)) }
+            if text == "Claude stdin closed"
+    ));
+    assert!(matches!(&effects[1], Effect::Fatal { .. }));
+}
+
+#[test]
+fn hooks_frame_observations_and_wait_for_the_prompt_callback() {
+    let mut wire = new_wire();
+    wire.control(
+        r#"{"subtype":"initialize","hooks":{"SubagentStart":[{"hookCallbackIds":["hook_0"]}],"UserPromptSubmit":[{"hookCallbackIds":["hook_1"]}]}}"#,
+        1,
+    )
+    .expect("the controls are open");
+    wire.stdin_written();
+    let observation = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"hook-1","request":{"subtype":"hook_callback","callback_id":"hook_0","input":{"hook_event_name":"SubagentStart","session_id":"session-1"}}}"#,
+    );
+    assert_eq!(
+        frame(&observation[1]),
+        (
+            FrameDir::Recv,
+            "observational_hook",
+            r#"{"hook_event_name":"SubagentStart","session_id":"session-1"}"#
+        )
+    );
+    let Effect::Write { wire: bytes } = &observation[2] else {
+        panic!("the observation is answered");
+    };
+    assert!(String::from_utf8_lossy(bytes).contains("\"response\":{}"));
+
+    let prompt = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"hook-2","request":{"subtype":"hook_callback","callback_id":"hook_1","input":{"hook_event_name":"UserPromptSubmit"}}}"#,
+    );
+    assert_eq!(prompt.len(), 2);
+    assert!(matches!(
+        &prompt[1],
+        Effect::Callback { name: "hook:UserPromptSubmit", json } if json == r#"["hook-2"]"#
+    ));
+    let answer = wire.answer_hook(
+        "hook-2",
+        r#"{"hookSpecificOutput":{"additionalContext":"x"}}"#,
+    );
+    assert!(matches!(&answer[0], Effect::Write { .. }));
+    assert_eq!(frame(&wire.stdin_written()[0]).1, "wire");
+    assert!(wire.answer_hook("hook-2", "{}").is_empty());
+}
+
+#[test]
+fn an_unknown_control_subtype_is_answered_with_the_error_envelope() {
+    let mut wire = new_wire();
+    let effects = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-9","request":{"subtype":"future_kind"}}"#,
+    );
+    assert_eq!(effects.len(), 2);
+    let Effect::Write { wire: bytes } = &effects[1] else {
+        panic!("the unknown request is answered");
+    };
+    assert_eq!(
+        String::from_utf8_lossy(bytes),
+        "{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"request_id\":\"request-9\",\"error\":\"Unsupported control request: future_kind\"}}\n"
+    );
+}
+
+#[test]
+fn send_refuses_whole_then_frames_each_write() {
+    let message = r#"{"type":"user","uuid":"uuid-1","session_id":"s","message":{"role":"user","content":"hi"},"priority":"next"}"#;
+    let mut wire = new_wire();
+    let effects = wire
+        .send(&format!("[{message}]"), Some("command-1"))
+        .expect("the input is admitted");
+    assert_eq!(effects.len(), 2);
+    assert!(matches!(
+        &effects[0],
+        Effect::Callback { name: "onInputMessage", json }
+            if json == r#"{"commandId":"command-1","nativeId":"uuid-1"}"#
+    ));
+    assert!(matches!(&effects[1], Effect::Write { .. }));
+    assert_eq!(
+        frame(&wire.stdin_written()[0]),
+        (FrameDir::Send, "sdk", message)
+    );
+
+    let mut full = new_wire();
+    for _ in 0..256 {
+        full.send(&format!("[{message}]"), None).expect("admitted");
+    }
+    assert_eq!(
+        full.send(&format!("[{message}]"), None),
+        Err(ClaudeError::Refused(
+            "Claude input capacity reached".to_owned()
+        ))
+    );
+
+    let mut refused = new_wire();
+    refused
+        .send(&format!("[{message}]"), None)
+        .expect("admitted");
+    assert!(matches!(
+        &refused.write_refused()[0],
+        Effect::Fatal { message } if message == "Claude stdin closed"
+    ));
+    assert_eq!(
+        refused.send(&format!("[{message}]"), None),
+        Err(ClaudeError::Refused("Claude session is closed".to_owned()))
+    );
+}
+
+#[test]
+fn the_outbound_bound_counts_utf8_bytes_with_an_emoji_at_the_limit() {
+    // `{"text":""}` plus a newline is 12 bytes; the emoji makes the limit byte-counted.
+    let pad = LINE_BYTES - 12 - 4;
+    let at_limit = format!("[{{\"text\":\"{}\u{1f600}\"}}]", "a".repeat(pad));
+    let mut wire = new_wire();
+    assert_eq!(
+        wire.send(&at_limit, None),
+        Err(ClaudeError::Refused(
+            "Provider payload exceeds byte limit".to_owned()
+        )),
+        "exactly 16 MiB passes the line bound and stops at the 1 MiB frame bound"
+    );
+    let over = format!("[{{\"text\":\"{}\u{1f600}a\"}}]", "a".repeat(pad));
+    assert_eq!(
+        new_wire().send(&over, None),
+        Err(ClaudeError::Refused(
+            "Claude outbound frame capacity reached".to_owned()
+        ))
+    );
+}
+
+#[test]
+fn a_stdin_error_is_fatal_and_refuses_later_sends() {
+    let mut wire = new_wire();
+    assert!(matches!(
+        &wire.stdin_error("write EPIPE")[0],
+        Effect::Fatal { message } if message == "write EPIPE"
+    ));
+    assert_eq!(
+        wire.send("[]", None),
+        Err(ClaudeError::Refused("Claude session is closed".to_owned()))
+    );
+}
+
+#[test]
+fn a_late_ack_or_refusal_after_the_barrier_emits_nothing() {
+    let message = r#"{"type":"user","uuid":"uuid-1","message":{"role":"user","content":"hi"}}"#;
+    let mut wire = new_wire();
+    wire.send(&format!("[{message}]"), None).expect("admitted");
+    let effects = wire.finish();
+    assert!(matches!(effects.last(), Some(Effect::Drained)));
+    assert!(
+        wire.stdin_written().is_empty(),
+        "no send frame after Drained"
+    );
+    assert!(wire.write_refused().is_empty(), "no settle after Drained");
+    assert!(wire.stdin_error("write EPIPE").is_empty());
+}
+
+#[test]
+fn a_refused_write_settles_every_queued_control_and_latches() {
+    let mut wire = new_wire();
+    push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    wire.control(r#"{"subtype":"mcp_status"}"#, 1)
+        .expect("open");
+    wire.control(r#"{"subtype":"mcp_status"}"#, 2)
+        .expect("open");
+    wire.send(
+        r#"[{"type":"user","uuid":"uuid-1","message":{"role":"user","content":"hi"}}]"#,
+        None,
+    )
+    .expect("admitted");
+    let effects = wire.write_refused();
+    assert!(matches!(
+        &effects[0],
+        Effect::Settle { id: 1, result: Err(ClaudeError::Uncertain(text)) }
+            if text == "Claude stdin closed"
+    ));
+    assert!(matches!(&effects[1], Effect::Settle { id: 2, .. }));
+    assert!(matches!(effects.last(), Some(Effect::Fatal { .. })));
+    assert_eq!(effects.len(), 3, "the input write has no tag to settle");
+
+    assert!(wire.control(r#"{"subtype":"mcp_status"}"#, 3).is_err());
+    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
+    assert!(wire.expire().is_empty());
+    assert!(
+        wire.send(
+            r#"[{"type":"user","uuid":"uuid-2","message":{"role":"user","content":"hi"}}]"#,
+            None
+        )
+        .is_err()
+    );
+    assert!(wire.stdin_written().is_empty());
+}
+
+#[test]
+fn a_bad_control_request_is_refused() {
+    let mut wire = new_wire();
+    assert!(matches!(
+        wire.control("not json", 1),
+        Err(ClaudeError::Refused(_))
+    ));
+    assert!(matches!(
+        wire.control(r#"{"subtype":"future"}"#, 2),
+        Err(ClaudeError::Refused(_))
+    ));
+}
+
+#[test]
+fn no_answer_is_written_once_input_is_closed() {
+    let mut wire = new_wire();
+    wire.end_input();
+    let effects = push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-9","request":{"subtype":"future_kind"}}"#,
+    );
+    assert_eq!(effects.len(), 1);
+    assert_eq!(frame(&effects[0]).1, "wire");
 }
