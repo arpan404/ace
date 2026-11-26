@@ -1,12 +1,59 @@
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
+import type { OpenCodeClient } from "@opencode/client";
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
+import type { Runtime } from "./runtime.ts";
 import { metadataFailure } from "./metadata-failure.ts";
 import { z } from "zod";
 const ModelListData = z.array(z.unknown()).max(8192);
+const CatalogPeek = z.object({ data: ModelListData }).passthrough();
 const DefaultModelData = z
   .object({ providerID: z.string(), modelID: z.string() })
   .passthrough()
   .nullable();
+/**
+ * OpenCode 2.4.2 fills a Location's catalog from its providers after the first `/api/model`
+ * read, which answers with no models. Its own CLI waits for that activation before listing.
+ * Discovery reads again until models arrive, bounded so a Location that has none still answers.
+ */
+const catalogBudgetMs = 5000;
+const catalogPollMs = 50;
+const catalogReads = 40;
+
+function withoutModels(payload: unknown): boolean {
+  const peek = CatalogPeek.safeParse(payload);
+  // A malformed reply is not an empty one: it is validated once and reported as it came.
+  return peek.success && peek.data.data.length === 0;
+}
+
+function pause(runtime: Runtime, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      cancel();
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const cancel = runtime.schedule(done, catalogPollMs);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** The location's model catalog once it has answered with models, or its last empty reply. */
+async function modelCatalog(
+  client: OpenCodeClient,
+  directory: string,
+  runtime: Runtime,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const started = runtime.monotonic();
+  for (let read = 1; ; read++) {
+    const payload: unknown = await client.model.list({ location: { directory } }, { signal });
+    if (!withoutModels(payload)) return payload;
+    if (read >= catalogReads || runtime.monotonic() - started >= catalogBudgetMs) return payload;
+    await pause(runtime, signal);
+    signal.throwIfAborted();
+  }
+}
+
 /** Metadata-only, owned lifecycle. No session, prompt, login or credential APIs. */
 export async function discoverOpenCodeModels(
   options: ServerOptions,
@@ -27,7 +74,7 @@ export async function discoverOpenCodeModels(
     signal.throwIfAborted();
     const client = server.scoped(directory, () => {}, signal);
     stage = "/api/model";
-    const payload: unknown = await client.model.list({ location: { directory } }, { signal });
+    const payload: unknown = await modelCatalog(client, directory, server.runtime, signal);
     const validated = z
       .object({
         location: z.object({ directory: z.literal(directory) }),
