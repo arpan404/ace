@@ -996,3 +996,54 @@ impl ace_git::core::config::ConfigPorts for JsConfigPorts {
         })
     }
 }
+
+/// The transfer-setting queries, run by the shell's `executeRaw` under the fixed guards.
+pub(crate) struct JsTransportPorts {
+    pub(crate) hub: Arc<PortHub>,
+}
+
+impl ace_git::core::credentials::TransportPorts for JsTransportPorts {
+    fn query(
+        &self,
+        call: u64,
+        args: &[String],
+    ) -> ace_git::core::spawn::BoxFuture<
+        '_,
+        Result<ace_git::core::credentials::ConfigOutput, GitError>,
+    > {
+        let req_id = self.hub.alloc_id();
+        let json = format!(
+            "{{\"op\":\"transport_query\",\"reqId\":{req_id},\"callId\":{call},\"args\":{}}}",
+            ace_json::to_string(&ace_json::Value::Array(ace_json::Array::from(
+                args.iter()
+                    .map(|arg| ace_json::Value::from(arg.as_str()))
+                    .collect::<Vec<_>>()
+            )))
+        );
+        Box::pin(async move {
+            let Some(reply) = self.hub.request_with_id(req_id, json, Vec::new()).await else {
+                return Err(GitError::new(
+                    ace_git::core::error::GitErrorCode::GitClosed,
+                    "The transport caller stopped answering",
+                ));
+            };
+            let Some(map) = wire::object(&reply) else {
+                return Err(GitError::new(
+                    ace_git::core::error::GitErrorCode::MalformedOutput,
+                    "Invalid transport configuration",
+                ));
+            };
+            // The shell sends the bytes as a latin1 string, which keeps them one for one.
+            let stdout: Vec<u8> = wire::string(&map, "stdout")
+                .unwrap_or_default()
+                .chars()
+                .map(|character| character as u32 as u8)
+                .collect();
+            Ok(ace_git::core::credentials::ConfigOutput {
+                stdout,
+                exit_code: wire::count(&map, "exitCode").map_or(0, |code| code as i32),
+                truncated: wire::flag(&map, "truncated"),
+            })
+        })
+    }
+}

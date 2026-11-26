@@ -291,6 +291,12 @@ export class NativeCoreCli {
   private readonly streams = new Map<number, StreamTarget>();
   private readonly killed: Set<string>;
   private readonly leaseProbe: LeaseProbe;
+  /** The config query each `transportConfig` call uses, by call id. */
+  private readonly transportCalls = new Map<
+    number,
+    (args: string[]) => Promise<{ stdout: Buffer; exitCode: number; truncated: boolean }>
+  >();
+  private nextTransportCall = 1;
   /** The answers each `configFactsRead` call's ports need, by call id. */
   private readonly configCalls = new Map<
     number,
@@ -573,6 +579,73 @@ export class NativeCoreCli {
         );
       } catch (error) {
         recordGitOp({ seq, op, part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
+  }
+
+  /**
+   * The person's own credential helpers and SSH command for a transfer (G2c). The
+   * core decides which files count and which entries are trusted; `query` runs Git.
+   */
+  transportConfig(
+    input: {
+      system: string | undefined;
+      files: readonly (string | undefined)[];
+      protectedRoots: readonly string[];
+      helpers: boolean;
+      repositorySsh: boolean;
+    },
+    query: (args: string[]) => Promise<{ stdout: Buffer; exitCode: number; truncated: boolean }>,
+    typescript: () => Promise<{
+      helpers: { key: string; value: string }[];
+      sshCommand: string | undefined;
+    }>,
+  ): Promise<{ helpers: { key: string; value: string }[]; sshCommand: string | undefined }> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "transportConfig", part, selected, completed: "typescript" });
+      return typescript();
+    }
+    const callId = this.nextTransportCall++;
+    this.transportCalls.set(callId, query);
+    return new Promise((resolve, reject) => {
+      try {
+        this.handle.transportConfig(
+          JSON.stringify({
+            callId,
+            system: input.system ?? null,
+            files: input.files.map((file) => file ?? null),
+            protectedRoots: [...input.protectedRoots],
+            helpers: input.helpers,
+            repositorySsh: input.repositorySsh,
+          }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "transportConfig", part, selected, completed: "native" });
+            this.transportCalls.delete(callId);
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const value = JSON.parse(json ?? "{}") as {
+              helpers: { key: string; value: string }[];
+              sshCommand: string | null;
+            };
+            resolve({ helpers: value.helpers, sshCommand: value.sshCommand ?? undefined });
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "transportConfig", part, selected, completed: "native" });
+        this.transportCalls.delete(callId);
         try {
           throwGitError(error);
         } catch (mapped) {
@@ -910,6 +983,34 @@ export class NativeCoreCli {
   private onPort(eventJson: string, data: Uint8Array): void {
     const msg = JSON.parse(eventJson) as PortMessage;
     switch (msg.op) {
+      case "transport_query": {
+        const reqId = msg.reqId ?? 0;
+        const query = this.transportCalls.get(msg.callId ?? 0);
+        if (query === undefined) {
+          this.handle.replyPort(
+            reqId,
+            JSON.stringify({ stdout: "", exitCode: 1, truncated: false }),
+          );
+          return;
+        }
+        void query((msg.args ?? []) as string[]).then(
+          (output) =>
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({
+                stdout: output.stdout.toString("latin1"),
+                exitCode: output.exitCode,
+                truncated: output.truncated,
+              }),
+            ),
+          () =>
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({ stdout: "", exitCode: 1, truncated: false }),
+            ),
+        );
+        return;
+      }
       case "config_sources": {
         const reqId = msg.reqId ?? 0;
         const ports = this.configCalls.get(msg.callId ?? 0);

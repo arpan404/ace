@@ -76,6 +76,8 @@ export interface NativeGitCoreHandle {
   configWatch(reqJson: string, settle: NativeJsonSettle): void;
   /** One cached configuration fact (G2c); its ports are answered on this thread. */
   configRead(reqJson: string, settle: NativeJsonSettle): void;
+  /** The person's own helpers and SSH command for a transfer (G2c). */
+  transportConfig(reqJson: string, settle: NativeJsonSettle): void;
   pushSpawnEvent(
     spawnId: number,
     kind: string,

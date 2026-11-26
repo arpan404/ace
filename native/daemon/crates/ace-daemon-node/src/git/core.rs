@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 
 use super::bridge::{
     JsCleanupSupervisorPort, JsConfigPorts, JsGroupPort, JsLeasePorts, JsScheduler, JsSpawner,
-    JsStreamCallbacks, PortCallFn, PortHub, parse_git_error_code,
+    JsStreamCallbacks, JsTransportPorts, PortCallFn, PortHub, parse_git_error_code,
 };
 use super::wire::{self, Frame};
 use super::{caught, failed, unwind};
@@ -540,6 +540,40 @@ impl NativeGitCore {
             match outcome {
                 Ok(json) => {
                     let _ = settle.call(Ok(json), ThreadsafeFunctionCallMode::NonBlocking);
+                }
+                Err(error) => {
+                    let _ = settle.call(
+                        Err(failed(ace_git::error::Error::from(error))),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// The person's own credential helpers and SSH command for a transfer (G2c).
+    #[napi(catch_unwind)]
+    pub fn transport_config(&self, req_json: String, settle: JsonSettle) -> napi::Result<()> {
+        let Some(request) = ace_git::core::credentials::request_from_json(&req_json) else {
+            let _ = settle.call(
+                Err(failed(ace_git::error::Error::from(
+                    ace_git::core::config::invalid_request(),
+                ))),
+                ThreadsafeFunctionCallMode::NonBlocking,
+            );
+            return Ok(());
+        };
+        let ports = Arc::new(JsTransportPorts {
+            hub: Arc::clone(&self.hub),
+        });
+        self.runtime.spawn(async move {
+            match ace_git::core::credentials::user_transport_config(ports.as_ref(), &request).await {
+                Ok(config) => {
+                    let _ = settle.call(
+                        Ok(ace_git::core::credentials::transport_to_json(&config)),
+                        ThreadsafeFunctionCallMode::NonBlocking,
+                    );
                 }
                 Err(error) => {
                     let _ = settle.call(

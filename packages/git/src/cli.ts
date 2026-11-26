@@ -899,19 +899,38 @@ export class GitCli {
         ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       });
     const lookup = this.credentialHelperLookup;
-    const system = this.credentialConfigPaths.system ?? (await systemCredentialConfigFile(query));
-    const settings = await cancelledAs(options.signal, () =>
-      userTransportConfig({
-        files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
+    const configuredSystem = this.credentialConfigPaths.system;
+    const settings = await cancelledAs(options.signal, async () => {
+      const settingsFor = async (system: string | undefined) =>
+        userTransportConfig({
+          files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
+          query,
+          protectedRoots: [...this.protectedWorktrees],
+          helpers: !lookup,
+          // A checkout's own SSH command is the person's only where no agent or PR author writes.
+          repositorySsh: !this.protectedPath(cwd),
+          platform: this.runtime.platform,
+          signal: options.signal,
+        });
+      if (this.nativeCore === undefined)
+        return settingsFor(configuredSystem ?? (await systemCredentialConfigFile(query)));
+      return this.nativeCore.transportConfig(
+        {
+          system: configuredSystem,
+          files: [this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
+          protectedRoots: [...this.protectedWorktrees],
+          helpers: !lookup,
+          repositorySsh: !this.protectedPath(cwd),
+        },
         query,
-        protectedRoots: [...this.protectedWorktrees],
-        helpers: !lookup,
-        // A checkout's own SSH command is the person's only where no agent or PR author writes.
-        repositorySsh: !this.protectedPath(cwd),
-        platform: this.runtime.platform,
-        signal: options.signal,
-      }),
-    );
+        () => settingsFor(configuredSystem),
+      );
+    });
+    if (process.env.ACE_G2C_DEBUG === "1")
+      console.error(
+        "[g2c transport]",
+        JSON.stringify({ native: this.nativeCore !== undefined, settings }),
+      );
     if (!lookup) return settings;
     const helpers: GitCredentialHelper[] = [];
     for (const scope of ["system", "global"] as const) {
