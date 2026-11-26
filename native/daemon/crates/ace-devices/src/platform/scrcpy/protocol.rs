@@ -5,6 +5,7 @@
 use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
+use crate::platform::jsnum::round as js_round;
 use crate::platform::{Error, Failure};
 
 /// The server refuses longer injected text; longer strings are split by the caller.
@@ -153,12 +154,6 @@ fn clamp_int(value: f64) -> i32 {
 /// `Math.max(0, Math.min(0xffff, Math.round(value)))`.
 fn u16_clamped(value: f64) -> u16 {
     js_round(value).clamp(0.0, 0xffff as f64) as u16
-}
-
-/// `Math.round`, which rounds a half up towards positive infinity where `f64::round` rounds a
-/// half away from zero. Points are clamped non-negative first, but a scroll can be negative.
-pub fn js_round(value: f64) -> f64 {
-    (value + 0.5).floor()
 }
 
 /// Pressure is an unsigned 16-bit fixed-point fraction where 0xffff is exactly 1.0.
@@ -590,13 +585,6 @@ mod tests {
             encode(&ControlMessage::ResetVideo).expect("encodes"),
             vec![17]
         );
-    }
-
-    #[test]
-    fn rounding_a_half_follows_javascript_and_goes_towards_positive_infinity() {
-        assert_eq!(js_round(2.5), 3.0);
-        assert_eq!(js_round(-2.5), -2.0);
-        assert_eq!(js_round(-2.6), -3.0);
     }
 
     #[test]

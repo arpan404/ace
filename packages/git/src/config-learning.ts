@@ -68,12 +68,30 @@ function interpretGlobal(
  * Git itself (`rev-parse` for discovery, `config --list --show-origin` for files and includes).
  * Undefined whenever any of it can't be named exactly: then nothing is cached for `cwd`.
  */
+/**
+ * Where the watched-path computation can run in the core instead (G2c): the raw
+ * `rev-parse`/`config --list` output is handed over unchanged.
+ */
+export interface RawConfigSources {
+  cwd: string;
+  gitDir: string | undefined;
+  commonDir: string | undefined;
+  toplevel: string | undefined;
+  /** The listing's raw bytes, when it is valid UTF-8. */
+  listing: Buffer | undefined;
+  standard: string[];
+  home: string | undefined;
+  isWindows: boolean;
+}
+export type WatchConfigSources = (input: RawConfigSources) => Promise<string[] | undefined>;
+
 export async function learnConfigSources(
   cwd: string,
   query: Query,
   standard: () => Promise<string[] | undefined>,
   home: string | undefined,
   platform: NodeJS.Platform,
+  watch?: WatchConfigSources,
 ): Promise<string[] | undefined> {
   // A path through a symbolic link can be pointed at another checkout without any file changing.
   if ((await realpath(cwd).catch(() => undefined)) !== cwd) return undefined;
@@ -85,6 +103,22 @@ export async function learnConfigSources(
     query(["rev-parse", "--git-common-dir"]),
     query(["rev-parse", "--show-toplevel"]),
   ]);
+  if (watch) {
+    // The core parses, lists and walks; the TypeScript helpers answer only without it.
+    const listingOut = await query(["config", "-z", "--show-origin", "--show-scope", "--list"]);
+    const files = await standard();
+    if (!files) return undefined;
+    return watch({
+      cwd,
+      gitDir: text(gitDirOut),
+      commonDir: text(commonDirOut),
+      toplevel: text(toplevelOut),
+      listing: text(listingOut) === undefined ? undefined : listingOut.stdout,
+      standard: files,
+      home,
+      isWindows,
+    });
+  }
   const gitDir = single(gitDirOut, isWindows);
   const commonDir = single(commonDirOut, isWindows);
   const toplevel = single(toplevelOut, isWindows);

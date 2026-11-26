@@ -330,9 +330,9 @@ impl Lifetime {
             awaited,
             message,
         });
-        let mut effects = self.cleanup();
-        effects.extend(self.branch());
-        effects
+        // The cleanup waits for the branch to be confirmed: a close that cannot
+        // retire or stop its host leaves the tenant attached and whole.
+        self.branch()
     }
 
     /// The effect the close's current stage waits on.
@@ -380,7 +380,9 @@ impl Lifetime {
         self.settle(frames, result)
     }
 
-    /// The close's outcome, once.
+    /// The close's outcome, once. A confirmed close releases the session's
+    /// state; a failed one leaves it whole, so a retry (or the engine) still
+    /// sees its pending calls and frames (behaviour.md section 20).
     fn settle(&mut self, frames: &Frames, outcome: Result<(), String>) -> Vec<Effect> {
         let Some(Run::Running {
             reason, awaited, ..
@@ -389,7 +391,11 @@ impl Lifetime {
             return Vec::new();
         };
         self.run = Some(Run::Settled(outcome.clone()));
-        let mut effects = vec![Effect::Closed(outcome.clone())];
+        let mut effects = Vec::new();
+        if outcome.is_ok() {
+            effects.extend(self.cleanup());
+        }
+        effects.push(Effect::Closed(outcome.clone()));
         if !awaited && let Err(message) = outcome {
             effects.extend(self.stop_failed(frames, reason, &message));
         }

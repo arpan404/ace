@@ -208,6 +208,11 @@ impl EventQueue {
         }
     }
 
+    /// Whether the queue is at its bound: the child's pumps stop while it is.
+    pub fn at_bound(&self) -> bool {
+        self.lock().at_bound()
+    }
+
     /// Takes at most `max_frames` frames, or the frames up to `max_bytes` of frame
     /// text, from the front, checking each frame before it is taken: a batch never
     /// passes either bound, and a single frame bigger than the byte bound still

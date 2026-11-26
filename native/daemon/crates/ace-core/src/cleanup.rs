@@ -257,21 +257,20 @@ pub fn exit_process(
                 .map(|record| is_settled(&record.agent.status))
                 .unwrap_or(true);
             if !settled {
+                // packages/core/src/cleanup.ts:156-161 constructs a fresh terminal status.
                 let failed = if deliberate {
                     crate::status::AgentStatus::Interrupted
                 } else {
-                    crate::status::AgentStatus::Failed {
-                        error: crate::status::AgentError {
-                            kind: "process_exit".to_owned(),
-                            message: message
-                                .clone()
-                                .unwrap_or_else(|| "Provider process exited".to_owned()),
-                            code: None,
-                            title: None,
-                            detail: None,
-                            details: None,
-                        },
-                    }
+                    crate::status::AgentStatus::failed(crate::status::AgentError {
+                        kind: "process_exit".to_owned(),
+                        message: message
+                            .clone()
+                            .unwrap_or_else(|| "Provider process exited".to_owned()),
+                        code: None,
+                        title: None,
+                        detail: None,
+                        details: None,
+                    })
                 };
                 if let Some(record) = state.agents.get_mut(&key) {
                     record.process_settled_status = Some(failed);

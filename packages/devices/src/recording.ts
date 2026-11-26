@@ -3,11 +3,20 @@ import type { RecordedPart, RecordingEnd } from "@ace/media/recordings";
 import type { ActiveRecording, MediaRecorder } from "@ace/media/tee-recordings";
 import type { Frame } from "@ace/screen";
 import { type DeviceStreamControl } from "./stream-control.ts";
-import { DeviceError } from "./sdk.ts";
+import { DeviceError, deviceRefusal } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import type { LifecycleOwner, LifecycleOptions } from "./lifecycle.ts";
 import { deviceRecordingLimit, deviceRecordingPartBytes } from "./recording-limits.ts";
+import {
+  nativeRecordingCodecRefusal,
+  nativeRecordingEnd,
+  nativeRecordingNotice,
+  nativeRecordingOrigin,
+  nativeRecordingSizes,
+  nativeRecordingStartRefusal,
+  nativeVideo,
+} from "./native-video.ts";
 
 /** A finished device recording as ace-media wrote it: its MP4 parts, in order. */
 export type DeviceRecordingArtifact = {
@@ -85,25 +94,39 @@ export class DeviceRecording {
   }
 
   async #published(end: RecordingEnd): Promise<PublishedRecording> {
+    const decision = nativeVideo
+      ? nativeRecordingEnd({
+          ok: end.ok,
+          truncated: end.ok && Boolean(end.truncated),
+          reason: end.ok ? "" : end.reason,
+          parts: end.parts.length,
+        })
+      : undefined;
     this.#release();
-    if (end.ok && end.truncated) this.#truncated();
-    const failure = end.ok
-      ? undefined
-      : new DeviceError(
-          "command_failed",
-          `The recording failed: ${end.reason}`,
-          end.parts.length
-            ? "What was recorded before the failure is saved to this thread. Start a new recording to go on."
-            : "Keep the device on screen while recording, then try again.",
-        );
+    if (decision ? decision.truncated : end.ok && end.truncated) this.#truncated();
+    const failure = decision
+      ? decision.failure
+        ? deviceRefusal(decision.failure)
+        : undefined
+      : end.ok
+        ? undefined
+        : new DeviceError(
+            "command_failed",
+            `The recording failed: ${end.reason}`,
+            end.parts.length
+              ? "What was recorded before the failure is saved to this thread. Start a new recording to go on."
+              : "Keep the device on screen while recording, then try again.",
+          );
     if (!end.parts.length)
       throw (
         failure ??
-        new DeviceError(
-          "command_failed",
-          "The recording has no video",
-          "Keep the device on screen while recording, then try again.",
-        )
+        (decision
+          ? deviceRefusal(decision.noVideo)
+          : new DeviceError(
+              "command_failed",
+              "The recording has no video",
+              "Keep the device on screen while recording, then try again.",
+            ))
       );
     const published = await this.#publish({
       id: this.id,
@@ -133,6 +156,17 @@ export async function recordDevice(
   streams: DeviceStreamControl,
   changed: () => void = () => {},
 ): Promise<void> {
+  // The refusals are the addon's under the switch; the guards below keep the shell's own
+  // narrowing and today's words for the switch off.
+  if (nativeVideo)
+    nativeRecordingStartRefusal({
+      hasThread: Boolean(session.threadId),
+      live: session.lifecycle === "live",
+      started: Boolean(session.recording),
+      starting: Boolean(session.recordingStarting),
+      closing: Boolean(session.recordingClosing),
+      registryAvailable: options.recordingAvailable ? options.recordingAvailable() : true,
+    });
   if (!session.threadId)
     throw new DeviceError(
       "permission_denied",
@@ -181,37 +215,39 @@ export async function recordDevice(
   try {
     image = streams.acquireRecording();
     // ace-media records video: the capture stays on H.264 for as long as the recording runs.
-    if ((await image.ready).codec !== "h264")
-      throw new DeviceError(
-        "not_supported",
-        "This device's capture can't stream video for a recording",
-        "Restart the device's live view; if it persists, check its capture tools.",
-      );
+    const codec = (await image.ready).codec;
+    if (codec !== "h264") throw codecRefusal(codec);
     const id = options.runtime.id();
     const directory = join(options.recordingDirectory, `${id}.parts`);
-    const limit = options.recordingLimitBytes ?? deviceRecordingLimit;
+    const sizes = nativeVideo
+      ? nativeRecordingSizes(options.recordingLimitBytes)
+      : {
+          limit: options.recordingLimitBytes ?? deviceRecordingLimit,
+          maxBytes: Math.min(
+            deviceRecordingPartBytes,
+            options.recordingLimitBytes ?? deviceRecordingLimit,
+          ),
+        };
+    const limit = sizes.limit;
     let total = 0;
     const start = await (options.recorder ?? missingRecorder).start({
-      origin:
-        session.device.platform === "ios"
+      origin: nativeVideo
+        ? nativeRecordingOrigin(session.device.platform)
+        : session.device.platform === "ios"
           ? { kind: "screen", platform: "ios-simulator" }
           : { kind: "scrcpy", host: "127.0.0.1", port: 0 },
       directory,
-      maxBytes: Math.min(deviceRecordingPartBytes, limit),
+      maxBytes: sizes.maxBytes,
       private: () => false,
       keyframe: () => void session.capture?.keyframe?.().catch(() => {}),
       part: (part) => {
         total += part.bytes;
         if (total < limit) return;
-        const ended = finished(
-          "Recording stopped at its size limit. The video is being saved to this thread.",
-        );
+        const ended = finished(recordingNotice("sizeLimit"));
         void ended?.stop().catch(() => {});
       },
       failed: (end) => {
-        const ended = finished(
-          "Recording stopped because it couldn't be written. Check free disk space and try again.",
-        );
+        const ended = finished(recordingNotice("writeFailed"));
         void ended?.ended(end).catch(() => {});
       },
     });
@@ -228,8 +264,7 @@ export async function recordDevice(
       release: () => void release().catch(() => {}),
       truncated: () => {
         if (session.bindingEpoch !== epoch) return;
-        session.recordingNotice =
-          "The recording is saved, but ace-media couldn't confirm its last moment: the end may be incomplete.";
+        session.recordingNotice = recordingNotice("truncated");
         changed();
       },
       publish: async (artifact) => {
@@ -242,15 +277,14 @@ export async function recordDevice(
           if (session.bindingEpoch === epoch) {
             session.recordingArtifact = result;
             if (result.kept) {
-              session.recordingNotice = `Part of the recording couldn't be confirmed and wasn't added to the thread; it is kept in ${result.kept.directory}.`;
+              session.recordingNotice = recordingNotice("kept", result.kept.directory);
               changed();
             }
           }
           return result;
         } catch (error) {
           if (session.bindingEpoch === epoch) {
-            session.recordingNotice =
-              "The recording couldn't be saved. Check the recording tools and try again.";
+            session.recordingNotice = recordingNotice("unsaved");
             changed();
           }
           throw error;
@@ -301,4 +335,34 @@ export async function stopDeviceRecording(
     );
   owner.authorize(session, actor);
   return session.recordingArtifact ?? artifact;
+}
+
+/** Why a capture that isn't streaming H.264 can't be recorded. */
+function codecRefusal(codec: string): DeviceError {
+  if (nativeVideo) return nativeRecordingCodecRefusal(codec);
+  return new DeviceError(
+    "not_supported",
+    "This device's capture can't stream video for a recording",
+    "Restart the device's live view; if it persists, check its capture tools.",
+  );
+}
+
+/** A notice a recording leaves on its thread. */
+function recordingNotice(
+  kind: "sizeLimit" | "writeFailed" | "truncated" | "unsaved" | "kept",
+  directory?: string,
+): string {
+  if (nativeVideo) return nativeRecordingNotice(kind, directory);
+  switch (kind) {
+    case "sizeLimit":
+      return "Recording stopped at its size limit. The video is being saved to this thread.";
+    case "writeFailed":
+      return "Recording stopped because it couldn't be written. Check free disk space and try again.";
+    case "truncated":
+      return "The recording is saved, but ace-media couldn't confirm its last moment: the end may be incomplete.";
+    case "unsaved":
+      return "The recording couldn't be saved. Check the recording tools and try again.";
+    case "kept":
+      return `Part of the recording couldn't be confirmed and wasn't added to the thread; it is kept in ${directory}.`;
+  }
 }
