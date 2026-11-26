@@ -18,6 +18,7 @@ mod json_bind;
 mod long_thread;
 mod session_acp;
 mod session_bridge;
+mod session_claude;
 mod session_codex;
 mod session_cursor;
 mod session_opencode;
