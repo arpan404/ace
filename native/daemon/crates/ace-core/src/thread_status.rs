@@ -174,7 +174,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
         };
         let state = map.get("state").and_then(Json::as_str).unwrap_or("");
         if !KNOWN_THREAD_STATES.contains(&state) {
-            if state.is_empty() || state.len() > 64 {
+            if state.is_empty() || state.chars().count() > 64 {
                 return Err(D::Error::custom("invalid thread status"));
             }
             // packages/protocol/src/thread-status.ts:57-60 wraps the raw future status.
@@ -349,4 +349,37 @@ fn valid_queue_number(value: Option<&Json>, min: i64, max: i64) -> Option<i64> {
 /// Whether the value is an explicit `null`, which optional queue facts reject.
 pub fn is_null(value: Option<&Json>) -> bool {
     matches!(value, Some(Json::Null))
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::ThreadStatus;
+
+    fn status(text: &str) -> Option<ThreadStatus> {
+        let value = ace_json::parse(text).expect("fixture parses");
+        ace_json::from_value(&value).ok()
+    }
+
+    #[test]
+    fn an_unknown_state_counts_code_points_like_zods_max_64() {
+        // 64 emoji are 128 UTF-16 units: only code points fit the bound.
+        for length in [64, 65] {
+            let text = format!(r#"{{"state":"{}","raw":{{}}}}"#, "😀".repeat(length));
+            assert_eq!(status(&text).is_some(), length == 64, "{length}");
+            if length == 64 {
+                assert!(matches!(status(&text), Some(ThreadStatus::Unknown { .. })));
+            }
+        }
+    }
+
+    #[test]
+    fn a_moved_name_counts_code_points_like_zods_max_256() {
+        for length in [256, 257] {
+            let text = format!(
+                r#"{{"state":"moved","to":{{"hostId":"h","name":"{}","threadId":"t"}}}}"#,
+                "😀".repeat(length)
+            );
+            assert_eq!(status(&text).is_some(), length == 256, "{length}");
+        }
+    }
 }

@@ -14,6 +14,8 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 
 ## Rules particular to the transport
 
+**Lengths:** a zod string bound counts code points in this repo (patched zod), while TypeScript's `.length` and `.slice()` count UTF-16 units. Match the unit of the TypeScript source, and test the boundary with an emoji. See rule 17 of `docs/engine/porting-guide.md`.
+
 1. **Clients see nothing change.** Bytes a client parses, close codes and reasons, HTTP statuses
    and headers, the connect sequence's round trips, frame sizes and compression choices are kept.
    A difference is a bug in the port unless ADR 0226 lists it.
@@ -492,7 +494,11 @@ Some(config))` with `max_message_size = Some(1 << 20)` and `max_frame_size = Som
     bounded too; `delivered(charge)` releases a message's charge. The outbound queue is unbounded,
     as `ws`'s is, bounded by the TypeScript outbox through `buffered_amount`;
   - `ready_state` 1 → 2 → 3; `close` is idempotent and sends the close frame with its code and
-    reason; `terminate` drops the connection and reports `Close` with `1006`;
+    reason; `terminate` drops the connection and reports `Close` with `1006`; a failure moves the
+    state to CLOSING as its frame is refused and then waits for the messages delivered before it
+    to be handled (credit returned, at most `CLOSE_TIMEOUT`), so their handlers see `readyState` 2
+    where `ws`, whose handlers run synchronously, still shows 1; nothing in `apps/daemon/src` reads
+    it;
   - an oversized message: `Error { code: "too_big" }`, then the close frame `1009`, then `Close`;
   - WebSocket **control** frames are the framing layer's: a peer's ping is answered with a pong and
     never surfaced, a pong is ignored, as `ws` does (`autoPong`); ace's JSON `{ "type": "ping" }`

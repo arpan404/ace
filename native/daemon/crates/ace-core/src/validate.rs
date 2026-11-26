@@ -349,3 +349,81 @@ pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact,
     }
     crate::facts::convert(input).ok_or_else(|| "invalid adapter fact data".to_owned())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_fact_ids_fit_the_first_512_utf16_units() {
+        let state = crate::state::create_thread_state(
+            "thread".to_owned(),
+            None,
+            crate::state::CoreConfig {
+                provider: "codex".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .expect("empty thread");
+        for (field, kind) in [
+            ("nativeInputId", "input.admitted"),
+            ("commandId", "input.admitted"),
+            ("nativeInputIds", "input.consumed"),
+        ] {
+            for length in [256, 257] {
+                let id = "😀".repeat(length);
+                let mut fact = Map::new();
+                fact.insert("nativeInputId", Json::from("input"));
+                fact.insert(
+                    field,
+                    if field == "nativeInputIds" {
+                        ace_json::json!([id])
+                    } else {
+                        Json::from(id)
+                    },
+                );
+                assert_eq!(
+                    shape_valid(&state, &fact, kind, 0),
+                    Ok(length == 256),
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn turn_permission_mode_and_moved_names_count_code_points() {
+        let state = crate::state::create_thread_state(
+            "thread".to_owned(),
+            None,
+            crate::state::CoreConfig {
+                provider: "codex".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .expect("empty thread");
+        for length in [4096, 4097] {
+            let fact = ace_json::json!({
+                "type":"turn.started", "trigger":"user", "permissionMode":"😀".repeat(length)
+            });
+            assert_eq!(
+                shape_valid(&state, fact.as_object().expect("object"), "turn.started", 0),
+                Ok(length == 4096),
+                "permissionMode"
+            );
+        }
+        for length in [256, 257] {
+            let fact = ace_json::json!({
+                "type":"thread.moved",
+                "to":{"hostId":"h","name":"😀".repeat(length),"threadId":"t"}
+            });
+            assert_eq!(
+                shape_valid(&state, fact.as_object().expect("object"), "thread.moved", 0),
+                Ok(length == 256),
+                "moved name"
+            );
+        }
+    }
+}

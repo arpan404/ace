@@ -125,33 +125,7 @@ pub fn raw_type_of(data: &Raw, default: &str) -> String {
     if value.is_empty() { fallback } else { value }
 }
 
-/// UTF-16 code-unit length, matching JavaScript `string.length`.
-pub fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// Map a UTF-16 offset into a byte index at a character boundary.
-/// Offsets inside a surrogate pair round up so the result stays valid UTF-8.
-pub fn utf16_to_byte_index(text: &str, utf16_offset: usize) -> usize {
-    let mut units = 0_usize;
-    for (byte, ch) in text.char_indices() {
-        if units >= utf16_offset {
-            return byte;
-        }
-        units += ch.len_utf16();
-    }
-    text.len()
-}
-
-/// Slice by UTF-16 offsets, rounding split surrogates up to a boundary.
-pub fn utf16_slice(text: &str, start_units: usize, end_units: usize) -> &str {
-    let start = utf16_to_byte_index(text, start_units);
-    let end = utf16_to_byte_index(text, end_units.min(utf16_len(text)));
-    if start >= end || start >= text.len() {
-        return "";
-    }
-    text.get(start..end).unwrap_or_default()
-}
+pub use ace_json::utf16_len;
 
 /// The bare name of any spelling of an ace tool, mirroring `bareToolName`.
 pub fn bare_tool_name(name: &str) -> &str {

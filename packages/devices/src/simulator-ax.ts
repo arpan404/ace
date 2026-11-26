@@ -6,7 +6,14 @@ import {
   type ScreenUINode,
   type ScreenUIActOptions,
 } from "@ace/protocol";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
+import {
+  nativeInput,
+  nativeSimulatorActionInput,
+  nativeSimulatorLayout,
+  nativeSimulatorTarget,
+  nativeSimulatorTree,
+} from "./native-input.ts";
 import { simulatorRotation, type FrameRotation } from "./simulator-rotation.ts";
 
 /**
@@ -100,6 +107,7 @@ export function simulatorLayout(
   raw: unknown,
   screen: { width: number; height: number; orientation?: string },
 ): SimulatorLayout {
+  if (nativeInput) return nativeSimulatorLayout(raw, screen);
   const roots = Roots.safeParse(raw);
   const first = roots.success ? Element.safeParse(roots.data[0]) : undefined;
   const root = first?.success ? first.data.frame : undefined;
@@ -136,14 +144,11 @@ export function simulatorTree(
   screen: { width: number; height: number; orientation?: string },
   options: unknown,
 ): ScreenUITreeResult {
+  // The schema decides what options are accepted on both legs; the switch only moves the walk.
   const limits = ScreenUITreeOptions.parse(options);
+  if (nativeInput) return nativeSimulatorTree(raw, screen, limits) as ScreenUITreeResult;
   const roots = Roots.safeParse(raw);
-  if (!roots.success)
-    throw new DeviceError(
-      "invalid_data",
-      "Simulator accessibility tree is malformed",
-      "Read the UI tree again; restart the live view if it keeps failing.",
-    );
+  if (!roots.success) throw catalogRefusal("simulatorTreeMalformed");
   const layout = simulatorLayout(raw, screen);
   const { turn } = layout;
   const nodes: ScreenUINode[] = [];
@@ -238,6 +243,7 @@ function mapped(
 
 /** Find the node a ref names in a fresh tree; a ref absent from it is stale. */
 export function simulatorTarget(tree: ScreenUITreeResult, ref: string): ScreenUINode {
+  if (nativeInput) return nativeSimulatorTarget(tree, ref) as ScreenUINode;
   const pending = [...tree.nodes];
   while (pending.length) {
     const node = pending.pop();
@@ -245,11 +251,17 @@ export function simulatorTarget(tree: ScreenUITreeResult, ref: string): ScreenUI
     if (node.ref === ref) return node;
     pending.push(...node.children);
   }
-  throw new DeviceError(
-    "stale_ref",
-    "Simulator UI target is stale or no longer visible",
-    "Read the UI tree again before acting.",
-  );
+  throw catalogRefusal("simulatorTargetStale");
+}
+
+/** A scroll's value, as the schema reads it: a whole `dx`/`dy` in ±1000, nothing else. */
+function scrollValue(value: unknown): { dx: number; dy: number } {
+  return z
+    .object({
+      dx: z.number().int().min(-1000).max(1000).default(0),
+      dy: z.number().int().min(-1000).max(1000).default(0),
+    })
+    .parse(value ?? {});
 }
 
 const clamp = (value: number, start: number, size: number) =>
@@ -267,12 +279,21 @@ export function simulatorActionInput(
   | { kind: "tap"; x: number; y: number }
   | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
   | { kind: "none"; method: string } {
+  // Today's order on both legs: a target that cannot do the action is refused before its value
+  // is read, so a scroll of `"down"` on a Button is `not_supported`, not a schema error.
   if (!node.actions.includes(action.action) || node.states.includes("disabled"))
-    throw new DeviceError(
-      "not_supported",
-      "Simulator UI target does not support this action",
-      "Read supported actions from the current tree.",
-    );
+    throw catalogRefusal("simulatorActionUnsupported");
+  // `z.object({dx, dy})` reads a scroll value on both legs, so a bad one is the same ZodError.
+  const scroll = action.action === "scroll" ? scrollValue(action.value) : { dx: 0, dy: 0 };
+  if (nativeInput)
+    return nativeSimulatorActionInput(
+      node,
+      action.action === "scroll" ? { ...action, value: scroll } : action,
+      turn,
+    ) as
+      | { kind: "tap"; x: number; y: number }
+      | { kind: "swipe"; x: number; y: number; toX: number; toY: number; durationMs: number }
+      | { kind: "none"; method: string };
   const centre = {
     x: Math.floor(node.bounds.x + node.bounds.w / 2),
     y: Math.floor(node.bounds.y + node.bounds.h / 2),
@@ -281,12 +302,6 @@ export function simulatorActionInput(
     if (node.states.includes("checked") === action.value)
       return { kind: "none", method: "already_selected" };
   if (action.action !== "scroll") return { kind: "tap", ...centre };
-  const scroll = z
-    .object({
-      dx: z.number().int().min(-1000).max(1000).default(0),
-      dy: z.number().int().min(-1000).max(1000).default(0),
-    })
-    .parse(action.value ?? {});
   if (!scroll.dx && !scroll.dy) return { kind: "none", method: "no_scroll" };
   const [dx, dy] =
     turn === 90

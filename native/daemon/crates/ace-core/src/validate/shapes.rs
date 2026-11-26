@@ -118,10 +118,10 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
         "input.admitted" => {
             matches!(
                 fact.get("nativeInputId"),
-                Some(Json::String(id)) if !id.is_empty() && id.len() <= 512
+                Some(Json::String(id)) if !id.is_empty() && id.len_utf16() <= 512
             ) && match fact.get("commandId") {
                 None | Some(Json::Null) => true,
-                Some(Json::String(id)) => !id.is_empty() && id.len() <= 512,
+                Some(Json::String(id)) => !id.is_empty() && id.len_utf16() <= 512,
                 _ => false,
             }
         }
@@ -129,7 +129,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
             Some(Json::Array(ids)) => {
                 ids.len() <= 64
                     && ids.iter().all(
-                        |id| matches!(id, Json::String(id) if !id.is_empty() && id.len() <= 512),
+                        |id| matches!(id, Json::String(id) if !id.is_empty() && id.len_utf16() <= 512),
                     )
             }
             _ => false,
@@ -352,6 +352,6 @@ fn ensure_moved_target(to: &Map) -> bool {
     to.keys()
         .all(|key| ["hostId", "name", "threadId"].contains(&key.as_str()))
         && matches!(to.get("hostId"), Some(Json::String(id)) if !id.is_empty())
-        && matches!(to.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+        && matches!(to.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         && matches!(to.get("threadId"), Some(Json::String(id)) if !id.is_empty())
 }

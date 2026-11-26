@@ -1,22 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The WebSocket upgrade handshake (T1a.3): admission on the raw request target,
-//! then `ws` 8.22's checks in `handleUpgrade`'s order, each refusal written
-//! exactly as `abortHandshake` writes it, and the `101` exactly as
-//! `completeUpgrade` writes it. The same decision answers through hyper for an
-//! upgrade that arrives later on a keep-alive connection.
+//! WebSocket admission and handshake in `ws` order, on the raw stream or
+//! through hyper for an upgrade on an existing keep-alive connection.
 //!
-//! Nothing here times out a `101`: on the raw path the handler's own write and
-//! flush are bounded by [`crate::prefixed::TimedIo`]'s write timeout (5 s), and
-//! on the hyper path by hyper's write of the reply. The listener-closing `503`
-//! is `ws`'s own `abortHandshake(socket, 503)` answer, distinct from
-//! admission's empty-body `503`.
-//!
-//! Two rules make the decision safe around a close: a raw upgrade watches its
-//! client's read side while admission is pending (a client that goes away is
-//! abandoned, not answered), and the reservation moves to `Writing` only after
-//! every check passed and the connection armed its [`Grace`] — so a deadline
-//! never splits the `101` from the socket it registers. Whatever a dropped
-//! connection leaves behind is released by its [`Settle`] guard.
+//! A raw upgrade watches for disconnect while admission is pending. After
+//! the checks pass, [`Grace`] protects the `101` until the socket registers.
+//! The stream's write deadline still applies. [`Settle`] releases any
+//! reservation an interrupted upgrade leaves behind.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -52,15 +41,14 @@ pub const FORBIDDEN: &[u8] =
 pub const UNAVAILABLE: &[u8] =
     b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
-/// One upgrade candidate, as admission sees it today: the raw target, the
-/// Origin and User-Agent header values (Node's joined form), and the socket's
-/// two ends.
+/// An upgrade's raw target, headers in Node's joined form, and socket addresses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpgradeRequest {
     /// The request-target exactly as received, never a parsed path.
     pub target: String,
     pub origin: Option<String>,
     pub user_agent: Option<String>,
+    pub app_socket_tag: Option<String>,
     pub peer: Peer,
 }
 
@@ -70,6 +58,8 @@ impl UpgradeRequest {
             target: head.target.clone(),
             origin: node_header(&head.headers, "origin").map(|value| latin1(&value)),
             user_agent: node_header(&head.headers, "user-agent").map(|value| latin1(&value)),
+            app_socket_tag: node_header(&head.headers, "x-ace-app-socket")
+                .map(|value| latin1(&value)),
             peer,
         }
     }

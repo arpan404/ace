@@ -56,7 +56,7 @@ enum Resolution<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         dismissed: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        feedback: Option<String>,
+        feedback: Option<ace_json::JsString>,
     },
     #[serde(rename = "elicitation")]
     Elicitation {
@@ -194,15 +194,17 @@ pub fn interaction(
         .map(|raw| ace_json::parse(raw.get()))
         .transpose()?;
     let choice_fields = choice.as_ref().map(fields);
-    let feedback: Option<String> = match get(p, "message") {
-        Value::String(message) => Some(String::from(message.clone())),
+    // `feedback.slice(0, 8192)` counts UTF-16 units, as JavaScript slices do,
+    // so a cut inside a surrogate pair keeps the lone high half.
+    let feedback: Option<ace_json::JsString> = match get(p, "message") {
+        Value::String(message) => Some(message.clone()),
         _ => match choice_fields.as_ref() {
             Some(choice) => {
                 let kind = s_in(choice, "kind");
                 if kind == "question" && matches!(choice.get("dismissed"), Some(Value::Bool(true)))
                 {
                     match choice.get("feedback") {
-                        Some(Value::String(feedback)) => Some(slice_feedback(feedback)),
+                        Some(Value::String(feedback)) => Some(feedback.slice_units(0, 8192)),
                         _ => None,
                     }
                 } else if kind == "elicitation"
@@ -213,7 +215,7 @@ pub fn interaction(
                 {
                     match fields(get(choice, "content")).get("feedback") {
                         Some(Value::String(feedback)) if !feedback.is_empty() => {
-                            Some(String::from(feedback.clone()))
+                            Some(feedback.clone())
                         }
                         _ => None,
                     }
@@ -224,7 +226,6 @@ pub fn interaction(
             None => None,
         },
     };
-    // Slicing feedback to 8,192 units must not split a character.
     let state_name = if typ == "form.cancelled" {
         "cancelled"
     } else {
@@ -266,7 +267,7 @@ pub fn interaction(
         let (dismissed, feedback) = if typ == "form.cancelled" {
             (
                 Some(true),
-                feedback.map(|feedback| slice_feedback(&feedback)),
+                feedback.map(|feedback| feedback.slice_units(0, 8192)),
             )
         } else {
             (None, None)
@@ -315,20 +316,6 @@ pub fn interaction(
     Ok(())
 }
 
-/// Slice feedback to 8,192 units without splitting a character.
-fn slice_feedback(feedback: &str) -> String {
-    let mut units = 0;
-    let mut end = 0;
-    for (index, ch) in feedback.char_indices() {
-        units += ch.len_utf16();
-        if units > 8192 {
-            break;
-        }
-        end = index + ch.len_utf8();
-    }
-    feedback[..end].to_owned()
-}
-
 /// Store a resolution announced while the interaction stays open.
 pub fn store_resolution(
     state: &mut NativeState,
@@ -343,5 +330,78 @@ pub fn store_resolution(
             Ok(())
         }
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::{interaction, store_resolution};
+    use crate::translate::state::{AgentMeta, NativeState, Out};
+    use ace_json::{Map, Value, json};
+
+    fn object(value: Value) -> Map {
+        match value {
+            Value::Object(map) => map,
+            _ => Map::new(),
+        }
+    }
+
+    /// The feedback the close fact carries for a cancelled question.
+    fn closed_feedback(feedback: &str) -> Value {
+        let mut state = NativeState::new(String::from("root"));
+        state.agents.insert(
+            "session".to_owned(),
+            AgentMeta {
+                parent: String::new(),
+                directory: String::from("/tmp"),
+                model: None,
+            },
+        );
+        let mut buf = String::new();
+        {
+            let mut out = Out::new(&mut buf);
+            let form = object(json!({
+                "id":"form", "sessionID":"session",
+                "metadata":{"kind":"question"},
+                "fields":[{"key":"q","type":"string","title":"Question"}]
+            }));
+            let created = object(json!({"form": form.clone()}));
+            interaction(&mut state, "form.created", &created, &json!({}), &mut out)
+                .expect("the form opens");
+            store_resolution(
+                &mut state,
+                "form:session:form",
+                &json!({
+                    "kind":"question","answers":{},"dismissed":true,"feedback":feedback
+                }),
+            )
+            .expect("the resolution is stored");
+            let cancel = object(json!({"id":"form","sessionID":"session"}));
+            interaction(&mut state, "form.cancelled", &cancel, &json!({}), &mut out)
+                .expect("the form closes");
+        }
+        let facts = match ace_json::parse(&format!("[{buf}]")) {
+            Ok(Value::Array(facts)) => facts,
+            _ => return Value::Null,
+        };
+        facts
+            .iter()
+            .find(|fact| fact.get("type") == Some(&Value::from("interaction.closed")))
+            .and_then(|fact| fact.pointer("/resolution/feedback").cloned())
+            .unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn question_feedback_is_sliced_in_utf16_units() {
+        // 4,000 emoji are 8,000 units: whole. 5,000 are 10,000: cut at 8,192
+        // units, which is 4,096 emoji and never 5,000 characters.
+        assert_eq!(
+            closed_feedback(&"😀".repeat(4_000)),
+            Value::from("😀".repeat(4_000))
+        );
+        assert_eq!(
+            closed_feedback(&"😀".repeat(5_000)),
+            Value::from("😀".repeat(4_096))
+        );
     }
 }

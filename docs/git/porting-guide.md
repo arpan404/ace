@@ -12,6 +12,8 @@ Branch from `ace/rust-git-forge` once G0 has landed on it, one branch per work i
 
 ## Rules for every work item
 
+**Lengths:** a zod string bound counts code points in this repo (patched zod), while TypeScript's `.length` and `.slice()` count UTF-16 units. Match the unit of the TypeScript source, and test the boundary with an emoji. See rule 17 of `docs/engine/porting-guide.md`.
+
 1. **Same TypeScript interface.** `GitService`, `GitTransfer`, every export of `.` and
    `./remote-url`, `GitError` (with `code`, `details`, `cleanup.settled`) and
    `WorktreeRemovalRefused` keep their signatures, results, codes and timing. What is synchronous
@@ -181,7 +183,8 @@ Inside today's TypeScript service (no core needed): the shell replaces the proce
   wrote is read by the other), admission, quarantine, healing, stale locks, the Git process scan
   through the `gitProcesses` port. (b): `read-gate`, `lock-sweep`, `lock-timestamps.process`,
   `restart-locks.process`. Proof: `stale-leases.process`, `self-healing.process`,
-  `held-directory.process`, `cache-races.process`, `cache-lifetime.process`, `numbering.process`.
+  `held-directory.process`. `cache-races`, `cache-lifetime` and `numbering` exercise `serial` and
+  `ReadGate`, which only G4 wires into the write path, so they join this item's proof then.
 - **G2c, policy and configuration.** The execution policy and its overrides
   (`non-executing.ts:35`–`:52`, `:113`–`:130`, including `GIT_ATTR_NOSYSTEM`,
   `GIT_NO_LAZY_FETCH`, `GIT_ALLOW_PROTOCOL`), hook switches, config facts and their stamps,

@@ -3,7 +3,7 @@
 //! Permission resources and save patterns are never authority: only exact
 //! native inputs and edit file metadata are.
 
-use crate::translate::data::{arr, fields, get, utf16_len};
+use crate::translate::data::{arr, fields, get};
 use ace_json::{JsString, Map, Value};
 use serde::Serialize;
 
@@ -67,14 +67,6 @@ impl Serialize for ApprovalTarget<'_> {
     }
 }
 
-fn units(text: &str) -> usize {
-    utf16_len(text)
-}
-
-fn units_js(text: &JsString) -> usize {
-    text.len_utf16()
-}
-
 /// The files OpenCode reports an edit over, each named with its own patch
 /// status (`files` in TypeScript).
 fn edit_files(value: &Value) -> Option<Vec<&JsString>> {
@@ -91,7 +83,7 @@ fn edit_files(value: &Value) -> Option<Vec<&JsString>> {
         match (entry.get("file"), entry.get("status")) {
             (Some(Value::String(path)), Some(Value::String(status)))
                 if !path.is_empty()
-                    && units_js(path) <= 4096
+                    && path.len_code_points() <= 4096
                     && (status == "modified" || status == "added") =>
             {
                 // Keep the exact JS string: a lone surrogate path must not
@@ -133,7 +125,7 @@ pub fn approval_target<'a>(
     if !matches!(input_value, Value::Object(_)) || input.is_empty() {
         return None;
     }
-    if action.is_empty() || units(action) > 256 {
+    if action.is_empty() || action.chars().count() > 256 {
         return None;
     }
     let path: Option<&JsString> = match input.get("path").or_else(|| input.get("filePath")) {
@@ -141,7 +133,7 @@ pub fn approval_target<'a>(
         _ => None,
     };
     if let Some(path) = path
-        && units_js(path) > 4096
+        && path.len_code_points() > 4096
     {
         return None;
     }
@@ -150,14 +142,14 @@ pub fn approval_target<'a>(
         _ => directory,
     };
     if let Some(cwd) = cwd
-        && units(cwd) > 4096
+        && cwd.chars().count() > 4096
     {
         return None;
     }
     let command = if action == "shell" || action == "bash" {
         match input.get("command") {
             Some(Value::String(command)) => {
-                if units_js(command) > 32768 {
+                if command.len_code_points() > 32768 {
                     return None;
                 }
                 Some(command.as_str())
@@ -184,4 +176,22 @@ pub fn approval_target<'a>(
         input: ApprovalInput::Value(input_value),
         literal: false,
     })
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn edit_metadata_accepts_a_path_of_4096_emoji() {
+        for length in [4096, 4097] {
+            let path = "😀".repeat(length);
+            let value = ace_json::parse(&format!(
+                r#"{{"files":[{{"file":"{path}","status":"modified"}}]}}"#
+            ))
+            .expect("metadata");
+            let target = approval_target("edit", value.as_object().expect("object"), None, None);
+            assert_eq!(target.is_some(), length == 4096);
+        }
+    }
 }

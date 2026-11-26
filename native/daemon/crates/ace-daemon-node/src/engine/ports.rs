@@ -116,6 +116,7 @@ pub struct JsPorts {
     has_live_write: FunctionRef<String, bool>,
     rollback_generation: FunctionRef<(), f64>,
     get_thread: FunctionRef<String, Option<String>>,
+    on_naming_prompt: FunctionRef<FnArgs<(String, String)>, ()>,
     cap_raw: FunctionRef<FnArgs<(String, String)>, String>,
     prepare_live_write: FunctionRef<f64, ()>,
     buffer_live_write: FunctionRef<FnArgs<(String, String, f64, f64)>, ()>,
@@ -161,6 +162,7 @@ impl JsPorts {
         has_live_write: FunctionRef<String, bool>,
         rollback_generation: FunctionRef<(), f64>,
         get_thread: FunctionRef<String, Option<String>>,
+        on_naming_prompt: FunctionRef<FnArgs<(String, String)>, ()>,
         cap_raw: FunctionRef<FnArgs<(String, String)>, String>,
         prepare_live_write: FunctionRef<f64, ()>,
         buffer_live_write: FunctionRef<FnArgs<(String, String, f64, f64)>, ()>,
@@ -192,6 +194,7 @@ impl JsPorts {
             has_live_write,
             rollback_generation,
             get_thread,
+            on_naming_prompt,
             cap_raw,
             prepare_live_write,
             buffer_live_write,
@@ -498,6 +501,19 @@ impl Ports for JsPorts {
 
     fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
         self.call(&self.get_thread, thread.to_owned())
+    }
+
+    fn on_naming_prompt(&self, thread: &str, json: &str) {
+        // The port runs after the commit, outside any caller's `try`: a throw is reported, never
+        // swallowed.
+        if let Err(error) = self.call(
+            &self.on_naming_prompt,
+            FnArgs {
+                data: (thread.to_owned(), json.to_owned()),
+            },
+        ) {
+            self.report_now(&error.to_string());
+        }
     }
 
     fn cap_raw(&self, thread: &str, raw: &str) -> Result<String, PortError> {

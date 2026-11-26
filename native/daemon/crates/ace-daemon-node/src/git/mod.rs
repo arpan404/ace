@@ -13,6 +13,7 @@ pub mod checkpoints;
 pub mod core;
 pub mod reads;
 pub mod refs;
+pub mod wire;
 pub mod writes;
 
 /// A `git_failed:{...}` error from an `ace_git` failure; the shell parses the payload.

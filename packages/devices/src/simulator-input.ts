@@ -2,6 +2,13 @@ import type { DeviceInput } from "@ace/protocol/devices";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import type { DeviceRuntime } from "./runtime.ts";
 import { refuseSimulatorKey } from "./key-support.ts";
+import {
+  nativeInput,
+  nativeKeyAction,
+  nativeNormalizedPoint,
+  nativeScreenEdge,
+} from "./native-input.ts";
+import { nativeDevices } from "./native-devices-addon.ts";
 import { DeviceError } from "./sdk.ts";
 import {
   endFingers,
@@ -42,6 +49,11 @@ const softwareKeyboardToggle = 12;
  * lost the keyboard after 44 characters; one sent 250 ms later kept it after 150.
  */
 const typingSettleMs = 250;
+
+/** serve-sim's edge band for a normalized point, decided in ace-devices under the switch. */
+function edge(x: number, y: number): number {
+  return nativeInput ? nativeScreenEdge(x, y) : screenEdge(x, y);
+}
 
 /**
  * Native touch (one finger, or two as serve-sim's two-finger touch) and keyboard operations,
@@ -120,6 +132,8 @@ export class SimulatorInput {
     const point = (x: number, y: number): FingerPoint => {
       check();
       const { width, height } = this.options.dimensions();
+      // The frame check and the normalization are ace-devices' decision under the switch.
+      if (nativeInput) return nativeNormalizedPoint(x, y, width, height);
       if (!width || !height || x < 0 || y < 0 || x >= width || y >= height)
         throw new Error("Simulator input is outside the current frame");
       return { x: x / width, y: y / height };
@@ -130,7 +144,7 @@ export class SimulatorInput {
       this.apply(
         epoch,
         type === "begin"
-          ? fingerDown(noFingers, 0, at, gesture ? screenEdge(at.x, at.y) : 0)
+          ? fingerDown(noFingers, 0, at, gesture ? edge(at.x, at.y) : 0)
           : fingerMove(this.fingers(epoch), 0, at),
       );
     };
@@ -139,7 +153,7 @@ export class SimulatorInput {
       const held = this.fingers(epoch);
       if (input.phase === "down") {
         const at = point(input.x, input.y);
-        this.apply(epoch, fingerDown(held, finger, at, screenEdge(at.x, at.y)));
+        this.apply(epoch, fingerDown(held, finger, at, edge(at.x, at.y)));
       } else if (input.phase === "move")
         this.apply(epoch, fingerMove(held, finger, point(input.x, input.y)));
       else this.apply(epoch, fingerUp(held, finger));
@@ -167,30 +181,49 @@ export class SimulatorInput {
       }
       return;
     }
-    if (input.kind === "key" && input.key !== "enter") {
-      if (input.key === "keyboard") {
-        this.softwareKeyboard = !this.softwareKeyboard;
-        this.options.send(softwareKeyboardToggle, {});
-      } else if (input.key === "rotate")
-        this.options.send(7, {
-          orientation: this.options.orientation() === "portrait" ? "landscape_left" : "portrait",
-        });
-      else if (input.key === "home") this.options.send(4, { button: "home" });
-      else if (input.key === "power")
-        this.options.send(4, { button: "power", ...hardwareButtons.power });
-      else if (
-        input.key === "volumeUp" ||
-        input.key === "volumeDown" ||
-        input.key === "action" ||
-        input.key === "side"
-      )
-        this.options.send(4, hardwareButtons[input.key]);
-      else refuseSimulatorKey(input.key);
-      return;
+    let typed: string | undefined = input.kind === "type" ? input.text : undefined;
+    if (input.kind === "key") {
+      if (nativeInput) {
+        // The key's message, its refusal, or the line Return types: ace-devices decides.
+        const action = nativeKeyAction(input.key, this.options.orientation());
+        if (action.kind === "type") typed = action.text;
+        else {
+          // The person's keyboard preference is the shell's: the key flips it.
+          if (input.key === "keyboard") this.softwareKeyboard = !this.softwareKeyboard;
+          this.options.send(action.message.tag, action.message.payload);
+          return;
+        }
+      } else if (input.key !== "enter") {
+        if (input.key === "keyboard") {
+          this.softwareKeyboard = !this.softwareKeyboard;
+          this.options.send(softwareKeyboardToggle, {});
+        } else if (input.key === "rotate")
+          this.options.send(7, {
+            orientation: this.options.orientation() === "portrait" ? "landscape_left" : "portrait",
+          });
+        else if (input.key === "home") this.options.send(4, { button: "home" });
+        else if (input.key === "power")
+          this.options.send(4, { button: "power", ...hardwareButtons.power });
+        else if (
+          input.key === "volumeUp" ||
+          input.key === "volumeDown" ||
+          input.key === "action" ||
+          input.key === "side"
+        )
+          this.options.send(4, hardwareButtons[input.key]);
+        else refuseSimulatorKey(input.key);
+        return;
+      } else typed = "\n";
     }
     const typing = this.options.runtime.spawn({
       command: this.options.command,
-      args: [...(this.options.commandArgs ?? []), "type", "--stdin", "-d", this.options.device],
+      // The typing arguments are ace-devices' decision under the switch.
+      args: [
+        ...(this.options.commandArgs ?? []),
+        ...(nativeInput
+          ? nativeDevices().devicePlatformTypingArgs(this.options.device)
+          : ["type", "--stdin", "-d", this.options.device]),
+      ],
       env: this.options.env,
       name: "simulator-keyboard",
     });
@@ -205,7 +238,7 @@ export class SimulatorInput {
     epoch.signal.addEventListener("abort", stop, { once: true });
     try {
       check();
-      typing.stdin.end(input.kind === "type" ? input.text : "\n");
+      typing.stdin.end(typed ?? "");
       const exit = await typing.exited;
       check();
       if (exit.code !== 0)

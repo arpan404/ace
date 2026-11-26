@@ -34,6 +34,7 @@ pub mod items;
 pub mod json_io;
 pub mod liveness;
 pub mod output_snapshot;
+pub mod person_input;
 pub mod reconciled_item;
 mod record_json;
 pub mod reduce;
