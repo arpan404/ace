@@ -79,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
  "ace-json",
+ "ace-redaction",
  "ace-supervisor",
  "indexmap",
  "serde",

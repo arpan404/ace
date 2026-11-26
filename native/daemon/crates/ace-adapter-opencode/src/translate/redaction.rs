@@ -4,8 +4,14 @@
 //! value with nothing to redact or bound is borrowed as is, since this runs
 //! on every event and most evidence holds no secret. Recursion is bounded at
 //! 12 levels, lists and objects at 2,048 entries.
+//!
+//! Credential shapes and secret-key names are `ace-redaction`'s: this module
+//! keeps only the walk, the bounds and the ephemeral secrets the session owns,
+//! so a shape added for another caller cannot leak here
+//! (`docs/engine/behaviour.md` §20).
 
 use ace_json::{Map, Value};
+use ace_redaction::{is_secret_key, redact_with_marker};
 use std::borrow::Cow;
 
 const MAX_STRING: usize = 1 << 20;
@@ -128,7 +134,7 @@ fn sanitize_object<'a, S: AsRef<str>>(
     }
 }
 
-/// Replace listed secrets and authorization credentials.
+/// Replace listed secrets and every credential shape `ace-redaction` knows.
 fn sanitize_text<'a, S: AsRef<str>>(text: &'a str, secrets: &[S]) -> Cow<'a, str> {
     let mut current = Cow::Borrowed(text);
     for secret in secrets {
@@ -137,129 +143,10 @@ fn sanitize_text<'a, S: AsRef<str>>(text: &'a str, secrets: &[S]) -> Cow<'a, str
             current = Cow::Owned(current.replace(secret, "[redacted]"));
         }
     }
-    if has_credential(&current) {
-        current = Cow::Owned(redact_credentials(&current));
+    match redact_with_marker(&current, "[redacted]") {
+        Some(redacted) => Cow::Owned(redacted),
+        None => current,
     }
-    current
-}
-
-/// Whether the text holds a `Bearer`/`Basic` credential with its token.
-fn has_credential(text: &str) -> bool {
-    credential_span(text.as_bytes(), 0).is_some()
-}
-
-/// The byte span of the first credential match at or after `from`.
-fn credential_span(bytes: &[u8], from: usize) -> Option<(usize, usize)> {
-    let mut index = from;
-    while index < bytes.len() {
-        let keyword = if matches_word(bytes, index, b"bearer") {
-            Some(6)
-        } else if matches_word(bytes, index, b"basic") {
-            Some(5)
-        } else {
-            None
-        };
-        if let Some(len) = keyword {
-            let mut next = index + len;
-            let after_keyword = next;
-            while matches!(bytes.get(next), Some(b' ' | b'\t' | b'\n' | b'\r' | 0x0C)) {
-                next += 1;
-            }
-            // The pattern needs whitespace between the scheme and its token.
-            if next == after_keyword {
-                index += 1;
-                continue;
-            }
-            let start = next;
-            while let Some(byte) = bytes.get(next) {
-                if byte.is_ascii_alphanumeric()
-                    || matches!(byte, b'+' | b'/' | b'_' | b'=' | b'.' | b'-')
-                {
-                    next += 1;
-                } else {
-                    break;
-                }
-            }
-            if next > start {
-                return Some((index, next));
-            }
-            index += 1;
-        } else {
-            index += 1;
-        }
-    }
-    None
-}
-
-/// ASCII case-insensitive word match bounded to ASCII letters around it.
-fn matches_word(bytes: &[u8], at: usize, word: &[u8]) -> bool {
-    if at + word.len() > bytes.len() {
-        return false;
-    }
-    bytes[at..at + word.len()]
-        .iter()
-        .zip(word.iter())
-        .all(|(a, b)| a.to_ascii_lowercase() == *b)
-}
-
-fn redact_credentials(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = String::with_capacity(text.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        match credential_span(bytes, index) {
-            Some((start, end)) => {
-                out.push_str(&text[index..start]);
-                out.push_str("[redacted]");
-                index = end;
-            }
-            None => {
-                out.push_str(&text[index..]);
-                break;
-            }
-        }
-    }
-    out
-}
-
-/// The TypeScript secret-key pattern, matched case-insensitively:
-/// authorization, password, cookie, api.?key, credential, access.?token,
-/// refresh.?token, headers, settings, providerState, resultState,
-/// encryptedContent, and exactly `native`.
-fn is_secret_key(key: &str) -> bool {
-    let lower = key.to_lowercase();
-    let text = lower.as_str();
-    text.contains("authorization")
-        || text.contains("password")
-        || text.contains("cookie")
-        || has_suffixed(text, "api", "key")
-        || text.contains("credential")
-        || has_suffixed(text, "access", "token")
-        || has_suffixed(text, "refresh", "token")
-        || text.contains("headers")
-        || text.contains("settings")
-        || text.contains("providerstate")
-        || text.contains("resultstate")
-        || text.contains("encryptedcontent")
-        || text == "native"
-}
-
-/// `head` plus an optional single character plus `tail`, like `api.?key`.
-fn has_suffixed(text: &str, head: &str, tail: &str) -> bool {
-    let mut search = 0;
-    while let Some(found) = text[search..].find(head) {
-        let rest = &text[search + found + head.len()..];
-        if rest.starts_with(tail) {
-            return true;
-        }
-        if let Some(next) = rest.get(..1)
-            && rest[next.len()..].starts_with(tail)
-        {
-            return true;
-        }
-        search += found + head.len();
-    }
-    false
 }
 
 #[cfg(test)]
@@ -328,6 +215,24 @@ mod tests {
             evidence["output"][1],
             json!("curl -H 'Authorization: Bearer abc.def-1'")
         );
+    }
+
+    /// Every credential shape `ace-redaction` owns is redacted here too: provider
+    /// tokens, assignments and the union's secret-key names, with ordinary fields kept.
+    #[test]
+    fn every_credential_shape_ace_redaction_knows_is_redacted_here() {
+        let evidence = json!({
+            "note": "pushed with ghp_12345678901234567890",
+            "command": "env TOKEN=ghp_abcdefghijklmnopqrstuvwxyz",
+            "settings": { "value": "kept-hidden" },
+            "header": "kept",
+        });
+        let clean = sanitize(&evidence, &[] as &[&str]).into_owned();
+        let text = ace_json::ser::to_string(&clean).expect("sanitized evidence serializes");
+        assert!(!text.contains("ghp_12345678901234567890"), "{text}");
+        assert!(!text.contains("ghp_abcdefghijklmnopqrstuvwxyz"), "{text}");
+        assert!(!text.contains("kept-hidden"), "{text}");
+        assert!(text.contains("\"header\":\"kept\""), "{text}");
     }
 
     /// Evidence is bounded to 2,048 entries per list or object and 12 levels.
