@@ -4,10 +4,7 @@
 
 use ace_json::Value;
 
-/// The largest message a create may carry (`maxMessageBytes`).
-const MAX_MESSAGE_BYTES: usize = 256 * 1024;
-/// The most parts one message may carry.
-const MAX_PARTS: usize = 64;
+use crate::rules::{MAX_MESSAGE_BYTES, MAX_PARTS};
 
 /// What validation reads from the engine and its edges.
 pub trait CreationFacts {

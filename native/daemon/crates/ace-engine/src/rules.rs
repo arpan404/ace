@@ -5,6 +5,13 @@
 
 use ace_json::Value;
 
+/// `maxMessageBytes` (`@ace/protocol` `message-limits.ts:8`): the largest serialized message a
+/// send or create may carry, and the largest command a queue admission takes.
+pub const MAX_MESSAGE_BYTES: usize = 256 * 1024;
+
+/// The most parts one message may carry (`handler.ts:166`): the receipt's own bound.
+pub const MAX_PARTS: usize = 64;
+
 /// `goal-change.ts:14`: the thread's goal after a provider report.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GoalChange {

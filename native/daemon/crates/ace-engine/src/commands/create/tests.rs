@@ -122,3 +122,37 @@ fn details_for(p: &Value, cwd: &str) -> Value {
     }
     Value::Object(out)
 }
+
+/// The bytes the TypeScript engine stores for the same thread: `Thread.parse`'s own key order,
+/// from `tests/fixtures/thread-created.json`. A key this build writes elsewhere breaks it.
+#[test]
+fn the_stored_thread_is_the_bytes_the_typescript_engine_writes() {
+    let selection = value(r#"{"provider":"codex","model":"gpt-5","options":{"effort":"high"}}"#);
+    let new = NewThread {
+        id: "thread-1",
+        access: None,
+        workspace_id: "workspace-1",
+        title: "Fix the queue hold".into(),
+        title_source: "provisional",
+        selection,
+        cwd: "/tmp/work",
+        workspace_ready: false,
+        at: 5.0,
+        silence_ms: 1_000.0,
+        backend: None,
+        capabilities: None,
+        acp_identity: None,
+        handoff: None,
+        details: value(
+            r#"{"workspace":{"id":"workspace-1","name":"Workspace","path":"/tmp/work"},"mode":"local","worktree":"/tmp/work"}"#,
+        ),
+        live: value(
+            r#"{"provider":"codex","model":"gpt-5","account":"acct","options":{"effort":"high"},"subagentCount":0,"backgroundTaskCount":0}"#,
+        ),
+        unprepared: false,
+    };
+    let permission = value(r#"{"override":"ask","effective":"ask","pending":false}"#);
+    let written = ace_json::to_string(&thread_json(&new, &permission));
+    let fixture = include_str!("../../../tests/fixtures/thread-created.json");
+    assert_eq!(written, fixture.trim_end());
+}

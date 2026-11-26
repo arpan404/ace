@@ -8,16 +8,21 @@
 use ace_core::reduce::FactBatch;
 use ace_core::state::{ApplyContext, IdSource};
 use ace_json::Value;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use crate::repository::apply::{FoldedFrame, ended_root_run};
 use crate::repository::collaborators::{
     AccessFacts, FrameFacts, InputFacts, MoveFacts, SessionFacts,
 };
-use crate::snapshot::Snapshot;
 use crate::{EngineError, EngineStore, State};
+
+mod helpers;
+mod hydrate;
+mod run_trigger;
+mod settle;
+
+use helpers::{events_of, needs_shaping, text_carrier};
+pub(super) use helpers::{kind, set, text_field};
 
 pub(crate) struct StoreIds<'a>(&'a EngineStore);
 
@@ -32,35 +37,7 @@ impl IdSource for StoreIds<'_> {
     }
 }
 
-pub(super) fn kind(value: &Value) -> &str {
-    value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-}
-
-pub(super) fn text_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str)
-}
-
-/// Text as JSON carries it, a lone surrogate included (`JsString::to_rust`).
-pub(super) fn text_carrier(value: &Value, key: &str) -> Option<String> {
-    match value.get(key) {
-        Some(Value::String(text)) => Some(text.to_rust().into_owned()),
-        _ => None,
-    }
-}
-
 impl State {
-    fn root_key(&self, snapshot: &Rc<RefCell<Snapshot>>) -> String {
-        snapshot
-            .borrow()
-            .state
-            .root_key
-            .clone()
-            .unwrap_or_else(|| "root".to_owned())
-    }
-
     /// `foldProviderFacts` (`provider-facts.ts:32`).
     pub(crate) fn fold_frame(
         &mut self,
@@ -78,25 +55,7 @@ impl State {
         let root = self.root_key(&snapshot);
         let facts = Self::facts(facts_json)?;
         let facts = self.coalesce_facts(facts)?;
-        {
-            // The lazy sections are the one record cache: load what this batch names so the
-            // core folds onto the stored records, then hand the changes back in `save`.
-            let named = crate::snapshot::touched::Touched::values(&facts, &[]);
-            snapshot.borrow_mut().hydrate(&named)?;
-            // A native turn id names a stored run: a replay of `turn.started` must find it.
-            let turns: Vec<(String, String)> = facts
-                .iter()
-                .filter_map(|fact| {
-                    Some((
-                        text_field(fact, "agent")?.to_owned(),
-                        text_field(fact, "nativeTurnId")?.to_owned(),
-                    ))
-                })
-                .collect();
-            for (agent, native) in turns {
-                snapshot.borrow_mut().hydrate_native_run(&agent, &native)?;
-            }
-        }
+        self.hydrate_facts(&snapshot, &facts)?;
         let replayed = if opening {
             self.fork_replay_source(id)?
         } else {
@@ -232,23 +191,7 @@ impl State {
                 events.extend(events_of(&core_events));
             }
             self.interactions_opened(id, &fact, generation)?;
-            for event in events.clone() {
-                if kind(&event) == "interaction.closed" {
-                    let settled = self.interactions_closed(&event)?;
-                    let mut ids = StoreIds(store);
-                    let mut context = ApplyContext {
-                        now: now as i64,
-                        ids: &mut ids,
-                        resolving_interactions: None,
-                    };
-                    let mut core_events = Vec::new();
-                    let mut borrowed = snapshot.borrow_mut();
-                    for fact in settled {
-                        batch.apply(&mut borrowed.state, &fact, &mut context, &mut core_events);
-                    }
-                    events.extend(events_of(&core_events));
-                }
-            }
+            self.settle_interactions(store, &snapshot, &mut batch, &mut events, now)?;
             self.interactions_observe(id, &events)?;
             if let Some(takes) = start_takes_input {
                 for event in &events {
@@ -338,56 +281,5 @@ impl State {
             .borrow_mut()
             .update_deadlines(&raw_facts, &emitted, now as i64);
         Ok(FoldedFrame::new(snapshot, &raw_facts, emitted))
-    }
-
-    /// `provider-facts.ts:131`-`:137`: a root turn's run trigger says why it ended.
-    fn root_turn_trigger(
-        &mut self,
-        snapshot: &Rc<RefCell<Snapshot>>,
-        fact: &Value,
-    ) -> Option<String> {
-        let borrowed = snapshot.borrow();
-        let record = borrowed.state.agents.get(&self.root_key(snapshot))?;
-        let run_id = match fact.get("nativeTurnId").and_then(Value::as_str) {
-            Some(native) => record
-                .native_runs
-                .as_ref()
-                .and_then(|runs| runs.get(native))
-                .cloned(),
-            None => record.active_run.clone(),
-        }?;
-        let run = borrowed.state.runs.get(&run_id)?;
-        ["spawn", "parent_agent", "subagent_result", "schedule"]
-            .contains(&run.trigger.as_str())
-            .then(|| run.trigger.clone())
-    }
-}
-
-pub(super) fn set(value: &mut Value, key: &str, next: Value) {
-    if let Some(object) = value.as_object_mut() {
-        object.insert(key, next);
-    }
-}
-
-fn needs_shaping(fact: &Value) -> bool {
-    match kind(fact) {
-        "item.upsert" | "item.reconciled" => {
-            fact.get("draft")
-                .and_then(|draft| draft.get("type"))
-                .and_then(Value::as_str)
-                == Some("notice")
-        }
-        "turn.ended" => fact.get("error").is_some(),
-        "process.exited" => fact.get("message").is_some(),
-        _ => false,
-    }
-}
-
-fn events_of(events: &[ace_core::emit::Event]) -> Vec<Value> {
-    let mut json = String::new();
-    ace_core::event_json::write_events(events, &mut json);
-    match ace_json::parse(&json) {
-        Ok(Value::Array(items)) => items.into_vec(),
-        _ => Vec::new(),
     }
 }
