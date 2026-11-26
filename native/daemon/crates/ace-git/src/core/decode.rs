@@ -245,6 +245,19 @@ mod tests {
     }
 
     #[test]
+    fn an_absolute_path_is_non_empty_and_its_bound_counts_code_points() {
+        assert_eq!(
+            absolute_path_schema("/repos/\u{1F600}").as_deref(),
+            Some("/repos/\u{1F600}")
+        );
+        // One emoji is one code point: the bound of 1 accepts it.
+        assert!(absolute_path_schema("/\u{1F600}").is_some());
+        for bad in ["", "relative/path", "/a\0b", "\u{1F600}"] {
+            assert_eq!(absolute_path_schema(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
     fn refs_refuse_control_characters_sequences_and_lock_components() {
         assert_eq!(
             ref_schema("refs/heads/main").as_deref(),
