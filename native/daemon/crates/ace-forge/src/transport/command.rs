@@ -312,6 +312,8 @@ impl SupervisedRunner {
                     kind: Kind::Cli,
                     retry_at: None,
                     dispatched: Some(false),
+                    receipt: None,
+                    status: None,
                 });
             }
         };

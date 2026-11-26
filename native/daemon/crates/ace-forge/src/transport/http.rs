@@ -112,8 +112,18 @@ impl<'a> GhApi<'a> {
             on_write();
         }
         let outcome = self
-            .send(path, &input, method, write, cancellation, dispatch)
+            .send(path, &input, method, write, cancellation, dispatch.clone())
             .await;
+        // Every error of a write is the dispatch's to classify (`http.ts:133-141`).
+        let outcome = if write {
+            outcome.map_err(|error| dispatch.failure(error))
+        } else {
+            outcome
+        };
+        if write {
+            self.cache.lock().expect("cache lock").clear();
+            *self.cache_bytes.lock().expect("cache bytes lock") = 0;
+        }
         if write && let Some(on_write) = &self.on_write {
             on_write();
         }
@@ -198,31 +208,79 @@ impl<'a> GhApi<'a> {
             return Err(no_response(&output, &dispatch));
         };
         let header_text = &output.stdout[..split];
-        let status = status_of(header_text).ok_or_else(|| no_response(&output, &dispatch))?;
+        // A reply with headers but no status line is unreadable, never a sign-in answer.
+        let status = status_of(header_text).ok_or_else(|| ForgeError::new(Kind::InvalidData))?;
+        if !(100..=599).contains(&status) {
+            return Err(ForgeError::new(Kind::InvalidData));
+        }
         let headers = headers_of(header_text);
         let retry_at = rate_limit_retry_at(&headers, (self.now)());
         let text = &output.stdout[split..];
-        // A 304 carries no body: the cached page is the answer, with fresh headers.
-        if status == 304
-            && let Some(mut cached) = cached
-        {
-            cached.headers = safe_headers(&headers);
+        // A 304 carries no body: the cached page is the answer. It keeps the validators and
+        // `Link` the cached page held, and takes only a fresh `x-poll-interval`.
+        if status == 304 {
+            let Some(mut cached) = cached else {
+                return Err(ForgeError::new(Kind::InvalidData));
+            };
+            if let Some(polled) = safe_headers(&headers)
+                .into_iter()
+                .find(|(name, _)| name == "x-poll-interval")
+            {
+                cached.headers.retain(|(name, _)| name != "x-poll-interval");
+                cached.headers.push(polled);
+            }
             self.retain(cache_key, cached.clone());
             return Ok(cached);
         }
-        if status == 401 || status == 403 {
+        if status == 429 {
             dispatch.reject();
-            return Err(ForgeError::not_dispatched(Kind::Forbidden));
+            return Err(ForgeError::retry_at(Kind::RateLimit, retry_at));
+        }
+        if status == 401 || status == 403 {
+            // A 403 is a limit before it is a sign-in answer (`http.ts:208-234`).
+            let limited = headers_get(&headers, "x-ratelimit-remaining") == Some("0")
+                || headers_get(&headers, "retry-after").is_some()
+                || rate_limited_body(text);
+            if limited {
+                dispatch.reject();
+                return Err(ForgeError::retry_at(Kind::RateLimit, retry_at));
+            }
+            dispatch.reject();
+            return Err(ForgeError::refused(Kind::Forbidden, status));
         }
         if status == 404 {
             dispatch.reject();
             return Err(ForgeError::not_dispatched(Kind::NotFound));
         }
-        if status == 429
-            || (status == 403 && headers_get(&headers, "x-ratelimit-remaining") == Some("0"))
-        {
+        if status == 422 {
             dispatch.reject();
-            return Err(ForgeError::retry_at(Kind::RateLimit, retry_at));
+            return Err(ForgeError::not_dispatched(unprocessable_kind(text)));
+        }
+        if status == 405 && method == "PUT" && merge_path(path) {
+            dispatch.reject();
+            return Err(ForgeError::not_dispatched(Kind::Conflict));
+        }
+        if status == 409 {
+            // A guarded write's expected state no longer holds; a native merge acknowledgement
+            // is the one 409 that is a result, not a refusal.
+            if let Some((state, uuid)) = merge_operation(text)
+                && (state != "uncertain" || uuid.is_some())
+            {
+                let body: Value = ace_json::parse(text).unwrap_or(Value::Null);
+                let page = Page {
+                    body: redact_data(&body),
+                    headers: safe_headers(&headers),
+                    bytes: text.len(),
+                    version: sha256_hex(text),
+                    identity_changed: output.identity_changed,
+                };
+                if reusable {
+                    self.retain(cache_key, page.clone());
+                }
+                return Ok(page);
+            }
+            dispatch.reject();
+            return Err(ForgeError::not_dispatched(Kind::Conflict));
         }
         if path == "graphql" {
             if output.truncated {
@@ -267,9 +325,13 @@ impl<'a> GhApi<'a> {
     }
 
     fn retain(&self, key: String, page: Page) {
+        // A page bigger than the whole cache is never retained, as the TypeScript skips it.
+        if page.bytes > CACHE_BUDGET_BYTES.saturating_sub(1) {
+            return;
+        }
         let mut cache = self.cache.lock().expect("cache lock");
         let mut bytes = self.cache_bytes.lock().expect("cache bytes lock");
-        if bytes.saturating_add(page.bytes) > CACHE_BUDGET_BYTES {
+        if cache.len() >= 128 || bytes.saturating_add(page.bytes) > CACHE_BUDGET_BYTES {
             cache.clear();
             *bytes = 0;
         }
@@ -354,7 +416,7 @@ fn safe_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
             .chars()
             .all(|character| (' '..='~').contains(&character));
         let keep = match name.as_str() {
-            "etag" => printable && value.len() <= 512,
+            "etag" => printable && !value.is_empty() && value.len() <= 512,
             "link" => true,
             "last-modified" => printable && value.len() <= 128,
             "x-poll-interval" => {
@@ -456,34 +518,129 @@ fn assert_graphql_result(
     } else if query && !refused && only_missing_fields(data, errors) {
         return Ok(());
     } else {
-        ForgeError::new(Kind::InvalidData)
+        // Unrecognised errors prove nothing about a write: it stays uncertain.
+        return Err(ForgeError::new(Kind::InvalidData));
     };
-    let _ = error;
     dispatch.reject();
     Err(error)
 }
 
 /// A read may name missing fields (a deleted PR among many aliases); the rest is valid.
 fn only_missing_fields(data: Option<&Value>, errors: &[Value]) -> bool {
-    let Some(Value::Object(fields)) = data else {
+    let Some(data) = data else {
         return false;
     };
     !errors.is_empty()
         && errors.iter().all(|error| {
-            let Some(path) = error
-                .as_object()
-                .and_then(|fields| fields.get("path"))
-                .and_then(|path| path.as_array())
-            else {
+            let Some(fields) = error.as_object() else {
                 return false;
             };
-            match path.first() {
-                Some(Value::String(root)) => fields
-                    .get(root.as_str())
-                    .is_some_and(|value| *value == Value::Null),
-                _ => false,
+            if fields.get("type").and_then(|kind| kind.as_str()) != Some("NOT_FOUND") {
+                return false;
             }
+            let Some(path) = fields.get("path").and_then(|path| path.as_array()) else {
+                return false;
+            };
+            if path.is_empty() || path.len() > 32 {
+                return false;
+            }
+            let mut value = data;
+            for step in path {
+                match step {
+                    Value::String(key) => {
+                        match value
+                            .as_object()
+                            .and_then(|fields| fields.get(key.as_str()))
+                        {
+                            Some(next) => value = next,
+                            None => return false,
+                        }
+                    }
+                    Value::Number(number) => match number
+                        .as_i64()
+                        .and_then(|index| usize::try_from(index).ok())
+                        .and_then(|index| value.as_array().and_then(|items| items.get(index)))
+                    {
+                        Some(next) => value = next,
+                        None => return false,
+                    },
+                    _ => return false,
+                }
+            }
+            *value == Value::Null
         })
+}
+
+/// `unprocessableKind`: the host's reason, as the fixed categories name it.
+fn unprocessable_kind(text: &str) -> Kind {
+    static NO_COMMITS: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)no commits between|must have at least one commit").expect("compiles")
+    });
+    static PR_EXISTS: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)already exists|A pull request already").expect("compiles")
+    });
+    static CONFLICT: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)not mergeable|merge conflict|stale").expect("compiles")
+    });
+    let message = body_message(text);
+    if NO_COMMITS.is_match(&message) {
+        Kind::NoCommits
+    } else if PR_EXISTS.is_match(&message) {
+        Kind::PrExists
+    } else if CONFLICT.is_match(&message) {
+        Kind::Conflict
+    } else {
+        Kind::Unprocessable
+    }
+}
+
+/// `repos/<owner>/<name>/pulls/<n>/merge`.
+fn merge_path(path: &str) -> bool {
+    static MERGE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^repos/[\w.-]+/[\w.-]+/pulls/[1-9]\d*/merge$").expect("compiles")
+    });
+    MERGE.is_match(path)
+}
+
+/// The native merge-operation body a 409 may carry (`decodeStackMergeOperation`).
+fn merge_operation(text: &str) -> Option<(String, Option<String>)> {
+    let body = ace_json::parse(text).ok()?;
+    let fields = body.as_object()?;
+    let state = fields.get("state")?.as_str()?.to_owned();
+    if !matches!(
+        state.as_str(),
+        "merged" | "queued" | "already_merged" | "uncertain"
+    ) {
+        return None;
+    }
+    Some((
+        state,
+        fields
+            .get("uuid")
+            .and_then(|uuid| uuid.as_str())
+            .map(str::to_owned),
+    ))
+}
+
+/// A 403 body that says the host rate-limited the request (`http.ts:214`).
+fn rate_limited_body(text: &str) -> bool {
+    static LIMITED: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)secondary rate limit|rate limit exceeded|abuse detection")
+            .expect("compiles")
+    });
+    LIMITED.is_match(&body_message(text))
+}
+
+/// A reply's `message`, or the text itself when it is not a JSON body.
+fn body_message(text: &str) -> String {
+    ace_json::parse(text)
+        .ok()
+        .and_then(|body| {
+            body.as_object()
+                .and_then(|fields| fields.get("message"))
+                .and_then(|message| message.as_str().map(str::to_owned))
+        })
+        .unwrap_or_else(|| text.to_owned())
 }
 
 fn sha256_hex(text: &str) -> String {
@@ -559,6 +716,10 @@ mod tests {
             >,
         > {
             Box::pin(async move {
+                if let Some(dispatch) = &request.dispatch {
+                    dispatch.prepare();
+                    dispatch.record();
+                }
                 self.seen.lock().expect("seen").push(request);
                 Ok(self.replies.lock().expect("replies").remove(0))
             })
@@ -620,7 +781,7 @@ mod tests {
                 .await
                 .expect("the cached page");
             assert_eq!(second.body, first.body);
-            assert_eq!(second.header("etag"), Some("\"v2\""));
+            assert_eq!(second.header("etag"), Some("\"v1\""));
             let seen = stub.seen.lock().expect("seen");
             assert!(
                 seen[1]
@@ -739,6 +900,244 @@ mod tests {
         assert!(text.contains(r#""value":2"#), "{text}");
         assert!(!text.contains("ghp_keyone"), "{text}");
         assert!(text.contains("[REDACTED]#1"), "{text}");
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn write<'a>(
+        api_client: &'a GhApi<'a>,
+        path: &str,
+        body: ace_json::Value,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = (
+                        Result<Page, crate::transport::error::ForgeError>,
+                        std::sync::Arc<crate::transport::mutation::MutationDispatch>,
+                    ),
+                > + 'a,
+        >,
+    > {
+        let dispatch = std::sync::Arc::new(crate::transport::mutation::MutationDispatch::new(None));
+        let path = path.to_owned();
+        Box::pin(async move {
+            let outcome = api_client
+                .request(&path, Some(body), None, None, dispatch.clone())
+                .await;
+            (outcome, dispatch)
+        })
+    }
+
+    #[test]
+    fn an_unrecognised_graphql_error_leaves_a_mutation_uncertain() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            for reply in [
+                api(r#"{"data":{"ok":true},"errors":[{"message":"boom"}]}"#, ""),
+                String::from("HTTP/2.0 200 OK\r\n\r\nnot json"),
+            ] {
+                let stub = stub(&[reply.as_str()]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let (outcome, dispatch) =
+                    write(&api_client, "graphql", json!({ "query": "mutation { x }" })).await;
+                let error = outcome.expect_err("uncertain");
+                assert_eq!(error.kind, Kind::OutcomeUncertain);
+                assert!(!dispatch.definitely_failed(), "the write must stay fenced");
+            }
+        });
+    }
+
+    #[test]
+    fn a_mutation_that_fails_after_dispatch_is_uncertain() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = stub(&["HTTP/2.0 502 Bad Gateway\r\n\r\n{\"message\":\"bad\"}"]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let (outcome, dispatch) = write(
+                    &api_client,
+                    "repos/octo/ace/issues/1/comments",
+                    json!({ "body": "x" }),
+                )
+                .await;
+                assert_eq!(outcome.expect_err("uncertain").kind, Kind::OutcomeUncertain);
+                assert!(!dispatch.definitely_failed());
+            });
+    }
+
+    #[test]
+    fn a_refused_pr_create_names_its_reason_and_is_certain() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = stub(&[
+                    &api(r#"{"message":"No commits between main and work"}"#, "")
+                        .replace("200 OK", "422 Unprocessable"),
+                ]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let dispatch =
+                    std::sync::Arc::new(crate::transport::mutation::MutationDispatch::new(None));
+                let outcome = api_client
+                    .request(
+                        "repos/octo/ace/pulls",
+                        Some(json!({ "title": "x", "head": "work", "base": "main" })),
+                        None,
+                        None,
+                        dispatch.clone(),
+                    )
+                    .await;
+                assert_eq!(outcome.expect_err("refused").kind, Kind::NoCommits);
+                assert!(dispatch.definitely_failed());
+            });
+    }
+
+    #[test]
+    fn a_merge_refused_with_405_is_a_conflict() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let stub = stub(&[&api(r#"{"message":"Pull Request is not mergeable"}"#, "")
+                    .replace("200 OK", "405 Method Not Allowed")]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let dispatch =
+                    std::sync::Arc::new(crate::transport::mutation::MutationDispatch::new(None));
+                let outcome = api_client
+                    .request(
+                        "repos/octo/ace/pulls/7/merge",
+                        Some(json!({ "merge_method": "squash" })),
+                        Some("PUT"),
+                        None,
+                        dispatch.clone(),
+                    )
+                    .await;
+                assert_eq!(outcome.expect_err("refused").kind, Kind::Conflict);
+                assert!(dispatch.definitely_failed());
+            });
+    }
+
+    #[test]
+    fn a_secondary_rate_limit_403_is_rate_limited_before_forbidden() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let limited = stub(&[&api(
+                    r#"{"message":"You have exceeded a secondary rate limit"}"#,
+                    "Retry-After: 30\r\n",
+                )
+                .replace("200 OK", "403 Forbidden")]);
+                let api_client =
+                    GhApi::new(&limited, "github.com", std::sync::Arc::new(|| 1_000.0));
+                let error = api_client
+                    .request("user", None, None, None, Default::default())
+                    .await
+                    .expect_err("limited");
+                assert_eq!(error.kind, Kind::RateLimit);
+                assert_eq!(error.retry_at, Some(31_000.0));
+                let forbidden =
+                    stub(&[&api(r#"{"message":"Bad credentials"}"#, "")
+                        .replace("200 OK", "403 Forbidden")]);
+                let api_client =
+                    GhApi::new(&forbidden, "github.com", std::sync::Arc::new(|| 1_000.0));
+                let error = api_client
+                    .request("user", None, None, None, Default::default())
+                    .await
+                    .expect_err("forbidden");
+                assert_eq!(error.kind, Kind::Forbidden);
+                assert_eq!(error.status, Some(403));
+            });
+    }
+
+    #[test]
+    fn a_304_keeps_the_cached_link_header() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let first = api(
+                    r#"[]"#,
+                    "ETag: \"v1\"\r\nLink: <https://api.github.com/x?page=2>; rel=\"next\"\r\n",
+                );
+                let stub = stub(&[
+                    first.as_str(),
+                    "HTTP/2.0 304 Not Modified\r\nETag: \"v2\"\r\nX-Poll-Interval: 60\r\n\r\n",
+                ]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                api_client
+                    .request("user/repos", None, None, None, Default::default())
+                    .await
+                    .expect("first");
+                let second = api_client
+                    .request("user/repos", None, None, None, Default::default())
+                    .await
+                    .expect("cached");
+                assert!(second.header("link").is_some(), "{:?}", second.headers);
+                assert_eq!(second.header("etag"), Some("\"v1\""));
+                assert_eq!(second.header("x-poll-interval"), Some("60"));
+            });
+    }
+
+    #[test]
+    fn an_authorisation_error_path_is_not_a_missing_field() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let body = api(
+                    r#"{"data":{"r0":null},"errors":[{"type":"FORBIDDEN","path":["r0"]}]}"#,
+                    "",
+                );
+                let stub = stub(&[body.as_str()]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                let error = api_client
+                    .request(
+                        "graphql",
+                        Some(json!({ "query": "query { r0 }" })),
+                        None,
+                        None,
+                        Default::default(),
+                    )
+                    .await
+                    .expect_err("refused");
+                assert_eq!(error.kind, Kind::Forbidden);
+            });
+    }
+
+    #[test]
+    fn a_missing_field_across_a_nested_path_is_tolerated() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+                let body = api(
+                    r#"{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"]}]}"#,
+                    "",
+                );
+                let stub = stub(&[body.as_str()]);
+                let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+                api_client
+                    .request(
+                        "graphql",
+                        Some(json!({ "query": "query { repository { pullRequest } }" })),
+                        None,
+                        None,
+                        Default::default(),
+                    )
+                    .await
+                    .expect("a read may name a missing field");
+            });
     }
 
     #[test]
