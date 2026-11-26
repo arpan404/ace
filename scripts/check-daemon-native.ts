@@ -38,6 +38,12 @@ execFileSync("bun", ["scripts/generate-transport-routes.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+// The event database's steps come from `migrations.ts` too: a home either daemon writes is
+// written the same way, so `ace-daemon-bin` and the Bun daemon open each other's (ADR 0226 §8).
+execFileSync("bun", ["scripts/generate-rust-schema.ts", "--check"], {
+  cwd: root,
+  stdio: "inherit",
+});
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),

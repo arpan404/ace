@@ -48,6 +48,9 @@ pub struct StoreError {
     pub message: String,
     /// SQLITE_BUSY or SQLITE_LOCKED: the one failure the schedule retries.
     pub busy: bool,
+    /// A database another ace build wrote, in a layout this one does not read:
+    /// the daemon stops with `incompatible-data` rather than a plain failure.
+    pub incompatible: bool,
 }
 
 impl StoreError {
@@ -57,6 +60,18 @@ impl StoreError {
             path: path.to_path_buf(),
             message: error.to_string(),
             busy: sqlite_busy(error),
+            incompatible: false,
+        }
+    }
+
+    /// A database the schema refused (`migrations.ts`'s `IncompatibleDataError`) or a step SQLite
+    /// would not run. Only the refusal is another build's data.
+    fn schema(path: &Path, error: ace_store::schema::SchemaError) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            message: error.to_string(),
+            busy: false,
+            incompatible: error.refusal().is_some(),
         }
     }
 }
@@ -95,6 +110,10 @@ impl Store {
         connection
             .exec(&open_pragmas(busy_timeout_ms))
             .map_err(|error| StoreError::sqlite(&path, &error))?;
+        // The same schema the Bun daemon writes, so either opens the other's home (ADR 0226 §8).
+        // An up-to-date home costs one read here.
+        ace_store::schema::migrate(&connection)
+            .map_err(|error| StoreError::schema(&path, error))?;
         Ok(Self { connection })
     }
 
@@ -235,6 +254,7 @@ mod tests {
                     path: PathBuf::from("/nowhere"),
                     message: "not a database".to_owned(),
                     busy: false,
+                    incompatible: false,
                 })
             },
             &[1_000, 1_000],
@@ -268,7 +288,7 @@ mod opening {
     /// `store-open.process.test.ts`: opening a home makes no history-sized pass:
     /// the pragmas are set and no table is created or read.
     #[test]
-    fn opening_a_fresh_home_sets_the_pragmas_and_creates_no_table() {
+    fn opening_a_fresh_home_sets_the_pragmas_and_writes_the_schema() {
         let home = TempDir::new("ace-store-open");
         let store = Store::open(home.path());
         assert!(store.is_ok(), "a fresh home opens");
@@ -280,13 +300,24 @@ mod opening {
             .and_then(|statement| statement.step().ok().flatten())
             .and_then(|row| row.first().cloned());
         assert_eq!(journal, Some(ace_store::Value::Text("wal".to_owned())));
-        let tables = store
+        // The home is the one the Bun daemon writes (ADR 0226 §8): every step ran and the
+        // version is this build's, so either daemon opens the other's without migrating it.
+        let version = store
             .connection
-            .prepare("SELECT count(*) FROM sqlite_master WHERE type='table'")
+            .prepare("SELECT version FROM schema_version WHERE id = 1")
             .ok()
             .and_then(|statement| statement.step().ok().flatten())
             .and_then(|row| row.first().cloned());
-        assert_eq!(tables, Some(ace_store::Value::Integer(0)));
+        assert_eq!(
+            version,
+            Some(ace_store::Value::Integer(ace_store::schema::version()))
+        );
+        let events = store
+            .connection
+            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'")
+            .ok()
+            .and_then(|statement| statement.step().ok().flatten());
+        assert!(events.is_some(), "the event tables exist");
         assert!(open_pragmas(5_000).contains("busy_timeout=5000"));
         store.close();
         assert!(home.path().join("events.sqlite").exists());

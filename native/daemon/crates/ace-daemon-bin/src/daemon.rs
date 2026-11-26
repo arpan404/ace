@@ -226,7 +226,14 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
                 "Daemon startup failed",
                 serde_json::json!({"error": error.to_string()}),
             );
-            return Err(FailedStart::failed(error.to_string()));
+            return Err(if error.incompatible {
+                FailedStart {
+                    code: ExitCode::IncompatibleData,
+                    message: error.message,
+                }
+            } else {
+                FailedStart::failed(error.to_string())
+            });
         }
     };
     log.log(

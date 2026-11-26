@@ -44,18 +44,31 @@ export function daemonEnv(home: string): NodeJS.ProcessEnv {
  * the same readiness line, so a test that launches the daemon as a program can
  * prove the Rust program's wiring. Unset, nothing changes.
  */
-export function startDaemonCli(home: string, cleanups: Cleanups, preload?: string) {
-  const binary = process.env.ACE_TEST_DAEMON_BINARY;
+export function startDaemonCli(
+  home: string,
+  cleanups: Cleanups,
+  preload?: string,
+  options: {
+    /** `binary` forces ace-daemon-bin, `bun` forces the TypeScript daemon. */
+    backend?: "auto" | "bun" | "binary";
+    /** Environment on top of `daemonEnv` (the cross-mode run's LAN settings). */
+    env?: NodeJS.ProcessEnv;
+  } = {},
+) {
+  const binary = options.backend === "bun" ? undefined : process.env.ACE_TEST_DAEMON_BINARY;
+  if (options.backend === "binary" && binary === undefined)
+    throw new Error("ACE_TEST_DAEMON_BINARY is not set");
+  const env = { ...daemonEnv(home), ...options.env };
   const child = binary
     ? spawn(binary, ["start"], {
         cwd: daemonPackage,
-        env: daemonEnv(home),
+        env,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       })
     : spawn(process.execPath, [...(preload ? ["--import", preload] : []), cli, "start"], {
         cwd: daemonPackage,
-        env: daemonEnv(home),
+        env,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       });

@@ -53,11 +53,12 @@ merged.
 1. **The program and the wire's front door.**
    - Adds: configuration and environment, the home, its single-instance lock and stop ownership
      (ADR 0186, behaviour as the TS), the endpoint and token files, signals and shutdown, the
-     store's open (`ace-store`, ADR 0170: no history-sized work at open), the transport's listeners
-     serving in-process (no proxy), hello, authentication and device identity (T2), and
-     `ace serve --json`.
-   - Proof: `cold-start`, `remote-restart`, `late-setup`, the hello and auth server files, and the
-     exit codes.
+     store's open (`ace-store`, ADR 0170: no history-sized work at open) and its schema,
+     generated from `apps/daemon/src/migrations.ts` so a home either daemon writes opens in the
+     other, the transport's listeners serving in-process (no proxy), hello, authentication and
+     device identity (T2), and `ace serve --json`.
+   - Proof: `cold-start`, `remote-restart`, `late-setup`, the hello and auth server files, the
+     exit codes, and `cross-mode.process` (one home booted alternately by both daemons).
    - Needs: what exists.
 2. **A client can see its threads.**
    - Adds: subscriptions and fan-out (T3), sidebar placement, activity reads, reads to the wire
