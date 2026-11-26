@@ -61,6 +61,13 @@ pub(crate) fn home(thread: &str, header: &str) -> Arc<Connection> {
         sql_text(header)
     ))
     .unwrap();
+    // Every real thread has its session row from creation: a fold reads it for its model and
+    // native session id (E5.6's `session`).
+    conn.exec(&format!(
+        "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) \
+         VALUES ('{thread}', '/tmp', NULL, NULL, NULL, NULL, NULL)"
+    ))
+    .unwrap();
     conn
 }
 

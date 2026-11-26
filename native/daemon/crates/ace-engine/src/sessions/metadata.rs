@@ -202,6 +202,8 @@ mod tests {
     #[test]
     fn a_created_session_reads_its_row_and_starts_unprepared() {
         let conn = home("t", &header("t"));
+        // The fixture's thread has its created row; this case proves `createSession` itself.
+        conn.exec("DELETE FROM engine_sessions").expect("clear");
         let store = Shell::store(&conn);
         create_session(
             &store,
@@ -234,6 +236,7 @@ mod tests {
     #[test]
     fn an_instance_id_is_bounded_in_code_points_as_the_schema_bounds_it() {
         let conn = home("t", &header("t"));
+        conn.exec("DELETE FROM engine_sessions").expect("clear");
         let store = Shell::store(&conn);
         // 256 emoji are 512 UTF-16 units and still fit `z.string().max(256)` (rule 17).
         let emoji = "\u{1f600}".repeat(256);
@@ -256,6 +259,7 @@ mod tests {
     #[test]
     fn a_stored_backend_is_read_and_cursor_defaults_to_acp() {
         let conn = home("t", &header("t"));
+        conn.exec("DELETE FROM engine_sessions").expect("clear");
         let store = Shell::store(&conn);
         let mut state = State::default();
         state.repo.probe_passthrough = true;

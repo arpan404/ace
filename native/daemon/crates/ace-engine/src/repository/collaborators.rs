@@ -247,7 +247,7 @@ pub trait InputFacts: ProbeGate {
 /// E5.6's session facts.
 pub trait SessionFacts: ProbeGate {
     /// `session(id)`: the thread's model and native session id.
-    fn session(&mut self, _thread: &str) -> Result<SessionInfo, EngineError> {
+    fn session(&mut self, _store: &EngineStore, _thread: &str) -> Result<SessionInfo, EngineError> {
         self.not_ported("a provider session", "E5.6", SessionInfo::default())
     }
     /// `shapeProviderError`.
@@ -436,19 +436,6 @@ impl FrameFacts for State {
             fact,
             previous,
         )
-    }
-}
-impl SessionFacts for State {
-    fn observe_context(
-        &mut self,
-        store: &EngineStore,
-        thread: &str,
-        process_started: bool,
-        events: &[Value],
-        at: f64,
-        instance: Option<&str>,
-    ) -> Result<(), EngineError> {
-        self.observe_context_batch(store, thread, process_started, events, at, instance)
     }
 }
 impl AccessFacts for State {}

@@ -155,7 +155,7 @@ impl State {
             let attributed = self.attribute_input(id, correlated)?;
             let mut fact = self.attribute_ace_action(id, attributed)?;
             if needs_shaping(&fact) {
-                let model = self.session(id)?.model;
+                let model = self.session(store, id)?.model;
                 let state = snapshot.borrow();
                 fact = self.shape_provider_error(
                     fact,
