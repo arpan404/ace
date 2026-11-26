@@ -197,3 +197,40 @@ pub fn short_delta_json(event: &DeliveryEvent) -> Option<String> {
     short.insert("d", Value::Array(parts.into()));
     Some(ace_json::to_string(&Value::Object(short)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ace_json::Value;
+
+    fn interaction_event() -> DeliveryEvent {
+        let interaction = format!(
+            r#"{{"id":"i","request":{{"kind":"elicitation","server":"s","message":"m","schema":{{"blob":"{}"}}}}}}"#,
+            "x".repeat(200_000)
+        );
+        DeliveryEvent::parse(&format!(
+            r#"{{"id":"e","seq":1,"at":1,"threadId":"t","payload":{{"type":"interaction.opened","interaction":{interaction}}}}}"#
+        ))
+        .expect("parse event")
+    }
+
+    /// `wireEvent` is made once per event, however many subscriptions share it: the summary and
+    /// the encoding cache are the same allocation for every clone.
+    #[test]
+    fn an_events_wire_form_is_made_once_for_every_subscriber() {
+        let event = interaction_event();
+        let first = event.wired();
+        let second = event.clone().wired();
+        assert!(!std::ptr::eq(event.value(), first.value()));
+        assert!(std::ptr::eq(first.value(), second.value()));
+        let truncation = first
+            .value()
+            .get("payload")
+            .and_then(|payload| payload.get("interaction"))
+            .and_then(|interaction| interaction.get("truncated"));
+        assert!(
+            matches!(truncation, Some(Value::Object(_))),
+            "the wired event carries the summary"
+        );
+    }
+}
