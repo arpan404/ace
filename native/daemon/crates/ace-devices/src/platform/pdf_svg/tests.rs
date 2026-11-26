@@ -3,50 +3,8 @@
 //! stay ace-media's (ADR 0208) and are asserted by the TypeScript proof; what this crate
 //! decides is the markup ace-media is given.
 
-use std::io::Write;
-
 use super::{SvgArt, pdf_art, svg_document};
-
-/// A one-page PDF of `width` × `height` whose page draws `content` (PDF drawing operators),
-/// compressed as Apple's are. `graphics` names ExtGState entries the drawing selects with `gs`.
-/// A stand-in for the device art Xcode ships, never a copy of it.
-fn tiny_pdf(width: f64, height: f64, content: &str, graphics: &[(&str, &str)]) -> Vec<u8> {
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-    encoder
-        .write_all(content.as_bytes())
-        .expect("a test's drawing compresses");
-    let stream = encoder.finish().expect("a test's drawing compresses");
-    let states = graphics
-        .iter()
-        .map(|(name, dict)| format!("/{name} << {dict} >>"))
-        .collect::<Vec<String>>()
-        .join(" ");
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"%PDF-1.3\n");
-    bytes.extend_from_slice(
-        format!(
-            "3 0 obj\n<< /Filter /FlateDecode /Length {} >>\nstream\n",
-            stream.len()
-        )
-        .as_bytes(),
-    );
-    bytes.extend_from_slice(&stream);
-    bytes.extend_from_slice(b"\nendstream\nendobj\n");
-    bytes.extend_from_slice(
-        b"1 0 obj\n<< /Type /Page /Parent 2 0 R /Resources 4 0 R /Contents 3 0 R >>\nendobj\n",
-    );
-    bytes.extend_from_slice(
-        format!("4 0 obj\n<< /ExtGState << {states} >> >>\nendobj\n").as_bytes(),
-    );
-    bytes.extend_from_slice(
-        format!(
-            "2 0 obj\n<< /Type /Pages /MediaBox [0 0 {width} {height}] /Count 1 /Kids [ 1 0 R ] >>\nendobj\n"
-        )
-        .as_bytes(),
-    );
-    bytes.extend_from_slice(b"trailer\n<< /Root 5 0 R >>\n%%EOF\n");
-    bytes
-}
+use crate::platform::test_pdf::tiny_pdf;
 
 fn art(width: f64, height: f64, content: &str) -> SvgArt {
     pdf_art(&tiny_pdf(width, height, content, &[]), "a").expect("the drawing has art")

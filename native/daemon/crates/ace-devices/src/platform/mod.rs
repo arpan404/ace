@@ -20,6 +20,7 @@ pub mod fingers;
 pub mod helper;
 pub mod http;
 pub mod identity;
+pub mod jsnum;
 pub mod keys;
 pub mod lifecycle;
 pub mod list;
@@ -34,8 +35,14 @@ pub mod screens;
 pub mod sdk;
 pub mod serve_sim;
 pub mod simulator_ax;
+pub mod simulator_body;
+pub mod simulator_chrome;
+pub mod simulator_chrome_file;
+pub mod simulator_panels;
 pub mod simulator_ui;
 pub mod simulators;
+#[cfg(test)]
+pub mod test_pdf;
 pub mod tools;
 pub mod words;
 
