@@ -21,14 +21,7 @@ pub fn permission_key(permission: DevicePermission) -> &'static str {
 /// `permissionDenied`: which permission and how to grant it, carrying the
 /// permission on the failure so a client can offer the right fix.
 pub fn permission_denied(permission: DevicePermission) -> DeviceError {
-    let mut error = words::refusal(permission_key(permission));
-    if let DeviceError::Coded {
-        permission: slot, ..
-    } = &mut error
-    {
-        *slot = Some(permission);
-    }
-    error
+    words::refusal_with_permission(permission_key(permission), permission)
 }
 
 /// The error a screen helper or manager reported: its stable message and code.

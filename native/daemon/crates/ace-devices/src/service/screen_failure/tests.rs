@@ -122,3 +122,37 @@ fn session_limit_is_busy() {
 fn an_unknown_message_is_not_a_screen_failure() {
     assert_eq!(screen_failure(&error("something else entirely")), None);
 }
+
+#[test]
+fn a_permission_mapping_keeps_a_catalog_code_that_is_not_permission_denied() {
+    // The shared conversion carries whatever code the catalog names, so a word
+    // that is `busy` does not come back as `permission_denied`.
+    let busy = words::refusal_with_permission("screenLimit", DevicePermission::ScreenRecording);
+    assert_eq!(busy.code(), DeviceErrorCode::Busy);
+    assert_eq!(
+        busy.to_failure(None).permission,
+        Some(DevicePermission::ScreenRecording)
+    );
+
+    // The two real permission words carry their catalog code and the permission.
+    for (permission, key) in [
+        (
+            DevicePermission::ScreenRecording,
+            "permissionScreenRecording",
+        ),
+        (DevicePermission::Accessibility, "permissionAccessibility"),
+    ] {
+        let denied = permission_denied(permission);
+        let word = crate::platform::words::refusal(key);
+        assert_eq!(
+            denied.code(),
+            DeviceErrorCode::parse(word.code.as_str()).expect("a protocol code"),
+            "{key}"
+        );
+        assert_eq!(
+            denied.to_failure(None).permission,
+            Some(permission),
+            "{key}"
+        );
+    }
+}
