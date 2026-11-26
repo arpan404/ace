@@ -27,10 +27,6 @@ impl ClientError {
 pub const ACCESS_DETAIL_UTF16: usize = 512;
 /// A response past this is refused rather than buffered (`client-access.ts:185`).
 pub const RESPONSE_LIMIT: usize = 1_024 * 1_024;
-/// How long a pinned handshake may take (`client-access.ts:118`).
-pub const HANDSHAKE_TIMEOUT_MS: i64 = 10_000;
-/// The pinned socket transport closes with this code when a pin rejects (`client-access.ts:279`).
-pub const PIN_REJECTED_CLOSE: u16 = 4001;
 
 /// `accessResponseError(status)`: an auth refusal, an offline or failing daemon, or a daemon
 /// answering something else.
@@ -86,6 +82,17 @@ pub fn truncate_utf16(text: &str, units: usize) -> String {
     kept
 }
 
+pub mod link;
+pub mod pin;
+
+pub use link::{
+    LinkRefusal, PairingLink, RedeemRequest, RelayLink, parse_pairing_link, redeem_request,
+};
+pub use pin::{
+    HANDSHAKE_TIMEOUT_MS, PIN_REJECTED_CLOSE, PinRefusal, PresentedCertificate, pin_rejected_close,
+    pin_verdict, ticket_socket_origin, valid_fingerprint,
+};
+
 /// A Tailscale MagicDNS name (`mac.tailnet.ts.net`), whose certificate only that machine can get.
 pub fn tailnet_name(host: Option<&str>) -> Option<String> {
     let name = host?.to_lowercase();
@@ -99,76 +106,6 @@ pub fn tailnet_name(host: Option<&str>) -> Option<String> {
 /// `net.isIP(name) !== 0`.
 fn is_ip(name: &str) -> bool {
     name.parse::<std::net::IpAddr>().is_ok()
-}
-
-/// The pin a connector accepts: 64 lowercase hex characters, never a hostname.
-pub fn valid_fingerprint(fingerprint: &str) -> bool {
-    fingerprint.len() == 64
-        && fingerprint
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// What a pinned handshake found on the certificate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PresentedCertificate {
-    /// SHA-256 of the certificate's `SubjectPublicKeyInfo`, lowercase hex.
-    pub fingerprint: &'static str,
-    /// `Date.parse(certificate.validFrom)`, in milliseconds.
-    pub valid_from: i64,
-    /// `Date.parse(certificate.validTo)`, in milliseconds.
-    pub valid_to: i64,
-}
-
-/// Why a pinned handshake is refused, in the TypeScript's words.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PinRefusal {
-    /// The pin isn't a fingerprint at all.
-    InvalidFingerprint,
-    /// The certificate's key is not the pinned one, and its name is not a trusted ts.net name.
-    Mismatch,
-    /// The pinned certificate is outside its validity window.
-    Expired,
-    /// The response failed for another reason.
-    Failed,
-}
-
-impl PinRefusal {
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::InvalidFingerprint => "Invalid public-key fingerprint",
-            Self::Mismatch => "TLS public-key fingerprint mismatch",
-            Self::Expired => "TLS certificate expired or not yet valid",
-            Self::Failed => "TLS pin failed",
-        }
-    }
-
-    /// Every pin refusal is an `auth` failure on the client, except the invalid pin a caller
-    /// hands in, which is thrown where it is passed.
-    pub fn client_error(self) -> ClientError {
-        ClientError::new("auth", self.message())
-    }
-}
-
-/// The pin check (`client-access.ts:121`–`:137`): the pinned key authenticates ace's own
-/// certificate; a ts.net host may instead present the publicly trusted certificate Tailscale
-/// issues for that exact name (ADR 0097). The validity window is checked after the pin.
-pub fn pin_verdict(
-    pin: &str,
-    certificate: PresentedCertificate,
-    trusted_name: bool,
-    now: i64,
-) -> Result<(), PinRefusal> {
-    if !valid_fingerprint(pin) {
-        return Err(PinRefusal::InvalidFingerprint);
-    }
-    if certificate.fingerprint != pin && !trusted_name {
-        return Err(PinRefusal::Mismatch);
-    }
-    if now < certificate.valid_from || now >= certificate.valid_to {
-        return Err(PinRefusal::Expired);
-    }
-    Ok(())
 }
 
 /// A request's target, after the rules that keep credentials out of URLs and cleartext off the
@@ -247,395 +184,19 @@ pub fn transport_unavailable() -> ClientError {
     ClientError::new("offline", "Access transport unavailable")
 }
 
-/// A pairing link, read (`packages/client/src/pairing-link.ts:2`–`:31`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PairingLink {
-    /// The daemon's HTTPS origin with a trailing slash; empty for a relay link.
-    pub daemon: String,
-    /// A link through a self-hosted relay: redeem it there, pinning `host_id`.
-    pub relay: Option<RelayLink>,
-    /// A direct link's second way in: the person's own relay the daemon is also on.
-    pub also_relay: Option<RelayLink>,
-    pub code: String,
-    /// The daemon's public-key pin; empty when the link has none.
-    pub fingerprint: String,
-    pub scopes: Vec<String>,
-}
-
-/// A relay route named in a fragment.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelayLink {
-    pub url: String,
-    pub host_id: String,
-}
-
-/// Why a pairing link can't be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkRefusal {
-    /// Not a `/pair` link on a web origin, or one carrying credentials.
-    NotAPairingLink,
-    /// A `relay` fragment that isn't a relay socket with a host key.
-    NotARelay,
-    /// A `host` fragment that isn't one origin.
-    NotAnAddress,
-}
-
-impl LinkRefusal {
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::NotAPairingLink => "Use the complete pairing link from your host computer.",
-            Self::NotARelay => "This pairing link doesn't name a valid relay.",
-            Self::NotAnAddress => "This pairing link doesn't name a valid computer address.",
-        }
-    }
-}
-
-/// Read a pairing link. A link that opens the daemon's own web app is `https://host:port/pair#…`;
-/// one that opens a separately served web app names the daemon in its fragment.
-pub fn parse_pairing_link(text: &str) -> Result<PairingLink, LinkRefusal> {
-    let url = Url::parse(text.trim()).map_err(|_| LinkRefusal::NotAPairingLink)?;
-    let web = matches!(url.scheme(), "https" | "http");
-    if !web
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.path() != "/pair"
-    {
-        return Err(LinkRefusal::NotAPairingLink);
-    }
-    let fragment = url.fragment().unwrap_or_default();
-    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(fragment.as_bytes())
-        .into_owned()
-        .collect();
-    let field = |key: &str| {
-        pairs
-            .iter()
-            .find(|(each, _)| each == key)
-            .map(|(_, value)| value.clone())
-    };
-    if let Some(relay_url) = field("relay") {
-        let host_id = field("hostId").unwrap_or_default();
-        let relay = Url::parse(&relay_url).map_err(|_| LinkRefusal::NotARelay)?;
-        if !matches!(relay.scheme(), "wss" | "ws")
-            || !relay.username().is_empty()
-            || relay.password().is_some()
-            || relay.query().is_some()
-            || relay.fragment().is_some()
-            || !valid_host_id(&host_id)
-        {
-            return Err(LinkRefusal::NotARelay);
-        }
-        return Ok(PairingLink {
-            daemon: String::new(),
-            relay: Some(RelayLink {
-                url: relay.to_string(),
-                host_id: host_id.clone(),
-            }),
-            also_relay: None,
-            code: field("code").unwrap_or_default(),
-            fingerprint: host_id,
-            scopes: scopes_of(field("scopes")),
-        });
-    }
-    let daemon = match field("host") {
-        None => url.clone(),
-        Some(host) => Url::parse(&host).map_err(|_| LinkRefusal::NotAnAddress)?,
-    };
-    let daemon_is_web = matches!(daemon.scheme(), "https" | "http");
-    if !daemon_is_web
-        || !daemon.username().is_empty()
-        || daemon.password().is_some()
-        || (field("host").is_some()
-            && daemon.as_str() != format!("{}/", daemon.origin().ascii_serialization()))
-    {
-        return Err(LinkRefusal::NotAnAddress);
-    }
-    Ok(PairingLink {
-        daemon: format!("{}/", daemon.origin().ascii_serialization()),
-        relay: None,
-        also_relay: relay_of(field("viaRelay"), field("viaRelayHostId")),
-        code: field("code").unwrap_or_default(),
-        fingerprint: field("fingerprint").unwrap_or_default(),
-        scopes: scopes_of(field("scopes")),
-    })
-}
-
-fn scopes_of(field: Option<String>) -> Vec<String> {
-    field
-        .unwrap_or_default()
-        .split(',')
-        .filter(|scope| !scope.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-fn valid_host_id(host_id: &str) -> bool {
-    host_id.len() == 52
-        && host_id
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || (b'2'..=b'7').contains(&byte))
-}
-
-/// A relay route named in a fragment, or `None` when it isn't a valid one.
-fn relay_of(address: Option<String>, host_id: Option<String>) -> Option<RelayLink> {
-    let (address, host_id) = (address?, host_id?);
-    let relay = Url::parse(&address).ok()?;
-    if !matches!(relay.scheme(), "wss" | "ws")
-        || !relay.username().is_empty()
-        || relay.password().is_some()
-        || relay.query().is_some()
-        || relay.fragment().is_some()
-        || !valid_host_id(&host_id)
-    {
-        return None;
-    }
-    Some(RelayLink {
-        url: relay.to_string(),
-        host_id,
-    })
-}
-
-/// What `redeemPairing` posts (`client-access.ts:227`–`:249`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RedeemRequest {
-    /// The daemon's origin, where `/v1/pair` is posted.
-    pub origin: String,
-    pub fingerprint: String,
-    pub code: String,
-    pub name: String,
-    pub install_id: Option<String>,
-    /// The raw P-256 public key the device proves the person's standing with (ADR 0190).
-    pub standing_key: Option<String>,
-}
-
-pub fn redeem_request(
-    link_text: &str,
-    name: &str,
-    install_id: Option<&str>,
-    standing_key: Option<&str>,
-) -> Result<RedeemRequest, ClientError> {
-    let link = parse_pairing_link(link_text)
-        .map_err(|refusal| ClientError::new("protocol", refusal.message()))?;
-    if !link.daemon.starts_with("https:") {
-        return Err(ClientError::new(
-            "protocol",
-            "Pairing requires an HTTPS URL with credentials in its fragment",
-        ));
-    }
-    let origin = link.daemon.trim_end_matches('/').to_owned();
-    Ok(RedeemRequest {
-        origin,
-        fingerprint: link.fingerprint,
-        code: link.code,
-        name: name.to_owned(),
-        install_id: install_id.map(str::to_owned),
-        standing_key: standing_key.map(str::to_owned),
-    })
-}
-
-/// A ticket socket's origin: a pinned WSS origin with nothing else in it (`client-access.ts:254`).
-pub fn ticket_socket_origin(origin: &str, fingerprint: &str) -> Result<String, ClientError> {
-    let url = Url::parse(origin).map_err(|_| {
-        ClientError::new(
-            "auth",
-            "Socket requires a pinned WSS origin without credentials",
-        )
-    })?;
-    if url.scheme() != "wss"
-        || url.path() != "/"
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err(ClientError::new(
-            "auth",
-            "Socket requires a pinned WSS origin without credentials",
-        ));
-    }
-    if !valid_fingerprint(fingerprint) {
-        return Err(PinRefusal::InvalidFingerprint.client_error());
-    }
-    Ok(url.origin().ascii_serialization())
-}
-
-/// The code a pinned socket closes with when the pin rejects (`pinnedSocketTransport`).
-pub fn pin_rejected_close(error: &ClientError) -> Option<u16> {
-    (error.code == "auth").then_some(PIN_REJECTED_CLOSE)
-}
-
 #[cfg(test)]
 mod tests {
-    //! Ports `packages/client/src/pairing-link.test.ts`'s parsing half and the refusals
-    //! `client-access.ts` owns. That module's handshake test is Windows-only
-    //! (`tls-identity-node.process.test.ts`) and drives a real socket; the fingerprint check it
-    //! exercises is ported here as a pure verdict, and the verifier itself in `ace-transport`.
+    //! The access request's rules and the failure text a person sees, as `client-access.ts`
+    //! builds them.
 
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::{
-        ACCESS_DETAIL_UTF16, ClientError, LinkRefusal, PinRefusal, PresentedCertificate,
-        access_failure, access_target, parse_pairing_link, pin_verdict, redeem_request,
-        request_timeout_ms, tailnet_name, ticket_socket_origin, truncate_utf16,
+        ACCESS_DETAIL_UTF16, ClientError, access_failure, access_target, request_timeout_ms,
+        tailnet_name, truncate_utf16,
     };
 
     const PIN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    const DAEMON: &str = "https://studio.tail1234.ts.net:4243";
-
-    #[test]
-    fn a_link_on_the_daemons_own_web_app_pairs_with_that_daemon() {
-        let link = parse_pairing_link(&format!(
-            "{DAEMON}/pair#fingerprint={PIN}&code=c0de&scopes=read"
-        ))
-        .unwrap();
-        assert_eq!(link.daemon, format!("{DAEMON}/"));
-        assert_eq!(link.code, "c0de");
-        assert_eq!(link.fingerprint, PIN);
-        assert_eq!(link.scopes, vec!["read"]);
-        assert!(link.relay.is_none() && link.also_relay.is_none());
-    }
-
-    #[test]
-    fn a_link_on_the_hosted_web_app_names_the_daemon_it_pairs_with() {
-        let host = url::form_urlencoded::byte_serialize(DAEMON.as_bytes()).collect::<String>();
-        let link = parse_pairing_link(&format!(
-            "https://app.acehq.dev/pair#host={host}&fingerprint={PIN}&code=c0de&scopes=read%2Coperate"
-        ))
-        .unwrap();
-        assert_eq!(link.daemon, format!("{DAEMON}/"));
-        assert_eq!(link.scopes, vec!["read", "operate"]);
-    }
-
-    #[test]
-    fn links_that_put_credentials_in_the_request_or_name_a_decorated_computer_are_refused() {
-        let host = |value: &str| {
-            url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()
-        };
-        for link in [
-            format!("{DAEMON}/pair?code=c0de"),
-            format!("{DAEMON}/connect#code=c0de"),
-            "https://user:secret@studio.tail1234.ts.net/pair#code=c0de".to_owned(),
-            "ace://pair#code=c0de".to_owned(),
-            format!(
-                "https://app.acehq.dev/pair#host={}&code=c0de",
-                host(&format!("{DAEMON}/v1"))
-            ),
-            format!(
-                "https://app.acehq.dev/pair#host={}&code=c0de",
-                host("https://u:p@studio.tail1234.ts.net")
-            ),
-            format!(
-                "https://app.acehq.dev/pair#host={}&code=c0de",
-                host("ftp://studio.tail1234.ts.net")
-            ),
-        ] {
-            let refusal = parse_pairing_link(&link).unwrap_err();
-            assert!(
-                matches!(
-                    refusal,
-                    LinkRefusal::NotAPairingLink | LinkRefusal::NotAnAddress
-                ),
-                "{link}: {refusal:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_relay_link_names_the_relay_and_host_key_and_a_bad_one_is_refused() {
-        let host_id = "A".repeat(52);
-        let relay = url::form_urlencoded::byte_serialize("wss://relay.example.com/".as_bytes())
-            .collect::<String>();
-        let link = parse_pairing_link(&format!(
-            "https://app.acehq.dev/pair#relay={relay}&hostId={host_id}&code=c0de&scopes=read"
-        ))
-        .unwrap();
-        assert_eq!(link.daemon, "");
-        assert_eq!(
-            link.relay,
-            Some(super::RelayLink {
-                url: "wss://relay.example.com/".to_owned(),
-                host_id: host_id.clone(),
-            })
-        );
-        assert_eq!(link.fingerprint, host_id);
-        for fragment in [
-            format!(
-                "relay={}&hostId={host_id}&code=c",
-                url::form_urlencoded::byte_serialize("https://relay.example.com/".as_bytes())
-                    .collect::<String>()
-            ),
-            format!(
-                "relay={}&hostId={host_id}&code=c",
-                url::form_urlencoded::byte_serialize("wss://relay.example.com/?token=1".as_bytes())
-                    .collect::<String>()
-            ),
-            format!(
-                "relay={}&hostId=short&code=c",
-                url::form_urlencoded::byte_serialize("wss://relay.example.com/".as_bytes())
-                    .collect::<String>()
-            ),
-        ] {
-            assert_eq!(
-                parse_pairing_link(&format!("https://app.acehq.dev/pair#{fragment}")).unwrap_err(),
-                LinkRefusal::NotARelay
-            );
-        }
-    }
-
-    #[test]
-    fn a_direct_link_can_also_name_the_persons_own_relay_and_a_malformed_one_is_dropped() {
-        let host_id = "A".repeat(52);
-        let relay = url::form_urlencoded::byte_serialize("wss://relay.example.com/".as_bytes())
-            .collect::<String>();
-        let link = parse_pairing_link(&format!(
-            "https://192.168.1.4:7443/pair#fingerprint={PIN}&code=c0de&viaRelay={relay}\
-             &viaRelayHostId={host_id}"
-        ))
-        .unwrap();
-        assert_eq!(link.daemon, "https://192.168.1.4:7443/");
-        assert_eq!(link.also_relay.unwrap().host_id, host_id);
-        let broken = parse_pairing_link(&format!(
-            "https://192.168.1.4:7443/pair#fingerprint={PIN}&code=c0de&viaRelay={relay}\
-             &viaRelayHostId=nope"
-        ))
-        .unwrap();
-        assert!(broken.also_relay.is_none());
-        assert_eq!(broken.daemon, "https://192.168.1.4:7443/");
-    }
-
-    #[test]
-    fn redeeming_needs_an_https_direct_link_and_posts_the_fields_it_names() {
-        let request = redeem_request(
-            &format!("{DAEMON}/pair#fingerprint={PIN}&code=c0de"),
-            "Phone",
-            Some("install-0001"),
-            None,
-        )
-        .unwrap();
-        assert_eq!(request.origin, DAEMON);
-        assert_eq!(request.fingerprint, PIN);
-        assert_eq!(request.code, "c0de");
-        assert_eq!(request.name, "Phone");
-        assert_eq!(request.install_id.as_deref(), Some("install-0001"));
-        assert!(request.standing_key.is_none());
-        // A relay link has no daemon address of its own to post to.
-        let relay = url::form_urlencoded::byte_serialize("wss://relay.example.com/".as_bytes())
-            .collect::<String>();
-        let error = redeem_request(
-            &format!(
-                "https://app.acehq.dev/pair#relay={relay}&hostId={}&code=c0de",
-                "A".repeat(52)
-            ),
-            "Phone",
-            None,
-            None,
-        )
-        .unwrap_err();
-        assert_eq!(
-            error.message,
-            "Pairing requires an HTTPS URL with credentials in its fragment"
-        );
-    }
 
     #[test]
     fn a_request_keeps_credentials_out_of_urls_and_cleartext_off_the_network() {
@@ -724,65 +285,5 @@ mod tests {
         assert_eq!(tailnet_name(Some("::1")), None);
         assert_eq!(tailnet_name(Some("example.com")), None);
         assert_eq!(tailnet_name(None), None);
-    }
-
-    #[test]
-    fn a_pinned_certificate_must_match_and_be_inside_its_validity() {
-        let certificate = PresentedCertificate {
-            fingerprint: PIN,
-            valid_from: 1_000,
-            valid_to: 2_000,
-        };
-        assert_eq!(pin_verdict(PIN, certificate, false, 1_500), Ok(()));
-        assert_eq!(
-            pin_verdict(PIN, certificate, false, 2_000),
-            Err(PinRefusal::Expired)
-        );
-        assert_eq!(
-            pin_verdict(PIN, certificate, false, 999),
-            Err(PinRefusal::Expired)
-        );
-        assert_eq!(
-            pin_verdict(&"b".repeat(64), certificate, false, 1_500),
-            Err(PinRefusal::Mismatch)
-        );
-        // A ts.net name may instead present Tailscale's publicly trusted certificate.
-        assert_eq!(
-            pin_verdict(&"b".repeat(64), certificate, true, 1_500),
-            Ok(())
-        );
-        assert_eq!(
-            pin_verdict("nope", certificate, true, 1_500),
-            Err(PinRefusal::InvalidFingerprint)
-        );
-        assert_eq!(
-            PinRefusal::Mismatch.client_error(),
-            ClientError::new("auth", "TLS public-key fingerprint mismatch")
-        );
-    }
-
-    #[test]
-    fn a_ticket_socket_needs_a_bare_pinned_wss_origin() {
-        assert_eq!(
-            ticket_socket_origin("wss://host:4243/", PIN).unwrap(),
-            "wss://host:4243"
-        );
-        for origin in [
-            "ws://host/",
-            "wss://host/v1",
-            "wss://host/?token=1",
-            "wss://owner:secret@host/",
-        ] {
-            assert_eq!(
-                ticket_socket_origin(origin, PIN).unwrap_err().message,
-                "Socket requires a pinned WSS origin without credentials"
-            );
-        }
-        assert_eq!(
-            ticket_socket_origin("wss://host/", "nope")
-                .unwrap_err()
-                .message,
-            "Invalid public-key fingerprint"
-        );
     }
 }

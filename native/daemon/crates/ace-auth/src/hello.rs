@@ -7,9 +7,11 @@
 
 use ace_json::Value;
 
-use crate::devices::{Device, Scope, SessionActor};
-use crate::error::AuthError;
-use crate::remote_auth::RemoteAuth;
+pub mod actor;
+pub mod gate;
+
+pub use actor::hello_actor;
+pub use gate::{FirstFrame, HelloGate};
 
 /// The credential fields of a hello, as the schema allows exactly one of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,50 +65,6 @@ impl HelloRefusal {
 
     pub fn close_reason(self) -> &'static str {
         crate::close::HELLO_REFUSED_REASON
-    }
-}
-
-/// A first frame, as the transport saw it.
-#[derive(Debug, Clone, Copy)]
-pub enum FirstFrame<'a> {
-    Text(&'a str),
-    Binary,
-}
-
-/// The hello exchange's own state: one hello per socket.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct HelloGate {
-    authenticated: bool,
-}
-
-impl HelloGate {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn authenticated(&self) -> bool {
-        self.authenticated
-    }
-
-    /// Parse the first frame. The actor's resolution is separate, so a caller can run the hello
-    /// against a live [`RemoteAuth`] and answer with its refusal.
-    pub fn first(&mut self, frame: FirstFrame<'_>) -> Result<Hello, HelloRefusal> {
-        let text = match frame {
-            FirstFrame::Text(text) => text,
-            FirstFrame::Binary => return Err(HelloRefusal::Binary),
-        };
-        let value = ace_json::parse(text).map_err(|_| HelloRefusal::Malformed)?;
-        Hello::parse(&value)
-    }
-
-    /// A hello after the welcome is refused, without another welcome or heartbeat.
-    pub fn later(&mut self) -> HelloRefusal {
-        HelloRefusal::Later
-    }
-
-    /// The welcome is on the wire: the socket is no longer pre-authentication.
-    pub fn welcomed(&mut self) {
-        self.authenticated = true;
     }
 }
 
@@ -213,68 +171,6 @@ fn is_install_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
-/// The device a hello authenticates, or `None` when it authenticates nothing (`socket-hello.ts`).
-/// The host token counts only on loopback. A ticket or a desktop bearer must name the device the
-/// hello claims, and both stay revocable; the host token does not.
-///
-/// The ticket is spent before the claimed device is checked (behaviour.md §6), so a mismatched
-/// hello still spends it. A store failure is a `1011 service_unavailable` at the caller, never a
-/// refusal.
-pub fn hello_actor(
-    hello: &Hello,
-    auth: &mut RemoteAuth,
-    is_local: bool,
-) -> Result<Option<SessionActor>, AuthError> {
-    let bearer = match hello.token.as_deref() {
-        Some(token) if is_local && !auth.local(token) => auth.device_bearer(token),
-        _ => None,
-    };
-    let desktop = bearer
-        .clone()
-        .filter(|device| is_local_only_scopes(&device.device.scopes));
-    let revocable = hello.ticket.is_some() || desktop.is_some();
-    let mut actor = match hello.ticket.as_deref() {
-        Some(ticket) => auth.consume(ticket).map(SessionActor::paired),
-        None => match hello.token.as_deref() {
-            Some(token) if is_local && auth.local(token) => Some(SessionActor::host(host_device(
-                &hello.device_id,
-                auth.now(),
-            ))),
-            _ => desktop.map(SessionActor::paired),
-        },
-    };
-    let Some(ref mut authenticated) = actor else {
-        return Ok(None);
-    };
-    authenticated.revocable = revocable;
-    if revocable && authenticated.device.id != hello.device_id {
-        return Ok(None);
-    }
-    // A paired device names its app install, so its records fold into one (ADR 0115).
-    if hello.ticket.is_some() {
-        auth.recognize(&authenticated.device, hello.install_id.as_deref())?;
-    }
-    Ok(actor)
-}
-
-fn is_local_only_scopes(scopes: &[Scope]) -> bool {
-    scopes
-        .iter()
-        .any(|scope| matches!(scope, Scope::Desktop | Scope::UserBrowser))
-}
-
-fn host_device(id: &str, now: i64) -> Device {
-    Device {
-        id: id.to_owned(),
-        name: "Host".to_owned(),
-        scopes: vec![Scope::Admin, Scope::Projects, Scope::Accounts],
-        created_at: 0,
-        last_seen_at: now,
-        revoked_at: None,
-        expires_at: None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     //! Ports `apps/daemon/src/auth.server.process.test.ts`: the hello refusals a first frame
@@ -285,7 +181,7 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
-    use super::{FirstFrame, Hello, HelloGate, HelloRefusal, hello_actor};
+    use super::{Hello, hello_actor};
     use crate::devices::{Devices, PairedDevice, Scope};
     use crate::pairing::PairingTerms;
     use crate::remote_auth::RemoteAuth;
@@ -346,53 +242,6 @@ mod tests {
         let redeemed = auth.redeem(&ticket.code, "Phone", None, None).unwrap();
         let paired = auth.device_bearer(&redeemed.token).unwrap();
         (auth, paired, directory)
-    }
-
-    #[test]
-    fn a_non_hello_first_frame_is_refused_without_data() {
-        let mut gate = HelloGate::new();
-        assert_eq!(
-            gate.first(FirstFrame::Text("{\"type\":\"ping\"}")),
-            Err(HelloRefusal::NotHello)
-        );
-        assert_eq!(HelloRefusal::NotHello.code(), "unauthorized");
-        assert_eq!(HelloRefusal::NotHello.message(), "Valid hello required");
-        assert_eq!(HelloRefusal::NotHello.close_code(), 4001);
-        assert_eq!(HelloRefusal::NotHello.close_reason(), "unauthorized");
-    }
-
-    #[test]
-    fn a_binary_first_frame_is_refused_even_when_it_contains_a_valid_hello() {
-        let mut gate = HelloGate::new();
-        assert_eq!(gate.first(FirstFrame::Binary), Err(HelloRefusal::Binary));
-        assert_eq!(HelloRefusal::Binary.code(), "unauthorized");
-        assert_eq!(HelloRefusal::Binary.close_code(), 4001);
-    }
-
-    #[test]
-    fn an_unsupported_protocol_version_a_missing_or_a_doubled_credential_is_malformed() {
-        let mut gate = HelloGate::new();
-        let two =
-            "{\"type\":\"hello\",\"protocolVersion\":2,\"deviceId\":\"device\",\"token\":\"x\"}";
-        assert_eq!(
-            gate.first(FirstFrame::Text(two)),
-            Err(HelloRefusal::Malformed)
-        );
-        let none = "{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\"}";
-        assert_eq!(
-            gate.first(FirstFrame::Text(none)),
-            Err(HelloRefusal::Malformed)
-        );
-        let both = "{\"type\":\"hello\",\"protocolVersion\":1,\"deviceId\":\"device\",\"token\":\"x\",\"ticket\":\"y\"}";
-        assert_eq!(
-            gate.first(FirstFrame::Text(both)),
-            Err(HelloRefusal::Malformed)
-        );
-        // A malformed frame answers the schema's message, as `server.ts` does.
-        assert_eq!(
-            HelloRefusal::Malformed.message(),
-            "Message does not match the protocol"
-        );
     }
 
     #[test]
@@ -475,16 +324,6 @@ mod tests {
         assert_eq!(authenticated.device.id, paired.device.id);
         assert_eq!(authenticated.generation, Some(paired.generation));
         assert_eq!(authenticated.person, Some(false));
-    }
-
-    #[test]
-    fn a_second_hello_is_refused_without_another_welcome() {
-        let mut gate = HelloGate::new();
-        gate.welcomed();
-        assert!(gate.authenticated());
-        assert_eq!(gate.later(), HelloRefusal::Later);
-        assert_eq!(HelloRefusal::Later.message(), "Hello is only valid once");
-        assert_eq!(HelloRefusal::Later.close_code(), 4001);
     }
 
     #[test]
