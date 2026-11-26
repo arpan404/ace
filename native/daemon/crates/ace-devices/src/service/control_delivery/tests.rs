@@ -132,13 +132,12 @@ fn a_flush_while_the_transport_is_still_backed_up_rearms() {
 }
 
 #[test]
-fn a_flush_with_nothing_waiting_stays_idle() {
+fn a_reply_never_arms_a_timer_so_a_flush_is_idle_without_a_backed_up_push() {
     let mut delivery = ControlDelivery::new();
-    assert_eq!(delivery.fire(1, 0), Flush::Idle);
-    assert_eq!(delivery.pending(), 0);
-    delivery
-        .send(reply("result"), 0)
-        .expect("replies write immediately");
+    assert_eq!(
+        delivery.send(reply("result"), BUFFERED_LIMIT + 1),
+        Ok(Sent::Write(reply("result")))
+    );
     assert_eq!(delivery.pending(), 0);
     assert_eq!(delivery.fire(1, 0), Flush::Idle);
 }

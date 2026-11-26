@@ -96,11 +96,6 @@ impl<M> ControlDelivery<M> {
             return Flush::Idle;
         }
         self.cancel = None;
-        // `schedule()` never arms for an empty queue; a flush with nothing waiting
-        // has nothing to do.
-        if self.pending.is_empty() {
-            return Flush::Idle;
-        }
         if buffered > BUFFERED_LIMIT {
             return match self.arm() {
                 Some(next) => Flush::Rearm(next),
