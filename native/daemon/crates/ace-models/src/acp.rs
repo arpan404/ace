@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 //! ACP sessions' model lists as catalog rows.
 //!
-//! Ports `normalizeAcp` in `packages/models/src/normalize.ts`, with the selector rules
-//! from `packages/agent-registry/src/selectors.ts`: a `configOptions` model selector
-//! (`session/set_config_option`) wins over the legacy `models.availableModels` list
-//! (`session/set_model`), each malformed entry is read alone, and only ids the
-//! session's own selector would send are listed.
+//! Ports `normalizeAcp` in `packages/models/src/normalize.ts`. The selector rules and
+//! the reviewed compatibility profiles are `ace-adapter-acp`'s (already ported from
+//! `packages/agent-registry/src/selectors.ts` and `profiles.ts`): a `configOptions`
+//! model selector (`session/set_config_option`) wins over the legacy
+//! `models.availableModels` list (`session/set_model`), a `denySelectors` profile
+//! lists nothing, each malformed entry is read alone, and only ids the session's own
+//! selector would send are listed.
 //!
 //! ACP's option semantics this file doesn't know are kept as raw metadata, never
 //! guessed at: thought-level and `reasoning_effort` selects are efforts, a `fast`
 //! boolean-select is a Fast tier, a `context` select is the context window, and every
 //! other option rides in the row's bounded raw copy.
 
+use std::sync::OnceLock;
+
+use ace_adapter_acp::session::{display_label, listed_models, reviewed_profile, session_selectors};
+use ace_json as aj;
 use ace_protocol::generated::{CatalogModel, ModelTier};
 use serde_json::{Map, Value};
-use std::sync::OnceLock;
 
 use crate::effort::{EffortValue, model_efforts};
 use crate::instance::ModelInstance;
@@ -25,7 +30,6 @@ use crate::row::{base, decoded_text, nonzero, validate_row};
 
 const MAX_CONFIG_OPTIONS: usize = 64;
 const MAX_OPTIONS: usize = 512;
-const MAX_VALUES: usize = 512;
 const MAX_ROWS: usize = 512;
 
 /// Why an ACP session cannot be listed.
@@ -35,6 +39,8 @@ pub enum AcpError {
     MissingModelOptions,
     /// More than 512 rows after filtering.
     TooManyModels,
+    /// The session payload cannot be read at all.
+    Malformed,
     /// A normalized row breaks the catalog bounds.
     Row(&'static str),
 }
@@ -44,6 +50,7 @@ impl std::fmt::Display for AcpError {
         match self {
             Self::MissingModelOptions => f.write_str("Missing model options"),
             Self::TooManyModels => f.write_str("Too many models"),
+            Self::Malformed => f.write_str("Malformed ACP session"),
             Self::Row(reason) => f.write_str(reason),
         }
     }
@@ -51,48 +58,29 @@ impl std::fmt::Display for AcpError {
 
 impl std::error::Error for AcpError {}
 
-/// Control, format (bidi overrides and isolates, zero-width) and line/paragraph
-/// separators. A label never shows them, and a model id carrying one is skipped.
-fn unsafe_text() -> Option<&'static regex::Regex> {
-    static PATTERN: OnceLock<Option<regex::Regex>> = OnceLock::new();
-    PATTERN
-        .get_or_init(|| regex::Regex::new(r"[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]").ok())
-        .as_ref()
+/// The adapter's decoded value as this crate's JSON; both are JSON, so this cannot change it.
+fn to_ace(value: &Value) -> Option<aj::Value> {
+    aj::parse(&serde_json::to_string(value).ok()?).ok()
 }
 
-fn has_unsafe_text(text: &str) -> bool {
-    unsafe_text().is_some_and(|pattern| pattern.is_match(text))
+fn from_ace(value: &aj::Value) -> Option<Value> {
+    serde_json::from_str(&aj::ser::to_string(value).ok()?).ok()
 }
 
-/// A label with control, bidi and invisible characters removed, bounded to 256
-/// UTF-16 units the way JavaScript's `.slice(0, 256)` is.
-pub fn display_label(text: &str) -> String {
-    let cleaned = unsafe_text()
-        .map(|pattern| pattern.replace_all(text, "").into_owned())
-        .unwrap_or_else(|| text.to_owned());
-    let trimmed = cleaned.trim();
-    let mut units = 0;
-    let mut bounded = String::new();
-    for character in trimmed.chars() {
-        let width = character.len_utf16();
-        if units + width > 256 {
-            break;
+fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    value.as_object()?.get(key)
+}
+
+fn category(entry: &Map<String, Value>) -> Option<Option<String>> {
+    match entry.get("category") {
+        None | Some(Value::Null) => Some(None),
+        // `native-schemas.ts`'s `SelectConfigOption.category` is a label when present.
+        Some(Value::String(text)) => {
+            let count = text.chars().count();
+            (1..=256).contains(&count).then(|| Some(text.clone()))
         }
-        units += width;
-        bounded.push(character);
+        Some(_) => None,
     }
-    bounded
-}
-
-fn category(value: Option<&Value>) -> Option<String> {
-    let text = value?.as_str()?;
-    (1..=256)
-        .contains(&text.chars().count())
-        .then(|| text.to_owned())
-}
-
-fn safe_id(id: &str) -> bool {
-    !has_unsafe_text(id)
 }
 
 /// One selectable option, with whether its group marks it legacy.
@@ -127,16 +115,15 @@ fn grouped_option(value: &Value) -> Option<Vec<SelectOption>> {
     }
     let mut parsed = Vec::with_capacity(options.len());
     for option in options {
-        // Grouped options are plain strings, unlike a top-level SelectOption.
-        let option = option.as_object()?;
-        let value = option.get("value")?.as_str()?.to_owned();
-        let name = option.get("name")?.as_str()?.to_owned();
-        parsed.push(SelectOption {
-            value,
-            name,
-            legacy,
-            raw: Value::Object(option.clone()),
-        });
+        let mut option = select_option(option)?;
+        option.legacy = legacy;
+        if legacy {
+            // `options()` assigns `legacy: true` onto the value it keeps as raw.
+            if let Some(raw) = option.raw.as_object_mut() {
+                raw.insert("legacy".into(), Value::Bool(true));
+            }
+        }
+        parsed.push(option);
     }
     Some(parsed)
 }
@@ -153,26 +140,6 @@ pub struct SelectConfig {
     pub category: Option<String>,
     pub current_value: Option<String>,
     pub options: Option<Vec<SelectOption>>,
-}
-
-impl SelectConfig {
-    fn values(&self) -> Option<Vec<String>> {
-        let options = self.options.as_ref()?;
-        let mut values = Vec::new();
-        for option in options {
-            values.push(option.value.clone());
-            if values.len() > MAX_VALUES {
-                return None;
-            }
-        }
-        Some(values)
-    }
-
-    fn is_model_config(&self) -> bool {
-        (self.category.as_deref() == Some("model")
-            || (self.category.is_none() && self.id == "model"))
-            && self.values().is_some()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,7 +171,7 @@ impl ConfigOption {
 pub fn parse_config_option(value: &Value) -> Option<ConfigOption> {
     let entry = value.as_object()?;
     let id = label(entry.get("id"))?;
-    let category = category(entry.get("category"));
+    let category = category(entry)?;
     let kind = match entry.get("type").and_then(Value::as_str)? {
         "select" => {
             let current_value = match entry.get("currentValue") {
@@ -244,10 +211,6 @@ pub fn parse_config_option(value: &Value) -> Option<ConfigOption> {
     })
 }
 
-fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
-    value.as_object()?.get(key)
-}
-
 fn config_options(payload: &Value) -> Vec<ConfigOption> {
     let Some(options) = field(payload, "configOptions").and_then(Value::as_array) else {
         return Vec::new();
@@ -265,87 +228,10 @@ fn has_legacy_list(payload: &Value) -> bool {
         .is_some_and(Value::is_array)
 }
 
-struct ListedModel {
+struct Source {
     model_id: String,
     name: String,
     raw: Value,
-}
-
-/// The legacy list, decoded leniently: an entry without a usable displayable id is
-/// skipped, a duplicate keeps its first name, a missing name shows the id.
-fn listed_models(payload: &Value) -> Option<(Vec<ListedModel>, Option<String>)> {
-    let models = field(payload, "models")?.as_object()?;
-    let entries = models.get("availableModels")?.as_array()?;
-    if entries.len() > MAX_VALUES {
-        return None;
-    }
-    let mut seen = Vec::new();
-    let mut listed = Vec::new();
-    for entry in entries {
-        let Some(id) = entry
-            .as_object()
-            .and_then(|entry| label(entry.get("modelId")))
-        else {
-            continue;
-        };
-        if !safe_id(&id) || seen.contains(&id) {
-            continue;
-        }
-        seen.push(id.clone());
-        let name = entry
-            .get("name")
-            .and_then(Value::as_str)
-            .map(display_label)
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| id.clone());
-        listed.push(ListedModel {
-            model_id: id,
-            name,
-            raw: entry.clone(),
-        });
-    }
-    let current = models
-        .get("currentModelId")
-        .and_then(|value| label(Some(value)));
-    Some((listed, current))
-}
-
-/// The session's model selector: the first select with `model` semantics, else the
-/// legacy list's ids through `session/set_model`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelSelector {
-    pub config_id: Option<String>,
-    pub method: &'static str,
-    pub values: Vec<String>,
-}
-
-fn model_selector(options: &[ConfigOption], payload: &Value) -> Option<ModelSelector> {
-    for option in options {
-        let Some(config) = option.select() else {
-            continue;
-        };
-        if config.is_model_config() {
-            let values = config
-                .values()?
-                .into_iter()
-                .filter(|value| safe_id(value))
-                .collect();
-            return Some(ModelSelector {
-                config_id: Some(config.id.clone()),
-                method: "session/set_config_option",
-                values,
-            });
-        }
-    }
-    let (listed, _) = listed_models(payload)?;
-    if listed.is_empty() {
-        return None;
-    }
-    Some(ModelSelector {
-        config_id: None,
-        method: "session/set_model",
-        values: listed.into_iter().map(|model| model.model_id).collect(),
-    })
 }
 
 fn per_model_configs(native: &Value) -> Option<Vec<ConfigOption>> {
@@ -447,20 +333,31 @@ pub fn normalize_acp(
 ) -> Result<Vec<CatalogModel>, AcpError> {
     let generic = instance.provider == ace_protocol::generated::ProviderKind::Acp
         && instance.acp_agent_id.is_some();
-    let options = config_options(payload);
-    let selector = model_selector(&options, payload);
-    if generic && selector.is_none() {
+    let ace_payload = to_ace(payload).ok_or(AcpError::Malformed)?;
+    let profile = instance
+        .acp_agent_id
+        .as_deref()
+        .and_then(|id| id.strip_prefix("official:"))
+        .and_then(|agent| {
+            reviewed_profile(
+                agent,
+                instance.installation_version.as_deref().unwrap_or(""),
+            )
+        });
+    let selectors = session_selectors(&ace_payload, profile.as_ref(), true);
+    if generic && selectors.model.is_none() {
         return Ok(Vec::new());
     }
-    let model_config = options
-        .iter()
-        .filter_map(ConfigOption::select)
-        .find(|config| {
-            config.is_model_config()
-                && Some(&config.id)
-                    == selector
-                        .as_ref()
-                        .and_then(|selector| selector.config_id.as_ref())
+    let options = config_options(payload);
+    let model_config = selectors
+        .model
+        .as_ref()
+        .and_then(|selector| selector.config_id.as_ref())
+        .and_then(|config_id| {
+            options
+                .iter()
+                .filter_map(ConfigOption::select)
+                .find(|config| &config.id == config_id)
         });
     if model_config.is_none() && !has_legacy_list(payload) {
         return Err(AcpError::MissingModelOptions);
@@ -468,32 +365,52 @@ pub fn normalize_acp(
     let legacy = if model_config.is_some() {
         None
     } else {
-        listed_models(payload)
+        listed_models(&ace_payload)
     };
     let current = model_config
         .and_then(|config| config.current_value.clone())
-        .or_else(|| legacy.as_ref().and_then(|(_, current)| current.clone()));
-    let sendable = selector.as_ref().map(|selector| &selector.values);
-    let mut sources: Vec<ListedModel> = if let Some(config) = model_config {
+        .or_else(|| legacy.as_ref().and_then(|listed| listed.current.clone()));
+    let sendable = selectors.model.as_ref().map(|selector| &selector.values);
+    let mut sources: Vec<Source> = if let Some(config) = model_config {
         config
             .options
             .clone()
             .unwrap_or_default()
             .into_iter()
-            .map(|option| ListedModel {
-                model_id: option.value,
-                name: display_label(&option.name),
-                raw: option.raw,
+            .map(|option| {
+                // `displayLabel(option.name) || option.value`.
+                let cleaned = display_label(&option.name);
+                let name = if cleaned.is_empty() {
+                    option.value.clone()
+                } else {
+                    cleaned
+                };
+                Source {
+                    model_id: option.value,
+                    name,
+                    raw: option.raw,
+                }
             })
             .collect()
     } else {
-        legacy.map(|(models, _)| models).unwrap_or_default()
+        let mut sources = Vec::new();
+        if let Some(listed) = legacy {
+            for model in listed.models {
+                let raw = from_ace(&aj::Value::Object(model.native)).ok_or(AcpError::Malformed)?;
+                sources.push(Source {
+                    model_id: model.model_id,
+                    name: model.name,
+                    raw,
+                });
+            }
+        }
+        sources
     };
     sources.retain(|source| sendable.is_none_or(|values| values.contains(&source.model_id)));
     if sources.len() > MAX_ROWS {
         return Err(AcpError::TooManyModels);
     }
-    let available: Vec<ListedModel> = sources
+    let available: Vec<Source> = sources
         .into_iter()
         .filter(|source| chat_metadata(&source.raw))
         .collect();
@@ -512,9 +429,9 @@ pub fn normalize_acp(
         let mut model = base(instance, &source.model_id, &source.name, &source.raw);
         if let Some(config) = model_config {
             model.model_config_id = decoded_text(Some(&config.id));
-            model.selector_method = decoded_text(Some("session/set_config_option"));
-        } else if let Some(selector) = &selector {
-            model.selector_method = decoded_text(Some(selector.method));
+        }
+        if let Some(selector) = &selectors.model {
+            model.selector_method = decoded_text(Some(&selector.method));
         }
         let is_default = Some(&source.model_id) == current.as_ref();
         model.is_default = is_default.into();
@@ -597,6 +514,20 @@ mod tests {
                 keys.iter().map(|key| row[*key].clone()).collect()
             })
             .collect()
+    }
+
+    #[test]
+    fn a_deny_selectors_profile_lists_no_models_for_an_official_agent() {
+        let payload = json!({ "configOptions": [model_option()] });
+        let mut old = agent("official:qwen-code");
+        old.installation_version = Some("0.0.14".into());
+        assert!(normalize_acp(&payload, &old).unwrap_or_default().is_empty());
+        let mut modern = agent("official:qwen-code");
+        modern.installation_version = Some("0.24.7".into());
+        assert_eq!(
+            normalize_acp(&payload, &modern).unwrap_or_default().len(),
+            2
+        );
     }
 
     #[test]
@@ -763,6 +694,52 @@ mod tests {
                 [json!("beta"), json!("session/set_config_option")]
             ]
         );
+    }
+
+    #[test]
+    fn an_empty_category_is_not_a_model_selector() {
+        // selectors.ts's category is `z.string().max(128)`: "" is a category, so the
+        // option is not the id-named model selector.
+        let payload = json!({
+            "configOptions": [{
+                "id": "model",
+                "category": "",
+                "type": "select",
+                "currentValue": "a",
+                "options": [{ "value": "a", "name": "A" }]
+            }]
+        });
+        assert!(
+            normalize_acp(&payload, &local())
+                .unwrap_or_default()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_grouped_legacy_option_keeps_the_legacy_flag_in_its_raw_copy() {
+        let rows = normalize_acp(
+            &json!({
+                "configOptions": [{
+                    "id": "model",
+                    "type": "select",
+                    "currentValue": "a",
+                    "options": [{
+                        "group": "Legacy models",
+                        "options": [{ "value": "a", "name": "A" }]
+                    }]
+                }]
+            }),
+            &local(),
+        )
+        .unwrap_or_default();
+        assert_eq!(rows.len(), 1);
+        let raw: Value =
+            serde_json::from_str(row(&rows[0])["raw"]["json"].as_str().unwrap_or("null"))
+                .unwrap_or(Value::Null);
+        // The row's native entry is the grouped option itself, which `options()`
+        // marked legacy.
+        assert_eq!(raw["legacy"], true);
     }
 
     fn model_option() -> Value {

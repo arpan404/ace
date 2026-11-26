@@ -15,6 +15,11 @@ workspace = true
 [dependencies]
 # ace-protocol: the catalog row is its generated `CatalogModel` (one shape, generated).
 ace-protocol = { path = "../ace-protocol" }
+# ace-adapter-acp: ACP's selector decoding and reviewed profiles are already ported
+# there; the catalog reuses them instead of keeping a second copy.
+ace-adapter-acp = { path = "../ace-adapter-acp" }
+# ace-json: the adapter's decoded values cross into this crate's JSON at one boundary.
+ace-json = { path = "../ace-json" }
 # regex: display names and snapshot suffixes follow the TypeScript's patterns, anchored.
 regex = { version = "1" }
 # serde: provider payloads and catalog rows (de)serialize by field name.

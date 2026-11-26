@@ -14,6 +14,8 @@ pub struct ModelInstance {
     pub label: Option<String>,
     pub provider: ProviderKind,
     pub acp_agent_id: Option<String>,
+    /// The ACP agent's reported version: reviewed profiles are matched by it.
+    pub installation_version: Option<String>,
     pub installation_id: Option<String>,
     pub instance_id: Option<String>,
     /// The directory the provider was asked about; OpenCode's catalog echoes it.
@@ -31,6 +33,7 @@ impl ModelInstance {
             label: None,
             provider,
             acp_agent_id: None,
+            installation_version: None,
             installation_id: None,
             instance_id: None,
             cwd: cwd.to_owned(),

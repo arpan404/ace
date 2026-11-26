@@ -233,6 +233,8 @@ dependencies = [
 name = "ace-models"
 version = "0.1.0"
 dependencies = [
+ "ace-adapter-acp",
+ "ace-json",
  "ace-protocol",
  "regex",
  "serde",
