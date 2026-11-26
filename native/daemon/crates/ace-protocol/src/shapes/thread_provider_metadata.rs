@@ -35,7 +35,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_FIELDS: [Field; 5] = [
     },
 ];
 
-pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field; 28] = [
+pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field; 27] = [
     Field { key: "permissions", presence: Presence::Optional, shape: Shape::Object(&THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FIELDS) },
     Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object(&THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS)) },
     Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array(&Shape::Object(&crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS)) },
@@ -57,7 +57,6 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field
     Field { key: "subagentTranscripts", presence: Presence::Required, shape: Shape::Copy },
     Field { key: "backgroundTaskControl", presence: Presence::Required, shape: Shape::Copy },
     Field { key: "goals", presence: Presence::Optional, shape: Shape::Copy },
-    Field { key: "compaction", presence: Presence::Optional, shape: Shape::Copy },
     Field { key: "backgroundVisibility", presence: Presence::Required, shape: Shape::Copy },
     Field { key: "planMode", presence: Presence::Required, shape: Shape::Copy },
     Field { key: "tokenUsage", presence: Presence::Required, shape: Shape::Copy },

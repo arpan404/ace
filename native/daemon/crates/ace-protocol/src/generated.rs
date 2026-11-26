@@ -480,8 +480,6 @@ pub struct Capabilities {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub child_fidelity: ::std::option::Option<CapabilitiesChildFidelity>,
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub compaction: ::std::option::Option<bool>,
     pub fork: bool,
     #[serde(
         rename = "forkMode",
@@ -2163,12 +2161,6 @@ pub enum CommandPayload {
         type_: ::std::string::String,
     },
     Variant100 {
-        #[serde(rename = "threadId")]
-        thread_id: ThreadId,
-        #[serde(rename = "type")]
-        type_: ::std::string::String,
-    },
-    Variant101 {
         #[serde(rename = "interactionId")]
         interaction_id: Schema48,
         #[serde(
@@ -2180,7 +2172,7 @@ pub enum CommandPayload {
         #[serde(rename = "type")]
         type_: ::std::string::String,
     },
-    Variant102 {
+    Variant101 {
         #[serde(rename = "taskId")]
         task_id: Schema46,
         #[serde(rename = "type")]
