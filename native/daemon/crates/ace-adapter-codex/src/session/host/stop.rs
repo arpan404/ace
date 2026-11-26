@@ -433,7 +433,8 @@ fn read_terminal_page(page: &Value) -> Result<(Vec<JsString>, Option<JsString>),
     for terminal in data {
         match terminal.get("processId") {
             Some(Value::String(process))
-                if process.len_utf16() > 0 && process.len_utf16() <= TERMINAL_ID_MAX =>
+                if process.len_code_points() > 0
+                    && process.len_code_points() <= TERMINAL_ID_MAX =>
             {
                 terminals.push(process.clone());
             }
@@ -447,10 +448,34 @@ fn read_terminal_page(page: &Value) -> Result<(Vec<JsString>, Option<JsString>),
     }
     let next = match page.get("nextCursor") {
         None | Some(Value::Null) => None,
-        Some(Value::String(cursor)) if (1..=CURSOR_MAX).contains(&cursor.len_utf16()) => {
+        Some(Value::String(cursor)) if (1..=CURSOR_MAX).contains(&cursor.len_code_points()) => {
             Some(cursor.clone())
         }
         Some(_) => return Err("the terminal page has an invalid cursor"),
     };
     Ok((terminals, next))
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_terminal_discovery_respects_the_same_code_point_bounds() {
+        for (field, limit) in [("processId", 1024), ("nextCursor", 4096)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let page = if field == "processId" {
+                    ace_json::json!({"data": [{"processId": text}]})
+                } else {
+                    ace_json::json!({"data": [], "nextCursor": text})
+                };
+                assert_eq!(
+                    read_terminal_page(&page).is_ok(),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
 }

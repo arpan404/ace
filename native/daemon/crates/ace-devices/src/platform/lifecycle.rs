@@ -14,14 +14,9 @@ const TEXT_MAX: usize = 4096;
 /// The longest bundle id or package/activity name (`AppId.max(256)`).
 const APP_ID_MAX: usize = 256;
 
-/// JavaScript counts UTF-16 units, so the caps do too.
-fn units(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// `Text`: 1 to 4096 UTF-16 units, no NUL. `None` when the value is not text a device takes.
+/// `Text`: 1 to 4096 code points, no NUL. `None` when the value is not text a device takes.
 fn text(value: &str) -> Option<&str> {
-    if value.is_empty() || units(value) > TEXT_MAX || value.contains('\0') {
+    if value.is_empty() || value.chars().count() > TEXT_MAX || value.contains('\0') {
         return None;
     }
     Some(value)
@@ -120,7 +115,7 @@ pub fn open_app(platform: Platform, app: &str, resolved: Option<&str>) -> Result
     let Some(app) = text(app) else {
         return Err(Refusal::word("appIdInvalid").into());
     };
-    if units(app) > APP_ID_MAX || !is_app_id(app) {
+    if app.len() > APP_ID_MAX || !is_app_id(app) {
         return Err(Refusal::word("appIdInvalid").into());
     }
     match platform {
@@ -160,7 +155,7 @@ pub fn open_app(platform: Platform, app: &str, resolved: Option<&str>) -> Result
                 let Some(component) = output.split('\n').find(|line| line.contains('/')) else {
                     return Err(Refusal::word("appNotLaunchable").into());
                 };
-                if units(component) > APP_ID_MAX || !is_app_id(component) {
+                if component.len() > APP_ID_MAX || !is_app_id(component) {
                     return Err(Refusal::word("appNotLaunchable").into());
                 }
                 Ok(OpenApp {
@@ -496,5 +491,14 @@ mod tests {
         assert_eq!(extname("/tmp/.hidden"), "");
         assert_eq!(extname("/tmp/dir.d/Example"), "");
         assert_eq!(extname("Example.apk"), ".apk");
+    }
+
+    #[test]
+    fn a_simulator_url_takes_4096_code_points() {
+        let prefix = "example:";
+        for length in [4096, 4097] {
+            let url = format!("{prefix}{}", "😀".repeat(length - prefix.len()));
+            assert_eq!(open_url(Platform::Ios, &url).is_ok(), length == 4096);
+        }
     }
 }

@@ -218,7 +218,7 @@ pub(super) fn valid_item_shape(candidate: &Map) -> bool {
             })
             && matches!(candidate.get("source"), Some(Json::String(source)) if source == "browser" || source == "device")
             && candidate.get("artifactId").is_none_or(
-                |id| matches!(id, Json::String(id) if !id.is_empty() && id.len() <= 256),
+                |id| matches!(id, Json::String(id) if !id.is_empty() && id.len_code_points() <= 256),
             )
             && is_string(candidate.get("path"))
             && is_string(candidate.get("mimeType"))
@@ -241,7 +241,7 @@ fn valid_html_visualization(value: Option<&Json>) -> bool {
     };
     map.keys()
         .all(|key| ["title", "document", "height", "mode", "kit"].contains(&key.as_str()))
-        && matches!(map.get("title"), Some(Json::String(title)) if !title.is_empty() && title.len() <= 160)
+        && matches!(map.get("title"), Some(Json::String(title)) if !title.is_empty() && title.len_code_points() <= 160)
         && map.get("document").is_some_and(valid_attachment)
 }
 

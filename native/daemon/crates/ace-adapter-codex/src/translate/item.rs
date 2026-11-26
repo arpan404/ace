@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Items: content parts, tool drafts and item drafts, same JSON as TypeScript.
 
-use ace_json::{Map, Value};
+use ace_json::{Map, Value, utf16_len};
 
 use super::command::command_detail;
 use super::content::{content, file_change, raw_array, raw_for};
 use super::helpers::{list_of, obj_map, str_empty};
-
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
 
 pub fn tool_draft(
     detail: Value,
@@ -36,12 +32,10 @@ pub fn tool_draft(
             .get("error")
             .map(obj_map)
             .and_then(|m| m.get("message"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if !message.is_empty() {
-            let truncated: String = message.chars().take(4096).collect();
-            // Slice by chars approximates the TypeScript `slice(0, 4096)` on
-            // UTF-16 units for the ASCII errors providers send.
+            .and_then(Value::as_js_str)
+            .filter(|message| !message.is_empty());
+        if let Some(message) = message {
+            let truncated = message.slice_units(0, 4096);
             call.insert("error".to_owned(), Value::from(truncated));
         }
     }
@@ -290,4 +284,28 @@ pub fn item_draft(item: &Map, complete: bool, item_value: &Value) -> Value {
         Value::Object(detail)
     };
     tool_draft(detail, &title, item_value, status, item_type, name)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn an_mcp_tool_error_can_end_with_half_an_emoji() {
+        for prefix in [4094, 4095] {
+            let message = format!("{}😀", "x".repeat(prefix));
+            let data = ace_json::json!({"error": {"message": message}});
+            let draft = tool_draft(Value::Null, "mcp", &data, "failed", "mcpToolCall", None);
+            let error = draft
+                .get("call")
+                .and_then(|call| call.get("error"))
+                .and_then(Value::as_js_str)
+                .expect("error");
+            assert_eq!(error.len_utf16(), 4096);
+            assert_eq!(
+                error.units().last(),
+                Some(if prefix == 4094 { 0xde00 } else { 0xd83d })
+            );
+        }
+    }
 }

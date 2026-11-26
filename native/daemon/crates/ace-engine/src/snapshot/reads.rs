@@ -7,9 +7,10 @@
 
 use std::collections::HashSet;
 
-use ace_core::entity_model::BackgroundTask;
+use ace_core::entity_model::{BackgroundTask, Interaction};
 use ace_core::item_model::ToolDetail;
 use ace_core::items::Item;
+use ace_core::state::AgentRecord;
 use ace_core::status::ThreadStatus;
 
 use super::Snapshot;
@@ -27,6 +28,32 @@ impl Snapshot {
         };
         self.state.tasks.insert(key.to_owned(), task.clone());
         Ok(Some(task))
+    }
+
+    /// One agent record, loaded from its section when the state does not hold it yet.
+    pub fn agent(&mut self, key: &str) -> Result<Option<AgentRecord>, EngineError> {
+        if let Some(record) = self.state.agents.get(key) {
+            return Ok(Some(record.clone()));
+        }
+        let Some(record) = self.agents.read(key)? else {
+            return Ok(None);
+        };
+        self.state.agents.insert(key.to_owned(), record.clone());
+        Ok(Some(record))
+    }
+
+    /// One interaction, loaded from its section when the state does not hold it yet.
+    pub fn interaction(&mut self, key: &str) -> Result<Option<Interaction>, EngineError> {
+        if let Some(interaction) = self.state.interactions.get(key) {
+            return Ok(Some(interaction.clone()));
+        }
+        let Some(interaction) = self.interactions.read(key)? else {
+            return Ok(None);
+        };
+        self.state
+            .interactions
+            .insert(key.to_owned(), interaction.clone());
+        Ok(Some(interaction))
     }
 
     /// The thread's root agent id: `state.agents[state.rootKey]?.agent.id` (`index.ts:857`).

@@ -102,7 +102,7 @@ pub(crate) fn user_text_upsert(
         draft.insert("origin".to_owned(), Value::Object(origin));
     }
     draft.insert("complete".to_owned(), Value::Bool(true));
-    if !uuid.is_empty() && uuid.len() <= 256 {
+    if !uuid.is_empty() && ace_json::utf16_len(uuid) <= 256 {
         draft.insert("nativeId".to_owned(), Value::from(uuid.to_owned()));
     }
     if let Value::Object(extra) = keep {
@@ -255,4 +255,29 @@ pub(crate) fn tool_output_delta(owner: &str, item: &str, output: &str) -> Value 
     map.insert("field".to_owned(), Value::from("output".to_owned()));
     map.insert("append".to_owned(), Value::from(output.to_owned()));
     Value::Object(map)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::user_text_upsert;
+    use ace_json::Value;
+
+    #[test]
+    fn a_user_draft_native_id_counts_utf16_units_like_string_length() {
+        for (uuid, expected) in [
+            ("😀".repeat(128), true),
+            ("😀".repeat(129), false),
+            ("u".repeat(256), true),
+            ("u".repeat(257), false),
+        ] {
+            let draft = user_text_upsert("agent", "item", &[], false, None, &uuid, Value::Null);
+            let native = draft.pointer("/draft/nativeId");
+            assert_eq!(
+                native.is_some(),
+                expected,
+                "{} UTF-16 units",
+                uuid.encode_utf16().count()
+            );
+        }
+    }
 }

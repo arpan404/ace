@@ -58,10 +58,10 @@ pub(crate) fn valid_attachment(value: &Json) -> bool {
     if as_count(map.get("bytes")).is_none() {
         return false;
     }
-    if !matches!(map.get("mimeType"), Some(Json::String(mime)) if mime.len() <= 128) {
+    if !matches!(map.get("mimeType"), Some(Json::String(mime)) if mime.len_code_points() <= 128) {
         return false;
     }
-    if !matches!(map.get("name"), Some(Json::String(name)) if name.len() <= 255) {
+    if !matches!(map.get("name"), Some(Json::String(name)) if name.len_code_points() <= 255) {
         return false;
     }
     if let Some(kind) = map.get("kind")
@@ -101,12 +101,12 @@ fn valid_file_content(value: &Json) -> bool {
         Some("base64") => {
             map.keys()
                 .all(|key| ["encoding", "data"].contains(&key.as_str()))
-                && matches!(map.get("data"), Some(Json::String(data)) if data.len() <= 44 * 1024 * 1024)
+                && matches!(map.get("data"), Some(Json::String(data)) if data.len_code_points() <= 44 * 1024 * 1024)
         }
         Some("text") => {
             map.keys()
                 .all(|key| ["encoding", "data"].contains(&key.as_str()))
-                && matches!(map.get("data"), Some(Json::String(data)) if data.len() <= 128 * 1024)
+                && matches!(map.get("data"), Some(Json::String(data)) if data.len_code_points() <= 128 * 1024)
         }
         _ => false,
     }
@@ -134,9 +134,9 @@ pub(super) fn valid_content_part(value: &Json) -> bool {
                 .all(|key| ["type", "path", "mimeType", "name", "content"].contains(&key.as_str()))
                 && is_string(map.get("path"))
                 && optional_string(map.get("mimeType"))
-                && map
-                    .get("name")
-                    .is_none_or(|name| matches!(name, Json::String(name) if name.len() <= 255))
+                && map.get("name").is_none_or(
+                    |name| matches!(name, Json::String(name) if name.len_code_points() <= 255),
+                )
                 && map.get("content").is_none_or(valid_file_content)
         }
         Some("mention") => valid_mention(map),
@@ -161,15 +161,16 @@ fn valid_mention(map: &Map) -> bool {
     }) {
         return false;
     }
-    if !matches!(map.get("entryId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256) {
+    if !matches!(map.get("entryId"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 256)
+    {
         return false;
     }
-    if !matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+    if !matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
     {
         return false;
     }
     if let Some(title) = map.get("title")
-        && !matches!(title, Json::String(title) if !title.is_empty() && title.len() <= 256)
+        && !matches!(title, Json::String(title) if !title.is_empty() && title.len_code_points() <= 256)
     {
         return false;
     }
@@ -190,12 +191,12 @@ fn valid_mention(map: &Map) -> bool {
         return false;
     }
     if let Some(icon) = map.get("icon")
-        && !matches!(icon, Json::String(icon) if icon.len() <= 4096)
+        && !matches!(icon, Json::String(icon) if icon.len_code_points() <= 4096)
     {
         return false;
     }
     if !matches!(map.get("arguments"), None | Some(Json::String(_)))
-        || matches!(map.get("arguments"), Some(Json::String(args)) if args.len() > 16384)
+        || matches!(map.get("arguments"), Some(Json::String(args)) if args.len_code_points() > 16384)
     {
         return false;
     }
@@ -225,7 +226,7 @@ fn valid_palette_name(name: &str) -> bool {
 }
 
 fn valid_prompt_value(value: &Json) -> bool {
-    matches!(value, Json::String(text) if text.len() <= 16384)
+    matches!(value, Json::String(text) if text.len_code_points() <= 16384)
         | matches!(value, Json::Number(_))
         | matches!(value, Json::Bool(_))
 }
@@ -276,29 +277,29 @@ fn valid_catalog_invocation(value: &Json) -> bool {
         Some("slash") => {
             map.keys()
                 .all(|key| ["type", "name"].contains(&key.as_str()))
-                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         }
         Some("skill" | "mention") => {
             map.keys()
                 .all(|key| ["type", "name", "path"].contains(&key.as_str()))
-                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
-                && matches!(map.get("path"), Some(Json::String(path)) if !path.is_empty() && path.len() <= 4096)
+                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
+                && matches!(map.get("path"), Some(Json::String(path)) if !path.is_empty() && path.len_code_points() <= 4096)
         }
         Some("plugin" | "agent") => {
             map.keys()
                 .all(|key| ["type", "name"].contains(&key.as_str()))
-                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         }
         Some("tool") => {
             map.keys()
                 .all(|key| ["type", "name", "server"].contains(&key.as_str()))
-                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
-                && matches!(map.get("server"), Some(Json::String(server)) if server.len() <= 256)
+                && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
+                && matches!(map.get("server"), Some(Json::String(server)) if server.len_code_points() <= 256)
         }
         Some("prompt") => {
             map.keys()
                 .all(|key| ["type", "commandId", "parameters"].contains(&key.as_str()))
-                && matches!(map.get("commandId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
+                && matches!(map.get("commandId"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 256)
                 && map.get("parameters").is_none_or(|parameters| {
                     matches!(parameters, Json::Object(parameters)
                     if parameters.len() <= 64
@@ -310,13 +311,50 @@ fn valid_catalog_invocation(value: &Json) -> bool {
         Some("action") => {
             map.keys()
                 .all(|key| ["type", "action"].contains(&key.as_str()))
-                && matches!(map.get("action"), Some(Json::String(action)) if !action.is_empty() && action.len() <= 128)
+                && matches!(map.get("action"), Some(Json::String(action)) if !action.is_empty() && action.len_code_points() <= 128)
         }
         Some("unavailable") => {
             map.keys()
                 .all(|key| ["type", "reason"].contains(&key.as_str()))
-                && matches!(map.get("reason"), Some(Json::String(reason)) if !reason.is_empty() && reason.len() <= 2048)
+                && matches!(map.get("reason"), Some(Json::String(reason)) if !reason.is_empty() && reason.len_code_points() <= 2048)
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::{Json, Map, valid_content_part};
+
+    fn file_part(encoding: &str, data: String) -> Json {
+        let mut content = Map::new();
+        content.insert("encoding", Json::from(encoding));
+        content.insert("data", Json::from(data));
+        let mut part = Map::new();
+        part.insert("type", Json::from("file"));
+        part.insert("path", Json::from("/tmp/notes.txt"));
+        part.insert("content", Json::Object(content));
+        Json::Object(part)
+    }
+
+    #[test]
+    fn file_content_text_is_bounded_in_code_points() {
+        for length in [128 * 1024, 128 * 1024 + 1] {
+            let part = file_part("text", "😀".repeat(length));
+            assert_eq!(valid_content_part(&part), length == 128 * 1024);
+        }
+    }
+
+    #[test]
+    fn file_content_base64_is_bounded_in_code_points_not_bytes() {
+        const LIMIT: usize = 44 * 1024 * 1024;
+        // LIMIT / 2 + 1 emoji are 46 M UTF-16 units and 92 MB of UTF-8, both
+        // over the limit, but 23 M code points, under it: only the count the
+        // patched Zod does takes this part.
+        let part = file_part("base64", "😀".repeat(LIMIT / 2 + 1));
+        assert!(valid_content_part(&part), "code points are the unit");
+        drop(part);
+        let part = file_part("base64", "a".repeat(LIMIT + 1));
+        assert!(!valid_content_part(&part), "one code point over the limit");
     }
 }

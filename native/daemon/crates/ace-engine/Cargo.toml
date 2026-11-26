@@ -21,6 +21,8 @@ engine-probe = []
 ace-store = { path = "../ace-store" }
 # ace-core: the fact reducer the engine folds frame batches with.
 ace-core = { path = "../ace-core" }
+# ace-projection: the queue's snooze-wake rules (E5.4a).
+ace-projection = { path = "../ace-projection" }
 # ace-adapter-api: the Session trait the engine drives, with its bridge rules.
 ace-adapter-api = { path = "../ace-adapter-api" }
 # async-task: the local executor's spawn_local runnables (from smol-rs, Apache-2.0/MIT, the parts async-executor is made of); engine state is Rc, never shared, never locked.
@@ -46,3 +48,10 @@ indexmap = "2"
 sha2 = "0.10"
 # base64: the echo decodes that data URL exactly as `Buffer.from(…, "base64")` does.
 base64 = "0.22"
+# JavaScript regex and WHATWG URL semantics for stored command validation.
+regress = { version = "0.12", features = ["utf16"] }
+url = "2"
+# ace-adapter-claude, ace-adapter-pi: the input journal re-signs an input with the rendering the
+# provider's own adapter sends (E5.4b), so the two stay one copy.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
+ace-adapter-pi = { path = "../ace-adapter-pi" }

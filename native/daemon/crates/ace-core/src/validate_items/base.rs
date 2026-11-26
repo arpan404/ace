@@ -14,7 +14,7 @@ pub(super) fn valid_base(candidate: &Map) -> bool {
         && valid_timestamp(candidate.get("createdAt"))
         && candidate
             .get("nativeId")
-            .is_none_or(|id| matches!(id, Json::String(id) if id.len() <= 256))
+            .is_none_or(|id| matches!(id, Json::String(id) if id.len_code_points() <= 256))
         && candidate
             .get("executionSource")
             .is_none_or(valid_execution_source)
@@ -54,19 +54,19 @@ fn valid_execution_source(value: &Json) -> bool {
     }
     if let Some(model) = selection.get("model")
         && (matches!(model, Json::Null)
-            || !matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256))
+            || !matches!(model, Json::String(model) if !model.is_empty() && model.len_code_points() <= 256))
     {
         return false;
     }
     if let Some(instance) = selection.get("instanceId")
         && (matches!(instance, Json::Null)
-            || !matches!(instance, Json::String(instance) if !instance.is_empty() && instance.len() <= 256))
+            || !matches!(instance, Json::String(instance) if !instance.is_empty() && instance.len_code_points() <= 256))
     {
         return false;
     }
     match selection.get("options") {
         None => true,
-        Some(Json::Object(options)) => options.keys().all(|key| key.len() <= 128),
+        Some(Json::Object(options)) => options.keys().all(|key| key.len_code_points() <= 128),
         _ => false,
     }
 }

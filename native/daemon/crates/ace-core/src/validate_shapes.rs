@@ -78,7 +78,7 @@ pub fn valid_native_ref(value: Option<&Json>) -> bool {
     }
     match map.get("forkedFromNativeId") {
         None => {}
-        Some(Json::String(text)) if !text.is_empty() && text.len() <= 1024 => {}
+        Some(Json::String(text)) if !text.is_empty() && text.len_code_points() <= 1024 => {}
         _ => return false,
     }
     match map.get("aliases") {
@@ -94,8 +94,8 @@ pub fn valid_agent_machine(value: Option<&Json>) -> bool {
         return false;
     };
     ensure_only(map, &["machine", "name", "hostId", "contact"])
-        && matches!(map.get("machine"), Some(Json::String(machine)) if !machine.is_empty() && machine.len() <= 64)
-        && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+        && matches!(map.get("machine"), Some(Json::String(machine)) if !machine.is_empty() && machine.len_code_points() <= 64)
+        && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         && optional_string(map.get("hostId"))
         && map.get("contact").is_none_or(|contact| {
             matches!(contact, Json::Null)
@@ -161,21 +161,21 @@ fn valid_error_details(value: Option<&Json>) -> bool {
         return false;
     };
     ensure_only(map, &["code", "provider", "title", "detail", "model"])
-        && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 256)
+        && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len_code_points() <= 256)
         && valid_provider_kind(map.get("provider"))
         && matches!(
             map.get("title"),
             None | Some(Json::Null) | Some(Json::String(_))
         )
         && map.get("title").is_none_or(|title| {
-            matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len() <= 256)
+            matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len_code_points() <= 256)
         })
         && map.get("detail").is_none_or(|detail| {
             matches!(detail, Json::Null)
-                | matches!(detail, Json::String(detail) if detail.len() <= 2048)
+                | matches!(detail, Json::String(detail) if detail.len_code_points() <= 2048)
         })
         && map.get("model").is_none_or(
-            |model| matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256),
+            |model| matches!(model, Json::String(model) if !model.is_empty() && model.len_code_points() <= 256),
         )
 }
 
@@ -207,12 +207,12 @@ pub fn valid_agent_error(value: Option<&Json>) -> bool {
         }
     }
     if let Some(title) = map.get("title")
-        && !matches!(title, Json::String(title) if title.len() <= 256)
+        && !matches!(title, Json::String(title) if title.len_code_points() <= 256)
     {
         return false;
     }
     if let Some(detail) = map.get("detail")
-        && !matches!(detail, Json::String(detail) if detail.len() <= 2048)
+        && !matches!(detail, Json::String(detail) if detail.len_code_points() <= 2048)
     {
         return false;
     }
@@ -245,7 +245,7 @@ fn valid_approval_target(value: Option<&Json>) -> bool {
     }
     if !matches!(
         map.get("tool"),
-        Some(Json::String(tool)) if !tool.is_empty() && tool.len() <= 256
+        Some(Json::String(tool)) if !tool.is_empty() && tool.len_code_points() <= 256
     ) {
         return false;
     }
@@ -256,7 +256,7 @@ fn valid_approval_target(value: Option<&Json>) -> bool {
         return false;
     }
     if !map.get("description").is_none_or(
-        |description| matches!(description, Json::String(description) if description.len() <= 2048),
+        |description| matches!(description, Json::String(description) if description.len_code_points() <= 2048),
     ) {
         return false;
     }
@@ -267,15 +267,14 @@ fn valid_approval_target(value: Option<&Json>) -> bool {
     }) {
         return false;
     }
-    if !map
-        .get("command")
-        .is_none_or(|command| matches!(command, Json::String(command) if command.len() <= 32768))
-    {
+    if !map.get("command").is_none_or(
+        |command| matches!(command, Json::String(command) if command.len_code_points() <= 32768),
+    ) {
         return false;
     }
     if !map
         .get("cwd")
-        .is_none_or(|cwd| matches!(cwd, Json::String(cwd) if cwd.len() <= 4096))
+        .is_none_or(|cwd| matches!(cwd, Json::String(cwd) if cwd.len_code_points() <= 4096))
     {
         return false;
     }
@@ -283,7 +282,7 @@ fn valid_approval_target(value: Option<&Json>) -> bool {
         matches!(paths, Json::Array(paths)
         if paths.len() <= 128
             && paths.iter().all(
-                |path| matches!(path, Json::String(path) if !path.is_empty() && path.len() <= 4096),
+                |path| matches!(path, Json::String(path) if !path.is_empty() && path.len_code_points() <= 4096),
             ))
     }) {
         return false;
@@ -469,20 +468,20 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
             ) && map
                 .get("target")
                 .is_none_or(|target| valid_approval_target(Some(target)))
-                && matches!(map.get("tabId"), Some(Json::String(tab)) if !tab.is_empty() && tab.len() <= 256)
+                && matches!(map.get("tabId"), Some(Json::String(tab)) if !tab.is_empty() && tab.len_code_points() <= 256)
                 && matches!(
                     map.get("reason"),
                     Some(Json::String(reason))
                         if ["login", "captcha", "two_factor", "dialog", "other"]
                             .contains(&reason.as_str())
                 )
-                && matches!(map.get("message"), Some(Json::String(message)) if message.len() <= 1000)
-                && map
-                    .get("url")
-                    .is_none_or(|url| matches!(url, Json::String(url) if url.len() <= 8192))
-                && map
-                    .get("title")
-                    .is_none_or(|title| matches!(title, Json::String(title) if title.len() <= 1024))
+                && matches!(map.get("message"), Some(Json::String(message)) if message.len_code_points() <= 1000)
+                && map.get("url").is_none_or(
+                    |url| matches!(url, Json::String(url) if url.len_code_points() <= 8192),
+                )
+                && map.get("title").is_none_or(
+                    |title| matches!(title, Json::String(title) if title.len_code_points() <= 1024),
+                )
         }
         _ => false,
     }
@@ -520,7 +519,7 @@ pub fn valid_interaction_resolution(value: Option<&Json>) -> bool {
             answers_valid
                 && optional_bool(map.get("dismissed"))
                 && map.get("feedback").is_none_or(
-                    |feedback| matches!(feedback, Json::String(feedback) if feedback.len() <= 8192),
+                    |feedback| matches!(feedback, Json::String(feedback) if feedback.len_code_points() <= 8192),
                 )
         }
         Some("plan_review") => {
@@ -572,6 +571,7 @@ pub fn valid_raw_payload(value: &Json) -> bool {
         if as_count(map.get("size")).is_none() {
             return false;
         }
+        // RawPayload's refinement measures TextEncoder output.
         if !map
             .get("preview")
             .is_none_or(|preview| matches!(preview, Json::String(preview) if preview.len() <= 2048))
@@ -611,7 +611,7 @@ fn valid_usage_metadata(map: &Map, allowed: &[&str]) -> bool {
         }
     }
     if let Some(value) = map.get("contextSessionId")
-        && !matches!(value, Json::String(id) if !id.is_empty() && id.len() <= 512)
+        && !matches!(value, Json::String(id) if !id.is_empty() && id.len_code_points() <= 512)
     {
         return false;
     }
@@ -621,7 +621,7 @@ fn valid_usage_metadata(map: &Map, allowed: &[&str]) -> bool {
         return false;
     }
     if let Some(value) = map.get("accountId")
-        && !matches!(value, Json::String(id) if !id.is_empty() && id.len() <= 512)
+        && !matches!(value, Json::String(id) if !id.is_empty() && id.len_code_points() <= 512)
     {
         return false;
     }
@@ -643,7 +643,7 @@ fn valid_usage_metadata(map: &Map, allowed: &[&str]) -> bool {
         }
     }
     if let Some(value) = map.get("counterKey")
-        && !matches!(value, Json::String(key) if !key.is_empty() && key.len() <= 512)
+        && !matches!(value, Json::String(key) if !key.is_empty() && key.len_code_points() <= 512)
     {
         return false;
     }
@@ -730,7 +730,7 @@ pub fn valid_goal(map: &Map) -> bool {
         ],
     ) && matches!(
         map.get("objective"),
-        Some(Json::String(objective)) if !objective.is_empty() && objective.len() <= 4000
+        Some(Json::String(objective)) if !objective.is_empty() && objective.len_code_points() <= 4000
     ) && matches!(
         map.get("status"),
         Some(Json::String(status))
@@ -757,7 +757,7 @@ pub fn valid_goal(map: &Map) -> bool {
             .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
         && map.get("lastReason").is_none_or(|reason| {
             matches!(reason, Json::Null)
-                | matches!(reason, Json::String(reason) if reason.len() <= 4000)
+                | matches!(reason, Json::String(reason) if reason.len_code_points() <= 4000)
         })
         && map
             .get("setAt")
@@ -817,7 +817,7 @@ pub fn valid_screen_input(value: &Json) -> bool {
         }
         Some("text.type") => {
             map.keys().all(|key| ["kind", "text"].contains(&key.as_str()))
-                && matches!(map.get("text"), Some(Json::String(text)) if text.len() <= 4096)
+                && matches!(map.get("text"), Some(Json::String(text)) if text.len_code_points() <= 4096)
         }
         Some("scroll") => {
             map.keys().all(|key| ["kind", "x", "y", "dx", "dy"].contains(&key.as_str()))
@@ -828,7 +828,7 @@ pub fn valid_screen_input(value: &Json) -> bool {
         }
         Some("text.paste") => {
             map.keys().all(|key| ["kind", "text"].contains(&key.as_str()))
-                && matches!(map.get("text"), Some(Json::String(text)) if text.len() <= 4096)
+                && matches!(map.get("text"), Some(Json::String(text)) if text.len_code_points() <= 4096)
         }
         Some("pointer.down" | "pointer.up") => {
             map.keys().all(|key| ["kind", "x", "y"].contains(&key.as_str()))
@@ -847,7 +847,7 @@ pub fn valid_browser_action(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    let reference = |value: Option<&Json>| matches!(value, Some(Json::String(reference)) if !reference.is_empty() && reference.len() <= 256);
+    let reference = |value: Option<&Json>| matches!(value, Some(Json::String(reference)) if !reference.is_empty() && reference.len_code_points() <= 256);
     match map.get("action").and_then(|action| action.as_str()) {
         Some("click") => {
             map.keys()
@@ -858,7 +858,7 @@ pub fn valid_browser_action(value: &Json) -> bool {
             map.keys()
                 .all(|key| ["action", "ref", "text"].contains(&key.as_str()))
                 && reference(map.get("ref"))
-                && matches!(map.get("text"), Some(Json::String(text)) if text.len() <= 65_536)
+                && matches!(map.get("text"), Some(Json::String(text)) if text.len_code_points() <= 65_536)
         }
         Some("press") => {
             map.keys()
@@ -892,16 +892,16 @@ fn valid_interaction_target(value: &Json) -> bool {
         Some("window") => {
             map.keys()
                 .all(|key| ["kind", "bundleId", "windowId"].contains(&key.as_str()))
-                && matches!(map.get("bundleId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
+                && matches!(map.get("bundleId"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 256)
                 && matches!(as_integer(map.get("windowId")), Some(id) if id > 0)
         }
         Some("browser-tab") => {
             map.keys()
                 .all(|key| ["kind", "threadId", "tabId"].contains(&key.as_str()))
-                && matches!(map.get("threadId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
+                && matches!(map.get("threadId"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 256)
                 && map.get("tabId").is_none_or(|tab| {
                     matches!(tab, Json::Null)
-                        | matches!(tab, Json::String(tab) if !tab.is_empty() && tab.len() <= 256)
+                        | matches!(tab, Json::String(tab) if !tab.is_empty() && tab.len_code_points() <= 256)
                 })
         }
         _ => false,
@@ -1049,7 +1049,7 @@ pub fn valid_step_measurement(value: &Json) -> bool {
             notes.len() <= 32
                 && notes
                     .iter()
-                    .all(|note| matches!(note, Json::String(note) if note.len() <= 512))
+                    .all(|note| matches!(note, Json::String(note) if note.len_code_points() <= 512))
         })
     {
         return false;
@@ -1136,4 +1136,225 @@ pub fn valid_step_measurement(value: &Json) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_payload_preview_is_bounded_by_utf8_bytes() {
+        for length in [512, 513] {
+            let raw = ace_json::json!({
+                "type":"provider", "blobRef":"raw", "size":4096, "preview":"😀".repeat(length)
+            });
+            assert_eq!(valid_raw_payload(&raw), length == 512);
+        }
+    }
+
+    #[test]
+    fn native_ref_and_machine_name_bounds_count_code_points() {
+        for length in [1024, 1025] {
+            let text = "😀".repeat(length);
+            let value = ace_json::json!({"provider":"codex","forkedFromNativeId":text});
+            assert_eq!(valid_native_ref(Some(&value)), length == 1024, "forked");
+        }
+        for (field, limit) in [("machine", 64), ("name", 256)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let mut value = ace_json::json!({
+                    "machine":"m", "name":"n", "hostId":"h"
+                });
+                value
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from(text));
+                assert_eq!(
+                    valid_agent_machine(Some(&value)),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn agent_error_details_count_code_points() {
+        for (field, limit) in [
+            ("details.code", 256),
+            ("details.title", 256),
+            ("details.detail", 2048),
+            ("details.model", 256),
+        ] {
+            for length in [limit, limit + 1] {
+                let mut details = ace_json::json!({"code":"code","provider":"codex"});
+                details.as_object_mut().expect("object").insert(
+                    field.trim_start_matches("details."),
+                    Json::from("😀".repeat(length)),
+                );
+                let error = ace_json::json!({
+                    "kind":"provider", "message":"failed", "details":details
+                });
+                assert_eq!(valid_agent_error(Some(&error)), length == limit, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn approval_target_strings_count_code_points() {
+        for (field, limit) in [
+            ("tool", 256),
+            ("description", 2048),
+            ("command", 32768),
+            ("cwd", 4096),
+            ("paths", 4096),
+        ] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let mut target = ace_json::json!({"tool":"tool","access":"execute"});
+                let map = target.as_object_mut().expect("object");
+                if field == "paths" {
+                    map.insert("paths", Json::from(vec![Json::from(text)]));
+                } else {
+                    map.insert(field, Json::from(text));
+                }
+                let request = ace_json::json!({
+                    "kind":"approval", "title":"title", "options":[], "target":target
+                });
+                assert_eq!(
+                    valid_interaction_request(Some(&request)),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn browser_help_strings_count_code_points() {
+        for (field, limit) in [
+            ("tabId", 256),
+            ("message", 1000),
+            ("url", 8192),
+            ("title", 1024),
+        ] {
+            for length in [limit, limit + 1] {
+                let mut request = ace_json::json!({
+                    "kind":"browser_help", "tabId":"tab", "reason":"login", "message":"m"
+                });
+                request
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from("😀".repeat(length)));
+                assert_eq!(
+                    valid_interaction_request(Some(&request)),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn question_feedback_counts_code_points() {
+        for length in [8192, 8193] {
+            let resolution = ace_json::json!({
+                "kind":"question", "answers":{}, "feedback":"😀".repeat(length)
+            });
+            assert_eq!(
+                valid_interaction_resolution(Some(&resolution)),
+                length == 8192
+            );
+        }
+    }
+
+    #[test]
+    fn usage_ids_count_code_points() {
+        for field in ["contextSessionId", "accountId", "counterKey"] {
+            for length in [512, 513] {
+                let mut usage = ace_json::json!({"inputTokens":1,"outputTokens":2});
+                usage
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from("😀".repeat(length)));
+                let map = usage.as_object().expect("object");
+                assert_eq!(valid_usage_like(map, &[]), length == 512, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn goal_objective_and_reason_count_code_points() {
+        for (field, limit) in [("objective", 4000), ("lastReason", 4000)] {
+            for length in [limit, limit + 1] {
+                let mut goal = ace_json::json!({"objective":"work","status":"active"});
+                goal.as_object_mut()
+                    .expect("object")
+                    .insert(field, Json::from("😀".repeat(length)));
+                let map = goal.as_object().expect("object");
+                assert_eq!(valid_goal(map), length == limit, "{field}");
+            }
+        }
+    }
+
+    #[test]
+    fn screen_input_text_and_browser_action_bounds_count_code_points() {
+        for kind in ["text.type", "text.paste"] {
+            for length in [4096, 4097] {
+                let input = ace_json::json!({"kind":kind, "text":"😀".repeat(length)});
+                assert_eq!(valid_screen_input(&input), length == 4096, "{kind}");
+            }
+        }
+        for length in [256, 257] {
+            let action = ace_json::json!({"action":"click", "ref":"😀".repeat(length)});
+            assert_eq!(valid_browser_action(&action), length == 256, "ref");
+        }
+        for length in [65_536, 65_537] {
+            let action = ace_json::json!({
+                "action":"type", "ref":"r", "text":"😀".repeat(length)
+            });
+            assert_eq!(valid_browser_action(&action), length == 65_536, "text");
+        }
+    }
+
+    #[test]
+    fn step_measurement_target_and_notes_count_code_points() {
+        for (field, limit) in [("bundleId", 256), ("threadId", 256), ("tabId", 256)] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let target = if field == "bundleId" {
+                    ace_json::json!({"kind":"window", "bundleId":text, "windowId":41})
+                } else {
+                    ace_json::json!({"kind":"browser-tab", "threadId":"t", "tabId":text})
+                };
+                let mut target = target;
+                if field == "threadId" {
+                    target
+                        .as_object_mut()
+                        .expect("object")
+                        .insert("threadId", Json::from(text));
+                }
+                let measurement = ace_json::json!({
+                    "source":"browser-trace", "target":target, "refreshHz":120,
+                    "windowMs":2000, "frames":80, "hitches":[], "verdict":"smooth",
+                    "confidence":"high", "notes":[]
+                });
+                assert_eq!(
+                    valid_step_measurement(&measurement),
+                    length == limit,
+                    "{field}"
+                );
+            }
+        }
+        for length in [512, 513] {
+            let measurement = ace_json::json!({
+                "source":"browser-trace",
+                "target":{"kind":"window", "bundleId":"b", "windowId":41},
+                "refreshHz":120, "windowMs":2000, "frames":80, "hitches":[],
+                "verdict":"smooth", "confidence":"high",
+                "notes":["😀".repeat(length)]
+            });
+            assert_eq!(valid_step_measurement(&measurement), length == 512, "notes");
+        }
+    }
 }
