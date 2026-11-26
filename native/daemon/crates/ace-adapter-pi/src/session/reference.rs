@@ -122,7 +122,8 @@ pub fn decode_session_reference(value: &str) -> Result<DecodedReference, PiHisto
             id: None,
         });
     };
-    if value.chars().count() > MAX_REFERENCE_CHARS {
+    // `value.length > 16_384` counts UTF-16 units (rule 17).
+    if value.encode_utf16().count() > MAX_REFERENCE_CHARS {
         return Err(PiHistoryError::Header);
     }
     let bytes = URL_SAFE_NO_PAD
@@ -182,6 +183,14 @@ pub fn read_session_header(path: &str) -> Result<SessionHeader, PiHistoryError> 
         .map(str::to_owned)
         .ok_or(PiHistoryError::Header)?;
     validate_id(&id).map_err(|_| PiHistoryError::Header)?;
+    // `version: z.union([1, 2, 3]).default(1)`: a release ace has not audited is refused.
+    match map.get("version") {
+        None | Some(Value::Null) => {}
+        Some(value) => match value.as_f64() {
+            Some(version) if version == 1.0 || version == 2.0 || version == 3.0 => {}
+            _ => return Err(PiHistoryError::Header),
+        },
+    }
     let cwd = map
         .get("cwd")
         .and_then(Value::as_str)
@@ -224,7 +233,10 @@ pub fn save_session_reference(
     let hash = reference_key(reference)?;
     std::fs::create_dir_all(root).map_err(|_| PiHistoryError::Missing)?;
     set_mode(root, 0o700)?;
-    let stage = root.join(format!(".publish-{}-{hash}", std::process::id()));
+    // A fresh stage per save (`mkdtemp`): two opens of one reference never share a directory.
+    static STAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let turn = STAGE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let stage = root.join(format!(".publish-{}-{turn}-{hash}", std::process::id()));
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir(&stage).map_err(|_| PiHistoryError::Missing)?;
     let temporary = stage.join("reference.json");
@@ -247,7 +259,12 @@ pub fn load_session_reference(
     let Some(hash) = value.strip_prefix(COMPACT) else {
         return checked_session_reference(value);
     };
-    if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    // `/^ace-pi-ref:([a-f0-9]{64})$/`: uppercase hex is not a compact id, and reads as a path.
+    if hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return checked_session_reference(value);
     }
     let path = root.join(format!("{hash}.json"));
@@ -431,6 +448,64 @@ mod tests {
         assert_eq!(
             load_session_reference(&references, &saved).unwrap_err(),
             PiHistoryError::Identity
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_header_version_ace_has_not_audited_is_refused() {
+        let root = scratch("version");
+        let path = root.join("v.jsonl");
+        for (version, ok) in [
+            ("", true),
+            ("\"version\":1,", true),
+            ("\"version\":3,", true),
+            ("\"version\":4,", false),
+            ("\"version\":\"3\",", false),
+        ] {
+            std::fs::write(
+                &path,
+                format!("{{\"type\":\"session\",{version}\"id\":\"native\",\"cwd\":\"/tmp\"}}\n"),
+            )
+            .expect("write");
+            let read = read_session_header(&path.to_string_lossy());
+            assert_eq!(read.is_ok(), ok, "{version}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_header_read_stops_at_64_kib_and_a_line_that_fits_is_read() {
+        let root = scratch("header-bound");
+        let path = root.join("bound.jsonl");
+        let head = "{\"type\":\"session\",\"id\":\"native\",\"cwd\":\"/tmp\",\"pad\":\"";
+        let tail = "\"}";
+        // A line whose newline sits at byte 65,535 is inside the 64 KiB read.
+        let fits = 65_535 - head.len() - tail.len();
+        std::fs::write(&path, format!("{head}{}{tail}\n", "x".repeat(fits))).expect("write");
+        assert!(read_session_header(&path.to_string_lossy()).is_ok());
+        // One byte longer puts the newline past the window: the header is refused.
+        std::fs::write(&path, format!("{head}{}{tail}\n", "x".repeat(fits + 1))).expect("write");
+        assert_eq!(
+            read_session_header(&path.to_string_lossy()).unwrap_err(),
+            PiHistoryError::Header
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_uppercase_compact_id_is_a_path_and_an_inline_value_is_bounded_in_utf16_units() {
+        let root = scratch("compact-case");
+        let upper = format!("{COMPACT}ABC");
+        // Not a compact id: it reads as a bare path, which is not absolute.
+        assert_eq!(
+            load_session_reference(&root, &upper).unwrap_err(),
+            PiHistoryError::Header
+        );
+        let too_long = format!("{INLINE}{}", "A".repeat(MAX_REFERENCE_CHARS));
+        assert_eq!(
+            decode_session_reference(&too_long).unwrap_err(),
+            PiHistoryError::Header
         );
         let _ = std::fs::remove_dir_all(&root);
     }

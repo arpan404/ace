@@ -5,8 +5,7 @@
 //! Discovery owns the person's install; this gate is the session's own refusal, before any
 //! process is spawned, with today's typed facts and sentence.
 
-/// Pi's product name and the oldest release ace supports (`cli-requirements.ts:41`–`:47`).
-pub const PI_NAME: &str = "Pi";
+/// The oldest release ace supports (`cli-requirements.ts:41`–`:47`).
 pub const PI_MINIMUM: &str = "0.85.1";
 
 /// A parsed `major.minor[.patch][-prerelease]`.
@@ -91,7 +90,8 @@ pub fn parse_cli_version(text: &str) -> Option<CliVersion> {
     for (at, _) in text.char_indices() {
         if at > 0 {
             let previous = text[..at].chars().next_back()?;
-            if previous.is_alphanumeric() || previous == '_' || previous == '.' {
+            // The regex's `[^\w.]` is ASCII: a non-ASCII letter before the version is allowed.
+            if previous.is_ascii_alphanumeric() || previous == '_' || previous == '.' {
                 continue;
             }
         }
@@ -189,7 +189,7 @@ fn parse_at(text: &str, at: usize) -> Option<CliVersion> {
     // `(?![\w.]*\d)`: a following word/dot run with a digit in it fails this start.
     let mut following = rest.chars().peekable();
     while let Some(character) = following.peek() {
-        if character.is_alphanumeric() || *character == '_' || *character == '.' {
+        if character.is_ascii_alphanumeric() || *character == '_' || *character == '.' {
             if character.is_ascii_digit() {
                 return None;
             }

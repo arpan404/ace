@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The Pi child's process shell: the spawn (through `ace-supervisor`, with both pipes diverted
-//! to the session), the exit it reports, and the signals the stop plan sends.
+//! to the session), its exit, the stop plan and the kills that reach its whole group.
 //!
-//! Ownership, containment and the inventory stay the supervisor's (E2a); unlike the TypeScript
-//! facade, nothing here needs a JavaScript shell, because the only reader of the pipes is the
-//! Rust session itself (`ace-supervisor/src/divert.rs`).
+//! The stop plan is `process.ts:358`–`:400` and `process-owner.ts:357`–`:382`: SIGTERM to the
+//! group, poll until the group is gone, SIGKILL at the grace. A natural exit kills the rest of
+//! the group at once (`killGroupOnExit`, `process.ts:303`), so a dev server the agent started
+//! never outlives the session.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use ace_supervisor::child::{SupervisedChild, spawn_child};
 use ace_supervisor::divert::{ChildPorts, DivertTarget, OutputConsumer};
@@ -16,13 +19,37 @@ use ace_supervisor::spawn::{Delivered, EventSink, OutputStream, RawExit, SpawnSp
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
+use super::clock::Timer;
 use super::launch::PiLaunch;
 
-/// What the supervisor sends the shell that a diverted child no longer needs: every byte goes
-/// to the session's consumer. A group that stays held after a stop is the one diagnostic worth
-/// keeping, because it names a leak in the process tree.
+/// The kill closure the supervisor's escalation calls: SIGKILL to the child's group.
+type KillGroup = Arc<dyn Fn() + Send + Sync>;
+
+/// What the supervisor sends the shell a diverted child no longer needs: every byte goes to the
+/// session's consumer. The one diagnostic kept is the process-group escalation: a member that
+/// survives the stop plan is killed when the supervisor's hold limit passes.
 #[derive(Clone)]
-pub struct SessionShell;
+pub struct SessionShell {
+    /// Installed once the child exists: SIGKILL to its group.
+    kill: Arc<Mutex<Option<KillGroup>>>,
+    /// Logged once by `held`, so a stuck group is visible without a stream of lines.
+    warned: Arc<AtomicBool>,
+}
+
+impl SessionShell {
+    pub fn new() -> Self {
+        Self {
+            kill: Arc::new(Mutex::new(None)),
+            warned: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl Default for SessionShell {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl EventSink for SessionShell {
     fn output(&self, _stream: OutputStream, _bytes: Vec<u8>, delivered: Delivered) {
@@ -40,17 +67,29 @@ impl EventSink for SessionShell {
 
     fn stdin_error(&self, _error: NodeIoError) {}
 
-    fn hold_limit(&self) {}
+    fn hold_limit(&self) {
+        // The group outlived the stop plan and the hold limit: kill it by number while held.
+        let kill = self
+            .kill
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Some(kill) = kill {
+            kill();
+        }
+    }
 
     fn held(&self, message: String) {
-        eprintln!("{message}");
+        if !self.warned.swap(true, Ordering::SeqCst) {
+            eprintln!("{message}");
+        }
     }
 }
 
 /// The leader's exit, as the session records it: the waiter may ask before or after it lands.
 #[derive(Default)]
 pub struct ChildExit {
-    exit: std::sync::Mutex<Option<RawExit>>,
+    exit: Mutex<Option<RawExit>>,
     notify: Notify,
 }
 
@@ -70,21 +109,12 @@ impl ChildExit {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
     }
-
-    /// Resolves once the leader has exited.
-    pub async fn wait(&self) -> RawExit {
-        loop {
-            if let Some(exit) = self.get() {
-                return exit;
-            }
-            self.notify.notified().await;
-        }
-    }
 }
 
 /// The running child, held for the whole session so a stop can be retried.
 pub struct PiChild {
-    child: SupervisedChild,
+    child: Arc<SupervisedChild>,
+    shell: SessionShell,
 }
 
 impl PiChild {
@@ -110,18 +140,31 @@ impl PiChild {
             stdout: StdioMode::Piped,
             stderr: StdioMode::Piped,
         };
-        let target = DivertTarget { consumer, ports };
-        let child = spawn_child(
+        let shell = SessionShell::new();
+        let target = DivertTarget {
+            consumer: Arc::clone(&consumer),
+            ports,
+        };
+        let child = Arc::new(spawn_child(
             &spec,
-            ace_supervisor::divert::Diverted::new(SessionShell, target.consumer.clone()),
+            ace_supervisor::divert::Diverted::new(shell.clone(), consumer),
             runtime,
             Some(&target),
-        )?;
-        Ok(PiChild { child })
+        )?);
+        // The supervisor's hold-limit escalation kills the group through the sink it kept.
+        let killer = Arc::clone(&child);
+        *shell.kill.lock().unwrap_or_else(|error| error.into_inner()) =
+            Some(Arc::new(move || kill_group(&killer)));
+        Ok(PiChild { child, shell })
     }
 
     pub fn pid(&self) -> u32 {
         self.child.pid()
+    }
+
+    /// The supervisor's sink, for tests that prove the escalation is wired.
+    pub fn shell(&self) -> &SessionShell {
+        &self.shell
     }
 
     /// EOF after every queued write: the polite stop on Windows, where a console child has no
@@ -155,8 +198,60 @@ impl PiChild {
         ace_supervisor::stop::kill_windows_tree(self.child.pid(), force)
     }
 
-    /// Whether nothing of the tree runs any more.
+    /// Whether nothing of the group runs any more.
     pub fn group_gone(&self) -> bool {
         self.child.group_gone()
+    }
+
+    /// `killGroupOnExit`: the leader ended, so what it left in its group is killed now.
+    pub fn kill_group_on_exit(&self) {
+        let _ = self.signal_group(SignalName::Kill);
+    }
+
+    /// `stopRetainedGroup` (`process-owner.ts:357`–`:382`): SIGTERM, poll every `poll_ms` until
+    /// the group is gone, then SIGKILL at `grace`. The leader's exit is not the end: a member
+    /// that ignores SIGTERM is killed at the deadline.
+    pub async fn stop(
+        &self,
+        grace: Duration,
+        timer: &dyn Timer,
+        poll_ms: f64,
+    ) -> Result<(), SupervisorError> {
+        // The polite Windows stop is EOF; POSIX gets SIGTERM to the whole group.
+        self.hold();
+        if cfg!(windows) {
+            self.end_stdin();
+        }
+        if let Err(error) = self.signal_group(SignalName::Term) {
+            self.unhold();
+            return Err(error);
+        }
+        let started = Instant::now();
+        loop {
+            if self.group_gone() {
+                self.unhold();
+                return Ok(());
+            }
+            let remaining = grace.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                let killed = self.signal_group(SignalName::Kill);
+                self.unhold();
+                return killed;
+            }
+            let wait = remaining.min(Duration::from_millis(poll_ms as u64));
+            timer.sleep(wait.as_secs_f64() * 1_000.0).await;
+        }
+    }
+}
+
+/// SIGKILL to the group through a plain handle (the supervisor's escalation has only this).
+fn kill_group(child: &Arc<SupervisedChild>) {
+    #[cfg(unix)]
+    {
+        let _ = child.signal_group(SignalName::Kill);
+    }
+    #[cfg(windows)]
+    {
+        let _ = ace_supervisor::stop::kill_windows_tree(child.pid(), true);
     }
 }

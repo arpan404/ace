@@ -14,12 +14,6 @@ pub const UNRESTRICTED: &str = "unrestricted";
 const READ_ONLY_TOOLS: &str = "read,grep,find,ls,ace_*";
 /// Pi's `--thinking` levels (`pi --help`, 1.2.0; `launch-args.ts:4`).
 pub const THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-/// `maxLineBytes: 1024 * 1024` in the spawn (`session.ts:150`).
-pub const MAX_LINE_BYTES: usize = 1024 * 1024;
-/// `elideStdout: { holdBytes: 16 * 1024, textBytes: 1024 * 1024 }` (`session.ts:154`).
-pub const ELIDE_HOLD_BYTES: usize = 16 * 1024;
-pub const ELIDE_TEXT_BYTES: usize = 1024 * 1024;
-
 /// What the daemon knows when it opens a Pi thread.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PiLaunchInput {

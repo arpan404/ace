@@ -101,8 +101,21 @@ pub fn is_outside(workspace: &Path, root: &Path) -> bool {
     false
 }
 
+/// An absolute path with `.` and `..` resolved lexically, as node's `path.resolve` does (no
+/// filesystem read, so a path that does not exist still compares).
 fn absolute(path: &Path) -> PathBuf {
-    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 #[cfg(unix)]
@@ -188,5 +201,14 @@ mod tests {
         assert!(is_outside(&workspace, &temp.join("ace-pi-other")));
         assert!(!is_outside(&workspace, &workspace.join("child")));
         assert!(!is_outside(&workspace, &workspace));
+        // `..` is resolved before the comparison, as node's `path.relative` does.
+        assert!(!is_outside(
+            &workspace,
+            &workspace.join("..").join("ace-pi-ws").join("creds")
+        ));
+        assert!(is_outside(
+            &workspace,
+            &workspace.join("..").join("ace-pi-other")
+        ));
     }
 }

@@ -76,7 +76,13 @@ fn main() {
                     "sessionFile",
                     Value::from(history.path.to_string_lossy().as_ref()),
                 );
-                data.insert("sessionId", Value::from(history.id.as_str()));
+                // `FAKE_PI_WRONG_ID`: the header names one id and Pi reports another.
+                let reported = if std::env::var_os("FAKE_PI_WRONG_ID").is_some() {
+                    "wrong-native-id".to_owned()
+                } else {
+                    history.id.clone()
+                };
+                data.insert("sessionId", Value::from(reported.as_str()));
                 data.insert("isStreaming", Value::Bool(false));
                 data.insert("isCompacting", Value::Bool(false));
                 data.insert(
@@ -126,7 +132,7 @@ fn main() {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_owned();
-                if message == "refuse" {
+                if message == "refuse" || message.starts_with("/refuse") {
                     // Pi turns down a prompt it never accepted with one failed response.
                     emit(
                         &mut stdout,
@@ -147,6 +153,39 @@ fn main() {
                 }
                 if message == "queued" {
                     queue = true;
+                }
+                if message == "spawn-child" {
+                    spawn_descendant();
+                }
+                if message == "dialogs" {
+                    for (id, method, options, timeout) in [
+                        ("select", "select", Some(vec!["Tabs", "Spaces"]), None),
+                        ("confirm", "confirm", None, None),
+                        ("editor", "editor", None, None),
+                        ("timed", "input", None, Some(25.0)),
+                    ] {
+                        let mut dialog = Map::with_capacity(5);
+                        dialog.insert("type", Value::from("extension_ui_request"));
+                        dialog.insert("id", Value::from(id));
+                        dialog.insert("method", Value::from(method));
+                        dialog.insert("title", Value::from("Pi extension"));
+                        if let Some(options) = options {
+                            dialog.insert(
+                                "options",
+                                Value::Array(
+                                    options
+                                        .into_iter()
+                                        .map(Value::from)
+                                        .collect::<Vec<_>>()
+                                        .into(),
+                                ),
+                            );
+                        }
+                        if let Some(timeout) = timeout {
+                            dialog.insert("timeout", Value::from(timeout));
+                        }
+                        emit(&mut stdout, dialog);
+                    }
                 }
                 let text = "hello\u{2028}world\u{2029}!";
                 let mut message_start = agent_event("message_start");
@@ -182,6 +221,12 @@ fn main() {
                 emit(&mut stdout, end);
                 emit(&mut stdout, agent_event("agent_settled"));
                 reply(&mut stdout, id, kind, Value::Object(Map::new()));
+                if message == "spawn-child" && std::env::var_os("FAKE_PI_SPAWN_THEN_EXIT").is_some()
+                {
+                    // A natural exit: the descendant is still running when the leader goes.
+                    let _ = std::io::stdout().flush();
+                    std::process::exit(0);
+                }
             }
             _ => emit(
                 &mut stdout,
@@ -205,13 +250,37 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     args.get(at + 1).cloned()
 }
 
-/// The private configuration's control secret, written by the session under test.
+/// A descendant that ignores SIGTERM, as an agent-started dev server can.
+fn spawn_descendant() {
+    let Ok(script) = std::env::var("FAKE_PI_DESCENDANT_SCRIPT") else {
+        return;
+    };
+    let Ok(child) = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .spawn()
+    else {
+        return;
+    };
+    if let Ok(home) = std::env::var("FAKE_PI_HOME") {
+        let _ = std::fs::write(
+            std::path::Path::new(&home).join("descendant.pid"),
+            child.id().to_string(),
+        );
+    }
+    // The descendant outlives this process unless ace kills the group.
+    std::mem::forget(child);
+}
+
+/// The private configuration's control secret, read as `readPrivateMcpConfig` reads it: no
+/// symlink, mode 0600, this user's, at most 256 KiB. A world-readable file fails the fake.
 fn control_secret() -> String {
     let Ok(path) = std::env::var("ACE_PI_SESSION_FILE") else {
         return String::new();
     };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return String::new();
+    let Ok(text) = read_private(&path) else {
+        eprintln!("Invalid private MCP configuration");
+        std::process::exit(2);
     };
     ace_json::parse(&text)
         .ok()
@@ -222,6 +291,44 @@ fn control_secret() -> String {
                 .map(str::to_owned)
         })
         .unwrap_or_default()
+}
+
+#[cfg(unix)]
+fn read_private(path: &str) -> std::io::Result<String> {
+    use std::io::Read as _;
+    use std::os::unix::fs::MetadataExt as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let info = file.metadata()?;
+    if !info.is_file()
+        || info.mode() & 0o777 != 0o600
+        || info.size() > 256 * 1024
+        || Some(info.uid()) != parent_uid(path)
+    {
+        return Err(std::io::Error::other("Invalid private MCP configuration"));
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
+}
+
+/// The file must belong to the same user as the directory that holds it, which the session
+/// created: no dependency on the process's own uid, and a file planted by someone else fails.
+#[cfg(unix)]
+fn parent_uid(path: &str) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt as _;
+    std::path::Path::new(path)
+        .parent()
+        .and_then(|parent| std::fs::metadata(parent).ok())
+        .map(|meta| meta.uid())
+}
+
+#[cfg(not(unix))]
+fn read_private(path: &str) -> std::io::Result<String> {
+    std::fs::read_to_string(path)
 }
 
 struct History {

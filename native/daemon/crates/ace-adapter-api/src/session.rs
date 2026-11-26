@@ -189,8 +189,8 @@ pub struct SessionExit {
 pub trait SessionObserver: Send + Sync + 'static {
     /// One admitted frame.
     fn frame(&self, frame: SessionFrame);
-    /// The provider's own session id, once known and before any frame from it
-    /// is echoed.
+    /// The provider's own session id, once known. A provider that reports it during its open
+    /// handshake may send frames first (Pi does); the engine treats the id as final from here.
     fn identity(&self, native_session_id: &str);
     /// The session cannot go on: the engine closes it, unexpectedly.
     fn fatal(&self, message: &str);
