@@ -283,10 +283,16 @@ impl ToolRegistry {
         {
             return Err(RegistrationError::Name);
         }
-        let timeout_ms = descriptor.timeout_ms.unwrap_or(MAX_TOOL_TIMEOUT_MS as f64) as u64;
-        if !(1..=MAX_TOOL_TIMEOUT_MS).contains(&timeout_ms) {
+        // `Number.isSafeInteger(timeoutMs) && 1 <= timeoutMs <= maxToolTimeoutMs`: a fractional
+        // timeout is refused, never truncated into range.
+        let timeout = descriptor.timeout_ms.unwrap_or(MAX_TOOL_TIMEOUT_MS as f64);
+        if !timeout.is_finite()
+            || timeout.fract() != 0.0
+            || !(1.0..=MAX_TOOL_TIMEOUT_MS as f64).contains(&timeout)
+        {
             return Err(RegistrationError::Timeout);
         }
+        let timeout_ms = timeout as u64;
         let bare = bare_tool_name(&name);
         let toolset = descriptor
             .toolset

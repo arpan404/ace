@@ -658,7 +658,7 @@ async fn a_client_that_asked_for_progress_hears_a_beat_every_interval() {
     });
     let server = Arc::clone(&fixture.server);
     let request = fixture.request(
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ace_wait","arguments":{},"_meta":{"progressToken":"p"}}}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ace_wait","arguments":{},"_meta":{"progressToken":7}}}"#,
         );
     let call = {
         let server: Arc<McpServer> = Arc::clone(&server);
@@ -683,6 +683,13 @@ async fn a_client_that_asked_for_progress_hears_a_beat_every_interval() {
             .and_then(Value::as_f64),
         Some(1.0)
     );
+    // A numeric token comes back numeric; a client tracking it would not find a string.
+    let token = beats[0]
+        .get("params")
+        .and_then(|params| params.get("progressToken"))
+        .expect("no token");
+    assert_eq!(token.as_f64(), Some(7.0));
+    assert_eq!(token.as_str(), None, "the numeric token became a string");
     assert_eq!(
         beats[0]
             .get("params")

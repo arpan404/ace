@@ -814,6 +814,28 @@ async fn a_calls_acting_for_comes_from_the_client_and_never_the_arguments() {
 #[test]
 fn registration_refuses_bad_names_duplicates_capacity_and_bad_timeouts() {
     let fixture = Fixture::new(1024, 256);
+    // `registry.ts:324` refuses a timeout that is not a safe integer, not merely out of range.
+    for timeout in [1.5, 660_000.5, f64::NAN, f64::INFINITY] {
+        let mut descriptor = descriptor(
+            "ace_echo",
+            None,
+            "x",
+            "read-only",
+            None,
+            1_000,
+            json(),
+            None,
+        );
+        descriptor.timeout_ms = Some(timeout);
+        assert_eq!(
+            fixture
+                .registry
+                .register(ToolEntry::new(descriptor, echo()))
+                .unwrap_err(),
+            RegistrationError::Timeout,
+            "{timeout}"
+        );
+    }
     for bad in [
         descriptor("Thread_read", None, "x", "read-only", None, 1, json(), None),
         descriptor(

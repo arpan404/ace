@@ -151,7 +151,8 @@ impl ToolCall {
         }
         let params = value.get("params")?;
         let name = params.get("name").and_then(Value::as_str)?;
-        if name.encode_utf16().count() > 256 {
+        // Zod's `.max(256)` counts code points (ADR 0125), not UTF-16 units.
+        if name.chars().count() > 256 {
             return None;
         }
         let arguments = params
@@ -267,6 +268,42 @@ mod tests {
                 ScopeCheck::Forward(_)
             ));
         }
+    }
+
+    #[test]
+    fn a_tool_name_is_bounded_in_code_points_not_utf16_units() {
+        let (who, _lease) = principal();
+        let call = |name: &str| {
+            format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"{name}","arguments":{{}}}}}}"#
+            )
+        };
+        // 256 code points but 512 UTF-16 units: `z.string().max(256)` counts code points.
+        let allowed = "\u{1D4B3}".repeat(256);
+        assert!(
+            matches!(
+                scope_refusal(
+                    call(&allowed).as_bytes(),
+                    &who,
+                    &Only(Some("browser")),
+                    4096,
+                    None
+                ),
+                ScopeCheck::Refuse { .. }
+            ),
+            "a 256-code-point name was read as too long"
+        );
+        let refused = "\u{1D4B3}".repeat(257);
+        assert!(matches!(
+            scope_refusal(
+                call(&refused).as_bytes(),
+                &who,
+                &Only(Some("browser")),
+                4096,
+                None
+            ),
+            ScopeCheck::Forward(_)
+        ));
     }
 
     #[test]
