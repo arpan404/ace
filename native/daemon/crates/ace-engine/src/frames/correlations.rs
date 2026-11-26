@@ -242,6 +242,37 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_attachment_comes_back_in_schema_key_order_without_unknown_keys() {
+        let (conn, path) = temp_connection();
+        let store = Correlations::open(&conn).expect("the open");
+        // Shuffled, with a key `Attachment.parse` drops: only `get`'s rebuild can restore order.
+        conn.exec(
+            "INSERT INTO engine_attachment_inputs VALUES ('t1','abc',1,
+             '{\"kind\":\"image\",\"sha256\":\"abc\",\"unknown\":true,\"name\":\"n\",
+               \"bytes\":3,\"mimeType\":\"image/png\"}')",
+        )
+        .expect("the stored row");
+        let value = store
+            .get("t1", "abc")
+            .expect("a read")
+            .expect("the attachment");
+        let keys: Vec<String> = value
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(|key| key.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            keys,
+            vec!["sha256", "bytes", "mimeType", "name", "kind"],
+            "schema order, unknown keys dropped"
+        );
+        drop(store);
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn opening_twice_leaves_sqlite_master_with_the_type_scripts_ddl_text() {
         let (conn, path) = temp_connection();
         Correlations::open(&conn).expect("the first open");
