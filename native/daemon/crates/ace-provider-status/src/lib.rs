@@ -8,9 +8,10 @@ use ace_provider_installs::installer;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum Runtime {
+    #[serde(rename = "cli")]
     Cli,
+    #[serde(rename = "cursor-sdk")]
     CursorSdk,
 }
 
@@ -176,6 +177,8 @@ pub fn provider_status_row(
     at: i64,
 ) -> ProviderStatus {
     let observation = observation.cloned().unwrap_or_default();
+    // The row is rebuilt from what this check observed: a previous `readiness`, `state`,
+    // `actionId` or `instanceId` never survives a newer observation (`provider-status-row.ts`).
     let mut result = ProviderStatus {
         provider: row.provider,
         runtime: row.runtime,
@@ -185,10 +188,18 @@ pub fn provider_status_row(
             .login_hint
             .unwrap_or_else(|| row.login_hint.clone()),
         checked_at: Some(at),
-        stale: false,
-        refreshing: false,
-        ..row.clone()
+        path: observation.path,
+        version: observation.version,
+        version_check: observation.version_check,
+        account_label: observation.account_label,
+        auth_detail: observation.auth_detail,
+        auth_evidence: observation.auth_evidence,
+        error: observation.error,
+        ..ProviderStatus::unchecked(row.provider)
     };
+    result.checked_at = Some(at);
+    result.stale = false;
+    result.refreshing = false;
     if result.installed == Some(true) && result.auth == Auth::LoggedOut {
         result.state = Some("not_configured".into());
         result.action_id = Some("provider.sign_in".into());
@@ -196,13 +207,6 @@ pub fn provider_status_row(
             result.login_hint = "Sign in to Cursor".into();
         }
     }
-    result.path = observation.path;
-    result.version = observation.version;
-    result.version_check = observation.version_check;
-    result.account_label = observation.account_label;
-    result.auth_detail = observation.auth_detail;
-    result.auth_evidence = observation.auth_evidence;
-    result.error = observation.error;
     if observation.invalid {
         result.error = Some("Invalid optional provider metadata".into());
     }
@@ -565,6 +569,84 @@ mod tests {
         );
         assert_eq!(merged.checked_at, Some(42));
         assert!(!merged.stale);
+    }
+
+    // apps/daemon/src/provider-status-row.ts
+    // "a check rebuilds the row, so an older readiness or sign-in action never survives"
+    #[test]
+    fn a_check_rebuilds_the_row_and_drops_older_decisions() {
+        let mut old = row(ProviderKind::Codex);
+        old.readiness = Some(Readiness::NeedsAttention);
+        old.state = Some("not_configured".into());
+        old.action_id = Some("provider.sign_in".into());
+        old.instance_id = Some("codex-cli-default".into());
+        old.enabled = Some(true);
+        old.install_hint = Some("old hint".into());
+        let observation = DiscoveryObservation {
+            installed: Some(true),
+            auth: Some(Auth::LoggedIn),
+            version: Some("1.0.0".into()),
+            ..Default::default()
+        };
+        let merged = provider_status_row(&old, Some(&observation), 9);
+        assert_eq!(merged.readiness, None);
+        assert_eq!(merged.state, None);
+        assert_eq!(merged.action_id, None);
+        assert_eq!(merged.instance_id, None);
+        assert_eq!(merged.enabled, None);
+        assert_eq!(merged.install_hint, None);
+        assert_eq!(merged.version.as_deref(), Some("1.0.0"));
+        assert_eq!(merged.checked_at, Some(9));
+    }
+
+    // "the wire literals are the protocol's: cursor-sdk, logged_in, installed_signed_out"
+    #[test]
+    fn the_wire_literals_are_the_protocols() {
+        assert_eq!(
+            serde_json::to_value(Runtime::CursorSdk).unwrap_or_default(),
+            serde_json::json!("cursor-sdk")
+        );
+        assert_eq!(
+            serde_json::to_value(Runtime::Cli).unwrap_or_default(),
+            serde_json::json!("cli")
+        );
+        assert_eq!(
+            serde_json::to_value(Auth::LoggedIn).unwrap_or_default(),
+            serde_json::json!("logged_in")
+        );
+        assert_eq!(
+            serde_json::to_value(Readiness::InstalledSignedOut).unwrap_or_default(),
+            serde_json::json!("installed_signed_out")
+        );
+        assert_eq!(
+            serde_json::to_value(VersionCheckStatus::TooOld).unwrap_or_default(),
+            serde_json::json!("too_old")
+        );
+        // The generated protocol parses the same literals.
+        assert_eq!(
+            serde_json::from_value::<ace_protocol::generated::Schema64>(serde_json::json!(
+                "cursor-sdk"
+            ))
+            .ok(),
+            Some(ace_protocol::generated::Schema64::CursorSdk)
+        );
+        let row = ProviderStatus {
+            provider: ProviderKind::Cursor,
+            runtime: Runtime::CursorSdk,
+            version_check: Some(VersionCheck {
+                status: VersionCheckStatus::Ok,
+                installed: Some("1.0.0".into()),
+                required: "0.1.0".into(),
+            }),
+            ..row(ProviderKind::Cursor)
+        };
+        let value = serde_json::to_value(&row).unwrap_or_default();
+        assert_eq!(value["runtime"], "cursor-sdk");
+        assert_eq!(value["versionCheck"]["status"], "ok");
+        assert_eq!(
+            serde_json::from_value::<ProviderKind>(value["provider"].clone()).ok(),
+            Some(ProviderKind::Cursor)
+        );
     }
 
     #[test]

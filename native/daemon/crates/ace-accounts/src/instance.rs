@@ -125,58 +125,6 @@ pub struct ProviderInstance {
     pub instance_id: Option<String>,
 }
 
-/// One or two text graphemes at most 64 UTF-16 units, no whitespace, no emoji (`AccountBadgeInput`).
-fn valid_short_label(value: &str) -> bool {
-    if value.is_empty() || value.chars().count() > 64 {
-        return false;
-    }
-    if value.chars().any(char::is_whitespace) || value.chars().any(char::is_control) {
-        return false;
-    }
-    // `\p{Cf}` (format) and emoji/keycap forms are the schema's other refusals. ASCII controls
-    // are covered above; the remaining format characters are the common bidi marks.
-    if value.chars().any(|c| {
-        matches!(
-            c,
-            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}'
-        )
-    }) {
-        return false;
-    }
-    if value.chars().any(|c| {
-        matches!(c, '\u{20e3}' | '\u{fe0f}')
-            || ('\u{1f000}'..='\u{1faff}').contains(&c)
-            || ('\u{2600}'..='\u{27bf}').contains(&c)
-    }) {
-        return false;
-    }
-    graphemes(value) <= 2
-}
-
-/// A small grapheme count for the badge's one-or-two rule: extended grapheme clusters we meet in
-/// initials are single code points, or a base with combining marks and a variation selector.
-fn graphemes(value: &str) -> usize {
-    let mut count = 0;
-    for character in value.chars() {
-        // A new cluster starts at every base character, whatever came before it.
-        if !is_combining(character) {
-            count += 1;
-        }
-    }
-    count
-}
-
-fn is_combining(character: char) -> bool {
-    matches!(
-        character,
-        '\u{0300}'..='\u{036f}'
-            | '\u{1ab0}'..='\u{1aff}'
-            | '\u{1dc0}'..='\u{1dff}'
-            | '\u{20d0}'..='\u{20ff}'
-            | '\u{fe20}'..='\u{fe2f}'
-    )
-}
-
 impl ProviderInstance {
     fn length_error(value: &str, max: usize) -> bool {
         value.chars().count() > max
@@ -214,7 +162,7 @@ impl ProviderInstance {
         if self
             .short_label
             .as_deref()
-            .is_some_and(|value| !valid_short_label(value))
+            .is_some_and(|value| !crate::labels::valid_short_label(value))
         {
             return Err(AccountsError::InvalidNativeIdentity);
         }
@@ -658,8 +606,9 @@ pub fn login_args(provider: Provider, api: bool) -> Result<Vec<String>, Accounts
             if api { "--console" } else { "--claudeai" }.into(),
         ],
         Provider::Cursor => return Err(AccountsError::CursorSignIn),
-        Provider::OpenCode => open_code_auth_args("login"),
-        Provider::Acp | Provider::Antigravity => open_code_auth_args("login"),
+        Provider::OpenCode | Provider::Acp | Provider::Antigravity => {
+            open_code_auth_args("login", None, None)?
+        }
     })
 }
 
@@ -668,16 +617,62 @@ pub fn logout_args(provider: Provider) -> Result<Vec<String>, AccountsError> {
     Ok(match provider {
         Provider::Pi => Vec::new(),
         Provider::Cursor => return Err(AccountsError::CursorSignOut),
-        Provider::OpenCode => open_code_auth_args("logout"),
+        Provider::OpenCode => open_code_auth_args("logout", None, None)?,
         Provider::Codex => vec!["logout".into()],
-        Provider::Acp | Provider::Antigravity => open_code_auth_args("logout"),
-        Provider::Claude => vec!["auth".into(), "logout".into()],
+        // An agent signs out through the CLI's own auth command, never OpenCode's.
+        Provider::Acp | Provider::Antigravity | Provider::Claude => {
+            vec!["auth".into(), "logout".into()]
+        }
     })
 }
 
-/// `openCodeAuthArgs`: OpenCode's non-interactive `auth login|logout`.
-fn open_code_auth_args(action: &str) -> Vec<String> {
-    vec!["auth".into(), action.into(), "--non-interactive".into()]
+/// A sign-in aimed at one OpenCode integration and method, as the composer's choice names them.
+pub fn login_args_targeted(
+    integration: Option<&str>,
+    method: Option<&str>,
+) -> Result<Vec<String>, AccountsError> {
+    open_code_auth_args("login", integration, method)
+}
+
+/// `openCodeAuthArgs`: `auth <action> --standalone`, aimed at one integration and method when
+/// given. `--standalone` keeps an isolated account off the person's own default login.
+fn open_code_auth_args(
+    action: &str,
+    integration: Option<&str>,
+    method: Option<&str>,
+) -> Result<Vec<String>, AccountsError> {
+    if integration.is_some_and(|integration| !valid_integration(integration)) {
+        return Err(AccountsError::UnknownOpenCodeIntegration);
+    }
+    if method.is_some_and(|method| !valid_integration(method)) {
+        return Err(AccountsError::UnknownOpenCodeMethod);
+    }
+    let mut args = vec![
+        "auth".to_string(),
+        action.to_string(),
+        "--standalone".to_string(),
+    ];
+    if let Some(integration) = integration.filter(|integration| *integration != "other") {
+        args.push(integration.to_string());
+    }
+    if let Some(method) = method {
+        args.push("--method".to_string());
+        args.push(method.to_string());
+    }
+    Ok(args)
+}
+
+/// `integrationId`: never `-` or `.` first, so an id can't read as a flag or a path.
+fn valid_integration(value: &str) -> bool {
+    let mut characters = value.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return false;
+    }
+    characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+        && value.len() <= 64
 }
 
 #[cfg(test)]
@@ -883,6 +878,75 @@ mod tests {
         assert_eq!(
             logout_args(Provider::Claude),
             Ok(vec!["auth".into(), "logout".into()])
+        );
+    }
+
+    // packages/accounts/src/instances.process.test.ts
+    // "login and logout run the CLI's own auth command, with --standalone for OpenCode's"
+    #[test]
+    fn login_and_logout_run_the_clis_own_auth_command() {
+        assert_eq!(login_args(Provider::Codex, false), Ok(vec!["login".into()]));
+        assert_eq!(login_args(Provider::Pi, false), Ok(Vec::new()));
+        assert_eq!(
+            login_args(Provider::Claude, false),
+            Ok(vec!["auth".into(), "login".into(), "--claudeai".into()])
+        );
+        assert_eq!(
+            login_args(Provider::Claude, true),
+            Ok(vec!["auth".into(), "login".into(), "--console".into()])
+        );
+        for provider in [Provider::OpenCode, Provider::Acp, Provider::Antigravity] {
+            assert_eq!(
+                login_args(provider, false),
+                Ok(vec!["auth".into(), "login".into(), "--standalone".into()]),
+                "{provider:?}"
+            );
+        }
+        // An agent signs out with the CLI's own auth command, never OpenCode's.
+        for provider in [Provider::Claude, Provider::Acp, Provider::Antigravity] {
+            assert_eq!(
+                logout_args(provider),
+                Ok(vec!["auth".into(), "logout".into()]),
+                "{provider:?}"
+            );
+        }
+        assert_eq!(
+            logout_args(Provider::OpenCode),
+            Ok(vec!["auth".into(), "logout".into(), "--standalone".into()])
+        );
+        assert_eq!(logout_args(Provider::Codex), Ok(vec!["logout".into()]));
+        assert_eq!(logout_args(Provider::Pi), Ok(Vec::new()));
+    }
+
+    // "a targeted OpenCode sign-in names its integration and method, never a flag or a path"
+    #[test]
+    fn a_targeted_opencode_sign_in_names_its_integration_and_method() {
+        assert_eq!(
+            login_args_targeted(Some("github-copilot"), Some("device")),
+            Ok(vec![
+                "auth".into(),
+                "login".into(),
+                "--standalone".into(),
+                "github-copilot".into(),
+                "--method".into(),
+                "device".into()
+            ])
+        );
+        // "other" is the CLI's own choice: it has no positional target.
+        assert_eq!(
+            login_args_targeted(Some("other"), None),
+            Ok(vec!["auth".into(), "login".into(), "--standalone".into()])
+        );
+        for invalid in ["-x", ".hidden", "Upper", "a b", ""] {
+            assert_eq!(
+                login_args_targeted(Some(invalid), None),
+                Err(AccountsError::UnknownOpenCodeIntegration),
+                "{invalid:?}"
+            );
+        }
+        assert_eq!(
+            login_args_targeted(None, Some("-bad")),
+            Err(AccountsError::UnknownOpenCodeMethod)
         );
     }
 

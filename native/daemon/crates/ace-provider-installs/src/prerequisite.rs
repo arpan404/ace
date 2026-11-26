@@ -21,7 +21,7 @@ pub fn registry_prerequisites(
     if plan
         .registry_plan
         .as_ref()
-        .is_some_and(|registry| registry.runtime == "npm")
+        .is_some_and(|registry| registry.runtime == crate::plan::RegistryRuntime::Npm)
     {
         let node = ports.find_executable("node", env);
         let version = node.as_deref().and_then(|node| {
@@ -141,10 +141,17 @@ mod tests {
             method: Some(InstallMethod::Registry),
             methods: vec![InstallMethod::Registry],
             registry_plan: Some(RegistryPlan {
-                runtime: runtime.into(),
+                digest: "sha256:abc".into(),
                 acp_agent_id: agent.unwrap_or("official:gemini").into(),
                 version: "1.0.0".into(),
                 source: "https://example.test/agent.json".into(),
+                publisher: vec!["example".into()],
+                runtime: match runtime {
+                    "npm" => crate::plan::RegistryRuntime::Npm,
+                    "uv" => crate::plan::RegistryRuntime::Uv,
+                    _ => crate::plan::RegistryRuntime::Binary,
+                },
+                target: "gemini".into(),
                 destination: "/tmp/agent".into(),
                 argv: Vec::new(),
                 verification: "sha256".into(),

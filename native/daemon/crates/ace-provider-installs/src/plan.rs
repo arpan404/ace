@@ -60,7 +60,7 @@ pub fn install_target(target: &InstallTarget) -> InstallTarget {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum InstallStatus {
     Ready,
     Manual,
@@ -75,14 +75,26 @@ pub struct InstallPrerequisite {
     pub source_url: String,
 }
 
+/// A registry plan's runtime, as `@ace/protocol`'s `RegistryInstallPlan` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RegistryRuntime {
+    Binary,
+    Npm,
+    Uv,
+}
+
 /// The registry's own reviewed plan for one agent, as `@ace/protocol` carries it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryPlan {
-    pub runtime: String,
+    pub digest: String,
     pub acp_agent_id: String,
     pub version: String,
     pub source: String,
+    pub publisher: Vec<String>,
+    pub runtime: RegistryRuntime,
+    pub target: String,
     pub destination: String,
     pub argv: Vec<String>,
     pub verification: String,
@@ -874,6 +886,98 @@ fn reviewed_brew_name(name: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::testing::FakePorts;
+
+    // apps/daemon/src/provider-install/server.process.test.ts
+    // "a plan is what @ace/protocol describes: camelCase keys, protocol literals, no nulls"
+    #[test]
+    fn a_plan_serializes_as_the_protocol_describes_it() {
+        for (status, text) in [
+            (InstallStatus::Ready, "ready"),
+            (InstallStatus::Manual, "manual"),
+            (InstallStatus::SignIn, "sign_in"),
+            (InstallStatus::Unavailable, "unavailable"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(status).unwrap_or_default(),
+                serde_json::json!(text)
+            );
+        }
+        for (method, text) in [
+            (InstallMethod::Npm, "npm"),
+            (InstallMethod::Bun, "bun"),
+            (InstallMethod::Brew, "brew"),
+            (InstallMethod::Script, "script"),
+            (InstallMethod::Registry, "registry"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(method).unwrap_or_default(),
+                serde_json::json!(text)
+            );
+        }
+        for (action, text) in [
+            (InstallAction::Install, "install"),
+            (InstallAction::Update, "update"),
+            (InstallAction::Uninstall, "uninstall"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(action).unwrap_or_default(),
+                serde_json::json!(text)
+            );
+        }
+        let plan = ProviderInstallPlan {
+            provider: ProviderKind::Acp,
+            agent: Some("gemini".into()),
+            acp_agent_id: Some("official:gemini".into()),
+            action: InstallAction::Install,
+            status: InstallStatus::Ready,
+            method: Some(InstallMethod::Registry),
+            methods: vec![InstallMethod::Registry],
+            registry_plan: Some(RegistryPlan {
+                digest: "sha256:abc".into(),
+                acp_agent_id: "official:gemini".into(),
+                version: "1.0.0".into(),
+                source: "https://example.test/agent.json".into(),
+                publisher: vec!["example".into()],
+                runtime: RegistryRuntime::Npm,
+                target: "gemini".into(),
+                destination: "/tmp/agent".into(),
+                argv: vec!["gemini".into()],
+                verification: "sha256".into(),
+            }),
+            prerequisite: Some(InstallPrerequisite {
+                name: "Node.js".into(),
+                source_url: "https://nodejs.org/en/download".into(),
+            }),
+            commands: vec![install_command(
+                "npm",
+                &["install", "-g", "@google/gemini-cli"],
+            )],
+            verify: Some(install_command("gemini", &["--version"])),
+            source_url: "https://example.test".into(),
+            needs_admin: false,
+            installed_version: None,
+            message: None,
+        };
+        let value = serde_json::to_value(&plan).unwrap_or_default();
+        assert_eq!(value["acpAgentId"], "official:gemini");
+        assert_eq!(value["method"], "registry");
+        assert_eq!(value["needsAdmin"], false);
+        assert_eq!(value["registryPlan"]["acpAgentId"], "official:gemini");
+        assert_eq!(value["registryPlan"]["runtime"], "npm");
+        assert_eq!(value["registryPlan"]["publisher"][0], "example");
+        assert_eq!(value["registryPlan"]["target"], "gemini");
+        assert_eq!(
+            value["prerequisite"]["sourceUrl"],
+            "https://nodejs.org/en/download"
+        );
+        assert_eq!(value["commands"][0]["command"], "npm");
+        assert!(value.get("installedVersion").is_none());
+        // The provider kind is the generated protocol's own.
+        assert_eq!(
+            serde_json::from_value::<ProviderKind>(value["provider"].clone()).ok(),
+            Some(ProviderKind::Acp)
+        );
+    }
 
     fn env() -> Env {
         let mut env = Env::new();

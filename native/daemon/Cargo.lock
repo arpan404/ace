@@ -299,6 +299,7 @@ dependencies = [
  "ace-protocol",
  "regex",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -308,6 +309,7 @@ dependencies = [
  "ace-protocol",
  "futures",
  "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -322,6 +324,7 @@ dependencies = [
  "ace-protocol",
  "ace-provider-installs",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

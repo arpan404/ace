@@ -29,6 +29,10 @@ pub enum AccountsError {
     CursorSignIn,
     #[error("Sign out of Cursor through the SDK auth flow")]
     CursorSignOut,
+    #[error("Unknown OpenCode integration")]
+    UnknownOpenCodeIntegration,
+    #[error("Unknown OpenCode sign-in method")]
+    UnknownOpenCodeMethod,
     #[error("Estimated load must be percentage points from 0 to 100")]
     EstimatedLoad,
     #[error("Instance limit exceeded")]

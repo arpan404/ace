@@ -1274,6 +1274,78 @@ mod tests {
         block_on(sessions.close());
     }
 
+    // apps/daemon/src/provider-login.server.process.test.ts
+    // "progress and choices serialize with the protocol's literals, and never carry a secret"
+    #[test]
+    fn progress_and_choices_serialize_with_the_protocols_literals() {
+        assert_eq!(
+            serde_json::to_value(LoginState::AwaitingCodeEntry).unwrap_or_default(),
+            serde_json::json!("awaiting_code_entry")
+        );
+        assert_eq!(
+            serde_json::to_value(LoginAction::Logout).unwrap_or_default(),
+            serde_json::json!("logout")
+        );
+        assert_eq!(
+            serde_json::to_value(LoginMethod::ApiKey).unwrap_or_default(),
+            serde_json::json!("api_key")
+        );
+        let choice = crate::LoginChoice {
+            id: "github-copilot".into(),
+            label: "GitHub Copilot".into(),
+            note_sign_in_again: true,
+        };
+        let value = serde_json::to_value(&choice).unwrap_or_default();
+        assert_eq!(value["note"], "sign_in_again");
+        let fresh = crate::LoginChoice {
+            note_sign_in_again: false,
+            ..choice
+        };
+        assert!(
+            serde_json::to_value(&fresh)
+                .unwrap_or_default()
+                .get("note")
+                .is_none()
+        );
+        let manual = crate::LoginManual::open_terminal("opencode auth login", "Finish there.");
+        assert_eq!(
+            serde_json::to_value(&manual).unwrap_or_default()["action"],
+            "open_terminal"
+        );
+        let progress = LoginProgress {
+            session: "login-1".into(),
+            provider: ProviderKind::Codex,
+            instance: None,
+            action: LoginAction::Login,
+            method: Some(LoginMethod::Login),
+            state: LoginState::AwaitingBrowser,
+            expires_at: 1_900_000,
+            sequence: 3,
+            url: Some("https://auth.example.test/device".into()),
+            user_code: Some("ABCD-2048".into()),
+            prompt: None,
+            choices: None,
+            message: None,
+            code_entry: true,
+            return_url_entry: true,
+            hint: None,
+            manual: Some(manual),
+        };
+        let value = serde_json::to_value(&progress).unwrap_or_default();
+        assert_eq!(value["expiresAt"], 1_900_000);
+        assert_eq!(value["userCode"], "ABCD-2048");
+        assert_eq!(value["codeEntry"], true);
+        assert_eq!(value["returnUrlEntry"], true);
+        assert_eq!(value["manual"]["action"], "open_terminal");
+        assert!(value.get("instance").is_none());
+        assert!(value.get("prompt").is_none());
+        // The provider is the generated protocol's own kind.
+        assert_eq!(
+            serde_json::from_value::<ProviderKind>(value["provider"].clone()).ok(),
+            Some(ProviderKind::Codex)
+        );
+    }
+
     // "a daemon shutting down refuses a new sign-in as stopping"
     #[test]
     fn a_daemon_shutting_down_refuses_a_new_sign_in_as_stopping() {
