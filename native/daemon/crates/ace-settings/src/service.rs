@@ -386,6 +386,7 @@ mod tests {
     struct MemoryIo {
         files: Mutex<BTreeMap<PathBuf, String>>,
         writes: Mutex<usize>,
+        watches: Mutex<usize>,
     }
 
     impl SettingsIo for MemoryIo {
@@ -424,6 +425,10 @@ mod tests {
             _changed: std::rc::Rc<dyn Fn()>,
             _failed: std::rc::Rc<dyn Fn()>,
         ) -> Result<Stop, SettingsError> {
+            *self
+                .watches
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) += 1;
             Ok(Box::new(|| {}))
         }
     }
@@ -537,6 +542,86 @@ mod tests {
         assert_eq!(
             *io.writes.lock().unwrap_or_else(|error| error.into_inner()),
             1
+        );
+    }
+
+    #[test]
+    fn a_malformed_file_reads_defaults_with_a_diagnostic_and_keeps_its_watch() {
+        let io = Arc::new(MemoryIo::default());
+        io.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(PathBuf::from("/data/settings.json"), "{".to_owned());
+        let service = service(io.clone());
+        let (entries, diagnostics) = SettingsService::read(
+            &service,
+            &["threads.settleOnClose".to_owned()],
+            &Scope::default(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(entries[0].value, json!(false), "the shipped default");
+        assert_eq!(entries[0].provenance, Provenance::Defaults);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, SettingsCode::Parse);
+        assert_eq!(diagnostics[0].layer, Provenance::Global);
+        assert_eq!(
+            *io.watches.lock().unwrap_or_else(|error| error.into_inner()),
+            1,
+            "the file is still watched for a repair"
+        );
+
+        io.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                PathBuf::from("/data/settings.json"),
+                "{\"version\":2,\"settings\":{\"threads.settleOnClose\":true}}".to_owned(),
+            );
+        SettingsService::refresh(&service, &Layer::Global)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let (entries, diagnostics) = SettingsService::read(
+            &service,
+            &["threads.settleOnClose".to_owned()],
+            &Scope::default(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(entries[0].value, json!(true), "the repair is read");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_edit_after_a_good_load_keeps_the_last_good_values() {
+        let io = Arc::new(MemoryIo::default());
+        io.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                PathBuf::from("/data/settings.json"),
+                "{\"version\":2,\"settings\":{\"threads.settleOnClose\":true}}".to_owned(),
+            );
+        let service = service(io.clone());
+        let entry = SettingsService::get(&service, "threads.settleOnClose", &Scope::default())
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(entry.value, json!(true));
+
+        io.files
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(PathBuf::from("/data/settings.json"), "{".to_owned());
+        SettingsService::refresh(&service, &Layer::Global)
+            .unwrap_or_else(|error| panic!("a malformed edit only reports: {error}"));
+        let (entries, diagnostics) = SettingsService::read(
+            &service,
+            &["threads.settleOnClose".to_owned()],
+            &Scope::default(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(entries[0].value, json!(true), "the last good value stays");
+        assert_eq!(diagnostics[0].code, SettingsCode::Parse);
+        assert_eq!(
+            *io.writes.lock().unwrap_or_else(|error| error.into_inner()),
+            0,
+            "nothing is written over the malformed text"
         );
     }
 
