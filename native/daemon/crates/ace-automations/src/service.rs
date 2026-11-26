@@ -147,6 +147,9 @@ pub struct Service<'a> {
     timer: Option<TimerArm>,
     /// Interrupt hand-offs that failed and when they are tried again, per run.
     retries: HashMap<String, Retry>,
+    /// Settled runs whose terminal write was refused: the outcome and ownership are kept until
+    /// SQLite accepts them, and the timer tries again.
+    finishes: HashMap<String, Finish>,
     errors: Vec<String>,
 }
 
@@ -158,6 +161,14 @@ struct TimerArm {
 #[derive(Debug, Clone, Copy)]
 struct Retry {
     attempt: u32,
+    due: i64,
+}
+
+#[derive(Debug, Clone)]
+struct Finish {
+    status: String,
+    thread_id: Option<String>,
+    result: Option<String>,
     due: i64,
 }
 
@@ -175,6 +186,7 @@ impl<'a> Service<'a> {
             generation: 0,
             timer: None,
             retries: HashMap::new(),
+            finishes: HashMap::new(),
             errors: Vec::new(),
         }
     }
@@ -271,6 +283,7 @@ impl<'a> Service<'a> {
         self.pending.clear();
         self.actions.clear();
         self.retries.clear();
+        self.finishes.clear();
         self.cancel_timer();
         for watch in watches {
             if let Some(workspace) = self.ports.workspace {
@@ -759,6 +772,10 @@ impl<'a> Service<'a> {
             let retry_delay = (retry.due - now).clamp(0, crate::scheduler::MAX_TIMER_DELAY_MS);
             delay = Some(delay.map_or(retry_delay, |current| current.min(retry_delay)));
         }
+        for finish in self.finishes.values() {
+            let retry_delay = (finish.due - now).clamp(0, crate::scheduler::MAX_TIMER_DELAY_MS);
+            delay = Some(delay.map_or(retry_delay, |current| current.min(retry_delay)));
+        }
         match delay {
             None => self.cancel_timer(),
             Some(delay) => {
@@ -801,13 +818,27 @@ impl<'a> Service<'a> {
             return Ok(None);
         }
         let now = self.now();
-        let due = self
+        let finish_due = self
+            .finishes
+            .iter()
+            .filter(|(_, finish)| finish.due <= now)
+            .min_by_key(|(_, finish)| finish.due)
+            .map(|(run_id, finish)| (run_id.clone(), finish.due));
+        let interrupt_due = self
             .retries
             .iter()
             .filter(|(_, retry)| retry.due <= now)
             .min_by_key(|(_, retry)| retry.due)
-            .map(|(run_id, _)| run_id.clone());
-        if let Some(target) = due {
+            .map(|(run_id, retry)| (run_id.clone(), retry.due));
+        let target = finish_due
+            .map(|(id, due)| (true, id, due))
+            .into_iter()
+            .chain(interrupt_due.map(|(id, due)| (false, id, due)))
+            .min_by_key(|(_, _, due)| *due);
+        if let Some((finish, target, _)) = target {
+            if finish {
+                return self.settle_finish(&target);
+            }
             self.retries.remove(&target);
             if let Ok(cancelling) = self.store.cancelling()
                 && let Some((_, input)) = cancelling
@@ -823,6 +854,44 @@ impl<'a> Service<'a> {
             return Ok(None);
         }
         self.tick()
+    }
+
+    /// Another attempt at a settled run's terminal write, with the outcome the executor gave.
+    fn settle_finish(&mut self, run_id: &str) -> Result<Option<Value>> {
+        let Some(finish) = self.finishes.get(run_id).cloned() else {
+            self.arm();
+            return Ok(None);
+        };
+        let finished = self.store.finish(
+            run_id,
+            self.now(),
+            &finish.status,
+            finish.thread_id.as_deref(),
+            finish.result.as_deref(),
+        );
+        match finished {
+            Ok(finished) => {
+                self.pending.remove(run_id);
+                self.finishes.remove(run_id);
+                self.retries.remove(run_id);
+                if let Some(run) = &finished {
+                    self.publish(run);
+                }
+                self.drain_waiting();
+                self.arm();
+                Ok(finished)
+            }
+            Err(error) => {
+                // The run keeps its slot and its exact outcome until the write is accepted.
+                let due = self.now() + 1000;
+                if let Some(finish) = self.finishes.get_mut(run_id) {
+                    finish.due = due;
+                }
+                self.push_error(error.to_string());
+                self.arm();
+                Ok(None)
+            }
+        }
     }
 
     /// The executor refused an interrupt (`cancellations.ts:47`). While the cancellation stands,
@@ -971,16 +1040,37 @@ impl<'a> Service<'a> {
         if !self.lives.live() || !self.pending.contains(run_id) {
             return Ok(None);
         }
-        self.pending.remove(run_id);
-        self.retries.remove(run_id);
         let finished = self
             .store
-            .finish(run_id, self.now(), status, thread_id, result)?;
-        if let Some(run) = &finished {
-            self.publish(run);
+            .finish(run_id, self.now(), status, thread_id, result);
+        match finished {
+            Ok(finished) => {
+                self.pending.remove(run_id);
+                self.finishes.remove(run_id);
+                self.retries.remove(run_id);
+                if let Some(run) = &finished {
+                    self.publish(run);
+                }
+                self.arm();
+                Ok(finished)
+            }
+            Err(error) => {
+                // A transient terminal-write failure must not strand the run: keep its outcome
+                // and ownership, and let the timer commit it again.
+                self.finishes.insert(
+                    run_id.to_owned(),
+                    Finish {
+                        status: status.to_owned(),
+                        thread_id: thread_id.map(str::to_owned),
+                        result: result.map(str::to_owned),
+                        due: self.now() + 1000,
+                    },
+                );
+                self.push_error(error.to_string());
+                self.arm();
+                Ok(None)
+            }
         }
-        self.arm();
-        Ok(finished)
     }
 
     /// Recovery found nothing to follow (`execution-owner.ts:69`): send the stored input once.

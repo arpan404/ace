@@ -429,3 +429,72 @@ fn a_schedule_whose_run_cannot_be_written_is_parked_and_the_timer_keeps_the_next
         .expect("next schedule");
     assert_eq!(sv(&run, "automationId"), Some("bbb"));
 }
+
+#[test]
+fn a_refused_terminal_write_keeps_the_run_until_a_retry_commits_it_and_promotes_the_queue() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let first = service
+        .trigger("triage", "first", variables("first"), "manual", None)
+        .expect("first");
+    let first_id = run_id(&first);
+    service
+        .trigger("triage", "second", variables("second"), "manual", None)
+        .expect("second");
+    service.take_actions();
+
+    // A transient write failure: the run table is momentarily unavailable.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_runs RENAME TO automation_runs_broken")
+        .expect("break");
+    raw.close().expect("close");
+    assert!(
+        service
+            .complete(&first_id, "succeeded", Some("thread"), Some("done"))
+            .expect("complete")
+            .is_none()
+    );
+    assert!(
+        service
+            .take_errors()
+            .iter()
+            .any(|error| error.contains("automation_runs")),
+        "the refused write is reported"
+    );
+    assert_eq!(service.armed_delay(), Some(1000));
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_runs_broken RENAME TO automation_runs")
+        .expect("restore");
+    raw.close().expect("close");
+    h.clock.0.set(START - 60_000 + 1000);
+    let finished = service
+        .timer_fired()
+        .expect("timer")
+        .expect("settled on retry");
+    assert_eq!(sv(&finished, "status"), Some("succeeded"));
+    let published = service.take_published();
+    assert!(
+        published
+            .iter()
+            .any(|run| sv(run, "id") == Some(first_id.as_str())),
+        "the settled run is published once"
+    );
+    let actions = service.take_actions();
+    assert_eq!(input_prompt(&actions[0]), "Triage second");
+}
