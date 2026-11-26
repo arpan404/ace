@@ -79,12 +79,6 @@ impl NkSession {
         }
     }
 
-    /// Whether the client confirmed or the session ended, for its deadline's first check.
-    pub(super) fn settled(&self) -> bool {
-        let held = self.locked();
-        held.confirmed || held.closed
-    }
-
     /// Keeps the deadline's cancel so confirming or closing stops it.
     pub(super) fn store_cancel(&self, cancel: Cancel) {
         self.locked().cancel = Some(cancel);
@@ -188,16 +182,37 @@ impl NkSession {
         true
     }
 
-    /// The client confirmed: its limits lift and its reservations are given back.
-    pub fn confirm(&self) {
+    /// The client confirmed: its limits lift and its reservations are given back. The check and
+    /// the transition are one step under the state's lock, so a deadline that ran first always
+    /// wins and a confirmation that ran first can never be closed by it. False means the deadline
+    /// already closed the session, and no device effect may run.
+    pub fn confirm(&self) -> bool {
         {
             let mut held = self.locked();
-            if held.closed || held.confirmed {
-                return;
+            if held.closed {
+                return false;
+            }
+            if held.confirmed {
+                return true;
             }
             held.confirmed = true;
         }
         self.inner.release();
+        true
+    }
+
+    /// The deadline ran: end the session unless the client confirmed or it already ended, in the
+    /// same step. True when this call ended it, so only then do the channel and its effects close.
+    pub(super) fn expire(&self) -> bool {
+        {
+            let mut held = self.locked();
+            if held.closed || held.confirmed {
+                return false;
+            }
+            held.closed = true;
+        }
+        self.inner.release();
+        true
     }
 
     /// Ends the session and gives back everything it held. Idempotent.

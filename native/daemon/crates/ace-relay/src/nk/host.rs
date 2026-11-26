@@ -74,7 +74,11 @@ impl NkAccepted {
             self.session.close();
             return None;
         }
-        self.session.confirm();
+        // The deadline may also have run while the confirmation was parsed: the transition itself
+        // decides, so a closed session never reaches the device effects below.
+        if !self.session.confirm() {
+            return None;
+        }
         match &self.paired {
             Some(paired) => {
                 let _ = auth.touch(&paired.device);
