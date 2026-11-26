@@ -633,6 +633,42 @@ fn a_read_only_child_adapter_refuses_a_stop_of_its_child() {
 }
 
 #[test]
+fn the_inert_fields_are_the_typescripts_lists() {
+    let value = |text: &str| ace_json::parse(text).expect("json");
+    // `thread.updated`'s inert list (`thread-fence.ts:33`-`:44`) has no `details`: a detail
+    // change can archive work, so it counts as work.
+    assert!(changes_work(
+        "thread.updated",
+        &value(r#"{"details":{"workspace":{"kind":"local"}}}"#)
+    ));
+    assert!(!changes_work("thread.updated", &value(r#"{"title":"x"}"#)));
+    assert!(!changes_work(
+        "thread.updated",
+        &value(r#"{"capabilities":{},"status":{"state":"new"}}"#)
+    ));
+    // `thread.client.updated`'s list (`:45`-`:70`) includes `host`: it never changes work.
+    assert!(!changes_work(
+        "thread.client.updated",
+        &value(r#"{"changes":{"host":"machine","pinned":true}}"#)
+    ));
+    assert!(changes_work(
+        "thread.client.updated",
+        &value(r#"{"changes":{"queueRevision":2}}"#)
+    ));
+    // A user message is work; a synthetic one is not.
+    assert!(changes_work(
+        "item.created",
+        &value(r#"{"item":{"type":"message","role":"user","parts":[]}}"#)
+    ));
+    assert!(!changes_work(
+        "item.created",
+        &value(r#"{"item":{"type":"message","role":"user","synthetic":true,"parts":[]}}"#)
+    ));
+    assert!(!changes_work("run.ended", &value(r#"{}"#)));
+    assert!(changes_work("run.started", &value(r#"{}"#)));
+}
+
+#[test]
 fn a_create_with_a_catalog_stores_the_model_the_catalog_resolves() {
     let receipt = Receipt::new(LimitOverrides::default());
     receipt

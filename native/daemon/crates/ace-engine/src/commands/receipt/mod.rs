@@ -29,7 +29,7 @@ const INERT: [&str; 9] = [
 ];
 
 /// `thread.updated` fields that describe the thread without changing what runs in it.
-const INERT_THREAD_FIELDS: [&str; 11] = [
+const INERT_THREAD_FIELDS: [&str; 10] = [
     "type",
     "title",
     "titleSource",
@@ -40,11 +40,10 @@ const INERT_THREAD_FIELDS: [&str; 11] = [
     "effectiveCapabilities",
     "acpSupport",
     "goal",
-    "details",
 ];
 
 /// `thread.client.updated` fields: organization, read state and the list's projections.
-const INERT_CLIENT_FIELDS: [&str; 24] = [
+const INERT_CLIENT_FIELDS: [&str; 25] = [
     "pinned",
     "pinOrder",
     "listOrder",
@@ -68,6 +67,7 @@ const INERT_CLIENT_FIELDS: [&str; 24] = [
     "details",
     "live",
     "movedFrom",
+    "host",
     "hostKey",
 ];
 
