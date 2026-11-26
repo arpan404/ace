@@ -7,6 +7,27 @@ import { obj, str } from "./native.ts";
 const received = (type: string, id?: string) => (f: { dir: string; data: unknown }) =>
   f.dir === "recv" && obj(f.data).type === type && (id === undefined || obj(f.data).id === id);
 const text = (value: string) => [{ type: "text" as const, text: value }];
+test("compaction is Pi's own compact command, and its result is one compaction row", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.compact?.();
+    expect(h.frames.filter((f) => f.dir === "send" && obj(f.data).type === "compact")).toHaveLength(
+      1,
+    );
+    expect(
+      Object.values(h.h.state.items).filter((item) => item.type === "compaction"),
+    ).toMatchObject([
+      {
+        summary: "The earlier turns, summarised by Pi.",
+        tokensBefore: 150_000,
+        tokensAfter: 32_000,
+      },
+    ]);
+  } finally {
+    await h.dispose();
+  }
+});
+
 test("explicit native resume reloads the saved session before any prompt", async () => {
   const h = await sessionHarness({}, true);
   try {

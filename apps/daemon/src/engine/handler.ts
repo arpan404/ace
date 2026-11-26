@@ -203,6 +203,7 @@ export function engineHandler(
           "thread.mode.set",
           "thread.goal.set",
           "thread.goal.clear",
+          "thread.compact",
           "interaction.resolve",
           "background_task.stop",
         ].includes(p.type)
@@ -407,6 +408,25 @@ export function engineHandler(
               .capabilities.goals
           )
             return fail("unsupported_goal");
+          if (p.type === "thread.compact") {
+            const capabilities =
+              repo.store.getThread(threadId)?.effectiveCapabilities ??
+              registry.get(repo.requireState(threadId).config.provider, repo.backend(threadId))
+                .capabilities;
+            if (!capabilities.compaction) return fail("unsupported_compact");
+            const root = repo.requireState(threadId).rootKey;
+            const status = root
+              ? repo.requireState(threadId).agents[root]?.agent.status
+              : undefined;
+            // A provider compacts its own idle context: never in the middle of its turn.
+            if (
+              status?.state === "working" ||
+              status?.state === "starting" ||
+              status?.state === "blocked" ||
+              status?.state === "unresponsive"
+            )
+              return fail("thread_not_idle");
+          }
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&

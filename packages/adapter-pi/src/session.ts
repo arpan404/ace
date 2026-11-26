@@ -427,6 +427,13 @@ export async function openPiSession(
       await rpc.request("abort");
       await rpc.request("abort_bash");
     },
+    // Pi's own compaction. It answers when the summary is written, so it waits; the run's
+    // compaction events show the work meanwhile.
+    async compact() {
+      check();
+      await idle();
+      await rpc.request("compact", {}, 30 * 60_000);
+    },
     async resolve(id: string, resolution: InteractionResolution) {
       checkOpen();
       const entry = dialogs.get(id);

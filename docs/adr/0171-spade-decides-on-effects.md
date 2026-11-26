@@ -770,7 +770,6 @@ driving, skips approval and model review. An explicit outside request uses
 the existing file and launch binding with the bot's Full access authorization.
 The egress proxy opens public-host access as described in ADR 0167.
 
-
 Generic app command tools are classified per call. Spade infers reads from clear
 get/list selectors and simple single SELECT statements. It treats ambiguous command
 text as unresolved. A trusted declaration remains a minimum effect and tainted

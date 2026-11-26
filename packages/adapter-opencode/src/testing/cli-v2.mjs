@@ -724,6 +724,19 @@ const server = createServer(async (req, res) => {
   const match = /^\/api\/(?:experimental\/)?session\/([^/]+)(.*)$/.exec(path);
   if (match) {
     const [, id, suffix] = match;
+    if (suffix === "/compact" && req.method === "POST") {
+      const item = {
+        id: `compact-${++serial}`,
+        sessionID: id,
+        type: "compaction",
+        payload: {},
+        time: { created: 1 },
+        delivery: "queue",
+      };
+      publish("session.inbox.enqueued", { sessionID: id, inboxID: item.id });
+      json({ data: item });
+      return;
+    }
     if (suffix === "/command" && req.method === "POST") {
       if (body.name === "reject") {
         res.writeHead(400).end();

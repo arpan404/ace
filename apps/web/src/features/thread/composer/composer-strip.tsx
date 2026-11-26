@@ -32,6 +32,7 @@ import { StripSurface } from "./strip-surface.tsx";
 import { HoldWhileSettling, useSendSettling } from "./strip-settle.tsx";
 import { ConfirmStopStrip, useStoppedCommands } from "./stop-strips.tsx";
 import { StoppedStrip, WaitingStrip } from "./waiting-strip.tsx";
+import { ContextStrip, ContextTrailing, useContextControl } from "./context-strip.tsx";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { markQueueEditChanged, registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
@@ -113,6 +114,8 @@ export function ComposerStrip(props: {
   // The agent does nothing itself while what it started runs: the strip says so, with a Stop.
   const activity = useTurnActivity(props.threadId);
   const wait = activity?.waitingOn;
+  // The provider's context occupancy and its own compact action, in the strip's trailing edge.
+  const context = useContextControl(props.threadId);
   // A queued message edited in the composer keeps the queue in the slot, with its Cancel.
   const editing = useQueueEdit(props.threadId);
   // The composer saves an edit through these controls, so the pill shows it at once.
@@ -168,6 +171,7 @@ export function ComposerStrip(props: {
     goal: !!goal,
     plan: !!plan,
     transfer: transfer.state !== undefined,
+    context: context.present,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
   // A waiting question's line in the transcript asks for its card: the slot goes back to the
@@ -220,11 +224,14 @@ export function ComposerStrip(props: {
             : transfer.state?.from.name,
   };
   const indicators = (
-    <StripIndicators
-      kinds={slot.others}
-      counts={counts}
-      onPick={(kind) => setPick(pickStrip(kind, facts))}
-    />
+    <>
+      <StripIndicators
+        kinds={slot.others}
+        counts={counts}
+        onPick={(kind) => setPick(pickStrip(kind, facts))}
+      />
+      <ContextTrailing view={context} />
+    </>
   );
   return (
     <HoldWhileSettling settling={settling}>
@@ -304,6 +311,17 @@ export function ComposerStrip(props: {
             state={transfer.state}
             onDismiss={transfer.dismiss}
             indicators={indicators}
+          />
+        ) : slot.shown === "context" ? (
+          <ContextStrip
+            view={context}
+            indicators={
+              <StripIndicators
+                kinds={slot.others}
+                counts={counts}
+                onPick={(kind) => setPick(pickStrip(kind, facts))}
+              />
+            }
           />
         ) : null}
       </StripSurface>

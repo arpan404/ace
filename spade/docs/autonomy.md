@@ -99,7 +99,7 @@ In Auto-review, the gate checks these facts in order:
 | a command outside the sandbox, or on a machine with none                           | the classifier and ADR 0163's route (below)                                           |
 | a connector's or plugin's tool that can reach the network, in the sandbox          | decided as on the host, below (ADR 0171, amendment 4)                                 |
 | it declares nothing, in the sandbox                                                | runs                                                                                  |
-| it declares nothing, or its effect is unknown                                       | the reviewer                                                                          |
+| it declares nothing, or its effect is unknown                                      | the reviewer                                                                          |
 | in a sandbox that holds files and network (a plugin's only when sealed)            | runs                                                                                  |
 | in the sandbox, but its checkpoint couldn't be taken                               | the reviewer, told so                                                                 |
 | a command asking to run outside (`outside_sandbox: true`)                          | the reviewer, after reading what it would run                                         |
