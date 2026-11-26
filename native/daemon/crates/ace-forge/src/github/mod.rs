@@ -4,6 +4,7 @@
 //! people, reactions, suggestions and open work. F2 starts with the payload schemas and the
 //! status mappings; the readers that drive `GhApi` follow in their own modules.
 
+pub mod checks;
 pub mod status;
 
 use crate::error::Error;
