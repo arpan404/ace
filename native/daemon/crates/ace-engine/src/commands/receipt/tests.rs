@@ -36,6 +36,10 @@ struct Receipt {
     conn: Arc<ace_store::Connection>,
 }
 
+/// The adapter entries a real engine's registry holds for a thread's provider: capabilities and
+/// all, as `observe` hands them over (E5.1 step 7). A receipt validates against this registry.
+const REGISTRY: &str = r#"[{"provider":"codex","adapter":1,"capabilities":{"steer":true,"childControls":"full"},"discovery":{},"current":true}]"#;
+
 impl Receipt {
     fn new(limits: LimitOverrides) -> Receipt {
         let conn = home("t", &header("t"));
@@ -47,7 +51,7 @@ impl Receipt {
                 limits,
                 ..crate::Inputs::default()
             },
-            "[]",
+            REGISTRY,
             Box::new(ManualPump),
             &conn,
             Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
@@ -540,6 +544,27 @@ fn stored_model(receipt: &Receipt) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         })
+}
+
+#[test]
+fn a_create_naming_an_existing_thread_refuses_thread_exists() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    // The harness's thread `t` is stored: `validateCreation` refuses its id (`handler.ts:217`,
+    // `creation-validation.ts:26`) instead of overwriting a live thread's snapshot.
+    let command = r#"{"id":"create","deviceId":"device","payload":{"type":"thread.create","workspaceId":"workspace","provider":"codex","threadId":"t","input":[{"type":"text","text":"hello"}]}}"#;
+    assert_eq!(
+        receipt.handle(command),
+        result("create", "thread_exists")
+    );
+    assert!(
+        receipt.shell.events("t").is_empty(),
+        "the refusal wrote no thread"
+    );
+    // A fresh id still creates.
+    assert_eq!(
+        receipt.handle(&create(None)).get("ok").and_then(Value::as_bool),
+        Some(true)
+    );
 }
 
 #[test]

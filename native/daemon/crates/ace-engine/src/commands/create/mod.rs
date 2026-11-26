@@ -12,12 +12,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::access::storage;
+use crate::commands::validation::CreationFacts;
 use crate::commands::worktree::base_branch_label;
 use crate::commands::{command_id, error, ok, payload, payload_type};
 use crate::inputs::provisional_title::{UNTITLED_THREAD, provisional_title};
 use crate::snapshot::Snapshot;
 use crate::snapshot::touched::Touched;
 use crate::{Core, EngineError, State};
+
+mod facts;
 
 /// What the receipt's context carries that the create reads.
 #[derive(Debug, Default)]
@@ -48,7 +51,7 @@ pub struct NewThread<'a> {
     pub unprepared: bool,
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(super) fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
@@ -301,6 +304,21 @@ pub fn create(
     if !state.commands.admissions.authorized(command, None) {
         return Ok(error(&id, "thread_creation_in_progress"));
     }
+    // `validateCreation` runs first (`handler.ts:217`): every refusal it owns commits, and the
+    // workspace path it canonicalises is the one the thread records.
+    let workspace_id = text(p, "workspaceId").unwrap_or_default().to_owned();
+    let workspace_path = state.workspace(&core.store, &workspace_id)?;
+    let provider = text(p, "provider").unwrap_or_default().to_owned();
+    let (valid, backend) = {
+        let facts = facts::Facts::read(core, state, p, workspace_path)?;
+        let valid = match crate::commands::validation::validate_creation(command, &facts) {
+            Ok(valid) => valid,
+            Err(code) => return Ok(error(&id, &code)),
+        };
+        facts.failure()?;
+        (valid, facts.backend(&provider))
+    };
+    let cwd = valid.cwd.clone();
     if context.prepared.is_some() {
         return Err(EngineError::not_ported("a prepared workspace", "E5.4e"));
     }
@@ -310,11 +328,27 @@ pub fn create(
     if p.get("handoffFrom").is_some() {
         return Err(EngineError::not_ported("a handoff's context", "E5.4e"));
     }
-    let workspace_id = text(p, "workspaceId").unwrap_or_default().to_owned();
-    let Some(cwd) = state.workspace(&core.store, &workspace_id)? else {
-        return Ok(error(&id, "workspace_not_found"));
-    };
     let at = core.ports.now();
+    let catalog = crate::models::select::PortCatalog(&*core.ports);
+    let catalog = core
+        .ports
+        .has_models()
+        .then_some(&catalog as &dyn crate::models::select::Catalog);
+    // The model is chosen before the slot is taken (`handler.ts:232`, `:269`): a refused model
+    // must not leave an `engine_slots` row behind.
+    let model = match crate::models::select::select(
+        catalog,
+        &provider,
+        text(p, "model"),
+        valid.instance_id.as_deref(),
+        valid.acp_identity.as_ref(),
+    ) {
+        Ok(model) => model,
+        // The catalog refused an explicit model; `onModelUnavailable` has already been told.
+        Err(EngineError::ModelUnavailable) => return Ok(error(&id, "model_unavailable")),
+        Err(error) => return Err(error),
+    };
+    // `p.threadId ?? nextId()` (`handler.ts:244`): a client may let the daemon name the thread.
     let thread_id = text(p, "threadId").unwrap_or_default().to_owned();
     // A prepared thread runs nothing until it is sent work, which reserves a slot then.
     if kind != "thread.prepare" && !state.repo.reserve(&core.store, &thread_id)? {
@@ -330,21 +364,7 @@ pub fn create(
             None => return Ok(error(&id, "engine_capacity_exceeded")),
         }
     }
-    let provider = text(p, "provider").unwrap_or_default();
-    let instance = text(p, "instanceId");
-    let catalog = crate::models::select::PortCatalog(&*core.ports);
-    let catalog = core
-        .ports
-        .has_models()
-        .then_some(&catalog as &dyn crate::models::select::Catalog);
-    let model =
-        match crate::models::select::select(catalog, provider, text(p, "model"), instance, None) {
-            Ok(model) => model,
-            // The catalog refused an explicit model; `onModelUnavailable` has already been told.
-            Err(EngineError::ModelUnavailable) => return Ok(error(&id, "model_unavailable")),
-            Err(error) => return Err(error),
-        };
-    let selection = selection_json(p, model.as_deref());
+    let selection = selection_json(p, model.as_deref(), valid.instance_id.as_deref());
     let instance = text(&selection, "instanceId").map(str::to_owned);
     let details = details(core, state, p, &cwd)?;
     let live = live(p, model.as_deref(), instance.as_deref());
@@ -359,9 +379,9 @@ pub fn create(
         workspace_ready: false,
         at,
         silence_ms: silence_ms(state, p),
-        backend: None,
-        capabilities: None,
-        acp_identity: None,
+        backend: backend.as_deref(),
+        capabilities: Some(valid.capabilities.clone()),
+        acp_identity: valid.acp_identity.as_ref(),
         handoff: None,
         details,
         live,
@@ -376,7 +396,7 @@ pub fn create(
 }
 
 /// The thread's selection: provider, the payload's options, its account and the resolved model.
-fn selection_json(p: &Value, model: Option<&str>) -> Value {
+fn selection_json(p: &Value, model: Option<&str>, instance: Option<&str>) -> Value {
     let mut selection = Map::new();
     selection.insert(
         "provider",
@@ -385,7 +405,7 @@ fn selection_json(p: &Value, model: Option<&str>) -> Value {
     if let Some(model) = model {
         selection.insert("model", Value::from(model));
     }
-    if let Some(instance) = text(p, "instanceId") {
+    if let Some(instance) = instance {
         selection.insert("instanceId", Value::from(instance));
     }
     selection.insert("options", options(p));
