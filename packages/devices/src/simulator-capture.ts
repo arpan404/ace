@@ -17,6 +17,12 @@ import { knownOrientation, simulatorRotation } from "./simulator-rotation.ts";
 import { DeviceError } from "./sdk.ts";
 import { startSimulatorDigitizer, type SimulatorDigitizer } from "./simulator-digitizer.ts";
 import { touchTarget, type SimulatorScreen } from "./simulator-screens.ts";
+import {
+  nativeEndpoint,
+  nativeScreenConfig,
+  nativeSpawnArgs,
+  nativeVideo,
+} from "./native-video.ts";
 
 const Endpoint = z.object({
   device: z.string().uuid(),
@@ -111,7 +117,9 @@ export async function simulatorCapture(options: {
   options.signal?.addEventListener("abort", abort, { once: true });
   const child = runtime.spawn({
     command: options.command,
-    args: [...(options.commandArgs ?? []), "--no-preview", "--quiet", nativeId(options.device)],
+    args: nativeVideo
+      ? nativeSpawnArgs(options.commandArgs ?? [], nativeId(options.device))
+      : [...(options.commandArgs ?? []), "--no-preview", "--quiet", nativeId(options.device)],
     env: options.env,
     name: "simulator-framebuffer",
   });
@@ -204,17 +212,19 @@ export async function simulatorCapture(options: {
       // serve-sim may print a notice first (a busy port it cleared); the endpoint is the first
       // line that is JSON.
       let line: unknown;
+      let raw = "";
       for (let end = output.indexOf(10); end >= 0 && line === undefined; end = output.indexOf(10)) {
         const text = output.subarray(0, end).toString("utf8");
         output = output.subarray(end + 1);
         try {
           line = JSON.parse(text);
+          raw = text;
         } catch {
           // Not the endpoint: keep reading.
         }
       }
       if (line === undefined) return;
-      const value = Endpoint.parse(line);
+      const value = nativeVideo ? nativeEndpoint(raw) : Endpoint.parse(line);
       if (value.device.toLowerCase() !== nativeId(options.device).toLowerCase())
         throw new Error("Simulator helper identity mismatch");
       localUrl(value.streamUrl, value.port, "http:");
@@ -304,16 +314,19 @@ export async function simulatorCapture(options: {
       const bytes = Buffer.from(event.data);
       if (bytes[0] !== 130) return;
       try {
-        const config = ScreenConfig.safeParse(JSON.parse(bytes.subarray(1).toString("utf8")));
-        if (config.success) {
+        const parsed = ScreenConfig.safeParse(JSON.parse(bytes.subarray(1).toString("utf8")));
+        const config = nativeVideo
+          ? nativeScreenConfig(bytes.subarray(1))
+          : parsed.success
+            ? parsed.data
+            : undefined;
+        if (config) {
           const before = simulatorRotation(screen.orientation);
           // Once the picture's own size is known, it stands: serve-sim can keep naming the
           // screen it attached to (an iPhone Duo's cover) while it streams another.
           Object.assign(
             screen,
-            (native ?? lit)
-              ? { orientation: config.data.orientation ?? screen.orientation }
-              : config.data,
+            (native ?? lit) ? { orientation: config.orientation ?? screen.orientation } : config,
           );
           // readScreens swallows a failed read; the next size report asks again.
           if (options.screens) void readScreens(options.screens).catch(() => {});

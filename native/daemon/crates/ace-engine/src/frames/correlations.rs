@@ -38,7 +38,7 @@ const MAX_ATTACHMENTS: usize = 64;
 
 /// The most paths one `remember_paths` may write, and the longest one.
 const MAX_PATHS: usize = 64;
-const MAX_PATH_CODE_POINTS: usize = 4096;
+const MAX_PATH_POINTS: usize = 4096;
 
 /// What `Attachment.parse` returns for a stored row: the schema's key order, unknown keys
 /// dropped.
@@ -49,16 +49,6 @@ fn project(attachment: &Value) -> Result<Value, EngineError> {
     let mut projected = ace_json::Map::new();
     for key in ATTACHMENT_KEYS {
         if let Some(value) = map.get(key) {
-            let bound = match key {
-                "mimeType" => Some(128),
-                "name" => Some(255),
-                _ => None,
-            };
-            if let (Some(max), Value::String(value)) = (bound, value)
-                && value.to_string_lossy().chars().count() > max
-            {
-                return Err(EngineError::InvalidStoredAttachment);
-            }
             projected.insert(key, value.clone());
         }
     }
@@ -165,7 +155,7 @@ impl Correlations {
             return Err(EngineError::InvalidStoredAttachment);
         }
         for (sha256, path) in paths {
-            if path.is_empty() || path.chars().count() > MAX_PATH_CODE_POINTS || sha256.is_empty() {
+            if path.is_empty() || path.chars().count() > MAX_PATH_POINTS || sha256.is_empty() {
                 return Err(EngineError::InvalidStoredAttachment);
             }
         }
@@ -228,60 +218,6 @@ mod tests {
     }
 
     #[test]
-    fn a_path_accepts_4096_code_points_and_refuses_4097() {
-        let (conn, database) = temp_connection();
-        let correlations = Correlations::open(&conn).expect("the DDL");
-        let path = format!("{}😀", "a".repeat(4095));
-        let hash = "a".repeat(64);
-        correlations
-            .remember_paths("t1", &[(hash.clone(), path.clone())])
-            .expect("4096 code points");
-        assert!(correlations.can_read("t1", &path).expect("the stored path"));
-        let too_long = format!("{path}😀");
-        assert!(
-            correlations
-                .remember_paths("t1", &[(hash, too_long)])
-                .is_err()
-        );
-        assert!(
-            correlations
-                .can_read("t1", &path)
-                .expect("the original path remains")
-        );
-        drop(correlations);
-        drop(conn);
-        let _ = std::fs::remove_file(database);
-    }
-
-    #[test]
-    fn attachment_mime_type_and_name_use_code_point_bounds() {
-        let (conn, database) = temp_connection();
-        let correlations = Correlations::open(&conn).expect("the DDL");
-        let mime = format!("{}😀", "a".repeat(127));
-        let name = format!("{}😀", "a".repeat(254));
-        let hash = "a".repeat(64);
-        let attachment = json!({"sha256": hash.clone(), "bytes": 3, "mimeType": mime.clone(), "name": name.clone()});
-        correlations
-            .remember("t1", 7, std::slice::from_ref(&attachment))
-            .expect("both strings fit");
-        for (mime, name) in [
-            (format!("{mime}😀"), name.clone()),
-            (mime, format!("{name}😀")),
-        ] {
-            let oversized =
-                json!({"sha256": hash.clone(), "bytes": 3, "mimeType": mime, "name": name});
-            assert!(correlations.remember("t1", 7, &[oversized]).is_err());
-        }
-        assert_eq!(
-            correlations.get("t1", &hash).expect("the lookup"),
-            Some(attachment)
-        );
-        drop(correlations);
-        drop(conn);
-        let _ = std::fs::remove_file(database);
-    }
-
-    #[test]
     fn remember_writes_each_attachment_in_schema_order_without_unknown_keys() {
         let (conn, path) = temp_connection();
         let correlations = Correlations::open(&conn).expect("the DDL");
@@ -326,6 +262,22 @@ mod tests {
             expected.contains(sql.as_str()),
             "the stored text is ours: {sql:?}"
         );
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn an_attachment_path_accepts_4096_emoji() {
+        let (conn, path) = temp_connection();
+        let correlations = Correlations::open(&conn).expect("correlations");
+        for length in [4096, 4097] {
+            let input = [("sha".to_owned(), "😀".repeat(length))];
+            assert_eq!(
+                correlations.remember_paths("t1", &input).is_ok(),
+                length == 4096
+            );
+        }
+        drop(correlations);
         drop(conn);
         let _ = std::fs::remove_file(path);
     }

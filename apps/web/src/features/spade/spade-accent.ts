@@ -45,5 +45,35 @@ export function useMarkAccent(bot: BotAccentInput): AccentVariables | undefined 
   return { "--agent-accent-light": light, "--agent-accent-dark": dark };
 }
 
+/**
+ * The person's pill colour from a bot's accent or face colour; undefined when the bot has no
+ * colour (e.g. Spade's monochrome face), so the conversation keeps the theme's own pill colour.
+ */
+export function useMineAccent(bot: BotAccentInput | undefined): AccentVariables | undefined {
+  const canvases = useCanvasColours() ?? spadeStandardCanvases;
+  if (!bot) return undefined;
+  const light = spadeAgentAccent(bot.avatar, "light", bot.style, canvases.light);
+  const dark = spadeAgentAccent(bot.avatar, "dark", bot.style, canvases.dark);
+  if (!light || !dark) return undefined;
+  return { "--agent-accent-light": light, "--agent-accent-dark": dark };
+}
+
+export type QuoteAccentVariables = CSSProperties & {
+  "--quote-accent-light"?: string;
+  "--quote-accent-dark"?: string;
+};
+
+/** Resolve a bot's light/dark accent variables for a reply quote's 2px left bar. */
+export function useQuoteAccentResolver() {
+  const canvases = useCanvasColours() ?? spadeStandardCanvases;
+  return (bot: BotAccentInput | undefined): QuoteAccentVariables | undefined => {
+    if (!bot) return undefined;
+    const light = spadeAgentAccent(bot.avatar, "light", bot.style, canvases.light);
+    const dark = spadeAgentAccent(bot.avatar, "dark", bot.style, canvases.dark);
+    if (!light || !dark) return undefined;
+    return { "--quote-accent-light": light, "--quote-accent-dark": dark };
+  };
+}
+
 /** The accent's colour in the scheme on screen, as a Tailwind arbitrary value. */
 export const accentFill = "bg-(--agent-accent-light) dark:bg-(--agent-accent-dark)";

@@ -82,9 +82,15 @@ function PermissionRow(props: {
   return (
     <>
       <SettingRow title={props.title} description={description} density="compact" inline>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {props.own && (
-            <Button size="sm" variant="ghost" disabled={saving} onClick={() => void change(null)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground"
+              disabled={saving}
+              onClick={() => void change(null)}
+            >
               Use default
             </Button>
           )}

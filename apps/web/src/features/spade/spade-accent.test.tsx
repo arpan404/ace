@@ -2,7 +2,14 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import {
+  botRow,
+  openProfile,
+  spadeApp,
+  withEndpoint,
+  openSettingsPage,
+  backToActivity,
+} from "@/test/spade.ts";
 
 /* A bot's accent (ADR 0200 §5.3): its face ring, its row's marker and its card's title rule. */
 
@@ -50,6 +57,7 @@ test("choosing an accent in the profile saves it and every mark follows; its fac
   const { spade } = await spadeApp("/spade/fern", crew);
   expect((await botRow("Fern")).querySelector("[data-agent-accent]")).toBeNull();
   await openProfile("Fern");
+  await openSettingsPage("Personality");
   const choices = await screen.findByRole("radiogroup", { name: "Accent" });
   const names = within(choices)
     .getAllByRole("radio")
@@ -68,6 +76,7 @@ test("choosing an accent in the profile saves it and every mark follows; its fac
   ).toBe("true");
 
   await userEvent.click(within(choices).getByRole("radio", { name: "Violet" }));
+  await backToActivity();
   await waitFor(() =>
     expect(accentOf(document.querySelector("[data-agent-accent='ring']"))).toBe("#8b5cf6"),
   );
@@ -79,7 +88,13 @@ test("choosing an accent in the profile saves it and every mark follows; its fac
     "#8b5cf6",
   );
 
-  await userEvent.click(within(choices).getByRole("radio", { name: "Its face's colour" }));
+  await openSettingsPage("Personality");
+  await userEvent.click(
+    within(await screen.findByRole("radiogroup", { name: "Accent" })).getByRole("radio", {
+      name: "Its face's colour",
+    }),
+  );
+  await backToActivity();
   await waitFor(() => expect(document.querySelector("[data-agent-accent='ring']")).toBeNull());
   expect((await botRow("Fern")).querySelector("[data-agent-accent]")).toBeNull();
 });
@@ -87,6 +102,7 @@ test("choosing an accent in the profile saves it and every mark follows; its fac
 test("Spade's own profile has no accent to choose", async () => {
   await spadeApp("/spade/main", crew);
   await openProfile("Spade");
-  await screen.findByRole("heading", { name: "Personality" });
+  await openSettingsPage("Personality");
+  await screen.findAllByRole("heading", { name: "Personality" });
   expect(screen.queryByRole("radiogroup", { name: "Accent" })).toBeNull();
 });

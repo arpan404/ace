@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createThreadState } from "@ace/core";
+import { apply, createThreadState, type Fact } from "@ace/core";
 import { AgentId, RunId, ThreadId, type Capabilities } from "@ace/protocol";
 import { steerRoute } from "./steer-yield.ts";
 
@@ -100,5 +100,84 @@ describe("steerRoute for cancel-and-restart (ACP / Antigravity) sessions", () =>
         steerViaCancel: true,
       }),
     ).toBeUndefined();
+  });
+
+  test("waits while the root runs a command, since the agent's cancel would kill it", () => {
+    const state = threadState("run-1");
+    let ids = 0;
+    const send = (fact: Fact) => apply(state, fact, { now: 1, ids: { next: () => `id-${++ids}` } });
+    const command = (status: "running" | "succeeded") =>
+      send({
+        type: "item.upsert",
+        agent: "root",
+        item: "command",
+        draft: {
+          type: "tool_call",
+          complete: status === "succeeded",
+          call: {
+            kind: "shell",
+            title: "bun run dev",
+            status,
+            detail: { kind: "shell", command: "bun run dev" },
+          },
+        },
+      });
+    command("running");
+    expect(
+      steerRoute({ person: true }, state, acpCapabilities, undefined, { steerViaCancel: true }),
+    ).toBeUndefined();
+    command("succeeded");
+    expect(
+      steerRoute({ person: true }, state, acpCapabilities, undefined, { steerViaCancel: true }),
+    ).toBe("yield");
+  });
+
+  test("waits while a child agent runs a command, since cancelling the root would kill it", () => {
+    const state = threadState("run-1");
+    const root = state.agents["root"];
+    if (!root) throw new Error("Expected a root agent");
+    state.agents["child"] = {
+      agent: {
+        id: AgentId.parse("agent-2"),
+        threadId: state.threadId,
+        parentId: root.agent.id,
+        origin: "provider_subagent",
+        native: { provider: "antigravity", nativeId: "native-2" },
+        status: { state: "working", activity: "tool" },
+        fidelity: "full",
+        cwd: "/test",
+        background: false,
+        createdAt: 1,
+      },
+      parentKey: "root",
+      activity: "tool",
+      lastSignalAt: 1,
+    };
+    let ids = 0;
+    const send = (fact: Fact) => apply(state, fact, { now: 1, ids: { next: () => `id-${++ids}` } });
+    const command = (status: "running" | "succeeded") =>
+      send({
+        type: "item.upsert",
+        agent: "child",
+        item: "child-command",
+        draft: {
+          type: "tool_call",
+          complete: status === "succeeded",
+          call: {
+            kind: "shell",
+            title: "bun run dev",
+            status,
+            detail: { kind: "shell", command: "bun run dev" },
+          },
+        },
+      });
+    command("running");
+    expect(
+      steerRoute({ person: true }, state, acpCapabilities, undefined, { steerViaCancel: true }),
+    ).toBeUndefined();
+    command("succeeded");
+    expect(
+      steerRoute({ person: true }, state, acpCapabilities, undefined, { steerViaCancel: true }),
+    ).toBe("yield");
   });
 });

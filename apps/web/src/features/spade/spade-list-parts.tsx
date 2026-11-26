@@ -84,12 +84,21 @@ export function DottedFace(props: {
 
 /** A row's frame: 64px, the face, then the name over its one line. */
 const rowClass =
-  "group/row grid h-(--spade-list-row) w-full min-w-0 grid-cols-[var(--spade-list-face)_minmax(0,1fr)] grid-rows-[20px_20px] content-center gap-x-3 rounded-lg px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:[--row-wash:var(--hover)] aria-[current=page]:bg-active aria-[current=page]:[--row-wash:var(--active)]";
+  "group/row relative grid h-(--spade-list-row) w-full min-w-0 grid-cols-[var(--spade-list-face)_minmax(0,1fr)] grid-rows-[20px_20px] content-center gap-x-3 rounded-lg px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:[--row-wash:var(--hover)] aria-[current=page]:bg-active aria-[current=page]:[--row-wash:var(--active)]";
 
-const lineTone: Partial<Record<SpadeRowState, string>> = {
-  "needs-you": "needs-you",
-  failed: "failed",
+/** What colour alone says on a row, for people who don't see it. */
+const spokenState: Partial<Record<SpadeRowState, string>> = {
+  "needs-you": "Needs you",
+  failed: "Failed",
+  unseen: "Unread",
 };
+
+/** A line on one row: markdown marks and line breaks out, so it reads as plain words. */
+const plainLine = (text: string) =>
+  text
+    .replace(/[`*_~#>]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /** The quiet word after a development bot's name (ADR 0200 §9). */
 export function DevelopmentWord(props: { className?: string }) {
@@ -108,21 +117,22 @@ function RowText(props: {
   /** A word after the name, such as a shared bot's. */
   after?: ReactNode;
 }) {
-  const unseen = props.state === "unseen";
-  const tone = lineTone[props.state];
   // While it works, its phrase is held a moment as the chat's Working line holds it; anything
   // else (waiting for you, needs you, failed) shows at once and wins over it.
   const working = props.state === "working";
   const phrase = useHeldPhrase(working ? props.line : spadeWorkingWord);
-  const line = working ? phrase : props.line;
+  const line = plainLine(working ? phrase : props.line);
+  const unseen = props.state === "unseen";
+  // The line may already say it ("Needs you"); say it once.
+  const said = spokenState[props.state];
+  const spoken = said && !line.toLowerCase().includes(said.toLowerCase()) ? said : undefined;
   return (
     <>
-      <span className="flex min-w-0 items-baseline gap-1.5">
+      <span className={cn("flex min-w-0 items-baseline gap-1.5", unseen && "pr-4")}>
         <span
           data-view-row-title=""
           className={cn(
-            "min-w-0 truncate text-md/5",
-            unseen ? "font-semibold" : "font-medium",
+            "min-w-0 truncate text-md/5 font-medium",
             props.state === "off" ? "text-muted-foreground" : "text-foreground",
           )}
         >
@@ -131,22 +141,25 @@ function RowText(props: {
         {props.development && <DevelopmentWord />}
         {props.after}
       </span>
+      {/* Why it needs you reads in the normal text colour; the face's dot is the signal. */}
       <span
-        data-tone={tone}
         className={cn(
           "min-w-0 truncate text-ui/5",
-          tone
-            ? "text-(--tone-text)"
-            : unseen
-              ? "text-foreground"
-              : props.state === "working"
-                ? "text-muted-foreground"
-                : "text-subtle-foreground",
-          props.state === "needs-you" && "font-medium",
+          props.state === "needs-you" ? "text-foreground" : "text-muted-foreground",
+          unseen && "pr-4",
         )}
       >
         {line}
       </span>
+      {spoken && <span className="sr-only">, {spoken}</span>}
+      {unseen && (
+        <span
+          aria-hidden
+          data-unread-dot=""
+          data-tone="unread"
+          className="absolute top-1/2 right-3 size-2 -translate-y-1/2 rounded-full bg-(--tone)"
+        />
+      )}
     </>
   );
 }
@@ -179,7 +192,7 @@ export function BotListRow(props: {
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
       {...part("nav-item", props.current && "active", "agent")}
-      className={cn(rowClass, "relative")}
+      className={rowClass}
       style={accent}
     >
       {accent && (

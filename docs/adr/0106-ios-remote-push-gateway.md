@@ -187,9 +187,10 @@ push` on the simulator shows the NSE's text, and the generic fallback without a 
 
 ## Deploy checklist (owner)
 
-Nothing below can be done from the repository. Until it is done, phones keep ADR 0087 behaviour:
-the app gets no APNs token without the entitlement, and a daemon with no push address never calls
-the gateway.
+The full runbook with Live Activity smoke steps, container build and rotation notes is
+[docs/release/push-gateway.md](../release/push-gateway.md). Nothing below can be done from the
+repository. Until it is done, phones keep ADR 0087 behaviour: the app gets no APNs token without
+the entitlement, and a daemon with no push address never calls the gateway.
 
 1. **Apple Developer team.** Confirm the team that owns `app.ace.ios` and note its Team ID.
 2. **Identifiers.** In Certificates, Identifiers & Profiles: enable Push Notifications and App
@@ -214,9 +215,10 @@ the gateway.
    - `ACE_PUSH_SEAL_KEY` (step 4); during rotation also `ACE_PUSH_SEAL_KEY_PREVIOUS`
    - `ACE_PUSH_PUBLIC_ORIGIN=https://push.acehq.dev`
    - `ACE_PUSH_TRUST_PROXY=1`, optionally `ACE_PUSH_PORT` (default 8788)
-8. **Smoke test.** `curl https://push.acehq.dev/healthz`. Then, on a real phone with a
-   development build, turn on notifications, lock the phone and let an agent finish: the alert
-   should read the thread title, not "New activity".
+8. **Smoke test.** `curl https://push.acehq.dev/healthz` and
+   `curl https://push.acehq.dev/v1/capabilities` (`alert`, `liveactivity`, `start`). Then, on a
+   real phone with a development build, turn on notifications, lock the phone and let an agent
+   finish: the alert should read the thread title, not "New activity".
 9. **App Store privacy.** Declare the device token as data collected for app functionality, not
    linked to identity, not used for tracking.
 10. **Monitoring and rotation.** Alert on the gateway's 5xx rate. To rotate the APNs key: create

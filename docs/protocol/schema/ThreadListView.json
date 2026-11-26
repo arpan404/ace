@@ -27,6 +27,94 @@
       "minimum": 0,
       "type": "integer"
     },
+    "shares": {
+      "properties": {
+        "effectiveCapabilities": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "rows": {
+          "additionalProperties": {
+            "properties": {
+              "capabilities": {
+                "maximum": 63,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "workspace": {
+                "maximum": 63,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object",
+          "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+        },
+        "workspaces": {
+          "items": {
+            "properties": {
+              "defaultIcon": {
+                "anyOf": [
+                  {
+                    "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "https://ace.local/protocol/v1/ProjectKind.json"
+              },
+              "name": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 4096,
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "path"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "workspaces",
+        "effectiveCapabilities",
+        "rows"
+      ],
+      "type": "object"
+    },
     "threads": {
       "additionalProperties": {
         "$ref": "https://ace.local/protocol/v1/ThreadListEntry.json"

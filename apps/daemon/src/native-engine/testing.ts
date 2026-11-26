@@ -33,7 +33,7 @@ export interface EngineProbe {
   turns(): Promise<ProbeTurns>;
   woken(): string[];
   /** The E5.3 fold seam: a batch through `apply`, and one inside a rolled-back transaction. */
-  apply(threadId: string, facts: readonly unknown[], now: number): void;
+  apply(threadId: string, facts: readonly unknown[], now: number, generation?: number): void;
   applyRolledBack(threadId: string, facts: readonly unknown[], now: number): void;
   /** The probe's pass-through collaborators (E5.3 scaffolding). */
   passThroughCollaborators(): void;
@@ -138,6 +138,8 @@ export interface EngineProbe {
   timerCount(): number;
   /** The transaction shell's bookkeeping: open frames, top aliases and released lists. */
   stackEntries(): { frames: number; released: number };
+  /** One E5.3 `InputFacts` method natively, inside a transaction of its own. */
+  inputFacts(method: string, args: unknown): unknown;
 }
 
 /** What `attachSession` scripts. */

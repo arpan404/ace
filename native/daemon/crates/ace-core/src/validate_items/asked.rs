@@ -33,7 +33,7 @@ pub(super) fn valid_asked_line(value: &Json) -> bool {
                         )
                         && entry.get("detail").is_none_or(|detail| {
                             matches!(detail, Json::Null)
-                                | matches!(detail, Json::String(detail) if detail.len() <= 512)
+                                | matches!(detail, Json::String(detail) if detail.len_code_points() <= 512)
                         })
                 })
             })
@@ -64,8 +64,8 @@ fn valid_device_context_item(value: &Json) -> bool {
     map.keys().all(|key| {
         ["type", "id", "name", "kind", "machine", "os", "model", "online"].contains(&key.as_str())
     }) && matches!(map.get("type"), Some(Json::String(kind)) if kind == "device")
-        && matches!(map.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
-        && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+        && matches!(map.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 256)
+        && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         && matches!(
             map.get("kind"),
             Some(Json::String(kind))
@@ -77,15 +77,15 @@ fn valid_device_context_item(value: &Json) -> bool {
         )
         && map.get("machine").and_then(as_map).is_some_and(|machine| {
             machine.keys().all(|key| ["id", "name", "here"].contains(&key.as_str()))
-                && matches!(machine.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
-                && matches!(machine.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+                && matches!(machine.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len_code_points() <= 256)
+                && matches!(machine.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
                 && matches!(machine.get("here"), Some(Json::Bool(_)))
         })
         && map.get("os").is_none_or(|os| {
-            matches!(os, Json::Null) | matches!(os, Json::String(os) if os.len() <= 64)
+            matches!(os, Json::Null) | matches!(os, Json::String(os) if os.len_code_points() <= 64)
         })
         && map.get("model").is_none_or(|model| {
-            matches!(model, Json::Null) | matches!(model, Json::String(model) if model.len() <= 256)
+            matches!(model, Json::Null) | matches!(model, Json::String(model) if model.len_code_points() <= 256)
         })
         && matches!(map.get("online"), Some(Json::Bool(_)))
 }

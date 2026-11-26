@@ -29,6 +29,8 @@ pub mod probe;
 #[cfg(feature = "engine-probe")]
 pub mod probe_actor;
 #[cfg(feature = "engine-probe")]
+pub mod probe_input_facts;
+#[cfg(feature = "engine-probe")]
 pub mod probe_repository;
 pub mod queue;
 pub mod records;

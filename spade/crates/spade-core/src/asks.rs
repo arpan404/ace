@@ -185,6 +185,20 @@ pub(crate) fn is_persons(event: &Event, maker: Option<&str>) -> bool {
     }
 }
 
+/// Genuine person text, excluding workers' makers and other routed bot messages.
+pub(crate) fn person_text(event: &Event) -> Option<&str> {
+    match event {
+        Event::Known(Known::UserMessage {
+            text,
+            from_agent: None,
+            from_group: None,
+            from_routine: None,
+            ..
+        }) => Some(text.trim()),
+        _ => None,
+    }
+}
+
 impl Ledger {
     /// The ledger of `events`: from the latest stored copy (`asks_noted`, or a compaction's)
     /// among the last [`LOOK_BACK`] events, then the events after it. With none there it reads

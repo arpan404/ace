@@ -104,7 +104,7 @@ struct FileSearchRow: Decodable, Sendable, Identifiable, Hashable {
 
 /// A file as the file screen shows it: text (with the language it is coloured in and its change
 /// marks), an image, or why it can't be shown.
-struct FileContent: Decodable, Sendable {
+struct FileContent: Decodable, Equatable, Sendable {
     let kind: String
     let size: Int?
     let version: String?
@@ -121,6 +121,11 @@ struct FileContent: Decodable, Sendable {
     /// The marks by 1-based line, for a gutter to look each line up.
     var markedLines: [Int: String] {
         Dictionary((marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func saved(text: String, version: String) -> FileContent {
+        FileContent(kind: kind, size: text.utf8.count, version: version, text: text, data: data,
+                    markdown: markdown, editable: editable, parts: parts, language: language, marks: marks)
     }
 }
 /// A line changed since the last commit: "added", "modified" or "removed" (lines gone above it).

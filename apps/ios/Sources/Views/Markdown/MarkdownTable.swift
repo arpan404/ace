@@ -5,9 +5,9 @@ import UIKit
 /// A Markdown table as ace draws it: markit reads the table and styles each cell's text (code,
 /// links, emphasis) in the page's theme, and ace lays the cells out to fit the width it is
 /// offered (`MarkdownTableColumns`): short columns at their natural width, prose wrapping in the
-/// rest, inline code breaking inside its paths. Only a table whose words alone are wider than
-/// the room scrolls sideways, inside its box, which never reaches past the width offered. A
-/// table still arriving is read a row at a time (`MarkdownTableReader`).
+/// rest, inline code breaking inside its paths, and words too long for their column wrapping
+/// inside it. A table never reaches past the width offered and never scrolls sideways. A table
+/// still arriving is read a row at a time (`MarkdownTableReader`).
 struct MarkdownTableView: View, Equatable {
     let source: String
     let flavor: MarkitFlavor
@@ -19,7 +19,6 @@ struct MarkdownTableView: View, Equatable {
     /// Formulas are drawn in the text's ink for this appearance, so a change draws them again.
     @Environment(\.colorScheme) private var colorScheme
     @State private var reader = MarkdownTableReader()
-    @State private var viewportWidth = MarkdownTableBox.unoffered
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.source == rhs.source && lhs.flavor == rhs.flavor && lhs.theme == rhs.theme && lhs.selectable == rhs.selectable
@@ -34,21 +33,12 @@ struct MarkdownTableView: View, Equatable {
         let corner = RoundedRectangle(cornerRadius: theme.codeCornerRadius, style: .continuous)
         let open = onLink, reference = onReference
         MarkdownTableBox(natural: table.natural, minimum: table.minimum) {
-            ScrollView(.horizontal) {
-                MarkdownTableGrid(cells: table.cells.map { .init(row: $0.row, column: $0.column) },
-                                  natural: table.natural, minimum: table.minimum, room: viewportWidth) {
-                    ForEach(table.cells.indices, id: \.self) { index in
-                        cell(table.cells[index], last: table.cells[index].row == table.rows - 1, border: border)
-                    }
+            MarkdownTableGrid(cells: table.cells.map { .init(row: $0.row, column: $0.column) },
+                              natural: table.natural, minimum: table.minimum) {
+                ForEach(table.cells.indices, id: \.self) { index in
+                    cell(table.cells[index], last: table.cells[index].row == table.rows - 1, border: border)
                 }
             }
-            // The content is measured without a horizontal proposal. Use the actual
-            // viewport, which can be narrower than the nearest SwiftUI container.
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                if width > 0 { viewportWidth = width }
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .fixedSize(horizontal: false, vertical: true)
             .background(Color(uiColor: theme.codeBlockBackground), in: corner)
             .clipShape(corner)
             .overlay(corner.strokeBorder(border, lineWidth: 1))
@@ -106,7 +96,7 @@ struct MarkdownTableView: View, Equatable {
 }
 
 /// The table's box: as wide as its columns at the width offered, and never wider than that
-/// width, so a table that has to scroll does so inside the page's margins.
+/// width.
 struct MarkdownTableBox: Layout {
     let natural: [CGFloat]
     let minimum: [CGFloat]
@@ -129,8 +119,8 @@ struct MarkdownTableBox: Layout {
     }
 }
 
-/// Lays a table's cells out on a grid, columns as `MarkdownTableColumns` sizes them for the room
-/// the scroller offers, each row as tall as its tallest cell at
+/// Lays a table's cells out on a grid, columns as `MarkdownTableColumns` sizes them for the width
+/// the box proposes, each row as tall as its tallest cell at
 /// those widths. Every cell gets its column's width and its row's height, so a row's backgrounds
 /// and rules line up.
 struct MarkdownTableGrid: Layout {
@@ -138,7 +128,6 @@ struct MarkdownTableGrid: Layout {
     let cells: [Place]
     let natural: [CGFloat]
     let minimum: [CGFloat]
-    let room: CGFloat
 
     struct Metrics {
         var room: CGFloat
@@ -150,12 +139,12 @@ struct MarkdownTableGrid: Layout {
     func updateCache(_ cache: inout Metrics?, subviews: Subviews) { cache = nil }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Metrics?) -> CGSize {
-        let metrics = measured(subviews, cache: &cache)
+        let metrics = measured(subviews, room: Self.room(proposal.width), cache: &cache)
         return CGSize(width: metrics.widths.reduce(0, +), height: metrics.heights.reduce(0, +))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Metrics?) {
-        let metrics = measured(subviews, cache: &cache)
+        let metrics = measured(subviews, room: Self.room(proposal.width ?? bounds.width), cache: &cache)
         let lefts = Self.offsets(metrics.widths), tops = Self.offsets(metrics.heights)
         for (subview, place) in zip(subviews, cells) where place.column < lefts.count && place.row < tops.count {
             subview.place(at: CGPoint(x: bounds.minX + lefts[place.column], y: bounds.minY + tops[place.row]), anchor: .topLeading,
@@ -163,8 +152,13 @@ struct MarkdownTableGrid: Layout {
         }
     }
 
-    /// Measured once per room and cells, not on every pass: a sideways scroll lays out nothing.
-    private func measured(_ subviews: Subviews, cache: inout Metrics?) -> Metrics {
+    /// The width the columns share: the one proposed, or markit's assumption when none is.
+    private static func room(_ proposed: CGFloat?) -> CGFloat {
+        proposed.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? MarkdownTableBox.unoffered
+    }
+
+    /// Measured once per room and cells, not on every pass.
+    private func measured(_ subviews: Subviews, room: CGFloat, cache: inout Metrics?) -> Metrics {
         if let cache, cache.room == room { return cache }
         let widths = MarkdownTableColumns.widths(natural: natural, minimum: minimum, available: room)
         let rows = (cells.map(\.row).max() ?? -1) + 1

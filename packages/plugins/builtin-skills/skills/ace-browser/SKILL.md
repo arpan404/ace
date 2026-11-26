@@ -1,6 +1,6 @@
 ---
 name: ace-browser
-description: Test or debug a web page in ace's browser, which the person watches. Use before browser_* tools.
+description: Test or debug a web page in ace's browser, which the person watches. Use before browser_*.
 ---
 
 # ace's browser

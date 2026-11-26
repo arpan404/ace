@@ -25,9 +25,15 @@ impl NativeEngine {
 
     /// Folds one batch through `apply`, exactly as a provider frame would.
     #[napi]
-    pub fn probe_apply(&self, id: String, facts_json: String, now: f64) -> napi::Result<()> {
+    pub fn probe_apply(
+        &self,
+        id: String,
+        facts_json: String,
+        now: f64,
+        generation: Option<f64>,
+    ) -> napi::Result<()> {
         let core = self.engine.core();
-        core.apply(&id, &facts_json, now, None)
+        core.apply(&id, &facts_json, now, generation)
             .map_err(engine_error)
     }
 

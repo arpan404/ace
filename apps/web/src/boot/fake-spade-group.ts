@@ -65,4 +65,22 @@ export function seedFakeGroup(here: FakeSpadeApi, now: number) {
     },
   });
   say('<msg reply="m12">Done: 14C on TAP, aisle.</msg>\n<msg>No extra charge.</msg>', flights);
+  // Seed club reactions: several bots (and the person) reacting across messages.
+  const react = (message: string, emoji: string, agent?: string) =>
+    here.store(c, {
+      type: "reaction",
+      message,
+      emoji,
+      by: agent ? "bot" : "person",
+      ...(agent ? { agent } : {}),
+    });
+  react("m1", "👍", "flights");
+  react("m1", "👍", "inbox");
+  react("m5", "❤️", "spade");
+  react("m5", "👍");
+  react("m12", "👍", "flights");
+  react("m12", "👍", "inbox");
+  react("m12", "👍", "spade");
+  react("m13", "❤️", "spade");
+  react("m13", "🎉", "inbox");
 }

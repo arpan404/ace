@@ -43,6 +43,15 @@ pub(crate) fn is_low(unit: u16) -> bool {
     (0xdc00..0xe000).contains(&unit)
 }
 
+/// Length in UTF-16 code units, as in JavaScript's `string.length`.
+pub fn utf16_len(text: &str) -> usize {
+    if text.is_ascii() {
+        text.len()
+    } else {
+        text.encode_utf16().count()
+    }
+}
+
 impl JsString {
     pub const fn new() -> JsString {
         JsString(Repr::Utf8(String::new()))
@@ -119,9 +128,16 @@ impl JsString {
     /// `string.length`: the count of UTF-16 code units.
     pub fn len_utf16(&self) -> usize {
         match &self.0 {
-            Repr::Utf8(text) => text.encode_utf16().count(),
+            Repr::Utf8(text) => utf16_len(text),
             Repr::Units { units, .. } => units.len(),
         }
+    }
+
+    /// Length in code points, including one for each unpaired surrogate.
+    /// This is the unit of ace's patched Zod string bounds.
+    pub fn len_code_points(&self) -> usize {
+        // The display form has one replacement character per unpaired surrogate.
+        self.as_str().chars().count()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -168,13 +184,14 @@ impl JsString {
 
     /// `string.slice(start, end)` over UTF-16 code units, clamped like JavaScript's.
     pub fn slice_units(&self, start: usize, end: usize) -> JsString {
-        let units: Vec<u16> = self.units().collect();
-        let end = end.min(units.len());
-        let start = start.min(end);
-        units
-            .get(start..end)
-            .map(JsString::from_units)
-            .unwrap_or_default()
+        if let Repr::Utf8(text) = &self.0 {
+            let end = end.min(text.len());
+            if text.as_bytes()[..end].is_ascii() {
+                return JsString::from(&text[start.min(end)..end]);
+            }
+        }
+        let units: Vec<u16> = self.units().take(end).skip(start).collect();
+        JsString::from_units(&units)
     }
 
     pub(crate) fn repr_units(&self) -> Option<&[u16]> {
@@ -462,5 +479,24 @@ impl fmt::Debug for JsString {
         let mut out = String::new();
         crate::write::write_js_string(&mut out, self);
         f.write_str(&out)
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn javascript_slice_and_zod_length_count_different_units() {
+        let text = JsString::from("a😀😀");
+        assert_eq!(text.len_code_points(), 3);
+        assert_eq!(text.len_utf16(), 5);
+        let split = text.slice_units(0, 4);
+        assert_eq!(
+            split.units().collect::<Vec<_>>(),
+            vec![97, 0xd83d, 0xde00, 0xd83d]
+        );
+        assert_eq!(split.len_code_points(), 3);
+        assert_eq!(text.slice_units(0, 5), text);
     }
 }

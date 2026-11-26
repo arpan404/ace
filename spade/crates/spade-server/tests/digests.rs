@@ -181,28 +181,34 @@ async fn questions_carry_ask_or_block_and_each_reaches_the_notice_stream_with_it
     assert_eq!(response.status(), 200);
     let mut body = response.bytes_stream();
     spade.say(&conversation, "Book me a seat").await?;
-    let notices = read_notices(&mut body, 2).await;
-    let shown: Vec<(Value, Value, Value)> = notices
+    let notices = read_notices(&mut body, 1).await;
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    let grouped = &notices[0];
+    assert_eq!(grouped["kind"], "needs_you_batch");
+    assert_eq!(grouped["level"], "block");
+    assert_eq!(grouped["count"], 2);
+    assert_eq!(grouped["questions"], 2);
+    assert_eq!(grouped["text"], "2 questions waiting.");
+    assert_eq!(grouped["agent"], id.as_str());
+    assert_eq!(grouped["name"], "Booker");
+    let items: Vec<(Value, Value, Value)> = grouped["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
         .iter()
-        .map(|n| (n["kind"].clone(), n["level"].clone(), n["text"].clone()))
+        .map(|i| (i["request"].clone(), i["level"].clone(), i["text"].clone()))
         .collect();
     assert_eq!(
-        shown,
+        items,
         vec![
             (
-                json!("event"),
+                json!("q1"),
                 json!("ask"),
                 json!("Asks, for later: Which date?")
             ),
-            (
-                json!("event"),
-                json!("block"),
-                json!("Asks: Window or aisle?")
-            ),
+            (json!("q2"), json!("block"), json!("Asks: Window or aisle?")),
         ]
     );
-    assert_eq!(notices[0]["agent"], id.as_str());
-    assert_eq!(notices[0]["name"], "Booker");
     let rows = served(&spade, &conversation).await?;
     assert_eq!(
         level_of(&rows, |e| e["type"] == "question_asked"

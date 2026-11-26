@@ -177,12 +177,11 @@ pub struct AskUser;
 const ASK_ABOUT: &str = "Ask the person one to five questions as a card they answer. Kinds: \
 `choice` (2-10 options; `other: true` also takes a typed answer), `choices` (several, `min`/`max` \
 picks), `confirm`, `number` (`min`, `max`, `unit`), `date` (`time: true` asks the time too) or \
-`text`. Ask everything in one call, not one question at a time. Your turn pauses until they \
-answer, and you read each question with its answer; if they choose Answer later, the call says so \
-at once and their answer arrives later as a <question_answer> — go on without it or say what \
-waits on it. `wait: false` asks without pausing, for preferences that shape later work, never for \
-what your next step needs. They may dismiss the card. A call that breaks a rule is refused saying \
-which; fix it and ask again.";
+`text`. Ask everything in one call. A blocking call pauses until they answer, choose Answer \
+later, or dismiss. Use `blocking: false` (alias `wait: false`) for preferences or optional \
+confirmations. If every question states a `default`, the call is non-blocking unless you set \
+`blocking: true`. Continue with the stated defaults. Later answers arrive as <question_answer>. \
+A call that breaks a rule says which; fix it and ask again.";
 
 impl Tool for AskUser {
     fn def(&self) -> ToolDef {
@@ -207,7 +206,8 @@ impl Tool for AskUser {
                          "description": "choices: most picks; number: the most." },
                 "unit": string("number: like nights or kg."),
                 "time": { "type": "boolean", "description": "date: ask the time too." },
-                "placeholder": string("text: a hint in the empty field.") },
+                "placeholder": string("text: a hint in the empty field."),
+                "default": { "description": "Value to use while awaiting an answer. Must match the question's kind." } },
             "required": ["prompt", "kind"] });
         ToolDef {
             spec: spec(
@@ -217,8 +217,9 @@ impl Tool for AskUser {
                         "properties": {
                             "questions": { "type": "array", "items": question,
                                            "minItems": 1, "maxItems": 5 },
-                            "wait": { "type": "boolean",
-                                      "description": "false: ask without pausing. Default true." } },
+                            "blocking": { "type": "boolean",
+                                          "description": "True waits for an answer. False continues at once. Defaults to false when every question has a default, otherwise true." },
+                            "wait": { "type": "boolean", "description": "Alias for blocking." } },
                         "required": ["questions"] }),
             ),
             risk: Risk::Read,

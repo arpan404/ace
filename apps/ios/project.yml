@@ -34,10 +34,11 @@ settings:
     # (`ACE_HOSTED_ACCOUNT_ORIGIN`). Set it on the command line to point a build elsewhere.
     ACE_ACCOUNT_URL: ""
     # Remote push (ADR 0106) needs the `aps-environment` entitlement, which only a paid
-    # developer team can sign. Off by default, so CI and free Personal Teams keep signing and
-    # the app runs on local notifications alone. Turn it on with `ACE_PUSH=YES` on the
-    # xcodebuild command line (or in the Ace target's build settings): the app then signs with
-    # `Entitlements/AcePush.entitlements`. See README › Notifications.
+    # developer team can sign. Off by default so CI, Debug, Perf and free Personal Teams keep
+    # signing and the app runs on local notifications alone. Release sets `ACE_PUSH: YES` below
+    # so App Store and TestFlight archives sign with `Entitlements/AcePush.entitlements`.
+    # Override with `ACE_PUSH=NO` on the xcodebuild command line when you need a Release build
+    # without push. See README › Notifications and docs/release/push-gateway.md.
     ACE_PUSH: NO
     ACE_ENTITLEMENTS_NO: Entitlements/Ace.entitlements
     ACE_ENTITLEMENTS_YES: Entitlements/AcePush.entitlements
@@ -48,6 +49,7 @@ settings:
     Release:
       ACE_ACCOUNT_URL: https://cloud.acehq.dev
       ACE_APS_ENVIRONMENT: production
+      ACE_PUSH: YES
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
     Perf:

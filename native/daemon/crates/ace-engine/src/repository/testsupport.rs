@@ -267,6 +267,11 @@ impl Ports for Shell {
     fn append_events(&self, _json: &str) -> Result<(), PortError> {
         Ok(())
     }
+    fn get_thread(&self, _thread: &str) -> Result<Option<String>, PortError> {
+        // The shell's thread row is not what a repository case reads; no row is the answer a
+        // store with no such thread gives.
+        Ok(None)
+    }
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
     fn finish_close(&self) {}
@@ -275,6 +280,10 @@ impl Ports for Shell {
     }
     fn head_seq(&self) -> Result<f64, PortError> {
         Ok(self.seq.get())
+    }
+    /// The test shell caps nothing: the convention is the same text back.
+    fn cap_raw(&self, _thread: &str, raw: &str) -> Result<String, PortError> {
+        Ok(raw.to_owned())
     }
     fn has_live_write(&self, _thread: &str) -> Result<bool, PortError> {
         Ok(self.pinned.get() || !self.buffered.borrow().is_empty())

@@ -94,6 +94,9 @@ impl NativeDatabase {
                 .get_named_property("getThread")
                 .map_err(|_| napi::Error::from_reason("getThread is missing"))?,
             bindings
+                .get_named_property("onNamingPrompt")
+                .map_err(|_| napi::Error::from_reason("onNamingPrompt is missing"))?,
+            bindings
                 .get_named_property("capRaw")
                 .map_err(|_| napi::Error::from_reason("capRaw is missing"))?,
             bindings

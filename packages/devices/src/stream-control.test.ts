@@ -71,7 +71,7 @@ it("a recording leaves a watched capture on the viewers' video", async () => {
   expect(native).toEqual(fast);
   await control.close();
 });
-it("a recording nobody watches gets its JPEG image budget, and loses it when a viewer arrives", async () => {
+it("a recording nobody watches streams H.264 at its own budget, and a viewer's stream replaces it", async () => {
   let native: ScreenStreamSettings | undefined;
   const control = new DeviceStreamControl(async (settings) => {
     native = settings;
@@ -79,11 +79,17 @@ it("a recording nobody watches gets its JPEG image budget, and loses it when a v
   });
   const recording = control.acquireRecording();
   await recording.ready;
-  expect(native).toMatchObject({ codec: "jpeg", maxWidth: 1280, maxHeight: 720, fps: 15 });
+  expect(native).toEqual({
+    codec: "h264",
+    maxWidth: 1280,
+    maxHeight: 2560,
+    fps: 30,
+    bitrate: 4000000,
+  });
   await control.set("view", fast);
   expect(native).toEqual(fast);
   await control.remove("view");
-  expect(native).toMatchObject({ codec: "jpeg", maxHeight: 720, fps: 15 });
+  expect(native).toMatchObject({ codec: "h264", maxWidth: 1280, maxHeight: 2560, fps: 30 });
   await recording.release();
   await control.close();
 });

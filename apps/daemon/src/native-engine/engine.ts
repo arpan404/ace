@@ -26,6 +26,9 @@ import {
   type Settled,
 } from "./contracts.ts";
 import { UnportedMembers } from "./unported.ts";
+import { queuePage, queueRetains, queueSnapshot } from "./queue.ts";
+import { commandExecution, commandFailure, prioritizeSubagentResult } from "./intents.ts";
+import { inputFate } from "./inputs.ts";
 import { openEngineData } from "./open.ts";
 
 export type { NativeEngineHandle, NativeTransactionShell } from "./contracts.ts";
@@ -341,7 +344,35 @@ export class NativeEngine extends UnportedMembers implements EngineSurface {
     return this.member("hasState", "E5.3")(id) as boolean;
   }
   override retainsAttachment(id: ThreadId, hash: string): boolean {
-    return this.member("retainsAttachment", "E5.3")(id, hash) as boolean;
+    return queueRetains(this.binding, id, hash);
+  }
+  override queue(id: ThreadId): ReturnType<EngineSurface["queue"]> {
+    return queueSnapshot(this.binding, id);
+  }
+  override queuePage(
+    ...args: Parameters<EngineSurface["queuePage"]>
+  ): ReturnType<EngineSurface["queuePage"]> {
+    return queuePage(this.binding, args[0]);
+  }
+  override commandFailure(
+    ...args: Parameters<EngineSurface["commandFailure"]>
+  ): ReturnType<EngineSurface["commandFailure"]> {
+    return commandFailure(this.binding, args[0]);
+  }
+  override commandExecution(
+    ...args: Parameters<EngineSurface["commandExecution"]>
+  ): ReturnType<EngineSurface["commandExecution"]> {
+    return commandExecution(this.binding, args[0]) as ReturnType<EngineSurface["commandExecution"]>;
+  }
+  override prioritizeSubagentResult(
+    ...args: Parameters<EngineSurface["prioritizeSubagentResult"]>
+  ): ReturnType<EngineSurface["prioritizeSubagentResult"]> {
+    prioritizeSubagentResult(this.binding, args[0], args[1]);
+  }
+  override inputFate(
+    ...args: Parameters<EngineSurface["inputFate"]>
+  ): ReturnType<EngineSurface["inputFate"]> {
+    return inputFate(this.binding, args[0], args[1]);
   }
   override readRawBlob(id: string): Uint8Array | undefined {
     const bytes = this.member("readRawBlob", "E5.3")(id) as Uint8Array | null;

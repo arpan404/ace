@@ -4,7 +4,6 @@ import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { BotScreen } from "./spade-bot-screen.tsx";
-import { LaneConversation } from "./lanes/lane-conversation.tsx";
 import { Conversation } from "./spade-conversation.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import { centeredStrip, SpadeStateStrip } from "./spade-state.tsx";
@@ -68,8 +67,6 @@ export function SpadeAgentScreen(props: {
   request?: string | undefined;
   /** One of its package's panels open beside it. */
   panel?: string | undefined;
-  /** One of its tasks open in the conversation's place (ADR 0217 §7). */
-  task?: string | undefined;
 }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
@@ -149,25 +146,16 @@ export function SpadeAgentScreen(props: {
         </BotScreen>
       }
     >
-      {props.task ? (
-        <LaneConversation
-          key={`${key}/${props.task}`}
-          bot={bot}
-          roster={roster.bots}
-          task={props.task}
-        />
-      ) : (
-        <Conversation
-          key={key}
-          bot={bot}
-          roster={roster.bots}
-          profile={profile}
-          computer={computer}
-          files={{ folder, file: props.file }}
-          request={props.request}
-          panel={profile === undefined ? props.panel : undefined}
-        />
-      )}
+      <Conversation
+        key={key}
+        bot={bot}
+        roster={roster.bots}
+        profile={profile}
+        computer={computer}
+        files={{ folder, file: props.file }}
+        request={props.request}
+        panel={profile === undefined ? props.panel : undefined}
+      />
     </SpadeMachineScope>
   );
 }

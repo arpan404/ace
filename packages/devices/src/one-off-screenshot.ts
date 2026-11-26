@@ -8,6 +8,12 @@ import { deviceImageError, shotDeadlineMs, type ImageWork } from "./device-image
 import { DeviceError } from "./sdk.ts";
 import { adbShell } from "./commands.ts";
 import type { DeviceRuntime } from "./runtime.ts";
+import {
+  nativeScreenshotCheckSource,
+  nativeScreenshotFitOp,
+  nativeScreenshotScale,
+  nativeVideo,
+} from "./native-video.ts";
 
 /** One still of a device screen, JPEG, sized to fit a frame packet. */
 export interface DeviceShot {
@@ -27,23 +33,25 @@ const maxSourceBytes = 32 * 1024 * 1024;
  * through ace-media. A cut-short picture is refused, never shown to an agent with grey in it.
  */
 export async function shotJpeg(source: Buffer, images: ImageWork): Promise<DeviceShot> {
-  if (!source.length || source.length > maxSourceBytes)
+  if (nativeVideo) nativeScreenshotCheckSource(source.length);
+  else if (!source.length || source.length > maxSourceBytes)
     throw new DeviceError(
       "invalid_data",
       "Device screenshot is empty or too large",
       "Retry; if it persists, restart the device.",
     );
+  const fit = nativeVideo ? nativeScreenshotFitOp() : undefined;
   try {
     const shot = await images.run({
       inputs: [{ kind: "bytes", bytes: source }],
       op: {
         op: "fit",
         // The largest device screens are a few megapixels (a 13-inch iPad is 5.7).
-        maxPixels: 16 * 1024 * 1024,
-        width: maxWidth,
-        height: maxHeight,
-        autoOrient: false,
-        output: { format: "jpeg", quality: 80 },
+        maxPixels: fit?.maxPixels ?? 16 * 1024 * 1024,
+        width: fit?.width ?? maxWidth,
+        height: fit?.height ?? maxHeight,
+        autoOrient: fit?.autoOrient ?? false,
+        output: { format: "jpeg", quality: fit?.quality ?? 80 },
       },
       deadlineMs: shotDeadlineMs,
     });
@@ -51,7 +59,9 @@ export async function shotJpeg(source: Buffer, images: ImageWork): Promise<Devic
       payload: Buffer.from(shot.bytes),
       width: shot.width,
       height: shot.height,
-      scale: shot.width / shot.source.width,
+      scale: nativeVideo
+        ? nativeScreenshotScale(shot.width, shot.source.width)
+        : shot.width / shot.source.width,
     };
   } catch (error) {
     throw deviceImageError(error, "Device screenshot");

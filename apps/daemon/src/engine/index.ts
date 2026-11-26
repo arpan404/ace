@@ -376,6 +376,7 @@ export class TypeScriptEngine {
       stopReleases();
       stopQuarantine();
     };
+    this.repo.steersByCancel = (id) => this.actors.get(id)?.session?.steerViaCancel === true;
     this.repo.observe = (state, facts, events, at) => {
       if (facts.some((fact) => fact.type === "process.started"))
         this.meters.invalidate(state.threadId, at);

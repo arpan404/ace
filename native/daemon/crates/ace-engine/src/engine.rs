@@ -73,6 +73,7 @@ impl Engine {
         let weak: Weak<dyn DeferredHost> = Rc::downgrade(&core) as Weak<dyn DeferredHost>;
         after.attach(weak);
         core.with_state(|state| {
+            state.engine = Rc::downgrade(&core);
             state.lifecycle = Lifecycle::Starting;
             state.flush_depth = 0;
             let _ = idle_ms;

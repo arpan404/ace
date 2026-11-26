@@ -2,23 +2,19 @@
 //! Interaction requests: approvals, questions and elicitations.
 
 use ace_core::RawFact;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 use super::facts::{fact, raw_payload};
 use super::helpers::{command_actions_match, list_of, obj_map, str_empty};
 use super::item::tool_draft;
 use super::mcp::mcp_tool_approval;
 
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-fn valid_path(path: &str) -> bool {
-    let units = utf16_len(path);
+fn valid_path(path: &JsString) -> bool {
+    let units = path.len_code_points();
     (1..=4096).contains(&units)
 }
 
-fn file_changes(value: Option<&Value>) -> Option<Vec<(String, Option<String>)>> {
+fn file_changes(value: Option<&Value>) -> Option<Vec<(JsString, Option<JsString>)>> {
     let items = list_of(value);
     if items.is_empty() || items.len() > 128 {
         return None;
@@ -27,7 +23,7 @@ fn file_changes(value: Option<&Value>) -> Option<Vec<(String, Option<String>)>> 
     for entry in items {
         let map = obj_map(entry);
         let path = match map.get("path") {
-            Some(Value::String(s)) if valid_path(s) => s.to_string(),
+            Some(Value::String(s)) if valid_path(s) => s.clone(),
             _ => return None,
         };
         let kind = match map.get("kind") {
@@ -40,7 +36,7 @@ fn file_changes(value: Option<&Value>) -> Option<Vec<(String, Option<String>)>> 
         }
         let move_path = match kind.get("move_path") {
             None | Some(Value::Null) => None,
-            Some(Value::String(s)) if valid_path(s) => Some(s.to_string()),
+            Some(Value::String(s)) if valid_path(s) => Some(s.clone()),
             _ => return None,
         };
         out.push((path, move_path));
@@ -53,24 +49,24 @@ fn approval_target_value(
     access: &str,
     command: Option<&Value>,
     cwd: Option<&Value>,
-    paths: Option<Vec<String>>,
+    paths: Option<Vec<JsString>>,
     input: &Value,
 ) -> Option<Value> {
-    if utf16_len(tool) < 1 || utf16_len(tool) > 256 {
+    if tool.is_empty() || tool.chars().count() > 256 {
         return None;
     }
     if !matches!(access, "read" | "write" | "execute" | "unknown") {
         return None;
     }
     if let Some(Value::String(s)) = command {
-        if utf16_len(s) > 32768 {
+        if s.len_code_points() > 32768 {
             return None;
         }
     } else if command.is_some() {
         return None;
     }
     if let Some(Value::String(s)) = cwd {
-        if utf16_len(s) > 4096 {
+        if s.len_code_points() > 4096 {
             return None;
         }
     } else if cwd.is_some() {
@@ -288,7 +284,7 @@ pub fn open_request(
         {
             let changes = native_item.and_then(|item| file_changes(item.get("changes")));
             changes.and_then(|changes| {
-                let mut paths: Vec<String> = Vec::new();
+                let mut paths: Vec<JsString> = Vec::new();
                 for (path, move_path) in changes {
                     paths.push(path);
                     if let Some(move_path) = move_path {
@@ -367,4 +363,53 @@ pub fn turn_error(value: &Value) -> (String, String) {
     };
     let kind = super::helpers::turn_error_kind(&info, &message).to_owned();
     (kind, message)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn a_file_change_path_counts_code_points_at_the_approval_targets_limit() {
+        for length in [4096, 4097] {
+            let path = Value::from("😀".repeat(length));
+            let item = ace_json::json!({
+                "type":"fileChange",
+                "changes":[{"path":path, "kind":{"type":"add"}}]
+            });
+            let facts = open_request(
+                "agent",
+                "key",
+                "item/fileChange/requestApproval",
+                &Map::new(),
+                &Value::Null,
+                false,
+                item.as_object(),
+            );
+            let target = facts
+                .iter()
+                .find_map(|fact| fact.data.to_value().pointer("/request/target").cloned());
+            assert_eq!(target.is_some(), length == 4096, "{length}");
+            if let Some(target) = target {
+                assert_eq!(target.get("paths"), Some(&Value::from(vec![path])));
+            }
+        }
+    }
+
+    #[test]
+    fn an_approval_target_accepts_astral_command_and_working_directory_at_their_limits() {
+        for (field, limit) in [("command", 32768), ("cwd", 4096)] {
+            for length in [limit, limit + 1] {
+                let value = Value::from("😀".repeat(length));
+                let command = (field == "command").then_some(&value);
+                let cwd = (field == "cwd").then_some(&value);
+                let target =
+                    approval_target_value("tool", "execute", command, cwd, None, &Value::Null);
+                assert_eq!(target.is_some(), length == limit, "{field}");
+                if let Some(target) = target {
+                    assert_eq!(target.get(field), Some(&value));
+                }
+            }
+        }
+    }
 }

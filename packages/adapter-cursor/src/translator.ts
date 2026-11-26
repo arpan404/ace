@@ -420,7 +420,11 @@ class TypeScriptCursorTranslator implements Translator {
     this.attempt = undefined;
     const body = object(event.body);
     const namespace = `${event.generation}:${event.operationId}:${event.segment}`;
-    const facts: Fact[] = [];
+    // This attempt's own operation and segment are Cursor's now, so the send's provisional wake
+    // ends here. A replayed boundary for a run ace already has never reaches a run start that
+    // would clear it, and the shared reducer only holds one deadline, so it cannot tell this
+    // send's wake from another send's.
+    const facts: Fact[] = [{ type: "wake.expected", agent: this.root, until: this.now }];
     if (this.operation !== event.operationId || !this.active) {
       this.tools.trim();
       this.children.trim();

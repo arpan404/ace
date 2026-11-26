@@ -204,6 +204,7 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         }),
         Event::user_message("Short please"),
     ];
@@ -611,6 +612,7 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
         from_group: None,
         from_thread: None,
         reply_to: None,
+        invoke: None,
     })];
     let shown = messages_with(&events, &Shelf);
     let Some(Message::Person { text, images }) = shown.first() else {
@@ -699,6 +701,7 @@ fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
                 from_group: None,
                 from_thread: None,
                 reply_to: None,
+                invoke: None,
             })
         })
         .collect();
@@ -732,6 +735,7 @@ fn image_turn(n: usize) -> [Event; 2] {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         }),
         step(&format!("r{n}"), "seen", &[]),
     ]
@@ -843,6 +847,7 @@ fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
         from_group: None,
         from_thread: None,
         reply_to: None,
+        invoke: None,
     })];
     let sent = messages(&events);
     assert!(matches!(
@@ -872,6 +877,7 @@ fn a_turn_a_bot_started_or_steered_is_untrusted() {
             from_group: None,
             from_thread: None,
             reply_to: None,
+            invoke: None,
         })
     };
     let registry = Registry::new(Vec::new());

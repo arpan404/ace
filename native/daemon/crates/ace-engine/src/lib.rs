@@ -35,6 +35,7 @@ pub mod registry;
 pub mod release;
 pub mod repository;
 pub mod restart;
+pub mod rules;
 pub mod sessions;
 pub mod settle;
 pub mod snapshot;

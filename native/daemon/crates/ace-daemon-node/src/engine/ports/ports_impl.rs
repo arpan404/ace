@@ -135,6 +135,19 @@ impl Ports for JsPorts {
         self.call(&self.get_thread, thread.to_owned())
     }
 
+    fn on_naming_prompt(&self, thread: &str, json: &str) {
+        // The port runs after the commit, outside any caller's `try`: a throw is reported, never
+        // swallowed.
+        if let Err(error) = self.call(
+            &self.on_naming_prompt,
+            FnArgs {
+                data: (thread.to_owned(), json.to_owned()),
+            },
+        ) {
+            self.report_now(&error.to_string());
+        }
+    }
+
     fn cap_raw(&self, thread: &str, raw: &str) -> Result<String, PortError> {
         self.call(
             &self.cap_raw,
