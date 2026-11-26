@@ -8,10 +8,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 
-use crate::jsonc::{
-    ObjectLayout, ScalarRange, Scanned, Segment, SettingsLayout, insert_setting, parse_document,
-    remove_setting, replace_scalar,
-};
+use crate::jsonc::{ObjectLayout, ScalarRange, Scanned, Segment, parse_document, replace_scalar};
 use crate::schema::{default_value, is_key, validate_value};
 use crate::validation::{MAX_DOCUMENT_BYTES, SettingsCode, SettingsError, guard_secrets};
 
@@ -42,7 +39,6 @@ pub struct DecodedDocument {
     pub migrated: bool,
     pub ranges: BTreeMap<String, ScalarRange>,
     pub layouts: BTreeMap<Vec<Segment>, ObjectLayout>,
-    pub layout: Option<SettingsLayout>,
 }
 
 /// The text a fresh settings file starts with.
@@ -314,7 +310,6 @@ impl DecodedDocument {
                 migrated,
                 ranges: scanned.ranges.clone(),
                 layouts: scanned.layouts.clone(),
-                layout: scanned.layout.clone(),
             });
         }
         Err(error(
@@ -350,7 +345,6 @@ impl DecodedDocument {
                 bytes: self.bytes,
                 ranges: self.ranges.clone(),
                 layouts: self.layouts.clone(),
-                layout: self.layout.clone(),
                 text: self.text.clone(),
             };
             let next = set_setting(&scanned, key, &parsed)?;
@@ -362,7 +356,6 @@ impl DecodedDocument {
                 bytes: self.bytes,
                 ranges: self.ranges.clone(),
                 layouts: self.layouts.clone(),
-                layout: self.layout.clone(),
                 text: self.text.clone(),
             };
             let next = set_setting(&scanned, key, &parsed)?;
@@ -388,27 +381,38 @@ impl DecodedDocument {
                 position.end = (position.end as isize + shift).max(0) as usize;
             }
         }
-        if let Some(layout) = next.layout.as_mut()
-            && let Some(span) = layout.properties.get_mut(key)
-        {
-            let key_start = span.key_start;
-            span.value_end = span.value_end.saturating_add_signed(shift);
-            for (_, other) in layout.properties.iter_mut() {
-                if other.key_start > key_start {
-                    other.key_start = other.key_start.saturating_add_signed(shift);
-                    other.value_end = other.value_end.saturating_add_signed(shift);
-                    if let Some(comma) = other.comma_before.as_mut() {
-                        *comma = comma.saturating_add_signed(shift);
+        // The layouts follow the text: every offset after the edited range shifts.
+        for layout in next.layouts.values_mut() {
+            if layout.open > range.start {
+                layout.open = layout.open.saturating_add_signed(shift);
+            }
+            if layout.close > range.start {
+                layout.close = layout.close.saturating_add_signed(shift);
+            }
+            if let Some(last) = layout.last_value_end.as_mut()
+                && *last > range.start
+            {
+                *last = last.saturating_add_signed(shift);
+            }
+            for span in layout.properties.values_mut() {
+                for position in [
+                    &mut span.key_start,
+                    &mut span.value_start,
+                    &mut span.value_end,
+                ] {
+                    if *position > range.start {
+                        *position = position.saturating_add_signed(shift);
                     }
-                    if let Some(comma) = other.comma_after.as_mut() {
+                }
+                for comma in [&mut span.comma_before, &mut span.comma_after]
+                    .into_iter()
+                    .flatten()
+                {
+                    if *comma > range.start {
                         *comma = comma.saturating_add_signed(shift);
                     }
                 }
             }
-            if let Some(last) = layout.last_value_end.as_mut() {
-                *last = last.saturating_add_signed(shift);
-            }
-            layout.close = layout.close.saturating_add_signed(shift);
         }
         Ok(next)
     }
@@ -420,7 +424,6 @@ impl DecodedDocument {
             bytes: self.bytes,
             ranges: self.ranges.clone(),
             layouts: self.layouts.clone(),
-            layout: self.layout.clone(),
             text: self.text.clone(),
         };
         let mut next = scanned;
@@ -454,41 +457,16 @@ fn rewrite_version_one(text: &str, values: &Map<String, Value>) -> Result<String
     crate::edit::modify(&text, &["version"], Some(&Value::Number(2.into())))
 }
 
+/// One `settings` property written or removed with `jsonc-parser`'s path edit.
 fn set_setting(scanned: &Scanned, key: &str, value: &Value) -> Result<Scanned, SettingsError> {
-    let Some(layout) = scanned.layout.clone() else {
-        return Err(error(
-            SettingsCode::Validation,
-            "Settings document has no settings object",
-        ));
-    };
-    let text = if let Some(span) = layout.properties.get(key) {
-        let content = serde_json::to_string(value)
-            .map_err(|_| error(SettingsCode::Validation, "Settings are not serializable"))?;
-        replace_scalar(
-            &scanned.text,
-            ScalarRange {
-                start: span.key_start,
-                end: span.value_end,
-            },
-            &format!("\"{key}\": {content}"),
-        )
-    } else {
-        insert_setting(&scanned.text, &layout, key, value)?
-    };
+    let text = crate::edit::modify(&scanned.text, &["settings", key], Some(value))?;
     parse_document(&text)
 }
 
 fn remove_keys(scanned: &Scanned, keys: &[String]) -> Result<Scanned, SettingsError> {
     let mut text = scanned.text.clone();
     for key in keys {
-        // Re-read so every later removal uses the spans of the text it removes from.
-        let current = parse_document(&text)?;
-        let Some(layout) = current.layout.as_ref() else {
-            break;
-        };
-        if let Some(span) = layout.properties.get(key) {
-            text = remove_setting(&text, span);
-        }
+        text = crate::edit::modify(&text, &["settings", key], None)?;
     }
     parse_document(&text)
 }
@@ -645,6 +623,41 @@ mod tests {
                 .map(|rows| rows[0].clone()),
             Some(json!({ "provider": "codex", "binaryPath": "/opt/codex" }))
         );
+    }
+
+    #[test]
+    fn an_insertion_and_a_reset_keep_comments_and_indentation() {
+        let text = "{\n  \"version\": 2,\n  \"settings\": {\n    /* keep */\n  }\n}\n";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        let next = document
+            .assign("threads.sortBy", &json!("manual"))
+            .unwrap_or_else(|error| panic!("{error}"));
+        let text = next.to_text().unwrap_or_default();
+        assert!(text.contains("/* keep */"), "{text}");
+        assert!(
+            text.contains("\n    \"threads.sortBy\": \"manual\""),
+            "{text}"
+        );
+
+        let text = "{\n  \"version\": 2,\n  \"settings\": {\n    // note\n    \"future.note\": 1,\n    \"threads.settleOnClose\": true\n  }\n}\n";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        let next = document
+            .reset(&["threads.settleOnClose"])
+            .unwrap_or_else(|error| panic!("{error}"));
+        let text = next.to_text().unwrap_or_default();
+        assert!(text.contains("// note"), "{text}");
+        assert!(text.contains("\"future.note\": 1"), "{text}");
+        assert!(!text.contains("threads.settleOnClose"), "{text}");
+    }
+
+    #[test]
+    fn retired_keys_are_dropped_without_losing_their_neighbours_comments() {
+        let text = "{\n  \"version\": 2,\n  \"settings\": {\n    // keep\n    \"threads.settleOnClose\": false,\n    \"media.encode\": \"h264\"\n  }\n}\n";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        let text = document.to_text().unwrap_or_default();
+        assert!(!text.contains("media.encode"), "{text}");
+        assert!(text.contains("// keep"), "{text}");
+        assert!(text.contains("\"threads.settleOnClose\": false"), "{text}");
     }
 
     #[test]

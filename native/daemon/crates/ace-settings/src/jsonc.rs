@@ -54,9 +54,6 @@ pub struct ObjectLayout {
     pub last_value_end: Option<usize>,
 }
 
-/// The `settings` object's layout.
-pub type SettingsLayout = ObjectLayout;
-
 /// A scanned document: its value, size, scalar ranges and object layouts.
 #[derive(Debug, Clone)]
 pub struct Scanned {
@@ -64,7 +61,6 @@ pub struct Scanned {
     pub bytes: usize,
     pub ranges: BTreeMap<String, ScalarRange>,
     pub layouts: BTreeMap<Vec<Segment>, ObjectLayout>,
-    pub layout: Option<SettingsLayout>,
     pub text: String,
 }
 
@@ -463,16 +459,11 @@ pub fn parse_document(text: &str) -> Scan<Scanned> {
     }
     // Credentials in discarded duplicates and in comments are diagnosed too.
     guard_secrets(&Value::String(text.to_owned()))?;
-    let layout = scanner
-        .layouts
-        .get(&vec![Segment::Key("settings".to_owned())])
-        .cloned();
     Ok(Scanned {
         value,
         bytes,
         ranges: scanner.ranges,
         layouts: scanner.layouts,
-        layout,
         text: text.to_owned(),
     })
 }
@@ -483,57 +474,6 @@ pub fn replace_scalar(text: &str, range: ScalarRange, content: &str) -> String {
     out.push_str(&text[..range.start]);
     out.push_str(content);
     out.push_str(&text[range.end..]);
-    out
-}
-
-/// Inserts `key: value` into the settings object, in the file's own indentation and EOL.
-pub fn insert_setting(
-    text: &str,
-    layout: &SettingsLayout,
-    key: &str,
-    value: &Value,
-) -> Result<String, SettingsError> {
-    let content = serde_json::to_string(value).map_err(|_| {
-        SettingsError::new(SettingsCode::Validation, "Settings are not serializable")
-    })?;
-    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    let indent = if layout.indent.is_empty() {
-        "  ".to_owned()
-    } else {
-        layout.indent.clone()
-    };
-    let property = format!("{indent}\"{key}\": {content}");
-    let mut out = String::with_capacity(text.len() + property.len() + 2);
-    match layout.last_value_end {
-        None => {
-            // An empty settings object: open, the property, then the closing line.
-            out.push_str(&text[..layout.open]);
-            out.push_str(eol);
-            out.push_str(&property);
-            out.push_str(eol);
-            out.push_str(&text[layout.close..]);
-        }
-        Some(last) => {
-            out.push_str(&text[..last]);
-            out.push(',');
-            out.push_str(eol);
-            out.push_str(&property);
-            out.push_str(&text[last..]);
-        }
-    }
-    Ok(out)
-}
-
-/// Removes one setting's property, and its comma, keeping the rest of the file.
-pub fn remove_setting(text: &str, span: &PropertySpan) -> String {
-    let (start, end) = match (span.comma_before, span.comma_after) {
-        (Some(comma), _) => (comma, span.value_end),
-        (None, Some(comma)) => (span.key_start, comma + 1),
-        (None, None) => (span.key_start, span.value_end),
-    };
-    let mut out = String::with_capacity(text.len());
-    out.push_str(&text[..start]);
-    out.push_str(&text[end..]);
     out
 }
 
@@ -605,20 +545,17 @@ mod tests {
     #[test]
     fn a_setting_is_inserted_and_removed_without_touching_comments() {
         let text = "{\n  \"version\": 2,\n  \"settings\": {\n    // here\n    \"threads.settleOnClose\": false\n  }\n}\n";
-        let scanned = parse_document(text).unwrap_or_else(|error| panic!("{error}"));
-        let layout = scanned.layout.unwrap_or_default();
-        let next = insert_setting(text, &layout, "threads.forkOnSwitch", &Value::Bool(true))
-            .unwrap_or_else(|error| panic!("{error}"));
+        let next = crate::edit::modify(
+            text,
+            &["settings", "threads.forkOnSwitch"],
+            Some(&Value::Bool(true)),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
         assert!(next.contains("// here"));
         let scanned = parse_document(&next).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(scanned.value["settings"]["threads.forkOnSwitch"], true);
-        let span = scanned
-            .layout
-            .as_ref()
-            .and_then(|layout| layout.properties.get("threads.forkOnSwitch"))
-            .cloned()
-            .unwrap_or_else(|| panic!("span"));
-        let removed = remove_setting(&next, &span);
+        let removed = crate::edit::modify(&next, &["settings", "threads.forkOnSwitch"], None)
+            .unwrap_or_else(|error| panic!("{error}"));
         let scanned = parse_document(&removed).unwrap_or_else(|error| panic!("{error}"));
         assert!(
             scanned.value["settings"]
@@ -626,5 +563,6 @@ mod tests {
                 .is_none()
         );
         assert_eq!(scanned.value["settings"]["threads.settleOnClose"], false);
+        assert!(removed.contains("// here"));
     }
 }
