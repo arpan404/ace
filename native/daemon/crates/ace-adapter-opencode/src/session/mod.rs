@@ -4,6 +4,7 @@
 //! recovery and HTTP effects.
 
 pub mod ancestry;
+pub mod api;
 pub mod coverage;
 pub mod error;
 pub mod evidence;
