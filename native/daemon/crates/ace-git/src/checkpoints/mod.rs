@@ -19,3 +19,9 @@ pub mod nested;
 pub mod numbers;
 pub mod restore;
 pub mod snapshot;
+
+/// The G0 probe the binding still calls for an operation this item has not wired to the
+/// shell yet; it defers that operation to TypeScript, as every stub did.
+pub fn probe(op: &str) -> Result<(), crate::error::Error> {
+    Err(crate::error::Error::unimplemented("checkpoints", op))
+}

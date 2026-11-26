@@ -12,6 +12,6 @@ use super::caught;
 #[napi(catch_unwind)]
 pub fn git_checkpoints_probe(op: String) -> napi::Result<String> {
     caught("git checkpoints probe", || {
-        ace_git::checkpoints::snapshot::probe(&op).map(|()| "ok".to_owned())
+        ace_git::checkpoints::probe(&op).map(|()| "ok".to_owned())
     })
 }
