@@ -18,7 +18,7 @@ use ace_supervisor::errors::NodeIoError;
 use ace_supervisor::spawn::{Delivered, OutputStream, RawExit};
 use futures::future::BoxFuture;
 use indexmap::IndexMap;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 use super::clock::{Clock, Timer};
 use super::error::{PiError, Refused, Uncertain};
@@ -55,8 +55,7 @@ pub(crate) struct Inner {
     pub(crate) closing: AtomicBool,
     control: AtomicBool,
     deliberate: AtomicBool,
-    drained: AtomicBool,
-    drained_notify: tokio::sync::Notify,
+    drained: Latch,
     released: std::sync::Once,
     config: Mutex<Option<super::config::PrivateMcpConfig>>,
     lease: Option<PiLease>,
@@ -91,8 +90,7 @@ impl Inner {
             closing: AtomicBool::new(false),
             control: AtomicBool::new(false),
             deliberate: AtomicBool::new(false),
-            drained: AtomicBool::new(false),
-            drained_notify: tokio::sync::Notify::new(),
+            drained: Latch::new(),
             released: std::sync::Once::new(),
             config: Mutex::new(Some(config)),
             lease,
@@ -216,17 +214,11 @@ impl Inner {
         });
     }
 
-    /// The terminal barrier: every frame the child produced has been delivered. The
-    /// `notified()` future is created before the flag is read, so an abort between the two is
-    /// not lost (`Notify::notify_waiters` stores no permit).
+    /// The terminal barrier: every frame the child produced has been delivered. `Latch` reads
+    /// through a `watch`, which records the change before any waiter polls, so a drain that
+    /// lands between a caller's check and its wait is never lost.
     pub(crate) async fn await_drained(&self) {
-        loop {
-            let notified = self.drained_notify.notified();
-            if self.drained.load(Ordering::Acquire) {
-                return;
-            }
-            notified.await;
-        }
+        self.drained.wait().await;
     }
 
     fn arm_timer(&self, key: String, ms: f64) {
@@ -284,7 +276,7 @@ impl Inner {
             return Ok(());
         };
         child
-            .stop(STOP_GRACE, self.timer.as_ref(), STOP_POLL)
+            .stop(STOP_GRACE, self.timer.as_ref(), STOP_POLL, &self.exit)
             .await
             .map_err(|error| PiSessionError::Supervisor(error.to_string()))
     }
@@ -293,7 +285,7 @@ impl Inner {
     /// close runs the plan again (`native-session.ts:358`–`:380`).
     pub(crate) async fn close(&self, deliberate: bool) -> Result<(), PiSessionError> {
         let _guard = self.close_lock.lock().await;
-        if self.closed.load(Ordering::Acquire) && self.drained.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire) && self.drained.is_open() {
             return Ok(());
         }
         let previous = self.deliberate.swap(deliberate, Ordering::SeqCst);
@@ -411,7 +403,7 @@ pub(crate) fn drain(inner: Arc<Inner>) -> BoxFuture<'static, ()> {
                     SessionEvent::Drained => {
                         inner.cancel_timers();
                         inner.release();
-                        inner.drained.store(true, Ordering::SeqCst);
+                        inner.drained.open();
                         let deliberate = inner.deliberate.load(Ordering::SeqCst);
                         let exit = inner.exit.get();
                         let reason = if deliberate {
@@ -432,7 +424,6 @@ pub(crate) fn drain(inner: Arc<Inner>) -> BoxFuture<'static, ()> {
                             deliberate,
                             message: format!("Pi process {reason}, code {code}"),
                         });
-                        inner.drained_notify.notify_waiters();
                         return;
                     }
                     SessionEvent::Callback { .. } | SessionEvent::Port { .. } => {}
@@ -440,4 +431,103 @@ pub(crate) fn drain(inner: Arc<Inner>) -> BoxFuture<'static, ()> {
             }
         }
     })
+}
+
+/// A one-shot terminal flag that cannot lose its wakeup: `watch` keeps the value's version, so
+/// a reader that subscribes after `open` still sees it and one already waiting is woken.
+pub(crate) struct Latch {
+    sender: watch::Sender<bool>,
+    /// Kept so the channel never closes with no reader: an `open` before the first waiter
+    /// must still record the value.
+    _receiver: watch::Receiver<bool>,
+}
+
+impl Latch {
+    pub(crate) fn new() -> Latch {
+        let (sender, receiver) = watch::channel(false);
+        Latch {
+            sender,
+            _receiver: receiver,
+        }
+    }
+
+    /// Opens the latch; a second call is harmless.
+    pub(crate) fn open(&self) {
+        let _ = self.sender.send(true);
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        *self.sender.borrow()
+    }
+
+    pub(crate) async fn wait(&self) {
+        let mut receiver = self.sender.subscribe();
+        loop {
+            // `borrow_and_update` marks the version seen, so `changed()` wakes for any later
+            // open; an open before the subscription is read right here.
+            if *receiver.borrow_and_update() {
+                return;
+            }
+            if receiver.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // The lost-wakeup guard for the terminal barrier (`native-session.ts:375`–`:376`): the
+    // TypeScript awaits a latch, and these cases exercise ours from before, during and in a
+    // tight race with the open.
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_latch_opened_before_its_reader_resolves_at_once() {
+        let latch = Latch::new();
+        latch.open();
+        tokio::time::timeout(Duration::from_millis(100), latch.wait())
+            .await
+            .expect("an open latch did not resolve");
+    }
+
+    #[tokio::test]
+    async fn a_latch_opened_while_readers_wait_wakes_every_one() {
+        let latch = Arc::new(Latch::new());
+        let mut readers = Vec::new();
+        for _ in 0..8 {
+            let latch = Arc::clone(&latch);
+            readers.push(tokio::spawn(async move { latch.wait().await }));
+        }
+        // Let every reader subscribe before the open lands.
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        latch.open();
+        for reader in readers {
+            tokio::time::timeout(Duration::from_millis(100), reader)
+                .await
+                .expect("a waiting reader was never woken")
+                .expect("reader");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_thousand_opens_racing_their_readers_never_lose_one() {
+        for _ in 0..1_000 {
+            let latch = Arc::new(Latch::new());
+            let reader = {
+                let latch = Arc::clone(&latch);
+                tokio::spawn(async move {
+                    latch.wait().await;
+                })
+            };
+            latch.open();
+            tokio::time::timeout(Duration::from_secs(1), reader)
+                .await
+                .expect("a reader lost the open")
+                .expect("reader");
+        }
+    }
 }

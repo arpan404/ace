@@ -109,6 +109,14 @@ impl ChildExit {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
     }
+
+    /// Whether the leader has ended, whether or not its group has emptied.
+    pub fn exited(&self) -> bool {
+        self.exit
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some()
+    }
 }
 
 /// The running child, held for the whole session so a stop can be retried.
@@ -208,39 +216,48 @@ impl PiChild {
         let _ = self.signal_group(SignalName::Kill);
     }
 
-    /// `stopRetainedGroup` (`process-owner.ts:357`–`:382`): SIGTERM, poll every `poll_ms` until
-    /// the group is gone, then SIGKILL at `grace`. The leader's exit is not the end: a member
-    /// that ignores SIGTERM is killed at the deadline.
+    /// `stopRetainedGroup` (`process-owner.ts:357`–`:382`) with `killGroup`'s hold
+    /// (`:199`–`:210`): SIGTERM, poll every `poll_ms` until the group is gone or the leader has
+    /// ended, then SIGKILL at `grace`. The hold lives only around each signal: held across the
+    /// poll it would keep the supervisor's release loop from ever latching the empty group.
     pub async fn stop(
         &self,
         grace: Duration,
         timer: &dyn Timer,
         poll_ms: f64,
+        exit: &ChildExit,
     ) -> Result<(), SupervisorError> {
         // The polite Windows stop is EOF; POSIX gets SIGTERM to the whole group.
-        self.hold();
         if cfg!(windows) {
             self.end_stdin();
         }
-        if let Err(error) = self.signal_group(SignalName::Term) {
-            self.unhold();
-            return Err(error);
-        }
+        self.signal_held(SignalName::Term)?;
         let started = Instant::now();
         loop {
-            if self.group_gone() {
-                self.unhold();
+            // A cooperative leader exits in milliseconds, and its exit listener kills what it
+            // left behind (`killGroupOnExit`). The group's own latch covers a leader already
+            // reaped before this stop began.
+            if exit.exited() || self.group_gone() {
                 return Ok(());
             }
             let remaining = grace.saturating_sub(started.elapsed());
             if remaining.is_zero() {
-                let killed = self.signal_group(SignalName::Kill);
-                self.unhold();
-                return killed;
+                return self.signal_held(SignalName::Kill);
             }
             let wait = remaining.min(Duration::from_millis(poll_ms as u64));
             timer.sleep(wait.as_secs_f64() * 1_000.0).await;
         }
+    }
+
+    /// Holds the group for exactly one signal, as `killGroup` does: a group number is never
+    /// signalled after the supervisor released it.
+    fn signal_held(&self, signal: SignalName) -> Result<(), SupervisorError> {
+        let held = self.child.hold();
+        let sent = self.signal_group(signal);
+        if held {
+            self.child.unhold();
+        }
+        sent
     }
 }
 

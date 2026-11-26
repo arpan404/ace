@@ -1273,3 +1273,60 @@ fn an_open_cancelled_while_pi_answers_late_returns_at_once_and_stops_the_child()
     );
     Ok(())
 }
+
+/// A cooperative child exits on SIGTERM, so the stop returns at once and never reaches the
+/// grace's SIGKILL. Holding the group across the poll made every close wait the full 1,000 ms.
+#[test]
+fn a_cooperative_close_returns_long_before_the_grace() -> TestResult {
+    let harness = Harness::new("cooperative-close")?;
+    let session = harness.open(Vec::new(), None, |_| {}, None)?;
+    send(&harness, &session, "hello", Delivery::Queue)?;
+    let started = Instant::now();
+    harness.close(&session)?;
+    assert!(
+        started.elapsed() < Duration::from_millis(300),
+        "the close waited for the grace: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(harness.observer.record().exits().len(), 1, "no exit notice");
+    Ok(())
+}
+
+/// "MCP bearer echoes are redacted before raw frames and lease ends on close": the fake answers
+/// a prompt with the injected lease bearer, the wire redacts it, and the close ends the lease.
+#[test]
+fn a_lease_bearer_is_redacted_before_frames_and_ends_on_close() -> TestResult {
+    let harness = Harness::new("lease-success")?;
+    let (opened, ended) = harness.open_with_lease(Vec::new(), None, |_| {}, None);
+    let session = opened?;
+    send(&harness, &session, "env-proof", Delivery::Queue)?;
+    assert!(
+        harness.observer.wait(
+            |state| state
+                .frames()
+                .iter()
+                .any(|frame| ace_json::to_string(&frame.data).contains("<ACE_LEASE>")),
+            5_000
+        ),
+        "the echoed bearer never reached the frames"
+    );
+    let frames: Vec<String> = harness
+        .observer
+        .record()
+        .frames()
+        .iter()
+        .map(|frame| ace_json::to_string(&frame.data))
+        .collect();
+    let joined = frames.join("\n");
+    assert!(
+        !joined.contains(&"c".repeat(64)),
+        "a frame carried the lease bearer"
+    );
+    harness.close(&session)?;
+    assert_eq!(
+        ended.load(Ordering::SeqCst),
+        1,
+        "the close did not end the lease"
+    );
+    Ok(())
+}

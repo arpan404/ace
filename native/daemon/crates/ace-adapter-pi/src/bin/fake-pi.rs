@@ -22,8 +22,7 @@ fn main() {
     if let Some(path) = std::env::var_os("FAKE_PI_ARGS_FILE") {
         let _ = std::fs::write(path, args.join("\u{1f}"));
     }
-    let secret = control_secret();
-    let config_path = std::env::var("ACE_PI_SESSION_FILE").unwrap_or_default();
+    let configuration = configuration();
     if std::env::var_os("FAKE_PI_LOAD_FAILURE").is_some() {
         // As Pi does when an extension factory throws: say why on stderr, then exit before RPC.
         eprint!(
@@ -144,6 +143,21 @@ fn main() {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_owned();
+                if message.starts_with("/ace-rollback ") {
+                    // As Pi's ace extension echoes the control secret, which ace must redact.
+                    let mut request = Map::with_capacity(4);
+                    request.insert("type", Value::from("extension_ui_request"));
+                    request.insert("id", Value::from("control-echo"));
+                    request.insert("method", Value::from("notify"));
+                    request.insert(
+                        "message",
+                        Value::from(configuration.control_secret.as_str()),
+                    );
+                    emit(&mut stdout, request);
+                    eprintln!("control={}", configuration.control_secret);
+                    reply(&mut stdout, id, kind, Value::Object(Map::new()));
+                    continue;
+                }
                 if message == "refuse" || message.starts_with("/refuse") {
                     // Pi turns down a prompt it never accepted with one failed response.
                     emit(
@@ -199,7 +213,11 @@ fn main() {
                         emit(&mut stdout, dialog);
                     }
                 }
-                let text = "hello\u{2028}world\u{2029}!";
+                let text = if message == "env-proof" {
+                    configuration.bearer.clone().unwrap_or_default()
+                } else {
+                    "hello\u{2028}world\u{2029}!".to_owned()
+                };
                 let mut message_start = agent_event("message_start");
                 let mut started = Map::with_capacity(2);
                 started.insert("role", Value::from("assistant"));
@@ -210,14 +228,14 @@ fn main() {
                 let mut delta = Map::with_capacity(4);
                 delta.insert("type", Value::from("text_delta"));
                 delta.insert("contentIndex", Value::from(0.0));
-                delta.insert("delta", Value::from(text));
+                delta.insert("delta", Value::from(text.as_str()));
                 message_update.insert("assistantMessageEvent", Value::Object(delta));
                 emit(&mut stdout, message_update);
                 let mut message_map = Map::with_capacity(4);
                 message_map.insert("role", Value::from("assistant"));
                 let mut block = Map::with_capacity(2);
                 block.insert("type", Value::from("text"));
-                block.insert("text", Value::from(text));
+                block.insert("text", Value::from(text.as_str()));
                 message_map.insert("content", Value::Array(vec![Value::Object(block)].into()));
                 message_map.insert("stopReason", Value::from("stop"));
                 let mut usage = Map::with_capacity(2);
@@ -252,8 +270,6 @@ fn main() {
             ),
         }
         let _ = stdout.flush();
-        let _ = &secret;
-        let _ = &config_path;
     }
 }
 
@@ -284,25 +300,39 @@ fn spawn_descendant() {
     std::mem::forget(child);
 }
 
-/// The private configuration's control secret, read as `readPrivateMcpConfig` reads it: no
-/// symlink, mode 0600, this user's, at most 256 KiB. A world-readable file fails the fake.
-fn control_secret() -> String {
+/// The private configuration, read as `readPrivateMcpConfig` reads it: no symlink, mode 0600,
+/// this user's, at most 256 KiB, and the shape `fake-pi.ts` parses (`controlSecret` required,
+/// `mcp.bearer` optional). The TypeScript fake throws at startup on a wrong shape; so does this.
+struct FakeConfiguration {
+    control_secret: String,
+    bearer: Option<String>,
+}
+
+fn configuration() -> FakeConfiguration {
     let Ok(path) = std::env::var("ACE_PI_SESSION_FILE") else {
-        return String::new();
+        eprintln!("Invalid private MCP configuration: no file");
+        std::process::exit(2);
     };
     let Ok(text) = read_private(&path) else {
         eprintln!("Invalid private MCP configuration");
         std::process::exit(2);
     };
-    ace_json::parse(&text)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("controlSecret")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .unwrap_or_default()
+    let Ok(value) = ace_json::parse(&text) else {
+        eprintln!("Invalid private MCP configuration: not JSON");
+        std::process::exit(2);
+    };
+    let Some(control_secret) = value.get("controlSecret").and_then(Value::as_str) else {
+        eprintln!("Invalid private MCP configuration: controlSecret");
+        std::process::exit(2);
+    };
+    FakeConfiguration {
+        control_secret: control_secret.to_owned(),
+        bearer: value
+            .get("mcp")
+            .and_then(|mcp| mcp.get("bearer"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    }
 }
 
 #[cfg(unix)]

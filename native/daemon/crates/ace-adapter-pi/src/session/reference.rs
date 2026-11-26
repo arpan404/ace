@@ -183,9 +183,10 @@ pub fn read_session_header(path: &str) -> Result<SessionHeader, PiHistoryError> 
         .map(str::to_owned)
         .ok_or(PiHistoryError::Header)?;
     validate_id(&id).map_err(|_| PiHistoryError::Header)?;
-    // `version: z.union([1, 2, 3]).default(1)`: a release ace has not audited is refused.
+    // `version: z.union([1, 2, 3]).default(1)`: the default covers an absent key only, so a
+    // release ace has not audited — and a `null` — is refused.
     match map.get("version") {
-        None | Some(Value::Null) => {}
+        None => {}
         Some(value) => match value.as_f64() {
             Some(version) if version == 1.0 || version == 2.0 || version == 3.0 => {}
             _ => return Err(PiHistoryError::Header),
@@ -462,6 +463,7 @@ mod tests {
             ("\"version\":3,", true),
             ("\"version\":4,", false),
             ("\"version\":\"3\",", false),
+            ("\"version\":null,", false),
         ] {
             std::fs::write(
                 &path,
