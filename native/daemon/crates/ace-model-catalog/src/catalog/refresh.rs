@@ -203,9 +203,11 @@ impl Catalog {
             return;
         };
         let revision = self.revision(&config);
-        let Some(signal) =
-            self.with_inner(|inner| inner.states.get(id).and_then(|state| state.abort.clone()))
-        else {
+        let signal = self.with_inner(|inner| {
+            let state = inner.states.get(id)?;
+            state.abort.clone()
+        });
+        let Some(signal) = signal else {
             return;
         };
         let started_at = self.now();
@@ -235,6 +237,53 @@ impl Catalog {
         // The deadline's own flag is private to the closure; a second signal-only race
         // tells an abort from a timeout by asking whether the deadline fired.
         let abort_signal = signal.clone();
+        // A failed home/identity guard revokes cached choices and never launches the
+        // provider; a CLI below ace's minimum is refused before it is probed.
+        let admit =
+            self.with_inner(|inner| inner.states.get(id).and_then(|state| state.admit.clone()));
+        if let Some(admit) = admit
+            && let Err(error) = admit().await
+        {
+            let current = self.with_inner(|inner| {
+                let Some(state) = inner.states.get_mut(id) else {
+                    return false;
+                };
+                state.entry = None;
+                state.view = None;
+                state.dirty = true;
+                true
+            });
+            if current {
+                let _ = self.with_inner(|inner| inner.deletions.remove(id));
+            }
+            self.fail(
+                id,
+                Some(DiscoveryFailure::new(&error)),
+                FailureCode::DiscoveryFailed,
+                started_at,
+                &DiscoveryDiagnostics::default(),
+                &revision,
+            );
+            return;
+        }
+        if let Some(cli) = crate::cli::provider_cli(&config.provider.to_string())
+            && let Err(too_old) =
+                crate::cli::require_minimum(cli, config.installation_version.as_deref())
+        {
+            self.fail(
+                id,
+                Some(DiscoveryFailure {
+                    code: Some(FailureCode::CliTooOld.as_str().to_owned()),
+                    too_old: Some(too_old),
+                    ..DiscoveryFailure::default()
+                }),
+                FailureCode::CliTooOld,
+                started_at,
+                &DiscoveryDiagnostics::default(),
+                &revision,
+            );
+            return;
+        }
         let inflight = self.options.discover.discover(
             DiscoveryRequest {
                 instance: with_binary_path(

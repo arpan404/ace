@@ -319,6 +319,190 @@ fn cached_pickers_return_through_ttl_and_revalidate_a_stale_row_once() {
 }
 
 #[test]
+fn a_rejected_admission_revokes_rows_without_launching_discovery() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(
+        vec![codex.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+    );
+    let _ = futures::executor::block_on(fixture.catalog.refresh(ModelFilter::default()));
+    let calls = fixture.discover.calls();
+    let admit: super::Admit =
+        std::sync::Arc::new(|| Box::pin(async { Err("home identity changed".to_owned()) }));
+    fixture
+        .catalog
+        .register_instance(codex, Some(admit))
+        .unwrap_or_else(|error| panic!("{error}"));
+    fixture.clock.advance(super::DEFAULT_TTL_MS + 1.0);
+    let after = futures::executor::block_on(
+        fixture
+            .catalog
+            .refresh_state("account", RefreshCause::Background),
+    );
+    assert_eq!(after.error, Some(StatusError::DiscoveryFailed));
+    assert_eq!(fixture.discover.calls(), calls, "discovery never launched");
+    assert!(listed(&fixture.catalog).models.is_empty());
+}
+
+#[test]
+fn a_cli_below_its_minimum_is_refused_before_discovery() {
+    let mut codex = instance(ProviderKind::Codex, "account");
+    codex.installation_version = Some("0.1.0".to_owned());
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(
+        vec![codex],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+    );
+    let after = futures::executor::block_on(
+        fixture
+            .catalog
+            .refresh_state("account", RefreshCause::Background),
+    );
+    assert_eq!(
+        after.error_detail.as_ref().map(|detail| detail.code),
+        Some(crate::failures::FailureCode::CliTooOld)
+    );
+    assert_eq!(fixture.discover.calls(), 0);
+}
+
+#[test]
+fn an_acp_rows_load_only_when_its_probe_is_configured() {
+    for (probe, expected_calls) in [
+        (None, 0),
+        (Some(ace_models::instance::ModelProbe::OnRequest), 1),
+    ] {
+        let mut agent = instance(ProviderKind::Acp, "agent");
+        agent.model_probe = probe;
+        let discover = always(vec![row(&agent, "plan")]);
+        let fixture = fixture(
+            vec![agent],
+            SharedStorage::new(MemoryStorage::new()),
+            discover.clone(),
+        );
+        let statuses = futures::executor::block_on(fixture.catalog.load("agent"))
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(fixture.discover.calls(), expected_calls, "{probe:?}");
+    }
+}
+
+#[test]
+fn an_invalidate_waits_out_a_refresh_whose_row_was_replaced() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let discover = FakeDiscover::new(move |_request, _signal| {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(DiscoveryOutcome::default())
+        })
+    });
+    let fixture = fixture(
+        vec![codex.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        discover,
+    );
+    let catalog = fixture.catalog.clone();
+    let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(poll_once(flight.as_mut()).is_pending());
+    // A new login replaces the row while its old refresh is still running.
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    let invalidating = catalog.invalidate(ModelFilter::default());
+    let (_, invalidated) =
+        futures::executor::block_on(async move { futures::join!(flight, invalidating) });
+    invalidated.unwrap_or_else(|error| panic!("{error}"));
+    assert!(catalog.has_instance("account"));
+}
+
+#[test]
+fn a_removal_waits_out_a_refresh_whose_row_was_replaced() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let discover = FakeDiscover::new(move |_request, _signal| {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(DiscoveryOutcome::default())
+        })
+    });
+    let fixture = fixture(
+        vec![codex.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        discover,
+    );
+    let catalog = fixture.catalog.clone();
+    let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(poll_once(flight.as_mut()).is_pending());
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    let removing = catalog.remove_instance("account");
+    let (_, removed) = futures::executor::block_on(async move { futures::join!(flight, removing) });
+    removed.unwrap_or_else(|error| panic!("{error}"));
+    assert!(!catalog.has_instance("account"));
+}
+
+#[test]
+fn close_drains_a_write_accepted_before_it_started() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(vec![codex], storage.clone(), discover);
+    let catalog = fixture.catalog.clone();
+    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    // Accepted, but its task has not run yet: close must wait for it.
+    catalog.update_permission_modes(
+        "account",
+        vec![serde_json::json!({
+            "id": "plan",
+            "label": "Plan",
+            "description": "",
+            "risk": "low"
+        })],
+    );
+    let mut close = Box::pin(catalog.close());
+    let closed = loop {
+        match poll_once(close.as_mut()) {
+            std::task::Poll::Ready(result) => break result,
+            std::task::Poll::Pending => {
+                fixture.spawn.drain();
+            }
+        }
+    };
+    closed.unwrap_or_else(|error| panic!("{error}"));
+    let mut storage = storage.clone();
+    let stored = storage.load().unwrap_or_default();
+    assert_eq!(
+        stored[0]
+            .permission_modes
+            .as_ref()
+            .and_then(|modes| modes.first())
+            .and_then(|mode| mode.get("id"))
+            .and_then(|id| id.as_str()),
+        Some("plan")
+    );
+}
+
+#[test]
 fn persisted_models_are_available_before_discovery_after_restart() {
     let codex = instance(ProviderKind::Codex, "account");
     let storage = SharedStorage::new(MemoryStorage::new());

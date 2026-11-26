@@ -194,7 +194,20 @@ impl Catalog {
         }
         let catalog = self.clone();
         let instance = instance.to_owned();
+        // An accepted write is visible to close before its task first runs.
+        let gate = crate::signals::Gate::new();
+        self.with_inner(|inner| inner.accepted_writes.push(gate.clone()));
         self.options.spawn.spawn(Box::pin(async move {
+            struct Accepted(crate::signals::Gate, Catalog, crate::signals::Gate);
+            impl Drop for Accepted {
+                fn drop(&mut self) {
+                    self.1.with_inner(|inner| {
+                        inner.accepted_writes.retain(|gate| !gate.same(&self.0));
+                    });
+                    self.2.open();
+                }
+            }
+            let _accepted = Accepted(gate.clone(), catalog.clone(), gate.clone());
             catalog.persist_permission_modes(&instance, modes).await;
         }));
     }

@@ -467,29 +467,31 @@ impl Catalog {
             return Err(CatalogError::Closed);
         }
         let ids = self.selection(&filter);
-        let mut statuses = Vec::new();
-        for id in ids {
-            let is_acp = self
-                .registered(&id)
-                .is_some_and(|config| config.provider == ProviderKind::Acp);
-            if is_acp {
-                self.with_inner(|inner| {
-                    if let Some(state) = inner.states.get_mut(&id) {
-                        state.acp_due = true;
-                        state.dirty = true;
+        // Each instance's flight runs independently: one slow provider never holds
+        // another instance's refresh, as `Promise.all` does in the TypeScript.
+        let statuses = futures::future::join_all(ids.into_iter().map(|id| {
+            let catalog = self.clone();
+            async move {
+                let is_acp = catalog
+                    .registered(&id)
+                    .is_some_and(|config| config.provider == ProviderKind::Acp);
+                if is_acp {
+                    catalog.with_inner(|inner| {
+                        if let Some(state) = inner.states.get_mut(&id) {
+                            state.acp_due = true;
+                            state.dirty = true;
+                        }
+                    });
+                    if let Some(config) = catalog.registered(&id) {
+                        catalog.notify_config(&config);
                     }
-                });
-                if let Some(config) = self.registered(&id) {
-                    self.notify_config(&config);
+                    return fresh_status(&catalog, &id);
                 }
-                if let Some(status) = fresh_status(self, &id) {
-                    statuses.push(status);
-                }
-            } else {
-                statuses.push(self.refresh_current(&id, RefreshCause::Background).await);
+                Some(catalog.refresh_current(&id, RefreshCause::Background).await)
             }
-        }
-        Ok(statuses)
+        }))
+        .await;
+        Ok(statuses.into_iter().flatten().collect())
     }
 
     /// The person asked for one row's models (Load models).
@@ -531,10 +533,11 @@ impl Catalog {
                 })
                 .collect()
         });
-        let mut statuses = Vec::new();
-        for id in due {
-            statuses.push(self.refresh_state(&id, RefreshCause::Read).await);
-        }
+        let statuses = futures::future::join_all(due.into_iter().map(|id| {
+            let catalog = self.clone();
+            async move { catalog.refresh_state(&id, RefreshCause::Read).await }
+        }))
+        .await;
         Ok(statuses)
     }
 }
