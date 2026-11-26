@@ -98,6 +98,7 @@ fn only_a_loopback_readiness_line_is_the_url() {
         r#"{"url":"http://127.0.0.1:41234/api"}"#,
         r#"{"url":"http://127.0.0.1:41234/?x=1"}"#,
         r#"{"url":"http://127.0.0.1/"}"#,
+        r#"{"url":"http://127.0.0.1:65536/"}"#,
     ] {
         assert_eq!(readiness(line), Err(ReadinessError::InvalidUrl), "{line}");
     }

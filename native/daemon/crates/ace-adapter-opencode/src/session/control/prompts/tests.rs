@@ -103,11 +103,12 @@ fn only_a_4xx_reply_marks_a_refusal() {
         Some(200.0),
     );
     assert_eq!(prompts.outcome(false), Outcome::Uncertain);
-    // A reply with no status says nothing either.
+    // A reply with no status says nothing either, once the request went out.
     let mut unseen = Prompts::new();
     unseen.begin();
+    observed(&mut unseen, Direction::Send, "/api/session/s/prompt", None);
     seen_recv_without_status(&mut unseen);
-    assert_eq!(unseen.outcome(false), Outcome::Rejected);
+    assert_eq!(unseen.outcome(false), Outcome::Uncertain);
     // The 4xx does, once the request went out.
     observed(
         &mut prompts,
@@ -124,10 +125,16 @@ fn seen_recv_without_status(prompts: &mut Prompts) {
 
 #[test]
 fn a_frame_on_another_channel_is_not_this_sends() {
-    // A non-http frame whose path ends `/prompt` must not mark a send started.
+    // A stdout send whose path ends `/prompt` must not mark a send started: on its own it
+    // leaves the input unseen, and after an HTTP send a stdout 404 must not refuse it.
     let mut prompts = Prompts::new();
     prompts.begin();
     prompts.observe(Direction::Send, "stdout", "/api/session/s/prompt", None);
+    assert_eq!(
+        prompts.outcome(false),
+        Outcome::Rejected,
+        "a stdout frame marked the send started"
+    );
     prompts.observe(
         Direction::Recv,
         "stdout",
@@ -135,6 +142,22 @@ fn a_frame_on_another_channel_is_not_this_sends() {
         Some(404.0),
     );
     assert_eq!(prompts.outcome(false), Outcome::Rejected);
+
+    // The same stdout 404 after the request really went out says nothing: still uncertain.
+    let mut sent = Prompts::new();
+    sent.begin();
+    observed(&mut sent, Direction::Send, "/api/session/s/prompt", None);
+    sent.observe(
+        Direction::Recv,
+        "stdout",
+        "/api/session/s/prompt",
+        Some(404.0),
+    );
+    assert_eq!(
+        sent.outcome(false),
+        Outcome::Uncertain,
+        "a stdout 404 marked a refusal"
+    );
 }
 
 #[test]

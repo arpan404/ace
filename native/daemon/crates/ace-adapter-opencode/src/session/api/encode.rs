@@ -25,7 +25,10 @@ pub(super) fn flatten(key: &str, value: &Value, out: &mut Vec<(String, String)>)
         Value::String(text) => out.push((key.to_owned(), text.as_str().to_owned())),
         Value::Bool(hit) => out.push((key.to_owned(), hit.to_string())),
         Value::Number(number) => {
-            out.push((key.to_owned(), num_str(number.as_f64().unwrap_or(0.0))));
+            // `String(value)`, not Rust's float formatting: 1e21 is `1e+21`.
+            let mut text = String::new();
+            ace_json::write_number(&mut text, number.as_f64().unwrap_or(0.0));
+            out.push((key.to_owned(), text));
         }
     }
 }

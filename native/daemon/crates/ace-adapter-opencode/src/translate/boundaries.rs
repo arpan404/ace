@@ -280,6 +280,11 @@ pub fn check_loopback(value: &str) -> Result<&str, BoundaryError> {
     if port.len() < 2 || !port[1..].bytes().all(|b| b.is_ascii_digit()) {
         return Err(BoundaryError::Event("loopback"));
     }
+    // `new URL` refuses a port past 65,535.
+    match port[1..].parse::<u32>() {
+        Ok(number) if number <= 65_535 => {}
+        _ => return Err(BoundaryError::Event("loopback")),
+    }
     if host != "127.0.0.1" && host != "[::1]" {
         return Err(BoundaryError::Event("loopback"));
     }

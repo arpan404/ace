@@ -97,16 +97,18 @@ fn a_failed_set_refuses_the_gates_tools_with_the_reason() {
 
 #[test]
 fn the_reason_is_cut_in_utf16_units_even_inside_a_surrogate_pair() {
-    // `String.prototype.slice` cuts between the halves of an emoji; the message the plugin
+    // `String.prototype.slice` cuts between the halves of an emoji; the RPC body the plugin
     // receives carries the lone high surrogate, one unit shorter than a whole-pair cut.
     let reason = format!("{}😀y", "x".repeat(1_023));
-    let message = ace_json::to_string(&Value::String(truncate_utf16(&reason, MESSAGE_MAX_UTF16)));
-    assert!(message.ends_with("\\ud83d\""), "{message}");
-    assert_eq!(message.len(), 1 + 1_023 + 6 + 1, "{message}");
+    let request = refusal("ses_1", "/w", &reason).expect("a request");
+    let body = ace_json::to_string(&request.call.body.expect("a body"));
+    assert!(body.ends_with("\\ud83d\"}}"), "{body}");
+    assert_eq!(body.matches('x').count(), 1_023, "{body}");
     // An emoji that ends exactly at the bound stays whole.
     let whole = "😀".repeat(MESSAGE_MAX_UTF16 / 2);
-    let message = ace_json::to_string(&Value::String(truncate_utf16(&whole, MESSAGE_MAX_UTF16)));
-    assert_eq!(message, format!("\"{whole}\""), "whole pairs stay whole");
+    let request = refusal("ses_1", "/w", &whole).expect("a request");
+    let body = ace_json::to_string(&request.call.body.expect("a body"));
+    assert!(body.contains(&whole), "whole pairs stay whole: {body}");
 }
 
 #[test]
@@ -115,14 +117,12 @@ fn the_gates_rpc_is_retried_while_its_plugin_is_unregistered() {
     // plugin's thirty-second tool gate.
     let unregistered = json!({ "type": "rpc.unavailable" });
     assert_eq!(settle_step(&unregistered, 0.0), Step::Retry { in_ms: 100 });
+    // The client's ten-second budget, pinned as literals so a changed constant fails here.
     assert_eq!(
-        settle_step(&unregistered, SETTLE_BUDGET_MS - 500.0),
+        settle_step(&unregistered, 9_500.0),
         Step::Retry { in_ms: 500 }
     );
-    assert_eq!(
-        settle_step(&unregistered, SETTLE_BUDGET_MS - 499.0),
-        Step::Unconfirmed
-    );
+    assert_eq!(settle_step(&unregistered, 9_501.0), Step::Unconfirmed);
     assert_eq!(
         settle_step(&json!({ "type": "rpc.internal" }), 0.0),
         Step::Fail

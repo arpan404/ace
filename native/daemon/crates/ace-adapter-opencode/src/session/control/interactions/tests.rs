@@ -57,6 +57,19 @@ fn a_permission_answer_is_one_of_the_three_decisions() {
 }
 
 #[test]
+fn an_approval_message_keeps_its_lone_surrogate() {
+    // `InteractionResolution` allows any string; the pinned SDK sends `"\ud83d"` unchanged.
+    let choice = ace_json::parse(r#"{"kind":"approval","optionId":"once","message":"\ud83d"}"#)
+        .expect("json");
+    let call = resolution(&choice, &permission("per_1")).expect("a call");
+    let body = ace_json::to_string(&call.body.expect("a body"));
+    assert!(
+        body.ends_with(r#""decision":"once","message":"\ud83d"}"#),
+        "{body}"
+    );
+}
+
+#[test]
 fn a_permission_the_platform_cannot_answer_is_refused() {
     // The protocol's option is not one of OpenCode's decisions.
     assert_eq!(

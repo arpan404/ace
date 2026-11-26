@@ -77,7 +77,8 @@ pub fn resolution(choice: &Value, pending: &PendingInteraction) -> Result<Call, 
         params.insert("decision".to_owned(), json!(decision));
         // `typeof p.message === "string"`: anything else is no message at all.
         if let Some(Value::String(message)) = choice.get("message") {
-            params.insert("message".to_owned(), json!(message.as_str()));
+            // The string as ace holds it, lone surrogates included (`interactions.ts:263`).
+            params.insert("message".to_owned(), Value::String(message.clone()));
         }
         return Ok(api::call("permission.reply", &Value::Object(params))?);
     }

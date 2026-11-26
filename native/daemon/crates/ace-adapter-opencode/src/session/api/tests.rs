@@ -223,6 +223,13 @@ fn a_query_null_is_the_text_null_and_an_array_repeats_its_key() {
             (String::from("key"), String::from("b")),
         ]
     );
+    assert_eq!(
+        call("session.list", &json!({ "limit": 1e21 }))
+            .expect("a call")
+            .target(),
+        "/api/session?limit=1e%2B21",
+        "the SDK writes String(value)"
+    );
     let mut pairs = Vec::new();
     super::encode::flatten("key", &json!({ "nested": [1, null] }), &mut pairs);
     assert_eq!(
