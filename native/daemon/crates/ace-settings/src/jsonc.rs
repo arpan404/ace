@@ -16,6 +16,13 @@ use crate::validation::{
     MAX_DOCUMENT_BYTES, SettingsCode, SettingsError, guard_property, guard_secrets,
 };
 
+/// One path step: an object property, or an array index.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Segment {
+    Key(String),
+    Index(usize),
+}
+
 /// One scalar's whereabouts: byte offsets into the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScalarRange {
@@ -23,31 +30,40 @@ pub struct ScalarRange {
     pub end: usize,
 }
 
-/// Where a setting's property begins and its value ends, for edits.
+/// Where a property begins and its value ends, for edits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PropertySpan {
     pub key_start: usize,
+    pub value_start: usize,
     pub value_end: usize,
     pub comma_before: Option<usize>,
     pub comma_after: Option<usize>,
 }
 
-/// The `settings` object's layout.
+/// One object's layout: where its braces are, how its properties are indented and where
+/// each property sits.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SettingsLayout {
+pub struct ObjectLayout {
+    /// The byte after `{`.
     pub open: usize,
+    /// The byte of `}`.
     pub close: usize,
+    /// The indentation a property inside this object starts with.
     pub indent: String,
     pub properties: BTreeMap<String, PropertySpan>,
     pub last_value_end: Option<usize>,
 }
 
-/// A scanned document: its value, size and scalar ranges.
+/// The `settings` object's layout.
+pub type SettingsLayout = ObjectLayout;
+
+/// A scanned document: its value, size, scalar ranges and object layouts.
 #[derive(Debug, Clone)]
 pub struct Scanned {
     pub value: Value,
     pub bytes: usize,
     pub ranges: BTreeMap<String, ScalarRange>,
+    pub layouts: BTreeMap<Vec<Segment>, ObjectLayout>,
     pub layout: Option<SettingsLayout>,
     pub text: String,
 }
@@ -72,8 +88,12 @@ struct Scanner<'a> {
     bytes: &'a [u8],
     at: usize,
     objects: Vec<Option<BTreeSet<String>>>,
+    /// The indentation of the property holding each object being parsed.
+    indents: Vec<String>,
+    /// The file's indentation unit, one level deep.
+    unit: String,
     ranges: BTreeMap<String, ScalarRange>,
-    layout: Option<SettingsLayout>,
+    layouts: BTreeMap<Vec<Segment>, ObjectLayout>,
     syntax: Option<usize>,
     duplicate: Option<usize>,
 }
@@ -87,8 +107,10 @@ impl<'a> Scanner<'a> {
             bytes: text.as_bytes(),
             at: 0,
             objects: Vec::new(),
+            indents: Vec::new(),
+            unit: detect_indent(text),
             ranges: BTreeMap::new(),
-            layout: None,
+            layouts: BTreeMap::new(),
             syntax: None,
             duplicate: None,
         }
@@ -174,7 +196,7 @@ impl<'a> Scanner<'a> {
     // The path stack is pushed and popped by `parse_object`; one shared stack follows
     // the nesting, so it is a vector by design.
     #[allow(clippy::ptr_arg)]
-    fn parse_value(&mut self, path: &mut Vec<String>, depth: usize) -> Scan<Value> {
+    fn parse_value(&mut self, path: &mut Vec<Segment>, depth: usize) -> Scan<Value> {
         if depth > 64 {
             return Err(SettingsError::new(
                 SettingsCode::Size,
@@ -189,7 +211,7 @@ impl<'a> Scanner<'a> {
             Some(b'"') => {
                 let text = self.parse_string()?;
                 guard_secrets(&Value::String(text.clone()))?;
-                self.record(path, start, self.at, &Value::String(text.clone()));
+                self.record(path, start, self.at);
                 Value::String(text)
             }
             Some(b't') => self.literal("true", Value::Bool(true), start, path)?,
@@ -207,11 +229,11 @@ impl<'a> Scanner<'a> {
         word: &str,
         value: Value,
         start: usize,
-        path: &mut Vec<String>,
+        path: &mut Vec<Segment>,
     ) -> Scan<Value> {
         if self.text[self.at..].starts_with(word) {
             self.at += word.len();
-            self.record(path, start, self.at, &value);
+            self.record(path, start, self.at);
             Ok(value)
         } else {
             Err(self.fail(start))
@@ -219,7 +241,7 @@ impl<'a> Scanner<'a> {
     }
 
     #[allow(clippy::ptr_arg)]
-    fn number(&mut self, start: usize, path: &mut Vec<String>) -> Scan<Value> {
+    fn number(&mut self, start: usize, path: &mut Vec<Segment>) -> Scan<Value> {
         self.at += 1;
         while let Some(byte) = self.peek() {
             if byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-') {
@@ -230,33 +252,31 @@ impl<'a> Scanner<'a> {
         }
         let value: Value =
             serde_json::from_str(&self.text[start..self.at]).map_err(|_| self.fail(start))?;
-        self.record(path, start, self.at, &value);
+        self.record(path, start, self.at);
         Ok(value)
     }
 
     /// Records a scalar's range when it is a known setting directly under `settings`.
-    fn record(&mut self, path: &[String], start: usize, end: usize, value: &Value) {
-        if path.len() == 2 && path[0] == "settings" && is_key(&path[1]) {
-            let _ = value;
-            self.ranges
-                .insert(path[1].clone(), ScalarRange { start, end });
+    fn record(&mut self, path: &[Segment], start: usize, end: usize) {
+        if let [Segment::Key(root), Segment::Key(key)] = path
+            && root == "settings"
+            && is_key(key)
+        {
+            self.ranges.insert(key.clone(), ScalarRange { start, end });
         }
     }
 
-    fn parse_object(&mut self, path: &mut Vec<String>, depth: usize) -> Scan<Value> {
-        let open = self.at;
+    fn parse_object(&mut self, path: &mut Vec<Segment>, depth: usize) -> Scan<Value> {
         self.at += 1;
-        let tracking = path.is_empty();
-        let settings = path.len() == 1 && path[0] == "settings";
-        let mut layout = if settings {
-            self.layout.clone().unwrap_or_default()
-        } else {
-            SettingsLayout::default()
+        let parent_indent = self.indents.last().cloned().unwrap_or_default();
+        let mut layout = ObjectLayout {
+            open: self.at,
+            close: 0,
+            indent: String::new(),
+            properties: BTreeMap::new(),
+            last_value_end: None,
         };
-        if settings {
-            layout.open = self.at;
-            layout.indent = detect_indent(self.text);
-        }
+        let mut first_indent: Option<String> = None;
         self.objects.push(Some(BTreeSet::new()));
         let mut object = Map::new();
         let mut comma_before: Option<usize> = None;
@@ -268,6 +288,9 @@ impl<'a> Scanner<'a> {
                 _ => return Err(self.fail(self.at)),
             }
             let key_start = self.at;
+            if first_indent.is_none() {
+                first_indent = Some(line_indent(self.text, key_start));
+            }
             let key = self.parse_string()?;
             guard_property(&key)?;
             let key_offset = self.offset(key_start);
@@ -282,28 +305,31 @@ impl<'a> Scanner<'a> {
                 return Err(self.fail(self.at));
             }
             self.at += 1;
-            path.push(key.clone());
+            self.skip_trivia()?;
+            let value_start = self.at;
+            path.push(Segment::Key(key.clone()));
+            self.indents.push(line_indent(self.text, key_start));
             let value = self.parse_value(path, depth + 1)?;
+            self.indents.pop();
             path.pop();
             let value_end = self.at;
             object.insert(key.clone(), value);
-            if settings {
-                layout.properties.insert(
-                    key.clone(),
-                    PropertySpan {
-                        key_start,
-                        value_end,
-                        comma_before,
-                        comma_after: None,
-                    },
-                );
-                layout.last_value_end = Some(value_end);
-            }
+            layout.properties.insert(
+                key.clone(),
+                PropertySpan {
+                    key_start,
+                    value_start,
+                    value_end,
+                    comma_before,
+                    comma_after: None,
+                },
+            );
+            layout.last_value_end = Some(value_end);
             self.skip_trivia()?;
             match self.peek() {
                 Some(b',') => {
                     let comma = self.at;
-                    if settings && let Some(span) = layout.properties.get_mut(&key) {
+                    if let Some(span) = layout.properties.get_mut(&key) {
                         span.comma_after = Some(comma);
                     }
                     comma_before = Some(comma);
@@ -317,20 +343,17 @@ impl<'a> Scanner<'a> {
                 Some(b'}') => break,
                 _ => return Err(self.fail(self.at)),
             }
-            let _ = tracking;
         }
         let close = self.at;
         self.at += 1;
         self.objects.pop();
-        if settings {
-            layout.close = close;
-            self.layout = Some(layout);
-        }
-        let _ = open;
+        layout.close = close;
+        layout.indent = first_indent.unwrap_or_else(|| format!("{parent_indent}{}", self.unit));
+        self.layouts.insert(path.clone(), layout);
         Ok(Value::Object(object))
     }
 
-    fn parse_array(&mut self, path: &mut Vec<String>, depth: usize) -> Scan<Value> {
+    fn parse_array(&mut self, path: &mut Vec<Segment>, depth: usize) -> Scan<Value> {
         self.at += 1;
         self.objects.push(None);
         let mut items = Vec::new();
@@ -344,7 +367,7 @@ impl<'a> Scanner<'a> {
             }
             // An element's path carries its index, as the TypeScript visitor's `path()` does:
             // a literal inside an array is never the setting itself.
-            path.push(index.to_string());
+            path.push(Segment::Index(index));
             let item = self.parse_value(path, depth + 1)?;
             path.pop();
             index += 1;
@@ -368,7 +391,21 @@ impl<'a> Scanner<'a> {
     }
 }
 
-fn detect_indent(text: &str) -> String {
+/// The whitespace before `position` on its line, when the line holds nothing else.
+pub(crate) fn line_indent(text: &str, position: usize) -> String {
+    let line_start = text[..position]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let prefix = &text[line_start..position];
+    if prefix.chars().all(|c| c == ' ' || c == '\t') {
+        prefix.to_owned()
+    } else {
+        String::new()
+    }
+}
+
+pub(crate) fn detect_indent(text: &str) -> String {
     static PATTERN: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
     let pattern = PATTERN.get_or_init(|| regex::Regex::new(r#"\n([\t ]+)\""#).ok());
     pattern
@@ -426,11 +463,16 @@ pub fn parse_document(text: &str) -> Scan<Scanned> {
     }
     // Credentials in discarded duplicates and in comments are diagnosed too.
     guard_secrets(&Value::String(text.to_owned()))?;
+    let layout = scanner
+        .layouts
+        .get(&vec![Segment::Key("settings".to_owned())])
+        .cloned();
     Ok(Scanned {
         value,
         bytes,
         ranges: scanner.ranges,
-        layout: scanner.layout,
+        layouts: scanner.layouts,
+        layout,
         text: text.to_owned(),
     })
 }

@@ -8,6 +8,7 @@
 
 pub mod batch;
 pub mod document;
+pub mod edit;
 pub mod file;
 pub mod jsonc;
 pub mod layers;

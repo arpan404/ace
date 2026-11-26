@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::jsonc::{
-    ScalarRange, Scanned, SettingsLayout, insert_setting, parse_document, remove_setting,
-    replace_scalar,
+    ObjectLayout, ScalarRange, Scanned, Segment, SettingsLayout, insert_setting, parse_document,
+    remove_setting, replace_scalar,
 };
 use crate::schema::{default_value, is_key, validate_value};
 use crate::validation::{MAX_DOCUMENT_BYTES, SettingsCode, SettingsError, guard_secrets};
@@ -41,6 +41,7 @@ pub struct DecodedDocument {
     pub bytes: usize,
     pub migrated: bool,
     pub ranges: BTreeMap<String, ScalarRange>,
+    pub layouts: BTreeMap<Vec<Segment>, ObjectLayout>,
     pub layout: Option<SettingsLayout>,
 }
 
@@ -311,6 +312,7 @@ impl DecodedDocument {
                 bytes: scanned.bytes,
                 migrated,
                 ranges: scanned.ranges.clone(),
+                layouts: scanned.layouts.clone(),
                 layout: scanned.layout.clone(),
             });
         }
@@ -346,6 +348,7 @@ impl DecodedDocument {
                 value: Value::Object(Map::new()),
                 bytes: self.bytes,
                 ranges: self.ranges.clone(),
+                layouts: self.layouts.clone(),
                 layout: self.layout.clone(),
                 text: self.text.clone(),
             };
@@ -357,6 +360,7 @@ impl DecodedDocument {
                 value: Value::Object(Map::new()),
                 bytes: self.bytes,
                 ranges: self.ranges.clone(),
+                layouts: self.layouts.clone(),
                 layout: self.layout.clone(),
                 text: self.text.clone(),
             };
@@ -414,6 +418,7 @@ impl DecodedDocument {
             value: Value::Object(Map::new()),
             bytes: self.bytes,
             ranges: self.ranges.clone(),
+            layouts: self.layouts.clone(),
             layout: self.layout.clone(),
             text: self.text.clone(),
         };
@@ -439,38 +444,13 @@ pub fn migrates_on_write(key: &str) -> bool {
 }
 
 fn rewrite_version_one(text: &str, values: &Map<String, Value>) -> Result<String, SettingsError> {
-    let mut scanned = parse_document(text)?;
-    // Replace `values` with `settings` at the same place, then the version.
-    let Some(header) = scanned.value.as_object().cloned() else {
-        return Err(error(
-            SettingsCode::Validation,
-            "Invalid version 1 settings document",
-        ));
-    };
-    if let Some(layout) = scanned.layout.clone() {
-        let _ = layout;
-    }
-    // A version 1 document has no `settings` object layout; write both keys by hand.
-    let mut root = header.clone();
-    root.remove("values");
-    root.insert("version".into(), Value::Number(2.into()));
-    root.insert("settings".into(), Value::Object(values.clone()));
-    let mut out = String::from("{\n");
-    let entries: Vec<_> = root.iter().collect();
-    for (index, (key, value)) in entries.iter().enumerate() {
-        let content = serde_json::to_string(value)
-            .map_err(|_| error(SettingsCode::Validation, "Settings are not serializable"))?;
-        out.push_str(&format!("  \"{key}\": {content}"));
-        if index + 1 < entries.len() {
-            out.push(',');
-        }
-        out.push('\n');
-    }
-    out.push_str("}\n");
-    scanned.text = out.clone();
-    // The rewrite must still be a document this build reads.
-    let _ = parse_document(&out)?;
-    Ok(out)
+    // Path edits, as `document.ts`'s `edit` calls: `values` becomes `settings` in place, the
+    // old key and the version are edited at their own paths. Envelope fields and the
+    // document's comments stay, and a decoded key is written back escaped.
+    let settings = Value::Object(values.clone());
+    let text = crate::edit::modify(text, &["settings"], Some(&settings))?;
+    let text = crate::edit::modify(&text, &["values"], None)?;
+    crate::edit::modify(&text, &["version"], Some(&Value::Number(2.into())))
 }
 
 fn set_setting(scanned: &Scanned, key: &str, value: &Value) -> Result<Scanned, SettingsError> {
@@ -651,6 +631,36 @@ mod tests {
         assert_eq!(next.get("clients.theme"), Some(&Value::Bool(false)));
         let fresh = DecodedDocument::decode(&text).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(fresh.get("clients.theme"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn a_version_one_document_is_migrated_by_path_edits() {
+        // A decoded envelope key with a quote is written back escaped, not interpolated.
+        let text = "{\"version\":1,\"values\":{},\"note\\\"name\":1}";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        assert!(document.migrated);
+        let migrated = document.to_text().unwrap_or_default();
+        assert!(migrated.contains(r#""note\"name":1"#), "{migrated}");
+        assert_eq!(DecodedDocument::decode(&migrated).map(|_| ()), Ok(()));
+
+        // A key inside `values` with a quote survives too.
+        let text = "{\"version\":1,\"values\":{\"a\\\"b\":1}}";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        let migrated = document.to_text().unwrap_or_default();
+        assert_eq!(DecodedDocument::decode(&migrated).map(|_| ()), Ok(()));
+        assert_eq!(document.get("a\"b"), Some(&json!(1)));
+
+        // A top-level comment stays where it was.
+        let text = "{\n  // keep\n  \"version\": 1,\n  \"values\": {\n    \"threads.settleOnClose\": true\n  }\n}\n";
+        let document = DecodedDocument::decode(text).unwrap_or_else(|error| panic!("{error}"));
+        let migrated = document.to_text().unwrap_or_default();
+        assert!(migrated.contains("// keep"), "{migrated}");
+        assert!(migrated.contains("\"version\": 2"), "{migrated}");
+        assert!(!migrated.contains("\"values\""), "{migrated}");
+        assert_eq!(
+            document.get("threads.settleOnClose"),
+            Some(&Value::Bool(true))
+        );
     }
 
     #[test]
