@@ -28,3 +28,20 @@ indexmap = { version = "2" }
 thiserror = { version = "2" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }
+# ace-protocol: the session trait carries protocol values (parts, selections, resolutions);
+# the session reads them, it never parses a wire schema itself.
+ace-protocol = { path = "../ace-protocol" }
+# futures: Session's methods return LocalBoxFuture on the engine's single-threaded executor.
+futures = { version = "0.3" }
+# tokio: the session shell's pumps, timers and request settlement (the workspace's version;
+# `rt` and `time` only in tests and the daemon, the library itself needs none of them).
+tokio = { version = "1.54", features = ["sync", "time", "rt", "macros"] }
+# sha2: a saved session reference's name is the SHA-256 of its JSON, as TypeScript names it.
+sha2 = { version = "0.11" }
+# base64: `ace-pi:` references are base64url, and an ace-context prompt is base64.
+base64 = { version = "0.22" }
+# libc: O_NOFOLLOW and O_NONBLOCK when a saved reference is opened, so a link is refused.
+libc = { version = "0.2" }
+# serde_json: only to name the generated protocol's own maps and values (Selection options,
+# InteractionResolution answers); every parsed or emitted document still goes through ace-json.
+serde_json = { version = "1", features = ["preserve_order"] }
