@@ -79,11 +79,16 @@ pub fn android_booted(serial: Option<&str>, booted: bool) -> Result<(), Error> {
     if serial.is_some() && booted {
         return Ok(());
     }
-    Err(failed(
+    Err(android_not_booted())
+}
+
+/// Why an Android live view does not start: the device has no serial, or is not booted.
+pub fn android_not_booted() -> Error {
+    failed(
         Code::NotBooted,
         "Android device is not booted",
         "Boot the emulator, or connect and unlock the device, and wait for adb to report device state.",
-    ))
+    )
 }
 
 /// Why an Android capture without scrcpy refuses a live view, which is video only.

@@ -488,7 +488,7 @@ Round-2 review fixes, in Rust only (today's TypeScript stays as it was):
 - **A display with a present field of the wrong type is not a display**, as `Display`'s schema
   drops it (`platform/posture.rs`).
 
-## 13. D3.3: captures and video (2026-11-25, U1 landed)
+## 13. D3.3: captures and video (2026-11-25, U1-U5 landed)
 
 The pure formats and parsers land first under the same switch; the capture units (U2-U5) wire
 them. `ACE_DEVICE_PLATFORM=native` will answer these decisions from `ace-devices`; with the
@@ -503,15 +503,19 @@ switch off, `packages/devices/src` is today's TypeScript, unchanged.
 | `mjpeg`                                     | `platform/mjpeg.rs`                 | not yet                                                                                        |
 | `simulator-rotation`                        | `platform/simulator_rotation.rs`    | not yet (the capture's orientation read is U3)                                                 |
 | `simulator-source-rate`                     | `platform/simulator_source_rate.rs` | not yet                                                                                        |
-| `recording-limits`                          | `platform/recording_limits.rs`      | not yet                                                                                        |
+| `recording-limits`                          | `platform/recording_limits.rs`      | wired (U5): the sizes a recording starts with                                                  |
 | `simulator-frames`                          | `platform/simulator_frames/mod.rs`  | not yet: the state machine returns effects, the capture's clock, timer and promises are U3     |
-| `log-line`                                  | `platform/log_line.rs`              | not yet (U5)                                                                                   |
+| `log-line`                                  | `platform/log_line.rs`              | wired (U5): one addon call per line                                                            |
 | `simulator-jpeg`                            | `platform/simulator_jpeg/mod.rs`    | not yet: the state machine returns actions; HTTP is the capture's port (U3)                    |
 | `media-paths`                               | `platform/media_paths/mod.rs`       | not yet: paths, merge and egress are decisions; the media source is the capture's (U3)         |
 | `scrcpy-protocol` (video), `scrcpy-video`   | `platform/scrcpy/video/mod.rs`      | not yet: the capture's socket reader runs it in-process (U2)                                   |
 | `scrcpy-jar`                                | `platform/scrcpy/jar/mod.rs`        | not yet: the pin, verification and one download; the tools install shares them                 |
 | `scrcpy-server`                             | `platform/scrcpy/server/mod.rs`     | not yet: the push/forward/spawn plan, port, greeting and startup errors; sockets are the shell |
 | `scrcpy-capture` (route, frame, errors)     | `platform/scrcpy/capture/mod.rs`    | not yet: one part; the socket loop and handshakes are still the shell's                        |
+| `emulator-grpc`                             | `platform/emulator_grpc.rs`         | wired (U4): the request, a status's refusal and the ended text, once per stream                |
+| `logs`                                      | `platform/logs.rs`                  | wired (U5): the ring, batches and backpressure in-process per line; a read's clamp per read    |
+| `recording`                                 | `platform/recording.rs`             | wired (U5): start refusals, sizes, origin, end and notices, once per recording                 |
+| `recording-artifact`                        | `platform/recording_artifact.rs`    | wired (U5): the publication plan and its failure message, once per publication                 |
 
 The Android JPEG cap's words now come from the catalog (`jpegTooLarge`), and the incomplete
 Simulator picture's from `simulatorIncompletePicture`, which `jpeg.ts` and `simulator-frames.ts`
@@ -648,3 +652,31 @@ per frame: the state machine is library code for the Rust capture (U3), so no be
 `bench/frames.ts` is due until that wiring lands. `log_line.rs` reads a line only up to 65,536
 UTF-16 units and shows up to 4,096, cutting an emoji where `.slice` cuts it (a lone surrogate),
 and strips the same ANSI sequences Node's `stripVTControlCharacters` does.
+
+`emulator_grpc.rs` keeps the emulator's one gRPC call as the library the all-Rust daemon runs:
+the `screenshotRequest` bytes (RGBA8888, the box, MMAP with the frame file's URL exactly as
+`pathToFileURL(file).href` spells it, built by the shell), the 5-byte framing with its
+compression flag and 64 KiB limit, a notice's sequence, size and capture time with unknown fields
+skipped, and a non-zero `grpc-status` refused, or a stream ended, with today's text. The HTTP/2
+connection, its headers, the shared file and each reply's framing stay the shell's: the request
+crosses the addon once per stream, and no reply does.
+
+`logs.rs` keeps one device's log: the 256-line ring, the open batch of at most 64 with its
+dropped count, one replaceable waiting batch per busy subscriber, the 64-subscriber limit and a
+read's clamp. A push is per line, so the shell keeps the ring and the batches in-process and only
+a read's clamp crosses the addon; `log-line` itself crosses once per line, because a log line is
+not a frame path.
+
+`recording.rs` keeps a recording's once-per-recording decisions: the start refusals in today's
+order (thread, live, busy, registry), the H.264-only refusal, the limit and the part size
+(`min(64 MiB, limit)`), ace-media's origin, how an end reads (a failure before any success, its
+hint told apart by surviving parts, `truncated` only after an ok) and every notice the thread
+keeps. A frame's `push` (only H.264, only while the recording runs) is per frame and stays
+TypeScript. `recording_artifact.rs` keeps the publication plan (the first part keeps the
+recording's id, later ones `<id>-<n>` and "part n", in ace-media's order) and the failure that
+names both places; the renames, the directory listing and the registry are the shell's.
+
+The capture's error mapping is now all the addon's under the switch: the not-booted refusal, the
+two Simulator window refusals and the helper's H.264 refusal come from `capture.rs` like the
+route's own errors. The frame-encoder's per-picture `frame` command stays TypeScript by the
+per-frame rule above; its ingest events and line splitter, once per switch, are Rust.

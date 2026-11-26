@@ -6,6 +6,7 @@
  * a cycle: a caller turns a refusal into the `DeviceError` it names.
  */
 import { fileURLToPath } from "node:url";
+import type { CaptureAddon } from "./native-capture-addon.ts";
 
 /** One SDK command the addon decided: `simctl` through `xcrun`, or the device's adb. */
 export interface Step {
@@ -161,7 +162,7 @@ interface Answer<T> {
 }
 
 /** The addon's exports, as `ace-daemon-node/src/devices` declares them. */
-interface DevicesAddon {
+interface DevicesAddon extends CaptureAddon {
   devicePlatformIdentity(id: string, capture: boolean, inventory: string): string;
   devicePlatformInstall(platform: string, path: string): string;
   devicePlatformOpenApp(platform: string, app: string, resolved?: string): string;
@@ -216,6 +217,10 @@ interface DevicesAddon {
   deviceCaptureNeedsToolsDownload(supported: boolean, serveSimEnv: boolean): boolean;
   deviceCaptureWindows(windows: string, name: string): string;
   deviceCaptureAndroidLiveViewError(why: string): string;
+  deviceCaptureAndroidNotBooted(): string;
+  deviceCaptureAmbiguousWindow(): string;
+  deviceCaptureWindowNotFound(): string;
+  deviceCaptureHelperVideoUnavailable(): string;
   deviceCaptureEndpoint(line: string): string;
   deviceCaptureLocalUrl(value: string, port: number, protocol: string): string;
   deviceCaptureSibling(stream: string, name: string): string;

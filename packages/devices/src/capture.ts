@@ -17,9 +17,13 @@ import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
 import { nativeId } from "./commands.ts";
 import type { DeviceMedia } from "./media-paths.ts";
 import {
+  nativeAmbiguousWindow,
   nativeAndroidLiveViewError,
+  nativeAndroidNotBooted,
+  nativeHelperVideoUnavailable,
   nativeSimulatorRoute,
   nativeVideo,
+  nativeWindowNotFound,
   nativeWindows,
 } from "./native-video.ts";
 
@@ -232,12 +236,7 @@ export async function startCapture(options: {
         async configure(settings) {
           const result = await screen.configureStream(state.sessionId, settings);
           // The screen helper encodes H.264 only where macOS lets it; serve-sim always does.
-          if (settings.codec === "h264" && result.codec !== "h264")
-            throw new DeviceError(
-              "tool_missing",
-              "This Mac's screen helper can't stream video for the Simulator live view",
-              `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}.`,
-            );
+          if (settings.codec === "h264" && result.codec !== "h264") throw helperVideoUnavailable();
           return result;
         },
         keyframe: () => screen.requestKeyframe(state.sessionId),
@@ -251,12 +250,7 @@ export async function startCapture(options: {
       throw error;
     }
   }
-  if (!options.device.serial || options.device.state !== "booted")
-    throw new DeviceError(
-      "not_booted",
-      "Android device is not booted",
-      "Boot the emulator, or connect and unlock the device, and wait for adb to report device state.",
-    );
+  if (!options.device.serial || options.device.state !== "booted") throw androidNotBooted();
   let why = "ACE_ANDROID_SCRCPY is off";
   if (options.env["ACE_ANDROID_SCRCPY"] !== "off") {
     // A missing server downloads in the device tools process, off the daemon's event loop.
@@ -297,6 +291,42 @@ function androidLiveViewError(why: string): DeviceError {
     "Use an Android 5 or later device or emulator image, check the network for the first download, unset ACE_ANDROID_SCRCPY, then start the live view again.",
   );
 }
+/** Why an Android live view does not start: no serial, or the device is not booted. */
+function androidNotBooted(): DeviceError {
+  if (nativeVideo) return nativeAndroidNotBooted();
+  return new DeviceError(
+    "not_booted",
+    "Android device is not booted",
+    "Boot the emulator, or connect and unlock the device, and wait for adb to report device state.",
+  );
+}
+/** More than one Simulator window shows this device's name. */
+function ambiguousWindow(): DeviceError {
+  if (nativeVideo) return nativeAmbiguousWindow();
+  return new DeviceError(
+    "busy",
+    "More than one Simulator window shows this device's name",
+    "Close the extra Simulator window, or rename one of the simulators, then start again.",
+  );
+}
+/** No Simulator window shows this device, after every look. */
+function windowNotFound(): DeviceError {
+  if (nativeVideo) return nativeWindowNotFound();
+  return new DeviceError(
+    "not_found",
+    "The Simulator window for this device isn't open",
+    `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}, which shows the Simulator without a window. Or open the device's window in Simulator, make sure it isn't minimized, then start again.`,
+  );
+}
+/** This Mac's screen helper can't stream H.264 for the Simulator live view. */
+function helperVideoUnavailable(): DeviceError {
+  if (nativeVideo) return nativeHelperVideoUnavailable();
+  return new DeviceError(
+    "tool_missing",
+    "This Mac's screen helper can't stream video for the Simulator live view",
+    `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}.`,
+  );
+}
 /**
  * The one Simulator window showing this device. A booted device whose window is closed (booted
  * from Xcode or the command line, say) gets it opened, then the window list is read again.
@@ -330,21 +360,11 @@ async function simulatorWindow(
               )),
         );
     if (exact.length === 1 && exact[0]) return exact[0];
-    if (exact.length > 1)
-      throw new DeviceError(
-        "busy",
-        "More than one Simulator window shows this device's name",
-        "Close the extra Simulator window, or rename one of the simulators, then start again.",
-      );
+    if (exact.length > 1) throw ambiguousWindow();
     if (attempt === 0)
       // Newer Xcode has no Simulator app to open: the device window is then simply looked for.
       await options.platform.showSimulator(options.device).catch(() => undefined);
-    else if (attempt >= 12)
-      throw new DeviceError(
-        "not_found",
-        "The Simulator window for this device isn't open",
-        `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}, which shows the Simulator without a window. Or open the device's window in Simulator, make sure it isn't minimized, then start again.`,
-      );
+    else if (attempt >= 12) throw windowNotFound();
     await new Promise<void>((resolve) => options.runtime.after(500, resolve));
     checkAbort();
   }

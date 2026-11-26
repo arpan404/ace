@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * U3's once-per-capture decisions (D3.3), read from the addon under `ACE_DEVICE_PLATFORM=native`:
- * the Simulator route, the helper endpoint and its routes, the screen config, the spawn plan,
- * the transcode plan, the host encoder's file and square, and a screenshot's bounds and fit.
- * Per-frame decisions (the H.264 feed, the published frame, per-picture JPEG framing) stay in
- * TypeScript: a JSON crossing per frame measured ~1,390x slower than the TypeScript conversion
- * (636 us against 0.46 us for an 8 KiB unit), so the Rust remains the library the all-Rust
- * daemon calls directly (ADR 0226).
+ * U3, U4 and U5's once-per-capture decisions (D3.3), read from the addon under
+ * `ACE_DEVICE_PLATFORM=native`: the Simulator route, the helper endpoint and its routes, the
+ * screen config, the spawn plan, the transcode plan, the host encoder's file and square, a
+ * screenshot's bounds and fit, the capture refusals, an emulator gRPC stream's request and
+ * answers, a log line, and a recording's start, end and publication.
+ * Per-frame decisions (the H.264 feed, the published frame, per-picture JPEG framing, the gRPC
+ * framing of each reply) stay in TypeScript: a JSON crossing per frame measured ~1,390x slower
+ * than the TypeScript conversion (636 us against 0.46 us for an 8 KiB unit), so the Rust remains
+ * the library the all-Rust daemon calls directly (ADR 0226).
  */
 import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
 
@@ -43,6 +45,26 @@ export function nativeSimulatorRoute(input: {
 /** Why an Android capture without scrcpy refuses a live view, with today's code and text. */
 export function nativeAndroidLiveViewError(why: string): never {
   return deviceAnswer<never>(() => nativeDevices().deviceCaptureAndroidLiveViewError(why));
+}
+
+/** Why an Android live view does not start: no serial, or not booted. */
+export function nativeAndroidNotBooted(): never {
+  return deviceAnswer<never>(() => nativeDevices().deviceCaptureAndroidNotBooted());
+}
+
+/** Two Simulator windows show this device's name. */
+export function nativeAmbiguousWindow(): never {
+  return deviceAnswer<never>(() => nativeDevices().deviceCaptureAmbiguousWindow());
+}
+
+/** No Simulator window shows this device. */
+export function nativeWindowNotFound(): never {
+  return deviceAnswer<never>(() => nativeDevices().deviceCaptureWindowNotFound());
+}
+
+/** A screen helper that can't stream H.264 for a Simulator live view. */
+export function nativeHelperVideoUnavailable(): never {
+  return deviceAnswer<never>(() => nativeDevices().deviceCaptureHelperVideoUnavailable());
 }
 
 export function nativeNeedsToolsDownload(supported: boolean, serveSimEnv: boolean): boolean {
@@ -171,4 +193,120 @@ export function nativeScreenshotFitOp(): NativeFitOp {
 
 export function nativeScreenshotScale(encodedWidth: number, sourceWidth: number): number {
   return nativeDevices().deviceScreenshotScale(encodedWidth, sourceWidth);
+}
+
+/** The `screenshotRequest` ace sends the emulator. */
+export function nativeEmulatorRequest(width: number, height: number, handle: string): Buffer {
+  return nativeDevices().deviceEmulatorScreenshotRequest(width, height, handle);
+}
+
+/** Why a non-zero `grpc-status` refuses the stream, or undefined when the status is fine. */
+export function nativeEmulatorStatusRefusal(status: string): string | undefined {
+  return nativeDevices().deviceEmulatorStatusRefusal(status) ?? undefined;
+}
+
+/** What an emulator stream that ended on its own reports. */
+export function nativeEmulatorStreamEnded(): string {
+  return nativeDevices().deviceEmulatorStreamEnded();
+}
+
+/** simctl's envelope as a readable log line, or the line as it came. */
+export function nativeLogLine(line: string): string {
+  return deviceAnswer<string>(() => nativeDevices().deviceLogLine(line));
+}
+
+/** The number of lines a log read shows, clamped. */
+export function nativeLogsTailLimit(limit: number): number {
+  return nativeDevices().deviceLogsTailLimit(limit);
+}
+
+export interface NativeRecordingSizes {
+  limit: number;
+  maxBytes: number;
+}
+
+/** A recording's whole limit and the most one MP4 part holds. */
+export function nativeRecordingSizes(limit: number | undefined): NativeRecordingSizes {
+  return JSON.parse(nativeDevices().deviceRecordingSizes(limit)) as NativeRecordingSizes;
+}
+
+/** Whether a recording may start, or why it may not. */
+export function nativeRecordingStartRefusal(facts: {
+  hasThread: boolean;
+  live: boolean;
+  started: boolean;
+  starting: boolean;
+  closing: boolean;
+  registryAvailable: boolean;
+}): never {
+  return deviceAnswer<never>(() =>
+    nativeDevices().deviceRecordingStartRefusal(
+      facts.hasThread,
+      facts.live,
+      facts.started,
+      facts.starting,
+      facts.closing,
+      facts.registryAvailable,
+    ),
+  );
+}
+
+/** A capture that isn't streaming H.264 can't be recorded. */
+export function nativeRecordingCodecRefusal(codec: string): never {
+  return deviceAnswer<never>(() => nativeDevices().deviceRecordingCodecRefusal(codec));
+}
+
+export type NativeRecordingOrigin =
+  | { kind: "screen"; platform: string }
+  | { kind: "scrcpy"; host: string; port: number };
+
+/** Where ace-media reads a recording's video from. */
+export function nativeRecordingOrigin(platform: "ios" | "android"): NativeRecordingOrigin {
+  return JSON.parse(nativeDevices().deviceRecordingOrigin(platform)) as NativeRecordingOrigin;
+}
+
+export interface NativeRecordingFailure {
+  code: string;
+  message: string;
+  hint: string;
+}
+
+export interface NativeRecordingEnd {
+  truncated: boolean;
+  failure: NativeRecordingFailure | null;
+  noVideo: NativeRecordingFailure;
+}
+
+/** How a recording's end reads: its failure, its truncation and why it has no video. */
+export function nativeRecordingEnd(input: {
+  ok: boolean;
+  truncated: boolean;
+  reason: string;
+  parts: number;
+}): NativeRecordingEnd {
+  return JSON.parse(
+    nativeDevices().deviceRecordingEnd(input.ok, input.truncated, input.reason, input.parts),
+  ) as NativeRecordingEnd;
+}
+
+/** A notice a recording leaves on its thread. */
+export function nativeRecordingNotice(kind: string, directory?: string): string {
+  return nativeDevices().deviceRecordingNotice(kind, directory);
+}
+
+export interface NativeRecordingPart {
+  index: number;
+  id: string;
+  file: string;
+  name: string;
+}
+
+/** The publication plan: each part's id, file and name, in ace-media's order. */
+export function nativeRecordingParts(id: string, indexes: number[]): NativeRecordingPart[] {
+  return JSON.parse(nativeDevices().deviceRecordingParts(id, indexes)) as NativeRecordingPart[];
+}
+
+/** Why a publication stopped, naming where the video is kept. */
+export function nativeRecordingPublishFailure(directory: string, root: string): string {
+  return nativeDevices().deviceRecordingPublishFailure(directory, root);
 }

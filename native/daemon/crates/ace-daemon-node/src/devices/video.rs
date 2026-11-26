@@ -72,6 +72,30 @@ pub fn device_capture_android_live_view_error(why: String) -> napi::Result<Strin
     answered(|| Err::<(), _>(android_live_view_error(&why)))
 }
 
+/// Why a live view does not start: the device has no serial, or is not booted.
+#[napi]
+pub fn device_capture_android_not_booted() -> napi::Result<String> {
+    answered(|| Err::<(), _>(capture::android_not_booted()))
+}
+
+/// Two Simulator windows show this device's name.
+#[napi]
+pub fn device_capture_ambiguous_window() -> napi::Result<String> {
+    answered(|| Err::<(), _>(capture::ambiguous_window()))
+}
+
+/// No Simulator window shows this device.
+#[napi]
+pub fn device_capture_window_not_found() -> napi::Result<String> {
+    answered(|| Err::<(), _>(capture::window_not_found()))
+}
+
+/// A screen helper that can't stream H.264 for a Simulator live view.
+#[napi]
+pub fn device_capture_helper_video_unavailable() -> napi::Result<String> {
+    answered(|| Err::<(), _>(capture::helper_video_unavailable()))
+}
+
 /// serve-sim's endpoint line, or the refusal that a helper announced something else.
 #[napi]
 pub fn device_capture_endpoint(line: String) -> napi::Result<String> {
