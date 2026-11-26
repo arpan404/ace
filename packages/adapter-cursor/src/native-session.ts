@@ -215,6 +215,8 @@ export async function openNativeCursorSession(
 
   /** The session's terminal barrier arrived: every frame, callback and settle came before it. */
   let drained = false;
+  /** The pipes' close already asked for the exit: the child is gone. */
+  let childGone = false;
   /** The child's stop, memoized: the exit waits for it so the stop's answer precedes `Drained`. */
   let stopping: Promise<void> | undefined;
   const stopChild = (): Promise<void> => {
@@ -269,7 +271,10 @@ export async function openNativeCursorSession(
         const reason = payload["reason"];
         if (typeof reason === "string") fail(reason);
         else void stopChild().catch(() => {});
-      } else if (name === "exited") void reportExit();
+      } else if (name === "exited") {
+        childGone = true;
+        void reportExit();
+      }
     },
   };
   bridge = sessionBridge(hooksCtx, handle, hooks, {
@@ -353,8 +358,9 @@ export async function openNativeCursorSession(
   let closing: Promise<void> | undefined;
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {
     // A drained session has nothing left to stop or answer: its close resolves, as
-    // `session.ts:182`'s does once the child is gone.
-    if (closing === undefined && drained) return Promise.resolve();
+    // `session.ts:182`'s does once the child is gone. The pipes' close counts: the exit's
+    // callback is still a microtask away then, and a released peer cannot answer a close.
+    if (closing === undefined && (drained || childGone)) return Promise.resolve();
     closing ??= (async () => {
       const id = ++nextId;
       handle.close(id, reason);
