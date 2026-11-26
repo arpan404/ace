@@ -15,7 +15,9 @@ pub mod encode;
 pub mod event;
 mod js;
 pub mod older_status;
+pub mod publication;
 pub mod raw_trim;
+pub mod read;
 pub mod sidebar;
 pub mod subscription;
 pub mod wire_trim;
@@ -25,9 +27,14 @@ pub use command_status::{CommandState, CommandStatusState, command_state};
 pub use encode::{EVENT_FRAME_BYTES, EventShape, EventsMessage, WHOLE_EVENTS, WireEncoder};
 pub use event::{DeliveryEvent, EventEncodings, short_delta_json};
 pub use older_status::{older_status, older_statuses};
+pub use publication::{ListenerId, Publication};
 pub use raw_trim::{
     ProviderNotice, diagnostic_notice_text, history_message_identity, is_diagnostic_notice,
     is_provider_retry_notice, is_raw_history_item, omit_raw, provider_notice, raw_shown_only,
+};
+pub use read::{
+    CoreReader, CoreStore, FailScope, MAX_SUBSCRIPTIONS, ManagedSubscription, OUTPUT_READ_BYTES,
+    PAGE_REPLY_BYTES, PageFn, ReadError, SubscribeFn, Subscriptions, read_core,
 };
 pub use sidebar::{
     DeviceReads, PageReuse, PlacedStanding, Placement, SidebarError, SidebarPage, SidebarStore,
