@@ -29,9 +29,9 @@ pub fn changed_item_id(payload: &Value) -> Option<String> {
         "item.delta" | "item.deleted" => {
             field_text(payload, "itemId").map(|id| id.as_str().to_owned())
         }
-        "input.admitted" => {
-            field_text(payload, "commandId").map(|command| format!("input:{}", command.as_str()))
-        }
+        "input.admitted" => field_text(payload, "commandId")
+            .filter(|command| !command.is_empty())
+            .map(|command| format!("input:{}", command.as_str())),
         _ => None,
     }
 }
@@ -61,6 +61,11 @@ mod tests {
         assert_eq!(
             changed_item_id(&parse(r#"{"type":"input.admitted","commandId":"c1"}"#)).as_deref(),
             Some("input:c1")
+        );
+        assert_eq!(
+            changed_item_id(&parse(r#"{"type":"input.admitted","commandId":""}"#)),
+            None,
+            "an empty id names no item"
         );
         assert_eq!(
             changed_item_id(&parse(r#"{"type":"thread.updated"}"#)),

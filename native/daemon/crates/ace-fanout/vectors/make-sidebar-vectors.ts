@@ -34,6 +34,7 @@ type Live = { events: string[]; frames: string[] };
 type Case = {
   name: string;
   window: Record<string, unknown>;
+  paced: boolean;
   device: boolean;
   epochs: { epoch: string; places: Record<string, Place | null> }[];
   readStates: Record<string, unknown>;
@@ -93,6 +94,7 @@ async function runSidebar(
   name: string,
   body: (ctx: Ctx) => {
     window: Record<string, unknown>;
+    paced?: boolean;
     device?: boolean;
     live?: (ctx: Ctx) => Live[];
     page?: { cursor: { at: number; id: string }; requestId: string };
@@ -210,7 +212,7 @@ async function runSidebar(
     send,
     250,
     () => () => {},
-    false,
+    options.paced ?? false,
     encoder,
     recordingPlacement as never,
     undefined,
@@ -244,6 +246,7 @@ async function runSidebar(
   const built: Case = {
     name,
     window: options.window,
+    paced: options.paced ?? false,
     device: options.device ?? false,
     epochs: [{ epoch: recordingPlacement.epoch, places: structuredClone(places) }],
     readStates,
@@ -343,6 +346,13 @@ cases.push(
     window: { limit: 20 },
     device: true,
     change: { threadId: "history-005" as ThreadId },
+  })),
+);
+
+cases.push(
+  await runSidebar("a paced window says it is ready with a fresh head", () => ({
+    window: { limit: 20 },
+    paced: true,
   })),
 );
 

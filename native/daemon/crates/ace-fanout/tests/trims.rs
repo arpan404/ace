@@ -8,10 +8,14 @@
 //! - "a client that doesn't ask gets every item exactly as stored"
 //!
 //! The message and call shapes are the ones that test builds with `Item.parse`; only the
-//! fields `rawShownOnly` reads are present, as in the stored rows it guards.
+//! fields `rawShownOnly` reads are present, as in the stored rows it guards. The item text stays
+//! the literal it was built from, so "exactly as stored" is checked against those bytes, never
+//! against a re-serialization of the value under test.
 
 use ace_fanout::encode::{EventsMessage, WHOLE_EVENTS, WireEncoder};
-use ace_fanout::{DeliveryEvent, ProviderNotice, omit_raw, provider_notice};
+use ace_fanout::{
+    DeliveryEvent, ProviderNotice, history_message_identity, omit_raw, provider_notice,
+};
 use ace_json::{JsString, Value};
 
 fn parse(text: &str) -> Value {
@@ -35,38 +39,36 @@ fn strings(value: &Value, key: &str) -> usize {
 
 const FRAME: &str = r#"{"type":"message_stop","data":{"blob":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}"#;
 
-fn reply() -> Value {
-    item(&format!(
+fn reply() -> String {
+    format!(
         r#"{{"agentId":"a","createdAt":1,"id":"reply","type":"message","role":"assistant","parts":[{{"type":"text","text":"hi"}}],"raw":[{FRAME}]}}"#
-    ))
-}
-
-fn shell() -> Value {
-    item(&format!(
-        r#"{{"agentId":"a","createdAt":1,"id":"shell","type":"tool_call","call":{{"id":"shell","agentId":"a","kind":"shell","title":"ls","status":"succeeded","detail":{{"kind":"shell","command":"ls"}},"startedAt":1,"raw":[{FRAME}]}},"raw":[]}}"#
-    ))
-}
-
-fn ace_call() -> Value {
-    item(&format!(
-        r#"{{"agentId":"a","createdAt":1,"id":"ace","type":"tool_call","call":{{"id":"ace","agentId":"a","kind":"mcp","title":"thread_start","status":"succeeded","detail":{{"kind":"mcp","server":"ace","tool":"thread_start"}},"startedAt":1,"raw":[{FRAME}]}},"raw":[]}}"#
-    ))
-}
-
-fn refusal() -> Value {
-    item(
-        r#"{"agentId":"a","createdAt":1,"id":"refusal","type":"notice","level":"error","text":"refused","raw":[{"type":"ace.agent_control.failed","data":{}}]}"#,
     )
+}
+
+fn shell() -> String {
+    format!(
+        r#"{{"agentId":"a","createdAt":1,"id":"shell","type":"tool_call","call":{{"id":"shell","agentId":"a","kind":"shell","title":"ls","status":"succeeded","detail":{{"kind":"shell","command":"ls"}},"startedAt":1,"raw":[{FRAME}]}},"raw":[]}}"#
+    )
+}
+
+fn ace_call() -> String {
+    format!(
+        r#"{{"agentId":"a","createdAt":1,"id":"ace","type":"tool_call","call":{{"id":"ace","agentId":"a","kind":"mcp","title":"thread_start","status":"succeeded","detail":{{"kind":"mcp","server":"ace","tool":"thread_start"}},"startedAt":1,"raw":[{FRAME}]}},"raw":[]}}"#
+    )
+}
+
+fn refusal() -> String {
+    r#"{"agentId":"a","createdAt":1,"id":"refusal","type":"notice","level":"error","text":"refused","raw":[{"type":"ace.agent_control.failed","data":{}}]}"#.to_owned()
 }
 
 /// "a client that asks gets shown-only raw payloads left out and marked".
 #[test]
 fn shown_only_raw_payloads_are_left_out_and_marked() {
-    let omitted = omit_raw(&reply()).expect("reply changes");
+    let omitted = omit_raw(&item(&reply())).expect("reply changes");
     assert_eq!(strings(&omitted, "raw"), 0);
     assert!(boolean(&omitted, "rawOmitted"));
 
-    let omitted = omit_raw(&shell()).expect("shell changes");
+    let omitted = omit_raw(&item(&shell())).expect("shell changes");
     assert!(boolean(&omitted, "rawOmitted"));
     let Some(Value::Object(call)) = omitted.get("call") else {
         panic!("call");
@@ -77,8 +79,8 @@ fn shown_only_raw_payloads_are_left_out_and_marked() {
 /// "raw a client reads for what a step says stays: notices and ace's own calls".
 #[test]
 fn raw_a_client_reads_stays() {
-    assert!(omit_raw(&ace_call()).is_none());
-    assert!(omit_raw(&refusal()).is_none());
+    assert!(omit_raw(&item(&ace_call())).is_none());
+    assert!(omit_raw(&item(&refusal())).is_none());
 }
 
 /// "a legacy provider notice keeps the raw that says what it reports".
@@ -99,28 +101,60 @@ fn a_legacy_provider_notice_keeps_the_raw_that_says_what_it_reports() {
     );
 }
 
-/// "a client that doesn't ask gets every item exactly as stored".
+/// "a client that doesn't ask gets every item exactly as stored": the wire carries the item's
+/// own text, every field, with nothing dropped on the way through the event.
 #[test]
 fn a_client_that_does_not_ask_gets_every_item_exactly_as_stored() {
     let encoder = WireEncoder::new();
     for stored in [reply(), shell(), ace_call(), refusal()] {
         let event = DeliveryEvent::from_value(parse(&format!(
-            r#"{{"id":"e","seq":1,"at":1,"threadId":"t","payload":{{"type":"item.created","item":{}}}}}"#,
-            ace_json::to_string(&stored)
+            r#"{{"id":"e","seq":1,"at":1,"threadId":"t","payload":{{"type":"item.created","item":{stored}}}}}"#
         )));
         let sent = EventsMessage {
             subscription_id: JsString::from("s"),
             after_seq: 0.0,
             through_seq: 1.0,
             early: false,
-            events: vec![event.clone()],
+            events: vec![event],
         };
         assert_eq!(
             encoder.encode(&sent, WHOLE_EVENTS),
             format!(
-                "{{\"type\":\"events\",\"subscriptionId\":\"s\",\"afterSeq\":0,\"throughSeq\":1,\"events\":[{}]}}",
-                ace_json::to_string(event.value())
+                "{{\"type\":\"events\",\"subscriptionId\":\"s\",\"afterSeq\":0,\"throughSeq\":1,\"events\":[{{\"seq\":1,\"id\":\"e\",\"at\":1,\"threadId\":\"t\",\"payload\":{{\"type\":\"item.created\",\"item\":{stored}}}}}]}}"
             )
         );
     }
+}
+
+/// `/<summary>Agent\b/`: a summary that begins `Agents …` is a background completion, not a
+/// subagent's result.
+#[test]
+fn a_summary_word_is_matched_at_its_boundary() {
+    let notification = |summary: &str| {
+        item(&format!(
+            r#"{{"agentId":"a","createdAt":1,"id":"notice","type":"message","role":"user","synthetic":true,"parts":[{{"type":"text","text":"<task-notification><summary>{summary}</summary></task-notification>"}}],"raw":[]}}"#
+        ))
+    };
+    assert_eq!(
+        provider_notice(&notification("Agent finished")),
+        Some(ProviderNotice::SubagentResult)
+    );
+    assert_eq!(
+        provider_notice(&notification("Agents finished")),
+        Some(ProviderNotice::BackgroundCompletion)
+    );
+    assert_eq!(
+        provider_notice(&notification("Agent")),
+        Some(ProviderNotice::SubagentResult)
+    );
+}
+
+/// A `sessionID` of the wrong type is not a native message at all (zod rejects it), so the item
+/// has no identity through it.
+#[test]
+fn a_native_message_with_a_mistyped_session_id_has_no_identity() {
+    let message = item(
+        r#"{"agentId":"a","createdAt":1,"id":"m","type":"message","role":"assistant","parts":[],"raw":[{"type":"projected.message","data":{"id":"native-1","sessionID":7}}]}"#,
+    );
+    assert_eq!(history_message_identity(&message), None);
 }

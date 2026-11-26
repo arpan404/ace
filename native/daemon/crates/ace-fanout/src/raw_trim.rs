@@ -41,7 +41,7 @@ pub fn provider_notice(item: &Value) -> Option<ProviderNotice> {
         return Some(ProviderNotice::SubagentResult);
     }
     if notification_like(text) {
-        return Some(if text.contains("<summary>Agent") {
+        return Some(if agent_summary(text) {
             ProviderNotice::SubagentResult
         } else {
             ProviderNotice::BackgroundCompletion
@@ -99,6 +99,22 @@ fn notification_like(text: &str) -> bool {
         return false;
     };
     body.ends_with("</task-notification>")
+}
+
+/// `/<summary>Agent\b/`: a summary that starts with `Agent` as its own word. `Agents …` is a
+/// background completion, not a subagent's result.
+fn agent_summary(text: &str) -> bool {
+    const MARKER: &str = "<summary>Agent";
+    let mut rest = text;
+    while let Some(at) = rest.find(MARKER) {
+        let after = &rest[at + MARKER.len()..];
+        match after.chars().next() {
+            Some(next) if next.is_ascii_alphanumeric() || next == '_' => {}
+            _ => return true,
+        }
+        rest = after;
+    }
+    false
 }
 
 /// `^<prefix[^"\n]*"[^>]*>[\s\S]*<suffix>$`.
@@ -232,6 +248,7 @@ fn native_session_line(text: &str) -> bool {
 struct NativeMessage<'a> {
     type_: Option<&'a str>,
     id: Option<&'a str>,
+    session_id: Option<&'a str>,
     assistant_message_id: Option<&'a str>,
     ordinal: Option<f64>,
 }
@@ -243,6 +260,7 @@ fn native_message(data: &Value) -> Option<NativeMessage<'_>> {
     Some(NativeMessage {
         type_: optional_str(data, "type")?,
         id: optional_str(data, "id")?,
+        session_id: optional_str(data, "sessionID")?,
         assistant_message_id: optional_str(data, "assistantMessageID")?,
         ordinal: optional_number(data, "ordinal")?,
     })

@@ -5,6 +5,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": false,
       "epochs": [
         {
@@ -401,6 +402,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": false,
       "epochs": [
         {
@@ -821,6 +823,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": false,
       "epochs": [
         {
@@ -1250,6 +1253,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": false,
       "epochs": [
         {
@@ -1849,6 +1853,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": false,
       "epochs": [
         {
@@ -2256,6 +2261,7 @@
           "revision": 114
         }
       },
+      "paced": false,
       "device": true,
       "epochs": [
         {
@@ -2922,6 +2928,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": true,
       "epochs": [
         {
@@ -3588,6 +3595,7 @@
       "window": {
         "limit": 20
       },
+      "paced": false,
       "device": true,
       "epochs": [
         {
@@ -4266,6 +4274,409 @@
           "{\"type\":\"threads.patch\",\"subscriptionId\":\"window\",\"seq\":57,\"threads\":{\"history-005\":{\"settledAt\":2000,\"activityAt\":995,\"hasSentMessage\":true,\"id\":\"history-005\",\"workspaceId\":\"id-10\",\"title\":\"Task 5\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":995,\"place\":{\"tab\":\"settled\",\"rank\":[995]},\"readState\":{\"lastSeenSeq\":57,\"updatedAt\":1800000000004}}},\"removed\":[],\"window\":{\"before\":{\"at\":981,\"id\":\"history-019\"},\"total\":55,\"counts\":[{\"id\":\"id-10\",\"threads\":57}],\"revision\":114,\"epoch\":\"token:activity:0\",\"attention\":{\"threads\":{\"needsYou\":0,\"unread\":0},\"chats\":{\"needsYou\":0,\"unread\":0}}}}"
         ]
       }
+    },
+    {
+      "name": "a paced window says it is ready with a fresh head",
+      "window": {
+        "limit": 20
+      },
+      "paced": true,
+      "device": false,
+      "epochs": [
+        {
+          "epoch": "token:activity:0",
+          "places": {
+            "active": {
+              "place": {
+                "tab": "inbox",
+                "band": "running",
+                "rank": [
+                  1000
+                ]
+              },
+              "signal": null
+            },
+            "pinned": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  1000
+                ]
+              },
+              "signal": null
+            },
+            "history-000": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  1000
+                ]
+              },
+              "signal": null
+            },
+            "history-001": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  999
+                ]
+              },
+              "signal": null
+            },
+            "history-002": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  998
+                ]
+              },
+              "signal": null
+            },
+            "history-003": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  997
+                ]
+              },
+              "signal": null
+            },
+            "history-004": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  996
+                ]
+              },
+              "signal": null
+            },
+            "history-005": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  995
+                ]
+              },
+              "signal": null
+            },
+            "history-006": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  994
+                ]
+              },
+              "signal": null
+            },
+            "history-007": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  993
+                ]
+              },
+              "signal": null
+            },
+            "history-008": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  992
+                ]
+              },
+              "signal": null
+            },
+            "history-009": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  991
+                ]
+              },
+              "signal": null
+            },
+            "history-010": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  990
+                ]
+              },
+              "signal": null
+            },
+            "history-011": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  989
+                ]
+              },
+              "signal": null
+            },
+            "history-012": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  988
+                ]
+              },
+              "signal": null
+            },
+            "history-013": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  987
+                ]
+              },
+              "signal": null
+            },
+            "history-014": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  986
+                ]
+              },
+              "signal": null
+            },
+            "history-015": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  985
+                ]
+              },
+              "signal": null
+            },
+            "history-016": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  984
+                ]
+              },
+              "signal": null
+            },
+            "history-017": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  983
+                ]
+              },
+              "signal": null
+            },
+            "history-018": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  982
+                ]
+              },
+              "signal": null
+            },
+            "history-019": {
+              "place": {
+                "tab": "settled",
+                "rank": [
+                  981
+                ]
+              },
+              "signal": null
+            }
+          }
+        }
+      ],
+      "readStates": {},
+      "reads": [
+        {
+          "call": "subscribe",
+          "args": [],
+          "result": null
+        },
+        {
+          "call": "sidebarPage",
+          "args": [
+            "{\"limit\":20,\"project\":null,\"archived\":false,\"withChats\":true}",
+            null,
+            null
+          ],
+          "result": "{\"threads\":[{\"activityAt\":1000,\"hasSentMessage\":true,\"id\":\"active\",\"workspaceId\":\"id-11\",\"title\":\"Task 0\",\"provider\":\"codex\",\"status\":{\"state\":\"working\",\"agents\":1},\"createdAt\":1,\"updatedAt\":3000},{\"pinned\":true,\"settledAt\":2000,\"activityAt\":1000,\"hasSentMessage\":true,\"id\":\"pinned\",\"workspaceId\":\"id-11\",\"title\":\"Task 0\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":3000},{\"settledAt\":2000,\"activityAt\":1000,\"hasSentMessage\":true,\"id\":\"history-000\",\"workspaceId\":\"id-11\",\"title\":\"Task 0\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":1000},{\"settledAt\":2000,\"activityAt\":999,\"hasSentMessage\":true,\"id\":\"history-001\",\"workspaceId\":\"id-11\",\"title\":\"Task 1\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":999},{\"settledAt\":2000,\"activityAt\":998,\"hasSentMessage\":true,\"id\":\"history-002\",\"workspaceId\":\"id-11\",\"title\":\"Task 2\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":998},{\"settledAt\":2000,\"activityAt\":997,\"hasSentMessage\":true,\"id\":\"history-003\",\"workspaceId\":\"id-11\",\"title\":\"Task 3\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":997},{\"settledAt\":2000,\"activityAt\":996,\"hasSentMessage\":true,\"id\":\"history-004\",\"workspaceId\":\"id-11\",\"title\":\"Task 4\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":996},{\"settledAt\":2000,\"activityAt\":995,\"hasSentMessage\":true,\"id\":\"history-005\",\"workspaceId\":\"id-11\",\"title\":\"Task 5\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":995},{\"settledAt\":2000,\"activityAt\":994,\"hasSentMessage\":true,\"id\":\"history-006\",\"workspaceId\":\"id-11\",\"title\":\"Task 6\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":994},{\"settledAt\":2000,\"activityAt\":993,\"hasSentMessage\":true,\"id\":\"history-007\",\"workspaceId\":\"id-11\",\"title\":\"Task 7\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":993},{\"settledAt\":2000,\"activityAt\":992,\"hasSentMessage\":true,\"id\":\"history-008\",\"workspaceId\":\"id-11\",\"title\":\"Task 8\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":992},{\"settledAt\":2000,\"activityAt\":991,\"hasSentMessage\":true,\"id\":\"history-009\",\"workspaceId\":\"id-11\",\"title\":\"Task 9\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":991},{\"settledAt\":2000,\"activityAt\":990,\"hasSentMessage\":true,\"id\":\"history-010\",\"workspaceId\":\"id-11\",\"title\":\"Task 10\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":990},{\"settledAt\":2000,\"activityAt\":989,\"hasSentMessage\":true,\"id\":\"history-011\",\"workspaceId\":\"id-11\",\"title\":\"Task 11\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":989},{\"settledAt\":2000,\"activityAt\":988,\"hasSentMessage\":true,\"id\":\"history-012\",\"workspaceId\":\"id-11\",\"title\":\"Task 12\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":988},{\"settledAt\":2000,\"activityAt\":987,\"hasSentMessage\":true,\"id\":\"history-013\",\"workspaceId\":\"id-11\",\"title\":\"Task 13\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":987},{\"settledAt\":2000,\"activityAt\":986,\"hasSentMessage\":true,\"id\":\"history-014\",\"workspaceId\":\"id-11\",\"title\":\"Task 14\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":986},{\"settledAt\":2000,\"activityAt\":985,\"hasSentMessage\":true,\"id\":\"history-015\",\"workspaceId\":\"id-11\",\"title\":\"Task 15\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":985},{\"settledAt\":2000,\"activityAt\":984,\"hasSentMessage\":true,\"id\":\"history-016\",\"workspaceId\":\"id-11\",\"title\":\"Task 16\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":984},{\"settledAt\":2000,\"activityAt\":983,\"hasSentMessage\":true,\"id\":\"history-017\",\"workspaceId\":\"id-11\",\"title\":\"Task 17\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":983},{\"settledAt\":2000,\"activityAt\":982,\"hasSentMessage\":true,\"id\":\"history-018\",\"workspaceId\":\"id-11\",\"title\":\"Task 18\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":982},{\"settledAt\":2000,\"activityAt\":981,\"hasSentMessage\":true,\"id\":\"history-019\",\"workspaceId\":\"id-11\",\"title\":\"Task 19\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":981}],\"window\":{\"before\":{\"at\":981,\"id\":\"history-019\"},\"total\":55,\"counts\":[{\"id\":\"id-11\",\"threads\":57}],\"revision\":114}}"
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "active"
+          ],
+          "result": 112
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "pinned"
+          ],
+          "result": 114
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-000"
+          ],
+          "result": 2
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-001"
+          ],
+          "result": 4
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-002"
+          ],
+          "result": 6
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-003"
+          ],
+          "result": 8
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-004"
+          ],
+          "result": 10
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-005"
+          ],
+          "result": 12
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-006"
+          ],
+          "result": 14
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-007"
+          ],
+          "result": 16
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-008"
+          ],
+          "result": 18
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-009"
+          ],
+          "result": 20
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-010"
+          ],
+          "result": 22
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-011"
+          ],
+          "result": 24
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-012"
+          ],
+          "result": 26
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-013"
+          ],
+          "result": 28
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-014"
+          ],
+          "result": 30
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-015"
+          ],
+          "result": 32
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-016"
+          ],
+          "result": 34
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-017"
+          ],
+          "result": 36
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-018"
+          ],
+          "result": 38
+        },
+        {
+          "call": "sidebarRowRevision",
+          "args": [
+            "history-019"
+          ],
+          "result": 40
+        },
+        {
+          "call": "headSeq",
+          "args": [],
+          "result": 57
+        },
+        {
+          "call": "headSeq",
+          "args": [],
+          "result": 57
+        }
+      ],
+      "frames": [
+        "{\"type\":\"snapshot\",\"subscriptionId\":\"window\",\"seq\":57,\"view\":{\"kind\":\"threads\",\"seq\":57,\"threads\":{\"active\":{\"activityAt\":1000,\"hasSentMessage\":true,\"id\":\"active\",\"workspaceId\":\"id-11\",\"title\":\"Task 0\",\"provider\":\"codex\",\"status\":{\"state\":\"working\",\"agents\":1},\"createdAt\":1,\"updatedAt\":3000,\"place\":{\"tab\":\"inbox\",\"band\":\"running\",\"rank\":[1000]}},\"pinned\":{\"pinned\":true,\"settledAt\":2000,\"activityAt\":1000,\"hasSentMessage\":true,\"id\":\"pinned\",\"workspaceId\":\"id-11\",\"title\":\"Task 0\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":3000,\"place\":{\"tab\":\"settled\",\"rank\":[1000]}},\"history-000\":{\"settledAt\":2000,\"activityAt\":1000,\"hasSentMessage\":true,\"id\":\"history-000\",\"workspaceId\":\"id-11\",\"title\":\"Task 0\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":1000,\"place\":{\"tab\":\"settled\",\"rank\":[1000]}},\"history-001\":{\"settledAt\":2000,\"activityAt\":999,\"hasSentMessage\":true,\"id\":\"history-001\",\"workspaceId\":\"id-11\",\"title\":\"Task 1\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":999,\"place\":{\"tab\":\"settled\",\"rank\":[999]}},\"history-002\":{\"settledAt\":2000,\"activityAt\":998,\"hasSentMessage\":true,\"id\":\"history-002\",\"workspaceId\":\"id-11\",\"title\":\"Task 2\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":998,\"place\":{\"tab\":\"settled\",\"rank\":[998]}},\"history-003\":{\"settledAt\":2000,\"activityAt\":997,\"hasSentMessage\":true,\"id\":\"history-003\",\"workspaceId\":\"id-11\",\"title\":\"Task 3\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":997,\"place\":{\"tab\":\"settled\",\"rank\":[997]}},\"history-004\":{\"settledAt\":2000,\"activityAt\":996,\"hasSentMessage\":true,\"id\":\"history-004\",\"workspaceId\":\"id-11\",\"title\":\"Task 4\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":996,\"place\":{\"tab\":\"settled\",\"rank\":[996]}},\"history-005\":{\"settledAt\":2000,\"activityAt\":995,\"hasSentMessage\":true,\"id\":\"history-005\",\"workspaceId\":\"id-11\",\"title\":\"Task 5\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":995,\"place\":{\"tab\":\"settled\",\"rank\":[995]}},\"history-006\":{\"settledAt\":2000,\"activityAt\":994,\"hasSentMessage\":true,\"id\":\"history-006\",\"workspaceId\":\"id-11\",\"title\":\"Task 6\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":994,\"place\":{\"tab\":\"settled\",\"rank\":[994]}},\"history-007\":{\"settledAt\":2000,\"activityAt\":993,\"hasSentMessage\":true,\"id\":\"history-007\",\"workspaceId\":\"id-11\",\"title\":\"Task 7\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":993,\"place\":{\"tab\":\"settled\",\"rank\":[993]}},\"history-008\":{\"settledAt\":2000,\"activityAt\":992,\"hasSentMessage\":true,\"id\":\"history-008\",\"workspaceId\":\"id-11\",\"title\":\"Task 8\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":992,\"place\":{\"tab\":\"settled\",\"rank\":[992]}},\"history-009\":{\"settledAt\":2000,\"activityAt\":991,\"hasSentMessage\":true,\"id\":\"history-009\",\"workspaceId\":\"id-11\",\"title\":\"Task 9\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":991,\"place\":{\"tab\":\"settled\",\"rank\":[991]}},\"history-010\":{\"settledAt\":2000,\"activityAt\":990,\"hasSentMessage\":true,\"id\":\"history-010\",\"workspaceId\":\"id-11\",\"title\":\"Task 10\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":990,\"place\":{\"tab\":\"settled\",\"rank\":[990]}},\"history-011\":{\"settledAt\":2000,\"activityAt\":989,\"hasSentMessage\":true,\"id\":\"history-011\",\"workspaceId\":\"id-11\",\"title\":\"Task 11\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":989,\"place\":{\"tab\":\"settled\",\"rank\":[989]}},\"history-012\":{\"settledAt\":2000,\"activityAt\":988,\"hasSentMessage\":true,\"id\":\"history-012\",\"workspaceId\":\"id-11\",\"title\":\"Task 12\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":988,\"place\":{\"tab\":\"settled\",\"rank\":[988]}},\"history-013\":{\"settledAt\":2000,\"activityAt\":987,\"hasSentMessage\":true,\"id\":\"history-013\",\"workspaceId\":\"id-11\",\"title\":\"Task 13\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":987,\"place\":{\"tab\":\"settled\",\"rank\":[987]}},\"history-014\":{\"settledAt\":2000,\"activityAt\":986,\"hasSentMessage\":true,\"id\":\"history-014\",\"workspaceId\":\"id-11\",\"title\":\"Task 14\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":986,\"place\":{\"tab\":\"settled\",\"rank\":[986]}},\"history-015\":{\"settledAt\":2000,\"activityAt\":985,\"hasSentMessage\":true,\"id\":\"history-015\",\"workspaceId\":\"id-11\",\"title\":\"Task 15\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":985,\"place\":{\"tab\":\"settled\",\"rank\":[985]}},\"history-016\":{\"settledAt\":2000,\"activityAt\":984,\"hasSentMessage\":true,\"id\":\"history-016\",\"workspaceId\":\"id-11\",\"title\":\"Task 16\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":984,\"place\":{\"tab\":\"settled\",\"rank\":[984]}},\"history-017\":{\"settledAt\":2000,\"activityAt\":983,\"hasSentMessage\":true,\"id\":\"history-017\",\"workspaceId\":\"id-11\",\"title\":\"Task 17\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":983,\"place\":{\"tab\":\"settled\",\"rank\":[983]}},\"history-018\":{\"settledAt\":2000,\"activityAt\":982,\"hasSentMessage\":true,\"id\":\"history-018\",\"workspaceId\":\"id-11\",\"title\":\"Task 18\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":982,\"place\":{\"tab\":\"settled\",\"rank\":[982]}},\"history-019\":{\"settledAt\":2000,\"activityAt\":981,\"hasSentMessage\":true,\"id\":\"history-019\",\"workspaceId\":\"id-11\",\"title\":\"Task 19\",\"provider\":\"codex\",\"status\":{\"state\":\"done\"},\"createdAt\":1,\"updatedAt\":981,\"place\":{\"tab\":\"settled\",\"rank\":[981]}}},\"window\":{\"before\":{\"at\":981,\"id\":\"history-019\"},\"total\":55,\"counts\":[{\"id\":\"id-11\",\"threads\":57}],\"revision\":114,\"epoch\":\"token:activity:0\",\"attention\":{\"threads\":{\"needsYou\":0,\"unread\":0},\"chats\":{\"needsYou\":0,\"unread\":0}}}}}",
+        "{\"type\":\"subscription.ready\",\"subscriptionId\":\"window\",\"seq\":57}"
+      ],
+      "live": [],
+      "page": null,
+      "pageStale": null,
+      "change": null
     }
   ]
 }

@@ -151,7 +151,11 @@ impl SidebarStore for Scripted {
             matches!(recorded.get("archived"), Some(Value::Bool(true))),
             scope.archived
         );
-        assert!(matches!(recorded.get("withChats"), Some(Value::Bool(true))));
+        assert_eq!(
+            matches!(recorded.get("withChats"), Some(Value::Bool(true))),
+            scope.with_chats,
+            "the read carries every chat, as the TypeScript's does"
+        );
         assert_eq!(
             arg_text(entry_arg(&entry, 1)),
             before.map(|before| ace_json::to_string(&before.to_value()))
@@ -283,6 +287,8 @@ fn window_of(case: &Value) -> SidebarWindow {
             _ => None,
         }),
         archived: matches!(window.get("archived"), Some(Value::Bool(true))),
+        // The daemon forces it (ADR 0099); the client's window does not carry it.
+        with_chats: true,
         resume,
     }
 }
@@ -322,7 +328,11 @@ fn the_sidebar_sends_the_typescripts_bytes() {
             RecordedPlacement::new(&text(first, "epoch"), first.get("places").expect("places"));
         let device = matches!(case.get("device"), Some(Value::Bool(true)));
         let reads: Option<&dyn DeviceReads> = if device { Some(&scripted) } else { None };
-        let mut sidebar = SidebarSubscription::new(JsString::from("window"), window_of(case));
+        let mut sidebar = SidebarSubscription::new(
+            JsString::from("window"),
+            window_of(case),
+            matches!(case.get("paced"), Some(Value::Bool(true))),
+        );
         let frames = sidebar.start(&scripted, &placement, reads);
         assert_eq!(
             strings(&frames),

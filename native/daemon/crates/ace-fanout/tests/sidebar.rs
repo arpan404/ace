@@ -66,6 +66,10 @@ fn window_of(rows: &[Value]) -> Value {
 struct Mem {
     rows: RefCell<Vec<Value>>,
     revision: Cell<Option<u64>>,
+    /// The scopes `sidebar_page` was read with, for the flag the daemon forces.
+    scopes: RefCell<Vec<SidebarWindow>>,
+    /// Heads to answer before the default 10, so a second read can differ.
+    heads: RefCell<std::collections::VecDeque<u64>>,
 }
 
 impl Mem {
@@ -73,6 +77,8 @@ impl Mem {
         Mem {
             rows: RefCell::new(rows),
             revision: Cell::new(Some(1)),
+            scopes: RefCell::new(Vec::new()),
+            heads: RefCell::new(std::collections::VecDeque::new()),
         }
     }
 }
@@ -80,10 +86,11 @@ impl Mem {
 impl SidebarStore for Mem {
     fn sidebar_page(
         &self,
-        _scope: &SidebarWindow,
+        scope: &SidebarWindow,
         _before: Option<&ThreadListCursor>,
         _reuse: Option<PageReuse<'_>>,
     ) -> SidebarPage {
+        self.scopes.borrow_mut().push(scope.clone());
         let rows = self.rows.borrow().clone();
         SidebarPage {
             window: window_of(&rows),
@@ -96,7 +103,7 @@ impl SidebarStore for Mem {
     }
 
     fn head_seq(&self) -> u64 {
-        10
+        self.heads.borrow_mut().pop_front().unwrap_or(10)
     }
 }
 
@@ -152,6 +159,7 @@ fn window(limit: usize) -> SidebarWindow {
         limit,
         project: None,
         archived: false,
+        with_chats: true,
         resume: None,
     }
 }
@@ -175,7 +183,7 @@ fn a_resume_from_another_epoch_gets_the_whole_window() {
         epoch: "another:activity:0".to_owned(),
         revision: 1,
     });
-    let mut sidebar = SidebarSubscription::new(JsString::from("s"), scope);
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), scope, false);
     let frames = sidebar.start(&mem, &placement, None);
     let view = snapshot_view(&frames);
     assert!(!view.contains_key("keep"));
@@ -190,7 +198,7 @@ fn a_resume_from_another_epoch_gets_the_whole_window() {
 fn a_list_for_no_known_device_carries_no_read_cursors() {
     let mem = Mem::new(vec![entry("a", "w", false)]);
     let placement = Places::new("token:activity:0", places(&["a"], "inbox"));
-    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20));
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20), false);
     let frames = sidebar.start(&mem, &placement, None);
     let Some(Value::Object(threads)) = snapshot_view(&frames).get("threads") else {
         panic!("threads");
@@ -210,7 +218,7 @@ fn a_sort_change_sends_only_the_threads_whose_place_changed() {
         entry("c", "w", false),
     ]);
     let placement = Places::new("token:activity:0", places(&["a", "b", "c"], "inbox"));
-    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20));
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20), false);
     sidebar.start(&mem, &placement, None);
     // The sort changes: `b` moves to Snoozed, the others keep their place and rank.
     let mut changed = places(&["a", "c"], "inbox");
@@ -266,7 +274,7 @@ fn the_window_carries_the_rail_dots() {
         }),
     );
     let placement = Places::new("token:activity:0", given);
-    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20));
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20), false);
     let frames = sidebar.start(&mem, &placement, None);
     let Some(Value::Object(window)) = snapshot_view(&frames).get("window") else {
         panic!("window");
@@ -298,7 +306,7 @@ fn the_window_carries_the_rail_dots() {
 fn a_chat_membership_change_rereads_only_its_threads() {
     let mem = Mem::new(vec![entry("a", "w1", true), entry("b", "w2", true)]);
     let placement = Places::new("token:activity:0", places(&["a", "b"], "settled"));
-    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20));
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20), false);
     sidebar.start(&mem, &placement, None);
     let frames = sidebar.chat_membership_changed("w1", &mem, &placement, None);
     assert_eq!(frames.len(), 1);
@@ -314,7 +322,7 @@ fn a_chat_membership_change_rereads_only_its_threads() {
 fn a_stopped_window_sends_nothing_more() {
     let mem = Mem::new(vec![entry("a", "w", false)]);
     let placement = Places::new("token:activity:0", places(&["a"], "inbox"));
-    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20));
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20), false);
     sidebar.start(&mem, &placement, None);
     sidebar.stop();
     assert!(sidebar.placement_changed(&mem, &placement, None).is_empty());
@@ -348,5 +356,62 @@ struct NoReads;
 impl DeviceReads for NoReads {
     fn read(&self, _thread: &str) -> Value {
         parse(r#"{"lastSeenSeq":0,"updatedAt":null}"#)
+    }
+}
+
+/// A paced window says it is ready after its snapshot, with the head read then (the
+/// TypeScript's `subscribe` sends it for windows too).
+#[test]
+fn a_paced_window_says_it_is_ready_after_its_snapshot_with_a_fresh_head() {
+    let mem = Mem::new(vec![entry("a", "w", false)]);
+    mem.heads.borrow_mut().extend([10, 11]);
+    let placement = Places::new("token:activity:0", places(&["a"], "inbox"));
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(20), true);
+    let frames = sidebar.start(&mem, &placement, None);
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frame_type(&frames[0]), "snapshot");
+    assert_eq!(frame_seq(&frames[0]), 10);
+    assert_eq!(frame_type(&frames[1]), "subscription.ready");
+    assert_eq!(
+        frame_seq(&frames[1]),
+        11,
+        "the head read after the snapshot"
+    );
+    assert_eq!(
+        frames[1].get("subscriptionId").and_then(|id| match id {
+            Value::String(seen) => Some(seen.as_str()),
+            _ => None,
+        }),
+        Some("s")
+    );
+}
+
+/// The daemon reads every window with every chat, whatever flag the shell passes (ADR 0099), on
+/// the first read and on a live re-read alike.
+#[test]
+fn a_window_reads_every_chat_whatever_arrived() {
+    let mem = Mem::new(vec![entry("a", "w", false)]);
+    let placement = Places::new("token:activity:0", places(&["a"], "inbox"));
+    let mut scope = window(20);
+    scope.with_chats = false;
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), scope, false);
+    sidebar.start(&mem, &placement, None);
+    sidebar.chat_membership_changed("w", &mem, &placement, None);
+    let scopes = mem.scopes.borrow();
+    assert_eq!(scopes.len(), 2);
+    assert!(scopes.iter().all(|scope| scope.with_chats));
+}
+
+fn frame_type(frame: &Value) -> &str {
+    match frame.get("type") {
+        Some(Value::String(seen)) => seen.as_str(),
+        _ => panic!("type"),
+    }
+}
+
+fn frame_seq(frame: &Value) -> u64 {
+    match frame.get("seq") {
+        Some(Value::Number(seen)) => seen.value() as u64,
+        _ => panic!("seq"),
     }
 }

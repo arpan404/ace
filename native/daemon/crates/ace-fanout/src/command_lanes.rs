@@ -26,7 +26,7 @@ pub fn command_lane(command: &Value, device: &str) -> String {
             None => None,
         },
     };
-    if let Some(thread) = thread {
+    if let Some(thread) = thread.filter(|thread| !thread.is_empty()) {
         return format!("{device}\0thread\0{thread}");
     }
     if let Some(Value::String(workspace)) = field(payload, "workspaceId") {

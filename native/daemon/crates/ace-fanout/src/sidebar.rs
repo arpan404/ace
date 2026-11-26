@@ -20,13 +20,16 @@ use ace_json::{JsString, Map, Number, Value};
 use crate::event::DeliveryEvent;
 use crate::js::{field, field_text, field_truth, number, object};
 
-/// The list's scope: the page's size and filters. `withChats` is always on, as the client's own
-/// list also carries every chat (ADR 0099).
+/// The list's scope: the page's size and filters. `with_chats` is always on, as the client's
+/// own list also carries every chat (ADR 0099): a shell mapping this to its query must not drop
+/// the flag, and [`SidebarSubscription::new`] sets it however the window arrived.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SidebarWindow {
     pub limit: usize,
     pub project: Option<String>,
     pub archived: bool,
+    /// Carry every chat in a project's window (`withChats`, ADR 0099).
+    pub with_chats: bool,
     pub resume: Option<ThreadListResume>,
 }
 
@@ -165,13 +168,17 @@ pub struct SidebarSubscription {
     selected: Map,
     sent: HashMap<String, Placed>,
     attention: Value,
+    paced: bool,
     stopped: bool,
     initializing: bool,
     queued: Vec<DeliveryEvent>,
 }
 
 impl SidebarSubscription {
-    pub fn new(id: JsString, scope: SidebarWindow) -> SidebarSubscription {
+    /// A window about to initialize. `paced` asks for the `subscription.ready` the TypeScript
+    /// sends after the snapshot; the scope always carries every chat, as its client's list does.
+    pub fn new(id: JsString, mut scope: SidebarWindow, paced: bool) -> SidebarSubscription {
+        scope.with_chats = true;
         SidebarSubscription {
             id,
             limit: scope.limit,
@@ -181,6 +188,7 @@ impl SidebarSubscription {
             selected: Map::new(),
             sent: HashMap::new(),
             attention: no_attention(),
+            paced,
             stopped: false,
             initializing: true,
             queued: Vec::new(),
@@ -206,6 +214,7 @@ impl SidebarSubscription {
             limit: self.limit,
             project: self.scope.project.clone(),
             archived: self.scope.archived,
+            with_chats: self.scope.with_chats,
             resume: None,
         }
     }
@@ -272,6 +281,11 @@ impl SidebarSubscription {
         self.initializing = false;
         let queued = std::mem::take(&mut self.queued);
         frames.extend(self.deliver(queued, store, placement, reads));
+        if self.paced {
+            // After the snapshot and its queued patches, with the head read now, as the
+            // TypeScript's `subscribe` does.
+            frames.push(ready_frame(&self.id, store.head_seq()));
+        }
         frames
     }
 
@@ -686,6 +700,15 @@ fn snapshot_frame(subscription_id: &JsString, seq: u64, view: Value) -> Value {
     frame.insert("subscriptionId", Value::String(subscription_id.clone()));
     frame.insert("seq", Value::Number(Number::from(seq)));
     frame.insert("view", view);
+    Value::Object(frame)
+}
+
+/// `{ type: "subscription.ready", subscriptionId, seq }`: a paced window's acknowledgement.
+fn ready_frame(subscription_id: &JsString, seq: u64) -> Value {
+    let mut frame = Map::with_capacity(3);
+    frame.insert("type", Value::String(JsString::from("subscription.ready")));
+    frame.insert("subscriptionId", Value::String(subscription_id.clone()));
+    frame.insert("seq", Value::Number(Number::from(seq)));
     Value::Object(frame)
 }
 

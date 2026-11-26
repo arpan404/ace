@@ -129,3 +129,15 @@ fn another_devices_command_is_a_different_lane() {
     let laptop = lanes.run("laptop\0thread\0t", "laptop", "c2");
     assert!(phone.start && laptop.start);
 }
+
+/// An empty thread id names no thread, as the TypeScript's `if (thread)` says: the command
+/// takes the device lane, whatever carried the empty id.
+#[test]
+fn an_empty_thread_id_names_no_thread() {
+    let payload = ace_json::parse(r#"{"payload":{"type":"thread.moved","threadId":""}}"#)
+        .expect("parse command");
+    assert_eq!(command_lane(&payload, "phone"), "phone\0device");
+    let link = ace_json::parse(r#"{"payload":{"type":"thread.fork","link":{"threadId":""}}}"#)
+        .expect("parse command");
+    assert_eq!(command_lane(&link, "phone"), "phone\0device");
+}
