@@ -36,7 +36,7 @@ fn common_directory(root: &str) -> Option<String> {
     let common = text(&Path::new(&metadata).join("commondir")).ok().flatten();
     let target = match common {
         Some(common) if !common.is_empty() => {
-            paths::resolve(&metadata, common.strip_suffix('\n').unwrap_or(&common))
+            paths::resolve(&metadata, paths::strip_terminator(&common, false))
         }
         _ => metadata,
     };
@@ -170,11 +170,13 @@ pub fn worktree_footprint(root: &str) -> Result<Footprint, GitError> {
                 .filter_map(Result::ok)
                 .map(|entry| entry.file_name().to_string_lossy().into_owned())
                 .collect();
-            if names.len() > FOOTPRINT_ENTRIES {
+            // The TypeScript checks before pushing each entry, so 10,001 names pass and the
+            // 10,002nd refuses.
+            if names.len() > FOOTPRINT_ENTRIES + 1 {
                 return Err(directory_error());
             }
             let mut names = names;
-            names.sort();
+            names.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
             for name in names {
                 walk(
                     &path.join(name),

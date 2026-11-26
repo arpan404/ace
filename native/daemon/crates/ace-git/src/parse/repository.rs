@@ -181,8 +181,11 @@ pub fn parse_remotes(bytes: &[u8]) -> Result<Vec<Remote>, GitError> {
         } else {
             return Err(malformed("remote key"));
         };
-        if ref_schema(name).is_none() || url.is_empty() {
+        if ref_schema(name).is_none() {
             return Err(malformed("remote key"));
+        }
+        if url.is_empty() {
+            return Err(malformed("remote URL"));
         }
         let index = match remotes.iter().position(|remote| remote.name == name) {
             Some(index) => index,

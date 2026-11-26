@@ -8,9 +8,18 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use ace_json::Value;
 use regex::Regex;
-use yaml_rust2::parser::{Event, Parser, Tag};
+
+pub mod credentials;
+pub mod yaml;
+
+pub use credentials::{
+    Assignment, contains_publication_credential, has_sensitive_span, is_publication_credential_key,
+    publication_assignments,
+};
+
+pub(crate) use credentials::regex_of;
+pub use yaml::assert_publication_yaml;
 
 use crate::core::error::{GitError, GitErrorCode};
 use crate::reads::{Command, CommandPort, checked};
@@ -39,436 +48,11 @@ pub fn incomplete_publication_scan() -> GitError {
     )
 }
 
-fn sensitive_publication() -> GitError {
+pub(crate) fn sensitive_publication() -> GitError {
     GitError::new(
         GitErrorCode::SensitivePublication,
         "Sensitive publication content",
     )
-}
-
-fn regex_of(slot: &'static OnceLock<Option<Regex>>, pattern: &str) -> Option<&'static Regex> {
-    slot.get_or_init(|| Regex::new(pattern).ok()).as_ref()
-}
-
-/// Shared redaction's literal signature: an exact configured value or a credential pattern.
-pub fn has_sensitive_span(text: &str) -> bool {
-    !ace_redaction::sensitive_spans(text, None).is_empty()
-}
-
-/// The credential field names publication's assignment, JSON and YAML checks share.
-pub fn is_publication_credential_key(key: &str) -> bool {
-    static POLICY: OnceLock<Option<Regex>> = OnceLock::new();
-    static CREDENTIAL: OnceLock<Option<Regex>> = OnceLock::new();
-    // These describe credential policy or location, rather than carrying its value.
-    let policy = regex_of(
-        &POLICY,
-        r"(?i)[_-](?:(?:min|max)[_-])?(?:length|age)$|[_-](?:url|endpoint|path|file|expiry|expiration|ttl|expires[_-]at|timeout|enabled|required|policy|pattern|algorithm|encoding|format)$",
-    );
-    let credential = regex_of(
-        &CREDENTIAL,
-        r"(?i)^(?:_?auth(?:token)?|private[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?|client-key-data|client-certificate-data|auth-provider)$",
-    );
-    let words = camel_to_words(key);
-    if policy.is_some_and(|policy| policy.is_match(&words)) {
-        return false;
-    }
-    ace_redaction::is_secret_key(key)
-        || credential.is_some_and(|credential| credential.is_match(key))
-}
-
-/// `key.replace(/([a-z0-9])([A-Z])/g, "$1_$2")`.
-fn camel_to_words(key: &str) -> String {
-    let characters: Vec<char> = key.chars().collect();
-    let mut out = String::with_capacity(key.len() + 4);
-    for (index, character) in characters.iter().enumerate() {
-        out.push(*character);
-        if (character.is_ascii_lowercase() || character.is_ascii_digit())
-            && characters
-                .get(index + 1)
-                .is_some_and(|next| next.is_ascii_uppercase())
-        {
-            out.push('_');
-        }
-    }
-    out
-}
-
-fn is_credential_shaped(key: &str) -> bool {
-    static SHAPED: OnceLock<Option<Regex>> = OnceLock::new();
-    regex_of(
-        &SHAPED,
-        r"(?i)^(?:_?auth(?:token)?|private[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?|client-key-data|client-certificate-data|auth-provider)$",
-    )
-    .is_some_and(|pattern| pattern.is_match(key))
-}
-
-/// One credential-looking assignment in free text.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Assignment {
-    pub keys: Vec<String>,
-    pub key_start: usize,
-    pub key_end: usize,
-    pub populated: bool,
-}
-
-fn is_bare(character: char) -> bool {
-    character.is_ascii_alphanumeric() || matches!(character, '_' | '/' | '@' | '-')
-}
-
-fn is_horizontal(character: char) -> bool {
-    matches!(character, ' ' | '\t')
-}
-
-fn is_boundary(character: Option<char>) -> bool {
-    character.is_none_or(|character| {
-        character.is_whitespace() || matches!(character, ';' | '{' | ',' | '(')
-    })
-}
-
-/// A forward-only cursor over the text's characters; the budget counts UTF-16 units.
-struct Cursor {
-    characters: Vec<char>,
-    position: usize,
-    key_start: usize,
-}
-
-impl Cursor {
-    fn at(&self, offset: isize) -> Option<char> {
-        let index = self.position as isize + offset;
-        if index < 0 {
-            return None;
-        }
-        self.characters.get(index as usize).copied()
-    }
-
-    fn advance(&mut self) -> Result<(), GitError> {
-        if self.position >= self.characters.len() {
-            return Ok(());
-        }
-        let units = self.characters[self.position].len_utf16();
-        self.position += 1;
-        if self.position - self.key_start > 0
-            && self.utf16_width(self.key_start, self.position) > 16_384
-        {
-            return Err(incomplete_publication_scan());
-        }
-        let _ = units;
-        Ok(())
-    }
-
-    fn utf16_width(&self, start: usize, end: usize) -> usize {
-        self.characters[start..end]
-            .iter()
-            .map(|character| character.len_utf16())
-            .sum()
-    }
-
-    fn slice(&self, start: usize, end: usize) -> String {
-        self.characters[start..end].iter().collect()
-    }
-
-    fn done(&self) -> bool {
-        self.position >= self.characters.len()
-    }
-}
-
-/// Every credential-looking assignment, in order (`publicationAssignments`).
-pub fn publication_assignments(text: &str) -> Result<Vec<Assignment>, GitError> {
-    let mut cursor = Cursor {
-        characters: text.chars().collect(),
-        position: 0,
-        key_start: 0,
-    };
-    let mut assignments: Vec<Assignment> = Vec::new();
-    let mut count = 0usize;
-    while !cursor.done() {
-        let initial = cursor.characters[cursor.position];
-        if !is_boundary(cursor.at(-1)) || (!is_bare(initial) && initial != '"' && initial != '\'') {
-            cursor.position += 1;
-            continue;
-        }
-        let start = cursor.position;
-        cursor.key_start = start;
-        let spaces = |cursor: &mut Cursor| -> Result<(), GitError> {
-            while cursor.at(0).is_some_and(is_horizontal) {
-                cursor.advance()?;
-            }
-            Ok(())
-        };
-        let mut parts: Vec<String> = Vec::new();
-        let mut key_end = cursor.position;
-        let mut valid = true;
-        while valid {
-            if parts.len() >= 64 {
-                return Err(incomplete_publication_scan());
-            }
-            let component = cursor.position;
-            let quote = cursor.at(0);
-            if quote == Some('"') || quote == Some('\'') {
-                let quote = quote.unwrap_or('"');
-                cursor.advance()?;
-                while !cursor.done() && cursor.at(0) != Some(quote) {
-                    if cursor.at(0).is_some_and(|c| c == '\r' || c == '\n') {
-                        break;
-                    }
-                    if quote == '"' && cursor.at(0) == Some('\\') {
-                        cursor.advance()?;
-                        if cursor.done() || cursor.at(0).is_some_and(|c| c == '\r' || c == '\n') {
-                            break;
-                        }
-                    }
-                    cursor.advance()?;
-                }
-                if cursor.at(0) != Some(quote) {
-                    valid = false;
-                    break;
-                }
-                cursor.advance()?;
-            } else {
-                while cursor.at(0).is_some_and(is_bare) {
-                    cursor.advance()?;
-                }
-                // npm's scoped fields use /:_auth and /:_authToken before '='.
-                if cursor.at(0) == Some(':')
-                    && cursor.at(-1) == Some('/')
-                    && cursor.at(1).is_some_and(is_bare)
-                {
-                    cursor.advance()?;
-                    while cursor.at(0).is_some_and(is_bare) {
-                        cursor.advance()?;
-                    }
-                }
-                if cursor.position == component {
-                    valid = false;
-                    break;
-                }
-            }
-            parts.push(cursor.slice(component, cursor.position));
-            key_end = cursor.position;
-            spaces(&mut cursor)?;
-            if cursor.at(0) != Some('.') {
-                break;
-            }
-            cursor.advance()?;
-            spaces(&mut cursor)?;
-        }
-        if valid && matches!(cursor.at(0), Some('=') | Some(':')) {
-            cursor.advance()?;
-            spaces(&mut cursor)?;
-            count += 1;
-            if count > 100_000 {
-                return Err(incomplete_publication_scan());
-            }
-            let mut populated = false;
-            if cursor
-                .at(0)
-                .is_some_and(|c| !c.is_whitespace() && !matches!(c, ';' | ',' | '}' | ']'))
-            {
-                let quote = cursor.at(0).unwrap_or(' ');
-                if quote == '"' || quote == '\'' {
-                    cursor.position += 1;
-                    let value_start = cursor.position;
-                    let mut closed = false;
-                    while !cursor.done() {
-                        let character = cursor.characters[cursor.position];
-                        if character == '\r' || character == '\n' {
-                            break;
-                        }
-                        cursor.position += 1;
-                        if character == quote {
-                            populated = cursor.position - 1 > value_start;
-                            closed = true;
-                            break;
-                        }
-                        if quote == '"'
-                            && character == '\\'
-                            && !cursor.done()
-                            && !cursor.at(0).is_some_and(|c| c == '\r' || c == '\n')
-                        {
-                            cursor.position += 1;
-                        }
-                    }
-                    if !closed
-                        || cursor.at(0).is_some_and(|c| {
-                            !c.is_whitespace() && !matches!(c, ';' | ',' | '}' | ')' | ']')
-                        })
-                    {
-                        populated = true;
-                    }
-                } else {
-                    populated = true;
-                    while cursor.at(0).is_some_and(|c| {
-                        !c.is_whitespace() && !matches!(c, ';' | ',' | '{' | '}' | '(' | ')')
-                    }) {
-                        cursor.position += 1;
-                    }
-                }
-            }
-            assignments.push(Assignment {
-                keys: parts,
-                key_start: start,
-                key_end,
-                populated,
-            });
-        }
-    }
-    Ok(assignments)
-}
-
-fn unusable_assignment_key() -> GitError {
-    GitError::new(
-        GitErrorCode::PublicationScanIncomplete,
-        "Assignment key scan incomplete",
-    )
-}
-
-/// A TOML basic/literal quoted key decoded as a YAML scalar (`assignmentKey`).
-fn assignment_key(part: &str) -> Result<String, GitError> {
-    let first = part.chars().next();
-    if first != Some('"') && first != Some('\'') {
-        return Ok(part.to_owned());
-    }
-    let mut parser = Parser::new_from_str(part);
-    let mut scalar: Option<String> = None;
-    let mut nodes = 0usize;
-    loop {
-        match parser.next_token() {
-            Ok((Event::StreamEnd, _)) | Ok((Event::Nothing, _)) => break,
-            Ok((Event::StreamStart, _))
-            | Ok((Event::DocumentStart, _))
-            | Ok((Event::DocumentEnd, _)) => {}
-            Ok((Event::Scalar(value, _, _, tag), _)) => {
-                nodes += 1;
-                if tag.is_some() || scalar.is_some() {
-                    return Err(unusable_assignment_key());
-                }
-                scalar = Some(value);
-            }
-            Ok((Event::Alias(_), _)) => return Err(unusable_assignment_key()),
-            Ok((Event::MappingStart(..), _)) | Ok((Event::SequenceStart(..), _)) => {
-                return Err(unusable_assignment_key());
-            }
-            Ok(_) | Err(_) => return Err(unusable_assignment_key()),
-        }
-    }
-    if nodes != 1 {
-        return Err(unusable_assignment_key());
-    }
-    scalar.ok_or_else(unusable_assignment_key)
-}
-
-fn has_literal_credential(text: &str) -> bool {
-    static KEY_BLOCK: OnceLock<Option<Regex>> = OnceLock::new();
-    static URI: OnceLock<Option<Regex>> = OnceLock::new();
-    has_sensitive_span(text)
-        || regex_of(&KEY_BLOCK, r"(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----")
-            .is_some_and(|pattern| pattern.is_match(text))
-        || regex_of(&URI, r"(?i)(?:https?|ssh)://[^\s/@:]+:[^\s/@]+@")
-            .is_some_and(|pattern| pattern.is_match(text))
-}
-
-/// Classify assignments before shared signatures: neutralise only credential key ranges.
-fn publication_literal_text(text: &str) -> Result<Option<String>, GitError> {
-    let mut fragments: Vec<String> = Vec::new();
-    let mut position = 0usize;
-    for assignment in publication_assignments(text)? {
-        let parts = &assignment.keys;
-        let mut decoded: Vec<String> = Vec::with_capacity(parts.len());
-        for part in parts {
-            decoded.push(assignment_key(part)?);
-        }
-        let key_text: String = text
-            .chars()
-            .skip(assignment.key_start)
-            .take(assignment.key_end.saturating_sub(assignment.key_start))
-            .collect();
-        if has_literal_credential(&key_text)
-            || decoded
-                .iter()
-                .zip(parts.iter())
-                .any(|(decoded, part)| decoded != part && has_literal_credential(decoded))
-        {
-            return Ok(None);
-        }
-        let Some(leaf) = decoded.last() else {
-            continue;
-        };
-        // Registry-scoped npm fields retain their complete leaf identifier.
-        let key = leaf
-            .split(['/', ':'])
-            .next_back()
-            .unwrap_or(leaf)
-            .to_owned();
-        if assignment.populated && is_publication_credential_key(&key) {
-            return Ok(None);
-        }
-        if !ace_redaction::is_secret_key(&key) && !is_credential_shaped(&key) {
-            continue;
-        }
-        fragments.push(
-            text.chars()
-                .skip(position)
-                .take(assignment.key_start - position)
-                .collect(),
-        );
-        fragments.push("x".repeat(assignment.key_end - assignment.key_start));
-        position = assignment.key_end;
-    }
-    fragments.push(text.chars().skip(position).collect());
-    Ok(Some(fragments.concat()))
-}
-
-/// Parse structured fields too: escaped keys and base64 Docker auth need no token signature.
-fn has_structured_credential(text: &str) -> Result<bool, GitError> {
-    let Ok(root) = ace_json::parse(text) else {
-        return Ok(false);
-    };
-    let mut pending: Vec<(Value, usize)> = vec![(root, 0)];
-    let mut entries = 0usize;
-    while let Some((value, depth)) = pending.pop() {
-        if depth > 64 || entries > 100_000 {
-            return Err(incomplete_publication_scan());
-        }
-        match value {
-            Value::Array(items) => {
-                entries += items.len();
-                if entries > 100_000 {
-                    return Err(incomplete_publication_scan());
-                }
-                for item in items {
-                    pending.push((item, depth + 1));
-                }
-            }
-            Value::Object(fields) if !fields.is_empty() => {
-                for (key, value) in fields {
-                    entries += 1;
-                    if entries > 100_000 {
-                        return Err(incomplete_publication_scan());
-                    }
-                    let name = key.to_string_lossy().into_owned();
-                    if is_publication_credential_key(&name)
-                        && matches!(&value, Value::String(text) if !text.to_string_lossy().trim().is_empty())
-                    {
-                        return Ok(true);
-                    }
-                    pending.push((value, depth + 1));
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(false)
-}
-
-/// Shared redaction signatures plus credential formats that hide their value shape.
-pub fn contains_publication_credential(text: &str) -> Result<bool, GitError> {
-    let Some(literal) = publication_literal_text(text)? else {
-        return Ok(true);
-    };
-    if has_literal_credential(&literal) {
-        return Ok(true);
-    }
-    has_structured_credential(text)
 }
 
 /// A path publication must refuse: a credential store, a key or an `.env`-like file.
@@ -666,220 +250,6 @@ pub fn inspect_publication_batch(
 
 fn find_header_end(content: &[u8]) -> Option<usize> {
     content.windows(2).position(|pair| pair == b"\n\n")
-}
-
-fn allowed_tag(tag: Option<&Tag>) -> bool {
-    let Some(tag) = tag else {
-        return true;
-    };
-    let full = if tag.handle == "!" {
-        format!("!{}", tag.suffix)
-    } else if tag.handle == "!!" {
-        format!("tag:yaml.org,2002:{}", tag.suffix)
-    } else {
-        format!("{}{}", tag.handle, tag.suffix)
-    };
-    matches!(
-        full.as_str(),
-        "tag:yaml.org,2002:str"
-            | "tag:yaml.org,2002:int"
-            | "tag:yaml.org,2002:float"
-            | "tag:yaml.org,2002:bool"
-            | "tag:yaml.org,2002:null"
-            | "tag:yaml.org,2002:map"
-            | "tag:yaml.org,2002:seq"
-    )
-}
-
-fn is_null_scalar(text: &str) -> bool {
-    matches!(text, "" | "~" | "null" | "Null" | "NULL")
-}
-
-#[derive(Debug)]
-enum Frame {
-    Mapping {
-        keys: HashSet<String>,
-        expecting_key: bool,
-        exec: bool,
-        credential_value: bool,
-    },
-    Sequence {
-        credential_value: bool,
-    },
-}
-
-enum Pending {
-    None,
-    Credential,
-    ExecEnv,
-    ExecMap,
-}
-
-/// `assertPublicationYaml`: walk parsed nodes without converting or expanding aliases.
-pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
-    if bytes.len() > YAML_BYTE_LIMIT {
-        return Err(incomplete_publication_scan());
-    }
-    let text = std::str::from_utf8(bytes).map_err(|_| incomplete_publication_scan())?;
-    let mut parser = Parser::new_from_str(text);
-    let mut frames: Vec<Frame> = Vec::new();
-    let mut documents = 0usize;
-    let mut nodes = 0usize;
-    let mut pending = Pending::None;
-    loop {
-        let (event, _) = match parser.next_token() {
-            Ok(event) => event,
-            Err(_) => return Err(incomplete_publication_scan()),
-        };
-        if matches!(event, Event::StreamEnd | Event::Nothing) {
-            break;
-        }
-        // A collection that is a credential's value is populated as soon as it holds anything.
-        if frames.last().is_some_and(is_credential_value_frame)
-            && !matches!(event, Event::MappingEnd | Event::SequenceEnd)
-        {
-            return Err(sensitive_publication());
-        }
-        match event {
-            Event::StreamStart => {}
-            Event::DocumentStart => {
-                documents += 1;
-                if documents > YAML_DOCUMENT_LIMIT {
-                    return Err(incomplete_publication_scan());
-                }
-                frames.clear();
-                pending = Pending::None;
-            }
-            Event::DocumentEnd => {
-                frames.clear();
-                pending = Pending::None;
-            }
-            Event::Alias(_) => return Err(incomplete_publication_scan()),
-            Event::Scalar(value, _, _, tag) => {
-                nodes += 1;
-                if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
-                    return Err(incomplete_publication_scan());
-                }
-                if let Some(Frame::Mapping {
-                    keys,
-                    expecting_key,
-                    exec,
-                    ..
-                }) = frames.last_mut()
-                    && *expecting_key
-                {
-                    if !keys.insert(value.clone()) {
-                        return Err(incomplete_publication_scan());
-                    }
-                    *expecting_key = false;
-                    let lowered = value.to_ascii_lowercase();
-                    pending = if is_publication_credential_key(&value) {
-                        Pending::Credential
-                    } else if lowered == "exec" {
-                        Pending::ExecMap
-                    } else if *exec && lowered == "env" {
-                        Pending::ExecEnv
-                    } else {
-                        Pending::None
-                    };
-                    continue;
-                }
-                if matches!(pending, Pending::Credential | Pending::ExecEnv)
-                    && !is_null_scalar(&value)
-                {
-                    return Err(sensitive_publication());
-                }
-                if has_sensitive_span(&value) {
-                    return Err(GitError::new(
-                        GitErrorCode::SensitivePublication,
-                        "Sensitive YAML scalar",
-                    ));
-                }
-                pending = Pending::None;
-                mark_value_done(&mut frames);
-            }
-            Event::SequenceStart(_, tag) => {
-                nodes += 1;
-                if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
-                    return Err(incomplete_publication_scan());
-                }
-                if frames.len() > YAML_DEPTH_LIMIT {
-                    return Err(incomplete_publication_scan());
-                }
-                if frames.last().is_some_and(|frame| {
-                    matches!(
-                        frame,
-                        Frame::Mapping {
-                            expecting_key: true,
-                            ..
-                        }
-                    )
-                }) {
-                    return Err(incomplete_publication_scan());
-                }
-                let credential = matches!(pending, Pending::Credential | Pending::ExecEnv);
-                pending = Pending::None;
-                frames.push(Frame::Sequence {
-                    credential_value: credential,
-                });
-            }
-            Event::MappingStart(_, tag) => {
-                nodes += 1;
-                if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
-                    return Err(incomplete_publication_scan());
-                }
-                if frames.len() > YAML_DEPTH_LIMIT {
-                    return Err(incomplete_publication_scan());
-                }
-                if frames.last().is_some_and(|frame| {
-                    matches!(
-                        frame,
-                        Frame::Mapping {
-                            expecting_key: true,
-                            ..
-                        }
-                    )
-                }) {
-                    return Err(incomplete_publication_scan());
-                }
-                let credential = matches!(pending, Pending::Credential | Pending::ExecEnv);
-                let exec = matches!(pending, Pending::ExecMap);
-                pending = Pending::None;
-                frames.push(Frame::Mapping {
-                    keys: HashSet::new(),
-                    expecting_key: true,
-                    exec,
-                    credential_value: credential,
-                });
-            }
-            Event::SequenceEnd | Event::MappingEnd => {
-                let Some(frame) = frames.pop() else {
-                    return Err(incomplete_publication_scan());
-                };
-                if is_credential_value_frame(&frame) {
-                    // An empty credential collection is not a value at all.
-                }
-                mark_value_done(&mut frames);
-            }
-            Event::StreamEnd | Event::Nothing => break,
-        }
-    }
-    Ok(())
-}
-
-fn mark_value_done(frames: &mut [Frame]) {
-    if let Some(Frame::Mapping { expecting_key, .. }) = frames.last_mut() {
-        *expecting_key = true;
-    }
-}
-
-fn is_credential_value_frame(frame: &Frame) -> bool {
-    match frame {
-        Frame::Mapping {
-            credential_value, ..
-        }
-        | Frame::Sequence { credential_value } => *credential_value,
-    }
 }
 
 /// The publication scan: every tracked path and every reachable object of `head`.
@@ -1461,5 +831,104 @@ mod tests {
             .await
             .expect_err("path");
         assert_eq!(error.code, GitErrorCode::SensitivePublication);
+    }
+}
+
+#[cfg(test)]
+mod scan_order_tests {
+    use super::*;
+    use crate::core::spawn::BoxFuture;
+    use crate::reads::{Command, CommandOutput, CommandPort};
+
+    const TREE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const BLOB: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const SECRET: &[u8] = b"password=hunter2\n";
+
+    /// A port that scripts the scan: `rev-list` never names the tree's child, so only a live
+    /// pass over the growing id list ever inspects the blob the tree points at.
+    struct TreeThenBlob;
+
+    impl TreeThenBlob {
+        fn hex(sha: &str) -> Vec<u8> {
+            (0..sha.len())
+                .step_by(2)
+                .map(|index| u8::from_str_radix(&sha[index..index + 2], 16).unwrap_or(0))
+                .collect()
+        }
+
+        fn tree() -> Vec<u8> {
+            let mut tree = b"100644 secret.txt\0".to_vec();
+            tree.extend(Self::hex(BLOB));
+            tree
+        }
+    }
+
+    impl CommandPort for TreeThenBlob {
+        fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = |stdout: Vec<u8>| CommandOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: 0,
+                    truncated: false,
+                    stopped: None,
+                };
+                let first = command.args.first().map(String::as_str).unwrap_or_default();
+                match (first, command.args.get(1).map(String::as_str)) {
+                    ("rev-parse", _) => Ok(output(b"false\n".to_vec())),
+                    ("ls-tree", _) => Ok(output(Vec::new())),
+                    ("rev-list", _) => Ok(output(format!("{TREE}\n").into_bytes())),
+                    ("cat-file", Some("--batch-check")) => {
+                        let input =
+                            String::from_utf8_lossy(command.input.as_deref().unwrap_or(b""))
+                                .into_owned();
+                        let mut body = String::new();
+                        for line in input.lines() {
+                            if line == TREE {
+                                body.push_str(&format!("{TREE} tree {}\n", Self::tree().len()));
+                            } else if line == BLOB {
+                                body.push_str(&format!("{BLOB} blob {}\n", SECRET.len()));
+                            } else {
+                                body.push_str(&format!("{line} blob 1\n"));
+                            }
+                        }
+                        Ok(output(body.into_bytes()))
+                    }
+                    ("cat-file", Some("--batch")) => {
+                        let input =
+                            String::from_utf8_lossy(command.input.as_deref().unwrap_or(b""))
+                                .into_owned();
+                        let tree = Self::tree();
+                        let mut body = Vec::new();
+                        for line in input.lines() {
+                            if line == TREE {
+                                body.extend(format!("{TREE} tree {}\n", tree.len()).into_bytes());
+                                body.extend(&tree);
+                                body.push(b'\n');
+                            } else if line == BLOB {
+                                body.extend(format!("{BLOB} blob {}\n", SECRET.len()).into_bytes());
+                                body.extend(SECRET);
+                                body.push(b'\n');
+                            }
+                        }
+                        Ok(output(body))
+                    }
+                    _ => Err(GitError::new(
+                        GitErrorCode::GitFailed,
+                        "unexpected scan command",
+                    )),
+                }
+            })
+        }
+    }
+
+    // `publication-scan.ts:100-104`: the pass walks the live id list, so an object found through
+    // a tree edge is inspected in the same pass.
+    #[tokio::test]
+    async fn an_object_found_through_a_tree_edge_is_credential_scanned_in_the_same_pass() {
+        let error = scan_publication(&TreeThenBlob, "/repo", "HEAD")
+            .await
+            .expect_err("the tree's child holds a credential");
+        assert_eq!(error.code, GitErrorCode::SensitivePublication, "{error:?}");
     }
 }

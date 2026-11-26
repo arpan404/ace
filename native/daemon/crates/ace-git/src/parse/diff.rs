@@ -64,8 +64,16 @@ pub fn parse_diff(bytes: &[u8]) -> Result<Vec<DiffFile>, GitError> {
             Some(first) if status_schema(&first.to_string()) => first.to_string(),
             _ => return Err(malformed("diff status")),
         };
-        if (status == "R" || status == "C") && count(&code[1..])? > 100 {
-            return Err(malformed("similarity score"));
+        // `^(?:[AMDT]|[RC]\d+)$`: the plain codes have no tail, and R/C carry a score.
+        if matches!(status.as_str(), "R" | "C") {
+            if code.len() < 2 || !code[1..].bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(malformed("diff status"));
+            }
+            if count(&code[1..])? > 100 {
+                return Err(malformed("similarity score"));
+            }
+        } else if code.len() != 1 {
+            return Err(malformed("diff status"));
         }
         let first_path = path_schema(records.next()?).ok_or_else(|| malformed("diff path"))?;
         let renamed = status == "R" || status == "C";
@@ -150,6 +158,9 @@ mod tests {
             ("1\t0\tfile\textra\0".to_owned(), true),
             (String::new(), true),
             ("1\t0\tother\0".to_owned(), true),
+            (format!(":100644 100644 {SHA} {SHA} M50\0file\0"), false),
+            (format!(":100644 100644 {SHA} {SHA} Ax\0file\0"), false),
+            (format!(":100644 100644 {SHA} {SHA} R\0old\0new\0"), false),
         ] {
             let mut output = Vec::new();
             if prefix {

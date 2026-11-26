@@ -1,0 +1,239 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The YAML credential walk (`publication-yaml.ts`, G3d): parsed nodes without converting or
+//! expanding aliases, so unknown tags, aliases and duplicate keys fail closed.
+
+use std::collections::HashSet;
+
+use yaml_rust2::parser::{Event, Parser, Tag};
+
+use crate::core::error::{GitError, GitErrorCode};
+
+use super::credentials::{CredentialValue, has_sensitive_span, is_publication_credential_key};
+use super::{
+    YAML_BYTE_LIMIT, YAML_DEPTH_LIMIT, YAML_DOCUMENT_LIMIT, YAML_NODE_LIMIT, sensitive_publication,
+};
+
+fn yaml_incomplete() -> GitError {
+    GitError::new(
+        GitErrorCode::PublicationScanIncomplete,
+        "YAML credential scan incomplete",
+    )
+}
+
+fn allowed_tag(tag: Option<&Tag>) -> bool {
+    let Some(tag) = tag else {
+        return true;
+    };
+    let full = if tag.handle == "!" {
+        format!("!{}", tag.suffix)
+    } else if tag.handle == "!!" {
+        format!("tag:yaml.org,2002:{}", tag.suffix)
+    } else {
+        format!("{}{}", tag.handle, tag.suffix)
+    };
+    matches!(
+        full.as_str(),
+        "tag:yaml.org,2002:str"
+            | "tag:yaml.org,2002:int"
+            | "tag:yaml.org,2002:float"
+            | "tag:yaml.org,2002:bool"
+            | "tag:yaml.org,2002:null"
+            | "tag:yaml.org,2002:map"
+            | "tag:yaml.org,2002:seq"
+    )
+}
+
+fn is_null_scalar(text: &str) -> bool {
+    matches!(text, "" | "~" | "null" | "Null" | "NULL")
+}
+
+#[derive(Debug)]
+enum Frame {
+    Mapping {
+        keys: HashSet<String>,
+        expecting_key: bool,
+        exec: bool,
+        credential: Option<CredentialValue>,
+    },
+    Sequence {
+        credential: Option<CredentialValue>,
+    },
+}
+
+enum Pending {
+    None,
+    Credential,
+    ExecEnv,
+    ExecMap,
+}
+
+impl Pending {
+    fn credential(&self) -> Option<CredentialValue> {
+        match self {
+            Self::Credential => Some(CredentialValue::Field),
+            Self::ExecEnv => Some(CredentialValue::ExecEnv),
+            _ => None,
+        }
+    }
+}
+
+/// `assertPublicationYaml`: walk parsed nodes without converting or expanding aliases.
+pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
+    if bytes.len() > YAML_BYTE_LIMIT {
+        return Err(yaml_incomplete());
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| yaml_incomplete())?;
+    let mut parser = Parser::new_from_str(text);
+    let mut frames: Vec<Frame> = Vec::new();
+    let mut documents = 0usize;
+    let mut nodes = 0usize;
+    let mut pending = Pending::None;
+    loop {
+        let (event, _) = match parser.next_token() {
+            Ok(event) => event,
+            Err(_) => return Err(yaml_incomplete()),
+        };
+        if matches!(event, Event::StreamEnd | Event::Nothing) {
+            break;
+        }
+        // A collection that is a credential's value is populated as soon as it holds anything.
+        if let Some(credential) = frames.last().and_then(is_credential_value_frame)
+            && !matches!(event, Event::MappingEnd | Event::SequenceEnd)
+        {
+            return Err(credential.sensitive());
+        }
+        match event {
+            Event::StreamStart => {}
+            Event::DocumentStart => {
+                documents += 1;
+                if documents > YAML_DOCUMENT_LIMIT {
+                    return Err(yaml_incomplete());
+                }
+                frames.clear();
+                pending = Pending::None;
+            }
+            Event::DocumentEnd => {
+                frames.clear();
+                pending = Pending::None;
+            }
+            Event::Alias(_) => return Err(yaml_incomplete()),
+            Event::Scalar(value, _, _, tag) => {
+                nodes += 1;
+                if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
+                    return Err(yaml_incomplete());
+                }
+                if let Some(Frame::Mapping {
+                    keys,
+                    expecting_key,
+                    exec,
+                    ..
+                }) = frames.last_mut()
+                    && *expecting_key
+                {
+                    if !keys.insert(value.clone()) {
+                        return Err(yaml_incomplete());
+                    }
+                    *expecting_key = false;
+                    let lowered = value.to_ascii_lowercase();
+                    pending = if is_publication_credential_key(&value) {
+                        Pending::Credential
+                    } else if lowered == "exec" {
+                        Pending::ExecMap
+                    } else if *exec && lowered == "env" {
+                        Pending::ExecEnv
+                    } else {
+                        Pending::None
+                    };
+                    continue;
+                }
+                if matches!(pending, Pending::Credential | Pending::ExecEnv)
+                    && !is_null_scalar(&value)
+                {
+                    return Err(sensitive_publication());
+                }
+                if has_sensitive_span(&value) {
+                    return Err(GitError::new(
+                        GitErrorCode::SensitivePublication,
+                        "Sensitive YAML scalar",
+                    ));
+                }
+                pending = Pending::None;
+                mark_value_done(&mut frames);
+            }
+            Event::SequenceStart(_, tag) => {
+                nodes += 1;
+                if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
+                    return Err(yaml_incomplete());
+                }
+                if frames.len() > YAML_DEPTH_LIMIT {
+                    return Err(yaml_incomplete());
+                }
+                if frames.last().is_some_and(|frame| {
+                    matches!(
+                        frame,
+                        Frame::Mapping {
+                            expecting_key: true,
+                            ..
+                        }
+                    )
+                }) {
+                    return Err(yaml_incomplete());
+                }
+                let credential = pending.credential();
+                pending = Pending::None;
+                frames.push(Frame::Sequence { credential });
+            }
+            Event::MappingStart(_, tag) => {
+                nodes += 1;
+                if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
+                    return Err(yaml_incomplete());
+                }
+                if frames.len() > YAML_DEPTH_LIMIT {
+                    return Err(yaml_incomplete());
+                }
+                if frames.last().is_some_and(|frame| {
+                    matches!(
+                        frame,
+                        Frame::Mapping {
+                            expecting_key: true,
+                            ..
+                        }
+                    )
+                }) {
+                    return Err(yaml_incomplete());
+                }
+                let credential = pending.credential();
+                let exec = matches!(pending, Pending::ExecMap);
+                pending = Pending::None;
+                frames.push(Frame::Mapping {
+                    keys: HashSet::new(),
+                    expecting_key: true,
+                    exec,
+                    credential,
+                });
+            }
+            Event::SequenceEnd | Event::MappingEnd => {
+                let Some(frame) = frames.pop() else {
+                    return Err(yaml_incomplete());
+                };
+                // An empty credential collection is not a value at all.
+                let _ = is_credential_value_frame(&frame);
+                mark_value_done(&mut frames);
+            }
+            Event::StreamEnd | Event::Nothing => break,
+        }
+    }
+    Ok(())
+}
+
+fn mark_value_done(frames: &mut [Frame]) {
+    if let Some(Frame::Mapping { expecting_key, .. }) = frames.last_mut() {
+        *expecting_key = true;
+    }
+}
+
+fn is_credential_value_frame(frame: &Frame) -> Option<CredentialValue> {
+    match frame {
+        Frame::Mapping { credential, .. } | Frame::Sequence { credential } => *credential,
+    }
+}

@@ -55,8 +55,8 @@ fn sub_ok(value: &str) -> bool {
     let characters: Vec<char> = value.chars().collect();
     match characters.as_slice() {
         ['N', '.', '.', '.'] => true,
-        ['S', submodule, commit, modified, untracked] => {
-            matches!(submodule, '.' | 'C')
+        ['S', commit, modified, untracked] => {
+            matches!(commit, '.' | 'C')
                 && matches!(commit, '.' | 'M')
                 && matches!(modified, '.' | 'U')
                 && matches!(untracked, '.' | 'U')

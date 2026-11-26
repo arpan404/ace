@@ -297,7 +297,7 @@ pub fn git_install(exec_path: &str) -> Option<String> {
 
 /// ECMAScript's `\s`: WhiteSpace plus LineTerminator. It is not ASCII — U+00A0 and U+FEFF
 /// split, while U+0085 (which Rust's `is_whitespace` also splits on) does not.
-fn js_whitespace(character: char) -> bool {
+pub(crate) fn js_whitespace(character: char) -> bool {
     matches!(
         character,
         '\u{0009}'
@@ -620,6 +620,20 @@ mod tests {
             vec!["/repo/hooks/a.sh".to_owned(), "/repo/hooks/b.sh".to_owned()]
         );
         assert!(hook_command_paths("check.sh", "/repo").is_empty());
+        // ECMAScript `\s` is not ASCII: NBSP and a BOM split (Rust's `split_whitespace` also
+        // splits NBSP but not the BOM), and NEL stays inside the word (Rust's would split it).
+        assert_eq!(
+            hook_command_paths("a\u{a0}hooks/b.sh", "/repo"),
+            vec!["/repo/hooks/b.sh".to_owned()]
+        );
+        assert_eq!(
+            hook_command_paths("a\u{feff}hooks/b.sh", "/repo"),
+            vec!["/repo/hooks/b.sh".to_owned()]
+        );
+        assert_eq!(
+            hook_command_paths("a\u{85}hooks/b.sh", "/repo"),
+            vec!["/repo/a\u{85}hooks/b.sh".to_owned()]
+        );
     }
 
     #[tokio::test]

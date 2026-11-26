@@ -116,11 +116,28 @@ pub struct CommandOutput {
     pub stderr: String,
     pub exit_code: i32,
     pub truncated: bool,
+    /// Why Git was stopped early: `capture` or `budget` (`GitCli.call`'s `stopped`).
+    pub stopped: Option<String>,
 }
 
 /// The port that runs one read command.
 pub trait CommandPort: Send + Sync {
     fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>>;
+
+    /// Runs `command` feeding stdout to `consume` as it arrives, so a caller never has to hold
+    /// the whole output. The default runs the command whole and hands over its bytes; a wiring
+    /// that streams (the supervisor) overrides it.
+    fn run_streaming<'a>(
+        &'a self,
+        command: Command,
+        consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+    ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+        Box::pin(async move {
+            let output = self.run(command).await?;
+            consume(&output.stdout);
+            Ok(output)
+        })
+    }
 }
 
 /// A read whose failure is an error: the command's stderr is the message (`GitCli.call`).
@@ -133,11 +150,25 @@ pub async fn checked(port: &dyn CommandPort, command: Command) -> Result<Command
     Ok(output)
 }
 
+/// A streaming read whose failure is an error, as [`checked`] is for a whole capture.
+pub async fn checked_streaming(
+    port: &dyn CommandPort,
+    command: Command,
+    consume: &(dyn Fn(&[u8]) + Send + Sync),
+) -> Result<CommandOutput, GitError> {
+    let allow_failure = command.allow_failure;
+    let output = port.run_streaming(command, consume).await?;
+    if !allow_failure && output.exit_code != 0 {
+        return Err(GitError::new(GitErrorCode::GitFailed, output.stderr));
+    }
+    Ok(output)
+}
+
 /// The text of a `textOutput` read: strict UTF-8, one trailing newline removed.
 pub fn text_output(bytes: &[u8]) -> Result<String, GitError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| GitError::new(GitErrorCode::MalformedOutput, "Malformed Git text output"))?;
-    Ok(text.strip_suffix('\n').unwrap_or(text).to_owned())
+    Ok(crate::core::paths::strip_terminator(text, false).to_owned())
 }
 
 #[cfg(test)]
@@ -203,6 +234,7 @@ pub(crate) mod test_support {
                     stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                     exit_code: output.status.code().unwrap_or(-1),
                     truncated,
+                    stopped: None,
                 })
             })
         }

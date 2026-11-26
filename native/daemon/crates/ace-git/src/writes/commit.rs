@@ -45,7 +45,7 @@ fn commit_paths(paths: &[String]) -> Result<Vec<String>, GitError> {
         return Err(invalid("Name between 1 and 1000 paths to commit"));
     }
     for path in paths {
-        if path.is_empty() || path.encode_utf16().count() > MAX_PATH_LENGTH || path.contains('\0') {
+        if path.is_empty() || path.chars().count() > MAX_PATH_LENGTH || path.contains('\0') {
             return Err(invalid("Name between 1 and 1000 paths to commit"));
         }
     }
@@ -82,8 +82,12 @@ pub async fn commit_changes(
     request: &CommitRequest,
 ) -> Result<String, GitError> {
     let message = request.message.trim();
-    if message.is_empty() || message.encode_utf16().count() > MAX_COMMIT_MESSAGE_LENGTH {
+    if message.is_empty() {
         return Err(invalid("A commit message is required"));
+    }
+    // The zod bound counts code points, so an astral character is one.
+    if message.chars().count() > MAX_COMMIT_MESSAGE_LENGTH {
+        return Err(invalid("The commit message is too long"));
     }
     if let Some(expected) = &request.expected_head
         && hash_schema(expected).is_none()
@@ -314,6 +318,33 @@ mod tests {
                 .code,
             GitErrorCode::StagedMeanwhile
         );
+    }
+
+    #[tokio::test]
+    async fn the_path_and_message_bounds_count_code_points_not_utf16_units() {
+        // A zod bound counts code points: 4,096 emoji are 4,096 code points and 8,192 UTF-16
+        // units, so the path is accepted; one more code point is not.
+        let longest = "\u{1F600}".repeat(4096);
+        assert!(commit_paths(std::slice::from_ref(&longest)).is_ok());
+        assert_eq!(
+            commit_paths(&[format!("{longest}\u{1F600}")])
+                .expect_err("too long")
+                .code,
+            GitErrorCode::InvalidArgument
+        );
+        // The message's 65,536 bound counts code points too: 33,000 emoji (66,000 UTF-16 units)
+        // commit, where a UTF-16 bound would refuse them.
+        let fixture = Fixture::new("g4a-emoji-message");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        std::fs::write(repo.join("file.txt"), "changed\n").expect("change");
+        let mut request = request(&"\u{1F600}".repeat(33_000));
+        request.expected_head = crate::reads::info::head(&port, &repo.to_string_lossy())
+            .await
+            .expect("head");
+        commit_changes(&port, &repo.to_string_lossy(), &request)
+            .await
+            .expect("the message is within the code-point bound");
     }
 
     #[tokio::test]

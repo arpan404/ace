@@ -76,6 +76,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_changed_submodule_is_a_status_entry_with_its_four_character_flag() {
+        // A real gitlink: `git update-index --cacheinfo 160000,<sha>,sub`. Git reports `S...`,
+        // which the parser must accept (the submodule schema is four characters, not five).
+        let fixture = Fixture::new("g3a-status-gitlink");
+        let repo = fixture.repository("repo");
+        let shas = fixture.git(&repo, &["rev-list", "--all"]);
+        let sha = String::from_utf8_lossy(&shas)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        fixture.git(
+            &repo,
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("160000,{sha},sub"),
+            ],
+        );
+        let port = ProcessCommands { fixture: &fixture };
+        let state = state(&port, &repo.to_string_lossy(), &[])
+            .await
+            .expect("gitlink status");
+        let entry = state
+            .status
+            .staged
+            .iter()
+            .find(|entry| entry.path == "sub")
+            .expect("the gitlink entry");
+        assert_eq!(entry.submodule, "S...");
+    }
+
+    #[tokio::test]
     async fn a_linked_worktree_nested_in_the_checkout_reads_as_one_untracked_directory() {
         let fixture = Fixture::new("g3a-status-linked");
         let repo = fixture.repository("repo");

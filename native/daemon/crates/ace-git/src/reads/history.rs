@@ -116,9 +116,11 @@ pub async fn file_log(
     let total = parsed.entries.len();
     let mut entries = parsed.entries;
     entries.truncate(limit);
-    // A work budget that fires arrives as the output's stopped reason with the supervisor
-    // wiring; the read reports "budget" from there and "limit" from the walk itself.
-    let stopped = if total > limit || parsed.incomplete {
+    // A work budget that fires is the output's own stop reason; everything else that ends the
+    // list early ended it at the count or the byte cap.
+    let stopped = if output.stopped.as_deref() == Some("budget") {
+        Some("budget".to_owned())
+    } else if total > limit || parsed.incomplete {
         Some("limit".to_owned())
     } else {
         None
@@ -424,5 +426,64 @@ mod tests {
             .expect_err(commit);
             assert_eq!(error.code, GitErrorCode::InvalidRef, "{commit}");
         }
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use crate::core::credentials::test_support::Fixture;
+    use crate::core::spawn::BoxFuture;
+    use crate::reads::test_support::ProcessCommands;
+    use crate::reads::{Command, CommandOutput};
+
+    /// A port that answers the log walk with a complete entry and the supervisor's budget stop.
+    struct BudgetLog<'a> {
+        inner: ProcessCommands<'a>,
+        body: Vec<u8>,
+    }
+
+    impl crate::reads::CommandPort for BudgetLog<'_> {
+        fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+            if command.args.iter().any(|arg| arg == "log") {
+                let body = self.body.clone();
+                return Box::pin(async move {
+                    Ok(CommandOutput {
+                        stdout: body,
+                        stderr: String::new(),
+                        exit_code: 0,
+                        truncated: false,
+                        stopped: Some("budget".to_owned()),
+                    })
+                });
+            }
+            self.inner.run(command)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_budget_stop_is_reported_as_budget_not_as_the_count_limit() {
+        let fixture = Fixture::new("g3c-budget");
+        let repo = fixture.repository("repo");
+        let head = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "HEAD"]))
+            .trim_end()
+            .to_owned();
+        let body = format!("{head}\0Ana\0ana@example.invalid\01700000000\0subject\0\0");
+        let port = BudgetLog {
+            inner: ProcessCommands { fixture: &fixture },
+            body: body.into_bytes(),
+        };
+        let result = file_log(
+            &port,
+            &repo.to_string_lossy(),
+            "file.txt",
+            200,
+            GIT_LOG_MAX_BYTES,
+            HISTORY_BUDGET_MS,
+        )
+        .await
+        .expect("log");
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.stopped.as_deref(), Some("budget"));
     }
 }

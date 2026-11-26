@@ -8,7 +8,7 @@
 use crate::core::decode::path_schema;
 use crate::core::error::{GitError, GitErrorCode};
 use crate::reads::line_window::{LineWindow, RevisionLines};
-use crate::reads::{Command, CommandPort, checked};
+use crate::reads::{Command, CommandPort, checked_streaming};
 
 /// The most characters one window may carry.
 pub const REVIEW_MAX_CHARS: usize = 8192;
@@ -45,20 +45,30 @@ pub async fn read_revision_lines(
     let path = path_schema(path).ok_or_else(|| invalid(format!("Invalid review path: {path}")))?;
     let ReviewRevision::Commit(reference) = revision;
     let sha = crate::reads::diff::resolve_commit(port, root, reference).await?;
-    let output = checked(
+    // `captureBytes: 0` + `consume`: the blob is decoded and windowed as it arrives, never held
+    // whole. The default port hands the bytes over in one piece; the wiring streams them.
+    let window = std::sync::Mutex::new(LineWindow::new(start, end, REVIEW_MAX_CHARS));
+    let consume = |chunk: &[u8]| {
+        if let Ok(mut window) = window.lock() {
+            window.append(&String::from_utf8_lossy(chunk));
+        }
+    };
+    checked_streaming(
         port,
         Command::new(root, &["cat-file", "blob", &format!("{sha}:{path}")]),
+        &consume,
     )
     .await?;
-    // The wiring streams these bytes into the window; a whole read here appends them once.
-    let mut window = LineWindow::new(start, end, REVIEW_MAX_CHARS);
-    window.append(&String::from_utf8_lossy(&output.stdout));
-    window.finish().ok_or_else(|| {
-        GitError::new(
-            GitErrorCode::OutputTooLarge,
-            "Review line window exceeds 8192 characters",
-        )
-    })
+    window
+        .into_inner()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .finish()
+        .ok_or_else(|| {
+            GitError::new(
+                GitErrorCode::OutputTooLarge,
+                "Review line window exceeds 8192 characters",
+            )
+        })
 }
 
 #[cfg(test)]
