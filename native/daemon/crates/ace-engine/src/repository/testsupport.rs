@@ -105,6 +105,10 @@ pub(crate) struct Shell {
     admits_answer: Cell<Option<bool>>,
     admits_calls: Cell<u32>,
     admits_throw_from: Cell<Option<u32>>,
+    /// The thread rows `getThread` answers, by id: a receipt's own read.
+    threads: RefCell<std::collections::HashMap<String, String>>,
+    /// Every event batch the store's writer was given.
+    written: RefCell<Vec<(String, String, f64)>>,
 }
 
 impl Shell {
@@ -174,6 +178,29 @@ impl Shell {
         self.admits_calls.get()
     }
 
+    /// The row `getThread` answers for `id`.
+    pub fn set_thread(&self, id: &str, row: String) {
+        self.threads.borrow_mut().insert(id.to_owned(), row);
+    }
+
+    /// The event types written for one thread, in order.
+    pub fn written_types(&self, thread: &str) -> Vec<String> {
+        let mut kinds = Vec::new();
+        for (id, payloads, _) in self.written.borrow().iter() {
+            if id != thread {
+                continue;
+            }
+            if let Ok(ace_json::Value::Array(items)) = ace_json::parse(payloads) {
+                for item in items.iter() {
+                    if let Some(kind) = item.get("type").and_then(ace_json::Value::as_str) {
+                        kinds.push(kind.to_owned());
+                    }
+                }
+            }
+        }
+        kinds
+    }
+
     fn make(conn: &Arc<Connection>, fail_open: bool) -> (EngineStore, std::rc::Rc<Shell>) {
         let shell = std::rc::Rc::new(Shell {
             conn: Arc::clone(conn),
@@ -192,6 +219,8 @@ impl Shell {
             admits_answer: Cell::new(None),
             admits_calls: Cell::new(0),
             admits_throw_from: Cell::new(None),
+            threads: RefCell::new(std::collections::HashMap::new()),
+            written: RefCell::new(Vec::new()),
         });
         let store = EngineStore {
             ports: shell.clone(),
@@ -324,15 +353,17 @@ impl Ports for Shell {
     fn append_events(&self, _json: &str) -> Result<(), PortError> {
         Ok(())
     }
-    fn get_thread(&self, _thread: &str) -> Result<Option<String>, PortError> {
-        // The shell's thread row is not what a repository case reads; no row is the answer a
-        // store with no such thread gives.
-        Ok(None)
+    fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
+        // The row a receipt reads: a repository case seeds none, so it reads no row.
+        Ok(self.threads.borrow().get(thread).cloned())
     }
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
     fn finish_close(&self) {}
-    fn write_events(&self, _thread: &str, _payloads: &str, _at: f64) -> Result<(), PortError> {
+    fn write_events(&self, thread: &str, payloads: &str, at: f64) -> Result<(), PortError> {
+        self.written
+            .borrow_mut()
+            .push((thread.to_owned(), payloads.to_owned(), at));
         Ok(())
     }
     fn head_seq(&self) -> Result<f64, PortError> {

@@ -48,6 +48,8 @@ impl Engine {
             limits,
             ..State::default()
         };
+        // `maxActiveThreads` decides how many threads keep a resident slot (`index.ts:191`).
+        state.repo = crate::repository::Repo::open(limits.max_active_threads as usize);
         state.registry.set_entries(registry_json)?;
         let (ready_tx, ready_rx) = oneshot::channel();
         let core = Rc::new(Core {

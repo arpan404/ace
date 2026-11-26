@@ -25,6 +25,27 @@ pub struct Admission {
     pub owner: u64,
 }
 
+/// The engine's side of a reservation: the thread row, the slot, and its release. A receipt
+/// splits `State` so the reservation and the repository are borrowed apart.
+pub struct RepoStore<'a> {
+    pub repo: &'a mut crate::repository::Repo,
+    pub store: &'a crate::EngineStore,
+}
+
+impl CreationStore for RepoStore<'_> {
+    fn thread_exists(&self, id: &str) -> bool {
+        self.store.get_thread(id).ok().flatten().is_some()
+    }
+
+    fn reserve(&mut self, id: &str) -> bool {
+        self.repo.reserve(self.store, id).unwrap_or(false)
+    }
+
+    fn release(&mut self, id: &str) {
+        let _ = self.repo.release_slot(self.store, id);
+    }
+}
+
 /// `CreationAdmissions`: one reservation per thread id.
 #[derive(Debug, Default)]
 pub struct CreationAdmissions {
