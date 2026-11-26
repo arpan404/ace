@@ -302,6 +302,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-provider-login"
+version = "0.1.0"
+dependencies = [
+ "ace-protocol",
+ "futures",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "ace-provider-setup"
+version = "0.1.0"
+
+[[package]]
 name = "ace-provider-status"
 version = "0.1.0"
 dependencies = [
