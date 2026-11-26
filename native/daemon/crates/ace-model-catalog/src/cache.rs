@@ -335,6 +335,21 @@ pub fn encode_entry(entry: &CacheEntry) -> Result<Value, CacheError> {
     Ok(Value::Object(root))
 }
 
+/// The row checks a cached entry must pass before it is stored (`CachedEntry.refine`).
+pub fn validate_entry(entry: &CacheEntry) -> Result<(), CacheError> {
+    let mut seen = Vec::with_capacity(entry.models.len());
+    for row in &entry.models {
+        if row.instance.0 != entry.instance || row.provider != entry.provider {
+            return Err(CacheError::RowMismatch);
+        }
+        if seen.contains(&row.id.0) {
+            return Err(CacheError::RowMismatch);
+        }
+        seen.push(row.id.0.clone());
+    }
+    Ok(())
+}
+
 /// Reads a whole cache, refusing more than 576 persisted instances (`storage.ts`).
 pub fn decode_entries(
     payloads: impl IntoIterator<Item = Value>,
@@ -351,6 +366,10 @@ pub trait CatalogStorage {
     fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError>;
     fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError>;
     fn remove(&mut self, instance: &str) -> Result<(), CacheError>;
+    /// Releases the storage's own resources. The default keeps in-memory stores open.
+    fn close(&mut self) -> Result<(), CacheError> {
+        Ok(())
+    }
 }
 
 /// The bounds every storage implementation keeps, and an in-memory one for tests.
@@ -378,6 +397,7 @@ impl CatalogStorage for MemoryStorage {
     }
 
     fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError> {
+        validate_entry(entry)?;
         let payload = encode_entry(entry)?;
         let bytes = serde_json::to_string(&payload)
             .map_err(|_| CacheError::Malformed)?
@@ -638,7 +658,8 @@ mod tests {
     fn an_acp_entry_is_held_to_256_kib_while_a_cli_entry_may_reach_4_mib() {
         let mut storage = MemoryStorage::new();
         let mut acp = stored(ProviderKind::Acp, "agent");
-        let mut padded = row("a");
+        let agent = ModelInstance::cli("agent", ProviderKind::Acp, "", "/repo");
+        let mut padded = ace_models::row::base(&agent, "model", "model", &json!({}));
         padded.raw = ace_protocol::generated::CatalogRaw {
             json: "x".repeat(2048),
             truncated: false,
@@ -654,6 +675,21 @@ mod tests {
         let mut cli = acp.clone();
         cli.provider = ProviderKind::Codex;
         cli.instance = "account".into();
+        let account = ModelInstance::cli("account", ProviderKind::Codex, "", "/repo");
+        cli.models = acp
+            .models
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let mut next =
+                    ace_models::row::base(&account, &format!("model-{index}"), "model", &json!({}));
+                next.raw = ace_protocol::generated::CatalogRaw {
+                    json: "x".repeat(2048),
+                    truncated: false,
+                };
+                std::sync::Arc::new(next)
+            })
+            .collect();
         storage
             .replace(&cli)
             .unwrap_or_else(|_| panic!("a CLI row may weigh up to 4 MiB"));
@@ -695,24 +731,30 @@ impl SharedStorage {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    pub fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError> {
+        let mut guard = self.lock();
+        guard.as_mut().load()
+    }
+
+    pub fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError> {
+        let mut guard = self.lock();
+        guard.as_mut().replace(entry)
+    }
+
+    pub fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
+        let mut guard = self.lock();
+        guard.as_mut().remove(instance)
+    }
+
+    pub fn close(&mut self) -> Result<(), CacheError> {
+        let mut guard = self.lock();
+        guard.as_mut().close()
+    }
 }
 
 impl std::fmt::Debug for SharedStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SharedStorage")
-    }
-}
-
-impl CatalogStorage for SharedStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError> {
-        self.lock().load()
-    }
-
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError> {
-        self.lock().replace(entry)
-    }
-
-    fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
-        self.lock().remove(instance)
     }
 }
