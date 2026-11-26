@@ -400,3 +400,50 @@ fn a_github_body_is_sliced_to_utf16_units_at_the_boundary() {
     assert_eq!(sliced.encode_utf16().count(), 8192);
     assert_eq!(sliced.chars().count(), 4096);
 }
+
+#[test]
+fn a_long_pull_request_body_is_accepted_and_sliced_not_refused() {
+    let body = "a".repeat(9000);
+    let gh = FakeGh::default();
+    gh.push(ok(None, "[]", None));
+    let baseline = poll_github(&gh, &trigger("pr_changed"), &json("{}")).expect("baseline");
+    gh.push(ok(
+        None,
+        &format!(
+            r#"[{{"id":1,"updated_at":"2024-01-01T00:00:00Z","html_url":"u","body":"{body}"}}]"#
+        ),
+        None,
+    ));
+    let events = poll_github(&gh, &trigger("pr_changed"), &serde_state(&baseline.state))
+        .expect("a long body is not invalid")
+        .events;
+    assert_eq!(
+        events[0].variables.get("body").map(String::as_str),
+        Some("a".repeat(8192).as_str())
+    );
+}
+
+#[test]
+fn a_body_cut_through_a_surrogate_pair_keeps_the_typescript_unit_count() {
+    // 8,191 units then an astral character: the slice ends between its surrogate halves.
+    let body = format!("a{}{}", "\u{1F600}".repeat(4095), "\u{1F600}");
+    let gh = FakeGh::default();
+    gh.push(ok(None, "[]", None));
+    let baseline = poll_github(&gh, &trigger("pr_changed"), &json("{}")).expect("baseline");
+    gh.push(ok(
+        None,
+        &format!(
+            r#"[{{"id":1,"updated_at":"2024-01-01T00:00:00Z","html_url":"u","body":"{body}"}}]"#
+        ),
+        None,
+    ));
+    let events = poll_github(&gh, &trigger("pr_changed"), &serde_state(&baseline.state))
+        .expect("the cut is not refused")
+        .events;
+    let sliced = events[0].variables.get("body").expect("body");
+    assert_eq!(sliced.encode_utf16().count(), 8192);
+    assert!(
+        sliced.ends_with('\u{FFFD}'),
+        "the lone half reads as a replacement character"
+    );
+}

@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use ace_json::Value;
+use ace_json::{JsString, Value};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AutomationsError, Result};
@@ -131,21 +131,15 @@ pub fn endpoint(trigger: &GithubTrigger) -> String {
     }
 }
 
+/// `String.prototype.slice(0, limit)` over UTF-16 units, as `github.ts:81` writes it. A cut
+/// through a surrogate pair leaves a lone surrogate, which only [`JsString`] holds; its display
+/// text keeps the same unit count with U+FFFD for that half.
 fn slice_utf16(text: &str, limit: usize) -> String {
-    if text.encode_utf16().count() <= limit {
-        return text.to_owned();
+    let sliced = JsString::from(text).slice_units(0, limit);
+    match sliced.into_string() {
+        Ok(text) => text,
+        Err(sliced) => sliced.as_str().to_owned(),
     }
-    let mut units = 0usize;
-    let mut out = String::new();
-    for character in text.chars() {
-        let width = character.len_utf16();
-        if units + width > limit {
-            break;
-        }
-        units += width;
-        out.push(character);
-    }
-    out
 }
 
 fn entries(data: &Value, trigger: &GithubTrigger) -> Result<Vec<GithubEntry>> {
@@ -184,10 +178,6 @@ fn entries(data: &Value, trigger: &GithubTrigger) -> Result<Vec<GithubEntry>> {
                 .title
                 .as_ref()
                 .is_none_or(|title| title.chars().count() <= 8192)
-            && resource
-                .body
-                .as_ref()
-                .is_none_or(|body| body.chars().count() <= 8192)
             && resource.number.is_none_or(|number| number > 0)
             && resource.labels.as_ref().is_none_or(|labels| {
                 labels.len() <= 100 && labels.iter().all(|label| label.name.chars().count() <= 256)
