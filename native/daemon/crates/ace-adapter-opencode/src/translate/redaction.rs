@@ -13,11 +13,13 @@ const MAX_ENTRIES: usize = 2048;
 const MAX_DEPTH: u32 = 12;
 
 /// Sanitize unknown evidence, borrowing it when there is nothing to change.
-pub fn sanitize<'a>(value: &'a Value, secrets: &[&str]) -> Cow<'a, Value> {
+/// Secrets are generic so a caller that owns them (the session core) passes its
+/// list without building a slice of references per event.
+pub fn sanitize<'a, S: AsRef<str>>(value: &'a Value, secrets: &[S]) -> Cow<'a, Value> {
     sanitize_at(value, secrets, 0)
 }
 
-fn sanitize_at<'a>(value: &'a Value, secrets: &[&str], depth: u32) -> Cow<'a, Value> {
+fn sanitize_at<'a, S: AsRef<str>>(value: &'a Value, secrets: &[S], depth: u32) -> Cow<'a, Value> {
     if depth > MAX_DEPTH {
         return Cow::Owned(Value::from(String::from("[depth limit]")));
     }
@@ -62,10 +64,10 @@ fn sanitize_at<'a>(value: &'a Value, secrets: &[&str], depth: u32) -> Cow<'a, Va
     }
 }
 
-fn sanitize_object<'a>(
+fn sanitize_object<'a, S: AsRef<str>>(
     value: &'a Value,
     map: &'a Map,
-    secrets: &[&str],
+    secrets: &[S],
     depth: u32,
 ) -> Cow<'a, Value> {
     let count = map.len().min(MAX_ENTRIES);
@@ -108,9 +110,10 @@ fn sanitize_object<'a>(
 
 /// Truncate to a million UTF-16 code units, replace listed secrets, then
 /// `Authorization`/`Basic` credentials.
-fn sanitize_text<'a>(text: &'a str, secrets: &[&str]) -> Cow<'a, str> {
+fn sanitize_text<'a, S: AsRef<str>>(text: &'a str, secrets: &[S]) -> Cow<'a, str> {
     let mut current = Cow::Borrowed(truncate_units(text));
     for secret in secrets {
+        let secret = secret.as_ref();
         if !secret.is_empty() && current.contains(secret) {
             current = Cow::Owned(current.replace(secret, "[redacted]"));
         }
@@ -273,7 +276,7 @@ mod tests {
                 "native": { "itemId": "rs_1", "reasoningEncryptedContent": "secret-21" },
             },
         });
-        let clean = sanitize(&event, &[]);
+        let clean = sanitize(&event, &[] as &[&str]);
         assert_eq!(
             clean.into_owned(),
             json!({
@@ -291,7 +294,7 @@ mod tests {
     #[test]
     fn native_substrings_are_not_redacted() {
         let value = json!({ "nativeSessionId": "ses_1", "native_name": "shell" });
-        assert_eq!(sanitize(&value, &[]).into_owned(), value);
+        assert_eq!(sanitize(&value, &[] as &[&str]).into_owned(), value);
     }
 
     /// Credentials and session secrets are redacted deep inside evidence,
@@ -338,7 +341,7 @@ mod tests {
             deep = json!({ "deep": deep });
         }
         let value = json!({ "wide": wide, "fields": fields, "deep": deep });
-        let clean = sanitize(&value, &[]);
+        let clean = sanitize(&value, &[] as &[&str]);
         let text = ace_json::ser::to_string(&clean).expect("sanitized evidence serializes");
         assert_eq!(
             clean["wide"].as_array().map(|items| items.len()),
@@ -356,6 +359,6 @@ mod tests {
     #[test]
     fn nested_objects_keep_only_their_own_fields() {
         let value = json!({ "when": {}, "map": {} });
-        assert_eq!(sanitize(&value, &[]).into_owned(), value);
+        assert_eq!(sanitize(&value, &[] as &[&str]).into_owned(), value);
     }
 }

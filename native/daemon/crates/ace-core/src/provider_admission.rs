@@ -15,7 +15,8 @@ pub struct ProviderThread {
 /// What the policy asks the engine.
 pub trait ProviderAdmissionFacts {
     fn thread(&self, id: &str) -> Option<ProviderThread>;
-    fn default_instance(&self, provider: &str) -> Option<String>;
+    /// A port that throws answers `Err` with its message; the receipt rolls back.
+    fn default_instance(&self, provider: &str) -> Result<Option<String>, String>;
     /// A port that throws answers `Err` with its message; the receipt rolls back.
     fn enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, String>;
 }
@@ -60,7 +61,7 @@ pub fn provider_command_disabled(
                 .map(str::to_owned)
         })
         .or_else(|| thread.as_ref().map(|thread| thread.provider.clone()));
-    let instance = text(payload.get("instanceId"))
+    let mut instance = text(payload.get("instanceId"))
         .or_else(|| text(payload.get("accountId")))
         .or_else(|| text(payload.get("account")))
         .or_else(|| {
@@ -75,12 +76,12 @@ pub fn provider_command_disabled(
                     .then(|| thread.instance_id.clone())
                     .flatten()
             })
-        })
-        .or_else(|| {
-            provider
-                .as_deref()
-                .and_then(|provider| facts.default_instance(provider))
         });
+    if instance.is_none()
+        && let Some(provider) = provider.as_deref()
+    {
+        instance = facts.default_instance(provider)?;
+    }
     if let Some(provider) = provider.as_deref()
         && !facts.enabled(provider, instance.as_deref())?
     {
@@ -93,10 +94,10 @@ pub fn provider_command_disabled(
             .and_then(|thread| thread.parent_thread_id.as_deref())
         && let Some(destination) = facts.thread(parent)
     {
-        let instance = destination
-            .instance_id
-            .clone()
-            .or_else(|| facts.default_instance(&destination.provider));
+        let instance = match destination.instance_id.clone() {
+            Some(instance) => Some(instance),
+            None => facts.default_instance(&destination.provider)?,
+        };
         if !facts.enabled(&destination.provider, instance.as_deref())? {
             return Ok(true);
         }
@@ -120,8 +121,8 @@ mod tests {
                 parent_thread_id: None,
             })
         }
-        fn default_instance(&self, _provider: &str) -> Option<String> {
-            None
+        fn default_instance(&self, _provider: &str) -> Result<Option<String>, String> {
+            Ok(None)
         }
         fn enabled(&self, _provider: &str, _instance: Option<&str>) -> Result<bool, String> {
             Ok(!self.disabled)

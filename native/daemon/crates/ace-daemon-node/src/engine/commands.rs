@@ -30,9 +30,9 @@ impl NativeEngine {
 
     /// `admissionReopened`: arm the queue deadline timer again.
     #[napi]
-    pub fn admission_reopened(&self) {
+    pub fn admission_reopened(&self) -> napi::Result<()> {
         let core = self.engine.core();
-        let _ = ace_engine::queue::holds::schedule(core);
+        ace_engine::queue::holds::schedule(core).map_err(engine_error)
     }
 
     /// `prepareCommand`: without a silence or preferences port there is no store work to do.

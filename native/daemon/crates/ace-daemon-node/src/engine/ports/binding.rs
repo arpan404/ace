@@ -2,7 +2,7 @@
 //! `Ports` over the shell's function references: every engine port call, in one place.
 
 use ace_engine::futures::future::LocalBoxFuture;
-use ace_engine::ports::{OpenFrame, PortError, Ports, Timer};
+use ace_engine::ports::{OpenFrame, PortError, Ports, ResetAt, Timer};
 use napi::bindgen_prelude::FnArgs;
 
 use super::JsPorts;
@@ -210,30 +210,40 @@ impl Ports for JsPorts {
         self.has_move_target
     }
 
-    fn admits(&self) -> bool {
-        self.call(&self.admits, ()).unwrap_or(true)
+    fn admits(&self) -> Result<bool, PortError> {
+        self.call(&self.admits, ())
     }
 
     fn has_reset_at(&self) -> bool {
         self.has_reset_at
     }
 
-    fn reset_at(&self, thread: &str) -> Option<Option<i64>> {
-        let function = self.reset_at.as_ref()?;
-        let value = self.call(function, thread.to_owned()).ok()?;
-        Some(value.map(|at| at as i64))
+    fn reset_at(&self, thread: &str) -> Result<Option<ResetAt>, PortError> {
+        let Some(function) = self.reset_at.as_ref() else {
+            return Ok(None);
+        };
+        let answer = self.call(function, thread.to_owned())?;
+        Ok(Some(match answer.tag.as_str() {
+            "null" => ResetAt::Null,
+            "at" => ResetAt::At(answer.at.unwrap_or_default() as i64),
+            _ => ResetAt::Undefined,
+        }))
     }
 
-    fn select_instance(&self, provider: &str, backend: Option<&str>) -> Option<String> {
-        let function = self.select_instance.as_ref()?;
+    fn select_instance(
+        &self,
+        provider: &str,
+        backend: Option<&str>,
+    ) -> Result<Option<String>, PortError> {
+        let Some(function) = self.select_instance.as_ref() else {
+            return Ok(None);
+        };
         self.call(
             function,
             FnArgs {
                 data: (provider.to_owned(), backend.map(str::to_owned)),
             },
         )
-        .ok()
-        .flatten()
     }
 
     fn provider_enabled(&self, provider: &str, instance: Option<&str>) -> Result<bool, PortError> {

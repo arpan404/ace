@@ -140,7 +140,7 @@ impl NativeDatabase {
                 .get_named_property("admits")
                 .map_err(|_| napi::Error::from_reason("admits is missing"))?,
             bindings
-                .get_named_property::<FunctionRef<String, Option<f64>>>("resetAt")
+                .get_named_property::<FunctionRef<String, super::ports::ResetAtJs>>("resetAt")
                 .ok(),
             bindings.get_named_property("selectInstance").ok(),
         )?);

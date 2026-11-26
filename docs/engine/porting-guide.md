@@ -1995,7 +1995,8 @@ Steps, in order:
 
 1. `capture.rs`: `capture(value: &Value, bearer: Option<&str>) -> Result<String, CaptureError>`:
    count the nodes of `value` in one linear pass (32,768, `payload.ts:25`–`:28`, its message
-   "Provider payload exceeds structural limit"), then `elided_json(value)`, then replace every
+   "Provider payload exceeds structural limit"), then `elided_text(value)` (elide while writing,
+   never a tree copy), then replace every
    occurrence of the bearer with `<ACE_MCP_CREDENTIAL>` (`injection.ts:212`–`:214`), then the byte
    bound (`maxProviderPayloadBytes`, 1 MiB, `payload.ts:4`, "Provider payload exceeds byte
    limit"). This is the order today's `new ProviderPayload(redactMcpCredential(elidedJson(data)))`
@@ -2066,6 +2067,8 @@ reached")` (claude-session.md intended difference 5). Only when every message pa
     `pushed > 0` makes it today (`:413`–`:419`);
   - `stdin_written`, `stdin_error`, `write_refused` as `PiWire`'s (E3-pi.1 step 4), with
     `Uncertain` for a write that may have reached the CLI.
+  - The exit message (`session.ts:262`–`:266`) is deferred to E3-claude.4 step 12: it needs the
+    process exit's code, signal or reason, which the wire never sees.
 
 - **Exact**: every message above; the answer envelopes (`agent_stream_json::host`); the frames and
   their order; `send` writes nothing unless every message passes.
