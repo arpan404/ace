@@ -119,6 +119,46 @@ pub fn lost_work(
     Some(units(&format!("{instruction}\n{body}"), CONTINUATION_UNITS).to_owned())
 }
 
+/// `interruptedNotice` (`thread-liveness.ts:312`, E5.10's): one notice per interruption, in the
+/// root's transcript. The cause is the code's and the words; a candidate's text says what happens
+/// next, once startup has decided.
+pub fn interrupted_notice(
+    agent: Option<&str>,
+    at: f64,
+    cause: &str,
+    text: Option<&str>,
+) -> ace_json::Value {
+    let mut draft = ace_json::Map::new();
+    draft.insert("type", ace_json::Value::from("notice"));
+    draft.insert("level", ace_json::Value::from("warning"));
+    draft.insert(
+        "code",
+        ace_json::Value::from(if cause == "restart" {
+            "restart_interrupted"
+        } else {
+            "agent_stopped"
+        }),
+    );
+    draft.insert(
+        "text",
+        ace_json::Value::from(text.unwrap_or(if cause == "restart" {
+            "Interrupted by a restart"
+        } else {
+            "The agent stopped unexpectedly"
+        })),
+    );
+    draft.insert("complete", ace_json::Value::Bool(true));
+    let mut fact = ace_json::Map::new();
+    fact.insert("type", ace_json::Value::from("item.upsert"));
+    fact.insert("agent", ace_json::Value::from(agent.unwrap_or("root")));
+    fact.insert(
+        "item",
+        ace_json::Value::from(format!("liveness:stopped:{at}")),
+    );
+    fact.insert("draft", ace_json::Value::Object(draft));
+    ace_json::Value::Object(fact)
+}
+
 // ---------------------------------------------------------------------------------------------
 // The open request a capture names (`restart-captures.ts`)
 // ---------------------------------------------------------------------------------------------

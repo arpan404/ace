@@ -249,7 +249,13 @@ pub fn end_background(
     } else {
         state.uncertain_tasks.shift_remove(task_key);
     }
-    let ended_at = if lost { task.ended_at } else { Some(now) };
+    // `entities.ts:292`: a lost task keeps the time it was lost *if it has one*; the evidence
+    // that ends it is otherwise its end time. (A task lost with no `endedAt` took TS's else.)
+    let ended_at = if lost {
+        task.ended_at.or(Some(now))
+    } else {
+        Some(now)
+    };
     if let Some(task) = state.tasks.get_mut(task_key) {
         task.status = status.to_owned();
         task.ended_at = ended_at;

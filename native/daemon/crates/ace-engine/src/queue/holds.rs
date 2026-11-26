@@ -563,8 +563,11 @@ mod tests {
         with_deadline(&conn);
         let (engine, shell) = engine_on(&conn);
         let core = engine.core();
+        // Let readiness and its restart pass finish first: their own schedule reads the gate too.
+        settle(&engine);
+        let before = shell.admits_calls();
         // A second `admits` call would throw: only the receipt's own answer may be used.
-        shell.throw_admits_from(2);
+        shell.throw_admits_from(before + 2);
         core.store
             .atomic(|_tx| {
                 schedule(core)?;
@@ -572,7 +575,7 @@ mod tests {
             })
             .unwrap();
         settle(&engine);
-        assert_eq!(shell.admits_calls(), 1);
+        assert_eq!(shell.admits_calls(), before + 1);
         assert!(shell.armed().contains(&armed_deadline(&engine)));
     }
 

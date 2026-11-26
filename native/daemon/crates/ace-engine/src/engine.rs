@@ -179,9 +179,8 @@ fn start_sweep(core: &Rc<Core>) {
                 return;
             }
             let Some(core) = weak.upgrade() else { return };
-            match core.with_state(recovery::prune_idle) {
-                Ok(Err(error)) | Err(error) => core.ports.report(error.to_string()),
-                Ok(Ok(())) => {}
+            if let Err(error) = recovery::prune_idle(&core) {
+                core.ports.report(error.to_string());
             }
         }
     });

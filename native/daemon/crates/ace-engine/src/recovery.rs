@@ -7,9 +7,17 @@
 //! Everything here takes the clock's time and the store as arguments; no state holds a
 //! connection, and no logic reads the wall clock (`Date.now()` is banned in logic code).
 
+pub mod attempt;
 pub mod capture;
+pub mod children;
+pub mod cursor_attempt;
+pub mod cursor_migration;
 pub mod deadline;
+pub mod imported;
 pub mod observe;
+pub mod provider_recovery;
+pub mod session_bound;
+pub mod startup;
 pub mod threads;
 
 use crate::executor::TaskId;
@@ -152,8 +160,8 @@ pub fn handle(
 }
 
 /// `repo.recovery.pruneIdle()` (`provider-recovery.ts:354`): the idle sweep's bounded batch.
-pub fn prune_idle(_state: &mut State) -> Result<(), EngineError> {
-    Err(EngineError::not_ported("the idle sweep", "E5.8"))
+pub fn prune_idle(core: &Core) -> Result<(), EngineError> {
+    provider_recovery::sweep(core)
 }
 
 /// `recovery.prepare(thread)` and startup's per-thread recovery (`restart.ts:40`-`:413`).

@@ -137,6 +137,67 @@ pub fn shown(store: &EngineStore, thread: &str) -> Result<RecoveryRecord, Engine
     Ok(get(store, thread)?.shown())
 }
 
+/// `queue.uncertain` (`queue-store.ts:420`): a hold whose fate the store decides.
+pub fn set_uncertain(
+    conn: &Arc<ace_store::Connection>,
+    intent: i64,
+    uncertain: bool,
+) -> Result<(), EngineError> {
+    const SQL: &str = "UPDATE intents SET uncertain=? WHERE id=?";
+    stmt_cache::run(
+        conn,
+        SQL,
+        vec![Value::Integer(i64::from(uncertain)), Value::Integer(intent)],
+    )?;
+    Ok(())
+}
+
+/// `queue.track` (`queue-store.ts:349`): the attachments a re-queued message carries. Only a
+/// send or create carries them; the row set is rebuilt so the claim's leftovers go.
+pub fn track_attachments(
+    conn: &Arc<ace_store::Connection>,
+    intent: i64,
+    thread: &str,
+    command: &ace_json::Value,
+) -> Result<(), EngineError> {
+    const DELETE: &str = "DELETE FROM engine_queue_attachments WHERE intent_id=?";
+    const INSERT: &str = "INSERT INTO engine_queue_attachments VALUES (?,?,?)";
+    stmt_cache::run(conn, DELETE, vec![Value::Integer(intent)])?;
+    let payload = command.get("payload").unwrap_or(&ace_json::Value::Null);
+    if !matches!(
+        payload.get("type").and_then(ace_json::Value::as_str),
+        Some("thread.create") | Some("thread.send")
+    ) {
+        return Ok(());
+    }
+    let mut hashes: Vec<String> = Vec::new();
+    if let Some(attachments) = payload
+        .get("context")
+        .and_then(|context| context.get("attachments"))
+        .and_then(ace_json::Value::as_array)
+    {
+        for attachment in attachments {
+            if let Some(hash) = attachment.get("sha256").and_then(ace_json::Value::as_str)
+                && !hashes.iter().any(|seen| seen == hash)
+            {
+                hashes.push(hash.to_owned());
+            }
+        }
+    }
+    for hash in hashes {
+        stmt_cache::run(
+            conn,
+            INSERT,
+            vec![
+                Value::Integer(intent),
+                Value::Text(thread.to_owned()),
+                Value::Text(hash),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 /// `position` (`:313`).
 pub fn position(conn: &Arc<ace_store::Connection>, thread: &str) -> Result<i64, EngineError> {
     let row = stmt_cache::get_row(conn, POSITION, vec![Value::Text(thread.to_owned())])?;

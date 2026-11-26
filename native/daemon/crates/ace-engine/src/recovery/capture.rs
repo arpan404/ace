@@ -64,26 +64,33 @@ pub fn capture(core: &Core, thread: &str) -> Result<(), EngineError> {
 /// crash cut short, with the request the agent was waiting on saved beside it. Cursor SDK work
 /// stays uncertain until checkpoint reconciliation, so it keeps the plain continuation.
 pub fn capture_restart(core: &Core, thread: &str) -> Result<(), EngineError> {
+    core.with_state(|state| capture_restart_in(core, state, thread))?
+}
+
+/// The capture inside a caller's `State` borrow (startup's first pass).
+pub(super) fn capture_restart_in(
+    core: &Core,
+    state: &mut State,
+    thread: &str,
+) -> Result<(), EngineError> {
     if spade_owned(core, thread)? {
         return Ok(());
     }
-    core.with_state(|state| {
-        core.store.atomic(|_| {
-            let cursor = state.backend(&core.store, thread)?.as_deref() == Some("cursor-sdk");
-            let captured = capture_with(core, state, thread, &|lost: &[String]| {
-                if cursor {
-                    ace_core::person_input::CONTINUE_MESSAGE.to_owned()
-                } else {
-                    crate::restart::restart_continuation(lost)
-                }
-            })?;
-            if captured {
-                let waiting_on = open_request(core, state, thread)?;
-                record_capture(core.store.conn(), thread, &RestartCapture { waiting_on })?;
+    core.store.atomic(|_| {
+        let cursor = state.backend(&core.store, thread)?.as_deref() == Some("cursor-sdk");
+        let captured = capture_with(core, state, thread, &|lost: &[String]| {
+            if cursor {
+                ace_core::person_input::CONTINUE_MESSAGE.to_owned()
+            } else {
+                crate::restart::restart_continuation(lost)
             }
-            Ok(())
-        })
-    })?
+        })?;
+        if captured {
+            let waiting_on = open_request(core, state, thread)?;
+            record_capture(core.store.conn(), thread, &RestartCapture { waiting_on })?;
+        }
+        Ok(())
+    })
 }
 
 /// `recovery.captureWith()` (`recovery.ts:305`): true when live work was found and a continuation
@@ -125,7 +132,7 @@ pub fn drop_stale_capture(core: &Core, thread: &str, at: f64) -> Result<(), Engi
     core.with_state(|state| drop_stale_capture_in(core, state, thread, at))?
 }
 
-fn drop_stale_capture_in(
+pub(super) fn drop_stale_capture_in(
     core: &Core,
     state: &mut State,
     thread: &str,
@@ -157,7 +164,7 @@ pub fn release_completed_restart(core: &Core, thread: &str, at: f64) -> Result<(
     core.with_state(|state| release_completed_restart_in(core, state, thread, at))?
 }
 
-fn release_completed_restart_in(
+pub(super) fn release_completed_restart_in(
     core: &Core,
     state: &mut State,
     thread: &str,
@@ -201,7 +208,11 @@ pub fn hold_interrupted(core: &Core, thread: &str) -> Result<(), EngineError> {
     core.with_state(|state| hold_interrupted_in(core, state, thread))?
 }
 
-fn hold_interrupted_in(core: &Core, state: &mut State, thread: &str) -> Result<(), EngineError> {
+pub(super) fn hold_interrupted_in(
+    core: &Core,
+    state: &mut State,
+    thread: &str,
+) -> Result<(), EngineError> {
     if spade_owned(core, thread)? {
         return Ok(());
     }
@@ -251,7 +262,11 @@ pub fn close_settled(core: &Core, thread: &str) -> Result<(), EngineError> {
     core.with_state(|state| close_settled_in(core, state, thread))?
 }
 
-fn close_settled_in(core: &Core, state: &mut State, thread: &str) -> Result<(), EngineError> {
+pub(super) fn close_settled_in(
+    core: &Core,
+    state: &mut State,
+    thread: &str,
+) -> Result<(), EngineError> {
     if !super::threads::get(&core.store, thread)?.is_some_and(|row| row.settled) {
         return Ok(());
     }
@@ -304,7 +319,7 @@ pub fn discard_holding(core: &Core, thread: &str, hold: QueueHold) -> Result<(),
     crate::queue::holds::schedule(core)
 }
 
-fn discard_holding_in(
+pub(super) fn discard_holding_in(
     core: &Core,
     state: &mut State,
     thread: &str,
@@ -350,7 +365,7 @@ pub fn drop_continuation_behind_stop(core: &Core, thread: &str) -> Result<(), En
     core.with_state(|state| drop_continuation_behind_stop_in(core, state, thread))?
 }
 
-fn drop_continuation_behind_stop_in(
+pub(super) fn drop_continuation_behind_stop_in(
     core: &Core,
     state: &mut State,
     thread: &str,
