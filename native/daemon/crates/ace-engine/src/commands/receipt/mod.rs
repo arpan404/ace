@@ -277,7 +277,7 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
         let agent = p.get("agentId").and_then(Value::as_str).map(str::to_owned);
         let run_id = p.get("runId").and_then(Value::as_str).map(str::to_owned);
         let snapshot = state.repo.require_state(&core.store, &thread)?;
-        let (known, root_key, root_id, target, run, run_state, child_controls) = {
+        let (known, root_key, root_id, target, run, run_state) = {
             let borrowed = snapshot.borrow();
             // `runId` names a **state** key (`state.agents[target]`, `handler.ts:432`-`:441`);
             // `agentId` names an agent id, which the index maps to its key.
@@ -302,9 +302,9 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
                 .as_deref()
                 .and_then(|run| borrowed.state.runs.get(run))
                 .map(|run| run.state.clone());
-            (known, root_key, root_id, target, active, run_state, false)
+            (known, root_key, root_id, target, active, run_state)
         };
-        let _ = (root_key, child_controls);
+        let _ = root_key;
         if !known {
             return Ok(fail("agent_not_found"));
         }
@@ -335,6 +335,21 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
                 || run_state.as_deref() != Some("active"))
         {
             return Ok(fail("stale_interrupt"));
+        }
+        // `handler.ts:443`-`:451`: an adapter that cannot control its children read-only stops
+        // only the root; a Stop of one of its children is refused.
+        if let Some(agent_id) = agent.as_deref() {
+            let provider = snapshot.borrow().state.config.provider.clone();
+            let backend = state.backend(&core.store, &thread)?;
+            let entry = state.registry.get(&provider, backend.as_deref())?;
+            let read_only = entry
+                .capabilities
+                .get("childControls")
+                .and_then(Value::as_str)
+                == Some("read-only");
+            if read_only && root_id.as_deref() != Some(agent_id) {
+                return Ok(fail("unsupported_child_control"));
+            }
         }
     }
     tail(core, state, command, &thread, &id, kind)

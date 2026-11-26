@@ -64,22 +64,80 @@ pub(crate) fn header(thread: &str) -> String {
     HEADER.replace("\"threadId\":\"t\"", &format!("\"threadId\":\"{thread}\""))
 }
 
+/// One agent in a stored snapshot: its state key, its record's id, its parent's key and the run
+/// it is in.
+pub(crate) struct StoredAgent<'a> {
+    pub key: &'a str,
+    pub id: &'a str,
+    pub parent: Option<&'a str>,
+    pub run: Option<&'a str>,
+}
+
 /// The same header after a turn began: the root record under `rootKey`, its active run and that
 /// run's history. This is the shape a real thread's snapshot has once a run started.
 pub(crate) fn header_with_root_run(thread: &str, run: &str, run_state: &str) -> String {
-    let agents = format!(
-        r#""agents":{{"root":{{"agent":{{"id":"root","threadId":"{thread}","origin":"root","native":{{"provider":"codex"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"working","activity":"thinking"}},"createdAt":1}},"activity":"thinking","lastSignalAt":2,"activeRun":"{run}"}}}}"#
-    );
-    let runs = format!(
-        r#""runs":{{"{run}":{{"id":"{run}","threadId":"{thread}","agentId":"root","trigger":"person","state":"{run_state}","startedAt":1}}}}"#
-    );
+    header_with_agents(
+        thread,
+        &[StoredAgent {
+            key: "root",
+            id: "root",
+            parent: None,
+            run: Some(run),
+        }],
+        &[(run, run_state)],
+    )
+}
+
+/// The same header with the agents and runs a test needs, keyed as the fold stores them.
+pub(crate) fn header_with_agents(
+    thread: &str,
+    agents: &[StoredAgent<'_>],
+    runs: &[(&str, &str)],
+) -> String {
+    let mut records = Vec::new();
+    for agent in agents {
+        let parent = agent
+            .parent
+            .map(|parent| format!(r#","parentKey":"{parent}""#))
+            .unwrap_or_default();
+        let active = agent
+            .run
+            .map(|run| format!(r#","activeRun":"{run}""#))
+            .unwrap_or_default();
+        records.push(format!(
+            r#""{}":{{"agent":{{"id":"{}","threadId":"{thread}","origin":"{origin}","native":{{"provider":"codex"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"working","activity":"thinking"}},"createdAt":1}},"activity":"thinking","lastSignalAt":2{parent}{active}}}"#,
+            agent.key,
+            agent.id,
+            origin = if agent.parent.is_none() { "root" } else { "child" }
+        ));
+    }
+    let agent_records = format!(r#""agents":{{{}}}"#, records.join(","));
+    let runs = runs
+        .iter()
+        .map(|(run, state)| {
+            format!(
+                r#""{run}":{{"id":"{run}","threadId":"{thread}","agentId":"root","trigger":"person","state":"{state}","startedAt":1}}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let runs = format!(r#""runs":{{{runs}}}"#);
+    let keys = agents
+        .iter()
+        .map(|agent| format!(r#""{}":"{}""#, agent.id, agent.key))
+        .collect::<Vec<_>>()
+        .join(",");
     header(thread)
         .replace(
             &format!(r#""threadId":"{thread}","config""#),
             &format!(r#""threadId":"{thread}","rootKey":"root","config""#),
         )
-        .replace(r#""agents":{}"#, &agents)
+        .replace(r#""agents":{}"#, &agent_records)
         .replace(r#""runs":{}"#, &runs)
+        .replace(
+            r#""agentKeysById":{}"#,
+            &format!(r#""agentKeysById":{{{keys}}}"#),
+        )
 }
 
 /// A `ModelResolution` as the models port answers it (`packages/protocol/src/models.ts:200`):

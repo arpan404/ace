@@ -8,7 +8,9 @@ use crate::actor::ActorDeps;
 use crate::executor::{Budget, Notified, Notifier};
 use crate::frames::live::UnportedLive;
 use crate::limits::LimitOverrides;
-use crate::repository::testsupport::{Shell, header, header_with_root_run, home, model_resolution};
+use crate::repository::testsupport::{
+    Shell, StoredAgent, header, header_with_agents, header_with_root_run, home, model_resolution,
+};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -42,6 +44,10 @@ const REGISTRY: &str = r#"[{"provider":"codex","adapter":1,"capabilities":{"stee
 
 impl Receipt {
     fn new(limits: LimitOverrides) -> Receipt {
+        Receipt::with_registry(limits, REGISTRY)
+    }
+
+    fn with_registry(limits: LimitOverrides, registry: &str) -> Receipt {
         let conn = home("t", &header("t"));
         let (_, shell) = Shell::store_with_controls(&conn);
         let engine = crate::Engine::new(
@@ -51,7 +57,7 @@ impl Receipt {
                 limits,
                 ..crate::Inputs::default()
             },
-            REGISTRY,
+            registry,
             Box::new(ManualPump),
             &conn,
             Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
@@ -586,6 +592,47 @@ fn a_create_without_an_id_takes_the_ports_next_thread_id() {
     assert_eq!(
         receipt.text("SELECT id AS value FROM threads WHERE id='thread-1'"),
         Some("thread-1".to_owned())
+    );
+}
+
+#[test]
+fn a_read_only_child_adapter_refuses_a_stop_of_its_child() {
+    let read_only = r#"[{"provider":"codex","adapter":1,"capabilities":{"steer":true,"childControls":"read-only"},"discovery":{},"current":true}]"#;
+    let receipt = Receipt::with_registry(LimitOverrides::default(), read_only);
+    receipt.state(&header_with_agents(
+        "t",
+        &[
+            StoredAgent {
+                key: "root",
+                id: "root",
+                parent: None,
+                run: Some("run-1"),
+            },
+            StoredAgent {
+                key: "child",
+                id: "child-agent",
+                parent: Some("root"),
+                run: None,
+            },
+        ],
+        &[("run-1", "active")],
+    ));
+    // Cursor's SDK adapter cannot control a child (`adapter-cursor/src/policy.ts:17`): the Stop
+    // is refused where its root's own Stop is fine.
+    assert_eq!(
+        receipt.handle(
+            r#"{"id":"child","deviceId":"device","payload":{"type":"thread.interrupt","threadId":"t","agentId":"child-agent"}}"#
+        ),
+        result("child", "unsupported_child_control")
+    );
+    assert_eq!(
+        receipt
+            .handle(
+                r#"{"id":"root","deviceId":"device","payload":{"type":"thread.interrupt","threadId":"t","agentId":"root"}}"#
+            )
+            .get("ok")
+            .and_then(Value::as_bool),
+        Some(true)
     );
 }
 
