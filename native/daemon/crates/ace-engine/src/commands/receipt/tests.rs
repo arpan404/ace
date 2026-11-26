@@ -425,3 +425,51 @@ fn a_create_refuses_while_its_own_reservation_is_held_by_another_owner() {
         result("c", "thread_creation_in_progress")
     );
 }
+
+#[test]
+fn an_accepted_send_names_the_thread_once_after_the_commit() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.shell.hold_after_commit();
+    // The row is the provisional title of the message: the prompt only fires for that title.
+    receipt.thread_row(r#"{"title":"hello","titleSource":"provisional"}"#);
+    let accepted = receipt.handle(&send("c"));
+    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+    // Inside the receipt nothing ran: the prompt waits for the commit.
+    assert!(receipt.shell.naming().is_empty());
+    receipt.core().release_after_commit();
+    let naming = receipt.shell.naming();
+    assert_eq!(naming.len(), 1, "{naming:?}");
+    assert_eq!(naming[0].0, "t");
+    // The parts it names from are the message's own.
+    assert!(naming[0].1.contains("hello"), "{}", naming[0].1);
+}
+
+#[test]
+fn a_receipt_that_rolls_back_never_names_its_thread() {
+    let receipt = Receipt::new(LimitOverrides::default());
+    receipt.shell.hold_after_commit();
+    receipt.thread_row(r#"{"title":"hello","titleSource":"provisional"}"#);
+    // The first write is the accepted input's own rows; the next one (the queue's bump) fails,
+    // so the receipt rolls back after the prompt was deferred.
+    receipt.shell.fail_write_at(2);
+    let command = ace_json::parse(&send("c")).expect("json");
+    let core = receipt.core();
+    let outcome = core.store.atomic(|_tx| {
+        core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?
+    });
+    assert!(outcome.is_err(), "the failed write rolls the receipt back");
+    // The stack drops a rolled-back frame's deferreds; nothing runs when the commit would.
+    let dropped = receipt.shell.dropped();
+    core.discard_after_commit(&dropped);
+    core.release_after_commit();
+    assert!(
+        receipt.shell.naming().is_empty(),
+        "{:?}",
+        receipt.shell.naming()
+    );
+    // And nothing the receipt wrote survived.
+    assert_eq!(
+        receipt.cell("SELECT COUNT(*) AS value FROM intents"),
+        Some(0)
+    );
+}

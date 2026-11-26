@@ -109,6 +109,16 @@ pub(crate) struct Shell {
     threads: RefCell<std::collections::HashMap<String, String>>,
     /// Every event batch the store's writer was given.
     written: RefCell<Vec<(String, String, f64)>>,
+    /// `onNamingPrompt` calls, as `(thread, parts)`.
+    naming: RefCell<Vec<(String, String)>>,
+    /// How many event writes the writer was given, and the one that fails.
+    writes: Cell<u32>,
+    fail_write_at: Cell<Option<u32>>,
+    /// Whether `after_commit` joins the open frame's token (the stack's own behaviour).
+    holds_after_commit: Cell<bool>,
+    /// The tokens each frame joined, by the depth that joined them, and the ones a rollback dropped.
+    tokens: RefCell<Vec<(u32, u64)>>,
+    dropped: RefCell<Vec<u64>>,
 }
 
 impl Shell {
@@ -183,6 +193,26 @@ impl Shell {
         self.threads.borrow_mut().insert(id.to_owned(), row);
     }
 
+    /// The naming prompts the engine asked for, as `(thread, parts)`.
+    pub fn naming(&self) -> Vec<(String, String)> {
+        self.naming.borrow().clone()
+    }
+
+    /// The event write at `nth` (1-based) fails, as a store error would.
+    pub fn fail_write_at(&self, nth: u32) {
+        self.fail_write_at.set(Some(nth));
+    }
+
+    /// The shell's stack joins deferred work to the open frame, released by `release_after_commit`.
+    pub fn hold_after_commit(&self) {
+        self.holds_after_commit.set(true);
+    }
+
+    /// The tokens a rolled-back frame dropped: the stack discards them, never releases them.
+    pub fn dropped(&self) -> Vec<u64> {
+        self.dropped.borrow().clone()
+    }
+
     /// The event types written for one thread, in order.
     pub fn written_types(&self, thread: &str) -> Vec<String> {
         let mut kinds = Vec::new();
@@ -221,6 +251,12 @@ impl Shell {
             admits_throw_from: Cell::new(None),
             threads: RefCell::new(std::collections::HashMap::new()),
             written: RefCell::new(Vec::new()),
+            naming: RefCell::new(Vec::new()),
+            writes: Cell::new(0),
+            fail_write_at: Cell::new(None),
+            holds_after_commit: Cell::new(false),
+            tokens: RefCell::new(Vec::new()),
+            dropped: RefCell::new(Vec::new()),
         });
         let store = EngineStore {
             ports: shell.clone(),
@@ -329,6 +365,16 @@ impl Ports for Shell {
         self.depth.set(depth);
         match threw {
             Some(message) => {
+                // The frame's deferreds die with it.
+                let frame = depth + 1;
+                let mut tokens = self.tokens.borrow_mut();
+                let (dropped, kept): (Vec<_>, Vec<_>) =
+                    tokens.drain(..).partition(|(joined, _)| *joined >= frame);
+                *tokens = kept;
+                let mut dropped_tokens = self.dropped.borrow_mut();
+                dropped_tokens.extend(dropped.into_iter().map(|(_, token)| token));
+                drop(tokens);
+                drop(dropped_tokens);
                 let rollback = if depth == 0 {
                     "ROLLBACK".to_owned()
                 } else {
@@ -361,10 +407,21 @@ impl Ports for Shell {
     fn reject_pending(&self) {}
     fn finish_close(&self) {}
     fn write_events(&self, thread: &str, payloads: &str, at: f64) -> Result<(), PortError> {
+        let count = self.writes.get() + 1;
+        self.writes.set(count);
+        if self.fail_write_at.get() == Some(count) {
+            return Err(PortError::Threw("store write failed".to_owned()));
+        }
         self.written
             .borrow_mut()
             .push((thread.to_owned(), payloads.to_owned(), at));
         Ok(())
+    }
+
+    fn on_naming_prompt(&self, thread: &str, json: &str) {
+        self.naming
+            .borrow_mut()
+            .push((thread.to_owned(), json.to_owned()));
     }
     fn head_seq(&self) -> Result<f64, PortError> {
         Ok(self.seq.get())
@@ -404,8 +461,12 @@ impl EngineStack for Shell {
     fn is_open(&self) -> bool {
         self.depth.get() > 0
     }
-    fn after_commit(&self, _token: u64) -> bool {
-        false
+    fn after_commit(&self, token: u64) -> bool {
+        if !(self.holds_after_commit.get() && self.depth.get() > 0) {
+            return false;
+        }
+        self.tokens.borrow_mut().push((self.depth.get(), token));
+        true
     }
     fn detach(&self) -> Vec<u64> {
         Vec::new()

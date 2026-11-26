@@ -253,6 +253,18 @@ impl Core {
         }
     }
 
+    /// Releases every deferred the shell's stack has not released yet. The shell releases them
+    /// at its commit; a test shell that models the stack's order calls this instead.
+    pub fn release_after_commit(&self) {
+        let tokens = self.after.tokens();
+        self.after.release(&tokens);
+    }
+
+    /// Drops deferreds a rolled-back frame held, as the shell's stack does.
+    pub fn discard_after_commit(&self, tokens: &[u64]) {
+        self.after.discard(tokens);
+    }
+
     /// The probe's close step (E5.1 step 12).
     pub fn set_close_stall(&self, stall: LocalBoxFuture<'static, ()>) {
         *self.probe_close_stall.borrow_mut() = Some(stall);
