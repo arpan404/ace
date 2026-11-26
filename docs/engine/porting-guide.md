@@ -2398,7 +2398,10 @@ on; none is a behaviour left unported.
   branches call the three synchronous ports E5.1's amendment declares (`workspaceDirectory`,
   `portableHandoff`, `linkCreatedThread`) and the receipt's `context.preparedWorkspace`. With no
   bridge they fail `NotPorted` before writing, so a create is all-or-nothing; the local create
-  path (rows, session, queue, transitions, title) is complete and tested.
+  path (rows, session, queue, transitions, title, the catalog's model) is complete and tested.
+  `validateCreation` itself waits on the same `workspaceDirectory` port for its `directory` fact,
+  so the receipt's create does not run validation yet: a native `canonicalize` would spell a
+  Windows path differently from `realpathSync`, which the amendment forbids.
 - **The 4e binding members** (`index.ts:599`-`:646`, `:921`-`:926`, `:1092`-`:1110`):
   `admitCreation`, `creationPending`, `releaseCreation`, `spawn` and `cancelDelegatedInputs`, and
   the `creationOwner`/`preparedWorkspace` the shell would pass into `handle`. The engine side
