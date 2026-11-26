@@ -23,3 +23,9 @@ pub fn refusal(key: &str) -> DeviceError {
 pub fn hint(key: &str) -> &'static str {
     crate::platform::words::platform_hint(key)
 }
+
+/// A `tools` word: a hint that is not a whole refusal, for a message this crate
+/// builds (the screen helper's foreground refusal).
+pub fn tool_hint(key: &str) -> &'static str {
+    crate::platform::words::tool_hint(key)
+}
