@@ -1,4 +1,5 @@
-import { mkdir, lstat, realpath, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, realpath, rm, type FileHandle } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   antigravityIdentity,
@@ -53,11 +54,92 @@ export async function registerImplicitAccounts(
   }
 }
 
+function errorCode(error: unknown): string | undefined {
+  return error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+}
+
+const unsafeHome = () => new Error("Unsafe OpenCode home");
+
+/**
+ * The directory handle for a folder that is the real path just inspected, never a symlink and
+ * never a swap: the handle's inode must be the one lstat saw, and its real path must be its path.
+ */
+async function openDirectory(dir: string, platform: NodeJS.Platform) {
+  const before = await lstat(dir);
+  if (!before.isDirectory() || before.isSymbolicLink()) throw unsafeHome();
+  if ((await realpath(dir)) !== dir) throw unsafeHome();
+  // Windows has no O_NOFOLLOW/O_DIRECTORY; the checks above still hold, only modes are skipped.
+  const flags =
+    platform === "win32"
+      ? constants.O_RDONLY
+      : constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  const handle = await open(dir, flags);
+  try {
+    const held = await handle.stat();
+    if (!held.isDirectory() || held.dev !== before.dev || held.ino !== before.ino)
+      throw unsafeHome();
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+/**
+ * OpenCode needs to create its log and database under `data/opencode`. A folder that lost its
+ * owner's search bit fails every OpenCode command with EACCES, so ace restores it. Each folder is
+ * opened without following links and changed through its handle, so a swap mid-repair is refused.
+ *
+ * The managed home lives under ace's private data root (`account-homes`, checked to be a real 0700
+ * directory that is never a link). Only a process already running as the person could swap folders
+ * inside it, and it could change those files directly, so the remaining window between the
+ * realpath/lstat check and open (an ancestor swapped mid-repair) grants it nothing: at most owner
+ * rwx is added to a directory the person already owns, or an empty 0700 folder is left. Node has no
+ * openat or mkdirat; a native helper would close the window if that trust boundary ever changes. A
+ * folder without its owner's read bit (0200 or 0000) can't be opened read-only and is left as is,
+ * so the failure stays visible.
+ */
+export async function prepareOpenCodeHome(
+  homeDir: string,
+  platform: NodeJS.Platform,
+): Promise<void> {
+  // The home itself must be the canonical path: a linked home is someone else's folder.
+  if ((await realpath(homeDir).catch(() => undefined)) !== homeDir) throw unsafeHome();
+  for (const name of ["data", "config", "state"]) {
+    for (const dir of [join(homeDir, name), join(homeDir, name, "opencode")]) {
+      let handle: FileHandle;
+      try {
+        handle = await openDirectory(dir, platform);
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") throw error;
+        try {
+          await mkdir(dir, { mode: 0o700 });
+        } catch (createError) {
+          // Another repair may have created it first; fall through and verify that folder.
+          if (errorCode(createError) !== "EEXIST") throw createError;
+        }
+        handle = await openDirectory(dir, platform);
+      }
+      try {
+        if (platform !== "win32") {
+          const held = await handle.stat();
+          if ((held.mode & 0o700) !== 0o700) await handle.chmod((held.mode | 0o700) & 0o7777);
+        }
+      } finally {
+        await handle.close();
+      }
+    }
+  }
+}
+
 export async function createManagedHome(
   dataDir: string,
   id: string,
   provider: ManagedAccountProvider,
   label: string,
+  platform: NodeJS.Platform,
 ): Promise<ProviderInstance> {
   AccountId.parse(id);
   const root = await realpath(dataDir);
@@ -70,6 +152,7 @@ export async function createManagedHome(
     throw new Error("Unsafe account home root");
   const homeDir = join(parent, id);
   await mkdir(homeDir, { mode: 0o700 });
+  if (provider === "opencode") await prepareOpenCodeHome(homeDir, platform);
   // Cursor's SDK is the one CLI that still runs with a private HOME (its login follows
   // os.homedir()); every other account uses the person's own home.
   if (provider === "cursor") await mkdir(join(homeDir, "user"), { mode: 0o700 });

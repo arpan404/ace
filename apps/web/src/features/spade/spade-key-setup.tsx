@@ -9,10 +9,10 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { addEndpoint, editAgent, readLiveModels, setKey } from "./spade-api.ts";
+import { CardActions } from "./spade-card.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelChoice } from "./spade-model-picker.tsx";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
@@ -267,11 +267,14 @@ export function SpadeKeySetup(props: { main: { id: string; model: string } }) {
             </p>
           )}
           {!keyless && (
-            <div className="flex justify-end">
-              <Button type="submit" disabled={saving || waiting}>
-                {action}
-              </Button>
-            </div>
+            <CardActions
+              primary={{
+                type: "submit",
+                label: action,
+                disabled: saving || waiting,
+                hint: "enter",
+              }}
+            />
           )}
         </form>
       )}

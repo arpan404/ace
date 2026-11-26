@@ -29,6 +29,7 @@ export function providerCommandDisabled(
     case "thread.mode.set":
     case "thread.goal.set":
     case "thread.goal.clear":
+    case "thread.compact":
       break;
     default:
       return false;

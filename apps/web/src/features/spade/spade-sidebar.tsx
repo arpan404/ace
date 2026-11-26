@@ -7,15 +7,15 @@ import { Button } from "@/components/ui/button.tsx";
 import { FirstBotStart } from "./spade-first-bot.tsx";
 import { SpadeListSearch, SpadeListTop } from "./spade-list-top.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
-import { SpadePinStrip } from "./spade-pin-strip.tsx";
 import { SpadeRowMenu } from "./spade-row-menu.tsx";
 import {
   holdSpadeOrder,
+  pinnedAt,
   searchSpadeList,
   spadeEntryKey,
   spadeFlatEntries,
   spadeListEntries,
-  splitPinned,
+  spadePinnedFirst,
 } from "./spade-list-rows.ts";
 import { Problem } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
@@ -57,15 +57,18 @@ export function SpadeSidebar() {
   });
   const missing = useGoalMissing(roster.bots);
   const all = spadeFlatEntries(roster.bots, groups, missing);
-  const nested = spadeListEntries(roster.bots, groups, open, missing);
+  const nested = spadeListEntries(roster.bots, groups, missing);
   const searched = query.trim() !== "";
-  // Searching looks through everything, pinned too; otherwise the strip holds what's pinned.
-  const { pinned, rest: listed } = searched
-    ? { pinned: [], rest: searchSpadeList(all, query) }
-    : splitPinned(nested, all);
+  // Searching looks through everything; otherwise Spade, then what's pinned, lead the rows.
+  const listed = searched ? searchSpadeList(all, query) : spadePinnedFirst(nested, all);
   // While the pointer is over the list its order holds, so a row never moves out from under it.
-  const [held, setHeld] = useState<readonly string[]>();
-  const entries = held && !searched ? holdSpadeOrder(listed, held) : listed;
+  const [held, setHeld] = useState<{ keys: readonly string[]; pins: string }>();
+  // A pin or unpin moves its row at once: the held order is only for rows that reorder on their own.
+  const pins = listed.flatMap((entry) =>
+    pinnedAt(entry) === undefined ? [] : [spadeEntryKey(entry)],
+  );
+  const entries =
+    held && !searched && held.pins === pins.join() ? holdSpadeOrder(listed, held.keys) : listed;
   const closeSearch = () => {
     setQuery("");
     setSearching(false);
@@ -82,11 +85,11 @@ export function SpadeSidebar() {
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
         {searching && <SpadeListSearch query={query} onQuery={setQuery} onClose={closeSearch} />}
-        {pinned.length > 0 && <SpadePinStrip entries={pinned} bots={roster.bots} open={open} />}
         <div
           className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2"
           onPointerEnter={(event) => {
-            if (event.pointerType === "mouse") setHeld(listed.map(spadeEntryKey));
+            if (event.pointerType === "mouse")
+              setHeld({ keys: listed.map(spadeEntryKey), pins: pins.join() });
           }}
           onPointerLeave={() => setHeld(undefined)}
         >

@@ -131,12 +131,17 @@ impl Engine {
 
     /// The person's zone: the one the app sent, else the machine's.
     pub(crate) fn zone(&self) -> TimeZone {
+        self.read_zone().unwrap_or_else(|_| {
+            TimeZone::get(&crate::routines::machine_zone(self)).unwrap_or(TimeZone::UTC)
+        })
+    }
+
+    pub(super) fn read_zone(&self) -> Result<TimeZone, StoreError> {
         let named = self
-            .oversight()
-            .ok()
-            .and_then(|g| g.time_zone)
+            .oversight()?
+            .time_zone
             .unwrap_or_else(|| crate::routines::machine_zone(self));
-        TimeZone::get(&named).unwrap_or(TimeZone::UTC)
+        Ok(TimeZone::get(&named).unwrap_or(TimeZone::UTC))
     }
 
     pub(crate) fn periods(&self) -> Periods {

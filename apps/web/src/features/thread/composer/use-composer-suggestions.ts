@@ -5,6 +5,7 @@ import { useSuggestions, type Suggestion, type Suggestions } from "./suggestions
 import { bestRow, pickerRows } from "@ace/ui-core";
 import { useMentionDevices } from "../mentions/index.ts";
 import type { MentionMember } from "./composer-props.ts";
+import { slashSuggestions, type SlashMenu } from "./slash-rows.ts";
 
 /**
  * What `@` offers in a Spade chat (ADR 0198): the club's members with their faces, inserted as
@@ -73,6 +74,8 @@ export function useComposerSuggestions(
   off = false,
   /** While `off`: names `@` offers instead, inserted as plain text. */
   names?: readonly MentionMember[],
+  /** While `off`: what `/` offers, and whether a skill or command already leads the message. */
+  slash?: { menu: SlashMenu; chipped: boolean },
 ) {
   "use no memo";
   const [dismissed, setDismissed] = useState<number>();
@@ -83,10 +86,24 @@ export function useComposerSuggestions(
     : triggerAt(text, caret);
   const open = found && found.start !== dismissed ? found : undefined;
   const named = off && open?.kind === "mention" ? open : undefined;
-  const trigger: Trigger | undefined = off ? named : open;
-  const listed = useSuggestions(thread, named ? undefined : trigger, recent, adding);
+  const slashed = off && slash && open?.kind === "command" ? open : undefined;
+  const trigger: Trigger | undefined = off ? (named ?? slashed) : open;
+  const listed = useSuggestions(thread, named || slashed ? undefined : trigger, recent, adding);
   const devices = useMentionDevices(!!named);
-  const suggestions = named ? spadeSuggestions(names ?? [], devices, named.query) : listed;
+  const typed =
+    slashed && slash
+      ? slashSuggestions(slash.menu, slashed.query, {
+          atStart: slashed.start === 0,
+          chipped: slash.chipped,
+        })
+      : undefined;
+  const suggestions: Suggestions = typed
+    ? typed.items.length
+      ? { state: "ready", kind: "command", items: typed.items, best: typed.best }
+      : { state: "closed" }
+    : named
+      ? spadeSuggestions(names ?? [], devices, named.query)
+      : listed;
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";

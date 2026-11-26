@@ -5,6 +5,7 @@ import { ledgerOf } from "./thread-ledger.ts";
 import { withForkMarker } from "./fork-marker.ts";
 import { limitHoldShown } from "./queue.ts";
 import { rootRunOf, type TurnReader } from "./turn-ordinals.ts";
+import { steerHandingOver } from "./steer-handover.ts";
 import { turnTreeOf } from "./turn-tree.ts";
 import { isRunning } from "./agents.ts";
 import {
@@ -95,6 +96,9 @@ export function createBlockReader(
     const restarted =
       agentId === undefined && reader.queue?.paused === true && reader.queue.reason === "restart";
     const heldTurn = limited ? newestRun(reader) : undefined;
+    // The root's turn ended only to let the person's steer in: no "Stopped" under their message.
+    const handingOver =
+      agentId === undefined && ownerId !== undefined && steerHandingOver(reader, ownerId);
     if (heldTurn) paused.add(heldTurn);
     if (ownOrder?.from !== reader.order || ownOrder?.owner !== ownerId)
       ownOrder = {
@@ -127,6 +131,7 @@ export function createBlockReader(
       limited,
       restarted,
       heldTurn,
+      handingOver,
     ];
     const next = [...fixed, ...lastWatch.map((key) => watchedEntity(reader, key))];
     if (next.length === inputs.length && next.every((input, index) => input === inputs[index]))
@@ -215,7 +220,9 @@ export function createBlockReader(
       restartedTail: restarted,
       pausedTurns: paused,
       stoppedTail:
-        status?.state === "failed" || status?.state === "interrupted" ? status.state : undefined,
+        status?.state === "failed" || (status?.state === "interrupted" && !handingOver)
+          ? status.state
+          : undefined,
       watch,
       unsettledTail,
       turnKeys,

@@ -18,4 +18,5 @@ pub use log::ProbeLog;
 #[derive(Default)]
 pub struct ProbeThreads {
     pub logs: HashMap<String, Rc<ProbeLog>>,
+    pub sessions: HashMap<u64, Rc<ProbeLog>>,
 }

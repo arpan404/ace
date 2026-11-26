@@ -36,6 +36,13 @@ import type { GhClient } from "./gh-process.ts";
  * slept or ace wasn't running through it, and "If missed: Skip" skips it.
  */
 const lateGraceMs = 2 * 60_000;
+/**
+ * How often a scheduler held for model lists looks again when nothing tells it they settled.
+ * Readiness normally wakes it at once; this only bounds a missed notification.
+ */
+const modelRetryMs = 30_000;
+/** How long one occurrence waits for model discovery before its model counts as unavailable. */
+const modelHoldMs = 30_000;
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 8192);
 }
@@ -67,6 +74,8 @@ export class AutomationService {
   private generation = 0;
   private ticking = false;
   private cancellations: Cancellations;
+  /** Due schedules kept for model discovery, and when each was first held on the injected clock. */
+  private held = new Map<string, number>();
   constructor(store: AutomationStore, deps: Dependencies, gh?: GhClient) {
     this.store = store;
     this.deps = deps;
@@ -524,8 +533,14 @@ export class AutomationService {
     const deadlines = [job?.due, this.executions.nextDeadline()].filter(
       (value): value is number => value !== undefined && value !== null,
     );
-    if (!deadlines.length) return;
-    const delay = Math.min(60_000, Math.max(0, Math.min(...deadlines) - this.deps.now()));
+    // A schedule held for discovery is skipped by `nextJob`; recheck it now and then so a missed
+    // settle still fires it, without holding another trigger's deadline.
+    if (!deadlines.length && this.held.size === 0) return;
+    const now = this.deps.now();
+    const delay = Math.min(
+      this.held.size ? (this.deps.modelRetryMs ?? modelRetryMs) : Infinity,
+      deadlines.length ? Math.min(60_000, Math.max(0, Math.min(...deadlines) - now)) : Infinity,
+    );
     this.cancelTimer = this.deps.timer.arm(delay, () => {
       this.cancelTimer = undefined;
       const operation = this.tick().catch((error) => this.report(error));
@@ -533,10 +548,51 @@ export class AutomationService {
       return operation;
     });
   }
+  /** Discovery settled: a due occurrence kept for it fires now. Holds belong to occurrences, so
+   * an unrelated provider's result never extends or clears another occurrence's wait. */
+  modelsReady(): void {
+    this.arm();
+  }
+  /** Holds are per occurrence: `null` nominal (an exhausted cursor) has its own key. */
+  private holdKey(id: string, nominal: number | null): string {
+    return `${id}\0${nominal ?? 0}`;
+  }
+  /** The occurrence was consumed (a run recorded) or replaced: its wait is over. */
+  private clearHolds(id: string): void {
+    const prefix = `${id}\0`;
+    for (const key of this.held.keys()) if (key.startsWith(prefix)) this.held.delete(key);
+  }
   private nextJob(): JobMetadata | undefined {
-    return this.polling.size >= 4
-      ? this.store.nextScheduled(this.unreadable)
-      : this.store.next([...this.polling], this.unreadable);
+    const skip = new Set(this.polling);
+    const now = this.deps.now();
+    const holdMs = this.deps.modelHoldMs ?? modelHoldMs;
+    for (;;) {
+      // At four live GitHub requests only schedules may start; polling excluded the rest.
+      const job =
+        this.polling.size >= 4
+          ? this.store.nextScheduledSkipping(skip, this.unreadable)
+          : this.store.nextSkipping(skip, this.unreadable);
+      if (!job) return undefined;
+      // A scheduled run needs its automation's model. While discovery for it runs, hold the
+      // occurrence: it keeps its place and is never spent on a thread the engine would refuse.
+      if (job.automation.trigger.kind !== "schedule" || !this.deps.modelLoading) return job;
+      const id = job.automation.id;
+      const key = this.holdKey(id, job.nominal);
+      // A newer occurrence replaces an older one's hold; its wait starts over only then.
+      const prefix = `${id}\0`;
+      for (const existing of this.held.keys())
+        if (existing.startsWith(prefix) && existing !== key) this.held.delete(existing);
+      if (this.deps.modelLoading(job.automation) !== true) {
+        this.held.delete(key);
+        return job;
+      }
+      const since = this.held.get(key);
+      // Expiry is not consumed here: `arm()` also asks for the next job, and deleting the stamp
+      // would let the following tick start the same occurrence's wait over.
+      if (since !== undefined && now - since >= holdMs) return job;
+      if (since === undefined) this.held.set(key, now);
+      skip.add(id);
+    }
   }
   private async tick(): Promise<void> {
     this.ticking = true;
@@ -570,12 +626,13 @@ export class AutomationService {
       this.arm();
     }
   }
-  private scheduled(job: JobMetadata): void {
+  /** Runs a due schedule; false when its model discovery is still running (kept due). */
+  private scheduled(job: JobMetadata): boolean {
     const generation = this.generation;
     const recurrence = this.runtime.recurrence(job.automation.id);
     if (!recurrence || job.nominal === null) {
       this.isolateJob(job, generation, new Error("Invalid scheduled job"));
-      return;
+      return true;
     }
     // Long after it was due, the computer slept or ace wasn't running through it: a schedule
     // set to skip missed runs moves on to its next time, as it does when ace starts.
@@ -607,7 +664,7 @@ export class AutomationService {
         this.report(persistError);
       }
       this.report(error);
-      return;
+      return true;
     }
     const nominal = occurrence?.at;
     const due = scheduledDeadline(
@@ -617,12 +674,16 @@ export class AutomationService {
       this.deps.random(),
     );
     if (late) {
+      this.clearHolds(job.automation.id);
       this.store.transaction(() => {
         this.store.advance(job.automation.id, nominal, due);
         this.store.savePoll(job.automation.id, occurrence ?? {});
       });
-      return;
+      return true;
     }
+    // `nextJob` holds a schedule whose discovery is still running, and releases it once the
+    // bounded wait passes; either way the occurrence is only advanced by this admission.
+    this.clearHolds(job.automation.id);
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,
@@ -639,6 +700,7 @@ export class AutomationService {
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input && this.live && generation === this.generation)
       this.executions.launch(admission.run, admission.input);
+    return true;
   }
   private async poll(job: JobMetadata): Promise<void> {
     const generation = this.generation;

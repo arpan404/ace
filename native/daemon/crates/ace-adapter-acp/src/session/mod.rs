@@ -46,7 +46,8 @@ pub use mcp::{
 };
 pub use negotiation::{
     CompatibilityProfile, CompatibleRange, Negotiated, NegotiationError, ProfileFit, ResumeMethod,
-    RunsAs, VersionChanged, bridge_subagents, client_meta, negotiate, profile_fit, session_support,
+    RunsAs, VersionChanged, bridge_subagents, client_meta, negotiate, profile_fit,
+    reviewed_profile, session_support,
 };
 pub use open::{OPEN_STALL_MS, OpenResult, ResumeTarget};
 pub use protocol::{PROTOCOL_VERSION, agent_methods, client_methods};

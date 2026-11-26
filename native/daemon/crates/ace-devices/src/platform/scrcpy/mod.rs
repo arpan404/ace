@@ -3,6 +3,10 @@
 //! messages `packages/devices/src/scrcpy-protocol.ts` writes, the plan `scrcpy-input.ts` builds
 //! for one input, and the clipboard handshake `scrcpy-clipboard.ts` runs. Every byte layout
 //! belongs to the pinned server in `scrcpy-server.ts`; nothing here approximates one.
+pub mod capture;
 pub mod clipboard;
 pub mod input;
+pub mod jar;
 pub mod protocol;
+pub mod server;
+pub mod video;

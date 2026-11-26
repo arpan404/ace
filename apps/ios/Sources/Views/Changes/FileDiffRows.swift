@@ -38,7 +38,7 @@ struct ChangesLineRow: View {
     let row: ChangesRow
     let wrap: Bool
     let selected: Bool
-    let tap: () -> Void
+    let tap: (() -> Void)?
     let wholeLine: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.changesCommentable) private var commentable
@@ -52,47 +52,57 @@ struct ChangesLineRow: View {
                 .padding(.leading, FileDiffStyle.gutter)
                 .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
         } else {
-            Button(action: tap) {
-                HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
-                    Text(number).foregroundStyle(numberColour)
-                        .frame(width: FileDiffStyle.gutter - AceTheme.Spacing.md, alignment: .trailing)
-                        .padding(.trailing, AceTheme.Spacing.md)
-                    // The line's own indent stays put, so wrapped text hangs at the code's column.
-                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
-                        if !indent.isEmpty { Text(indent).fixedSize() }
-                        Text(code)
-                            .foregroundStyle(AceTheme.Colours.foreground)
-                            .lineLimit(wrap ? nil : 1)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.trailing, AceTheme.Spacing.lg)
-                    if row.clipped {
-                        Spacer(minLength: AceTheme.Spacing.none)
-                        Button("Whole line", action: wholeLine)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .padding(.trailing, AceTheme.Spacing.lg)
-                            .frame(minHeight: AceDesign.Size.tap)
-                    }
+            Group {
+                if let tap {
+                    Button(action: tap) { line }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(commentable ? "Select line to comment" : "Open file in Uncommitted")
+                } else {
+                    line
                 }
-                .aceMonospace(FileDiffStyle.line, relativeTo: .caption)
-                .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
-                .background(selected ? AceDesign.Surface.picked : background)
-                .overlay(alignment: .leading) {
-                    if let bar { Rectangle().fill(bar).frame(width: FileDiffStyle.bar) }
-                }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .contextMenu {
-                Button(commentable ? "Comment on this line" : "Comment on Uncommitted", ace: .chatText, action: tap)
+                if let tap {
+                    Button(commentable ? "Comment on this line" : "Comment on Uncommitted", ace: .chatText, action: tap)
+                }
                 Button("Copy line", ace: .copy) { UIPasteboard.general.string = row.text }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(row.kind == "add" ? "Added" : row.kind == "del" ? "Removed" : "Unchanged") line \(number): \(row.text)")
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityHint(commentable ? "Select line to comment" : "Open file in Uncommitted")
         }
+    }
+
+    private var line: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
+            Text(number).foregroundStyle(numberColour)
+                .frame(width: FileDiffStyle.gutter - AceTheme.Spacing.md, alignment: .trailing)
+                .padding(.trailing, AceTheme.Spacing.md)
+            // The line's own indent stays put, so wrapped text hangs at the code's column.
+            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
+                if !indent.isEmpty { Text(indent).fixedSize() }
+                Text(code)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .lineLimit(wrap ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.trailing, AceTheme.Spacing.lg)
+            if row.clipped {
+                Spacer(minLength: AceTheme.Spacing.none)
+                Button("Whole line", action: wholeLine)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .padding(.trailing, AceTheme.Spacing.lg)
+                    .frame(minHeight: AceDesign.Size.tap)
+            }
+        }
+        .aceMonospace(FileDiffStyle.line, relativeTo: .caption)
+        .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
+        .background(selected ? AceDesign.Surface.picked : background)
+        .overlay(alignment: .leading) {
+            if let bar { Rectangle().fill(bar).frame(width: FileDiffStyle.bar) }
+        }
+        .contentShape(Rectangle())
     }
     /// The line's leading whitespace (tabs as four spaces) and the code after it.
     private var indent: String {
@@ -120,7 +130,7 @@ struct ChangesSplitRow: View {
 
     var body: some View {
         if pair.kind == "fold", let fold = pair.fold {
-            ChangesLineRow(row: fold, wrap: wrap, selected: false, tap: {}, wholeLine: {})
+            ChangesLineRow(row: fold, wrap: wrap, selected: false, tap: nil, wholeLine: {})
         } else {
             HStack(alignment: .top, spacing: AceTheme.Spacing.none) {
                 side(pair.left)

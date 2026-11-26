@@ -5,7 +5,7 @@ import { it, expect, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InputRejected, type Frame, type ProviderSession } from "@ace/engine-api";
+import { InputRejected, SteerTargetLost, type Frame, type ProviderSession } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { openAcpSession } from "./index.ts";
 import { createAcpAdapter } from "./index.ts";
@@ -159,6 +159,35 @@ it("an agent without embedded context receives an uninlined file as an ACP resou
   } finally {
     await h.session.close("user");
   }
+});
+it("an aborted session's lease ends before its open throws", async () => {
+  let ended = false;
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    openAcpSession(
+      {
+        threadId: ThreadId.parse("session-test"),
+        cwd: process.cwd(),
+        env: {},
+        signal: controller.signal,
+        onFrame: () => {},
+        onExit: () => {},
+        mcp: {
+          httpServers: [],
+          stdioServers: [],
+          configuredServers: [],
+          secrets: [],
+          end: () => {
+            ended = true;
+          },
+        },
+      },
+      genericQuirks,
+      { command: process.execPath, args: [fake] },
+    ),
+  ).rejects.toThrow("ACP session lifetime already ended");
+  expect(ended).toBe(true);
 });
 it("passive completed child tool refreshes leave the next root prompt deliverable", async () => {
   const h = await setup();
@@ -767,6 +796,51 @@ it("a steer the running turn can't take goes in as the next prompt once that tur
     );
     expect(prompts).toEqual(["hold", "change course"]);
     expect(sentOf(h, "session/cancel")).toHaveLength(0);
+  } finally {
+    await h.session.close("user");
+  }
+});
+it("an agent with no native steering cancels the run, then takes the steer as the next prompt", async () => {
+  // Its initialize advertises no steering extension, so the engine yields: the steer is queued
+  // with a fence that names no run, the turn is cancelled, and the steer goes next.
+  const h = await setup(genericQuirks);
+  try {
+    const first = h.session.send(input("hold"), "queue");
+    await h.wait((f) => method(f, "cursor/create_plan"));
+    const steer = h.session.send(input("change course"), "steer", undefined, undefined, {
+      current: () => true,
+    });
+    await h.session.interrupt({ cascade: false });
+    await Promise.all([first, steer]);
+    expect(sentOf(h, "session/cancel")).toHaveLength(1);
+    const prompts = sentOf(h, "session/prompt").map((f) =>
+      string(object(list(object(object(f.data)["params"])["prompt"]).at(-1))["text"]),
+    );
+    expect(prompts).toEqual(["hold", "change course"]);
+    expect(sentOf(h, "_session/steering")).toHaveLength(0);
+  } finally {
+    await h.session.close("user");
+  }
+});
+it("a fenced steer still queued when its turn ends is refused as a lost target", async () => {
+  const h = await setup(extensionQuirks, false, undefined, steering);
+  try {
+    const first = h.session.send(input("hold"), "queue");
+    await h.wait((f) => method(f, "cursor/create_plan"));
+    // The engine's fence: current while the turn runs, stale once it has ended.
+    let current = true;
+    const fence = { turn: "run-1", current: () => current };
+    const steer = h.session.send(input("change course"), "steer", undefined, undefined, fence);
+    await h.wait((f) => f.dir === "recv" && JSON.stringify(f.data).includes("promptRequired"));
+    expect(sentOf(h, "session/prompt")).toHaveLength(1);
+    current = false;
+    await h.session.resolve(interactionKey(100), { kind: "plan_review", decision: "approve" });
+    await expect(steer).rejects.toBeInstanceOf(SteerTargetLost);
+    await first;
+    const prompts = sentOf(h, "session/prompt").map((f) =>
+      string(object(list(object(object(f.data)["params"])["prompt"]).at(-1))["text"]),
+    );
+    expect(prompts).toEqual(["hold"]);
   } finally {
     await h.session.close("user");
   }

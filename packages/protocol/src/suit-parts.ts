@@ -125,6 +125,9 @@ export const suitParts = [
   // Spade and chats
   "spade-message",
   "chat-row",
+  "spade-attachment",
+  "spade-reply-ghost",
+  "spade-reaction",
   // Added 2026-11-15 (platform upgrade)
   "segmented",
   "segment",

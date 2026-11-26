@@ -12,10 +12,10 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use spade_core::digest::schedule::{self, Settings};
 use spade_core::digest::{self, Digest, polish, render};
-use spade_core::escalation::{self, Level};
+use spade_core::escalation;
 use spade_core::event::Known;
-use spade_core::reach::notable::{engaged, notable};
-use spade_core::reach::{self, Category};
+use spade_core::reach::Category;
+use spade_core::reach::notable::notable;
 use spade_core::{Event, routing::Role};
 use spade_store::{NewDigest, StoreError, StoredDigest, StoredEvent};
 use tokio::sync::{Notify, broadcast};
@@ -41,7 +41,7 @@ pub(super) struct Shared {
     checked: Mutex<HashMap<String, i64>>,
     /// When spend rates were last looked at (ADR 0195).
     pub(super) spend_checked: Mutex<Option<i64>>,
-    running: AtomicBool,
+    pub(super) running: AtomicBool,
 }
 
 impl Default for Shared {
@@ -69,7 +69,9 @@ pub enum DigestError {
 impl Engine {
     /// Notices from now on: digests as they are stored, and events with an escalation level.
     pub fn subscribe_notices(&self) -> broadcast::Receiver<Value> {
-        self.digests.notices.subscribe()
+        let receiver = self.digests.notices.subscribe();
+        self.kick_reach_batcher();
+        receiver
     }
 
     /// Sends a notice for each of `events` worth telling the person: those with a level, and a
@@ -86,6 +88,13 @@ impl Engine {
             let Event::Known(known) = &stored.event else {
                 continue;
             };
+            if matches!(
+                known,
+                Known::ApprovalRequested { .. } | Known::QuestionAsked { .. }
+            ) {
+                self.kick_reach_batcher();
+                continue;
+            }
             let found = if matches!(
                 known,
                 Known::ReplyFinished { .. } | Known::JobFinished { .. }
@@ -107,12 +116,6 @@ impl Engine {
             }
             // A helper's hidden conversation has no agent: its asks are its bot's.
             let Some(agent) = &agent else { return };
-            let engaged = found.category == Category::NeedsYou
-                && found.level == Some(Level::Ask)
-                && history_of(self, id, &mut history).is_some_and(|(events, stamps)| {
-                    let at_ms: Vec<i64> = stamps.iter().map(|(_, at)| *at).collect();
-                    engaged(&events, &at_ms, self.now_ms() - reach::ENGAGED_MS)
-                });
             let mut notice = json!({
                 "kind": "event", "agent": agent.id, "name": agent.name, "conversation": id,
                 "seq": stored.seq, "at": stored.at_ms,
@@ -131,7 +134,7 @@ impl Engine {
                 name: agent.name.clone(),
                 category: found.category,
                 level: found.level,
-                engaged,
+                engaged: false,
                 text: found.text,
             });
         }
@@ -419,6 +422,7 @@ impl Engine {
         if self.digests.running.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.start_reach_batcher();
         let weak = Arc::downgrade(self);
         let kick = self.digests.kick.clone();
         tokio::spawn(async move {

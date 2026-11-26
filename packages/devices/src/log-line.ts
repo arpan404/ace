@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import { z } from "zod";
+import { nativeLogLine, nativeVideo } from "./native-video.ts";
 const UnifiedLog = z.object({
   eventMessage: z.string(),
   timestamp: z.string().optional(),
@@ -8,6 +9,7 @@ const UnifiedLog = z.object({
 
 /** Render simctl's structured envelope as a readable log line. Android stays plain text. */
 export function deviceLogLine(line: string): string {
+  if (nativeVideo) return nativeLogLine(line);
   const clean = stripVTControlCharacters(line).slice(0, 65536);
   if (!clean.trimStart().startsWith("{")) return clean.slice(0, 4096);
   try {

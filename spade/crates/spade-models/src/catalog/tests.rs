@@ -212,3 +212,29 @@ fn a_measured_local_family_marks_its_models_and_a_bad_entry_stops_the_file() {
         "cases": 0, "checked": "2026-11-20" } ], "endpoints": [] }"#;
     assert_eq!(problems(unmeasured).len(), 1, "{:?}", problems(unmeasured));
 }
+
+#[test]
+fn catalogue_models_parse_supported_efforts_and_refuse_provider() -> Result<(), CatalogError> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json");
+    let catalog = Catalog::load(&path)?;
+    let efforts = catalog
+        .resolve("anthropic/claude-sonnet-5-5")
+        .map(|sonnet| sonnet.model.efforts.clone());
+    assert_eq!(
+        efforts,
+        Some(vec![Effort::Low, Effort::Medium, Effort::High, Effort::Max])
+    );
+    let bad = file(
+        r#", { "id": "bad", "name": "Bad", "format": "anthropic",
+              "base_url": "https://bad.example/v1/",
+              "models": [ { "id": "x", "name": "X", "efforts": ["provider", "low"] } ] }"#,
+    );
+    assert!(
+        problems(&bad)
+            .iter()
+            .any(|p| p.contains("bad/x: efforts cannot include provider")),
+        "{:?}",
+        problems(&bad)
+    );
+    Ok(())
+}

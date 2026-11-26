@@ -41,7 +41,7 @@ struct ComposerSuggestionList: View {
                 }
                 .line()
             case "empty":
-                Text(list?.list == "mention" ? "No files or threads match." : "No commands match.")
+                Text(list?.list == "mention" ? "No mentions match." : "No commands match.")
                     .foregroundStyle(AceTheme.Colours.mutedForeground).line()
             default:
                 Text("Searching…").foregroundStyle(AceTheme.Colours.mutedForeground).line()
@@ -130,6 +130,8 @@ enum SuggestionSymbol {
         case "file": return .fileText
         case "thread": return .chatText
         case "tab": return .globe
+        case "device": return .devices
+        case "app": return .appWindow
         case "skill": return .sparkle
         case "plugin": return .plug
         case "agent": return .robot

@@ -33,12 +33,19 @@ function crew(spade: FakeSpadeApi) {
   spade.addAgent({ id: "fern", name: "Fern", avatar: face({ body: "sprout", pair: "mint" }) });
 }
 
+/** The picker's Generate tab, with Advanced open: one row per part of the face. */
+async function openAdvanced(picker: ReturnType<typeof within>) {
+  await userEvent.click(picker.getByRole("tab", { name: "Generate" }));
+  await userEvent.click(picker.getByRole("button", { name: "Advanced" }));
+}
+
 /** Fern's profile, then its face: the popover with the face's full editor. */
 async function editor() {
   await screen.findByRole("feed", { name: "Conversation with Fern" });
   await openProfile("Fern");
   await userEvent.click(await screen.findByRole("button", { name: "Change face" }));
   const dialog = await screen.findByRole("dialog");
+  await openAdvanced(within(dialog));
   return { dialog, form: within(dialog) };
 }
 
@@ -98,9 +105,6 @@ test("the editor changes one part at a time, hides what doesn't fit, and steps a
   const { spade } = await spadeApp("/spade/fern", crew);
   const { dialog, form } = await editor();
   await userEvent.click(form.getByRole("radio", { name: "Creature: round" }));
-  // The creature and colours show first; More shows the other parts.
-  expect(form.queryByRole("radiogroup", { name: "Extra" })).toBeNull();
-  await userEvent.click(form.getByRole("button", { name: "More" }));
   await userEvent.click(form.getByRole("radio", { name: "Extra: none" }));
   await userEvent.click(form.getByRole("radio", { name: "Ears: bunny" }));
   // Bunny ears and headphones share a place: headphones are not offered.
@@ -127,8 +131,6 @@ test("the editor changes one part at a time, hides what doesn't fit, and steps a
 test("Shuffle makes a new valid face each time", async () => {
   await spadeApp("/spade/fern", crew);
   const { dialog, form } = await editor();
-  // Every part, so each shuffled one can be read back.
-  await userEvent.click(form.getByRole("button", { name: "More" }));
   for (let round = 0; round < 4; round++) {
     const before = bigFace(dialog)?.getAttribute("data-face");
     await userEvent.click(form.getByRole("button", { name: "Shuffle" }));
@@ -162,13 +164,14 @@ test("changing a bot's face in its profile sends the new face as it closes; leav
   await screen.findByRole("feed", { name: "Conversation with Fern" });
   await openProfile("Fern");
   let popover = await faceOfFern();
+  await openAdvanced(popover);
   expect(checkedIn(popover, "Creature")).toBe("Creature: sprout");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(spade.sent("PATCH", "/v1/agents/fern")).toEqual([]);
 
   popover = await faceOfFern();
-  await userEvent.click(popover.getByRole("button", { name: "More" }));
+  await openAdvanced(popover);
   await userEvent.click(popover.getByRole("radio", { name: "Mouth: grin" }));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/fern")).toHaveLength(1));

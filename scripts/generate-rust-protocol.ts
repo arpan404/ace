@@ -37,9 +37,11 @@ import {
   AgentItem,
   AgentStatus,
   Capabilities,
+  CatalogModel,
   Command,
   CommandPayload,
   ContentPart,
+  EffortLevel,
   Event,
   EventPayload,
   ExecutionOptions,
@@ -47,6 +49,9 @@ import {
   GoalChange,
   InteractionResolution,
   MessageOrigin,
+  ModelEffort,
+  ModelSource,
+  ModelTier,
   PermissionMode,
   ProviderKind,
   ScreenKey,
@@ -86,6 +91,12 @@ const roots: Record<string, z.ZodType> = {
   AcpSessionSupport,
   AccessMode,
   ProviderKind,
+  CatalogModel,
+  CatalogRaw: CatalogModel.shape.raw,
+  ModelEffort,
+  ModelTier,
+  ModelSource,
+  EffortLevel,
   ThreadId,
 };
 
@@ -105,6 +116,16 @@ const rawSchema = z.toJSONSchema(combined, {
       for (const key of Object.keys(jsonSchema)) delete jsonSchema[key as keyof typeof jsonSchema];
       jsonSchema.type = "string";
       jsonSchema.title = "ScreenKey";
+      return;
+    }
+    if (zodSchema === ModelTier.shape.speed.unwrap()) {
+      // A tier's speed is a known speed or a provider's newer one kept as sent,
+      // so it is an open string on the wire. `typify` renders the union as a
+      // flattened struct a bare string cannot deserialize into; the open string
+      // is both the wire shape and the lenient read (rule 8).
+      for (const key of Object.keys(jsonSchema)) delete jsonSchema[key as keyof typeof jsonSchema];
+      jsonSchema.type = "string";
+      jsonSchema.title = "ModelTierSpeed";
       return;
     }
     for (const [name, rootSchema] of Object.entries(roots)) {

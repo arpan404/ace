@@ -48,16 +48,23 @@ test("the pill names the bot over its conversation and opens its profile, with n
   // The bar names nothing and holds no ⋯: the pill names the bot.
   expect(within(header()).queryByText("Garden")).toBeNull();
   expect(within(header()).queryByRole("button", { name: "More actions" })).toBeNull();
-  expect(within(header()).getByRole("button", { name: "Open Garden's profile" })).toBeTruthy();
-  // On this machine the pill says nothing of where the bot runs.
-  expect(screen.getByRole("button", { name: "Garden: open its profile" })).toBeTruthy();
+  // On this machine the pill says nothing of where the bot runs; it is the only way in.
+  expect(screen.getByRole("button", { name: "Open Garden's profile" })).toBeTruthy();
+  expect(within(header()).queryByRole("button", { name: "Open Garden's profile" })).toBeNull();
   await openProfile("Garden");
   // The profile holds what acts on the bot; the bar above it holds only Share and close.
   const profile = within(await screen.findByRole("region", { name: "Garden's profile" }));
+  // Everything that acts on the bot sits behind Settings.
+  await userEvent.click(await profile.findByRole("button", { name: "Settings" }));
   expect(await profile.findByRole("button", { name: "Delete bot…" })).toBeTruthy();
   expect(within(header()).getByRole("button", { name: "Share Garden" })).toBeTruthy();
-  expect(within(header()).getByRole("button", { name: "Close profile" })).toBeTruthy();
-  expect(within(header()).queryByRole("button", { name: "Open Garden's profile" })).toBeNull();
+  // The pill toggles it: a second press closes the panel.
+  const pill = screen.getByRole("button", { name: "Open Garden's profile" });
+  expect(pill.getAttribute("aria-expanded")).toBe("true");
+  await userEvent.click(pill);
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Garden's profile" })).toBeNull(),
+  );
 });
 
 test("a bot on another machine says where in its pill", async () => {
@@ -77,7 +84,7 @@ test("a bot on another machine says where in its pill", async () => {
   await screen.findByRole("link", { name: /^Scout/ }).then((row) => userEvent.click(row));
   await feed("Scout");
   expect(
-    await screen.findByRole("button", { name: "Scout on Studio Mac: open its profile" }),
+    await screen.findByRole("button", { name: "Open Scout's profile on Studio Mac" }),
   ).toBeTruthy();
 });
 

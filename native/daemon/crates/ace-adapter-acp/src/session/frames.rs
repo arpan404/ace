@@ -2,16 +2,20 @@
 //! ACP frame capture (`packages/adapter-acp/src/session.ts:360`-`:382` and
 //! `packages/provider-kit/src/payload.ts`).
 //!
-//! Redacts lease secrets through the E1 port (`translate::frame_redaction`), admits the
-//! JSON payload against the 1 MiB byte bound and 32,768 structural node bound, and falls
-//! back to binary elision (`ace_adapter_api::util::elided_json`) when a frame exceeds a
-//! bound.
+//! The frame is the line that crossed the pipe: the peer hands it over with the tree it
+//! parsed, so nothing is written a second time on the clean path (the Pi session reads its
+//! frames the same way). Redacts lease secrets through the E1 port
+//! (`translate::frame_redaction`), admits the JSON payload against the 1 MiB byte bound and
+//! 32,768 structural node bound, and falls back to binary elision
+//! (`ace_adapter_api::util::elided_json`) when a frame exceeds a bound.
+
+use std::borrow::Cow;
 
 use ace_adapter_api::util::elided_json;
 use ace_json::Value;
 use thiserror::Error;
 
-use crate::translate::frame_redaction::redacted_frame_json;
+use crate::translate::frame_redaction::{redact_lease, text_holds_secret};
 
 /// `maxProviderPayloadBytes` (`payload.ts:4`): 1 MiB.
 pub const MAX_PROVIDER_PAYLOAD_BYTES: usize = 1024 * 1024;
@@ -32,67 +36,75 @@ pub enum FrameCaptureError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CapturedFrame {
     pub json: String,
-    pub data: Value,
     pub bytes: usize,
 }
 
-/// Validate JSON text against `ProviderPayload`'s byte and structural node limits
-/// iteratively (`payload.ts:11`–`:42`).
-pub fn validate_payload(json: &str) -> Result<Value, FrameCaptureError> {
+/// Capture an ACP frame (`session.ts:360`–`:373`). `text` is the frame's own JSON — the
+/// line the peer read or the wire it wrote — so the frame a session publishes is the text
+/// that crossed the pipe, not a re-serialization of the tree it parsed (as the Pi session
+/// does, `ace-adapter-pi/src/session/wire.rs`); `None` serializes `data` for the frames ace
+/// makes itself. `ProviderPayload`'s byte bound counts that text's bytes and its node bound
+/// walks the tree; only a frame holding a lease secret is walked and written again, and only
+/// one past a bound is elided.
+pub fn capture_frame(
+    data: &Value,
+    text: Option<String>,
+    secrets: &[String],
+) -> Result<CapturedFrame, FrameCaptureError> {
+    let text = match text {
+        Some(text) => Cow::Owned(text),
+        None => Cow::Owned(ace_json::ser::to_string(data).unwrap_or_else(|_| "null".to_owned())),
+    };
+    if !text_holds_secret(&text, secrets) {
+        return admit(data, text);
+    }
+    let value = redact_lease(data, secrets);
+    let text = ace_json::ser::to_string(&value).unwrap_or_else(|_| "null".to_owned());
+    admit(&value, Cow::Owned(text))
+}
+
+/// Admit `data`'s text against `ProviderPayload`'s bounds, eliding a frame past one.
+fn admit(data: &Value, text: Cow<'_, str>) -> Result<CapturedFrame, FrameCaptureError> {
+    match validate_tree(&text, data) {
+        Ok(()) => Ok(CapturedFrame {
+            bytes: text.len(),
+            json: text.into_owned(),
+        }),
+        Err(FrameCaptureError::ExceedsByteLimit | FrameCaptureError::ExceedsStructuralLimit) => {
+            // `data` is already lease-redacted if any secret appeared in the text.
+            let elided = elided_json(data);
+            let parsed = ace_json::parse(&elided)
+                .map_err(|e| FrameCaptureError::InvalidJson(e.to_string()))?;
+            validate_tree(&elided, &parsed)?;
+            Ok(CapturedFrame {
+                bytes: elided.len(),
+                json: elided,
+            })
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// `ProviderPayload`'s bounds over an already-parsed tree and its serialized text
+/// (`payload.ts:11`–`:42`): the byte count and the structural node count, in one walk.
+pub fn validate_tree(json: &str, value: &Value) -> Result<(), FrameCaptureError> {
     if json.len() > MAX_PROVIDER_PAYLOAD_BYTES {
         return Err(FrameCaptureError::ExceedsByteLimit);
     }
-    let parsed =
-        ace_json::parse(json).map_err(|e| FrameCaptureError::InvalidJson(e.to_string()))?;
     let mut nodes: usize = 0;
-    let mut stack: Vec<&Value> = vec![&parsed];
+    let mut stack: Vec<&Value> = vec![value];
     while let Some(value) = stack.pop() {
         nodes += 1;
         if nodes > MAX_PROVIDER_PAYLOAD_NODES {
             return Err(FrameCaptureError::ExceedsStructuralLimit);
         }
         match value {
-            Value::Array(items) => {
-                for child in items.iter() {
-                    stack.push(child);
-                }
-            }
-            Value::Object(map) => {
-                for (_, child) in map.iter() {
-                    stack.push(child);
-                }
-            }
+            Value::Array(items) => stack.extend(items.iter()),
+            Value::Object(map) => stack.extend(map.values()),
             _ => {}
         }
     }
-    Ok(parsed)
-}
-
-/// Capture an ACP frame (`session.ts:360`–`:373`):
-/// 1. Redact lease secrets and serialize with JS-exact JSON via `ace_json`.
-/// 2. Validate against `ProviderPayload` byte and node limits.
-/// 3. If a limit is exceeded, elide inline base64/data-URL blobs on the redacted value
-///    and validate again.
-pub fn capture_frame(data: &Value, secrets: &[String]) -> Result<CapturedFrame, FrameCaptureError> {
-    let (json, redacted) = redacted_frame_json(data, secrets);
-    match validate_payload(&json) {
-        Ok(parsed) => Ok(CapturedFrame {
-            bytes: json.len(),
-            json,
-            data: parsed,
-        }),
-        Err(FrameCaptureError::ExceedsByteLimit | FrameCaptureError::ExceedsStructuralLimit) => {
-            // `redacted` is already lease-redacted if any secret appeared in `data`.
-            let elided = elided_json(&redacted);
-            let parsed = validate_payload(&elided)?;
-            Ok(CapturedFrame {
-                bytes: elided.len(),
-                json: elided,
-                data: parsed,
-            })
-        }
-        Err(other) => Err(other),
-    }
+    Ok(())
 }
 
 /// Capture a plain text line (`stdio-text` malformed line or `stderr` line) as a JSON
@@ -101,7 +113,7 @@ pub fn capture_text_frame(
     line: &str,
     secrets: &[String],
 ) -> Result<CapturedFrame, FrameCaptureError> {
-    capture_frame(&Value::from(line), secrets)
+    capture_frame(&Value::from(line), None, secrets)
 }
 
 #[cfg(test)]
@@ -121,21 +133,21 @@ mod tests {
         map.insert("method", Value::from("custom/unknown"));
         map.insert("token", Value::from(format!("Bearer {secret}")));
         map.insert("rawSurrogate", Value::String(lone.clone()));
-        let frame = capture_frame(&Value::Object(map), std::slice::from_ref(&secret));
+        let value = Value::Object(map);
+        let line = ace_json::ser::to_string(&value).unwrap_or_default();
+        let frame = capture_frame(&value, Some(line), std::slice::from_ref(&secret));
         let Ok(captured) = frame else {
             panic!("expected valid captured frame");
         };
         assert!(!captured.json.contains(&secret));
         assert!(captured.json.contains(LEASE_REDACTION));
         assert!(captured.json.contains("\\ud800x"));
+        let parsed = ace_json::parse(&captured.json).unwrap_or(Value::Null);
         assert_eq!(
-            captured.data.get("method").and_then(Value::as_str),
+            parsed.get("method").and_then(Value::as_str),
             Some("custom/unknown")
         );
-        assert_eq!(
-            captured.data.get("rawSurrogate"),
-            Some(&Value::String(lone))
-        );
+        assert_eq!(parsed.get("rawSurrogate"), Some(&Value::String(lone)));
     }
 
     #[test]
@@ -150,7 +162,7 @@ mod tests {
                 "image": format!("data:image/png;base64,{blob}"),
             }
         });
-        let captured = capture_frame(&value, std::slice::from_ref(&secret));
+        let captured = capture_frame(&value, None, std::slice::from_ref(&secret));
         let Ok(captured) = captured else {
             panic!("expected oversized base64 image to elide cleanly");
         };
@@ -173,7 +185,35 @@ mod tests {
         let many: Vec<Value> = (0..MAX_PROVIDER_PAYLOAD_NODES + 5)
             .map(|_| Value::Null)
             .collect();
-        let node_err = capture_frame(&Value::Array(many.into()), &[]);
+        let node_err = capture_frame(&Value::Array(many.into()), None, &[]);
         assert_eq!(node_err, Err(FrameCaptureError::ExceedsStructuralLimit));
+    }
+
+    #[test]
+    fn a_clean_frame_publishes_the_line_it_read_not_a_reserialization() {
+        // The agent's own spelling, spaces and duplicate key included: `JSON.parse` keeps the
+        // last `a`, but the frame ace publishes is the line, as the Pi session publishes it.
+        let line = "{ \"a\": 1, \"a\": 2 }";
+        let value = ace_json::parse(line).unwrap_or(Value::Null);
+        let captured = capture_frame(&value, Some(line.to_owned()), &[]);
+        let Ok(captured) = captured else {
+            panic!("expected the line to be admitted");
+        };
+        assert_eq!(captured.json, line);
+        assert_eq!(captured.bytes, line.len());
+    }
+
+    #[test]
+    fn the_node_bound_counts_the_parsed_tree_and_the_byte_bound_the_line() {
+        // A line of 32,769 nulls is past the node bound while far inside the byte bound.
+        let line = format!(
+            "[{}]",
+            vec!["null"; MAX_PROVIDER_PAYLOAD_NODES + 1].join(",")
+        );
+        let value = ace_json::parse(&line).unwrap_or(Value::Null);
+        assert_eq!(
+            capture_frame(&value, Some(line), &[]),
+            Err(FrameCaptureError::ExceedsStructuralLimit)
+        );
     }
 }

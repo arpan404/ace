@@ -6,6 +6,8 @@
 //! byte counter that guards a line runs before decoding, on the bytes the provider
 //! wrote, exactly as the output gate did.
 
+use std::borrow::Cow;
+
 /// The noncharacter `line-reader.ts` uses as its escape marker.
 pub const SHIELD: char = '\u{FDD0}';
 
@@ -36,8 +38,14 @@ pub fn protect(text: &str) -> String {
 
 /// Undo [`protect`] in one line.
 pub fn restore(text: &str) -> String {
+    restore_borrowed(text).into_owned()
+}
+
+/// Undo [`protect`] in one line, borrowing when the line was never shielded: most lines of
+/// a provider's output are plain JSON and need no copy (`core.rs`'s stdout loop).
+pub fn restore_borrowed(text: &str) -> Cow<'_, str> {
     if !text.contains(SHIELD) {
-        return text.to_owned();
+        return Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -62,7 +70,7 @@ pub fn restore(text: &str) -> String {
             _ => out.push(c),
         }
     }
-    out
+    Cow::Owned(out)
 }
 
 /// Lines from one crossing, joined by LF (a framed line never holds one) and

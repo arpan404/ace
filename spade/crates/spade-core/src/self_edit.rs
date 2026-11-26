@@ -10,6 +10,8 @@
 //! - A name or face change goes to the person, except a bot's own first naming: made from one
 //!   message, it names itself in its first reply, while nothing untrusted is in view.
 
+use serde::Deserialize;
+
 use crate::effect::Route;
 use crate::event::{Event, Known, TaskChange};
 
@@ -17,8 +19,23 @@ pub const TASK_UPDATE: &str = "task_update";
 pub const PROFILE_UPDATE: &str = "profile_update";
 
 /// The request's line when a task change waits for the person.
-pub const TASK_TAINTED: &str = "Content from outside the conversation is in view, so you decide \
-whether its task changes.";
+pub const TASK_TAINTED: &str = "This would rewrite the bot's standing task while untrusted \
+content is in view. Approve only if you want the new instructions to apply in future replies.";
+pub const TASK_UNCHANGED: &str = "Your task already says that; nothing changed.";
+
+#[derive(Deserialize)]
+pub struct TaskUpdate {
+    pub new_task: String,
+    #[serde(default)]
+    pub why: String,
+}
+
+impl TaskUpdate {
+    pub fn unchanged(&self, current: &str) -> bool {
+        let task = self.new_task.trim();
+        !task.is_empty() && task == current.trim()
+    }
+}
 /// The request's line for a name or face change after the bot's first naming.
 pub const PROFILE_ASKS: &str = "It wants to change its own name or face, so you decide.";
 

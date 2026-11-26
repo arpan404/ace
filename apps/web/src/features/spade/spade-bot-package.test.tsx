@@ -3,7 +3,7 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, spadeApp, withEndpoint, openSettingsPage, backToActivity } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -55,6 +55,7 @@ test("a linked bot's profile names its package and version, with Update and Roll
         }),
     },
   );
+  await openSettingsPage("Job");
   expect(await screen.findByText("From flight-watcher 2.0.0 in the Store.")).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Update to 2.1.0" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Roll back to 1.0.0" }));
@@ -70,6 +71,7 @@ test("a bot whose version was withdrawn reads as paused, with the reason", async
     "/spade/fares?profile=details",
     linked({ version: "1.0.0", withdrawn: { reason: "It sent too many requests." } }),
   );
+  await openSettingsPage("Job");
   expect(
     await screen.findByText(
       "Paused: flight-watcher 1.0.0 was withdrawn. It sent too many requests.",
@@ -83,6 +85,7 @@ test("an update accepted while the bot works says it waits for the bot's turn", 
     "/spade/fares?profile=details",
     linked({ version: "1.0.0", held: { version: "2.0.0" } }),
   );
+  await openSettingsPage("Job");
   expect(
     await screen.findByText(
       "From flight-watcher 1.0.0 in the Store. Updates when Flight watcher is done with its turn.",
@@ -109,6 +112,7 @@ const declared = [
 ];
 
 async function securitySection() {
+  await openSettingsPage("How it decides");
   const section = (await screen.findByRole("heading", { name: "Security" })).closest("section");
   if (!section) throw new Error("no Security section");
   return within(section);
@@ -181,6 +185,7 @@ test("a bot from an ace template is offered the newer template its Spade ships, 
       },
     });
   });
+  await openSettingsPage("Job");
   expect(await screen.findByText("From ace's inbox template 0.9.0.")).toBeTruthy();
   // Its earlier versions aren't kept anywhere, so there is nothing to roll back to.
   expect(screen.queryByRole("button", { name: /^Roll back/ })).toBeNull();
@@ -238,12 +243,14 @@ test("a development bot says Development in its row, its profile and on Running,
     },
     { history },
   );
+  await backToActivity();
   const row = within(await botRow("Flight watcher"));
   expect(row.getByText("Development")).toBeTruthy();
   expect(within(await botRow("Inbox")).queryByText("Development")).toBeNull();
 
   const head = (await screen.findByRole("button", { name: "Rename Flight watcher" })).parentElement;
   expect(within(head ?? document.body).getByText("Development")).toBeTruthy();
+  await openSettingsPage("Job");
   expect(
     await screen.findByText("Updated from its package folder on this machine with ace bot dev."),
   ).toBeTruthy();
@@ -275,6 +282,7 @@ test("a bot's profile lists its contracts and the person's switch for calls to t
       ],
     })(spade);
   });
+  await openSettingsPage("Can use");
   const section = await screen.findByRole("region", { name: "Contracts" });
   expect(within(section).getByText("cheapest_fare")).toBeTruthy();
   expect(

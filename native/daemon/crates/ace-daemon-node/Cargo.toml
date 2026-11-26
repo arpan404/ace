@@ -28,8 +28,10 @@ ace-engine = { path = "../ace-engine" }
 ace-adapter-codex = { path = "../ace-adapter-codex" }
 # ace-core: facts cross the binding as JSON; the type names the spliced body.
 ace-core = { path = "../ace-core" }
-# ace-adapter-claude: the claude translator this binding drives (E1); behaviour lives there.
+# ace-adapter-claude: the claude translator (E1) and session (E3) this binding drives.
 ace-adapter-claude = { path = "../ace-adapter-claude" }
+# agent-stream-json: the CLI's argv for the launch binding (E3-claude.1).
+agent-stream-json = { path = "../agent-stream-json" }
 # ace-adapter-pi: the Pi translator behind the native shell.
 ace-adapter-pi = { path = "../ace-adapter-pi" }
 # ace-adapter-api: frames cross the binding as redacted JSON.
@@ -72,6 +74,8 @@ ace-json = { path = "../ace-json" }
 ace-projection = { path = "../ace-projection" }
 # serde: the one serde entry for the addon (core responses and supervisor spawn requests).
 serde = { version = "1", features = ["derive"] }
+# indexmap: the Codex pool's hosts keep their insertion order.
+indexmap = "2"
 # serde_json: the one serde_json entry for the addon; the translators no longer use it.
 serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
 

@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
+const rowText = async (name: string) => (await botRow(name)).textContent;
+
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
@@ -40,7 +42,7 @@ const studio = {
 const dot = async (name: string) =>
   (await botRow(name)).querySelector("[data-face-dot]")?.getAttribute("data-face-dot");
 
-/** The conversation rows' names, the pin strip's tiles first; the toolbar's Apps link has none. */
+/** The conversation rows' names, in order; the toolbar's Apps link has none. */
 const names = async () =>
   (await roster())
     .queryAllByRole("link")
@@ -82,7 +84,7 @@ test("Search, the first top button, opens in place, finds conversations by their
 
 test("a failed bot's line is its next step", async () => {
   await spadeApp("/spade", crew);
-  expect((await botRow("Garden")).textContent).toMatch(/Sign in to Codex to go on$/);
+  expect((await botRow("Garden")).textContent).toMatch(/Sign in to Codex to go on/);
 });
 
 test("Spade is an ordinary first row, and nothing sits below the rows: no person, no settings gear", async () => {
@@ -152,36 +154,34 @@ const items = async () => (await screen.findAllByRole("menuitem")).map((item) =>
 
 const rightClick = (target: Element) => userEvent.pointer({ keys: "[MouseRight]", target });
 
-/** The rows' names alone, with no pin tile among them (a tile's link carries a label). */
-const rowNames = async () =>
-  (await roster())
-    .queryAllByRole("link")
-    .filter((link) => !link.hasAttribute("aria-label"))
-    .map((row) => row.querySelector("[data-view-row-title]")?.textContent);
+/** The rows' names alone. */
+const rowNames = names;
 
-test("Pin from a row's right-click menu moves it to the strip under the buttons, keeping its dot, and Unpin puts it back", async () => {
+test("Pin from a row's right-click menu moves it up after Spade, keeping its dot and showing no pin mark, and Unpin puts it back", async () => {
   const { spade } = await spadeApp("/spade", crew);
-  await rightClick(await botRow("Inbox"));
+  await waitFor(async () =>
+    expect(await rowNames()).toEqual(["Spade", "Inbox", "Scout", "Garden"]),
+  );
+  await rightClick(await botRow("Scout"));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
   await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/agents/inbox/pin")).toEqual([{ pinned: true }]),
+    expect(spade.sent("PUT", "/v1/agents/scout/pin")).toEqual([{ pinned: true }]),
   );
-  const strip = await screen.findByRole("list", { name: "Pinned" });
-  const tile = within(strip).getByRole("link", { name: "Inbox" });
-  expect(tile.querySelector("[data-face-dot]")?.getAttribute("data-face-dot")).toBe("needs-you");
-  // Pinned conversations leave the rows below.
-  await waitFor(async () => expect(await rowNames()).toEqual(["Spade", "Scout", "Garden"]));
-  expect(within(strip).queryByRole("link", { name: "Scout" })).toBeNull();
+  await waitFor(async () =>
+    expect(await rowNames()).toEqual(["Spade", "Scout", "Inbox", "Garden"]),
+  );
+  // No strip of faces, no pin icon.
+  expect(screen.queryByRole("list", { name: "Pinned" })).toBeNull();
+  expect((await botRow("Scout")).querySelector("[data-pin]")).toBeNull();
 
-  await rightClick(tile);
+  await rightClick(await botRow("Scout"));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unpin" }));
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Pinned" })).toBeNull());
   await waitFor(async () =>
     expect(await rowNames()).toEqual(["Spade", "Inbox", "Scout", "Garden"]),
   );
 });
 
-test("the strip shows pins oldest first, and Spade, the first row, is never in it", async () => {
+test("pins lead the list oldest first, right after Spade, which is never pinned", async () => {
   await spadeApp("/spade", (world) => {
     crew(world);
     const pin = (id: string, at: number) => {
@@ -192,13 +192,73 @@ test("the strip shows pins oldest first, and Spade, the first row, is never in i
     pin("main", 20);
     pin("scout", 5);
   });
-  const strip = await screen.findByRole("list", { name: "Pinned" });
-  expect(
-    within(strip)
-      .getAllByRole("link")
-      .map((link) => link.getAttribute("aria-label")),
-  ).toEqual(["Scout", "Garden"]);
-  await waitFor(async () => expect(await rowNames()).toEqual(["Spade", "Inbox"]));
+  await waitFor(async () =>
+    expect(await rowNames()).toEqual(["Spade", "Scout", "Garden", "Inbox"]),
+  );
+});
+
+test("a needs-you row says why in the normal text colour, a failed row's line stays quiet, and both keep their dot and a spoken state", async () => {
+  await spadeApp("/spade", crew);
+  for (const [name, dotName, spoken, colour] of [
+    ["Inbox", "needs-you", "Needs you", "text-foreground"],
+    ["Garden", "failed", "Failed", "text-muted-foreground"],
+  ] as const) {
+    const row = await botRow(name);
+    expect(await dot(name)).toBe(dotName);
+    const line = row.querySelector("[data-view-row-title]")?.parentElement?.nextElementSibling;
+    expect(line?.className).toContain(colour);
+    expect(line?.hasAttribute("data-tone")).toBe(false);
+    expect(row.textContent).toContain(spoken);
+  }
+});
+
+test("a needs-you row says what the bot waits on: its approval's act, its question, or a connect card, and counts the rest", async () => {
+  await spadeApp("/spade", (world) => {
+    world.addAgent({ id: "mail", name: "Mailer" });
+    world.addAgent({ id: "ask", name: "Asker" });
+    world.addAgent({ id: "many", name: "Many" });
+    const agent = (id: string) => world.agents.find((each) => each.id === id)!;
+    world.askAbout(
+      agent("mail"),
+      "m1",
+      "send_email",
+      { to: "Marta Reyes", subject: "Hi" },
+      "undeclared",
+    );
+    world.question(agent("ask"), "q1", "Q2 or Q3 last year?");
+    world.askAbout(
+      agent("many"),
+      "p1",
+      "shell",
+      { command: "gh pr comment 12 --body x" },
+      "undeclared",
+    );
+    world.askAbout(agent("many"), "p2", "shell", { command: "ls -la" }, "undeclared");
+  });
+  await waitFor(async () =>
+    expect(await rowText("Mailer")).toContain("Wants to email Marta Reyes"),
+  );
+  expect(await rowText("Asker")).toContain("Asks: Q2 or Q3 last year?");
+  expect(await rowText("Many")).toContain("Wants to run gh pr comment");
+});
+
+test("a row the person hasn't seen has a blue dot at its right edge and a normal-weight name, announced as unread", async () => {
+  await spadeApp("/spade", (world) => {
+    crew(world);
+    world.addAgent({
+      id: "news",
+      name: "News",
+      unseen: true,
+      last_message: { from: "agent", text: "**Big** day\nahead", at: 2, from_agent: null },
+    });
+  });
+  const row = await botRow("News");
+  expect(row.querySelector("[data-unread-dot]")).not.toBeNull();
+  expect(row.textContent).toContain("Unread");
+  expect(row.querySelector("[data-view-row-title]")?.className).not.toContain("font-semibold");
+  // The line is the latest message, plain and on one line.
+  expect(row.textContent).toContain("Big day ahead");
+  expect((await botRow("Scout")).querySelector("[data-unread-dot]")).toBeNull();
 });
 
 test("the right-click menu offers only what applies: Spade has no Pin or Delete, a read bot no Mark as read", async () => {
@@ -238,7 +298,7 @@ test("Mark as read sends the seen cursor, and Delete asks first", async () => {
   await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/scout")).toHaveLength(1));
 });
 
-test("a group's menu offers Pin, Open and Delete, and pinning it moves it to the strip", async () => {
+test("a group's menu offers Pin, Open and Delete, and pinning it moves it up the list", async () => {
   const { spade } = await spadeApp("/spade", (world) => {
     crew(world);
     world.teams.addGroup({
@@ -252,6 +312,5 @@ test("a group's menu offers Pin, Open and Delete, and pinning it moves it to the
   expect(listed).toEqual(["Pin", "Open", "Delete"]);
   await userEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
   await waitFor(() => expect(spade.sent("PUT", "/v1/groups/crew/pin")).toEqual([{ pinned: true }]));
-  const strip = await screen.findByRole("list", { name: "Pinned" });
-  expect(within(strip).getByRole("link", { name: "Crew" })).toBeTruthy();
+  await waitFor(async () => expect((await rowNames())[1]).toBe("Crew"));
 });

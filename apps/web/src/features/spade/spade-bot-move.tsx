@@ -9,7 +9,6 @@ import {
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -127,21 +126,18 @@ export function ProfileMachine(props: { bot: RosterBot }) {
   const canMove = !moving && !bot.away && !bot.unavailable && targets.length > 0;
   return (
     <>
-      <SettingRow
-        title="Machine"
-        description={actions.problem && <span className="text-destructive">{actions.problem}</span>}
-      >
-        <span className="flex min-w-0 items-center gap-1">
-          <span className="truncate text-ui text-foreground">{bot.machine.name}</span>
+      <div data-setting-slot="" className="flex flex-col gap-1 py-2.5">
+        <div className="flex min-h-7 items-center gap-3">
+          <span className="shrink-0 text-ui font-medium text-foreground">Machine</span>
+          <span className="min-w-0 flex-1 truncate text-right text-ui text-muted-foreground">
+            {bot.machine.name}
+          </span>
           {canMove && !comeHere && (
             <Menu>
               <MenuTrigger
                 aria-label={`Move ${bot.name} to another machine`}
                 disabled={actions.busy}
-                className={cn(
-                  pillButton,
-                  "-mr-3.5 text-ui text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
+                className="-mr-2 inline-flex h-7 shrink-0 items-center rounded-md px-2 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover active:bg-active"
               >
                 Move to…
               </MenuTrigger>
@@ -158,8 +154,9 @@ export function ProfileMachine(props: { bot: RosterBot }) {
               </MenuContent>
             </Menu>
           )}
-        </span>
-      </SettingRow>
+        </div>
+        {actions.problem && <p className="text-xs text-destructive">{actions.problem}</p>}
+      </div>
       {comeHere && canMove && (
         <div className="py-1">
           <Button

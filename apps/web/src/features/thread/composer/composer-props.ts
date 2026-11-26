@@ -3,6 +3,7 @@ import type { ReactNode, Ref } from "react";
 import type { KeymapId } from "@/lib/keymap.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Draft } from "./draft.ts";
+import type { SlashMenu } from "./slash-rows.ts";
 import type { ReturnedDraft } from "./send-store.ts";
 import type { SubmittedDraft } from "./submitted-draft.ts";
 
@@ -119,6 +120,8 @@ export interface ComposerProps {
   filesOnly?: boolean | undefined;
   /** With `filesOnly`: names `@` offers, inserted as plain text (a Spade group's members). */
   mentionNames?: readonly MentionMember[] | undefined;
+  /** With `filesOnly`: what a leading `/` offers (Spade's actions, skills and commands). */
+  slash?: SlashMenu | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
   shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;

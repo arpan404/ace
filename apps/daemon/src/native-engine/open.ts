@@ -15,6 +15,7 @@
  * order. The bounded fills ADR 0170 asks for are a later Rust-only item, not this one.
  */
 import { EngineRepository } from "../engine/repository.ts";
+import { RestartStreaks } from "../engine/restart-resume.ts";
 import type { EngineOptions } from "../engine/engine-options.ts";
 import type { Store } from "../store.ts";
 
@@ -38,4 +39,8 @@ export function openEngineData(store: Store, options: EngineOptions, now: () => 
     now,
   );
   void repository;
+  // The restart streak table E5.4d's receipts clear (`restart-resume.ts:76`); its constructor
+  // owns the DDL, and a home written by the TypeScript engine already has the row.
+  const restartStreaks = new RestartStreaks(store);
+  void restartStreaks;
 }

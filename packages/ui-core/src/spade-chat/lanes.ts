@@ -45,6 +45,8 @@ export interface SpadeLane {
   model: string | undefined;
   /** The first line of its last words, once it has ended. */
   report: string | undefined;
+  /** One line of what it will do: its goal's title, else the brief's first line. */
+  brief: string | undefined;
 }
 
 const count = z.number().int().nonnegative().catch(0).default(0);
@@ -64,6 +66,7 @@ const laneShape = z.object({
   moved: z.boolean().catch(false).default(false),
   model: z.string().nullish().catch(undefined),
   report: z.string().nullish().catch(undefined),
+  brief: z.string().nullish().catch(undefined),
 });
 
 function readLane(value: unknown): SpadeLane | undefined {
@@ -85,6 +88,7 @@ function readLane(value: unknown): SpadeLane | undefined {
     moved: lane.moved,
     model: lane.model || undefined,
     report: lane.report || undefined,
+    brief: lane.brief || undefined,
   };
 }
 

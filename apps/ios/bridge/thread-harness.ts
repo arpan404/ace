@@ -129,9 +129,12 @@ export function connect(
     readSnapshots,
     held,
     tail,
+    archive,
   }: {
     items?: number;
     readSnapshots?: ReadSnapshotStorage;
+    /** Keep every thread read in an archive over `readSnapshots`, as the app does (ADR 0225). */
+    archive?: boolean;
     held?: Promise<void>;
     /** The small first snapshot a thread opens from, as the app's bridge asks for it. */
     tail?: OpenTail;
@@ -140,6 +143,7 @@ export function connect(
   let saved: string | null = null;
   client = new ClientCore({
     ...(readSnapshots ? { readSnapshots } : {}),
+    ...(archive ? { archive: {} } : {}),
     deviceId: DeviceId.parse("ios-bridge-test"),
     expectedHostId: HostId.parse("ios-test-host"),
     ...(items ? { limits: { items } } : {}),
@@ -256,6 +260,18 @@ export async function until<T>(read: () => T | undefined | false, label: string)
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+/** Command ids of a type the client sent, in order. */
+export function commandIds(type: string): string[] {
+  return sent.flatMap((text) => {
+    const message = JSON.parse(text) as {
+      type?: string;
+      command?: { id?: string; payload?: { type?: string } };
+    };
+    return message.type === "command" && message.command?.payload?.type === type
+      ? [message.command.id ?? ""]
+      : [];
+  });
 }
 /** Command payloads of a type the client sent, in order. */
 export function commands(type: string): Record<string, unknown>[] {

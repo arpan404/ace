@@ -1,17 +1,17 @@
-import { UsageWorkerRequest } from "./usage-worker-wire.ts";
-import { scanUsage } from "./usage-worker-scan.ts";
+import { UsageWorkerRequest, type UsageWorkerReply } from "./usage-worker-wire.ts";
+import { measureTranscripts, scanUsage } from "./usage-worker-scan.ts";
 
 const cancellation = new AbortController();
 let started = false;
-function reply(message: unknown): void {
+function reply(message: UsageWorkerReply, close = true): void {
   if (!process.connected || !process.send) return;
   process.send(message, () => {
-    if (process.connected) process.disconnect?.();
+    if (close && process.connected) process.disconnect?.();
   });
 }
 process.on("disconnect", () => cancellation.abort());
-process.on("message", (input: unknown) => {
-  const request = UsageWorkerRequest.safeParse(input);
+process.on("message", (raw: unknown) => {
+  const request = UsageWorkerRequest.safeParse(raw);
   if (!request.success) {
     cancellation.abort();
     reply({ kind: "error", code: "storage_usage_failed" });
@@ -23,9 +23,23 @@ process.on("message", (input: unknown) => {
   }
   if (started) return;
   started = true;
-  void scanUsage(request.data, cancellation.signal)
+  const input = request.data;
+  const transcripts = input.op === "transcripts";
+  const result: Promise<UsageWorkerReply> = transcripts
+    ? measureTranscripts(input, cancellation.signal).then<UsageWorkerReply>((bytes) => ({
+        kind: "transcripts",
+        bytes,
+      }))
+    : scanUsage(input, cancellation.signal).then<UsageWorkerReply>((usage) => ({
+        kind: "usage",
+        usage,
+      }));
+  void result
     .then(
-      (usage) => reply({ kind: "usage", usage }),
+      (message) => {
+        if (transcripts) started = false;
+        reply(message, !transcripts);
+      },
       () => reply({ kind: "error", code: "storage_usage_failed" }),
     )
     .catch(() => {

@@ -991,3 +991,32 @@ fn a_request_whose_frame_was_not_admitted_is_refused() {
         "and it is refused as TS does: {lines:?}"
     );
 }
+
+/// One decoded received frame is shared by every tenant: the publication
+/// carries the same `Arc`, never a per-recipient clone.
+#[test]
+fn one_received_frame_is_shared_by_every_tenant() {
+    let run = run("shared-value", true);
+    let _ = run.attach(1);
+    let _ = run.attach(2);
+    assert!(run.wait_ready(1) && run.wait_ready(2));
+    let shared = run.host.input(|inner| {
+        let data = Arc::new(ace_json::json!({
+            "jsonrpc": "2.0",
+            "method": "account/rateLimits/updated",
+            "params": {},
+        }));
+        inner.broadcast_init(ace_supervisor::peer::Direction::Recv, &data);
+        let frames: Vec<Arc<Value>> = inner
+            .out
+            .iter()
+            .filter_map(|effect| match effect {
+                HostEffect::Frame { data, .. } => Some(Arc::clone(data)),
+                _ => None,
+            })
+            .collect();
+        frames.len() == 2 && Arc::ptr_eq(&frames[0], &frames[1])
+    });
+    assert!(shared, "each tenant was handed its own copy");
+    run.stop();
+}

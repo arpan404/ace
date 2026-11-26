@@ -323,4 +323,22 @@ describe.runIf(native)("the native actor and frames", () => {
       await seam.close();
     }
   });
+
+  test("a batch the poisoned actor never runs releases its frame handle", async () => {
+    // (a) `resource-limits`
+    const { seam, session } = await seamWithSession();
+    try {
+      const hold = holdWrites(seam.store);
+      void session.context.onFrame(frame(0));
+      seam.probe.seal("t1");
+      void session.context.onFrame(frame(1));
+      seam.probe.seal("t1");
+      seam.probe.failApplyFatal("t1", 1);
+      await hold.release();
+      await seam.engine.flush();
+      expect(seam.probe.liveFrames()).toBe(0);
+    } finally {
+      await seam.close();
+    }
+  });
 });

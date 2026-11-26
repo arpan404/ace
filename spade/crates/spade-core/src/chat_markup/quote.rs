@@ -1,6 +1,6 @@
 //! Looks up the message an id names, for a reply that quotes it (ADR 0212 §4).
 
-use super::{parse, segment_plain, split_id};
+use super::{messages, parse, segment_plain, split_id};
 use crate::event::{Event, Known, ReplyTo};
 
 /// How much of a quoted message is kept, in characters.
@@ -63,7 +63,7 @@ fn whole(text: &str, index: usize) -> Option<String> {
 }
 
 fn nth(text: &str, index: usize) -> Option<String> {
-    parse(text).get(index).map(segment_plain)
+    messages(&parse(text)).nth(index).map(segment_plain)
 }
 
 fn cut(text: &str) -> String {

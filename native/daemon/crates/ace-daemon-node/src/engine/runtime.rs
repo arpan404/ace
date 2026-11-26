@@ -54,6 +54,17 @@ impl FrameAcks for JsAcks {
     fn settle(&self, call: u64, reject: Option<String>) {
         self.ports.settle_call(call, reject);
     }
+
+    fn release(&self, handles: &[u32]) {
+        self.ports
+            .release_frames(&ace_json::to_string(&ace_json::Value::Array(
+                handles
+                    .iter()
+                    .map(|handle| (*handle as u64).into())
+                    .collect::<Vec<ace_json::Value>>()
+                    .into(),
+            )));
+    }
 }
 
 /// The shell's live-buffer entry points (step 16).

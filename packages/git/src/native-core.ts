@@ -213,6 +213,8 @@ interface PortMessage {
   bytes?: number;
   record?: unknown;
   lease?: unknown;
+  envJson?: string;
+  value?: unknown;
   listing?: unknown[];
   event?: unknown;
   pid?: number;
@@ -289,6 +291,16 @@ export class NativeCoreCli {
   private readonly streams = new Map<number, StreamTarget>();
   private readonly killed: Set<string>;
   private readonly leaseProbe: LeaseProbe;
+  /** The answers each `configFactsRead` call's ports need, by call id. */
+  private readonly configCalls = new Map<
+    number,
+    {
+      sources: (cwd: string, env: [string, string][]) => Promise<string[] | undefined>;
+      compute: () => Promise<unknown>;
+      keep: (value: unknown) => boolean;
+    }
+  >();
+  private nextConfigCall = 1;
   /**
    * Calls still in flight, and the killed calls' lease settlements they started.
    * `close` waits for both: a settlement removes the leftover locks a killed
@@ -331,6 +343,185 @@ export class NativeCoreCli {
     } catch (error) {
       throwGitError(error);
     }
+  }
+
+  /**
+   * Reads one cached configuration fact (G2c). The cache, stamps and learning are
+   * the core's; `sources`, `compute` and `keep` answer its ports on this thread.
+   */
+  configFactsRead(
+    input: { cwd: string; name: string; env: [string, string][] },
+    ports: {
+      sources: (cwd: string, env: [string, string][]) => Promise<string[] | undefined>;
+      compute: () => Promise<unknown>;
+      keep: (value: unknown) => boolean;
+    },
+    typescript: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "configRead", part, selected, completed: "typescript" });
+      return typescript();
+    }
+    const callId = this.nextConfigCall++;
+    this.configCalls.set(callId, ports);
+    return new Promise<unknown>((resolve, reject) => {
+      const finish = (): void => {
+        this.configCalls.delete(callId);
+      };
+      try {
+        this.handle.configRead(
+          JSON.stringify({ callId, cwd: input.cwd, name: input.name, env: input.env }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "configRead", part, selected, completed: "native" });
+            finish();
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            resolve(JSON.parse(json ?? "null"));
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "configRead", part, selected, completed: "native" });
+        finish();
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
+  }
+
+  /**
+   * The files whose change can alter a checkout's configuration (G2c): parsed,
+   * listed and walked by the core from the raw Git output. `typescript`
+   * answers the cross gate's off leg unchanged.
+   */
+  configWatch(
+    input: {
+      cwd: string;
+      gitDir: string | undefined;
+      commonDir: string | undefined;
+      toplevel: string | undefined;
+      listing: string | undefined;
+      standard: readonly string[];
+      home: string | undefined;
+      isWindows: boolean;
+    },
+    typescript: () => Promise<string[] | undefined> | string[] | undefined,
+  ): Promise<string[] | undefined> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "configWatch", part, selected, completed: "typescript" });
+      return Promise.resolve(typescript());
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        this.handle.configWatch(
+          JSON.stringify({
+            cwd: input.cwd,
+            gitDir: input.gitDir ?? null,
+            commonDir: input.commonDir ?? null,
+            toplevel: input.toplevel ?? null,
+            listing: input.listing ?? null,
+            standard: [...input.standard],
+            home: input.home ?? null,
+            isWindows: input.isWindows,
+          }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "configWatch", part, selected, completed: "native" });
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const value = JSON.parse(json ?? "{}") as { paths: string[] | null };
+            resolve(value.paths ?? undefined);
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "configWatch", part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
+  }
+
+  /**
+   * The execution policy for one Git call (G2c): the guarded or hookless
+   * environment and the arguments that precede the command. `typescript`
+   * answers the cross gate's off leg unchanged.
+   */
+  preparePolicy(
+    input: {
+      keys?: string;
+      guarded?: boolean;
+      hookless?: boolean;
+      transport?: { protocols: readonly string[]; sshCommand?: string | undefined } | null;
+    },
+    typescript: () => { env: Record<string, string>; args: string[] },
+  ): Promise<{ env: Record<string, string>; args: string[] }> {
+    const selected: NativeBackend = gitCrossSelected() ?? "native";
+    const seq = reserveGitOpSeq();
+    if (selected === "typescript") {
+      recordGitOp({ seq, op: "preparePolicy", part, selected, completed: "typescript" });
+      return Promise.resolve(typescript());
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        this.handle.prepareCall(
+          JSON.stringify({
+            keys: input.keys ?? "",
+            guarded: input.guarded === true,
+            hookless: input.hookless === true,
+            transport:
+              input.transport === null || input.transport === undefined
+                ? null
+                : {
+                    protocols: [...input.transport.protocols],
+                    sshCommand: input.transport.sshCommand,
+                  },
+          }),
+          (error: unknown, json?: string) => {
+            recordGitOp({ seq, op: "preparePolicy", part, selected, completed: "native" });
+            if (error !== null && error !== undefined) {
+              try {
+                throwGitError(error);
+              } catch (mapped) {
+                reject(mapped);
+              }
+              return;
+            }
+            const value = JSON.parse(json ?? "{}") as {
+              env: [string, string][];
+              args: string[];
+            };
+            resolve({ env: Object.fromEntries(value.env), args: value.args });
+          },
+        );
+      } catch (error) {
+        recordGitOp({ seq, op: "preparePolicy", part, selected, completed: "native" });
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+      }
+    });
   }
 
   /** Runs one lease operation in the core and maps its answer back to `GitService`'s shape. */
@@ -389,6 +580,15 @@ export class NativeCoreCli {
         }
       }
     });
+  }
+
+  /** `git version M.m` through the core's schemas (G2c). */
+  decodeVersion(text: string): [number, number] | undefined {
+    const parsed = JSON.parse(gitAddon().gitDecodeVersion(text)) as {
+      major: number;
+      minor: number;
+    } | null;
+    return parsed === null ? undefined : [parsed.major, parsed.minor];
   }
 
   jobAlive(pid: number): boolean {
@@ -710,6 +910,60 @@ export class NativeCoreCli {
   private onPort(eventJson: string, data: Uint8Array): void {
     const msg = JSON.parse(eventJson) as PortMessage;
     switch (msg.op) {
+      case "config_sources": {
+        const reqId = msg.reqId ?? 0;
+        const ports = this.configCalls.get(msg.callId ?? 0);
+        if (ports === undefined) {
+          this.handle.replyPort(reqId, JSON.stringify({ paths: null }));
+          return;
+        }
+        void ports
+          .sources(msg.cwd ?? "", JSON.parse(msg.envJson ?? "[]") as [string, string][])
+          .then((paths) => this.handle.replyPort(reqId, JSON.stringify({ paths: paths ?? null })))
+          .catch(() => this.handle.replyPort(reqId, JSON.stringify({ paths: null })));
+        return;
+      }
+      case "config_compute": {
+        const reqId = msg.reqId ?? 0;
+        const ports = this.configCalls.get(msg.callId ?? 0);
+        if (ports === undefined) {
+          this.handle.replyPort(reqId, JSON.stringify({ error: { code: "git_closed" } }));
+          return;
+        }
+        void ports.compute().then(
+          (value) =>
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({ value: JSON.parse(JSON.stringify(value ?? null)) }),
+            ),
+          (error: unknown) => {
+            const gitError = error instanceof GitError ? error : undefined;
+            this.handle.replyPort(
+              reqId,
+              JSON.stringify({
+                error: {
+                  code: gitError?.code ?? "git_failed",
+                  message: gitError?.message ?? String(error),
+                  details: gitError?.details ?? {},
+                },
+              }),
+            );
+          },
+        );
+        return;
+      }
+      case "config_keep": {
+        const reqId = msg.reqId ?? 0;
+        const ports = this.configCalls.get(msg.callId ?? 0);
+        const keep = ports?.keep(msg.value) ?? true;
+        this.handle.replyPort(reqId, JSON.stringify({ keep }));
+        return;
+      }
+      case "config_now": {
+        const reqId = msg.reqId ?? 0;
+        this.handle.replyPort(reqId, JSON.stringify({ ms: this.runtime.fileClock() }));
+        return;
+      }
       case "lease_local": {
         const reqId = msg.reqId ?? 0;
         const record = (msg.record as MutationLease | undefined) ?? null;

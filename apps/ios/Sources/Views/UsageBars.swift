@@ -8,9 +8,8 @@ struct UsageToolbarButton: View {
     var body: some View {
         let bars = client?.usageBars ?? []
         Button(action: open) {
+            // The glyph stays at the bar icon size; the header gives the button its slot.
             UsageBars(bars: bars)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .contentShape(Rectangle())
         }
         .disabled(client == nil)
         .accessibilityLabel("Usage")
