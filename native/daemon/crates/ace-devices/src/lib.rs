@@ -8,3 +8,4 @@ pub mod catalog;
 pub mod error;
 pub mod inventory;
 pub mod platform;
+pub mod service;
