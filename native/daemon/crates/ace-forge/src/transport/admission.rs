@@ -219,7 +219,7 @@ fn tea_endpoint(endpoint: &str) -> bool {
             .expect("the tea prefix pattern compiles")
     });
     static FORBIDDEN: std::sync::LazyLock<Regex> =
-        std::sync::LazyLock::new(|| Regex::new(r"[\\#{}\s]").expect("compiles"));
+        std::sync::LazyLock::new(|| Regex::new(r"[\\?#{}\s]").expect("compiles"));
     static ENCODED: std::sync::LazyLock<Regex> =
         std::sync::LazyLock::new(|| Regex::new(r"(?i)%[0-9a-f]{2}").expect("compiles"));
     if !PREFIX.is_match(endpoint) || FORBIDDEN.is_match(endpoint) {

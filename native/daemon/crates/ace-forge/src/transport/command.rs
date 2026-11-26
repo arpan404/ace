@@ -349,14 +349,17 @@ impl SupervisedRunner {
             Err(error) => {
                 // Only an exec failure proves nothing started; a later setup failure leaves
                 // the write uncertain (`command.ts:120-128`).
-                let dispatched = !matches!(
+                let not_dispatched = matches!(
                     error,
                     ace_supervisor::errors::SupervisorError::SpawnFailed { .. }
                 );
+                if !not_dispatched && let Some(dispatch) = &request.dispatch {
+                    dispatch.record();
+                }
                 return Err(ForgeError {
                     kind: Kind::Cli,
                     retry_at: None,
-                    dispatched: Some(!dispatched),
+                    dispatched: if not_dispatched { Some(false) } else { None },
                     receipt: None,
                     status: None,
                 });

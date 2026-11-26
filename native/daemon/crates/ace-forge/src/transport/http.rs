@@ -244,10 +244,12 @@ impl<'a> GhApi<'a> {
             return Err(ForgeError::retry_at(Kind::RateLimit, retry_at));
         }
         if status == 401 || status == 403 {
-            // A 403 is a limit before it is a sign-in answer (`http.ts:208-234`).
-            let limited = headers_get(&headers, "x-ratelimit-remaining") == Some("0")
-                || headers_get(&headers, "retry-after").is_some()
-                || rate_limited_body(text);
+            // A 403 is a limit before it is a sign-in answer (`http.ts:222-234`); a 401 is
+            // never one, and a plain-text body is not a JSON `message`.
+            let limited = status == 403
+                && (headers_get(&headers, "x-ratelimit-remaining") == Some("0")
+                    || headers_get(&headers, "retry-after").is_some()
+                    || rate_limited_body(text));
             if limited {
                 dispatch.reject();
                 return Err(ForgeError::retry_at(Kind::RateLimit, retry_at));
@@ -267,12 +269,14 @@ impl<'a> GhApi<'a> {
             dispatch.reject();
             return Err(ForgeError::not_dispatched(Kind::Conflict));
         }
-        if status == 409 {
-            // A guarded write's expected state no longer holds; a native merge acknowledgement
-            // is the one 409 that is a result, not a refusal.
-            if let Some((state, uuid)) = merge_operation(text)
-                && (state != "uncertain" || uuid.is_some())
-            {
+        if status == 409 || status == 400 {
+            // GitHub's merge-async acknowledgement is the one 400/409 that is a result
+            // (`http.ts:236-253`, `decodeStackMergeOperation`).
+            let acknowledged =
+                merge_operation(path, method, status, text).is_some_and(|operation| {
+                    status != 409 || operation.state != "uncertain" || operation.uuid.is_some()
+                });
+            if acknowledged {
                 let body: Value = ace_json::parse(text).unwrap_or(Value::Null);
                 let page = Page {
                     id: self
@@ -289,8 +293,17 @@ impl<'a> GhApi<'a> {
                 }
                 return Ok(page);
             }
-            dispatch.reject();
-            return Err(ForgeError::not_dispatched(Kind::Conflict));
+            if status == 409 {
+                dispatch.reject();
+                return Err(ForgeError::not_dispatched(Kind::Conflict));
+            }
+        }
+        if !(200..300).contains(&status) {
+            return Err(ForgeError::new(Kind::Cli));
+        }
+        // A missing exit code is a signal death, not success (`http.ts:285`).
+        if output.code != Some(0) {
+            return Err(ForgeError::new(Kind::Cli));
         }
         if path == "graphql" {
             if output.truncated {
@@ -299,12 +312,6 @@ impl<'a> GhApi<'a> {
             let body: Value =
                 ace_json::parse(text).map_err(|_| ForgeError::new(Kind::InvalidData))?;
             assert_graphql_result(&body, &dispatch, retry_at, !write)?;
-        }
-        if !(200..300).contains(&status) {
-            return Err(ForgeError::new(Kind::Cli));
-        }
-        if output.code.is_some_and(|code| code != 0) {
-            return Err(ForgeError::new(Kind::Cli));
         }
         let version = sha256_hex(text);
         if let Some(mut cached) = cached
@@ -724,10 +731,16 @@ fn assert_graphql_result(
     let Some(object) = body.as_object() else {
         return Err(ForgeError::new(Kind::InvalidData));
     };
-    let data = object.get("data");
+    let data = match object.get("data") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(_)) => object.get("data"),
+        Some(_) => return Err(ForgeError::new(Kind::InvalidData)),
+    };
     let errors = match object.get("errors") {
-        Some(Value::Array(errors)) if !errors.is_empty() => errors,
-        _ => return Ok(()),
+        None => return Ok(()),
+        Some(Value::Array(errors)) if errors.is_empty() => return Ok(()),
+        Some(Value::Array(errors)) => errors,
+        Some(_) => return Err(ForgeError::new(Kind::InvalidData)),
     };
     let refused = match data {
         Some(Value::Object(fields)) => {
@@ -849,24 +862,57 @@ fn merge_path(path: &str) -> bool {
     MERGE.is_match(path)
 }
 
-/// The native merge-operation body a 409 may carry (`decodeStackMergeOperation`).
-fn merge_operation(text: &str) -> Option<(String, Option<String>)> {
-    let body = ace_json::parse(text).ok()?;
-    let fields = body.as_object()?;
-    let state = fields.get("state")?.as_str()?.to_owned();
-    if !matches!(
-        state.as_str(),
-        "merged" | "queued" | "already_merged" | "uncertain"
-    ) {
+/// GitHub's merge-async acknowledgement (`decodeStackMergeOperation`): `{status,
+/// details:{uuid, message}}` on a 400 or 409 for `pulls/<n>/merge-async`.
+struct MergeOperation {
+    state: String,
+    uuid: Option<String>,
+}
+
+fn merge_operation(path: &str, method: &str, status: u16, text: &str) -> Option<MergeOperation> {
+    static MERGE_ASYNC: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^repos/[\w.-]+/[\w.-]+/pulls/[1-9]\d*/merge-async$").expect("compiles")
+    });
+    if !(status == 400 || status == 409) || method != "PUT" || !MERGE_ASYNC.is_match(path) {
         return None;
     }
-    Some((
-        state,
-        fields
-            .get("uuid")
-            .and_then(|uuid| uuid.as_str())
-            .map(str::to_owned),
-    ))
+    let body = ace_json::parse(text).ok()?;
+    let fields = body.as_object()?;
+    let status_text = fields.get("status")?.as_str()?;
+    if status_text.chars().count() > 65_536 {
+        return None;
+    }
+    let details = fields.get("details")?.as_object()?;
+    let message = details.get("message")?.as_str()?;
+    if message.chars().count() > 65_536 {
+        return None;
+    }
+    let uuid = match details.get("uuid") {
+        None => None,
+        Some(uuid) => {
+            let uuid = uuid.as_str()?;
+            if !is_uuid(uuid) {
+                return None;
+            }
+            Some(uuid.to_owned())
+        }
+    };
+    if status_text == "pending" && uuid.is_none() {
+        return None;
+    }
+    let state = match status_text {
+        "pending" | "merged" | "enqueued" | "failed" => status_text.to_owned(),
+        _ => String::from("uncertain"),
+    };
+    Some(MergeOperation { state, uuid })
+}
+
+fn is_uuid(text: &str) -> bool {
+    static UUID: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+            .expect("compiles")
+    });
+    UUID.is_match(text)
 }
 
 /// A 403 body that says the host rate-limited the request (`http.ts:214`).
@@ -875,7 +921,14 @@ fn rate_limited_body(text: &str) -> bool {
         Regex::new(r"(?i)secondary rate limit|rate limit exceeded|abuse detection")
             .expect("compiles")
     });
-    LIMITED.is_match(&body_message(text))
+    ace_json::parse(text)
+        .ok()
+        .and_then(|body| {
+            body.as_object()
+                .and_then(|fields| fields.get("message"))
+                .and_then(|message| message.as_str().map(str::to_owned))
+        })
+        .is_some_and(|message| LIMITED.is_match(&message))
 }
 
 /// A reply's `message`, or the text itself when it is not a JSON body.
@@ -1173,6 +1226,43 @@ mod tests {
                 .await;
             (outcome, dispatch)
         })
+    }
+
+    #[test]
+    fn a_409_merge_async_acknowledgement_is_the_result_and_not_a_refusal() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(async {
+        // `stacks.process.test.ts:18-20`: GitHub's acknowledgement body.
+        let body = api(
+            r#"{"status":"pending","details":{"uuid":"4f8b2a1c-3d5e-4f6a-8b9c-0d1e2f3a4b5c","message":"Merge requested"}}"#,
+            "",
+        )
+        .replace("200 OK", "409 Conflict");
+        let stub = stub(&[body.as_str()]);
+        let api_client = GhApi::new(&stub, "github.com", std::sync::Arc::new(|| 0.0));
+        let dispatch =
+            std::sync::Arc::new(crate::transport::mutation::MutationDispatch::new(None));
+        let page = api_client
+            .request(
+                "repos/octo/ace/pulls/8/merge-async",
+                Some(json!({ "merge_method": "squash" })),
+                Some("PUT"),
+                None,
+                dispatch.clone(),
+            )
+            .await
+            .expect("the acknowledgement is the result");
+        assert_eq!(page.body["status"], json!("pending"));
+        assert_eq!(
+            page.body["details"]["uuid"],
+            json!("4f8b2a1c-3d5e-4f6a-8b9c-0d1e2f3a4b5c")
+        );
+        assert!(!dispatch.definitely_failed(), "the write may not be retried");
+
+            });
     }
 
     #[test]
