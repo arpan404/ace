@@ -871,6 +871,18 @@ live in memory; and a paired device then mints a fresh one with its device token
 Files: `auth.server`, `handed-ticket.server`, `ticket-allocation.server`, `remote-restart.server`,
 `relay-nk.process`.
 
+Two cases of those files are **not** T2's, and stay with their owners:
+
+- `auth.server.process.test.ts`'s "rejects a negative replay cursor while keeping the
+  authenticated socket usable" is a `subscribe`'s `afterSeq` check (`socket-reads.ts`), so it
+  belongs to **T3** with the subscriptions and core reads. T2's hello gate is what makes the
+  socket authenticated first; the cursor rule is the read's.
+- `relay-hello.ts`'s account hello (a `grant`'s admission through `machine-account.ts`,
+  P-256 grant and standing verification, `accountDeviceActor`/`accountHello`) belongs to the
+  **account backend**, not the transport: T2 carries the grant field and the socket's grant lease
+  (`grant-lease.ts`, `grant-socket.ts`) and admits the account device's id, while the account
+  service decides what the grant proves.
+
 ### T3: subscriptions and fan-out (needs T2, so the writer is on)
 
 `subscription.ts`, `sidebar-subscription.ts`, `wire-encoder.ts`, `event-encodings.ts`,
