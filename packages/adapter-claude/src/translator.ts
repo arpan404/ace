@@ -1,5 +1,5 @@
 import { systemNotice } from "./system-notices.ts";
-import { compactBoundary, compactSummary, isCompactCommand } from "./compaction.ts";
+import { compactBoundary, compactSummary, isCompactAsk } from "./compaction.ts";
 import { claudeGoal } from "./goal.ts";
 import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
@@ -132,7 +132,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.start(state.root, "user");
       }
       // ace's own `/compact` ask: the compaction's row is its result, never a message.
-      if (type === "user" && isCompactCommand(data)) return true;
+      if (type === "user" && isCompactAsk(state, data, frame.dir === "send")) return true;
       // Claude's compaction summary is the compaction's, never a message.
       if (frame.dir !== "send" && compactSummary(state, data, frame.seq)) return true;
       message(state, data, frame.seq, streams, messages);

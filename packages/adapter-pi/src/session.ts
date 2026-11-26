@@ -427,12 +427,13 @@ export async function openPiSession(
       await rpc.request("abort");
       await rpc.request("abort_bash");
     },
-    // Pi's own compaction. It answers when the summary is written, so it waits; the run's
-    // compaction events show the work meanwhile.
+    // Pi's own compaction. Pi answers when the summary is written, so the ask is written and
+    // not awaited: `compaction_start`/`compaction_end` say how it goes, and a Stop reaches Pi at
+    // once instead of waiting behind the reply (which can take minutes).
     async compact() {
       check();
       await idle();
-      await rpc.request("compact", {}, 30 * 60_000);
+      await rpc.fire("compact");
     },
     async resolve(id: string, resolution: InteractionResolution) {
       checkOpen();

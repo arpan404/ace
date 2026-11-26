@@ -2,6 +2,7 @@ import { contextUsage, type ContextUsage } from "@ace/ui-core";
 import { useAgent, useThread, useThreadMeta } from "@ace/client-react";
 import { useThreadField } from "@ace/client-react/thread-field";
 import type { ThreadKey, ThreadReader } from "@ace/client";
+import { compactionBlocked } from "@ace/core";
 import { ArrowsInSimpleIcon } from "@ace/icons";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -44,11 +45,7 @@ export function useContextControl(threadId: string): ContextControl {
   const [sending, setSending] = useState(false);
   const usage = contextUsage(meter);
   const compacting = agent?.status.state === "working" && agent.status.activity === "compacting";
-  const working =
-    agent?.status.state === "working" ||
-    agent?.status.state === "starting" ||
-    agent?.status.state === "blocked" ||
-    agent?.status.state === "unresponsive";
+  const working = compactionBlocked(agent?.status);
   const supported = thread?.capabilities?.compaction === true;
   const pending = sending || compacting;
   // A provider compacts its own idle context: its turn, or the person's question, comes first.

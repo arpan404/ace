@@ -137,3 +137,17 @@ test("the context readout takes the slot only when nothing else has it, and is n
     others: [],
   });
 });
+
+test("automations keep their place above the context readout, and neither is an indicator", () => {
+  // A known occupancy must never take the automation line (and its Pause) away for good.
+  expect(stripSlot(facts({ automation: true, context: true }), undefined)).toEqual({
+    shown: "automation",
+    others: [],
+  });
+  expect(stripSlot(facts({ automation: true, context: true, plan: true }), undefined)).toEqual({
+    shown: "plan",
+    others: [],
+  });
+  // Nothing to automate: the readout takes the free slot as before.
+  expect(stripSlot(facts({ context: true }), undefined).shown).toBe("context");
+});

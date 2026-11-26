@@ -733,7 +733,16 @@ const server = createServer(async (req, res) => {
         time: { created: 1 },
         delivery: "queue",
       };
-      publish("session.inbox.enqueued", { sessionID: id, inboxID: item.id });
+      const directory = sessions.get(id)?.location?.directory ?? "/one";
+      publish("session.inbox.enqueued", { sessionID: id, inboxID: item.id }, directory);
+      // The server compacts in place and says so on its event stream, as OpenCode does.
+      publish("session.compaction.started", { sessionID: id, reason: "manual" }, directory);
+      publish(
+        "session.compaction.ended",
+        { sessionID: id, reason: "manual", text: "The earlier turns, summarised by OpenCode." },
+        directory,
+        { durable: { aggregateID: id, seq: serial, version: 1 } },
+      );
       json({ data: item });
       return;
     }

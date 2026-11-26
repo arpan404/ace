@@ -1,4 +1,5 @@
 import type { Fact } from "@ace/core";
+import { compactionBlocked } from "@ace/core";
 import type { ContextMeter, EventPayload, ThreadView } from "@ace/protocol";
 
 /**
@@ -18,14 +19,7 @@ export function fakeCompaction(
 ): { facts: Fact[] } | { error: string } {
   if (!view.thread.capabilities?.compaction) return { error: "unsupported_compact" };
   const rootId = view.thread.rootAgentId ?? rootKey;
-  const status = view.agents[rootId]?.status;
-  if (
-    status?.state === "working" ||
-    status?.state === "starting" ||
-    status?.state === "blocked" ||
-    status?.state === "unresponsive"
-  )
-    return { error: "thread_not_idle" };
+  if (compactionBlocked(view.agents[rootId]?.status)) return { error: "thread_not_idle" };
   const before = view.contextMeters?.[rootId]?.usedTokens ?? undefined;
   return {
     facts: [

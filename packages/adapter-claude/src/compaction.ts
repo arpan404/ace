@@ -59,12 +59,19 @@ function onlyText(data: Data): string | undefined {
 }
 
 /**
- * Whether a user frame is ace's own `/compact` ask. Claude echoes it back as the (synthetic)
- * prompt it consumed; the compaction's own row already says what happened, so it never becomes a
- * message, and it is never mistaken for the summary that follows.
+ * Whether a user frame is ace's own `/compact` ask: the one ace sends (a send frame), or the
+ * provider echoing it back. The echo is matched by the uuid ace gave it, so it is dropped even
+ * when the provider doesn't mark it synthetic; the compaction's own row already says what
+ * happened, and it is never mistaken for the summary that follows.
  */
-export function isCompactCommand(data: Data): boolean {
-  return data["isSynthetic"] === true && onlyText(data)?.trim() === "/compact";
+export function isCompactAsk(state: ClaudeState, data: Data, sent: boolean): boolean {
+  if (onlyText(data)?.trim() !== "/compact") return false;
+  const uuid = string(data["uuid"]);
+  if (sent) {
+    if (uuid) state.compactAsks.add(uuid);
+    return true;
+  }
+  return data["isSynthetic"] === true || (uuid !== undefined && state.compactAsks.has(uuid));
 }
 
 /**

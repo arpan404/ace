@@ -71,3 +71,27 @@ test("while the provider compacts, the card says so and its compact action waits
   const button = await screen.findByRole("button", { name: "Compact context" });
   expect(unavailable(button)).toBe(true);
 });
+
+test("a turn that ended with a background command still running can compact", async () => {
+  const scenario = contextMeter();
+  scenario.steps.push({
+    kind: "facts",
+    facts: [
+      {
+        type: "background.started",
+        agent: "root",
+        task: "shell",
+        kind: "shell",
+        title: "Dev server",
+        stoppable: true,
+      },
+    ],
+  });
+  const app = harness();
+  app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-context");
+
+  const button = await screen.findByRole("button", { name: "Compact context" });
+  // The model is idle though its shell still runs: the provider takes the compaction now.
+  expect(unavailable(button)).toBe(false);
+});

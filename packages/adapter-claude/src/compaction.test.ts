@@ -71,6 +71,25 @@ test("a synthetic note after the compaction's summary or the model's reply stays
   expect(userMessages(h)).toHaveLength(1);
 });
 
+test("ace's /compact echo is dropped even when Claude doesn't mark it synthetic", () => {
+  const h = harness();
+  h.init();
+  // The ask ace sent, then the provider's echo of it without the synthetic mark.
+  const ask = {
+    type: "user",
+    uuid: "ask-uuid",
+    parent_tool_use_id: null,
+    message: { role: "user", content: "/compact" },
+  };
+  h.send(ask, "sdk", "send");
+  h.send(ask);
+  h.system("compact_boundary", { compact_metadata: { trigger: "manual", pre_tokens: 90_000 } });
+  h.send(summaryFrame());
+  expect(userMessages(h)).toEqual([]);
+  expect(compactions(h)).toHaveLength(1);
+  expect(compactions(h)[0]).toMatchObject({ tokensBefore: 90_000, summary: summaryText });
+});
+
 test("ace's /compact ask is not a message, and the compaction row still holds the summary", () => {
   const h = harness();
   h.init();

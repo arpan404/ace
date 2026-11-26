@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { useNow } from "@/lib/time.ts";
 import {
@@ -25,9 +25,10 @@ export function useThreadAutomationLine(threadId: string): AutomationLine | unde
 
 /**
  * One line in the composer's strip: the words, a status word in its colour, then text actions
- * at the right edge. No glyphs, no tint.
+ * at the right edge. No glyphs, no tint. The other present strip items sit before the actions,
+ * as they do in every other slot, so the context readout is never lost.
  */
-export function ThreadAutomationStrip(props: { line: AutomationLine }) {
+export function ThreadAutomationStrip(props: { line: AutomationLine; indicators?: ReactNode }) {
   const { line } = props;
   return (
     <div
@@ -52,6 +53,7 @@ export function ThreadAutomationStrip(props: { line: AutomationLine }) {
           </Fragment>
         ))}
       </span>
+      {props.indicators}
       <span className="flex shrink-0 items-center">
         {line.actions.map((action) => (
           <Action key={action.kind} action={action} />

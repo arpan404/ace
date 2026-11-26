@@ -46,8 +46,10 @@ const noRequests: readonly string[] = [];
  * didn't go: the transcript only ever shows the daemon's items), a usage or rate limit (with
  * Switch and Continue), trouble with the connection,
  * background commands a stopped turn left running, the queue, what the main agent waits on
- * (with its Stop), the goal the agent is pursuing, or the main agent's task list, with the
- * others as indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
+ * (with its Stop), the goal the agent is pursuing, the main agent's task list, where its work
+ * went or came from on another machine, or the thread's automations (with their Pause and
+ * Open), with the others as indicators inside it and the context readout beside it. Loads after
+ * the thread has painted, unless the thread opens on a request.
  */
 export function ComposerStrip(props: {
   threadId: string;
@@ -150,6 +152,8 @@ export function ComposerStrip(props: {
     [props.threadId],
   );
   const transfer = useThreadTransferState(props.threadId);
+  // Lowest above the context readout, and never an indicator: the thread's automations.
+  const automation = useThreadAutomationLine(props.threadId);
   // A request, a lost connection or a send that needs Retry shows at once, never held.
   const settling = useSendSettling(
     props.threadId,
@@ -171,6 +175,7 @@ export function ComposerStrip(props: {
     goal: !!goal,
     plan: !!plan,
     transfer: transfer.state !== undefined,
+    automation: automation !== undefined,
     context: context.present,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
@@ -189,24 +194,13 @@ export function ComposerStrip(props: {
   // Once that request closes the ask is spent: a later card never takes focus for it.
   if (asked && !own.includes(asked.id)) setAsked(undefined);
   const slot = stripSlot(facts, pick);
-  // Lowest of all, and never an indicator: the thread's automations, while the slot is free.
-  const automation = useThreadAutomationLine(props.threadId);
   const waitingShown = slot.shown === "waiting";
   const reportWaiting = useEffectEvent((shown: boolean) => props.onWaitingShown?.(shown));
   useEffect(() => {
     reportWaiting(waitingShown);
     return () => reportWaiting(false);
   }, [waitingShown]);
-  if (!slot.shown)
-    return (
-      <HoldWhileSettling settling={settling}>
-        {automation ? (
-          <StripSurface slot="automation">
-            <ThreadAutomationStrip line={automation} />
-          </StripSurface>
-        ) : null}
-      </HoldWhileSettling>
-    );
+  if (!slot.shown) return <HoldWhileSettling settling={settling}>{null}</HoldWhileSettling>;
   const counts: StripCounts = {
     requests: requests.length,
     sending: { count: sending.length, failed: sending.filter((row) => row.failed).length },
@@ -312,6 +306,8 @@ export function ComposerStrip(props: {
             onDismiss={transfer.dismiss}
             indicators={indicators}
           />
+        ) : slot.shown === "automation" && automation ? (
+          <ThreadAutomationStrip line={automation} indicators={indicators} />
         ) : slot.shown === "context" ? (
           <ContextStrip
             view={context}
