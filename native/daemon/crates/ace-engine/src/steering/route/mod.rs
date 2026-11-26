@@ -12,20 +12,7 @@ use ace_json::Value;
 use crate::EngineError;
 use crate::intents::header::IntentHeader;
 
-/// The run the engine interrupted so a person's steer reaches the model now, and whether the
-/// provider took that interrupt. A refused interrupt never retries.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SteerYield {
-    pub run: String,
-    pub state: YieldState,
-    pub intent_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum YieldState {
-    Pending,
-    Refused,
-}
+pub use crate::steering::yields::{SteerYield, YieldState};
 
 /// How a waiting steer reaches the model right now, or none while it must wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,39 +109,37 @@ pub fn steer_route(
     Some(SteerRoute::Yield)
 }
 
+/// What the route reads besides the thread and the intent.
+#[derive(Clone, Copy)]
+pub struct SteerQuery<'a> {
+    pub capabilities: &'a Value,
+    pub session: SessionSteer,
+    /// `repo.quiescent(state)`.
+    pub quiescent: bool,
+    /// `pending.runningBesides(intent.threadId, intent.id)`.
+    pub running_besides: bool,
+    pub yielded: Option<&'a SteerYield>,
+}
+
 /// `steerLane.isSteer`: the intent goes into the provider right now.
 pub fn is_steer(
     core: &crate::Core,
     thread: &str,
     intent: &IntentHeader,
-    capabilities: &Value,
-    session: SessionSteer,
-    quiescent: bool,
-    running_besides: bool,
+    query: SteerQuery<'_>,
 ) -> Result<bool, EngineError> {
-    Ok(route(
-        core,
-        thread,
-        intent,
-        capabilities,
-        session,
-        quiescent,
-        running_besides,
-    )? == Some(SteerRoute::Native))
+    Ok(route(core, thread, intent, query)? == Some(SteerRoute::Native))
 }
 
 /// `route` (`steer-lane.ts:106`): how a waiting steer reaches the model now, or none.
 ///
-/// The yield record lives on the actor in the TypeScript; until E5.2's actor carries
-/// `steerYield` (E5.5 writes it), the route reads none, which is the no-yield answer.
+/// The yield record is `State.steering`'s (E5.5 writes it); the caller reads it once and passes
+/// it in, and a record for a run the root no longer has is forgotten here.
 pub fn route(
     core: &crate::Core,
     thread: &str,
     intent: &IntentHeader,
-    capabilities: &Value,
-    session: SessionSteer,
-    quiescent: bool,
-    running_besides: bool,
+    query: SteerQuery<'_>,
 ) -> Result<Option<SteerRoute>, EngineError> {
     if intent.kind != "thread.send" || intent.delivery != "steer" {
         return Ok(None);
@@ -167,7 +152,7 @@ pub fn route(
     }
     // The steer itself counts once claimed; delivery re-checks it after the claim.
     if crate::intents::store::transition(core.store.conn(), thread)?.is_some()
-        && (running_besides || quiescent)
+        && (query.running_besides || query.quiescent)
     {
         return Ok(None);
     }
@@ -197,7 +182,7 @@ pub fn route(
     if !core.with_state(|state| state.registry.has(&provider))? {
         return Ok(None);
     }
-    if capabilities.get("steer").and_then(Value::as_bool) != Some(true) {
+    if query.capabilities.get("steer").and_then(Value::as_bool) != Some(true) {
         return Ok(None);
     }
     let person_chose = crate::steering::notes::person_chose(core.store.conn(), intent.id)?;
@@ -205,7 +190,16 @@ pub fn route(
     let snapshot = core.with_state(|state| state.repo.require_state(&core.store, thread))??;
     let answer = {
         let borrowed = snapshot.borrow();
-        steer_route(person, &borrowed.state, capabilities, None, session)
+        let run = root_run(&borrowed.state);
+        // The yield for another run is stale: the lane forgets it.
+        core.with_state(|state| state.steering.clear_stale(thread, run.as_deref()))?;
+        steer_route(
+            person,
+            &borrowed.state,
+            query.capabilities,
+            query.yielded,
+            query.session,
+        )
     };
     Ok(answer)
 }

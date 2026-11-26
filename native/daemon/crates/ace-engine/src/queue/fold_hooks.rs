@@ -9,7 +9,7 @@
 use ace_json::Value;
 use std::rc::Rc;
 
-use crate::repository::collaborators::{InputFacts, PendingInfo, ProbeGate, QueueInfo};
+use crate::repository::collaborators::{InputFacts, PendingInfo, QueueInfo};
 use crate::{Core, EngineError, State};
 
 impl State {
@@ -188,13 +188,37 @@ impl InputFacts for State {
         self.bind_started_run_with(thread, run, generation)
     }
 
-    /// E5.5's `root-run-start.ts`.
+    /// E5.5's `root-run-start.ts`: the handed-over intent's own kind and trigger come from its
+    /// stored row, since `PendingInfo` carries only what the fold needs elsewhere.
     fn root_run_start(
         &mut self,
         trigger: &str,
-        _handed: Option<&PendingInfo>,
+        handed: Option<&PendingInfo>,
     ) -> Result<(String, bool), EngineError> {
-        self.not_ported("a root run start", "E5.5", (trigger.to_owned(), true))
+        let handed = match (handed, self.engine()?) {
+            (Some(handed), Some(core)) => {
+                const SQL: &str = "SELECT kind, trigger FROM intents WHERE id=?";
+                let row = ace_store::stmt_cache::get_row(
+                    core.store.conn(),
+                    SQL,
+                    vec![ace_store::Value::Integer(handed.id)],
+                )?;
+                row.map(|row| crate::delivery::root_run_start::HandedOver {
+                    kind: row
+                        .get("kind")
+                        .and_then(crate::repository::residency::cell_text)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    trigger: row
+                        .get("trigger")
+                        .and_then(crate::repository::residency::cell_text)
+                        .map(str::to_owned),
+                })
+            }
+            _ => None,
+        };
+        let answer = crate::delivery::root_run_start::root_run_start(trigger, handed.as_ref());
+        Ok((answer.trigger, answer.takes_input))
     }
 
     /// `goalChange` (`goal-change.ts:14`).

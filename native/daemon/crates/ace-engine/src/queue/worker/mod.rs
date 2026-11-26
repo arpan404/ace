@@ -226,6 +226,14 @@ fn quiescent(core: &Core, thread: &str) -> Result<bool, EngineError> {
     core.with_state(|state| crate::transitions::switch_ready::quiescent(core, state, thread))?
 }
 
+/// The thread's steer-yield record, as E5.5's lane left it.
+fn yield_record(
+    core: &Core,
+    thread: &str,
+) -> Result<Option<crate::steering::yields::SteerYield>, EngineError> {
+    core.with_state(|state| state.steering.yield_for(thread).cloned())
+}
+
 /// `steerLane.isSteer`: whether the intent goes into the provider right now.
 fn is_steer(core: &Core, thread: &str, intent: &IntentHeader) -> Result<bool, EngineError> {
     let capabilities =
@@ -233,14 +241,18 @@ fn is_steer(core: &Core, thread: &str, intent: &IntentHeader) -> Result<bool, En
     let Some(capabilities) = capabilities else {
         return Ok(false);
     };
+    let yielded = yield_record(core, thread)?;
     crate::steering::route::is_steer(
         core,
         thread,
         intent,
-        &capabilities,
-        SessionSteer::default(),
-        quiescent(core, thread)?,
-        running_besides(core, thread, intent.id)?,
+        crate::steering::route::SteerQuery {
+            capabilities: &capabilities,
+            session: SessionSteer::default(),
+            quiescent: quiescent(core, thread)?,
+            running_besides: running_besides(core, thread, intent.id)?,
+            yielded: yielded.as_ref(),
+        },
     )
 }
 
@@ -340,7 +352,11 @@ pub async fn work(core: Rc<Core>, thread: String) -> Result<(), EngineError> {
     {
         crate::intents::store::child_result(core.store.conn(), &thread)?
     } else {
-        match crate::steering::route::yielded(&core, &thread, None)? {
+        match crate::steering::route::yielded(
+            &core,
+            &thread,
+            yield_record(&core, &thread)?.as_ref(),
+        )? {
             Some(yielded) => Some(yielded),
             // A steer joins the running turn on its own lane; with no turn running it goes first.
             None if steerable => crate::intents::store::queued_message(core.store.conn(), &thread)?,
