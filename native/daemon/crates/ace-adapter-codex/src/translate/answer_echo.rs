@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use ace_json::Value;
+use ace_json::{Value, utf16_len};
 use sha2::{Digest, Sha256};
 
 use super::helpers::{obj_map, str_empty};
@@ -17,10 +17,6 @@ fn digest_hex(text: &str) -> String {
         s.push_str(&format!("{b:02x}"));
     }
     s
-}
-
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
 }
 
 struct Pending {

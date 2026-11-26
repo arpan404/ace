@@ -19,8 +19,12 @@ pub const REASONS: [&str; 8] = [
 ];
 pub const TIMER_ACTIONS: [&str; 4] = ["resume", "snooze", "migrate", "clear"];
 pub const TRIGGERS: [&str; 2] = ["restart", "limit_resume"];
-/// `z.string().max(16384)` counts UTF-16 code units.
-pub const CONTINUATION_UNITS: usize = 16_384;
+/// `RecoveryRecord.continuation` is a Zod string bound.
+pub(super) const CONTINUATION_CODE_POINTS: usize = 16_384;
+
+pub(super) fn continuation_fits(text: &str) -> bool {
+    text.chars().count() <= CONTINUATION_CODE_POINTS
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecoveryRecord {
@@ -92,7 +96,7 @@ impl RecoveryRecord {
     }
 
     /// `RecoveryRecord.parse`'s strictness over a stored row: the enums, the non-negative
-    /// numbers, and the continuation's UTF-16 cap.
+    /// numbers, and the continuation's code-point cap.
     pub fn validate(&self) -> Result<(), EngineError> {
         let invalid = || EngineError::Records("Invalid queue metadata".into());
         if self.pending_count < 0 || self.revision < 0 || self.hold_token < 0 {
@@ -127,7 +131,7 @@ impl RecoveryRecord {
         if self
             .continuation
             .as_deref()
-            .is_some_and(|text| text.encode_utf16().count() > CONTINUATION_UNITS)
+            .is_some_and(|text| !continuation_fits(text))
         {
             return Err(invalid());
         }
@@ -183,8 +187,35 @@ mod tests {
             ),
             ..record()
         };
+        assert!(with_title(0).validate().is_err());
+        assert!(with_title(1).validate().is_ok());
         assert!(with_title(256).validate().is_ok());
         assert!(with_title(257).validate().is_err());
+    }
+
+    #[test]
+    fn a_stored_continuation_is_capped_at_16384_code_points() {
+        for (size, accepted) in [(16_384, true), (16_385, false)] {
+            let value = RecoveryRecord {
+                continuation: Some("🌱".repeat(size)),
+                ..record()
+            };
+            assert_eq!(value.validate().is_ok(), accepted);
+        }
+    }
+
+    #[test]
+    fn failure_codes_are_limited_to_128_code_points() {
+        for (size, accepted) in [(0, false), (1, true), (128, true), (129, false)] {
+            let mut failure = ace_json::Map::new();
+            failure.insert("title", Value::from("failed"));
+            failure.insert("code", Value::from("🌱".repeat(size)));
+            let value = RecoveryRecord {
+                last_failure: Some(Value::Object(failure)),
+                ..record()
+            };
+            assert_eq!(value.validate().is_ok(), accepted);
+        }
     }
 
     #[test]

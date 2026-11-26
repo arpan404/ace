@@ -6,11 +6,17 @@
  *
  * (a): `queue-context.process` `:15` reads the same queue once delivery can seed one natively.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { createThreadState } from "@ace/core";
 import { AgentId, NativeSessionId } from "@ace/protocol";
 import { engineBackend } from "@ace/provider-kit/native-switches";
 import { createDevThread } from "../commands.ts";
+import { Engine } from "../engine/index.ts";
+import { QueueStore } from "../engine/queue-store.ts";
+import { Store } from "../store.ts";
 import { engineSeam } from "./testing.ts";
 
 const native = engineBackend() === "native";
@@ -128,3 +134,40 @@ describe.runIf(native)("turn-end queue events", () => {
     }
   });
 });
+
+test.runIf(!native)(
+  "the TypeScript engine reads queue metadata at the emoji boundaries",
+  async () => {
+    const home = mkdtempSync(join(tmpdir(), "ace-queue-bounds-"));
+    const store = new Store(join(home, "events.sqlite"));
+    const engine = new Engine(store, {});
+    try {
+      await engine.ready();
+      const workspace = store.createWorkspace(home, "E5.4a");
+      const { id } = createDevThread(store, workspace);
+      const queue = new QueueStore(store);
+      queue.ensure(id);
+      const lastFailure = { title: "🌱".repeat(256), code: "🌱".repeat(128) };
+      const continuation = "🌱".repeat(16_384);
+      queue.set(id, { paused: true, reason: "not_sent", lastFailure, continuation }, 1);
+      expect(engine.queue(id)).toMatchObject({ lastFailure, pendingCount: 1 });
+      expect(queue.get(id).continuation).toBe(continuation);
+
+      expect(() => queue.set(id, { continuation: continuation + "🌱" }, 2)).toThrow();
+      expect(() =>
+        queue.set(id, { lastFailure: { ...lastFailure, title: lastFailure.title + "🌱" } }, 2),
+      ).toThrow();
+      expect(() =>
+        queue.set(id, { lastFailure: { ...lastFailure, code: lastFailure.code + "🌱" } }, 2),
+      ).toThrow();
+      expect(engine.queue(id)).toMatchObject({ lastFailure, revision: 1 });
+    } finally {
+      try {
+        await engine.close();
+      } finally {
+        await store.close();
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+  },
+);

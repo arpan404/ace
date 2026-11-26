@@ -14,9 +14,9 @@ pub(crate) enum Detail<'a> {
     Shell { command: &'a str, output: String },
     #[serde(rename = "agent.spawn")]
     AgentSpawn {
-        prompt: &'a str,
+        prompt: &'a ace_json::JsString,
         #[serde(rename = "agentType")]
-        agent_type: &'a str,
+        agent_type: &'a ace_json::JsString,
     },
     #[serde(rename = "file.read")]
     FileRead { path: &'a str },
@@ -28,7 +28,7 @@ pub(crate) enum Detail<'a> {
 
 pub(crate) fn detail<'a>(
     name: &str,
-    input: &ToolInput<'a>,
+    input: &'a ToolInput<'_>,
     changes: Option<Vec<FileChange>>,
 ) -> Detail<'a> {
     if name == "shell" {
@@ -39,8 +39,8 @@ pub(crate) fn detail<'a>(
     }
     if name == "subagent" {
         return Detail::AgentSpawn {
-            prompt: input.prompt,
-            agent_type: input.agent,
+            prompt: &input.prompt,
+            agent_type: &input.agent,
         };
     }
     if name == "read" {

@@ -37,8 +37,8 @@ pub fn qualified_model(value: &Value) -> Option<String> {
         (Some(Value::String(provider)), Some(Value::String(id)))
             if !provider.is_empty()
                 && !id.is_empty()
-                && utf16_len(provider) <= 256
-                && utf16_len(id) <= 256 =>
+                && provider.len_code_points() <= 256
+                && id.len_code_points() <= 256 =>
         {
             let qualified = format!("{provider}/{id}");
             if utf16_len(&qualified) <= 256 {

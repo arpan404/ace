@@ -11,14 +11,7 @@ fn units(text: &str) -> Vec<u16> {
     text.encode_utf16().collect()
 }
 
-/// UTF-16 length without allocating, for hot paths over long streams.
-fn utf16_len(text: &str) -> usize {
-    if text.is_ascii() {
-        text.len()
-    } else {
-        text.encode_utf16().count()
-    }
-}
+use ace_json::utf16_len;
 
 /// UTF-8 bytes of a string as `TextEncoder` writes it.
 fn utf8_bytes(text: &str) -> usize {
