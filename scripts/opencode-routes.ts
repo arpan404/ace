@@ -53,11 +53,47 @@ function clientDir(): string {
   );
 }
 
+/** An SDK method: the generated client takes one input object. */
+type Method = (input?: Record<string, unknown>) => unknown;
+
+/** The client's methods the probes call, at the paths the adapter's TypeScript uses. */
+interface Client {
+  readonly session: {
+    readonly create: Method;
+    readonly get: Method;
+    readonly list: Method;
+    readonly active: () => unknown;
+    readonly update: Method;
+    readonly switchAgent: Method;
+    readonly switchModel: Method;
+    readonly interrupt: Method;
+    readonly prompt: Method;
+    readonly command: Method;
+    readonly environment: Method;
+    readonly instructions: { readonly entry: { readonly put: Method } };
+    readonly message: { readonly get: Method };
+    readonly form: { readonly list: Method; readonly reply: Method; readonly cancel: Method };
+    readonly inbox: { readonly list: Method };
+  };
+  readonly message: { readonly list: Method };
+  readonly permission: { readonly list: Method; readonly reply: Method };
+  readonly shell: { readonly list: Method; readonly get: Method; readonly remove: Method };
+  readonly model: { readonly list: Method; readonly default: Method };
+  readonly command: { readonly list: Method };
+  readonly skill: { readonly list: Method };
+  readonly agent: { readonly list: Method };
+  readonly plugin: { readonly list: Method };
+  readonly mcp: { readonly list: Method; readonly add: Method; readonly connect: Method };
+  readonly integration: { readonly list: Method };
+  readonly rpc: { readonly call: Method };
+  readonly event: { readonly subscribe: () => AsyncIterable<unknown> };
+}
+
 interface Probe {
   /** The Rust table's name for the call. */
   readonly op: string;
   /** The SDK method that builds the request, as the adapter's TypeScript calls it. */
-  readonly send: (client: any, params: any) => unknown;
+  readonly send: (client: Client, params: Record<string, unknown>) => unknown;
   /** The params the Rust table receives, with noise fields a caller may carry. */
   readonly params: Record<string, unknown>;
 }
@@ -114,7 +150,7 @@ const probes: readonly Probe[] = [
   },
   {
     op: "session.active",
-    send: (c, p) => c.session.active(p),
+    send: (c) => c.session.active(),
     params: {},
   },
   {
@@ -322,7 +358,7 @@ interface Captured {
  * status and content type with the route's own and may throw; the capture is taken before
  * either, so one plain JSON reply serves every probe.
  */
-async function captured(make: (options: unknown) => any, probe: Probe): Promise<Captured> {
+async function captured(make: (options: unknown) => Client, probe: Probe): Promise<Captured> {
   const seen: Captured[] = [];
   const fetch = async (url: URL, init: RequestInit) => {
     seen.push({
@@ -353,9 +389,10 @@ async function generate(): Promise<string> {
   };
   if (manifest.name !== "@opencode/client")
     throw new Error(`${dir} is ${manifest.name}, not @opencode/client`);
-  const { make } = (await import(pathToFileURL(join(dir, "dist/promise/client.js")).href)) as {
-    make: (options: unknown) => unknown;
-  };
+  // The client package resolves by path at run time, so its types arrive by hand.
+  const { make } = (await import(
+    pathToFileURL(join(dir, "dist/promise/client.js")).href
+  )) as unknown as { make: (options: unknown) => Client };
   const entry = {
     generator: "scripts/opencode-routes.ts",
     client: `${manifest.name} ${manifest.version}`,
