@@ -5,6 +5,7 @@
 
 pub mod attention;
 mod columns;
+mod item_changes;
 mod strip;
 mod thread;
 
@@ -12,5 +13,6 @@ pub use columns::{
     Column, ColumnChanges, ColumnError, ColumnValue, Part, cold_row_values, column_changes,
     column_value, print_number,
 };
+pub use item_changes::changed_item_id;
 pub use strip::{strip, strip_object};
 pub use thread::{FoldError, FoldEvent, is_sidebar_event, update_thread};

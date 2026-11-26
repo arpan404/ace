@@ -14,6 +14,7 @@ pub mod event;
 mod js;
 pub mod older_status;
 pub mod raw_trim;
+pub mod subscription;
 pub mod wire_trim;
 
 pub use encode::{EVENT_FRAME_BYTES, EventShape, EventsMessage, WHOLE_EVENTS, WireEncoder};
@@ -22,6 +23,11 @@ pub use older_status::{older_status, older_statuses};
 pub use raw_trim::{
     ProviderNotice, diagnostic_notice_text, history_message_identity, is_diagnostic_notice,
     is_provider_retry_notice, is_raw_history_item, omit_raw, provider_notice, raw_shown_only,
+};
+pub use subscription::{
+    DEFAULT_PROGRESS_INTERVAL_MS, DEFAULT_REPLAY_LIMIT, REPLAY_COMPARE_BYTES, REPLAY_FRAME_BYTES,
+    REPLAY_READ_BYTES, Scope, SnapshotTail, SubscribeError, SubscribeOptions, Subscription,
+    SubscriptionFrame, SubscriptionStore,
 };
 pub use wire_trim::{
     SUPPORTED_TRIMS, WireRestorer, WireTrimmer, restore_thread_list, share_thread_list, trim_item,

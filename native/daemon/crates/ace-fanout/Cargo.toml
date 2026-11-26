@@ -16,3 +16,6 @@ workspace = true
 # ace-json: every event and message is a JavaScript value, serialized byte for byte as
 # `JSON.stringify` does, so the encoder's frames are identical to the TypeScript's.
 ace-json = { path = "../ace-json" }
+# ace-projection: `isSidebarEvent` and `changedItemId` already live there, as their TypeScript
+# does in `@ace/projection`; the subscription reads them rather than copying them.
+ace-projection = { path = "../ace-projection" }

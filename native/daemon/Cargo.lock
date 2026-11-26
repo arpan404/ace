@@ -209,6 +209,7 @@ name = "ace-fanout"
 version = "0.1.0"
 dependencies = [
  "ace-json",
+ "ace-projection",
 ]
 
 [[package]]
