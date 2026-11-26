@@ -221,6 +221,23 @@ fn settle<F: std::future::Future>(future: F, spawn: &TestSpawn, what: &str) -> F
     panic!("{what} still waits after every spawned task settled");
 }
 
+/// Runs `body` on its own thread, so a catalog that deadlocks fails the test instead of
+/// hanging the suite: the thread never answers and the wait times out.
+fn within<T: Send + 'static>(
+    seconds: u64,
+    what: &str,
+    body: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(body());
+    });
+    match receiver.recv_timeout(std::time::Duration::from_secs(seconds)) {
+        Ok(value) => value,
+        Err(error) => panic!("{what} never settled ({error:?}): the catalog deadlocked"),
+    }
+}
+
 fn listed(catalog: &Catalog) -> ModelListResult {
     catalog
         .list(ModelFilter::default(), 0, 100)
@@ -1376,6 +1393,76 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
         "the old login's probe result is fenced off"
     );
 }
+#[test]
+fn a_live_accounts_connection_probe_settles_the_catalog() {
+    for succeeds in [true, false] {
+        let (fingerprint, reported_error, listed, closed) =
+            within(15, "a live account's connection probe", move || {
+                struct Probe {
+                    succeeds: bool,
+                }
+                impl super::ConnectionProbe for Probe {
+                    fn probe(
+                        &self,
+                        _request: super::DiscoveryRequest,
+                        _signal: crate::signals::Signal,
+                    ) -> futures::future::LocalBoxFuture<
+                        'static,
+                        Result<String, crate::failures::DiscoveryFailure>,
+                    > {
+                        let succeeds = self.succeeds;
+                        Box::pin(async move {
+                            if succeeds {
+                                Ok("fingerprint".to_owned())
+                            } else {
+                                Err(crate::failures::DiscoveryFailure::with_status(503.0))
+                            }
+                        })
+                    }
+                }
+                let account = instance(ProviderKind::Opencode, "account");
+                let mut options = CatalogOptions::new(
+                    SharedStorage::new(MemoryStorage::new()),
+                    always(vec![row(&account, "opencode/gpt-6")]),
+                    TestClock::new(1_000.0),
+                    TestDeadlines::new(),
+                    TestSpawn::new(),
+                );
+                options.instances = vec![account];
+                options.revision_probe = Some(Arc::new(Probe { succeeds }));
+                let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+                futures::executor::block_on(catalog.reconcile_connections())
+                    .unwrap_or_else(|error| panic!("{error}"));
+                let fingerprint = catalog.with_inner(|inner| {
+                    inner
+                        .states
+                        .get("account")
+                        .and_then(|state| state.connection_fingerprint.clone())
+                });
+                let reported_error = catalog.with_inner(|inner| {
+                    inner
+                        .states
+                        .get("account")
+                        .is_some_and(|state| state.error.is_some() || state.error_detail.is_some())
+                });
+                let listed = catalog.list(ModelFilter::default(), 0, 100).is_ok();
+                let closed = futures::executor::block_on(catalog.close()).is_ok();
+                (fingerprint, reported_error, listed, closed)
+            });
+        if succeeds {
+            assert!(
+                fingerprint.is_some(),
+                "the accepted probe leaves a connection fingerprint"
+            );
+            assert!(!reported_error, "a healthy probe reports no failure");
+        } else {
+            assert!(reported_error, "a failed probe reports its failure");
+        }
+        assert!(listed, "the catalog still answers a read");
+        assert!(closed, "the catalog still closes");
+    }
+}
+
 #[test]
 fn close_aborts_a_waiting_probe_instead_of_waiting_on_it() {
     struct Probe;

@@ -1046,13 +1046,19 @@ impl Catalog {
             let futures::future::Either::Left((result, _)) = outcome else {
                 continue;
             };
-            let current = self.with_inner(|inner| {
-                owns(inner, &id, generation.unwrap_or(u64::MAX))
-                    && !inner.closed
-                    && self.registered(&id).map(|config| self.revision(&config))
-                        == Some(revision.clone())
+            // The login, the flight's generation and the effective revision are read from
+            // the state already under the lock; asking `registered` (or `revision`) here
+            // would take the same mutex again and wedge the catalog.
+            let config = self.with_inner(|inner| {
+                if inner.closed || !owns(inner, &id, generation.unwrap_or(u64::MAX)) {
+                    return None;
+                }
+                inner.states.get(&id).map(|state| state.config.clone())
             });
-            if !current {
+            let Some(config) = config else {
+                continue;
+            };
+            if self.revision(&config) != revision {
                 continue;
             }
             match result {
