@@ -150,7 +150,17 @@ pub fn release_limit_hold(
 }
 
 /// `Recovery.lift` (`:733`): lift a limit hold nothing holds any more, with no continuation.
+/// The schedule and wake follow outside any `State` borrow, so a caller that already holds one
+/// calls [`lift_in`] and then does them itself.
 pub fn lift(core: &Core, state: &mut State, thread: &str, at: f64) -> Result<(), EngineError> {
+    lift_in(core, state, thread, at)?;
+    schedule(core)?;
+    wake(core, thread);
+    Ok(())
+}
+
+/// `Recovery.lift`'s writes, with no port call: the queue, the root's quota evidence and sync.
+pub fn lift_in(core: &Core, state: &mut State, thread: &str, at: f64) -> Result<(), EngineError> {
     let queue = crate::queue::store::get(&core.store, thread)?;
     crate::intents::store::finish_continuation(core.store.conn(), thread)?;
     let patch = format!(
@@ -168,10 +178,7 @@ pub fn lift(core: &Core, state: &mut State, thread: &str, at: f64) -> Result<(),
             None,
         )?;
     }
-    sync(core, state, thread, at)?;
-    schedule(core)?;
-    wake(core, thread);
-    Ok(())
+    sync(core, state, thread, at)
 }
 
 /// The `limit.cleared` facts a root's limited record deserves.
@@ -290,6 +297,7 @@ fn arm_weak(core: &Core) -> Result<(), EngineError> {
 /// Arm the queue's next deadline; its firing is E5.8's `recovery::fire`. `gate` is the receipt's
 /// own `admits` answer, read before the commit.
 fn arm(core: &Rc<Core>, gate: Option<bool>) -> Result<(), EngineError> {
+    crate::recovery::deadline::prune_deferrals(core)?;
     let previous = core.with_state(|state| state.recovery.cancel.take())?;
     if let Some(key) = previous {
         core.ports.cancel_timer(key);
@@ -333,8 +341,7 @@ fn arm(core: &Rc<Core>, gate: Option<bool>) -> Result<(), EngineError> {
         if !report || ask.closing.get() {
             return;
         }
-        ask.ports
-            .report(EngineError::not_ported("a recovery deadline", "E5.8").to_string());
+        crate::recovery::deadline::fire(&ask);
     });
     // The task must outlive this call: a dropped `Task` cancels the waiter, so the deadline
     // would never report. `shut` stops it through the executor's admission, and a cancelled
@@ -403,6 +410,26 @@ mod tests {
             .unwrap();
     }
 
+    /// A deadline already due at the shell's clock (which reads 0).
+    fn with_due_deadline(conn: &Arc<ace_store::Connection>) {
+        conn.exec("INSERT INTO engine_queue (thread_id, resume_at) VALUES ('t', 0)")
+            .unwrap();
+    }
+
+    /// How many automatic Resume receipts the engine wrote.
+    fn engine_commands(conn: &Arc<ace_store::Connection>) -> i64 {
+        let row = ace_store::stmt_cache::get_row(
+            conn,
+            "SELECT COUNT(*) AS n FROM command_receipts WHERE device_id='engine'",
+            Vec::new(),
+        )
+        .unwrap()
+        .unwrap();
+        row.get("n")
+            .and_then(crate::repository::residency::cell_int)
+            .unwrap_or(0)
+    }
+
     /// The deadline timer's key, as the engine holds it (the sweep arms its own).
     fn armed_deadline(engine: &crate::Engine) -> u64 {
         engine
@@ -410,14 +437,6 @@ mod tests {
             .with_state(|state| state.recovery.cancel)
             .unwrap()
             .expect("a deadline is armed")
-    }
-
-    fn deadline_reports(shell: &Shell) -> Vec<String> {
-        shell
-            .reports()
-            .into_iter()
-            .filter(|report| report.contains("E5.8"))
-            .collect()
     }
 
     #[test]
@@ -455,31 +474,40 @@ mod tests {
     }
 
     #[test]
-    fn a_deadline_that_fires_reports_once_and_a_replaced_one_never_does() {
+    fn a_due_deadline_resumes_once_and_firing_its_timer_again_does_nothing() {
         let conn = home("t", &header("t"));
-        with_deadline(&conn);
+        with_due_deadline(&conn);
         let (engine, shell) = engine_on(&conn);
         let core = engine.core();
         schedule(core).unwrap();
         settle(&engine);
         let key = armed_deadline(&engine);
-        // The task is alive: firing the timer reports once, and firing it again reports nothing.
+        // The timer fires the automatic Resume once; the deadline is consumed with it.
         shell.fire(key);
         settle(&engine);
-        assert_eq!(deadline_reports(&shell).len(), 1);
-        shell.fire(key);
-        settle(&engine);
-        assert_eq!(deadline_reports(&shell).len(), 1);
+        assert_eq!(engine_commands(&conn), 1);
+        let row = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT resume_at FROM engine_queue WHERE thread_id='t'",
+            Vec::new(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(row.get("resume_at"), Some(&ace_store::Value::Null));
         assert!(
             core.with_state(|state| state.recovery.cancel.is_none())
                 .unwrap()
         );
+        // The same timer key again reaches no task: it settled its run.
+        shell.fire(key);
+        settle(&engine);
+        assert_eq!(engine_commands(&conn), 1);
     }
 
     #[test]
-    fn a_fired_deadline_replaced_before_the_pump_never_reports() {
+    fn a_fired_deadline_replaced_before_the_pump_never_acts_and_the_replacement_does() {
         let conn = home("t", &header("t"));
-        with_deadline(&conn);
+        with_due_deadline(&conn);
         let (engine, shell) = engine_on(&conn);
         let core = engine.core();
         schedule(core).unwrap();
@@ -489,18 +517,23 @@ mod tests {
         // The next receipt replaces the deadline before the fired task gets its turn.
         schedule(core).unwrap();
         settle(&engine);
-        assert!(deadline_reports(&shell).is_empty(), "{:?}", shell.reports());
+        assert_eq!(engine_commands(&conn), 0, "the replaced deadline acted");
         assert!(
             core.with_state(|state| state.recovery.cancel.is_some())
                 .unwrap(),
             "the replacement stays armed"
         );
+        // The replacement is the one that acts, once.
+        let replacement = armed_deadline(&engine);
+        shell.fire(replacement);
+        settle(&engine);
+        assert_eq!(engine_commands(&conn), 1);
     }
 
     #[test]
-    fn a_deadline_that_fires_as_the_engine_closes_reports_nothing() {
+    fn a_deadline_that_fires_as_the_engine_closes_acts_on_nothing() {
         let conn = home("t", &header("t"));
-        with_deadline(&conn);
+        with_due_deadline(&conn);
         let (engine, shell) = engine_on(&conn);
         let core = engine.core();
         schedule(core).unwrap();
@@ -513,7 +546,15 @@ mod tests {
         .unwrap();
         shell.fire(key);
         settle(&engine);
-        assert!(deadline_reports(&shell).is_empty(), "{:?}", shell.reports());
+        assert_eq!(engine_commands(&conn), 0);
+        let row = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT resume_at FROM engine_queue WHERE thread_id='t'",
+            Vec::new(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(row.get("resume_at"), Some(&ace_store::Value::Integer(0)));
     }
 
     #[test]

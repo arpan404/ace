@@ -12,6 +12,7 @@ use crate::ports::Ports;
 use crate::state::{Inputs, ReadyFuture, State};
 use crate::store::EngineStore;
 use crate::{commands, liveness, recovery, repository, sessions, transitions};
+use ace_json::Value;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::rc::{Rc, Weak};
@@ -126,7 +127,18 @@ impl Core {
             let _ = self.with_state(|state| state.repo.evict(&self.store, id));
             return Err(error);
         }
+        self.observe(id, facts_json, now)?;
         Ok(())
+    }
+
+    /// `repo.observe` (`repository.ts:419`): every committed fold reaches recovery's limit and
+    /// restart rules. Called after the transaction, so a rule may write its own.
+    pub fn observe(&self, id: &str, facts_json: &str, now: f64) -> Result<(), EngineError> {
+        let facts = match ace_json::parse(facts_json) {
+            Ok(Value::Array(facts)) => facts.into_vec(),
+            _ => Vec::new(),
+        };
+        recovery::observe::observe(self, id, &facts, now)
     }
 
     /// `repo.stream` (`repository.ts:363`): the live batch's refusals and fold inside one state
@@ -161,6 +173,7 @@ impl Core {
             let _ = self.with_state(|state| state.repo.live.remove(&prepared.token).is_some());
             return Err(error);
         }
+        self.observe(id, facts_json, now)?;
         Ok(true)
     }
 
@@ -320,7 +333,9 @@ impl Core {
                 .await
                 .map_err(EngineError::Port)?;
             self.with_state(sessions::prepare_silence)??;
-            self.with_state(recovery::prepare)??;
+            if let Some(core) = self.self_rc() {
+                recovery::prepare_ready(&core).await?;
+            }
         }
         let mut scan = repository::candidates::Scan::new(String::new());
         loop {
