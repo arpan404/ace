@@ -5,6 +5,7 @@
 //! status mappings; the readers that drive `GhApi` follow in their own modules.
 
 pub mod checks;
+pub mod repositories;
 pub mod status;
 
 use crate::error::Error;
