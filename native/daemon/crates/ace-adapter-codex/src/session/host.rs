@@ -88,6 +88,11 @@ const TERMINAL_TOTAL: usize = 4096;
 const TERMINAL_PAGES: usize = 64;
 /// The idle deadline's facade key.
 pub const IDLE_TIMER: &str = "host:idle";
+/// The final drain's bound (`host.ts:240`–`:248`): a leader exit is
+/// independent of inherited pipe EOF.
+pub const DRAIN_TIMER: &str = "host:drain";
+/// How long the final drain may hold a leader that already exited.
+pub const DRAIN_MS: f64 = 250.0;
 /// The error every call fails with when a channel callback unwinds: a bug in
 /// the shell, not a protocol event (behaviour.md, "A channel callback that
 /// unwinds poisons its host").
@@ -286,12 +291,23 @@ pub enum HostEffect {
     CancelTimer {
         key: String,
     },
+    /// The bounded final drain fired: close both pipes and end stdin, then let
+    /// the child's `close` follow with whatever was read.
+    CloseOutputs,
+    /// The leader exited; its pipes may still drain. `session-lifetime.ts`
+    /// treats this as the process's exit (the diagnostic and `onExit`), while
+    /// the frames after it still reach the channel until `Exited`.
+    LeaderExited {
+        tenant: u64,
+        exit: HostExit,
+    },
     /// One frame for a channel that took it, published in the host's order
-    /// with every settlement and exit. The data is cloned once per delivery.
+    /// with every settlement and exit. One decoded value is shared by every
+    /// recipient, so a delivery never deep-clones it.
     Frame {
         tenant: u64,
         dir: Direction,
-        data: Value,
+        data: Arc<Value>,
     },
     /// One notification, after the frame it belongs to.
     Notification {
@@ -543,7 +559,7 @@ impl ShellScan {
 struct Pending {
     route: Route<u64>,
     /// Kept only for the lone-channel host-request fallback (`:565`).
-    data: Option<Value>,
+    data: Option<Arc<Value>>,
     held: Option<(JsString, usize)>,
     failed: HashSet<u64>,
 }
@@ -562,11 +578,15 @@ struct Inner {
     router: HostRouter<u64>,
     tenants: IndexMap<u64, Tenant>,
     holds: IndexMap<JsString, Hold>,
-    init_frames: Vec<(Direction, Value)>,
+    init_frames: Vec<(Direction, Arc<Value>)>,
     peer: RpcPeer,
     pid: Option<u32>,
     /// The leader's end, recorded while the pipes still drain (`#exit`).
     leader: Option<HostExit>,
+    /// The bounded final drain is armed.
+    drain_armed: bool,
+    /// An oversized stdout line ended a dedicated host's stream.
+    output_limited: bool,
     /// The final exit, published once the pipes are done (`#exited`).
     exit: Option<HostExit>,
     retiring: bool,

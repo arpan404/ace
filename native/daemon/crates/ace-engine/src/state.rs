@@ -59,7 +59,7 @@ impl Default for State {
             repo: repository::Repo::default(),
             commands: commands::Commands,
             sessions: sessions::Sessions,
-            recovery: recovery::Recovery,
+            recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions,
             liveness: liveness::Liveness,
             engine: std::rc::Weak::new(),

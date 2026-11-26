@@ -6,7 +6,7 @@
 //! exactly what `JSON.parse`/`JSON.stringify` produce (key order, numbers, lone
 //! surrogates). Promises, timers and the stream writes stay in the shell.
 
-use ace_json::{JsString, Kind, parse_raw, write_js_string, write_number};
+use ace_json::{JsString, Kind, RawRef, Value, parse_raw, write_js_string, write_number};
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
@@ -262,10 +262,43 @@ pub fn id_to_json(id: &RpcId) -> String {
 /// Classify one line, leniently, by the rules `#receive` applies. Unknown fields
 /// are the shell's to keep: it holds the parsed message.
 pub fn inspect(line: &str) -> FrameKind {
-    let doc = match parse_raw(line) {
-        Ok(doc) => doc,
-        Err(_) => return FrameKind::Unparsable,
+    match parse_raw(line) {
+        Ok(doc) => inspect_raw(&doc),
+        Err(_) => FrameKind::Unparsable,
+    }
+}
+
+/// One parse for both the value and its envelope: the peer hands an already
+/// parsed `Value` here instead of parsing the line a second time.
+pub fn inspect_value(value: &Value) -> FrameKind {
+    let Some(object) = value.as_object() else {
+        return FrameKind::Malformed;
     };
+    let id_value = object.get("id");
+    let id = id_value.and_then(|value| match value {
+        Value::String(_) => Some(()),
+        Value::Number(number) => number
+            .as_f64()
+            .filter(|value| value.is_finite())
+            .map(|_| ()),
+        _ => None,
+    });
+    let method = matches!(object.get("method"), Some(Value::String(_)));
+    if method {
+        if id.is_some() {
+            return FrameKind::Request;
+        }
+        if id_value.is_none() {
+            return FrameKind::Notification;
+        }
+    }
+    if id.is_some() && (object.get("result").is_some() || object.get("error").is_some()) {
+        return FrameKind::Response;
+    }
+    FrameKind::Malformed
+}
+
+fn inspect_raw(doc: &RawRef<'_>) -> FrameKind {
     if doc.kind() != Kind::Object {
         return FrameKind::Malformed;
     }
@@ -305,4 +338,36 @@ pub fn error_code(message: &str) -> Option<f64> {
     }
     let value = doc.get("code")?.as_f64()?;
     (value.is_finite() && value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER).then_some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One parse must classify a line exactly as the raw walk does: the peer
+    /// no longer parses the same text twice.
+    #[test]
+    fn a_parsed_value_is_classified_like_its_raw_line() {
+        let lines = [
+            r#"{"jsonrpc":"2.0","id":1,"method":"thread/start","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":"a","method":"turn/start"}"#,
+            r#"{"jsonrpc":"2.0","method":"turn/completed","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"result":{"ok":true}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601}}"#,
+            r#"{"jsonrpc":"2.0","method":"x","id":null}"#,
+            r#"{"jsonrpc":"2.0","id":true,"method":"x"}"#,
+            r#"{"id":1}"#,
+            r#"[]"#,
+            r#"null"#,
+            r#"not json"#,
+        ];
+        for line in lines {
+            let raw = inspect(line);
+            let parsed = match ace_json::parse(line) {
+                Ok(value) => inspect_value(&value),
+                Err(_) => FrameKind::Unparsable,
+            };
+            assert_eq!(parsed, raw, "{line}");
+        }
+    }
 }

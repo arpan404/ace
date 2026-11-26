@@ -2,6 +2,7 @@
 //! Frame channels (`translator.ts`: frame). Clock, interaction, transport,
 //! lifecycle, input, and HTTP frames fold here; SSE goes to the events.
 
+use crate::translate::boundaries::{NativeEvent, parse_native_event};
 use crate::translate::data::{fields, get, n_in, s_in};
 use crate::translate::interactions::store_resolution;
 use crate::translate::projected::projected;
@@ -14,15 +15,19 @@ use ace_json::{Map, Value};
 use indexmap::IndexMap;
 
 impl Translator {
+    /// One frame. `parsed` is the envelope the session already validated for
+    /// this `sse` frame; without it the frame is validated here.
     pub(crate) fn frame(
         &mut self,
         channel: &str,
         dir: &str,
-        data: &Map,
         envelope: &Value,
+        parsed: Option<&NativeEvent<'_>>,
         now: f64,
         out: &mut Out<'_>,
     ) -> Result<(), StateError> {
+        // The frame's fields are the envelope's, read once.
+        let data: &Map = fields(envelope);
         let state = &mut self.state;
         if channel == "clock" {
             return Ok(());
@@ -136,7 +141,10 @@ impl Translator {
         if channel != "sse" {
             return Ok(());
         }
-        self.event(envelope, now, out)
+        match parsed {
+            Some(event) => self.event(event, envelope, now, out),
+            None => self.event(&parse_native_event(envelope)?, envelope, now, out),
+        }
     }
 
     pub(crate) fn lifecycle(&mut self, data: &Map, out: &mut Out<'_>) -> Result<(), StateError> {
