@@ -44,6 +44,15 @@ impl Home {
             "t",
             r#"{"id":"t","provider":"codex","status":{"state":"done"}}"#.to_owned(),
         );
+        engine
+            .core()
+            .with_state(|state| {
+                state.actors.by_thread.insert(
+                    "t".to_owned(),
+                    crate::actor::Actor::new("t".to_owned(), 1, 0),
+                );
+            })
+            .unwrap();
         Home {
             engine,
             shell,
@@ -138,4 +147,52 @@ fn a_thread_needing_the_person_is_unfinished_and_a_done_one_with_nothing_queued_
         r#"{"id":"t","provider":"codex","status":{"state":"working","agents":1}}"#.to_owned(),
     );
     assert!(clean.unfinished());
+}
+
+#[test]
+fn a_session_that_is_still_working_counts_its_agents_and_one_that_is_closing_counts_an_operation() {
+    let home = Home::new("INSERT INTO engine_queue (thread_id) VALUES ('t')");
+    // A live session on a thread whose root works: the tree is not quiescent, so its agents
+    // count, with the root at least once.
+    home.exec(
+        "UPDATE thread_state SET state = json_set(state, '$.rootKey', 'root', '$.agents', json('{\"root\":{\"agent\":{\"id\":\"agent-1\",\"threadId\":\"t\",\"parentId\":null,\"origin\":\"person\",\"native\":{\"provider\":\"codex\"},\"status\":{\"state\":\"working\",\"activity\":\"thinking\"},\"fidelity\":\"full\",\"cwd\":\"/tmp\",\"background\":false,\"createdAt\":1},\"activity\":\"thinking\",\"lastSignalAt\":1}}')), seq = seq + 1 WHERE thread_id='t'",
+    );
+    home.exec(
+        "INSERT INTO engine_state_records VALUES ('t', 'agentKeysById', 'agent-1', '\"root\"')",
+    );
+    // A request waiting on the person is live work: the tree is not quiescent.
+    home.exec(
+        "INSERT INTO engine_state_records VALUES ('t', 'pendingInteractions', 'ask', 'true'); UPDATE thread_state SET seq = seq + 1 WHERE thread_id='t'",
+    );
+    home.core()
+        .with_state(|state| {
+            state
+                .actors
+                .by_thread
+                .get_mut("t")
+                .expect("the actor")
+                .session_attached = true;
+        })
+        .unwrap();
+    let work = home.live();
+    assert!(work.agents_running >= 1, "{work:?}");
+    assert_eq!(work.operations_running, 0);
+    // A closing session counts as an operation even with nothing queued.
+    let closing = Home::new("INSERT INTO engine_queue (thread_id) VALUES ('t')");
+    let core = closing.core();
+    let work = core
+        .with_state(|state| live(core, state, "t", &|_| true))
+        .unwrap()
+        .unwrap();
+    assert_eq!(work.operations_running, 1);
+}
+
+#[test]
+fn an_uncertain_message_keeps_a_thread_unfinished() {
+    let home = Home::new("INSERT INTO engine_queue (thread_id) VALUES ('t')");
+    home.exec(
+        "INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position,uncertain) \
+         VALUES ('c','t','thread.send','{\"id\":\"c\",\"deviceId\":\"device\",\"payload\":{\"type\":\"thread.send\",\"threadId\":\"t\",\"input\":[{\"type\":\"text\",\"text\":\"hello\"}]}}','running','queue',1,1)",
+    );
+    assert!(home.unfinished());
 }
