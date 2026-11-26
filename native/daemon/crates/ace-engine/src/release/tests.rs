@@ -3,13 +3,14 @@
 //! "a new thread reclaims an idle thread's slot instead of being refused".
 
 use super::{
-    ProviderProcessState, Release, SlotReclaimPorts, list_provider_processes,
-    provider_process_state, reclaim_idle_slot, release_request, released_thread,
+    ProviderProcessState, Release, list_provider_processes, provider_process_state,
+    reclaim_idle_slot, release_request, released_thread,
 };
 use crate::State;
-use crate::actor::state::Actor;
+use crate::actor::state::{Actor, Actors};
 use crate::repository::testsupport::{Shell, header, home};
-use std::cell::RefCell;
+use crate::repository::{ReclaimView, Repo};
+use crate::sessions::Sessions;
 use std::collections::HashSet;
 
 #[test]
@@ -123,54 +124,46 @@ fn a_new_thread_reclaims_an_idle_threads_slot_instead_of_being_refused() {
     let store = Shell::store(&conn);
     conn.exec("INSERT INTO engine_slots VALUES ('reclaim')")
         .expect("slot");
-    let mut state = State::default();
+    let mut actors = Actors::default();
     let mut actor = Actor::new("reclaim".to_owned(), 0, 0);
     actor.instance = 1;
     actor.session_attached = true;
     actor.idle_since = Some(1_000.0);
-    state.actors.by_thread.insert("reclaim".to_owned(), actor);
+    actors.by_thread.insert("reclaim".to_owned(), actor);
+    let mut sessions = Sessions::default();
+    let repo = Repo::default();
+    let retiring = HashSet::new();
 
-    let retiring: HashSet<String> = HashSet::new();
-    let retired = RefCell::new(Vec::new());
-    let mut retire = |id: &str| retired.borrow_mut().push(id.to_owned());
-    let closed = |_: &str| false;
-    let picked = reclaim_idle_slot(&mut SlotReclaimPorts {
-        state: &mut state,
-        store: &store,
-        retiring: &retiring,
-        closing: &closed,
-        held: None,
-        retire: &mut retire,
-    })
+    let picked = reclaim_idle_slot(
+        ReclaimView {
+            actors: &mut actors,
+            sessions: &sessions,
+            store: &store,
+            repo: &repo,
+        },
+        &retiring,
+    )
     .expect("reclaim");
     assert_eq!(picked.as_deref(), Some("reclaim"));
-    assert_eq!(retired.into_inner(), ["reclaim"]);
     assert!(
-        state
-            .actors
-            .by_thread
-            .get("reclaim")
-            .expect("actor")
-            .idle_due,
+        actors.by_thread.get("reclaim").expect("actor").idle_due,
         "the slot no longer counts as taken"
     );
 
-    // A busy session, a closing one and a retiring one are never picked.
-    state
-        .actors
-        .by_thread
-        .get_mut("reclaim")
-        .expect("actor")
-        .idle_due = false;
-    let closed = |_: &str| true;
-    let none = reclaim_idle_slot(&mut SlotReclaimPorts {
-        state: &mut state,
-        store: &store,
-        retiring: &retiring,
-        closing: &closed,
-        held: None,
-        retire: &mut |_| {},
-    })
+    // A closing session is never asked to close again, and neither is a retiring thread.
+    if let Some(actor) = actors.by_thread.get_mut("reclaim") {
+        actor.idle_due = false;
+    }
+    sessions.closing.insert("reclaim".to_owned());
+    let none = reclaim_idle_slot(
+        ReclaimView {
+            actors: &mut actors,
+            sessions: &sessions,
+            store: &store,
+            repo: &repo,
+        },
+        &retiring,
+    )
     .expect("reclaim");
     assert_eq!(none, None);
 }

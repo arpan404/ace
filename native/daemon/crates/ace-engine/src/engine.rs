@@ -49,6 +49,12 @@ impl Engine {
             ..State::default()
         };
         state.registry.set_entries(registry_json)?;
+        // A taken slot asks whether a warm idle session can give its own up (E5.6).
+        state.repo.reclaim = Some(Box::new(|retiring, view| {
+            crate::release::reclaim_idle_slot(view, retiring)
+                .ok()
+                .flatten()
+        }));
         let (ready_tx, ready_rx) = oneshot::channel();
         let core = Rc::new(Core {
             executor: Executor::new(notifier),

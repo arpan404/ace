@@ -7,7 +7,8 @@ use ace_json::Value;
 use std::collections::HashSet;
 
 use crate::actor::timer::release_at;
-use crate::{EngineError, EngineStore, State, ThreadId};
+use crate::repository::ReclaimView;
+use crate::{EngineError, State, ThreadId};
 
 /// A done thread keeps its provider process warm this long before releasing it.
 pub const DEFAULT_PROVIDER_IDLE_MS: f64 = 5.0 * 60_000.0;
@@ -121,57 +122,49 @@ pub fn list_provider_processes(
     processes
 }
 
-/// What `reclaimIdleSlot` reads and causes (`slot-reclaim.ts:4`).
-pub struct SlotReclaimPorts<'a> {
-    pub state: &'a mut State,
-    pub store: &'a EngineStore,
-    pub retiring: &'a HashSet<ThreadId>,
-    pub closing: &'a dyn Fn(&str) -> bool,
-    /// Held for a move to another machine: stopped and at rest, so its slot is like an idle one.
-    pub held: Option<&'a dyn Fn(&str) -> bool>,
-    /// Runs the thread's control worker, which closes the session whose idle release is due.
-    pub retire: &'a mut dyn FnMut(&str),
-}
-
-/// `reclaimIdleSlot`: free a slot held only by a warm idle session, oldest first. Returns the
-/// retiring thread, whose slot no longer counts against capacity.
+/// `reclaimIdleSlot` (`slot-reclaim.ts:7`): free a slot held only by a warm idle session,
+/// oldest first. Returns the retiring thread, whose slot no longer counts against capacity; the
+/// thread's session closes when its idle release is due.
 pub fn reclaim_idle_slot(
-    ports: &mut SlotReclaimPorts<'_>,
+    view: ReclaimView<'_>,
+    retiring: &HashSet<ThreadId>,
 ) -> Result<Option<ThreadId>, EngineError> {
-    let state = &mut *ports.state;
-    let conn = ports.store.conn();
-    let candidates: Vec<ThreadId> = state.actors.live().map(|actor| actor.id.clone()).collect();
+    let ReclaimView {
+        actors,
+        sessions,
+        store,
+        repo,
+    } = view;
+    let conn = store.conn();
+    let candidates: Vec<ThreadId> = actors.live().map(|actor| actor.id.clone()).collect();
     for id in candidates {
-        let Some(actor) = state.actors.by_thread.get(&id) else {
+        let Some(actor) = actors.by_thread.get(&id) else {
             continue;
         };
-        let (session, idle_due, idle_since) =
-            (actor.session_attached, actor.idle_due, actor.idle_since);
-        let held = ports.held.is_some_and(|held| held(&id));
-        if !session || idle_due || (idle_since.is_none() && !held) {
+        if !actor.session_attached || actor.idle_due || actor.idle_since.is_none() {
             continue;
         }
-        if ports.retiring.contains(&id) || (ports.closing)(&id) {
+        if retiring.contains(&id) || sessions.is_closing(&id) {
             continue;
         }
-        if !state.repo.reserved_slot(ports.store, &id)? {
+        if !repo.reserved_slot(store, &id)? {
             continue;
         }
-        if !held {
-            let opening = state.session_opening(&id);
-            let running = crate::intents::query::running(conn, &id)?;
-            let message = crate::intents::store::message(conn, &id)?.is_some();
-            let recovery = crate::intents::store::recovery(conn, &id)?.is_some();
-            let transition = crate::intents::store::transition(conn, &id)?.is_some();
-            let controls = !crate::intents::store::controls(conn, &id)?.is_empty();
-            if opening || running || message || recovery || transition || controls {
-                continue;
-            }
+        // A session still opening, or any queued work, is not an idle slot to reclaim.
+        if repo.opening.contains(&id) {
+            continue;
         }
-        if let Some(actor) = state.actors.by_thread.get_mut(&id) {
+        let running = crate::intents::query::running(conn, &id)?;
+        let message = crate::intents::store::message(conn, &id)?.is_some();
+        let recovery = crate::intents::store::recovery(conn, &id)?.is_some();
+        let transition = crate::intents::store::transition(conn, &id)?.is_some();
+        let controls = !crate::intents::store::controls(conn, &id)?.is_empty();
+        if running || message || recovery || transition || controls {
+            continue;
+        }
+        if let Some(actor) = actors.by_thread.get_mut(&id) {
             actor.idle_due = true;
         }
-        (ports.retire)(&id);
         return Ok(Some(id));
     }
     Ok(None)

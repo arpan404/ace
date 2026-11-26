@@ -22,6 +22,9 @@ pub struct Sessions {
     pub provider_sessions: ProviderSessions,
     /// The sessions open on a thread now, by thread.
     pub attached: indexmap::IndexMap<ThreadId, attach::Attached>,
+    /// Threads whose session is closing (`sessions.isClosing`), so a slot reclaim never asks a
+    /// closing session to close again.
+    pub closing: std::collections::HashSet<ThreadId>,
 }
 
 pub mod attach;
@@ -44,6 +47,13 @@ pub async fn prepare_silence(
     thresholds: &mut crate::meters::silence::SilenceThresholds,
 ) -> Result<(), EngineError> {
     thresholds.prepare_global().await
+}
+
+impl Sessions {
+    /// `sessions.isClosing(id)`.
+    pub fn is_closing(&self, id: &str) -> bool {
+        self.closing.contains(id)
+    }
 }
 
 /// Whether sessions hold no work E5.1 must wait for: a queue with events still to fold is work,

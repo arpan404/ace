@@ -166,7 +166,7 @@ pub fn admit_steer(
     let requested = Value::Object(requested);
     let selection = if can_steer
         && !state.actor_quiescent(&core.store, id)?
-        && state.repo.reserve(&core.store, id)?
+        && state.reserve_slot(&core.store, id)?
     {
         resolve_switch(core, state, id, &requested, |_provider| {
             capabilities.clone()

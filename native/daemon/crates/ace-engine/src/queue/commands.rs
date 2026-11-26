@@ -206,7 +206,7 @@ fn run(
             if old_kind != "thread.create" && old_kind != "thread.send" && !continuation {
                 return Ok(fail("invalid_queue_entry"));
             }
-            if continuation && !held_continuation && !state.repo.reserve(&core.store, thread)? {
+            if continuation && !held_continuation && !state.reserve_slot(&core.store, thread)? {
                 return Ok(fail("engine_capacity_exceeded"));
             }
             let payload = if old_kind == "thread.create" || old_kind == "thread.send" {
@@ -329,7 +329,7 @@ fn run(
     write::finish(&core.store, &staged)?;
     holds::sync(core, state, thread, now)?;
     if state.repo.reserved_slot(&core.store, thread)?
-        || (!store::get(&core.store, thread)?.paused && state.repo.reserve(&core.store, thread)?)
+        || (!store::get(&core.store, thread)?.paused && state.reserve_slot(&core.store, thread)?)
     {
         holds::wake(core, thread);
     }

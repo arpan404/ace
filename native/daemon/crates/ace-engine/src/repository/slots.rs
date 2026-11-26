@@ -25,8 +25,15 @@ impl Repo {
         self.retiring.len()
     }
 
-    /// `reserve` (`:516`), inside the store's transaction.
-    pub fn reserve(&mut self, store: &EngineStore, id: &str) -> Result<bool, EngineError> {
+    /// `reserve` (`:516`), inside the store's transaction. `actors` and `sessions` are the reclaim
+    /// hook's view, passed by the state that owns both.
+    pub fn reserve(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        actors: &mut crate::actor::Actors,
+        sessions: &crate::sessions::Sessions,
+    ) -> Result<bool, EngineError> {
         store.atomic(|tx| {
             if stmt_cache::get_row(tx.conn(), SLOT, vec![text(id)])?.is_some() {
                 return Ok(true);
@@ -37,7 +44,15 @@ impl Repo {
             if count - self.retiring.len() as i64 >= self.capacity as i64 {
                 // Evict before refusing: a finished thread's warm session gives up its slot.
                 let freed = match &self.reclaim {
-                    Some(reclaim) => reclaim(&self.retiring),
+                    Some(reclaim) => reclaim(
+                        &self.retiring,
+                        super::ReclaimView {
+                            actors,
+                            sessions,
+                            store,
+                            repo: self,
+                        },
+                    ),
                     None => None,
                 };
                 let Some(freed) = freed else {

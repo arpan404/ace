@@ -99,6 +99,23 @@ impl Inputs {
     }
 }
 
+impl State {
+    /// `repo.reserve`, with the reclaim hook's view of this state's actors and sessions.
+    pub fn reserve_slot(
+        &mut self,
+        store: &crate::EngineStore,
+        id: &str,
+    ) -> Result<bool, EngineError> {
+        let State {
+            repo,
+            actors,
+            sessions,
+            ..
+        } = self;
+        repo.reserve(store, id, actors, sessions)
+    }
+}
+
 pub(crate) type ReadyFuture = Shared<oneshot::Receiver<Result<(), String>>>;
 
 /// Raises `flush_depth` for one flush task's whole run (`index.ts:1411`). Dropping it restores
