@@ -297,5 +297,9 @@ pub fn agent_owner(thread_id: &str, agent_id: &str) -> String {
     ace_json::to_string(&ace_json::json!([thread_id, agent_id]))
 }
 
+pub mod watch;
+
+pub use watch::{LeaseWatch, WatchStep};
+
 #[cfg(test)]
 mod tests;

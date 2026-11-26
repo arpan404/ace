@@ -9,5 +9,6 @@
 pub mod lease;
 
 pub use lease::{
-    Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, Retained, agent_owner,
+    Actor, ActorKind, Controller, ControllerLease, Holder, LeaseStatus, LeaseWatch, Retained,
+    WatchStep, agent_owner,
 };
