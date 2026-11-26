@@ -14,6 +14,14 @@ impl SessionChannel {
         self.publish(events);
     }
 
+    /// A close's whole batch, with the terminal barrier last, in one step.
+    pub(super) fn apply_drained(&self, effects: Vec<Effect>) {
+        let mut events = Vec::new();
+        self.apply_into(effects, &mut events);
+        self.finish_drained_into(&mut events);
+        self.publish(events);
+    }
+
     /// Hands the effects decided so far to the queue before this input talks
     /// to the host again: a callback that input provokes must not publish
     /// ahead of the frames it already decided.
@@ -276,7 +284,7 @@ impl SessionChannel {
             return;
         }
         if mode.is_none() && applied.is_some() {
-            self.launch_config_read(operation);
+            self.launch_config_read(operation, events);
             return;
         }
         let effects = {
@@ -311,7 +319,9 @@ impl SessionChannel {
             core.session.applied_permission_mode.clone()
         };
         if mode.is_none() && applied.is_some() {
-            self.launch_config_read(operation);
+            let mut events = Vec::new();
+            self.launch_config_read(operation, &mut events);
+            self.publish(events);
             return;
         }
         let effects = {
@@ -324,7 +334,7 @@ impl SessionChannel {
         self.apply(effects);
     }
 
-    fn launch_config_read(&self, operation: u64) {
+    fn launch_config_read(&self, operation: u64, events: &mut Vec<SessionEvent>) {
         let call = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut owners) = self.shared.owners.lock() {
             owners.insert(
@@ -349,7 +359,7 @@ impl SessionChannel {
                 let mut core = self.core();
                 core.session.launch_ready(operation, Err(error.to_string()))
             };
-            self.apply(effects);
+            self.apply_into(effects, events);
         }
     }
 }

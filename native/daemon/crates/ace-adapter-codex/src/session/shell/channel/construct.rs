@@ -60,6 +60,8 @@ impl SessionChannel {
             now: Mutex::new(config.started),
             line_limit: Arc::new(AtomicUsize::new(LINE_LIMIT)),
             bearer,
+            pending: Mutex::new(Vec::new()),
+            publishing: AtomicBool::new(false),
             drained: AtomicBool::new(false),
         });
         shared.add(Arc::clone(&channel));

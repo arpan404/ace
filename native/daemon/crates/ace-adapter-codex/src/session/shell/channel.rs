@@ -47,6 +47,11 @@ pub struct SessionChannel {
     /// The session's admission inputs, so the host can vet a frame without the
     /// core lock (the host holds its own lock when it asks).
     bearer: Option<String>,
+    /// One input's whole batch joins `pending` as one step, and one caller at
+    /// a time hands it to the queue, so two inputs never interleave their
+    /// effects (ADR 0223 §7 rule 3).
+    pending: Mutex<Vec<SessionEvent>>,
+    publishing: AtomicBool,
     drained: AtomicBool,
 }
 
@@ -138,9 +143,39 @@ impl SessionChannel {
         self.core.lock().unwrap_or_else(|error| error.into_inner())
     }
 
+    /// Hands one input's events to the queue as one step. Another input that
+    /// publishes meanwhile appends behind them and returns: this caller keeps
+    /// draining, so the two never interleave (ADR 0223 §7 rule 3). A publish
+    /// made from inside a drain appends and returns, so a host callback cannot
+    /// deadlock on the caller that provoked it.
     pub fn publish(&self, events: Vec<SessionEvent>) {
-        if !events.is_empty() {
-            self.queue.publish(events);
+        if events.is_empty() {
+            return;
+        }
+        let drain = {
+            let mut pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            pending.extend(events);
+            !self.publishing.swap(true, Ordering::SeqCst)
+        };
+        if !drain {
+            return;
+        }
+        loop {
+            let batch = {
+                let mut pending = self
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if pending.is_empty() {
+                    self.publishing.store(false, Ordering::SeqCst);
+                    return;
+                }
+                std::mem::take(&mut *pending)
+            };
+            self.queue.publish(batch);
             // A stalled facade fills this session's queue; stop the child's
             // pumps until it has taken a batch (E3.0c rule 4, same as TS's
             // outputFlow).
@@ -446,8 +481,7 @@ impl SessionChannel {
             effects.extend(core.session.lifetime.detached(&frames, Ok(())));
             effects
         };
-        self.apply(effects);
-        self.finish_drained();
+        self.apply_drained(effects);
         self.shared.remove(self.tenant);
     }
 
