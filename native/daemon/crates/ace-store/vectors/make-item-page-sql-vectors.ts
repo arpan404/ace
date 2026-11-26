@@ -15,7 +15,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Event, ThreadId } from "@ace/protocol";
 import { createDevThread } from "../../../../../apps/daemon/src/commands.ts";
 import { message } from "../../../../../apps/daemon/src/payload-test-support.ts";
@@ -31,8 +31,7 @@ const workspace = store.createWorkspace("/repo", "Repo", 1);
 const thread = createDevThread(store, workspace);
 const id = thread.id as ThreadId;
 
-const append = (payloads: Event["payload"][], at: number) =>
-  store.appendEvents(id, payloads, at);
+const append = (payloads: Event["payload"][], at: number) => store.appendEvents(id, payloads, at);
 
 // A finished message whose text is longer than a preview: its page shows the first 4096 units.
 append(
@@ -131,10 +130,7 @@ append(
 );
 // Some smaller messages after them, so a page has several rows.
 for (let index = 0; index < 6; index += 1)
-  append(
-    [{ type: "item.created", item: message(`m${index}`, `plain ${index}`) }],
-    70 + index,
-  );
+  append([{ type: "item.created", item: message(`m${index}`, `plain ${index}`) }], 70 + index);
 
 const before = Number.MAX_SAFE_INTEGER;
 const cases = [
@@ -181,8 +177,7 @@ const literal = (value: unknown): string => {
   if (typeof value === "number") return String(value);
   if (typeof value === "bigint") return String(value);
   if (typeof value === "string") return `'${value.replaceAll("'", "''")}'`;
-  if (value instanceof Uint8Array)
-    return `X'${Buffer.from(value).toString("hex")}'`;
+  if (value instanceof Uint8Array) return `X'${Buffer.from(value).toString("hex")}'`;
   throw new Error(`unexpected SQL value ${typeof value}`);
 };
 const inserts: string[] = [];

@@ -34,6 +34,31 @@ const message = (id: string, text: string, parts = 1): WireItem =>
     parts: Array.from({ length: parts }, () => ({ type: "text", text })),
   });
 
+const mcp = (id: string, title: string): WireItem =>
+  Item.parse({
+    id,
+    agentId: "root",
+    type: "tool_call",
+    createdAt: 1,
+    call: {
+      id,
+      agentId: "root",
+      kind: "mcp",
+      title,
+      status: "succeeded",
+      detail: {
+        kind: "mcp",
+        server: "ace",
+        tool: "search",
+        arguments: Object.fromEntries(
+          Array.from({ length: 100 }, (_, index) => [`key${index}`, "x".repeat(200)]),
+        ),
+      },
+      startedAt: 1,
+      raw: [],
+    },
+  });
+
 const shell = (id: string, command: string): WireItem =>
   Item.parse({
     id,
@@ -207,6 +232,24 @@ const cases = [
     newest: [{ before: 100, item: shell("t1", "pwd"), seq: 40 }],
     hasBefore: { "40": true },
   }),
+  run("a summary keeps a lone surrogate in its title", {
+    before: 100,
+    limit: 3,
+    byteLimit: 8 * 1024,
+    pages: [
+      { kind: "capacity" },
+      {
+        kind: "page",
+        items: [message("older", "older")],
+        itemSeqs: { older: 1 },
+        itemsBefore: null,
+      },
+    ],
+    // An MCP call whose `arguments` are many short strings: nothing can be clipped enough, so
+    // the item is its summary — and its title is the first 200 code points, lone surrogate kept.
+    newest: [{ before: 100, item: mcp("mcp0", "\ud800" + "x".repeat(300)), seq: 80 }],
+    hasBefore: { "80": true },
+  }),
   run("nothing older makes itemsBefore null", {
     before: 100,
     limit: 2,
@@ -228,6 +271,11 @@ const clips = [
     name: "a cut never splits a surrogate pair",
     item: message("m3", "😀".repeat(500)),
     maxBytes: 1500,
+  },
+  {
+    name: "a cut keeps a lone surrogate",
+    item: message("lone", "\ud800".repeat(3000)),
+    maxBytes: 2000,
   },
   {
     name: "an item with only short strings is not clipped",

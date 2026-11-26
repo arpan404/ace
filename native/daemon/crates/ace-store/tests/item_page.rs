@@ -194,6 +194,30 @@ fn every_bounded_page_is_the_typescripts() {
     }
 }
 
+/// A capacity report whose item cannot be found fails the read, as the TypeScript rethrows:
+/// never an empty page with a cursor a client would page again.
+#[test]
+fn a_capacity_report_without_its_item_fails_the_read() {
+    let vectors = vectors();
+    let case = array(&vectors, "pages")
+        .iter()
+        .find(|case| text(case, "name").contains("oversized tool call"))
+        .expect("a capacity case");
+    let mut scripted_case = case.clone();
+    if let ace_json::Value::Object(map) = &mut scripted_case {
+        map.insert("newest", ace_json::Value::Array(Vec::new().into()));
+    }
+    let source = Scripted::new(&scripted_case);
+    let result = bounded_item_page(
+        &source,
+        "t",
+        number(case, "before") as u64,
+        number(case, "limit") as usize,
+        number(case, "byteLimit") as usize,
+    );
+    assert_eq!(result, Err(PageError::Capacity));
+}
+
 /// Clipping is the TypeScript's bytes, its UTF-16 cut and its count message included.
 #[test]
 fn every_clipped_item_is_the_typescripts() {

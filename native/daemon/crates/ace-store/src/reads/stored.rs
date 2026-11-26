@@ -232,6 +232,9 @@ pub enum EntityKind {
     Interaction,
     BackgroundTask,
     Usage,
+    /// The `usageSnapshots` collection: `UsageUpdated` too, as the TypeScript's schema map
+    /// names it twice.
+    UsageSnapshots,
     ContextMeter,
     Queue,
 }
@@ -246,7 +249,7 @@ impl EntityKind {
             EntityKind::Run => &RUN,
             EntityKind::Interaction => &INTERACTION,
             EntityKind::BackgroundTask => &BACKGROUND_TASK,
-            EntityKind::Usage => &USAGE_UPDATED,
+            EntityKind::Usage | EntityKind::UsageSnapshots => &USAGE_UPDATED,
             EntityKind::ContextMeter => &CONTEXT_METER,
             EntityKind::Queue => &QUEUE_STATE,
         }

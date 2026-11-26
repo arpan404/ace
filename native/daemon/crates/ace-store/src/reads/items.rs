@@ -111,9 +111,9 @@ pub fn summary(item: &Value, seq: u64, bytes: usize, dropped: &str) -> Value {
             out.insert("kind", kind.clone());
         }
         if let Some(Value::String(title)) = call.get("title") {
-            // `Array.from(title).slice(0, 200).join("")`: 200 code points, not units.
-            let shown: String = title.as_str().chars().take(200).collect();
-            out.insert("title", Value::String(JsString::from(shown)));
+            // `Array.from(title).slice(0, 200).join("")`: 200 code points, not units, and a lone
+            // surrogate is one code point kept as it is (never U+FFFD).
+            out.insert("title", Value::String(first_code_points(title, 200)));
         }
     }
     Value::Object(out)
@@ -194,8 +194,11 @@ fn fill(
         }
         Err(other) => return Err(other),
     }
+    // The store reported capacity, so the item it could not start with must be readable; if the
+    // two queries disagree, fail the read as the TypeScript rethrows, never send an empty page
+    // with a cursor a client would keep paging.
     let Some((item, seq)) = source.newest_before(before) else {
-        return Ok(stop(source, before));
+        return Err(PageError::Capacity);
     };
     let bytes = json_bytes(&item);
     let marker = json_bytes(&summary(&item, seq, bytes, "item")) + 1;
@@ -296,12 +299,11 @@ fn cut(text: &JsString, cap: usize) -> JsString {
     if (0xd800..=0xdbff).contains(&last) {
         end = end.saturating_sub(1);
     }
-    let kept = JsString::from_units(&units[..end.min(units.len())]);
     let left = text.len_utf16() - end;
-    JsString::from(format!(
-        "{}… [{left} more characters not shown]",
-        kept.as_str()
-    ))
+    let suffix = JsString::from(format!("… [{left} more characters not shown]"));
+    let mut kept: Vec<u16> = units[..end.min(units.len())].to_vec();
+    kept.extend(suffix.units());
+    JsString::from_units(&kept)
 }
 
 fn clip_value(value: &Value, cap: usize) -> Value {
@@ -323,6 +325,30 @@ fn clip_value(value: &Value, cap: usize) -> Value {
         }
         _ => value.clone(),
     }
+}
+
+/// `Array.from(text).slice(0, count).join("")`, over UTF-16 units: a paired surrogate is one
+/// code point, a lone one is one code point itself.
+fn first_code_points(text: &JsString, count: usize) -> JsString {
+    let units: Vec<u16> = text.units().collect();
+    let mut kept: Vec<u16> = Vec::with_capacity(count * 2);
+    let mut taken = 0;
+    let mut index = 0;
+    while index < units.len() && taken < count {
+        let unit = units[index];
+        kept.push(unit);
+        if (0xd800..=0xdbff).contains(&unit)
+            && units
+                .get(index + 1)
+                .is_some_and(|next| (0xdc00..=0xdfff).contains(next))
+        {
+            kept.push(units[index + 1]);
+            index += 1;
+        }
+        index += 1;
+        taken += 1;
+    }
+    JsString::from_units(&kept)
 }
 
 /// `longest(value)`: the longest string, in UTF-16 units.
