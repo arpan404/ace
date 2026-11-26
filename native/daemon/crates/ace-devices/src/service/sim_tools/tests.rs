@@ -100,11 +100,13 @@ fn an_invalid_android_id_and_device_fields_are_returned_intact_not_reduced() {
     assert_eq!(summary(&non_ascii), non_ascii);
 
     let mut numeric_runtime = valid_state();
-    if let Value::Object(ref mut object) = numeric_runtime {
-        if let Some(Value::Object(device)) = object.get_mut("device") {
-            device.insert("runtime".to_owned(), Value::Number(Number::from(42)));
-        }
-    }
+    let Value::Object(object) = &mut numeric_runtime else {
+        panic!("expected a device state object");
+    };
+    let Some(Value::Object(device)) = object.get_mut("device") else {
+        panic!("expected a device");
+    };
+    device.insert("runtime".to_owned(), Value::Number(Number::from(42)));
     assert_eq!(summary(&numeric_runtime), numeric_runtime);
 
     let long_model = json!({
@@ -152,11 +154,13 @@ fn a_name_at_the_code_point_cap_passes_validation() {
 fn a_summary_keeps_the_original_js_string_bytes_for_a_lone_surrogate() {
     let name = Value::String(JsString::from_units(&[0xD800]));
     let mut state = valid_state();
-    if let Value::Object(ref mut object) = state {
-        if let Some(Value::Object(device)) = object.get_mut("device") {
-            device.insert("name".to_owned(), name.clone());
-        }
-    }
+    let Value::Object(object) = &mut state else {
+        panic!("expected a device state object");
+    };
+    let Some(Value::Object(device)) = object.get_mut("device") else {
+        panic!("expected a device");
+    };
+    device.insert("name".to_owned(), name.clone());
     let reduced = summary(&state);
     if let Value::Object(object) = reduced {
         assert_eq!(object.get("name"), Some(&name));
@@ -243,4 +247,21 @@ fn a_public_failure_keeps_the_code_and_ace_keeps_its_message() {
     let public = public_failure(&failure, false);
     assert_eq!(public.code, "stale_ref");
     assert_eq!(public.message, None);
+}
+
+#[test]
+fn an_ios_id_of_non_ascii_digits_is_not_a_device() {
+    // JavaScript's `\d` is ASCII: 36 Arabic-Indic digits are not a UDID, even
+    // though Unicode calls them digits.
+    let raw = json!({
+        "device": {
+            "id": format!("ios:{}", "٣".repeat(36)),
+            "name": "iPhone",
+            "state": "booted",
+            "platform": "ios"
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&raw), raw);
 }

@@ -37,19 +37,19 @@ const PUBLIC_CODES: [&str; 15] = [
     "person_busy",
 ];
 
-fn device_id_pattern() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| {
-        Regex::new(r"^(?:ios:[\da-fA-F-]{36}|android:(?-u:[a-zA-Z0-9_.-]{1,200}))$")
-            .expect("device id pattern")
-    })
+/// `AppDeviceId`: `ios:` and 36 hex or hyphen characters, or `android:` and 1-200
+/// of JavaScript's ASCII `\w` plus `.` and `-`.
+fn device_id_pattern() -> Option<&'static Regex> {
+    static PATTERN: OnceLock<Option<Regex>> = OnceLock::new();
+    PATTERN
+        .get_or_init(|| {
+            Regex::new(r"^(?:ios:[0-9a-fA-F-]{36}|android:(?-u:[a-zA-Z0-9_.-]{1,200}))$").ok()
+        })
+        .as_ref()
 }
 
 fn js_string(value: &Value) -> Option<JsString> {
-    value
-        .as_js_str()
-        .cloned()
-        .or_else(|| value.as_str().map(JsString::from))
+    value.as_js_str().cloned()
 }
 
 fn optional_string(device: &Map, key: &str) -> bool {
@@ -74,7 +74,7 @@ fn valid_device(device: &Map) -> bool {
     if name.is_empty() || name.chars().count() > 256 {
         return false;
     }
-    if !device_id_pattern().is_match(id) {
+    if !device_id_pattern().is_some_and(|pattern| pattern.is_match(id)) {
         return false;
     }
     if platform != "ios" && platform != "android" {
