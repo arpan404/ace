@@ -92,6 +92,49 @@ pub struct ControlHints {
     pub by_op: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+impl Instructions {
+    /// `aceGuidance(undefined, tools)` (`status.ts:47`–`:58`): the native-app tool this daemon
+    /// actually registered, and the display clause only where `screen_display` exists. The
+    /// catalog's own text is the background-engine variant; every other line is served as is.
+    pub fn for_tools(&self, tools: &[String]) -> String {
+        let has = |name: &str| {
+            tools
+                .iter()
+                .any(|tool| crate::tool_names::bare_tool_name(tool) == name)
+        };
+        let native = if has("screen_state") {
+            "screen_state"
+        } else if has("screen_open_app") {
+            "screen_open_app"
+        } else {
+            "guide ace-computer-use"
+        };
+        let prefix = "- the person names a native app or simulator: ";
+        let Some(start) = self.instructions.find(prefix) else {
+            return self.instructions.clone();
+        };
+        let end = self.instructions[start..]
+            .find('\n')
+            .map_or(self.instructions.len(), |offset| start + offset);
+        let line = &self.instructions[start..end];
+        // Anything the catalog writes after the display clause is kept.
+        let tail = line
+            .split_once("displays: screen_display;")
+            .map(|(_, after)| after)
+            .unwrap_or_default();
+        let displays = if has("screen_display") {
+            " displays: screen_display;"
+        } else {
+            ""
+        };
+        format!(
+            "{}{prefix}{native};{displays}{tail}{}",
+            &self.instructions[..start],
+            &self.instructions[end..]
+        )
+    }
+}
+
 impl ControlHints {
     /// The next step for `op` failing with `code`: the operation's own where it has one, else
     /// the code's.
@@ -455,6 +498,31 @@ mod tests {
             );
         }
         assert!(catalog.gemini_untrusted.contains("does not trust"));
+    }
+
+    #[test]
+    fn the_instructions_name_the_native_app_tool_this_daemon_registers() {
+        let instructions = &catalog().expect("the embedded catalog parses").instructions;
+        let names = |tools: &[&str]| {
+            tools
+                .iter()
+                .map(|tool| (*tool).to_owned())
+                .collect::<Vec<_>>()
+        };
+        let mac = instructions.for_tools(&names(&["screen_state", "screen_display"]));
+        assert!(mac.contains("native app or simulator: screen_state; displays: screen_display;"));
+        let windows = instructions.for_tools(&names(&["screen_open_app", "sim_list"]));
+        assert!(windows.contains("native app or simulator: screen_open_app;"));
+        assert!(!windows.contains("screen_state"));
+        assert!(!windows.contains("displays:"));
+        let devices = instructions.for_tools(&names(&["sim_list"]));
+        assert!(devices.contains("native app or simulator: guide ace-computer-use;"));
+        assert!(!devices.contains("displays:"));
+        // Only that line changes.
+        assert_eq!(
+            mac.lines().count(),
+            instructions.instructions.lines().count()
+        );
     }
 
     #[test]

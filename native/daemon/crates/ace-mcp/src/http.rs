@@ -664,7 +664,7 @@ impl McpServer {
         headers: &[(String, String)],
     ) -> Result<Value, RpcError> {
         match method {
-            "initialize" => Ok(initialize(params.as_ref(), headers)),
+            "initialize" => Ok(self.initialize(params.as_ref(), headers)),
             "ping" => Ok(Value::Object(Map::new())),
             "tools/list" => Ok(Value::Object(self.tool_list(principal, headers))),
             "tools/call" => self.tool_call(principal, id, params, emit, headers).await,
@@ -1077,42 +1077,50 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 }
 
 /// `initialize`'s result (`http.ts:437`).
-fn initialize(params: Option<&Value>, headers: &[(String, String)]) -> Value {
-    let requested = params
-        .and_then(|params| params.get("protocolVersion"))
-        .and_then(Value::as_str);
-    let version = requested
-        .filter(|version| PROTOCOL_VERSIONS.contains(version))
-        .unwrap_or(LATEST_PROTOCOL);
-    // Never advertise what cannot be delivered: a 2026 client's listen is routed, and a legacy
-    // client that opted into its GET stream can hear changes; anyone else cannot.
-    let deliverable = requested == Some(LATEST_PROTOCOL)
-        || header(headers, "mcp-method").is_some()
-        || header(headers, "x-ace-notifications") == Some("stream");
-    let mut tools = Map::with_capacity(1);
-    if deliverable {
-        tools.insert("listChanged", Value::Bool(true));
+impl McpServer {
+    fn initialize(&self, params: Option<&Value>, headers: &[(String, String)]) -> Value {
+        let requested = params
+            .and_then(|params| params.get("protocolVersion"))
+            .and_then(Value::as_str);
+        let version = requested
+            .filter(|version| PROTOCOL_VERSIONS.contains(version))
+            .unwrap_or(LATEST_PROTOCOL);
+        // Never advertise what cannot be delivered: a 2026 client's listen is routed, and a legacy
+        // client that opted into its GET stream can hear changes; anyone else cannot.
+        let deliverable = requested == Some(LATEST_PROTOCOL)
+            || header(headers, "mcp-method").is_some()
+            || header(headers, "x-ace-notifications") == Some("stream");
+        let mut tools = Map::with_capacity(1);
+        if deliverable {
+            tools.insert("listChanged", Value::Bool(true));
+        }
+        let mut capabilities = Map::with_capacity(2);
+        capabilities.insert("tools", Value::Object(tools));
+        capabilities.insert("resources", Value::Object(Map::new()));
+        let mut server = Map::with_capacity(2);
+        server.insert("name", Value::from(SERVER_NAME));
+        server.insert("version", Value::from(SERVER_VERSION));
+        let mut map = Map::with_capacity(4);
+        map.insert("protocolVersion", Value::from(version));
+        map.insert("capabilities", Value::Object(capabilities));
+        map.insert("serverInfo", Value::Object(server));
+        // A native-app client reads its own instructions; every other client gets ace's text,
+        // chosen from the tools this registry actually serves (`http.ts:443`).
+        if header(headers, "X-Ace-Instructions") != Some("native")
+            && let Ok(catalog) = crate::catalog::catalog()
+        {
+            map.insert(
+                "instructions",
+                Value::String(JsString::from(
+                    catalog
+                        .instructions
+                        .for_tools(&self.registry.names())
+                        .as_str(),
+                )),
+            );
+        }
+        Value::Object(map)
     }
-    let mut capabilities = Map::with_capacity(2);
-    capabilities.insert("tools", Value::Object(tools));
-    capabilities.insert("resources", Value::Object(Map::new()));
-    let mut server = Map::with_capacity(2);
-    server.insert("name", Value::from(SERVER_NAME));
-    server.insert("version", Value::from(SERVER_VERSION));
-    let mut map = Map::with_capacity(4);
-    map.insert("protocolVersion", Value::from(version));
-    map.insert("capabilities", Value::Object(capabilities));
-    map.insert("serverInfo", Value::Object(server));
-    // A native-app client reads its own instructions; every other client gets ace's text.
-    if header(headers, "X-Ace-Instructions") != Some("native")
-        && let Ok(catalog) = crate::catalog::catalog()
-    {
-        map.insert(
-            "instructions",
-            Value::String(JsString::from(catalog.instructions.instructions.as_str())),
-        );
-    }
-    Value::Object(map)
 }
 
 /// The families a `tools_find` result matched (`foundFamilies`, `meta-tools.ts`).

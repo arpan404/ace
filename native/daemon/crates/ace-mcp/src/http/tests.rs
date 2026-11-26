@@ -1300,3 +1300,51 @@ async fn a_tool_the_caller_cannot_see_never_answers_header_mismatch() {
     assert_eq!(code_of(&called), "tool_unavailable");
     assert!(!ran.load(Ordering::SeqCst));
 }
+
+#[tokio::test]
+async fn initialize_guidance_names_the_native_tools_this_registry_serves() {
+    let screen = |fixture: &Fixture, name: &str| {
+        fixture
+            .registry()
+            .register(ToolEntry::new(
+                descriptor(
+                    name,
+                    None,
+                    name,
+                    "external-effect",
+                    Some("screen"),
+                    1_000,
+                    parse("{\"type\":\"object\"}").expect("schema"),
+                    None,
+                ),
+                Arc::new(FnTool(|input: Value, _context| async move { Ok(input) })),
+            ))
+            .expect("registration");
+    };
+    let guidance = |response: &HttpResponse| {
+        result_of(response)
+            .get("instructions")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    // A daemon without the background engine registers `screen_open_app` and no display tool.
+    let windows = Fixture::new(&[], 16, 4096);
+    screen(&windows, "screen_open_app");
+    let text = guidance(&windows.handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#).await);
+    assert!(
+        text.contains("native app or simulator: screen_open_app;"),
+        "{text}"
+    );
+    assert!(!text.contains("screen_state"), "{text}");
+    assert!(!text.contains("displays:"), "{text}");
+    // The engine's daemon names `screen_state` and its whole-display tool.
+    let macos = Fixture::new(&[], 16, 4096);
+    screen(&macos, "screen_state");
+    screen(&macos, "screen_display");
+    let text = guidance(&macos.handle(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#).await);
+    assert!(
+        text.contains("native app or simulator: screen_state; displays: screen_display;"),
+        "{text}"
+    );
+}
