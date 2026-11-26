@@ -48,12 +48,14 @@ for (const generator of [
   "make-subscription-vectors.ts",
   "make-sidebar-vectors.ts",
   "make-command-vectors.ts",
+  "make-read-vectors.ts",
 ]) {
   execFileSync("bun", [`crates/ace-fanout/vectors/${generator}`, "--check"], {
     cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
     stdio: "inherit",
   });
 }
+
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),

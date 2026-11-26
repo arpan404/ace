@@ -34,7 +34,7 @@ pub use raw_trim::{
 };
 pub use read::{
     CoreReader, CoreStore, FailScope, MAX_SUBSCRIPTIONS, ManagedSubscription, OUTPUT_READ_BYTES,
-    PAGE_REPLY_BYTES, PageFn, ReadError, SubscribeFn, Subscriptions, read_core,
+    PageFn, ReadError, SubscribeFn, Subscriptions, read_core,
 };
 pub use sidebar::{
     DeviceReads, PageReuse, PlacedStanding, Placement, SidebarError, SidebarPage, SidebarStore,

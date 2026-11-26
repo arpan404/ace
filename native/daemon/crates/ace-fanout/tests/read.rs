@@ -340,7 +340,8 @@ fn a_failed_creation_is_subscribe_failed() {
     );
 }
 
-/// A page on a subscription that isn't there is `page_failed`, naming the request.
+/// A page on a subscription that isn't there is `page_failed`, naming only the request: the
+/// TypeScript's `fail` scope for `threads.page` carries no subscription id.
 #[test]
 fn a_page_without_its_subscription_is_page_failed() {
     let mut socket = Socket::new();
@@ -358,7 +359,7 @@ fn a_page_without_its_subscription_is_page_failed() {
         &mut subscribe_nothing,
     );
     assert_eq!(socket.failures[0].code, "page_failed");
-    assert_eq!(socket.failures[0].scope.0, Some("p".to_owned()));
+    assert_eq!(socket.failures[0].scope, (Some("p".to_owned()), None));
 }
 
 /// An output read's limit never passes `outputReadBytes`, whatever was asked.
@@ -505,8 +506,45 @@ fn an_entity_page_on_an_unreadable_thread_is_refused() {
     assert_eq!(socket.failures[0].message, "Thread is not readable");
 }
 
-/// Command status: a settled receipt is sent again as a `commandResult`, then every command's
-/// state in one `command.status`; work on a lane is running.
+/// The messages `readCore` answers, as `CoreClientMessage.parse` builds them: the protocol's own
+/// field names, never a shape invented beside them. A read that misnames a field gets a message
+/// no client sent and fails here.
+fn wire_message(name: &str) -> Value {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/vectors/reads.json");
+    let text = std::fs::read_to_string(path).expect("read reads.json");
+    let fixture = parse(&text);
+    fixture
+        .get("messages")
+        .and_then(|messages| messages.get(name))
+        .cloned()
+        .unwrap_or_else(|| panic!("reads.json has no {name}"))
+}
+
+fn reply_type(value: &Value) -> &str {
+    match value.get("type") {
+        Some(Value::String(seen)) => seen.as_str(),
+        _ => panic!("no type"),
+    }
+}
+
+fn page_ok(
+    _: &mut Subscriptions,
+    _: &str,
+    _: &ace_fanout::ThreadListCursor,
+    _: &str,
+) -> Result<Value, ReadError> {
+    Ok(parse(
+        r#"{"type":"threads.patch","subscriptionId":"s1","seq":1,"threads":{},"removed":[],"window":{}}"#,
+    ))
+}
+
+fn subscribe_ok(_: &mut Subscriptions, _: &Value) -> Result<(), ReadError> {
+    Ok(())
+}
+
+/// Command status reads the protocol's `commandIds`, sends a settled receipt again as a
+/// `commandResult`, then every command's state in one `command.status`; work on a lane is
+/// running.
 #[test]
 fn command_status_sends_settled_results_and_each_state() {
     let mut sockets = Socket::new();
@@ -521,9 +559,7 @@ fn command_status_sends_settled_results_and_each_state() {
     answer(
         &mut sockets,
         &store,
-        one(
-            r#"{"type":"command.status","requestId":"q","commands":[{"commandId":"c1"},{"commandId":"c2"},{"commandId":"c3"}]}"#,
-        ),
+        wire_message("commandStatus"),
         Some(&lanes),
         true,
         true,
@@ -532,14 +568,16 @@ fn command_status_sends_settled_results_and_each_state() {
     );
     assert_eq!(sockets.sends.len(), 2);
     let result = &sockets.sends[0];
+    assert_eq!(reply_type(result), "commandResult");
+    let status = &sockets.sends[1];
+    assert_eq!(reply_type(status), "command.status");
     assert_eq!(
-        result.get("type").and_then(|value| match value {
+        status.get("requestId").and_then(|request| match request {
             Value::String(seen) => Some(seen.as_str()),
             _ => None,
         }),
-        Some("commandResult")
+        Some("status-1")
     );
-    let status = &sockets.sends[1];
     let Some(Value::Array(commands)) = status.get("commands") else {
         panic!("commands");
     };
@@ -551,4 +589,73 @@ fn command_status_sends_settled_results_and_each_state() {
         })
         .collect();
     assert_eq!(states, vec!["settled", "running", "unknown"]);
+    let ids: Vec<&str> = commands
+        .iter()
+        .map(|command| match command.get("commandId") {
+            Some(Value::String(seen)) => seen.as_str(),
+            _ => panic!("commandId"),
+        })
+        .collect();
+    assert_eq!(ids, vec!["c1", "c2", "c3"]);
+}
+
+/// Every other read the core answers takes the protocol's message and answers with its reply:
+/// the audit that no field is read under a name the schema never sends.
+#[test]
+fn every_read_answers_the_protocols_message() {
+    let mut socket = Socket::new();
+    socket.subscriptions.insert(
+        "s1",
+        ManagedSubscription::Plain(Box::new(Subscription::new(
+            JsString::from("s1"),
+            Scope::Thread("t_tree".to_owned()),
+            None,
+            SubscribeOptions::default(),
+        ))),
+    );
+    let store = Fake {
+        output: Some("stream-1".to_owned()),
+        output_data: Some(one(r#"{"data":"aGk=","nextOffset":2,"eof":true}"#)),
+        interaction: Some(Ok(one(
+            r#"{"offset":0,"nextOffset":1,"eof":true,"json":"{}"}"#,
+        ))),
+        thread: true,
+        entity: Some(Ok(one(r#"{"collection":"interactions","entries":[]}"#))),
+        items: Some(Ok(one(
+            r#"{"threadId":"t_tree","items":[],"itemsBefore":null}"#,
+        ))),
+        ..Fake::default()
+    };
+
+    let cases: [(&str, &str, bool); 8] = [
+        ("threadsPage", "threads.patch", true),
+        ("subscribeThread", "", false),
+        ("subscribeWindow", "", false),
+        ("outputRead", "output.data", false),
+        ("interactionRead", "interaction.data", false),
+        ("itemsPage", "items.page", false),
+        ("entitiesPage", "entities.page", false),
+        ("unsubscribe", "", false),
+    ];
+    for (name, reply, has_reply) in cases {
+        let handled = answer(
+            &mut socket,
+            &store,
+            wire_message(name),
+            None,
+            true,
+            true,
+            &mut page_ok,
+            &mut subscribe_ok,
+        );
+        assert!(handled, "{name} is a core read");
+        assert!(socket.failures.is_empty(), "{name} answered a failure");
+        if has_reply {
+            assert_eq!(
+                socket.sends.last().map(reply_type),
+                Some(reply),
+                "{name} reply"
+            );
+        }
+    }
 }

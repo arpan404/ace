@@ -15,8 +15,6 @@ use crate::js::{field, field_text, number};
 use crate::sidebar::{SidebarSubscription, ThreadListCursor};
 use crate::subscription::Subscription;
 
-/// The JSON a page of raw payloads may carry (`pageReplyBytes`).
-pub const PAGE_REPLY_BYTES: usize = 64 * 1024;
 /// Output bytes one `output.read` returns (`outputReadBytes`), even so a UTF-16 stream's reads
 /// end on a code unit.
 pub const OUTPUT_READ_BYTES: usize = 16 * 1024;
@@ -204,8 +202,8 @@ fn page(message: &Value, reader: &mut CoreReader<'_>) {
             "Unable to load this page; retry or refresh the list",
             false,
             FailScope {
-                request_id: request_id.or(subscription_id),
-                subscription_id,
+                request_id,
+                subscription_id: None,
             },
         );
         return;
@@ -227,16 +225,18 @@ fn page(message: &Value, reader: &mut CoreReader<'_>) {
 fn command_status(message: &Value, reader: &mut CoreReader<'_>) {
     let request_id = field_text(message, "requestId").map(JsString::as_str);
     let mut commands = Vec::new();
-    for command in field(message, "commands")
-        .and_then(|commands| match commands {
+    for command_id in field(message, "commandIds")
+        .and_then(|command_ids| match command_ids {
             Value::Array(items) => Some(items.as_slice()),
             _ => None,
         })
         .unwrap_or(&[])
+        .iter()
+        .filter_map(|command_id| match command_id {
+            Value::String(command_id) => Some(command_id),
+            _ => None,
+        })
     {
-        let Some(command_id) = field_text(command, "commandId") else {
-            continue;
-        };
         let receipt = (reader.store).command_receipt(command_id.as_str(), reader.device);
         let in_flight = reader
             .lanes
