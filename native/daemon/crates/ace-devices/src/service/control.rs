@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Who takes a device, and how control moves between holders
 //! (`packages/devices/src/service.ts`: `claimForAgent`, `authorize` and
-//! `assignController`).
+//! `assignController`.
 //!
 //! Priority 1 (behaviour.md §3): a person's takeover invalidates every pending
 //! agent command, including one still waiting on a cleanup. Every takeover bumps
 //! `controlRevision`, releases the lease before anything is awaited, and a holder
 //! that comes back to a different revision loses with `busy`.
 
+use super::binding::{Bind, Bound, begin_bind, finish_bind};
 use super::lease::{Actor, ActorKind, ControllerLease};
 use super::session::Session;
 use super::words;
@@ -65,32 +66,38 @@ pub enum Claim {
     Take,
 }
 
-/// `claimForAgent`: an agent takes a free device, or one it already holds, with no
-/// prompt. A person in control, or another agent holding it, refuses — control
-/// moves only on hand-back or lease expiry.
-pub fn claim_for_agent(
-    session: &mut Session,
-    actor: &Actor,
-    now: f64,
-) -> Result<Claim, DeviceError> {
-    let (Some(thread_id), Some(_agent_id)) =
-        (actor.thread_id.as_deref(), actor.agent_id.as_deref())
-    else {
-        return Err(DeviceError::InvalidInput(String::from(
-            AGENT_CALLER_REQUIRED,
-        )));
-    };
+fn require_agent_caller(actor: &Actor) -> Result<(&str, &str), DeviceError> {
     if actor.kind != ActorKind::Agent {
         return Err(DeviceError::InvalidInput(String::from(
             AGENT_CALLER_REQUIRED,
         )));
     }
-    // A takeover in flight decides who is taking the device, and a person's must
-    // always win: an agent's tool call that lands in the gap is refused.
+    let thread_id = actor
+        .thread_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| DeviceError::InvalidInput(String::from(AGENT_CALLER_REQUIRED)))?;
+    let agent_id = actor
+        .agent_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| DeviceError::InvalidInput(String::from(AGENT_CALLER_REQUIRED)))?;
+    Ok((thread_id, agent_id))
+}
+
+/// Shared gates before an agent may take or bind a device.
+fn agent_takeover_allowed(
+    session: &mut Session,
+    actor: &Actor,
+    now: f64,
+    pending_agents_block: bool,
+) -> Result<(), DeviceError> {
     match session.pending_controller_kind {
         Some(ActorKind::Human) => return Err(words::refusal(PERSON_CONTROLLING_KEY)),
-        Some(ActorKind::Agent) => return Err(words::refusal(OTHER_AGENT_KEY)),
-        None => {}
+        Some(ActorKind::Agent) if pending_agents_block => {
+            return Err(words::refusal(OTHER_AGENT_KEY));
+        }
+        _ => {}
     }
     match session.lease.current(now) {
         Some(current) if current.kind == ActorKind::Human => {
@@ -99,37 +106,107 @@ pub fn claim_for_agent(
         Some(current) if current.owner != actor.owner => {
             return Err(words::refusal(OTHER_AGENT_KEY));
         }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// `claimForAgent`: an agent takes a free device, or one it already holds, with no
+/// prompt. A person in control, or another agent holding it, refuses — control
+/// moves only on hand-back or lease expiry.
+pub fn claim_for_agent(
+    session: &mut Session,
+    actor: &Actor,
+    now: f64,
+) -> Result<Claim, DeviceError> {
+    let (thread_id, _agent_id) = require_agent_caller(actor)?;
+    agent_takeover_allowed(session, actor, now, true)?;
+    match session.lease.current(now) {
         Some(_) if session.thread_id.as_deref() == Some(thread_id) => return Ok(Claim::Already),
         _ => {}
     }
     Ok(Claim::Take)
 }
 
-/// `authorize`: devices on, no bind in flight, and an agent only on the device its
-/// thread took. The caller's own lifetime (`actor.guard`) is the shell's check.
+/// `claimForAgent`'s bind half: reserve the device for the agent's thread before
+/// anything is awaited, but only while no person's takeover is in flight.
+pub fn start_bind_for_agent(
+    session: &mut Session,
+    actor: &Actor,
+    now: f64,
+) -> Result<Bind, DeviceError> {
+    let (thread_id, _) = require_agent_caller(actor)?;
+    agent_takeover_allowed(session, actor, now, true)?;
+    begin_bind(session, thread_id)
+}
+
+/// After a bind's cleanup: revalidate the claim, then begin handing control to the
+/// agent — the same path `claimForAgent` resumes on.
+pub fn resume_claim_for_agent(
+    session: &mut Session,
+    actor: &Actor,
+    bind: Bind,
+    cleanup_failed: bool,
+    enabled: bool,
+    now: f64,
+) -> Result<Option<Assignment>, DeviceError> {
+    let (thread_id, _) = require_agent_caller(actor)?;
+    match bind {
+        Bind::Unchanged => {}
+        Bind::Cleanup { epoch } => {
+            match finish_bind(session, thread_id, epoch, cleanup_failed, enabled) {
+                Ok(Bound::CleanupFailed) => return Ok(None),
+                Ok(Bound::Bound) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    agent_takeover_allowed(session, actor, now, true)?;
+    if session.thread_id.as_deref() != Some(thread_id) {
+        return Err(words::refusal(NOT_TAKEN_KEY));
+    }
+    if session
+        .lease
+        .current(now)
+        .is_some_and(|current| current.owner == actor.owner)
+    {
+        return Ok(None);
+    }
+    begin_assign(session, actor, now).map(Some)
+}
+
+/// `authorize`: devices on, no bind in flight for agents, and an agent only on the
+/// device its thread took. The caller's own lifetime (`actor.guard`) is the shell's
+/// check. A person's takeover is not blocked by another agent's bind.
 pub fn authorize(
     session: &Session,
     actor: &Actor,
     enabled: bool,
     closed: bool,
 ) -> Result<(), DeviceError> {
-    if closed || !enabled || session.changing_binding {
+    if closed || !enabled {
+        return Err(words::refusal(DISABLED_KEY));
+    }
+    if session.changing_binding && actor.kind == ActorKind::Agent {
         return Err(words::refusal(DISABLED_KEY));
     }
     if actor.kind == ActorKind::Agent
-        && (actor.thread_id.is_none() || session.thread_id != actor.thread_id)
+        && (actor.thread_id.as_deref().is_none_or(str::is_empty)
+            || session.thread_id != actor.thread_id)
     {
         return Err(words::refusal(NOT_TAKEN_KEY));
     }
     Ok(())
 }
 
-/// One takeover in flight: the revision it began under and the generation it saw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One takeover in flight: the revision it began under, the generation it saw, and
+/// who began it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Assignment {
-    revision: u64,
-    generation: u64,
-    kind: ActorKind,
+    pub revision: u64,
+    pub generation: u64,
+    pub kind: ActorKind,
+    pub owner: String,
 }
 
 impl Assignment {
@@ -138,16 +215,36 @@ impl Assignment {
     }
 }
 
+fn clear_pending(session: &mut Session) {
+    session.pending_controller = None;
+    session.pending_controller_kind = None;
+}
+
+fn pending_still_matches(session: &Session, assignment: &Assignment) -> bool {
+    session.pending_controller.as_deref() == Some(assignment.owner.as_str())
+        && assignment.revision == session.control_revision
+}
+
+/// `disconnect` / owner drop: invalidate only this owner's pending takeover
+/// (`service.ts:1199`).
+pub fn invalidate_pending_owner(session: &mut Session, owner: &str) {
+    if session.pending_controller.as_deref() == Some(owner) {
+        session.control_revision = session.control_revision.saturating_add(1);
+        clear_pending(session);
+    }
+}
+
 /// `assignController`'s first half: mark the takeover, then let go of control
 /// before the capture's held input is released. The caller awaits the cleanup and
 /// calls [`finish_assign`] with the result.
-///
-/// A person's takeover is never superseded: an agent that begins while one is
-/// pending is refused, so the person's finish always sees its own revision.
-pub fn begin_assign(session: &mut Session, requester: &Actor) -> Result<Assignment, DeviceError> {
-    if requester.kind == ActorKind::Agent
-        && session.pending_controller_kind == Some(ActorKind::Human)
-    {
+pub fn begin_assign(
+    session: &mut Session,
+    requester: &Actor,
+    now: f64,
+) -> Result<Assignment, DeviceError> {
+    if requester.kind == ActorKind::Agent {
+        agent_takeover_allowed(session, requester, now, false)?;
+    } else if session.pending_controller_kind == Some(ActorKind::Human) {
         return Err(words::refusal(PERSON_CONTROLLING_KEY));
     }
     session.control_revision = session.control_revision.saturating_add(1);
@@ -155,6 +252,7 @@ pub fn begin_assign(session: &mut Session, requester: &Actor) -> Result<Assignme
         revision: session.control_revision,
         generation: session.generation,
         kind: requester.kind,
+        owner: requester.owner.clone(),
     };
     session.pending_controller = Some(requester.owner.clone());
     session.pending_controller_kind = Some(requester.kind);
@@ -162,14 +260,14 @@ pub fn begin_assign(session: &mut Session, requester: &Actor) -> Result<Assignme
     Ok(assignment)
 }
 
-/// A takeover whose cleanup failed: it clears the marker it set, unless a newer
-/// takeover has already replaced it.
+/// A takeover whose cleanup failed, or whose owner was dropped: invalidate only
+/// when this assignment still owns the pending marker (`service.ts:1199`).
 pub fn cancel_assign(session: &mut Session, assignment: Assignment) {
-    if assignment.revision != session.control_revision {
+    if !pending_still_matches(session, &assignment) {
         return;
     }
-    session.pending_controller = None;
-    session.pending_controller_kind = None;
+    session.control_revision = session.control_revision.saturating_add(1);
+    clear_pending(session);
 }
 
 /// `assignController`'s second half: a takeover that is still the newest one takes
@@ -184,10 +282,15 @@ pub fn finish_assign(
     if assignment.revision != session.control_revision
         || assignment.generation != session.generation
     {
+        if pending_still_matches(session, &assignment) {
+            clear_pending(session);
+        }
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
-    session.pending_controller = None;
-    session.pending_controller_kind = None;
+    if !pending_still_matches(session, &assignment) {
+        return Err(words::refusal(CONTROL_CHANGED_KEY));
+    }
+    clear_pending(session);
     match holder {
         Some(holder) => session.lease.claim(holder.clone(), now),
         None => session.lease.release(None),

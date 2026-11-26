@@ -38,7 +38,10 @@ pub mod words;
 
 pub use actions::{CaptureFacts, QueuedAction, Step as ActionStep};
 pub use binding::{Bind, Bound};
-pub use control::{Assignment, Claim, begin_assign, cancel_assign, finish_assign, require_person};
+pub use control::{
+    Assignment, Claim, begin_assign, cancel_assign, finish_assign, invalidate_pending_owner,
+    require_person, resume_claim_for_agent, start_bind_for_agent,
+};
 pub use control_delivery::{ControlDelivery, Flush, Sent};
 pub use cowork::Cowork;
 pub use device_tools_wire::check_request as check_tools_request;
