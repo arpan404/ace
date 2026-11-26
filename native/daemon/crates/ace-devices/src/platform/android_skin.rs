@@ -4,10 +4,13 @@
 //! display sits in it. Pure: the layout text and the images' alpha (decoded by ace-media) come
 //! in, the `DeviceChrome` goes out.
 
-use ace_json::write_number;
 use serde::{Deserialize, Serialize};
 
-use super::chrome::{Body, Chrome, Cutout, Rect, svg_url};
+use super::jsnum;
+
+pub use drawing::{DrawnBody, android_skin_chrome, drawn_body};
+
+mod drawing;
 
 /// One `name { ... }` block of the layout file.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -105,13 +108,11 @@ fn node_at<'a>(root: &'a mut LayoutNode, path: &[String]) -> &'a mut LayoutNode 
     node
 }
 
-/// `Number(value)` for a layout value: an empty string is 0, anything unreadable is none.
+/// `Number(value)` for a layout value: an empty string is 0, a hexadecimal integer is its
+/// number, and anything unreadable or infinite is none (`Number.isFinite`).
 fn number(node: Option<&LayoutNode>, key: &str) -> Option<f64> {
-    let text = trim(node?.value(key)?);
-    if text.is_empty() {
-        return Some(0.0);
-    }
-    text.parse::<f64>().ok().filter(|value| value.is_finite())
+    let value = jsnum::parse(node?.value(key)?);
+    value.is_finite().then_some(value)
 }
 
 /// A resource name in a layout is a plain file name, never a path.
@@ -133,22 +134,10 @@ const METAL_SHARE: f64 = 0.007;
 /// A screen whose corners can't be measured is rounded this much of its short side.
 const FALLBACK_RADIUS_SHARE: f64 = 0.05;
 
-/// `Math.round`, which rounds a half towards positive infinity.
-fn js_round(value: f64) -> f64 {
-    (value + 0.5).floor()
-}
-
-/// A number as the picture's markup spells it, in JavaScript's format.
-fn number_text(value: f64) -> String {
-    let mut out = String::new();
-    write_number(&mut out, value);
-    out
-}
-
-/// `Math.round(value * 100) / 100`, formatted.
-fn round(value: f64) -> String {
-    number_text(js_round(value * 100.0) / 100.0)
-}
+/// The most diagonal steps a corner scan takes. A skin's radius is a share of its short side,
+/// and the largest skins are thousands of pixels, so a real corner is well inside this; a
+/// layout naming an enormous side is still walked in this many steps.
+pub const MAX_CORNER_REACH: usize = 16_384;
 
 /// One of the skin's images as the reader found it: its data URL and the alpha along the
 /// diagonal from the corner the chrome measures, one value a step.
@@ -221,10 +210,12 @@ impl Opening {
         }
     }
 
-    /// How many steps along the diagonal a corner's scan takes.
+    /// How many steps along the diagonal a corner's scan takes. A corner's radius is a share
+    /// of the screen's short side, and any real skin is far inside this bound; a layout that
+    /// names an enormous side is still walked in a bounded number of steps.
     pub fn reach(&self) -> usize {
         let span = self.short / 2.0 * (1.0 - std::f64::consts::FRAC_1_SQRT_2);
-        span.floor().max(0.0) as usize
+        span.floor().clamp(0.0, MAX_CORNER_REACH as f64) as usize
     }
 
     /// Where the backdrop picture's diagonal scan starts, when the display's corner is a whole
@@ -325,118 +316,6 @@ pub fn opening(tree: &LayoutNode) -> Option<Opening> {
         mask,
         short,
     })
-}
-
-/// The body drawn around a screen.
-pub struct DrawnBody {
-    pub width: f64,
-    pub height: f64,
-    pub bezel: f64,
-    pub image: String,
-}
-
-/// The body around a screen of `width` × `height` with corners of `radius`: one thin, even bezel
-/// of black glass inside a graphite band with a soft lit edge, concentric with the screen's
-/// corners. All the real hardware shows from the front; the screen itself is cut out.
-pub fn drawn_body(width: f64, height: f64, radius: f64) -> DrawnBody {
-    let short = width.min(height);
-    let bezel = js_round(short * BEZEL_SHARE).max(4.0);
-    let metal = js_round(short * METAL_SHARE).max(2.0);
-    let edge = (short * 0.0018).max(1.0);
-    let w = width + 2.0 * bezel;
-    let h = height + 2.0 * bezel;
-    let r = radius + bezel;
-    let svg = [
-        format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {} {}\" width=\"{}\" height=\"{}\">",
-            number_text(w),
-            number_text(h),
-            number_text(w),
-            number_text(h)
-        ),
-        "<defs><linearGradient id=\"band\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">".to_string(),
-        "<stop offset=\"0\" stop-color=\"#55555b\"/><stop offset=\"0.5\" stop-color=\"#2c2c30\"/><stop offset=\"1\" stop-color=\"#46464b\"/>".to_string(),
-        "</linearGradient></defs>".to_string(),
-        format!(
-            "<rect width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"url(#band)\"/>",
-            number_text(w),
-            number_text(h),
-            round(r)
-        ),
-        format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\"0.18\" stroke-width=\"{}\"/>",
-            round(edge / 2.0),
-            round(edge / 2.0),
-            round(w - edge),
-            round(h - edge),
-            round(r - edge / 2.0),
-            round(edge)
-        ),
-        format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"#050506\"/>",
-            number_text(metal),
-            number_text(metal),
-            number_text(w - 2.0 * metal),
-            number_text(h - 2.0 * metal),
-            round(r - metal)
-        ),
-        "</svg>".to_string(),
-    ]
-    .join("");
-    DrawnBody {
-        width: w,
-        height: h,
-        bezel,
-        image: svg_url(&svg),
-    }
-}
-
-/// The screen's shape: a rounded rectangle the live picture is clipped to.
-fn screen_mask(width: f64, height: f64, radius: f64) -> String {
-    svg_url(&format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {} {}\" preserveAspectRatio=\"none\"><rect width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"#000\"/></svg>",
-        number_text(width),
-        number_text(height),
-        number_text(width),
-        number_text(height),
-        round(radius)
-    ))
-}
-
-/// The skin's upright look: the body drawn from the skin's real geometry, the screen clipped to
-/// its corners, and the skin's mask drawn over the display as a cutout.
-pub fn android_skin_chrome(
-    opening: &Opening,
-    backdrop: &SkinImage,
-    mask: Option<&SkinImage>,
-) -> Chrome {
-    let limit = opening.short / 2.0;
-    let radius = mask
-        .and_then(|image| corner_radius(&image.scan, limit))
-        .filter(|radius| *radius != 0.0)
-        .or_else(|| corner_radius(&backdrop.scan, limit).filter(|radius| *radius != 0.0))
-        .unwrap_or(opening.short * FALLBACK_RADIUS_SHARE);
-    let body = drawn_body(opening.width, opening.height, radius);
-    let screen = Rect {
-        x: body.bezel,
-        y: body.bezel,
-        width: opening.width,
-        height: opening.height,
-    };
-    Chrome {
-        body: Body {
-            width: body.width,
-            height: body.height,
-            image: body.image,
-        },
-        screen,
-        mask: Some(screen_mask(opening.width, opening.height, radius)),
-        cutout: mask.map(|image| Cutout {
-            rect: screen,
-            image: image.url.clone(),
-        }),
-        buttons: Vec::new(),
-    }
 }
 
 #[cfg(test)]

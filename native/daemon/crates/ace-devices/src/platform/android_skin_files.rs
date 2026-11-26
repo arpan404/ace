@@ -4,6 +4,8 @@
 //! directory or the system image's. Every root and read is passed in: nothing here touches the
 //! filesystem.
 
+use super::paths::join;
+
 /// An `.ini` file's `key=value` lines, later duplicates replacing earlier ones.
 pub fn ini_values(text: &str) -> Vec<(String, String)> {
     let mut values: Vec<(String, String)> = Vec::new();
@@ -66,12 +68,15 @@ pub fn image_url(bytes: &[u8], file: &str) -> String {
 }
 
 /// The AVD's config: the `.avd` folder an `.ini` pointer names first, then the folder beside the
-/// pointer, root by root in the order given.
+/// pointer, root by root in the order given. An AVD whose name isn't a plain name names no config.
 pub fn avd_config(
     avd: &str,
     avd_roots: &[String],
     read: &dyn Fn(&str) -> Option<String>,
 ) -> Option<Vec<(String, String)>> {
+    if !plain_name(avd) {
+        return None;
+    }
     for root in avd_roots {
         let pointer = read(&join(&[root, &format!("{avd}.ini")]));
         let pointer = pointer.as_deref().map(ini_values);
@@ -131,14 +136,6 @@ pub fn skin_directories(config: &[(String, String)], sdk_roots: &[String]) -> Ve
 
 /// `path.join` for this machine's separator, without resolving anything: every step is a name
 /// or a path the caller supplied.
-fn join(parts: &[&str]) -> String {
-    let mut path = std::path::PathBuf::new();
-    for part in parts {
-        path.push(part);
-    }
-    path.to_string_lossy().into_owned()
-}
-
 fn is_absolute(path: &str) -> bool {
     std::path::Path::new(path).is_absolute()
 }
@@ -168,20 +165,25 @@ pub enum ConfigStep {
 }
 
 /// `avd_config` as a step: the config when the files read so far hold it, else what to read.
+/// A file asked for but not yet read (`None`) blocks the candidates after it, so the folder the
+/// AVD's pointer names wins over the one beside it; an answer the shell reports as empty was
+/// read and held nothing, and the next candidate is tried.
 pub fn avd_config_step(
     avd: &str,
     avd_roots: &[String],
     read: &dyn Fn(&str) -> Option<String>,
 ) -> ConfigStep {
+    // An AVD whose name isn't a plain name names no config, and nothing more to read.
+    if !plain_name(avd) {
+        return ConfigStep::Read(Vec::new());
+    }
     let mut missing: Vec<String> = Vec::new();
     for root in avd_roots {
         let pointer_path = join(&[root, &format!("{avd}.ini")]);
         let pointer = match read(&pointer_path) {
             Some(text) => Some(ini_values(&text)),
             None => {
-                if !missing.contains(&pointer_path) {
-                    missing.push(pointer_path);
-                }
+                missing.push(pointer_path);
                 None
             }
         };
@@ -197,12 +199,15 @@ pub fn avd_config_step(
         for directory in directories {
             let config_path = join(&[&directory, "config.ini"]);
             match read(&config_path) {
-                Some(config) => return ConfigStep::Config(ini_values(&config)),
-                None => {
-                    if !missing.contains(&config_path) {
-                        missing.push(config_path);
-                    }
+                // A config this root holds wins only once every earlier candidate was read.
+                Some(config) if !config.is_empty() => {
+                    return match missing.is_empty() {
+                        true => ConfigStep::Config(ini_values(&config)),
+                        false => ConfigStep::Read(missing),
+                    };
                 }
+                Some(_) => {}
+                None => missing.push(config_path),
             }
         }
     }
@@ -218,6 +223,7 @@ pub enum LayoutStep {
 }
 
 /// `skin_layout` as a step: the layout when the files read so far hold it, else what to read.
+/// A folder whose layout isn't read yet blocks the folders after it, in the order given.
 pub fn skin_layout_step(
     directories: &[String],
     read: &dyn Fn(&str) -> Option<String>,
@@ -226,12 +232,15 @@ pub fn skin_layout_step(
     for directory in directories {
         let layout_path = join(&[directory, "layout"]);
         match read(&layout_path) {
-            Some(layout) => return LayoutStep::Layout(directory.clone(), layout),
-            None => {
-                if !missing.contains(&layout_path) {
-                    missing.push(layout_path);
-                }
+            // A layout reads as the answer only once every folder before it was read.
+            Some(layout) if !layout.is_empty() => {
+                return match missing.is_empty() {
+                    true => LayoutStep::Layout(directory.clone(), layout),
+                    false => LayoutStep::Read(missing),
+                };
             }
+            Some(_) => {}
+            None => missing.push(layout_path),
         }
     }
     LayoutStep::Read(missing)

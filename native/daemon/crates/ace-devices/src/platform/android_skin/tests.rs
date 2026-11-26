@@ -240,3 +240,25 @@ fn comments_and_stray_lines_are_skipped() {
     assert_eq!(portrait.value("width"), Some("100"));
     assert_eq!(portrait.value("j"), None);
 }
+
+#[test]
+fn a_layout_value_reads_as_number_reads_it() {
+    // `Number("0x10")` is sixteen; a skin layout may spell a value in hex.
+    let hex = PIXEL_LAYOUT.replace("width 1080", "width 0x10");
+    assert_eq!(skin(&hex).width, 16.0);
+}
+
+#[test]
+fn a_layout_that_names_an_enormous_side_still_measures_a_bounded_corner() {
+    let enormous = PIXEL_LAYOUT
+        .replace("width 1080", "width 1e12")
+        .replace("height 2400", "height 1e12");
+    let opening = skin(&enormous);
+    assert_eq!(opening.short, 1e12);
+    // The walk along the corner stops well short of the screen's size: a layout of any size is
+    // measured promptly.
+    assert_eq!(
+        opening.reach(),
+        crate::platform::android_skin::MAX_CORNER_REACH
+    );
+}

@@ -5,13 +5,7 @@
 
 use ace_json::Value;
 
-fn join(parts: &[&str]) -> String {
-    let mut path = std::path::PathBuf::new();
-    for part in parts {
-        path.push(part);
-    }
-    path.to_string_lossy().into_owned()
-}
+use super::paths::join;
 
 /// A resource name from Apple's files is a plain file name, never a path.
 pub fn plain_name(name: &str) -> bool {

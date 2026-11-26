@@ -2,8 +2,6 @@
 //! `pdf-objects.ts`'s object reader: the numbered objects of a PDF, their inflated streams, and
 //! the first page's size, drawing and resources. Pure: bytes in, values out.
 
-use std::io::Read;
-
 use super::pdf_lexer::{PdfDict, PdfLexer, PdfValue, is_js_space};
 
 /// A PDF's numbered objects, in the order they were read. A repeated number replaces the value
@@ -138,28 +136,32 @@ pub fn pdf_objects(bytes: &[u8]) -> PdfDocument {
             index = end.max(index + 1);
             continue;
         };
-        if let Some(start) = stream_start(&text, lexer.position)
+        // Only a dictionary can carry a stream, as `isDict(value)` decides; anything else is
+        // read as the value it is and the scan carries on inside what followed.
+        let mut streamed = false;
+        if is_dict(Some(&value))
+            && let Some(start) = stream_start(&text, lexer.position)
             && let Some(found) = find_from(&text, "endstream", start)
+            && found > start
         {
-            {
-                if found > start && start < bytes.len() {
-                    let mut stop = found.min(bytes.len());
-                    if stop > start && text.get(stop - 1) == Some(&'\n') {
-                        stop -= 1;
-                    }
-                    if stop > start && text.get(stop - 1) == Some(&'\r') {
-                        stop -= 1;
-                    }
-                    if let PdfValue::Dict(dict) = &mut value {
-                        dict.stream = Some(bytes[start..stop].to_vec());
-                    }
+            if start < bytes.len() {
+                let mut stop = found.min(bytes.len());
+                if stop > start && text.get(stop - 1) == Some(&'\n') {
+                    stop -= 1;
                 }
-                index = found;
-                document.set(id, value);
-                continue;
+                if stop > start && text.get(stop - 1) == Some(&'\r') {
+                    stop -= 1;
+                }
+                if let PdfValue::Dict(dict) = &mut value {
+                    dict.stream = Some(bytes[start..stop].to_vec());
+                }
             }
+            index = found;
+            streamed = true;
         }
-        index = end.max(index + 1);
+        if !streamed {
+            index = end.max(index + 1);
+        }
         document.set(id, value);
     }
     document
@@ -196,7 +198,8 @@ pub fn numbers_of(value: Option<&PdfValue>) -> Vec<f64> {
     }
 }
 
-/// A stream's decoded bytes: unfiltered or Flate only; none for any other filter.
+/// A stream's decoded bytes: unfiltered or Flate only; none for any other filter, and none for
+/// a Flate stream that ends before its checksum, as `inflateSync` throws on a truncated one.
 pub fn stream_bytes(dict: &PdfDict) -> Option<Vec<u8>> {
     let encoded = dict.stream.as_ref()?;
     let filters: Vec<Option<&str>> = match dict.get("Filter") {
@@ -209,14 +212,40 @@ pub fn stream_bytes(dict: &PdfDict) -> Option<Vec<u8>> {
         if filter != Some("FlateDecode") {
             return None;
         }
-        let mut inflated = Vec::new();
-        let mut decoder = flate2::read::ZlibDecoder::new(data.as_slice());
-        if decoder.read_to_end(&mut inflated).is_err() {
-            return None;
-        }
-        data = inflated;
+        data = inflate(&data)?;
     }
     Some(data)
+}
+
+/// A zlib stream's bytes, or none when it is corrupt or ends before its end marker: `inflateSync`
+/// throws for both.
+fn inflate(data: &[u8]) -> Option<Vec<u8>> {
+    use flate2::{Decompress, FlushDecompress, Status};
+    let mut decompress = Decompress::new(true);
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        let before = decompress.total_out();
+        let status = decompress
+            .decompress(
+                data.get(decompress.total_in() as usize..)
+                    .unwrap_or_default(),
+                &mut chunk,
+                FlushDecompress::None,
+            )
+            .ok()?;
+        let produced = (decompress.total_out() - before) as usize;
+        out.extend_from_slice(&chunk[..produced]);
+        match status {
+            Status::StreamEnd => return Some(out),
+            // No more input and nothing more produced: the stream is short of its end.
+            Status::Ok if decompress.total_in() as usize >= data.len() && produced == 0 => {
+                return None;
+            }
+            Status::Ok => {}
+            Status::BufError => return None,
+        }
+    }
 }
 
 /// A page's drawing operators as text, or "" when it cannot be decoded.
@@ -307,4 +336,85 @@ fn inherited<'a>(document: &'a PdfDocument, page_id: u32, key: &str) -> Option<&
         };
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    fn flate(contents: &[u8]) -> Vec<u8> {
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(contents).expect("compresses");
+        encoder.finish().expect("compresses")
+    }
+
+    fn stream_pdf(encoded: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"%PDF-1.3\n");
+        bytes.extend_from_slice(
+            format!(
+                "3 0 obj\n<< /Filter /FlateDecode /Length {} >>\nstream\n",
+                encoded.len()
+            )
+            .as_bytes(),
+        );
+        bytes.extend_from_slice(encoded);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        bytes
+    }
+
+    #[test]
+    fn a_truncated_zlib_stream_does_not_decode() {
+        let encoded = flate(b"0 0 10 10 re f");
+        // Cut short of its checksum, as a half-written file is, but ended with `endstream`.
+        let truncated = &encoded[..encoded.len() - 3];
+        let document = pdf_objects(&stream_pdf(truncated));
+        let Some(PdfValue::Dict(dict)) = document.get(3) else {
+            panic!("the stream's dictionary is read");
+        };
+        assert_eq!(
+            stream_bytes(dict),
+            None,
+            "a short zlib stream must not decode"
+        );
+        assert_eq!(stream_text(dict), "");
+    }
+
+    #[test]
+    fn a_complete_zlib_stream_decodes() {
+        let document = pdf_objects(&stream_pdf(&flate(b"0 0 10 10 re f")));
+        let Some(PdfValue::Dict(dict)) = document.get(3) else {
+            panic!("the stream's dictionary is read");
+        };
+        assert_eq!(stream_text(dict), "0 0 10 10 re f");
+    }
+
+    #[test]
+    fn only_a_dictionary_keeps_the_stream_that_follows() {
+        // A non-dictionary value with `stream` after it: the scan carries on inside it, as the
+        // TypeScript's `isDict(value)` check leaves the header's position where the value ended.
+        let text = "1 0 obj\n[ 1 2 ]\nstream\n2 0 obj\n<< /Type /Page >>\nendstream\nendobj\n";
+        let document = pdf_objects(text.as_bytes());
+        assert!(
+            document.get(2).is_some(),
+            "an object inside a non-dict's bytes is still read"
+        );
+        let Some(PdfValue::Array(items)) = document.get(1) else {
+            panic!("the array is read");
+        };
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn an_object_header_needs_javascripts_spaces_not_a_nul() {
+        assert!(pdf_objects(b"1 0 obj\n<< /Type /Page >>").get(1).is_some());
+        assert!(
+            pdf_objects(b"1\0 0 obj\n<< /Type /Page >>")
+                .get(1)
+                .is_none()
+        );
+    }
 }

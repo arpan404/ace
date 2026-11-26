@@ -211,7 +211,11 @@ fn a_layout_read_asks_for_each_skin_folders_layout_until_one_answers() {
         ),
         LayoutStep::Layout(..) => panic!("nothing was read"),
     }
-    let read = files(&[("/ace/sdk/skins/pixel_7/layout", "layouts {}\n")]);
+    // The shell reports a folder it read with no layout as empty text, not as unread.
+    let read = files(&[
+        ("/ace/sdk/skins/missing/layout", ""),
+        ("/ace/sdk/skins/pixel_7/layout", "layouts {}\n"),
+    ]);
     match skin_layout_step(&directories, &read) {
         LayoutStep::Layout(directory, layout) => {
             assert_eq!(directory, "/ace/sdk/skins/pixel_7");
@@ -232,4 +236,45 @@ fn a_skin_plan_carries_the_corner_each_image_is_measured_from() {
     assert_eq!(plan.opening(), opening);
     assert_eq!(plan.background, "back.webp");
     assert_eq!(plan.mask.as_deref(), Some("mask.png"));
+}
+
+#[test]
+fn an_avd_name_that_is_not_a_plain_name_names_no_config() {
+    let read = files(&[("/ace/avd/../../x.ini", "path=/elsewhere/x.avd\n")]);
+    assert_eq!(avd_config("../../x", &roots(ROOT), &read), None);
+    match avd_config_step("../../x", &roots(ROOT), &read) {
+        ConfigStep::Read(paths) => assert!(paths.is_empty(), "nothing more to read"),
+        ConfigStep::Config(config) => panic!("an escaping name found a config: {config:?}"),
+    }
+}
+
+#[test]
+fn the_folder_an_avd_pointer_names_wins_over_the_one_beside_it() {
+    // The pointer names an absolute folder, and that folder's config has not been read yet; the
+    // folder beside it has one, but the read must ask for the pointed folder first.
+    let read = files(&[
+        ("/ace/avd/Pixel.ini", "path=/elsewhere/Pixel.avd\n"),
+        ("/ace/avd/Pixel.avd/config.ini", "hw.device.name=beside\n"),
+    ]);
+    match avd_config_step("Pixel", &roots(ROOT), &read) {
+        ConfigStep::Read(paths) => {
+            assert_eq!(paths, vec!["/elsewhere/Pixel.avd/config.ini".to_string()]);
+        }
+        ConfigStep::Config(config) => panic!("the pointed folder was not read: {config:?}"),
+    }
+}
+
+#[test]
+fn a_skin_folder_not_read_yet_blocks_the_layouts_after_it() {
+    let directories = vec![
+        "/ace/sdk/skins/first".to_string(),
+        "/ace/sdk/skins/second".to_string(),
+    ];
+    let read = files(&[("/ace/sdk/skins/second/layout", "layouts {}\n")]);
+    match skin_layout_step(&directories, &read) {
+        LayoutStep::Read(paths) => {
+            assert_eq!(paths, vec!["/ace/sdk/skins/first/layout".to_string()]);
+        }
+        LayoutStep::Layout(..) => panic!("an earlier folder could still have the layout"),
+    }
 }

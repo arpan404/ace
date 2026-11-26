@@ -106,3 +106,99 @@ fn the_document_draws_at_its_own_size() {
          transform=\"matrix(1 0 0 1 0 0)\" fill=\"rgb(255,0,0)\"/></g></svg>"
     );
 }
+
+/// A one-page PDF whose page resources are `resources` and which carries `extra` objects, with
+/// the drawing Flate-compressed as Apple's is.
+fn page(width: f64, height: f64, content: &str, resources: &str, extra: &[(u32, &str)]) -> Vec<u8> {
+    use std::io::Write;
+
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder
+        .write_all(content.as_bytes())
+        .expect("the drawing compresses");
+    let stream = encoder.finish().expect("the drawing compresses");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"%PDF-1.3\n");
+    bytes.extend_from_slice(
+        format!(
+            "3 0 obj\n<< /Filter /FlateDecode /Length {} >>\nstream\n",
+            stream.len()
+        )
+        .as_bytes(),
+    );
+    bytes.extend_from_slice(&stream);
+    bytes.extend_from_slice(b"\nendstream\nendobj\n");
+    bytes.extend_from_slice(
+        b"1 0 obj\n<< /Type /Page /Parent 2 0 R /Resources 4 0 R /Contents 3 0 R >>\nendobj\n",
+    );
+    bytes.extend_from_slice(format!("4 0 obj\n{resources}\nendobj\n").as_bytes());
+    for (id, object) in extra {
+        bytes.extend_from_slice(format!("{id} 0 obj\n{object}\nendobj\n").as_bytes());
+    }
+    bytes.extend_from_slice(
+        format!(
+            "2 0 obj\n<< /Type /Pages /MediaBox [0 0 {width} {height}] /Count 1 /Kids [ 1 0 R ] >>\nendobj\n"
+        )
+        .as_bytes(),
+    );
+    bytes
+}
+
+#[test]
+fn a_line_cap_and_join_index_as_javascript_arrays_do() {
+    let drawn = art(10.0, 10.0, "1.5 J 1.5 j 0 0 10 10 re S");
+    assert!(
+        drawn.svg.contains("stroke-linecap=\"butt\""),
+        "{}",
+        drawn.svg
+    );
+    assert!(
+        drawn.svg.contains("stroke-linejoin=\"miter\""),
+        "{}",
+        drawn.svg
+    );
+    let rounded = art(10.0, 10.0, "1 J 2 j 0 0 10 10 re S");
+    assert!(
+        rounded.svg.contains("stroke-linecap=\"round\""),
+        "{}",
+        rounded.svg
+    );
+    assert!(
+        rounded.svg.contains("stroke-linejoin=\"bevel\""),
+        "{}",
+        rounded.svg
+    );
+}
+
+#[test]
+fn a_colour_space_with_no_components_takes_the_whole_slice() {
+    let resources = "<< /ColorSpace << /CS1 [ /ICCBased 5 0 R ] >> >>";
+    let none = page(
+        10.0,
+        10.0,
+        "/CS1 cs 0.5 0.2 sc 0 0 10 10 re f",
+        resources,
+        &[(5, "<< /N 0 /Alternate /DeviceRGB >>")],
+    );
+    // `values.slice(-0)` is the whole array: a grey from its first value.
+    let drawn = pdf_art(&none, "a").expect("art");
+    assert!(
+        drawn.svg.contains("fill=\"rgb(128,128,128)\""),
+        "{}",
+        drawn.svg
+    );
+    // A negative count drops that many from the front: `slice(1)` is the last value.
+    let negative = page(
+        10.0,
+        10.0,
+        "/CS1 cs 0.5 0.2 sc 0 0 10 10 re f",
+        resources,
+        &[(5, "<< /N -1 /Alternate /DeviceRGB >>")],
+    );
+    let drawn = pdf_art(&negative, "a").expect("art");
+    assert!(
+        drawn.svg.contains("fill=\"rgb(51,51,51)\""),
+        "{}",
+        drawn.svg
+    );
+}

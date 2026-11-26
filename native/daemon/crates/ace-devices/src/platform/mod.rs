@@ -28,6 +28,7 @@ pub mod jsnum;
 pub mod keys;
 pub mod lifecycle;
 pub mod list;
+pub mod paths;
 pub mod pdf_lexer;
 pub mod pdf_objects;
 pub mod pdf_paint;

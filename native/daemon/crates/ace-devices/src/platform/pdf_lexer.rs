@@ -53,9 +53,12 @@ fn is_space(character: char) -> bool {
 }
 
 /// JavaScript's `\s`, which the header, stream and reference patterns use: the ASCII set plus
-/// U+00A0, the only non-ASCII space latin-1 text can hold.
+/// U+00A0, the only non-ASCII space latin-1 text can hold. `\0` is PDF whitespace, not `\s`.
 pub fn is_js_space(character: char) -> bool {
-    is_space(character) || character == '\u{b}' || character == '\u{a0}'
+    matches!(
+        character,
+        ' ' | '\n' | '\r' | '\t' | '\u{c}' | '\u{b}' | '\u{a0}'
+    )
 }
 
 fn is_delimiter(character: char) -> bool {
@@ -70,19 +73,43 @@ fn ends_name(character: char) -> bool {
     is_space(character) || is_delimiter(character)
 }
 
+/// The deepest an array or dictionary may nest. Apple's drawings nest a handful of levels; a
+/// file that nests thousands is refused rather than recursed, so it can't exhaust the stack.
+pub const MAX_DEPTH: usize = 64;
+
 /// Reads PDF syntax (values and bare keywords) from text, one token at a time.
 pub struct PdfLexer<'a> {
     text: &'a [char],
     pub position: usize,
+    depth: usize,
+    /// Set when a value nested past [`MAX_DEPTH`]: the rest of the text is refused, as the
+    /// TypeScript's recursion throws.
+    refused: bool,
 }
 
 impl<'a> PdfLexer<'a> {
     pub fn new(text: &'a [char], position: usize) -> Self {
-        Self { text, position }
+        Self {
+            text,
+            position,
+            depth: 0,
+            refused: false,
+        }
     }
 
     fn at(&self, index: usize) -> Option<char> {
         self.text.get(index).copied()
+    }
+
+    /// Enters an array or dictionary; false (and the rest refused) past [`MAX_DEPTH`].
+    fn nest(&mut self) -> bool {
+        if self.depth >= MAX_DEPTH {
+            self.refused = true;
+            self.position = self.text.len();
+            return false;
+        }
+        self.depth += 1;
+        true
     }
 
     fn skip(&mut self) {
@@ -102,6 +129,9 @@ impl<'a> PdfLexer<'a> {
 
     /// The next value, or the next bare keyword, or none at the end.
     pub fn next_token(&mut self) -> Option<Token> {
+        if self.refused {
+            return None;
+        }
         self.skip();
         let character = self.at(self.position)?;
         if character == '/' {
@@ -136,6 +166,9 @@ impl<'a> PdfLexer<'a> {
         }
         if character == '<' && self.at(self.position + 1) == Some('<') {
             self.position += 2;
+            if !self.nest() {
+                return None;
+            }
             let mut entries = Vec::new();
             loop {
                 self.skip();
@@ -160,6 +193,10 @@ impl<'a> PdfLexer<'a> {
                     None => break,
                 }
             }
+            self.depth -= 1;
+            if self.refused {
+                return None;
+            }
             return Some(Token::Value(PdfValue::Dict(PdfDict {
                 entries,
                 stream: None,
@@ -174,6 +211,9 @@ impl<'a> PdfLexer<'a> {
         }
         if character == '[' {
             self.position += 1;
+            if !self.nest() {
+                return None;
+            }
             let mut items = Vec::new();
             loop {
                 self.skip();
@@ -188,6 +228,10 @@ impl<'a> PdfLexer<'a> {
                     Some(item) => items.push(item),
                     None => break,
                 }
+            }
+            self.depth -= 1;
+            if self.refused {
+                return None;
             }
             return Some(Token::Value(PdfValue::Array(items)));
         }
@@ -294,4 +338,51 @@ fn reference_length(text: &[char], start: usize) -> Option<usize> {
         return None;
     }
     Some(index - start)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lex(text: &str) -> Vec<char> {
+        text.chars().collect()
+    }
+
+    #[test]
+    fn javascripts_whitespace_is_not_pdfs_nul() {
+        assert!(is_js_space('\u{b}'));
+        assert!(is_js_space('\u{a0}'));
+        assert!(!is_js_space('\0'));
+        // PDF syntax does treat a NUL as a separator, as `isSpace` does.
+        assert!(is_space('\0'));
+    }
+
+    #[test]
+    fn a_thousand_nested_arrays_are_refused_rather_than_recursed() {
+        let text = lex(&"[".repeat(100_000));
+        let mut lexer = PdfLexer::new(&text, 0);
+        assert_eq!(lexer.value(), None);
+        // The refusal is final: the rest of the text is never lexed again.
+        assert_eq!(lexer.next_token(), None);
+    }
+
+    #[test]
+    fn a_dictionary_nested_past_the_limit_is_refused_too() {
+        let text = lex(&"<< /a ".repeat(100_000));
+        let mut lexer = PdfLexer::new(&text, 0);
+        assert_eq!(lexer.value(), None);
+    }
+
+    #[test]
+    fn nesting_within_the_limit_reads_as_a_value() {
+        let text = lex("[[1 2] [3 4]]");
+        let mut lexer = PdfLexer::new(&text, 0);
+        assert_eq!(
+            lexer.value(),
+            Some(PdfValue::Array(vec![
+                PdfValue::Array(vec![PdfValue::Number(1.0), PdfValue::Number(2.0)]),
+                PdfValue::Array(vec![PdfValue::Number(3.0), PdfValue::Number(4.0)]),
+            ]))
+        );
+    }
 }

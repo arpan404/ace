@@ -3,7 +3,9 @@
 
 use super::pdf_lexer::{PdfDict, PdfLexer, PdfValue, Token};
 use super::pdf_objects::{PdfDocument, name_of, numbers_of, resolve, stream_text};
-use super::pdf_style::{CAPS, JOINS, State, color, matrix_text, multiply, point, round, saved};
+use super::pdf_style::{
+    CAPS, JOINS, State, at, color, matrix_text, multiply, point, round, saved, slice_from_end,
+};
 
 /// Skips tokens up to and including `end`, the way the painter steps over text and images.
 fn skip_to(lexer: &mut PdfLexer<'_>, end: &str) {
@@ -169,8 +171,8 @@ impl<'a> Painter<'a> {
                     self.paint(&mut path, &mut clip, &mut state, Some(fill), true);
                 }
                 "w" => state.line_width = num(0),
-                "J" => state.cap = num(0) as usize,
-                "j" => state.join = num(0) as usize,
+                "J" => state.cap = num(0),
+                "j" => state.join = num(0),
                 "M" => state.miter = num(0),
                 "d" => {
                     let dashes = match operands.len().checked_sub(2) {
@@ -198,17 +200,17 @@ impl<'a> Painter<'a> {
                         _ => None,
                     };
                     let components = match name {
-                        Some("DeviceGray") | Some("CalGray") => 1,
-                        Some("DeviceCMYK") => 4,
+                        Some("DeviceGray") | Some("CalGray") => 1.0,
+                        Some("DeviceCMYK") => 4.0,
                         _ => match icc {
                             Some(PdfValue::Dict(dict)) => match dict.get("N") {
-                                Some(PdfValue::Number(n)) => *n as usize,
-                                _ => 3,
+                                Some(PdfValue::Number(n)) => *n,
+                                _ => 3.0,
                             },
-                            _ => 3,
+                            _ => 3.0,
                         },
                     };
-                    let initial = color(if components == 4 {
+                    let initial = color(if components == 4.0 {
                         &[0.0, 0.0, 0.0, 1.0]
                     } else {
                         &[0.0]
@@ -225,41 +227,39 @@ impl<'a> Painter<'a> {
                     let values: Vec<f64> =
                         operands.iter().filter_map(PdfValue::as_number).collect();
                     if !values.is_empty() {
-                        let at = values.len().saturating_sub(state.fill_components);
-                        state.fill = color(&values[at..]);
+                        state.fill = color(slice_from_end(&values, state.fill_components));
                     }
                 }
                 "SC" | "SCN" => {
                     let values: Vec<f64> =
                         operands.iter().filter_map(PdfValue::as_number).collect();
                     if !values.is_empty() {
-                        let at = values.len().saturating_sub(state.stroke_components);
-                        state.stroke = color(&values[at..]);
+                        state.stroke = color(slice_from_end(&values, state.stroke_components));
                     }
                 }
                 "g" => {
                     state.fill = color(&[num(0)]);
-                    state.fill_components = 1;
+                    state.fill_components = 1.0;
                 }
                 "G" => {
                     state.stroke = color(&[num(0)]);
-                    state.stroke_components = 1;
+                    state.stroke_components = 1.0;
                 }
                 "rg" => {
                     state.fill = color(&[num(2), num(1), num(0)]);
-                    state.fill_components = 3;
+                    state.fill_components = 3.0;
                 }
                 "RG" => {
                     state.stroke = color(&[num(2), num(1), num(0)]);
-                    state.stroke_components = 3;
+                    state.stroke_components = 3.0;
                 }
                 "k" => {
                     state.fill = color(&[num(3), num(2), num(1), num(0)]);
-                    state.fill_components = 4;
+                    state.fill_components = 4.0;
                 }
                 "K" => {
                     state.stroke = color(&[num(3), num(2), num(1), num(0)]);
-                    state.stroke_components = 4;
+                    state.stroke_components = 4.0;
                 }
                 "gs" => {
                     let graphics = self.resource(resources, "ExtGState", name_of(operands.last()));
@@ -357,11 +357,11 @@ impl<'a> Painter<'a> {
                 ));
                 attributes.push(format!(
                     "stroke-linecap=\"{}\"",
-                    CAPS.get(state.cap).copied().unwrap_or("butt")
+                    at(&CAPS, state.cap).unwrap_or("butt")
                 ));
                 attributes.push(format!(
                     "stroke-linejoin=\"{}\"",
-                    JOINS.get(state.join).copied().unwrap_or("miter")
+                    at(&JOINS, state.join).unwrap_or("miter")
                 ));
                 attributes.push(format!(
                     "stroke-miterlimit=\"{}\"",

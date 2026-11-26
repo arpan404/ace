@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+use super::paths::join;
+
 /// Files the chrome reads are small; anything bigger isn't device art.
 pub const FILE_LIMIT: usize = 4 * 1024 * 1024;
 
@@ -15,18 +17,11 @@ pub const PNG_PER_UNIT: u32 = 3;
 /// A data URL this long or longer travels badly in one message; draw smaller instead.
 pub const BODY_URL_LIMIT: usize = 900_000;
 
-fn join(parts: &[&str]) -> String {
-    let mut path = std::path::PathBuf::new();
-    for part in parts {
-        path.push(part);
-    }
-    path.to_string_lossy().into_owned()
-}
-
 /// The AVD folders looked in, in order: the environment's own, then the user's. Duplicates are
 /// dropped and empty entries ignored.
 pub fn avd_roots(env: &BTreeMap<String, String>, home: &str) -> Vec<String> {
-    let user_home = env.get("ANDROID_USER_HOME");
+    // An empty variable names no folder, as `userHome ? … : undefined` decides.
+    let user_home = env.get("ANDROID_USER_HOME").filter(|root| !root.is_empty());
     let candidates = [
         env.get("ANDROID_AVD_HOME").cloned(),
         user_home.map(|root| join(&[root, "avd"])),
@@ -81,6 +76,11 @@ mod tests {
         );
         assert_eq!(
             avd_roots(&env(&[]), "/home/a"),
+            vec!["/home/a/.android/avd".to_string()]
+        );
+        // An empty `ANDROID_USER_HOME` names no folder, never a path relative to the cwd.
+        assert_eq!(
+            avd_roots(&env(&[("ANDROID_USER_HOME", "")]), "/home/a"),
             vec!["/home/a/.android/avd".to_string()]
         );
     }
