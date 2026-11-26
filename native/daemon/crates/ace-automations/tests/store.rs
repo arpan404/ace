@@ -409,7 +409,7 @@ fn the_idle_backfill_resumes_from_its_persisted_cursor_after_a_restart() {
 fn a_legacy_home_without_the_status_index_answers_startup_from_partial_indexes() {
     let dir = tempfile::tempdir().expect("temp");
     let path = dir.path().join("auto.sqlite");
-    let store = open(&path);
+    let _store = open(&path);
     let raw = Connection::open(
         path.to_str().expect("utf8"),
         OpenOptions {

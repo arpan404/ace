@@ -33,10 +33,12 @@ pub enum Action {
 }
 
 /// File watching, owned by the host (`WorkspaceChanges`, `contracts.ts:53`). Subscribe may fail
-/// synchronously; readiness arrives later through [`Service::watch_ready`].
+/// synchronously and returns an owned subscription, so a replacement can be prepared beside the
+/// old watcher and installed only after the save commits. Readiness arrives later through
+/// [`Service::watch_ready`].
 pub trait Workspace {
-    fn subscribe(&self, workspace: &str, paths: &[String]) -> std::result::Result<(), String>;
-    fn unsubscribe(&self, workspace: &str);
+    fn subscribe(&self, workspace: &str, paths: &[String]) -> std::result::Result<u64, String>;
+    fn unsubscribe(&self, subscription: u64);
 }
 
 /// The one timer's host (`contracts.ts:50`). `arm` replaces any previous timer; a failure is
@@ -129,7 +131,14 @@ impl Lifecycle {
 }
 
 struct Watch {
-    workspace: String,
+    subscription: u64,
+    revision: u64,
+}
+
+/// A subscription prepared before its definition is committed. It owns the host's watcher until
+/// it is installed or discarded.
+struct PreparedWatch {
+    subscription: u64,
     revision: u64,
 }
 
@@ -241,8 +250,12 @@ impl<'a> Service<'a> {
             if !self.lives.live() || generation != self.generation {
                 break;
             }
-            if let Err(error) = self.prepare_watch(&job.automation) {
-                let _ = self.save_watch_error(&job.automation.id, &error);
+            match self.prepare_watch(&job.automation) {
+                Ok(Some(prepared)) => self.install_watch(&job.automation.id, prepared),
+                Ok(None) => self.drop_watch(&job.automation.id),
+                Err(error) => {
+                    let _ = self.save_watch_error(&job.automation.id, &error);
+                }
             }
         }
         for (run, input) in self.store.active()? {
@@ -287,44 +300,63 @@ impl<'a> Service<'a> {
         self.cancel_timer();
         for watch in watches {
             if let Some(workspace) = self.ports.workspace {
-                workspace.unsubscribe(&watch.workspace);
+                workspace.unsubscribe(watch.subscription);
             }
         }
         self.lives.end_stop();
     }
 
-    fn prepare_watch(&mut self, automation: &Definition) -> Result<()> {
+    /// Prepare a watcher beside any current one; the caller installs it after the save commits
+    /// and discards it on a failed save, so a replacement failure never drops a working watch.
+    fn prepare_watch(&mut self, automation: &Definition) -> Result<Option<PreparedWatch>> {
         if !self.lives.live() || !automation.enabled || automation.trigger.kind() != "file" {
-            self.drop_watch(&automation.id);
-            return Ok(());
+            return Ok(None);
         }
         let Some(workspace_port) = self.ports.workspace else {
-            return Ok(());
+            return Ok(None);
         };
         let Trigger::File { paths } = &automation.trigger else {
-            return Ok(());
+            return Ok(None);
         };
         self.revision += 1;
         let revision = self.revision;
-        self.drop_watch(&automation.id);
-        workspace_port
+        let subscription = workspace_port
             .subscribe(&automation.workspace, paths)
             .map_err(AutomationsError::message)?;
-        self.watches.insert(
-            automation.id.clone(),
+        Ok(Some(PreparedWatch {
+            subscription,
+            revision,
+        }))
+    }
+
+    fn install_watch(&mut self, id: &str, prepared: PreparedWatch) {
+        let previous = self.watches.insert(
+            id.to_owned(),
             Watch {
-                workspace: automation.workspace.clone(),
-                revision,
+                subscription: prepared.subscription,
+                revision: prepared.revision,
             },
         );
-        Ok(())
+        if let Some(previous) = previous
+            && let Some(workspace) = self.ports.workspace
+        {
+            workspace.unsubscribe(previous.subscription);
+        }
+    }
+
+    fn discard_watch(&mut self, prepared: Option<PreparedWatch>) {
+        if let Some(prepared) = prepared
+            && let Some(workspace) = self.ports.workspace
+        {
+            workspace.unsubscribe(prepared.subscription);
+        }
     }
 
     fn drop_watch(&mut self, id: &str) {
         if let Some(watch) = self.watches.remove(id)
             && let Some(workspace) = self.ports.workspace
         {
-            workspace.unsubscribe(&watch.workspace);
+            workspace.unsubscribe(watch.subscription);
         }
     }
 
@@ -366,10 +398,11 @@ impl<'a> Service<'a> {
     pub fn receive_file_event(
         &mut self,
         id: &str,
+        revision: u64,
         key: &str,
         variables: BTreeMap<String, String>,
     ) -> Result<()> {
-        if !self.lives.live() || self.watch_current(id).is_none() {
+        if !self.lives.live() || self.watch_current(id) != Some(revision) {
             return Ok(());
         }
         self.trigger(id, key, variables, "file", None)?;
@@ -401,8 +434,11 @@ impl<'a> Service<'a> {
                 && definition.trigger.kind() == "file"
                 && self.watch_current(&definition.id).is_none()
             {
-                self.prepare_watch(definition)?;
-                self.store.clear_trigger_error(&definition.id)?;
+                match self.prepare_watch(definition) {
+                    Ok(Some(prepared)) => self.install_watch(&definition.id, prepared),
+                    Ok(None) => {}
+                    Err(error) => self.save_watch_error(&definition.id, &error)?,
+                }
             }
             return Ok(definition.clone());
         }
@@ -411,25 +447,27 @@ impl<'a> Service<'a> {
             if self.lives.live() && definition.enabled && definition.trigger.kind() == "file" {
                 self.prepare_watch(definition)
             } else {
-                self.drop_watch(&definition.id);
-                Ok(())
+                Ok(None)
             };
-        if let Err(error) = prepared {
-            // A replacement failure keeps the previous definition and watcher; a new id persists as
-            // unhealthy so one stale workspace cannot block saves.
-            if existing.is_some() {
-                return Err(error);
+        let prepared = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                // A replacement failure keeps the previous definition and watcher; a new id
+                // persists as unhealthy so one stale workspace cannot block saves.
+                if existing.is_some() {
+                    return Err(error);
+                }
+                self.store.put(
+                    definition,
+                    None,
+                    None,
+                    &Value::Object(Map::new()),
+                    expected_revision,
+                )?;
+                self.save_watch_error(&definition.id, &error)?;
+                return Ok(definition.clone());
             }
-            self.store.put(
-                definition,
-                None,
-                None,
-                &Value::Object(Map::new()),
-                expected_revision,
-            )?;
-            self.save_watch_error(&definition.id, &error)?;
-            return Ok(definition.clone());
-        }
+        };
         let now = self.now();
         let recurrence = scheduler_recurrence(definition)?;
         let occurrence = if definition.enabled {
@@ -471,13 +509,21 @@ impl<'a> Service<'a> {
             } else {
                 Ok(Vec::new())
             }
-        })?;
+        });
+        let skipped = match skipped {
+            Ok(skipped) => skipped,
+            Err(error) => {
+                self.discard_watch(prepared);
+                return Err(error);
+            }
+        };
         for run in skipped {
             self.publish(&run);
         }
         self.carry_out(Some(&definition.id));
-        if definition.trigger.kind() != "file" {
-            self.drop_watch(&definition.id);
+        match prepared {
+            Some(prepared) => self.install_watch(&definition.id, prepared),
+            None => self.drop_watch(&definition.id),
         }
         self.arm();
         Ok(definition.clone())
@@ -1183,9 +1229,13 @@ impl<'a> Service<'a> {
         }
         match &definition.trigger {
             Trigger::File { .. } => {
-                if let Err(error) = self.prepare_watch(&definition) {
-                    let _ = self.save_watch_error(id, &error);
-                    return Err(error);
+                match self.prepare_watch(&definition) {
+                    Ok(Some(prepared)) => self.install_watch(id, prepared),
+                    Ok(None) => self.drop_watch(id),
+                    Err(error) => {
+                        let _ = self.save_watch_error(id, &error);
+                        return Err(error);
+                    }
                 }
                 self.store.clear_trigger_error(id)?;
             }

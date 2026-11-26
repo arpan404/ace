@@ -201,8 +201,9 @@ fn a_watcher_failure_reaches_the_service_without_stopping_healthy_work() {
         sv(at(flaky_entry, "triggerError").expect("error"), "message"),
         Some("watcher lost")
     );
+    let revision = service.watch_revision("steady").expect("revision");
     service
-        .receive_file_event("steady", "steady-1", variables("src/ok.ts"))
+        .receive_file_event("steady", revision, "steady-1", variables("src/ok.ts"))
         .expect("steady");
     let actions = service.take_actions();
     assert_eq!(actions.len(), 1);
@@ -327,8 +328,9 @@ fn a_file_retry_persists_the_new_failure_and_only_a_success_clears_it() {
             .trigger_error
             .is_none()
     );
+    let revision = service.watch_revision("triage").expect("revision");
     service
-        .receive_file_event("triage", "after-retry", variables("src/main.ts"))
+        .receive_file_event("triage", revision, "after-retry", variables("src/main.ts"))
         .expect("event");
     assert_eq!(service.take_actions().len(), 1);
 }
@@ -486,5 +488,71 @@ fn a_populated_legacy_home_starts_its_running_and_queued_rows_and_idles_in_batch
         recent.len(),
         4,
         "three settled runs after the cutoff and the one still going stay"
+    );
+}
+
+#[test]
+fn a_failed_file_replacement_keeps_the_old_watcher_and_late_events_cannot_fire_the_new_one() {
+    let h = Harness::new();
+    let mut service = h.started();
+    let mut file = definition();
+    file.trigger = Trigger::File {
+        paths: vec!["src/**".to_owned()],
+    };
+    service.put(&file, None).expect("first");
+    let first_revision = service.watch_revision("triage").expect("watch");
+
+    // The replacement's subscription fails: the stored definition and its watcher stay.
+    h.workspace.fail.set(true);
+    let mut replacement = file.clone();
+    replacement.prompt = "Review {{subject}}".to_owned();
+    if let Trigger::File { paths } = &mut replacement.trigger {
+        paths.push("docs/**".to_owned());
+    }
+    assert!(service.put(&replacement, Some(Some(1))).is_err());
+    assert_eq!(
+        h.workspace.unsubscriptions.get(),
+        0,
+        "the working subscription is not dropped"
+    );
+    assert_eq!(service.watch_revision("triage"), Some(first_revision));
+
+    // The old watcher still fires the definition that is actually stored.
+    service
+        .receive_file_event("triage", first_revision, "old-1", variables("src/a.ts"))
+        .expect("old event");
+    assert_eq!(input_prompt(&service.take_actions()[0]), "Triage src/a.ts");
+    let runs = service
+        .inbox(50, None, Some("triage"), None)
+        .expect("inbox")
+        .0;
+    let running = runs
+        .iter()
+        .find(|run| sv(run, "status") == Some("running"))
+        .expect("running");
+    service
+        .complete(&run_id(running), "succeeded", Some("thread"), Some("done"))
+        .expect("finish");
+
+    // The save now commits, the old subscription is released, and the new revision is current.
+    h.workspace.fail.set(false);
+    service
+        .put(&replacement, Some(Some(1)))
+        .expect("replacement");
+    let new_revision = service.watch_revision("triage").expect("new watch");
+    assert_ne!(new_revision, first_revision);
+    assert_eq!(h.workspace.unsubscriptions.get(), 1);
+
+    // A late event from the old watcher cannot fire the new definition.
+    service
+        .receive_file_event("triage", first_revision, "late", variables("src/late.ts"))
+        .expect("late event");
+    assert!(service.take_actions().is_empty());
+    service
+        .receive_file_event("triage", new_revision, "new-1", variables("src/new.ts"))
+        .expect("new event");
+    assert_eq!(
+        input_prompt(&service.take_actions()[0]),
+        "Review src/new.ts"
     );
 }

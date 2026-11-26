@@ -655,11 +655,12 @@ fn subscribes_file_changes_through_the_workspace_contract_and_deduplicates_deliv
         )
         .expect("put");
     assert_eq!(h.workspace.subscriptions.borrow().as_slice(), ["/project"]);
+    let revision = service.watch_revision("triage").expect("revision");
     service
-        .receive_file_event("triage", "change:1", variables("src/main.ts"))
+        .receive_file_event("triage", revision, "change:1", variables("src/main.ts"))
         .expect("event");
     service
-        .receive_file_event("triage", "change:1", variables("src/main.ts"))
+        .receive_file_event("triage", revision, "change:1", variables("src/main.ts"))
         .expect("repeat");
     assert_eq!(service.take_actions().len(), 1);
     let runs = service.inbox(50, None, None, None).expect("inbox").0;
@@ -940,11 +941,8 @@ fn editing_a_failed_file_trigger_retains_its_error_until_the_replacement_watcher
         .expect("stale readiness is ignored");
     assert!(at(&arr(&list(&mut service), "schedules")[0], "triggerError").is_some());
     service.put(&automation, None).expect("identical put");
-    let listed = service.handle(&json(r#"{ "type": "automation.list", "requestId": "r" }"#));
-    let revision = iv(&arr(&listed, "schedules")[0], "revision").expect("revision");
-    service
-        .watch_ready("triage", revision as u64)
-        .expect("ready");
+    let revision = service.watch_revision("triage").expect("watch revision");
+    service.watch_ready("triage", revision).expect("ready");
     assert!(at(&arr(&list(&mut service), "schedules")[0], "triggerError").is_none());
 }
 

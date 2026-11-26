@@ -87,20 +87,25 @@ impl IdSource for TestIds {
 pub(crate) struct TestWorkspace {
     pub(crate) subscriptions: RefCell<Vec<String>>,
     pub(crate) unsubscriptions: Cell<usize>,
+    pub(crate) released: RefCell<Vec<u64>>,
+    pub(crate) next: Cell<u64>,
     pub(crate) fail: Cell<bool>,
 }
 
 impl Workspace for TestWorkspace {
-    fn subscribe(&self, workspace: &str, _paths: &[String]) -> Result<(), String> {
+    fn subscribe(&self, workspace: &str, _paths: &[String]) -> Result<u64, String> {
         if self.fail.get() {
             return Err("Project folder unavailable".to_owned());
         }
+        let handle = self.next.get() + 1;
+        self.next.set(handle);
         self.subscriptions.borrow_mut().push(workspace.to_owned());
-        Ok(())
+        Ok(handle)
     }
 
-    fn unsubscribe(&self, _workspace: &str) {
+    fn unsubscribe(&self, subscription: u64) {
         self.unsubscriptions.set(self.unsubscriptions.get() + 1);
+        self.released.borrow_mut().push(subscription);
     }
 }
 
