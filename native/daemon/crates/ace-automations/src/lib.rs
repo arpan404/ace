@@ -13,6 +13,9 @@ pub mod recurrence;
 pub mod scheduler;
 pub mod service;
 pub mod store;
+pub mod webhook_body;
+pub mod webhook_secret_box;
+pub mod webhook_signature;
 
 pub use decisions::{
     PAUSED_REFUSAL, PAUSED_RESULT, RUNNING_LIMIT, admission, can_promote, jitter_deadline,
@@ -23,3 +26,9 @@ pub use recurrence::{Occurrence, Recurrence, Schedule, ScheduleKind, next_occurr
 pub use scheduler::{Clock, FixedClock, IdSource, Random, Scheduler, StartOutcome, TickOutcome};
 pub use service::{Action, Ports, Service, Workspace, manual_id};
 pub use store::{AutomationStore, Definition, Job, JobMetadata, ScheduleTrigger, Trigger};
+pub use webhook_body::{WEBHOOK_BODY_LIMITS, WebhookBodyError, webhook_variables};
+pub use webhook_secret_box::{SecretBox, decode_base64_lenient, new_webhook_secret};
+pub use webhook_signature::{
+    HeaderError, WEBHOOK_TOLERANCE_MS, WebhookCheck, WebhookHeaders, read_webhook_headers,
+    sign_webhook, verify_webhook,
+};

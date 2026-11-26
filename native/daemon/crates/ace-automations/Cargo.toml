@@ -16,6 +16,14 @@ workspace = true
 # ace-store: both automation files open through the store's connection factory, so one SQLite
 # library holds every file in the process and a home either backend wrote opens in the other.
 ace-store = { path = "../ace-store" }
+# aes-gcm: webhook secrets at rest are AES-256-GCM with the automation id as associated data.
+aes-gcm = "0.10"
+# base64: the secret box's envelope and webhook signatures are standard base64.
+base64 = "0.22"
+# hmac + sha2: Standard Webhooks signatures are HMAC-SHA256 over the raw body.
+hmac = "0.12"
+# subtle: signatures are compared in constant time.
+subtle = "2"
 # ace-json: definitions, cursors and run records are stored as JavaScript's JSON, key order and
 # all, so rows written here read the same in the TypeScript daemon.
 ace-json = { path = "../ace-json" }
@@ -25,7 +33,7 @@ jiff = { version = "1.0", default-features = false, features = [
   "std",
   "tzdb-bundle-always",
 ] }
-# sha2: a manual run's idempotency key is the SHA-256 of its automation and event key, so a
+# sha2: Standard Webhooks signatures and a manual run's idempotency key is the SHA-256 of its automation and event key, so a
 # retried request maps to the same run even after its row was pruned.
 sha2 = "0.10"
 # serde: definitions are derived structs in the protocol's field order.

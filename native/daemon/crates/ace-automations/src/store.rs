@@ -649,7 +649,88 @@ impl AutomationStore {
         )
     }
 
-    fn forget_webhook(&self, id: &str) -> Result<()> {
+    /// Set an automation's hook id and sealed secret, keeping its hook id when it has one.
+    pub fn webhook_rotate(
+        &self,
+        automation_id: &str,
+        hook_id: &str,
+        sealed: &str,
+    ) -> Result<String> {
+        self.execute(
+      "INSERT INTO automation_webhooks VALUES(?,?,?) ON CONFLICT(automation_id) DO UPDATE SET secret=excluded.secret",
+      &[text_of(automation_id), text_of(hook_id), text_of(sealed)],
+    )?;
+        Ok(self
+            .webhook_hook(automation_id)?
+            .unwrap_or_else(|| hook_id.to_owned()))
+    }
+
+    /// An automation's hook id, when it has a webhook.
+    pub fn webhook_hook(&self, automation_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .query(
+                "SELECT hook_id FROM automation_webhooks WHERE automation_id=?",
+                &[text_of(automation_id)],
+            )?
+            .first()
+            .and_then(|row| row_text(row, 0))
+            .map(str::to_owned))
+    }
+
+    /// A hook's automation and sealed secret, unless it isn't a hook.
+    pub fn webhook_by_hook(&self, hook_id: &str) -> Result<Option<(String, String)>> {
+        Ok(self
+            .query(
+                "SELECT automation_id, secret FROM automation_webhooks WHERE hook_id=?",
+                &[text_of(hook_id)],
+            )?
+            .first()
+            .and_then(|row| Some((row_text(row, 0)?.to_owned(), row_text(row, 1)?.to_owned()))))
+    }
+
+    /// The run a delivery started, kept apart from run history (`webhook-store.ts:57`).
+    pub fn webhook_delivered(
+        &self,
+        automation_id: &str,
+        event_key: &str,
+    ) -> Result<Option<String>> {
+        Ok(
+      self
+        .query(
+          "SELECT run_id FROM automation_webhook_deliveries WHERE automation_id=? AND delivery_id=?",
+          &[text_of(automation_id), text_of(event_key)],
+        )?
+        .first()
+        .and_then(|row| row_text(row, 0))
+        .map(str::to_owned),
+    )
+    }
+
+    /// Note a delivery's run until `expires`, dropping a bounded batch of expired receipts first.
+    pub fn webhook_deliver(
+        &self,
+        automation_id: &str,
+        event_key: &str,
+        run_id: &str,
+        expires: i64,
+        now: i64,
+    ) -> Result<()> {
+        self.execute(
+      "DELETE FROM automation_webhook_deliveries WHERE rowid IN (SELECT rowid FROM automation_webhook_deliveries WHERE expires < ? ORDER BY expires LIMIT 64)",
+      &[Some(SqlValue::Integer(now))],
+    )?;
+        self.execute(
+            "INSERT OR IGNORE INTO automation_webhook_deliveries VALUES(?,?,?,?)",
+            &[
+                text_of(automation_id),
+                text_of(event_key),
+                text_of(run_id),
+                Some(SqlValue::Integer(expires)),
+            ],
+        )
+    }
+
+    pub fn forget_webhook(&self, id: &str) -> Result<()> {
         self.execute(
             "DELETE FROM automation_webhooks WHERE automation_id=?",
             &[text_of(id)],
