@@ -107,7 +107,7 @@ fn a_recorded_init_line_confirms_before_its_frame() {
     match &effects[0] {
         Effect::Callback { name, json } => {
             assert_eq!(*name, "onSessionConfirmed");
-            assert_eq!(json, &format!("\"{session}\""));
+            assert_eq!(json, &format!("[\"{session}\"]"));
         }
         other => panic!("the callback comes first, got {other:?}"),
     }
@@ -208,7 +208,11 @@ fn the_task_index_resolves_and_cascades() {
         wire.task_cascade(Some("spawn-parent")),
         r#"{"ids":["child-task"],"uncertain":false}"#
     );
-    assert_eq!(wire.task_cascade(None), r#"{"ids":[],"uncertain":true}"#);
+    assert_eq!(
+        wire.task_cascade(None),
+        r#"{"ids":["parent-task","child-task"],"uncertain":false}"#,
+        "the no-target branch is every live task, certain"
+    );
     assert_eq!(
         wire.task_target("spawn-child").expect("the child resolves"),
         r#"{"id":"child-task","spawn":"spawn-child","parent":"spawn-parent","live":true,"run":"","route":"spawn-child"}"#
@@ -230,7 +234,7 @@ fn a_rate_limit_event_emits_the_callback_after_its_frame() {
     match &effects[1] {
         Effect::Callback { name, json } => {
             assert_eq!(*name, "onRateLimit");
-            assert_eq!(json, &ace_json::to_string(info));
+            assert_eq!(json, &ace_json::to_string(&Value::from(vec![info.clone()])));
         }
         other => panic!("the callback follows the frame, got {other:?}"),
     }
@@ -653,13 +657,51 @@ fn the_interaction_cap_and_duplicate_ids_answer_with_an_error() {
     assert_eq!(frame(&fresh[1]).1, "can_use_tool");
 }
 
+/// The barrier expires a pending ask while input is still open, so its default answer is
+/// written before input ends (`session.ts:104`, `:117`), and `Drained` is last.
 #[test]
-fn finish_expires_a_pending_interaction_once_and_writes_nothing() {
+fn the_barrier_answers_a_pending_ask_while_input_is_open() {
     let mut wire = new_wire();
     push_line(
         &mut wire,
         r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
     );
+    let effects = wire.finish();
+    let lifecycle = effects.iter().position(|effect| {
+        matches!(effect, Effect::Frame { channel, text, .. }
+            if *channel == "interaction_lifecycle" && text.contains("\"state\":\"expired\""))
+    });
+    let answer = effects
+        .iter()
+        .position(|effect| matches!(effect, Effect::Write { .. }));
+    assert!(
+        lifecycle.is_some() && lifecycle < answer,
+        "the lifecycle frame precedes the answer: {lifecycle:?} {answer:?}"
+    );
+    assert!(
+        effects.iter().any(|effect| match effect {
+            Effect::Write { wire } =>
+                String::from_utf8_lossy(wire).contains("Claude request ended."),
+            _ => false,
+        }),
+        "the default answer is written"
+    );
+    assert!(matches!(effects.last(), Some(Effect::Drained)));
+    assert!(wire.peek_interaction("request-1").is_none());
+    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
+    assert!(wire.expire().is_empty());
+    assert!(wire.finish().is_empty());
+}
+
+/// Once input is closed the barrier still frames the expiry, but writes nothing: done.
+#[test]
+fn a_barrier_after_input_ended_writes_no_answer() {
+    let mut wire = new_wire();
+    push_line(
+        &mut wire,
+        r#"{"type":"control_request","request_id":"request-1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{}}}"#,
+    );
+    wire.end_input();
     let effects = wire.finish();
     assert!(effects.iter().any(|effect| matches!(
         effect,
@@ -670,12 +712,9 @@ fn finish_expires_a_pending_interaction_once_and_writes_nothing() {
         !effects
             .iter()
             .any(|effect| matches!(effect, Effect::Write { .. })),
-        "no default answer after the barrier"
+        "no default answer once input ended"
     );
     assert!(matches!(effects.last(), Some(Effect::Drained)));
-    assert!(wire.peek_interaction("request-1").is_none());
-    assert!(!wire.answer_interaction("request-1", "{}", "{}").0);
-    assert!(wire.expire().is_empty());
 }
 
 #[test]
@@ -781,7 +820,7 @@ fn send_refuses_whole_then_frames_each_write() {
     assert!(matches!(
         &effects[0],
         Effect::Callback { name: "onInputMessage", json }
-            if json == r#"{"commandId":"command-1","nativeId":"uuid-1"}"#
+            if json == r#"[{"commandId":"command-1","nativeId":"uuid-1"}]"#
     ));
     assert!(matches!(&effects[1], Effect::Write { .. }));
     assert_eq!(
