@@ -588,5 +588,197 @@ impl crate::State {
     }
 }
 
+/// The threads whose stored choice predates the catalogue: a literal default, or an OpenCode
+/// model without its `provider/` prefix. One pass, bounded by the sessions table.
+const MIGRATE_SCAN: &str = "SELECT s.thread_id FROM engine_sessions s
+      JOIN threads t ON t.id=s.thread_id
+      JOIN thread_state st ON st.thread_id=s.thread_id
+      LEFT JOIN engine_transitions x ON x.thread_id=s.thread_id
+      WHERE lower(trim(s.model)) LIKE 'default%'
+        OR lower(trim(json_extract(x.value,'$.selection.model'))) LIKE 'default%'
+        OR (t.provider='opencode' AND (
+          (s.model IS NOT NULL AND instr(s.model,'/')=0)
+          OR (json_extract(x.value,'$.selection.model') IS NOT NULL AND instr(json_extract(x.value,'$.selection.model'),'/')=0)))";
+
+impl crate::State {
+    /// `EngineModels.migrateCachedDefaults` (`models.ts:196`): a startup pass that replaces a
+    /// stored default or a legacy unprefixed OpenCode id with what the catalogue already knows.
+    /// A thread this pass cannot read is handed to `unreadable` and the rest still migrate.
+    pub fn migrate_cached_defaults(
+        &mut self,
+        store: &crate::EngineStore,
+        catalog: &dyn ModelCatalog,
+        mut unreadable: impl FnMut(&str, EngineError),
+    ) -> Result<(), EngineError> {
+        let rows = ace_store::stmt_cache::all_rows(store.conn(), MIGRATE_SCAN, vec![])?;
+        let threads: Vec<String> = rows
+            .iter()
+            .filter_map(|row| {
+                row.get("thread_id")
+                    .and_then(crate::repository::residency::cell_text)
+                    .map(str::to_owned)
+            })
+            .collect();
+        for thread in threads {
+            match self.migrate_cached_default(store, catalog, &thread) {
+                Ok(()) => {}
+                Err(error)
+                    if crate::sessions::open::skippable_at_startup(
+                        matches!(error, EngineError::Store(_)),
+                        false,
+                    ) =>
+                {
+                    unreadable(&thread, error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    fn migrate_cached_default(
+        &mut self,
+        store: &crate::EngineStore,
+        catalog: &dyn ModelCatalog,
+        id: &str,
+    ) -> Result<(), EngineError> {
+        // A purged thread keeps its session row but has no state: nothing is left to migrate.
+        let Some(snapshot) = self.repo.state(store, id)? else {
+            return Ok(());
+        };
+        let provider = {
+            let borrowed = snapshot.borrow();
+            borrowed.state.config.provider.clone()
+        };
+        let metadata = crate::sessions::metadata::session(store, id)?;
+        let previous = self.transition_get(store, id)?.selection;
+        let legacy_opencode = provider == "opencode"
+            && [metadata.model.clone(), previous_model(&previous)]
+                .into_iter()
+                .flatten()
+                .any(|model| !is_default_selection(Some(&model)) && !model.contains('/'));
+        if !is_default_selection(metadata.model.as_deref())
+            && !is_default_selection(previous_model(&previous).as_deref())
+            && !legacy_opencode
+        {
+            return Ok(());
+        }
+        let identity = self.thread_identity(store, id);
+        let mut previous_selection = previous.unwrap_or_else(|| {
+            let mut selection = ace_json::Map::new();
+            selection.insert("provider", Value::from(provider.as_str()));
+            selection.insert("options", Value::Object(ace_json::Map::new()));
+            if let Some(model) = &metadata.model {
+                selection.insert("model", Value::from(model.as_str()));
+            }
+            if let Some(instance) = &metadata.instance_id {
+                selection.insert("instanceId", Value::from(instance.as_str()));
+            }
+            Value::Object(selection)
+        });
+        let Some(filter) = selection_model_filter(
+            &provider,
+            metadata.instance_id.as_deref(),
+            identity.as_ref(),
+        ) else {
+            return Ok(());
+        };
+        let model = model_of(&previous_selection);
+        let resolution = catalog.resolve_cached(&ModelSpec {
+            role: "thread".to_owned(),
+            model: model
+                .clone()
+                .filter(|model| !is_default_selection(Some(model))),
+            filter,
+        });
+        if legacy_opencode && resolution.is_none() {
+            return Ok(());
+        }
+        let resolved = match resolution {
+            Some(ModelResolution::Resolved { model, .. }) => {
+                Some(execution_model_id(model.as_ref()))
+            }
+            _ => None,
+        };
+        let mut changed = false;
+        if let Value::Object(map) = &mut previous_selection
+            && resolved != model
+        {
+            match &resolved {
+                Some(model) => {
+                    map.insert("model", Value::from(model.as_str()));
+                }
+                None => {
+                    if map.remove("model").is_some() {
+                        changed = true;
+                    }
+                }
+            }
+            if resolved.is_some() {
+                changed = true;
+            }
+        }
+        if !changed && resolved == model && metadata.model == resolved {
+            return Ok(());
+        }
+        let Some(selection) = selection_from_value(&previous_selection) else {
+            return Err(EngineError::Records(
+                "Invalid selection metadata".to_owned(),
+            ));
+        };
+        self.remember_selection(store, id, &selection, store.now())
+    }
+
+    /// The ACP identity a thread's row carries, when its provider is ACP.
+    fn thread_identity(&self, store: &crate::EngineStore, id: &str) -> Option<AcpIdentity> {
+        let thread = store.get_thread(id).ok().flatten()?;
+        let value = ace_json::parse(&thread).ok()?;
+        if value.get("provider").and_then(Value::as_str) != Some("acp") {
+            return None;
+        }
+        ace_json::from_value(&value).ok()
+    }
+}
+
+fn previous_model(selection: &Option<Value>) -> Option<String> {
+    selection
+        .as_ref()
+        .and_then(|selection| selection.get("model"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+/// A stored selection as the typed one the engine's calls take. The options are plain JSON, so
+/// serde_json reads them while the enum and the bounded strings are built by hand.
+fn selection_from_value(value: &Value) -> Option<ExecutionSelection> {
+    let provider = provider_kind(value.get("provider")?.as_str()?)?;
+    let options = match value.get("options") {
+        Some(Value::Object(map)) => {
+            let json = ace_json::to_string(&Value::Object(map.clone()));
+            serde_json::from_str(&json).ok()?
+        }
+        _ => serde_json::Map::new(),
+    };
+    Some(ExecutionSelection {
+        provider,
+        model: value
+            .get("model")
+            .and_then(Value::as_str)
+            .map(|model| model.to_owned().into()),
+        instance_id: value
+            .get("instanceId")
+            .and_then(Value::as_str)
+            .map(|instance| instance.to_owned().into()),
+        options: ace_protocol::generated::ExecutionOptions(options),
+    })
+}
+
+fn model_of(selection: &Value) -> Option<String> {
+    selection
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests;

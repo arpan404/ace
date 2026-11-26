@@ -12,6 +12,8 @@ use ace_json::{Raw, Value};
 use ace_protocol::generated::{CatalogModel, ExecutionSelection, ProviderKind};
 use std::cell::RefCell;
 
+use crate::repository::testsupport::{Shell, header, home};
+
 fn model(native: &str, provider: Option<&str>) -> CatalogModel {
     let fixture = serde_json::json!({
         "deprecated": false,
@@ -407,4 +409,136 @@ fn a_default_choice_clears_the_remembered_option_it_replaces() {
     )
     .expect("read");
     assert!(row.is_none(), "the replaced default's option is gone");
+}
+
+struct CachedCatalog {
+    resolution: Option<ModelResolution>,
+}
+
+impl ModelCatalog for CachedCatalog {
+    fn resolve(&self, _spec: &ModelSpec) -> ModelResolution {
+        ModelResolution::Unavailable {
+            reason: "not asked".to_owned(),
+        }
+    }
+    fn resolve_cached(&self, _spec: &ModelSpec) -> Option<ModelResolution> {
+        self.resolution.clone()
+    }
+}
+
+fn cached(model: &str) -> Option<ModelResolution> {
+    Some(ModelResolution::Resolved {
+        model: Box::new(model_row(model)),
+        effort: None,
+    })
+}
+
+fn model_row(id: &str) -> CatalogModel {
+    serde_json::from_value(serde_json::json!({
+        "deprecated": false,
+        "displayName": id,
+        "efforts": [],
+        "hidden": false,
+        "id": id,
+        "inputModalities": [],
+        "instance": "instance",
+        "isDefault": false,
+        "nativeModelId": id,
+        "provider": "claude",
+        "raw": {"json": "{}", "truncated": false},
+        "serviceTiers": [],
+    }))
+    .expect("a catalogue row")
+}
+
+fn migrate_state() -> crate::State {
+    let mut state = crate::State::default();
+    state.repo.probe_passthrough = true;
+    state
+}
+
+#[test]
+fn a_stored_default_is_replaced_with_the_catalogue_choice_at_startup() {
+    // model-selection.process.test.ts: "confirmed model selection updates snapshots, resume and
+    // cold SQLite recovery" — the startup pass migrates a legacy default in place.
+    let conn = home("migrate", &header("migrate"));
+    let store = Shell::store(&conn);
+    conn.exec("UPDATE engine_sessions SET model='default' WHERE thread_id='migrate'")
+        .expect("legacy default");
+    let mut state = migrate_state();
+    let catalog = CachedCatalog {
+        resolution: cached("opus"),
+    };
+    state
+        .migrate_cached_defaults(&store, &catalog, |_, error| panic!("{error}"))
+        .expect("migrate");
+    let session = crate::sessions::metadata::session(&store, "migrate").expect("session");
+    assert_eq!(session.model.as_deref(), Some("opus"));
+}
+
+#[test]
+fn an_unprefixed_opencode_model_migrates_only_when_the_catalogue_knows_it() {
+    let conn = home("legacy", &header("legacy"));
+    let store = Shell::store(&conn);
+    conn.exec("UPDATE threads SET provider='opencode' WHERE id='legacy'")
+        .expect("provider");
+    conn.exec("UPDATE thread_state SET state=json_set(state,'$.config.provider','opencode') WHERE thread_id='legacy'")
+        .expect("state provider");
+    conn.exec("UPDATE engine_sessions SET model='sonnet' WHERE thread_id='legacy'")
+        .expect("legacy model");
+
+    // With no cached knowledge the thread is left exactly as it was.
+    let unknown = CachedCatalog { resolution: None };
+    let mut state = migrate_state();
+    state
+        .migrate_cached_defaults(&store, &unknown, |_, error| panic!("{error}"))
+        .expect("migrate");
+    assert_eq!(
+        crate::sessions::metadata::session(&store, "legacy")
+            .expect("session")
+            .model
+            .as_deref(),
+        Some("sonnet")
+    );
+
+    // A cached choice migrates it to the execution id.
+    let known = CachedCatalog {
+        resolution: cached("upstream/sonnet"),
+    };
+    let mut state = migrate_state();
+    state
+        .migrate_cached_defaults(&store, &known, |_, error| panic!("{error}"))
+        .expect("migrate");
+    assert_eq!(
+        crate::sessions::metadata::session(&store, "legacy")
+            .expect("session")
+            .model
+            .as_deref(),
+        Some("upstream/sonnet")
+    );
+}
+
+#[test]
+fn a_thread_without_state_is_left_alone() {
+    let conn = home("purged", &header("purged"));
+    let store = Shell::store(&conn);
+    conn.exec("UPDATE engine_sessions SET model='default' WHERE thread_id='purged'")
+        .expect("legacy default");
+    conn.exec("DELETE FROM thread_state WHERE thread_id='purged'")
+        .expect("purged");
+    let mut state = migrate_state();
+    let catalog = CachedCatalog {
+        resolution: cached("opus"),
+    };
+    state
+        .migrate_cached_defaults(&store, &catalog, |_, error| panic!("{error}"))
+        .expect("migrate");
+    assert_eq!(
+        crate::sessions::metadata::session(&store, "purged")
+            .expect("session")
+            .model
+            .as_deref(),
+        Some("default"),
+        "a purged thread keeps its session row untouched"
+    );
 }
