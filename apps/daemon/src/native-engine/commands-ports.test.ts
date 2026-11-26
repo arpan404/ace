@@ -149,35 +149,36 @@ describe.runIf(native)("the shell's receipt", () => {
 /** A thread row only: readiness has no state to recover, so it settles. */
 
 describe.runIf(native)("prepareCommand", () => {
-  test("archive and interrupt run neither shell wait under a production-like config", async () => {
-    // A production daemon gives the silence and preferences ports. Readiness itself still
-    // fails here (E5.8's stub), so the check is that neither type wait ran: the silence
-    // resolver was never called and the failure is readiness', not `prepareCommand's`.
-    const resolved: unknown[] = [];
-    const { seam, thread } = await seededRow(
-      {
-        resolveSilenceMs: async (scope) => {
-          resolved.push(scope);
-          return 1_000;
-        },
-        recovery: {
-          preferences: async () => ({ followUpBehavior: "queue", limitPolicy: "manual" }),
-        },
-      },
-      false,
-    );
+  test("archive and interrupt run no recovery wait once readiness settles", async () => {
+    // Readiness settles only with no readiness port (the recovery preparation is E5.8's), so
+    // the test reaches the part after it: the recovery wait the shell would run shows as a
+    // `prepareCommand` call on the binding, and archive and interrupt must make none. A
+    // readiness rejection would have masked that, which is what this test used to do.
+    const prepared: string[] = [];
+    const { seam, thread } = await seededRow({});
+    const binding = (
+      seam.engine as unknown as {
+        binding: { prepareCommand?: ((value: string) => void) | undefined };
+      }
+    ).binding;
+    const original = binding.prepareCommand;
+    binding.prepareCommand = (value: string) => {
+      prepared.push(value);
+    };
     try {
       for (const payload of [
         { type: "thread.archive", threadId: thread },
         { type: "thread.interrupt", threadId: thread },
-      ])
+      ]) {
         await expect(
           seam.engine.prepareCommand(
             Command.parse({ id: payload.type, deviceId: "device", payload }),
           ),
-        ).rejects.toThrow("the recovery preparation lands in E5.8");
-      expect(resolved).toEqual([]);
+        ).resolves.toBeUndefined();
+        expect(prepared).toEqual([]);
+      }
     } finally {
+      binding.prepareCommand = original;
       await seam.close();
     }
   });

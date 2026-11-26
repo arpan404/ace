@@ -15,7 +15,7 @@ pub fn sync(core: &Core, state: &mut State, thread: &str, now: f64) -> Result<()
     // `recovery.ts:166`-`:172`: an older build could leave the child's quota hold on the parent's
     // account. Retire it, keeping the child's own quota evidence.
     if held.limited
-        && !root_limited(state, thread)
+        && !root_limited(core, state, thread)?
         && matches!(held.reason.as_deref(), Some("limit") | Some("snooze"))
         && !crate::intents::store::recovering(core.store.conn(), thread)?
     {
@@ -76,21 +76,22 @@ pub fn sync(core: &Core, state: &mut State, thread: &str, now: f64) -> Result<()
     Ok(())
 }
 
-/// Whether the thread's root agent still carries quota evidence. A thread with no resident
-/// snapshot has no root, which reads as not limited (`recovery.ts:163`).
-fn root_limited(state: &State, thread: &str) -> bool {
-    let Some(snapshot) = state.repo.snapshots.get(thread) else {
-        return false;
+/// Whether the thread's root agent still carries quota evidence (`recovery.ts:163`): the root
+/// record as the store holds it, not only as the state happens to have it resident. A thread
+/// with no stored state has no root, which reads as not limited.
+fn root_limited(core: &Core, state: &mut State, thread: &str) -> Result<bool, EngineError> {
+    let Some(snapshot) = state.repo.state(&core.store, thread)? else {
+        return Ok(false);
     };
-    let borrowed = snapshot.borrow();
-    let Some(root) = borrowed.state.root_key.as_deref() else {
-        return false;
+    let mut borrowed = snapshot
+        .try_borrow_mut()
+        .map_err(|_| EngineError::Reentrant)?;
+    let Some(root) = borrowed.state.root_key.clone() else {
+        return Ok(false);
     };
-    borrowed
-        .state
-        .agents
-        .get(root)
-        .is_some_and(|record| record.limited.is_some())
+    Ok(borrowed
+        .agent(&root)?
+        .is_some_and(|record| record.limited.is_some()))
 }
 
 /// `repo.engineQueueFact` (`repository.ts:586`) over the receipt's own state.
@@ -266,11 +267,12 @@ pub fn schedule(core: &Core) -> Result<(), EngineError> {
     let ask: Weak<Core> = core.self_weak.borrow().clone();
     if core.ports.is_transaction_open() {
         // Read the port now, as TypeScript's `schedule` does inside the receipt: a throw rolls
-        // the receipt back. The arming itself waits for the commit.
-        let _admits = core.ports.admits()?;
+        // the receipt back. That answer decides the arming too, so the deferred arm never asks
+        // again after the receipt committed (a throw there would be swallowed).
+        let admits = core.ports.admits()?;
         core.defer(Deferred::AfterPublish(Box::new(move || {
             if let Some(core) = ask.upgrade() {
-                let _ = arm(&core);
+                let _ = arm(&core, Some(admits));
             }
         })));
         return Ok(());
@@ -280,19 +282,27 @@ pub fn schedule(core: &Core) -> Result<(), EngineError> {
 
 fn arm_weak(core: &Core) -> Result<(), EngineError> {
     match core.self_weak.borrow().upgrade() {
-        Some(core) => arm(&core),
+        Some(core) => arm(&core, None),
         None => Ok(()),
     }
 }
 
-/// Arm the queue's next deadline; its firing is E5.8's `recovery::fire`.
-fn arm(core: &Rc<Core>) -> Result<(), EngineError> {
+/// Arm the queue's next deadline; its firing is E5.8's `recovery::fire`. `gate` is the receipt's
+/// own `admits` answer, read before the commit.
+fn arm(core: &Rc<Core>, gate: Option<bool>) -> Result<(), EngineError> {
     let previous = core.with_state(|state| state.recovery.cancel.take())?;
     if let Some(key) = previous {
         core.ports.cancel_timer(key);
     }
     // No deadline runs while maintenance holds new work or after close.
-    if core.with_state(|state| state.recovery.closed)? || !core.ports.admits()? {
+    if core.with_state(|state| state.recovery.closed)? {
+        return Ok(());
+    }
+    let admits = match gate {
+        Some(answer) => answer,
+        None => core.ports.admits()?,
+    };
+    if !admits {
         return Ok(());
     }
     let Some(at) = crate::queue::deadline::next_deadline(core.store.conn())? else {
@@ -304,22 +314,278 @@ fn arm(core: &Rc<Core>) -> Result<(), EngineError> {
     let key = timer.key;
     core.with_state(|state| state.recovery.cancel = Some(key))?;
     let ask = Rc::clone(core);
-    let _timer = core.executor.spawn(Lane::Work, async move {
+    let task = core.executor.spawn(Lane::Work, async move {
         if timer.fired.await.is_err() {
             return;
         }
-        let _ = ask.with_state(|state| {
-            if state.recovery.cancel == Some(key) {
-                state.recovery.cancel = None;
-            }
-        });
+        // Only the deadline still armed when the timer fired reports, and never one that fires
+        // as the engine closes: a replaced or cancelled timer reports nothing.
+        let report = ask
+            .with_state(|state| {
+                if state.recovery.cancel == Some(key) {
+                    state.recovery.cancel = None;
+                    !state.recovery.closed
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
+        if !report || ask.closing.get() {
+            return;
+        }
         ask.ports
             .report(EngineError::not_ported("a recovery deadline", "E5.8").to_string());
     });
+    // The task must outlive this call: a dropped `Task` cancels the waiter, so the deadline
+    // would never report. `shut` stops it through the executor's admission, and a cancelled
+    // timer resolves the receiver with an error.
+    task.detach();
     Ok(())
 }
 
 /// `recovery.wake` through the after-commit queue.
 pub fn wake(core: &Core, thread: &str) {
     core.defer(Deferred::Wake(thread.to_owned(), Lane::Work));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::ActorDeps;
+    use crate::executor::{Budget, Notified, Notifier};
+    use crate::frames::live::UnportedLive;
+    use crate::repository::testsupport::{Shell, header, home};
+    use std::sync::Arc;
+
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    struct Turn;
+
+    impl Budget for Turn {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 64
+        }
+    }
+
+    /// An engine over `conn`, with the shell's timers and reports under the test's control.
+    fn engine_on(conn: &Arc<ace_store::Connection>) -> (crate::Engine, std::rc::Rc<Shell>) {
+        let (_, shell) = Shell::store_with_controls(conn);
+        let engine = crate::Engine::new(
+            shell.clone(),
+            shell.clone(),
+            crate::Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            conn,
+            std::rc::Rc::new(ActorDeps::production(std::rc::Rc::new(UnportedLive), 0.0)),
+        )
+        .unwrap();
+        (engine, shell)
+    }
+
+    /// Turns the pump until nothing is left, so a deferred or fired task runs.
+    fn settle(engine: &crate::Engine) {
+        for _ in 0..8 {
+            let mut budget = Turn;
+            engine.pump(&mut budget);
+        }
+    }
+
+    fn with_deadline(conn: &Arc<ace_store::Connection>) {
+        conn.exec("INSERT INTO engine_queue (thread_id, resume_at) VALUES ('t', 9000)")
+            .unwrap();
+    }
+
+    /// The deadline timer's key, as the engine holds it (the sweep arms its own).
+    fn armed_deadline(engine: &crate::Engine) -> u64 {
+        engine
+            .core()
+            .with_state(|state| state.recovery.cancel)
+            .unwrap()
+            .expect("a deadline is armed")
+    }
+
+    fn deadline_reports(shell: &Shell) -> Vec<String> {
+        shell
+            .reports()
+            .into_iter()
+            .filter(|report| report.contains("E5.8"))
+            .collect()
+    }
+
+    #[test]
+    fn a_cold_still_limited_root_keeps_its_hold() {
+        // The root's quota evidence is only in the stored header: no snapshot is resident, so a
+        // hold must not read as stale and turn into a cleared marker with its timer cancelled.
+        let conn = home("t", &limited_header("t"));
+        conn.exec(
+            "INSERT INTO engine_queue (thread_id, resume_at, paused, reason, limited, reset_at, hold_token)
+             VALUES ('t', 9000, 1, 'limit', 1, 9000, 4)",
+        )
+        .unwrap();
+        let (engine, _shell) = engine_on(&conn);
+        let core = engine.core();
+        let mut state = crate::State::default();
+        sync(core, &mut state, "t", 1_000.0).unwrap();
+        let row = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT reason, limited, reset_at, hold_token FROM engine_queue WHERE thread_id='t'",
+            Vec::new(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            row.get("reason"),
+            Some(&ace_store::Value::Text("limit".into()))
+        );
+        assert_eq!(row.get("limited"), Some(&ace_store::Value::Integer(1)));
+        assert_eq!(row.get("reset_at"), Some(&ace_store::Value::Integer(9000)));
+        assert_eq!(row.get("hold_token"), Some(&ace_store::Value::Integer(4)));
+        assert!(
+            core.with_state(|state| state.recovery.cancel.is_none())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn a_deadline_that_fires_reports_once_and_a_replaced_one_never_does() {
+        let conn = home("t", &header("t"));
+        with_deadline(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        schedule(core).unwrap();
+        settle(&engine);
+        let key = armed_deadline(&engine);
+        // The task is alive: firing the timer reports once, and firing it again reports nothing.
+        shell.fire(key);
+        settle(&engine);
+        assert_eq!(deadline_reports(&shell).len(), 1);
+        shell.fire(key);
+        settle(&engine);
+        assert_eq!(deadline_reports(&shell).len(), 1);
+        assert!(
+            core.with_state(|state| state.recovery.cancel.is_none())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn a_fired_deadline_replaced_before_the_pump_never_reports() {
+        let conn = home("t", &header("t"));
+        with_deadline(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        schedule(core).unwrap();
+        settle(&engine);
+        let first = armed_deadline(&engine);
+        shell.fire(first);
+        // The next receipt replaces the deadline before the fired task gets its turn.
+        schedule(core).unwrap();
+        settle(&engine);
+        assert!(deadline_reports(&shell).is_empty(), "{:?}", shell.reports());
+        assert!(
+            core.with_state(|state| state.recovery.cancel.is_some())
+                .unwrap(),
+            "the replacement stays armed"
+        );
+    }
+
+    #[test]
+    fn a_deadline_that_fires_as_the_engine_closes_reports_nothing() {
+        let conn = home("t", &header("t"));
+        with_deadline(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        schedule(core).unwrap();
+        settle(&engine);
+        let key = armed_deadline(&engine);
+        core.with_state(|state| {
+            state.recovery.closed = true;
+            state.recovery.cancel = None;
+        })
+        .unwrap();
+        shell.fire(key);
+        settle(&engine);
+        assert!(deadline_reports(&shell).is_empty(), "{:?}", shell.reports());
+    }
+
+    #[test]
+    fn a_receipt_reads_the_gate_once_and_its_answer_arms_the_deadline() {
+        let conn = home("t", &header("t"));
+        with_deadline(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        // A second `admits` call would throw: only the receipt's own answer may be used.
+        shell.throw_admits_from(2);
+        core.store
+            .atomic(|_tx| {
+                schedule(core)?;
+                Ok(())
+            })
+            .unwrap();
+        settle(&engine);
+        assert_eq!(shell.admits_calls(), 1);
+        assert!(shell.armed().contains(&armed_deadline(&engine)));
+    }
+
+    #[test]
+    fn a_refused_gate_arms_no_deadline() {
+        let conn = home("t", &header("t"));
+        with_deadline(&conn);
+        let (engine, shell) = engine_on(&conn);
+        shell.answer_admits(Some(false));
+        schedule(engine.core()).unwrap();
+        settle(&engine);
+        assert!(
+            engine
+                .core()
+                .with_state(|state| state.recovery.cancel.is_none())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn a_gate_that_throws_inside_a_receipt_rolls_back_and_keeps_the_old_timer() {
+        let conn = home("t", &header("t"));
+        with_deadline(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        schedule(core).unwrap();
+        settle(&engine);
+        let old = armed_deadline(&engine);
+        shell.throw_admits_from(shell.admits_calls() + 1);
+        let outcome = core.store.atomic(|_tx| {
+            schedule(core)?;
+            Ok(())
+        });
+        assert!(outcome.is_err());
+        settle(&engine);
+        // The old timer is still armed and never cancelled: nothing committed.
+        assert!(shell.armed().contains(&old));
+        assert!(!shell.cancelled().contains(&old));
+    }
+
+    /// A stored header whose root agent still carries its quota evidence.
+    fn limited_header(thread: &str) -> String {
+        let mut state: ace_core::state::ThreadState =
+            ace_json::from_value(&ace_json::parse(&header(thread)).unwrap()).unwrap();
+        state.root_key = Some("root".to_owned());
+        let record: ace_core::state::AgentRecord = ace_json::from_value(
+            &ace_json::parse(&format!(
+                r#"{{"agent":{{"id":"root","threadId":"{thread}","parentId":null,"origin":"person","native":{{"provider":"codex","nativeId":"native-root"}},"fidelity":"full","cwd":"/tmp","status":{{"state":"idle"}},"createdAt":0}},"activity":"idle","lastSignalAt":0,"limited":{{"until":9000}}}}"#
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        state.agents.insert("root".to_owned(), record);
+        let text = ace_json::ser::to_string(&state).unwrap();
+        format!(r#"{{"engineSnapshot":9,{}"#, &text[1..])
+    }
 }

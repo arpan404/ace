@@ -90,6 +90,10 @@ pub struct JsPorts {
     promises: RefCell<HashMap<u64, Pending>>,
     next_timer: Cell<u64>,
     next_promise: Cell<u64>,
+    /// Event writes a receipt holds back until its state borrow is released: `writeEvents` can
+    /// call back into the engine (a `store.onWrite` hook reads `rootAgent`), which the borrow
+    /// would refuse. `Some` while a receipt runs, in call order.
+    deferred_events: RefCell<Option<Vec<(String, String, f64)>>>,
 }
 
 fn threw(error: napi::Error) -> PortError {
@@ -182,6 +186,7 @@ impl JsPorts {
             timers: RefCell::new(HashMap::new()),
             ids: RefCell::new(UuidV7::default()),
             promises: RefCell::new(HashMap::new()),
+            deferred_events: RefCell::new(None),
             next_timer: Cell::new(1),
             next_promise: Cell::new(1),
         })
@@ -194,6 +199,23 @@ impl JsPorts {
             ports: self,
             previous,
         }
+    }
+
+    /// Holds the receipt's event writes back (`true`) or lets them through (`false`).
+    pub fn defer_events(&self, defer: bool) {
+        let mut slot = self.deferred_events.borrow_mut();
+        if defer {
+            if slot.is_none() {
+                *slot = Some(Vec::new());
+            }
+        } else {
+            *slot = None;
+        }
+    }
+
+    /// The writes the receipt held back, in call order, and the end of the deferral.
+    pub fn take_deferred_events(&self) -> Vec<(String, String, f64)> {
+        self.deferred_events.borrow_mut().take().unwrap_or_default()
     }
 
     /// Any function-reference port call, for the modules that hold their own function refs.

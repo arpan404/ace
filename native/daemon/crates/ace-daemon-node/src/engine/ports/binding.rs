@@ -115,6 +115,12 @@ impl Ports for JsPorts {
     }
 
     fn write_events(&self, thread: &str, payloads_json: &str, at: f64) -> Result<(), PortError> {
+        // Inside a receipt the write waits for the state borrow to be released: the hook the
+        // store runs on it may read the engine back.
+        if let Some(deferred) = self.deferred_events.borrow_mut().as_mut() {
+            deferred.push((thread.to_owned(), payloads_json.to_owned(), at));
+            return Ok(());
+        }
         self.call(
             &self.write_events,
             FnArgs {
