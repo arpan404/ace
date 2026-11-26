@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../bot-face/index.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
+import type { SpadePendingAsk } from "./needs-you-line.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
 import { parseSpadePackage, type SpadePackage } from "./packages.ts";
@@ -70,6 +71,8 @@ export interface SpadeAgent {
    * that waits on them (ADR 0161), or a bot it called that does (ADR 0200 §6.2).
    */
   waitingFor: "approval" | "question" | "worker" | "callee" | undefined;
+  /** Each approval and question it waits on now, in the order asked; empty from a Spade before it. */
+  pending: readonly SpadePendingAsk[];
   /** Its cards the person left for later and hasn't answered or dismissed (ADR 0154). */
   questionsForLater: number;
   /** A few words on what it is doing now, while it works. */
@@ -200,6 +203,38 @@ export function parseSpadeAvatar(raw: unknown, seed: string): SpadeAvatar {
   return avatarOf(raw, seed, false);
 }
 
+const pendingShape = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("approval"),
+    name: z.string().min(1),
+    arguments: z.unknown().optional(),
+    effect: z.string().nullish().catch(undefined),
+    reviewer_reason: z.string().nullish().catch(undefined),
+  }),
+  z.object({ kind: z.literal("question"), prompt: z.string().catch("") }),
+  z.object({ kind: z.literal("connect"), app: z.string().min(1) }),
+]);
+
+/** What a bot waits on, as its roster sends it; an entry this client can't read is left out. */
+function parseSpadePending(raw: unknown): SpadePendingAsk[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((each): SpadePendingAsk[] => {
+    const parsed = pendingShape.safeParse(each);
+    if (!parsed.success) return [];
+    const ask = parsed.data;
+    if (ask.kind !== "approval") return [ask];
+    return [
+      {
+        kind: "approval",
+        name: ask.name,
+        arguments: ask.arguments,
+        effect: ask.effect ?? undefined,
+        reason: ask.reviewer_reason ?? undefined,
+      },
+    ];
+  });
+}
+
 /** One agent value; undefined when it has no id or no conversation. */
 export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
   const parsed = agentShape.safeParse(raw);
@@ -222,6 +257,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     pinnedAt: agent.pinned_at ?? undefined,
     state: agent.state ?? (agent.working ? "working" : "idle"),
     waitingFor: agent.waiting_for ?? undefined,
+    pending: parseSpadePending(record.pending),
     questionsForLater: agent.questions_for_later ?? 0,
     status: agent.status || undefined,
     problem: agent.problem || undefined,

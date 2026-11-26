@@ -9,8 +9,8 @@ import { useState } from "react";
 import { SettingList, SettingListItem } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import {
   addKnowledge,
@@ -21,7 +21,14 @@ import {
 } from "./spade-knowledge-api.ts";
 import { LibraryRow, plainLine, topicOf } from "./spade-library-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileNone,
+  ProfileProblem,
+  ProfileSection,
+  profileWell,
+  rowPill,
+} from "./spade-profile-parts.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** Pages shown before Show all. */
@@ -31,8 +38,7 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 
 /**
  * Pages: what the bot looks things up in, newest change first. Two pages alike enough to be one
- * wait at the top with Keep both and Merge; Add a page (on the heading) writes one in place. None:
- * one quiet line.
+ * wait at the top with Keep both and Merge; Add a page writes one in place.
  */
 export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }) {
   const { bot } = props;
@@ -48,10 +54,12 @@ export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }
   const entries = pages.data ?? [];
   const shown = all ? entries : entries.slice(0, shownPages);
   const none = pages.isSuccess && entries.length === 0 && !adding;
+  const failed = pages.isError && !pages.data;
   return (
     <ProfileSection
       label="Pages"
-      bare={none}
+      bare={none || failed}
+      flush={!none && !failed}
       actions={
         <>
           {entries.length > shownPages && (
@@ -59,7 +67,7 @@ export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }
               {all ? "Show fewer" : `All ${entries.length}`}
             </Button>
           )}
-          {!adding && (
+          {!adding && !none && (
             <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAdding(true)}>
               Add a page
             </Button>
@@ -68,11 +76,19 @@ export function LibraryPages(props: { bot: RosterBot; onOpen(id: string): void }
       }
     >
       {pages.isPending ? (
-        <ListSkeleton label="pages" shape="row" rows={2} />
-      ) : pages.isError && !pages.data ? (
-        <ProfileProblem text="Couldn't read the pages." onRetry={() => void pages.refetch()} />
+        <ProfileCardSkeleton label="pages" lines={2} rows={2} />
+      ) : failed ? (
+        <ProfileProblem card text="Couldn't read the pages." onRetry={() => void pages.refetch()} />
       ) : none ? (
-        <ProfileNone>No pages yet.</ProfileNone>
+        <ProfileNone
+          action={
+            <Button size="sm" variant="ghost" className={rowPill} onClick={() => setAdding(true)}>
+              Add a page
+            </Button>
+          }
+        >
+          No pages yet.
+        </ProfileNone>
       ) : (
         <>
           <Merges bot={bot} pages={entries} />
@@ -130,12 +146,12 @@ function Merges(props: { bot: RosterBot; pages: SpadeKnowledgeEntry[] }) {
       {pairs.map(({ into, from }) => (
         <SettingListItem
           key={`${into.id}+${from.id}`}
-          className="flex-col items-stretch gap-1 py-3"
+          className="flex-col items-stretch gap-2 px-4 py-3"
         >
-          <span className="text-ui text-muted-foreground">
+          <span className="text-xs leading-4.5 text-muted-foreground">
             {`“${into.title}” and “${from.title}” say much the same`}
           </span>
-          <span className="-mr-3 flex justify-end gap-1">
+          <span className="-mr-2 flex justify-end gap-1">
             <Button
               size="sm"
               variant="ghost"
@@ -201,7 +217,7 @@ function AddPage(props: { bot: RosterBot; onAdded(id: string): void; onClose(): 
   return (
     <form
       data-setting-slot=""
-      className="flex flex-col gap-2 py-3"
+      className="flex flex-col gap-2 px-4 py-3"
       onSubmit={(event) => {
         event.preventDefault();
         void add();
@@ -224,14 +240,14 @@ function AddPage(props: { bot: RosterBot; onAdded(id: string): void; onClose(): 
         maxLength={spadeKnowledgeBodyMax}
         onChange={(event) => setBody(event.target.value)}
         onKeyDown={keys}
-        className="min-h-20 resize-none rounded-md bg-chat-well px-3 py-2 text-ui text-foreground shadow-[inset_0_0_0_1px_var(--border)] outline-none [field-sizing:content] placeholder:text-subtle-foreground focus:shadow-[inset_0_0_0_1px_var(--foreground)]"
+        className={cn(profileWell, "min-h-20")}
       />
       {problem && (
         <p role="alert" className="text-xs text-destructive">
           {problem}
         </p>
       )}
-      <div className="-mr-3 flex justify-end gap-1">
+      <div className="-mr-2 flex justify-end gap-1">
         <Button size="sm" variant="ghost" className={rowPill} onClick={close}>
           Cancel
         </Button>

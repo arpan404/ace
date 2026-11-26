@@ -234,7 +234,10 @@ async fn machine_autonomy(
     let stamp = person_stamp(&headers);
     off_thread(
         move || match security.set_machine_autonomy(body.autonomy, stamp.as_deref()) {
-            Ok(_) => Json(machine_view(&security)).into_response(),
+            Ok(_) => {
+                state.engine.release_full_access_requests();
+                Json(machine_view(&security)).into_response()
+            }
             Err(error) => failed(error),
         },
     )
@@ -459,7 +462,10 @@ async fn autonomy(
             None => security.set_autonomy(&id, body.autonomy, stamp.as_deref()),
         };
         match set {
-            Ok(_) => Json(view(&security, &id)).into_response(),
+            Ok(_) => {
+                state.engine.release_full_access_requests();
+                Json(view(&security, &id)).into_response()
+            }
             Err(error) => failed(error),
         }
     })

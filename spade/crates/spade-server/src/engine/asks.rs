@@ -32,7 +32,8 @@ impl Engine {
 
     /// Answers an `asks` call: stores what it accepted with its result, or gives the refusal as
     /// the result. `untrusted`: untrusted content is in the prompt's view, so the bot's own
-    /// words (standing, changed, split, lift) are refused, as notes are (ADR 0130). Checked and stored under the lock every write holds, so several calls in one
+    /// words are refused, with an exception for a standing instruction matching the person's
+    /// latest message (ADR 0215). Checked and stored under the record lock, so calls in one
     /// step each see the ones before. `None` when the person stopped the reply.
     pub(super) fn asks_call(
         &self,
@@ -65,7 +66,7 @@ impl Engine {
         }
         let ledger = self.asks_of(id, &events);
         Ok(Some(
-            match asks::change::decide(&ledger, arguments, !untrusted) {
+            match asks::change::decide_in_view(&ledger, arguments, !untrusted, &events) {
                 Ok(accepted) => {
                     let updated = asks::Updated {
                         call_id: call_id.to_owned(),

@@ -1,6 +1,7 @@
 import { ThreadId, type StorageReason } from "@ace/protocol";
 import type { BrowserService } from "@ace/browser";
 import type { Engine } from "../engine/index.ts";
+import { MissingQueueMetadata } from "../engine/queue-store.ts";
 import type { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { Store } from "../store.ts";
 import type { FrozenThread } from "../thread-cache.ts";
@@ -20,7 +21,7 @@ export interface ProtectionOwner {
   store: Store;
   cleanupPlanId?: string;
   services: {
-    engine?: Pick<Engine, "hasSession" | "liveWork"> | undefined;
+    engine?: Pick<Engine, "hasSession" | "hasState" | "liveWork"> | undefined;
     workspaceActions?: Pick<WorkspaceRuntime, "hasOwnedWork"> | undefined;
     browser?: Pick<BrowserService, "hasActiveSession"> | undefined;
   };
@@ -129,8 +130,19 @@ export function threadReasons(
     if (!["done", "failed", "new"].includes(thread.status.state)) own.add("active_tree");
     if (services.engine) {
       if (services.engine.hasSession(id)) own.add("leased");
-      if (Object.values(services.engine.liveWork(id)).some((count) => count > 0))
-        own.add("active_tree");
+      // A thread the engine never ran has no live work to read. Asking anyway would treat its
+      // absent queue metadata as unreadable ownership and keep it forever; queued input is
+      // still caught by the intents and engine_queue marks below.
+      if (services.engine.hasState(id)) {
+        try {
+          if (Object.values(services.engine.liveWork(id)).some((count) => count > 0))
+            own.add("active_tree");
+        } catch (error) {
+          if (!(error instanceof MissingQueueMetadata)) throw error;
+          // The rest of the plan can finish. This tree still needs proof before cleanup.
+          own.add("owner_unavailable");
+        }
+      }
     } else if (sessions) own.add("owner_unavailable");
     if (services.workspaceActions?.hasOwnedWork(id) || services.browser?.hasActiveSession(id))
       own.add("active_tree");

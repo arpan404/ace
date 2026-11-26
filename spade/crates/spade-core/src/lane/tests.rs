@@ -280,6 +280,22 @@ fn long_reply(steps: usize) -> Vec<Event> {
 }
 
 #[test]
+fn a_deferred_question_keeps_one_owner_until_it_is_resolved() {
+    let mut events = long_reply(9);
+    events.push(e(json!({
+        "type": "question_asked", "reply": "r1", "call_id": "q1", "question": "Which build?"
+    })));
+    events.push(e(
+        json!({"type": "question_deferred", "call_id": "q1", "by_bot": true}),
+    ));
+    assert!(!move_due(&events, "r1", MOVE_AFTER_MS));
+    events.push(e(
+        json!({"type": "question_answered", "call_id": "q1", "answers": ["Release"], "late": true}),
+    ));
+    assert!(move_due(&events, "r1", MOVE_AFTER_MS));
+}
+
+#[test]
 fn mains_reply_moves_after_eight_steps_or_two_minutes_at_a_quiet_boundary() {
     assert!(!move_due(&long_reply(7), "r1", 0));
     assert!(move_due(&long_reply(8), "r1", 0));
@@ -423,6 +439,8 @@ fn lane_events_round_trip_through_json() {
     for raw in [
         json!({ "type": "lane_of", "parent_conversation": "c1", "call": "c1.t1",
                 "title": "T", "asks": ["m1"], "untrusted": true, "moved_from": "r1" }),
+        json!({ "type": "lane_of", "parent_conversation": "c1", "call": "c1.t1",
+                "title": "T", "copied_events": 2, "person_source": { "id": "m1", "text": "Hi" } }),
         json!({ "type": "lane_started", "lane": "l1", "conversation": "l1", "title": "T",
                 "call": "c1.t1", "asks": ["m1"], "queued": true }),
         json!({ "type": "reply_moved", "reply": "r1", "lane": "l1", "title": "T",
@@ -681,4 +699,28 @@ fn a_runs_end_closes_only_that_runs_copies_and_a_stale_end_does_not_stand() {
         &[lane_of("T"), person("Do it.")],
         "queued"
     ));
+}
+
+#[test]
+fn moving_main_does_not_republish_cards_owned_by_another_conversation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut events = long_reply(9);
+    let other = json!({"task":"other","conversation":"other","call_id":"k1","title":"Other task"});
+    events.push(e(json!({
+        "type":"approval_requested", "reply":"r1", "call_id":"other.k1",
+        "name":"publish", "arguments":{}, "lane":other
+    })));
+    events.push(e(json!({
+        "type":"question_asked", "reply":"r1", "call_id":"other.q1",
+        "question":"Which version?", "lane":other
+    })));
+    let (lane, _) = moved(&events, "r1").ok_or("open reply did not move")?;
+    assert!(Transcript::fold(&lane).helper_awaiting.is_empty());
+    assert!(
+        !lane
+            .iter()
+            .any(|event| matches!(event, Event::Known(Known::QuestionAsked { .. })))
+    );
+    assert!(!Transcript::fold(&events).helper_awaiting.is_empty());
+    Ok(())
 }

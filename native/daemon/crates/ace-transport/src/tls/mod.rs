@@ -8,12 +8,16 @@
 pub mod config;
 pub mod handshake;
 pub mod identity;
+pub mod pin;
 pub mod provider;
 pub mod resolver;
 
 pub use config::{server_config, server_config_preferring_hybrid};
 pub use handshake::{Accepted, Configs, accept};
 pub use identity::TlsIdentity;
+pub use pin::{
+    PIN_EXPIRED, PIN_FAILED, PIN_MISMATCH, Pin, PinnedVerifier, TrustedNames, validity_error,
+};
 pub use provider::process_provider;
 pub use resolver::SniResolver;
 

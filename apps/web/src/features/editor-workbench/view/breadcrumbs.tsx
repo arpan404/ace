@@ -26,6 +26,8 @@ export function Breadcrumbs(props: {
   onRevealSymbol?: ((symbol: OutlineSymbol) => void) | undefined;
   /** At the line's right end: Markdown's Preview / Source choice (spec 40). */
   end?: ReactNode;
+  /** Extra classes on the breadcrumb bar (e.g. hiding desktop chrome in a narrow panel). */
+  className?: string | undefined;
 }) {
   const { symbols, caretLine, onRevealSymbol } = props;
   const trail = useMemo(
@@ -33,12 +35,13 @@ export function Breadcrumbs(props: {
     [symbols, caretLine],
   );
 
-  if (props.path === undefined) return <div aria-hidden className="h-[26px] shrink-0" />;
+  if (props.path === undefined)
+    return <div aria-hidden className={cn("h-[26px] shrink-0", props.className)} />;
   const segments = props.path.split("/");
   const name = segments.pop() ?? props.path;
 
   return (
-    <div className="flex h-[26px] shrink-0 items-center gap-2 pr-1.5">
+    <div className={cn("flex h-[26px] shrink-0 items-center gap-2 pr-1.5", props.className)}>
       <nav
         aria-label="File path"
         style={{ paddingLeft: props.textStart ?? defaultInset }}

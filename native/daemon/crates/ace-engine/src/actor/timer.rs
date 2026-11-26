@@ -2,7 +2,7 @@
 //! The actor's deadline timer (`actor.ts:529`-`:582`). A firing only completes its receiver; the
 //! tick it stands for is enqueued by `catch_up`, at the firing instant, never by the pump.
 
-use crate::actor::state::{Actor, ArmedTimer};
+use crate::actor::state::{ActorInstance, ActorRef, ArmedTimer, current, instance_deps};
 use crate::{Core, EngineError, ThreadId};
 
 /// Whether the armed timer still serves a deadline at `at`, so re-arming it per batch would be
@@ -17,7 +17,7 @@ pub fn keeps_timer(armed: Option<&ArmedTimer>, at: f64, now: f64) -> bool {
 }
 
 /// `releaseAt()` (`actor.ts:579`): only a done tree has a release deadline.
-pub fn release_at(actor: &Actor, idle_ms: f64) -> Option<f64> {
+pub fn release_at(actor: &ActorInstance, idle_ms: f64) -> Option<f64> {
     let idle_since = actor.idle_since?;
     Some(if actor.release_requested {
         idle_since
@@ -28,17 +28,13 @@ pub fn release_at(actor: &Actor, idle_ms: f64) -> Option<f64> {
 
 /// `disarm()`.
 pub fn disarm(core: &Core, thread: &ThreadId) {
-    let timer = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get_mut(thread)
-                .and_then(|actor| actor.timer.take())
-                .map(|(timer, _)| timer.key)
-        })
-        .ok()
-        .flatten();
+    if let Some(actor) = current(core, thread) {
+        disarm_instance(core, &actor);
+    }
+}
+
+pub(crate) fn disarm_instance(core: &Core, actor: &ActorRef) {
+    let timer = actor.borrow_mut().timer.take().map(|(timer, _)| timer.key);
     if let Some(key) = timer {
         core.ports.cancel_timer(key);
     }
@@ -46,63 +42,58 @@ pub fn disarm(core: &Core, thread: &ThreadId) {
 
 /// `schedule()` (`actor.ts:534`): arm the earliest deadline, keeping a still-useful timer.
 pub fn schedule(core: &Core, thread: &ThreadId) {
-    let deps = core.actor_deps.borrow().clone();
-    let now = core.ports.now();
-    let current = core.with_state(|state| {
-        state.actors.by_thread.get(thread).map(|actor| {
-            (
-                actor.generation,
-                actor.session_attached,
-                actor.release_requested,
-            )
-        })
-    });
-    let Ok(Some((generation, session_attached, release_requested))) = current else {
-        return;
+    if let Some(actor) = current(core, thread) {
+        schedule_instance(core, &actor);
+    }
+}
+
+pub(crate) fn schedule_instance(core: &Core, actor: &ActorRef) {
+    let (thread, session_attached, release_requested, inactive) = {
+        let state = actor.borrow();
+        (
+            state.id.clone(),
+            state.session_attached,
+            state.release_requested,
+            state.stopped || state.poisoned,
+        )
     };
+    if inactive {
+        return disarm_instance(core, actor);
+    }
+    let deps = instance_deps(core, actor);
+    let now = core.ports.now();
     // The translator is taken out for the call: a JavaScript one can re-enter the engine.
-    let mut taken = deps.take_translator(thread);
+    let mut taken = actor.borrow_mut().translator.take();
     let translator = match &mut taken {
         Some((_, crate::actor::deps::ActorTranslator::Js(js))) => js.next_deadline(),
         Some((_, crate::actor::deps::ActorTranslator::Native(native))) => native.next_deadline(),
         None => None,
     };
-    deps.return_translator(thread, generation, taken);
-    let view = match deps.repo.schedule_view(core, thread) {
+    actor.borrow_mut().return_translator(taken);
+    let view = match deps.repo.schedule_view(core, &thread) {
         Ok(Some(view)) => view,
-        Ok(None) => return disarm(core, thread),
+        Ok(None) => return disarm_instance(core, actor),
         Err(error) => return report(core, error),
     };
     // Work left running after a done turn lives in the provider's process: it stays warm until
     // that work ends or the thread is settled or archived.
     let warm = view.done && session_attached && (!view.left_running || release_requested);
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            if warm {
-                if actor.idle_since.is_none() {
-                    actor.idle_since = Some(now);
-                }
-            } else {
-                actor.idle_since = None;
-                actor.idle_due = false;
+    {
+        let mut state = actor.borrow_mut();
+        if warm {
+            if state.idle_since.is_none() {
+                state.idle_since = Some(now);
             }
+        } else {
+            state.idle_since = None;
+            state.idle_due = false;
         }
-    })
-    .ok();
-    let repository_deadline = match deps.repo.deadline(core, thread, translator) {
+    }
+    let repository_deadline = match deps.repo.deadline(core, &thread, translator) {
         Ok(deadline) => deadline,
         Err(error) => return report(core, error),
     };
-    let release = core
-        .with_state(|state| {
-            state
-                .actors
-                .by_thread
-                .get(thread)
-                .and_then(|actor| release_at(actor, deps.idle_ms))
-        })
-        .ok()
-        .flatten();
+    let release = release_at(&actor.borrow(), deps.idle_ms);
     let at = [repository_deadline, release]
         .into_iter()
         .flatten()
@@ -110,29 +101,28 @@ pub fn schedule(core: &Core, thread: &ThreadId) {
             Some(best.map_or(value, |best| best.min(value)))
         });
     let Some(at) = at else {
-        return disarm(core, thread);
+        return disarm_instance(core, actor);
     };
-    let keeps = core
-        .with_state(|state| {
-            state.actors.by_thread.get(thread).is_some_and(|actor| {
-                actor.timer.is_some()
-                    && keeps_timer(actor.timer.as_ref().map(|(_, armed)| armed), at, now)
-            })
-        })
-        .unwrap_or(false);
-    if keeps {
+    {
+        let state = actor.borrow();
+        if state.stopped
+            || state.poisoned
+            || keeps_timer(state.timer.as_ref().map(|(_, armed)| armed), at, now)
+        {
+            return;
+        }
+    }
+    disarm_instance(core, actor);
+    let timer = core.ports.set_timer((at - now).max(0.0));
+    let mut state = actor.borrow_mut();
+    if state.stopped || state.poisoned {
+        drop(state);
+        core.ports.cancel_timer(timer.key);
         return;
     }
-    disarm(core, thread);
-    let timer = core.ports.set_timer((at - now).max(0.0));
-    core.with_state(|state| {
-        if let Some(actor) = state.actors.by_thread.get_mut(thread) {
-            actor.timer = Some((timer, ArmedTimer { at, armed_at: now }));
-        }
-    })
-    .ok();
-    // Arming a timer is work of the first kind: the mailbox task polls the new receiver (step 9).
-    core.record_wake(thread);
+    state.timer = Some((timer, ArmedTimer { at, armed_at: now }));
+    drop(state);
+    core.record_actor_wake(actor);
 }
 
 fn report(core: &Core, error: EngineError) {

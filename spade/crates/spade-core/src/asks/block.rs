@@ -42,6 +42,9 @@ pub fn text(ledger: &Ledger) -> Option<String> {
         for ask in &new[..new_shown] {
             out.push_str(&format!("\n- {}", row(ask)));
         }
+        if new_shown > 1 {
+            out.push_str("\nSeveral are new: answer each in its own <msg reply=\"<id>\">.");
+        }
     }
     let more = (new.len() - new_shown + kept.len() - kept_shown) as u32 + ledger.earlier;
     if more > 0 {

@@ -275,7 +275,13 @@ impl<M: Models> Routing<'_, M> {
             Role::Verify => self.strongest_other(role),
             // A bot that can't be compared (an unpriced model) keeps the fast model as its
             // reviewer.
-            Role::Review if self.models.strength(self.own).is_some() => self.strongest_other(role),
+            Role::Review if let Some(floor) = self.models.strength(self.own) => fast()
+                .filter(|model| {
+                    self.models
+                        .strength(model)
+                        .is_some_and(|price| price >= floor)
+                })
+                .or_else(|| self.strongest_other(role)),
             Role::Review => fast(),
             _ => fast(),
         };

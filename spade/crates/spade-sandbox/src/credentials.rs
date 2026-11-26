@@ -41,6 +41,15 @@ const IN_HOME: &[&str] = &[
     ".config/github-copilot",
     // Keychains and secret stores.
     "Library/Keychains",
+    "Library/Safari",
+    "Library/Application Support/Google/Chrome",
+    "Library/Application Support/Chromium",
+    "Library/Application Support/Firefox",
+    "Library/Application Support/Microsoft Edge",
+    "Library/Application Support/BraveSoftware",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".mozilla/firefox",
     ".local/share/keyrings",
 ];
 

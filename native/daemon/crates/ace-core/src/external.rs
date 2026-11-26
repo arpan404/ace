@@ -12,63 +12,34 @@ use crate::status_inputs::task_holds_thread;
 /// A summary agent follows its independently owned thread, never its
 /// parent's process.
 pub fn external_agent_status(status: &ThreadStatus, thread_id: &str) -> AgentStatus {
+    // packages/core/src/external.ts:7-35 builds a fresh agent status from the thread status.
     match status {
-        ThreadStatus::NeedsYou { interactions: _ } => AgentStatus::Blocked {
-            on: "human".to_owned(),
-            refs: vec![thread_id.to_owned()],
-            until: None,
-            attempt: None,
-            message: None,
-
-            retry_order: false,
-        },
-        ThreadStatus::Working { .. } => AgentStatus::Working {
-            activity: "responding".to_owned(),
-            item_id: None,
-            detail: None,
-        },
-        ThreadStatus::Waiting { on, .. } => AgentStatus::Blocked {
-            on: on.clone(),
-            refs: vec![thread_id.to_owned()],
-            until: None,
-            attempt: None,
-            message: None,
-
-            retry_order: false,
-        },
-        ThreadStatus::Limited { until } => AgentStatus::Blocked {
-            on: "rate_limit".to_owned(),
-            refs: vec![thread_id.to_owned()],
-            until: *until,
-            attempt: None,
-            message: None,
-
-            retry_order: false,
-        },
-        ThreadStatus::Unresponsive => AgentStatus::Unresponsive { last_signal_at: 0 },
+        ThreadStatus::NeedsYou { .. } => {
+            AgentStatus::blocked("human", vec![thread_id.to_owned()], None)
+        }
+        ThreadStatus::Working { .. } => AgentStatus::working("responding", None, None),
+        ThreadStatus::Waiting { on, .. } => {
+            AgentStatus::blocked(on, vec![thread_id.to_owned()], None)
+        }
+        ThreadStatus::Limited { until, .. } => {
+            AgentStatus::blocked("rate_limit", vec![thread_id.to_owned()], *until)
+        }
+        ThreadStatus::Unresponsive => AgentStatus::unresponsive(0),
         ThreadStatus::New => AgentStatus::Starting,
-        ThreadStatus::Failed => AgentStatus::Failed {
-            error: crate::status::AgentError {
-                kind: "provider".to_owned(),
-                message: "Delegated thread failed".to_owned(),
-                code: None,
-                title: None,
-                detail: None,
-                details: None,
-            },
-        },
+        ThreadStatus::Failed => AgentStatus::failed(crate::status::AgentError {
+            kind: "provider".to_owned(),
+            message: "Delegated thread failed".to_owned(),
+            code: None,
+            title: None,
+            detail: None,
+            details: None,
+        }),
         ThreadStatus::Done => AgentStatus::Idle,
         // Its work goes on on another machine: still waited on, never read
         // as finished here. A state newer than this build behaves the same.
-        ThreadStatus::Moved { .. } | ThreadStatus::Unknown { .. } => AgentStatus::Blocked {
-            on: "upstream".to_owned(),
-            refs: vec![thread_id.to_owned()],
-            until: None,
-            attempt: None,
-            message: None,
-
-            retry_order: false,
-        },
+        ThreadStatus::Moved { .. } | ThreadStatus::Unknown { .. } => {
+            AgentStatus::blocked("upstream", vec![thread_id.to_owned()], None)
+        }
     }
 }
 

@@ -182,6 +182,60 @@ describe("wire trims", () => {
   });
 });
 
+describe("thread shares", () => {
+  const icon = `data:image/png;base64,${"A".repeat(4096)}`;
+  const otherIcon = `data:image/png;base64,${"B".repeat(4096)}`;
+  const project = (id: string, mark: string | undefined) =>
+    Thread.parse({
+      id,
+      workspaceId: "w",
+      title: id,
+      provider: "codex",
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+      capabilities: capabilities(true),
+      effectiveCapabilities: capabilities(false),
+      details: {
+        workspace: {
+          id: "w",
+          name: "ace",
+          path: "/ace",
+          ...(mark ? { defaultIcon: mark, icon: otherIcon } : {}),
+        },
+      },
+    });
+  const ids = Array.from({ length: 40 }, (_, i) => `t${i}`);
+  const list = () =>
+    createThreadListView(
+      ids.map((id, i) => project(id, i === 39 ? undefined : icon)),
+      1,
+    );
+  const snapshot = () => ({ type: "snapshot" as const, subscriptionId: "s", seq: 1, view: list() });
+
+  it("sends a repeated workspace icon and effective capabilities once for the whole list", () => {
+    const sent = new WireTrimmer(everyTrim).outgoing(snapshot());
+    expect(bytes(sent)).toBeLessThan(bytes([snapshot()]) / 10);
+    expect(JSON.stringify(sent).split(icon).length - 1).toBe(1);
+    expect(JSON.stringify(sent).split(otherIcon).length - 1).toBe(1);
+  });
+
+  it("restores every thread exactly, including one whose project has no icon", () => {
+    const original = snapshot();
+    const restorer = new WireRestorer();
+    const restored = overTheWire(new WireTrimmer(everyTrim).outgoing(original))
+      .map((frame) => restorer.restore(frame))
+      .filter((frame) => frame !== undefined);
+    expect(restored).toEqual(overTheWire([original]));
+  });
+
+  it("sends a thread whole to a client that did not ask for the trim", () => {
+    const old = ["item-defaults", "provider-capabilities"];
+    const sent = new WireTrimmer(old).outgoing(snapshot());
+    expect(JSON.stringify(sent).split(icon).length - 1).toBe(39);
+  });
+});
+
 it("only clients advertising spade-hidden receive the hidden code and live-end reason", () => {
   const messages: ServerMessage[] = [
     {

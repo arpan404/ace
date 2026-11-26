@@ -27,6 +27,7 @@ use super::place::FsPlace;
 pub struct Warrant {
     pub limit: Authorized,
     pub bound: Bound,
+    pub credential_guard: bool,
     /// The person allowed it once, told that part of what it runs couldn't be read whole (ADR
     /// 0163, amendment 3): a reading still incomplete at the spawn may start, if what could be
     /// read is what they were asked on. Only a person's answer sets it.

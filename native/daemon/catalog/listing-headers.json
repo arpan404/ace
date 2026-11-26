@@ -1,0 +1,20 @@
+{
+  "core": {
+    "name": "X-Ace-Tools",
+    "value": "core"
+  },
+  "static": {
+    "name": "X-Ace-Tools",
+    "value": "static"
+  },
+  "clients": {
+    "codex": {
+      "name": "X-Ace-Client",
+      "value": "codex"
+    },
+    "cursor": {
+      "name": "X-Ace-Client",
+      "value": "cursor"
+    }
+  }
+}

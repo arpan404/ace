@@ -3,6 +3,7 @@
 //! the next brief or digest. Pure: the engine passes the clock, the person's minute of the day
 //! and the interruptions already sent.
 
+pub mod batch;
 pub mod brief;
 pub mod notable;
 pub mod notice;

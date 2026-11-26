@@ -25,7 +25,7 @@ test.each([
   const id = kind === "default" ? "cursor-sdk-default" : "account-work";
   const instance =
     kind === "managed"
-      ? await createManagedHome(dataDir, id, "cursor", "Work")
+      ? await createManagedHome(dataDir, id, "cursor", "Work", process.platform)
       : createInstance({
           id,
           provider: "cursor",

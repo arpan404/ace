@@ -23,7 +23,7 @@ fn certs(pem: &str) -> Vec<CertificateDer<'static>> {
         .expect("a test certificate")
 }
 
-fn rsa() -> TlsIdentity {
+pub(crate) fn rsa() -> TlsIdentity {
     TlsIdentity::from_pem(RSA_CERT.as_bytes(), RSA_KEY_PKCS8.as_bytes())
         .expect("the RSA fixture loads")
 }

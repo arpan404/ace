@@ -1,25 +1,29 @@
 import {
+  spadeAggregateReactions,
   spadeFailureSentence,
+  spadeQuickReactions,
   type SpadeAvatar,
   type SpadeBubbleFailure,
   type SpadeQuote,
+  type SpadeReactionGroup,
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
-import { formatElapsed } from "@ace/ui-core/time";
+import { ArrowBendUpLeftIcon, DotsThreeIcon, SmileyIcon } from "@ace/icons";
 import {
-  ArrowBendUpLeftIcon,
-  CheckIcon,
-  CopyIcon,
-  DotsThreeIcon,
-  SpeakerHighIcon,
-  SpeakerSlashIcon,
-} from "@ace/icons";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { Emoji } from "@/components/emoji.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { cn } from "@/lib/cn.ts";
-import { useSeconds } from "@/lib/time.ts";
 import { bubbleWidth } from "./spade-bubble-style.ts";
 import { SpadeFace } from "./spade-face.tsx";
 import {
@@ -31,13 +35,19 @@ import {
   type SpeechVoice,
 } from "./spade-speech.ts";
 import { useBotVoiceContext } from "./use-spoken-replies.ts";
-import { messageAttribute, QuoteLine, useSpadeReplies } from "./spade-chat-replies.tsx";
+import {
+  messageAttribute,
+  messageIdsAttribute,
+  ReplyGhost,
+  type SpadeReactor,
+  useSpadeReplies,
+} from "./spade-chat-replies.tsx";
 
 /** Where no bot sets one (a club, a digest): the system's own default voice. */
 const systemVoice: SpeechVoice = { engine: "system", voice: undefined };
 
 /* What a chat's bubbles carry besides their words: a failure's line, their actions (time, Copy,
- * Read aloud), file chips, a reply's steps and a speaker's name; and the working line. */
+ * Read aloud), file chips, a speaker's header, the NEW divider, and the working line. */
 
 /**
  * A failed reply: what failed and what to do, by its kind, naming the endpoint; Set up a model
@@ -104,9 +114,9 @@ export function Failure(props: {
 }
 
 /**
- * While the bot works, where its next bubble will appear: its 32px face moving, one line of what
- * it is doing and what that touches (the command it runs, in mono), and how long it has been at
- * it; Watch opens the right panel on what it uses.
+ * While the bot works, where its next bubble will appear: its small face moving, one line of what
+ * it is doing and what that touches (the command it runs, in mono); Watch opens the right panel
+ * on what it uses.
  */
 export function WorkingLine(props: {
   avatar: SpadeAvatar;
@@ -117,47 +127,60 @@ export function WorkingLine(props: {
   since: number | undefined;
   onWatch: (() => void) | undefined;
 }) {
-  const now = useSeconds(props.since !== undefined);
   const moving = props.state === "working" || props.state === "thinking";
   return (
     <div
       role="status"
-      className="mt-(--chat-turn-gap) flex min-w-0 items-center gap-2.5 first:mt-0"
+      className="group/work mt-(--chat-turn-gap) flex min-w-0 items-center gap-2 first:mt-0"
     >
-      <SpadeFace avatar={props.avatar} size={32} state={props.state} />
-      <span
-        // While it works, what it does sits in a small bubble of its own, where its next
-        // message will be: the other side typing (ADR 0212 §7).
-        className={cn(
-          "flex min-w-0 items-center gap-2.5",
-          moving && "rounded-(--chat-bubble-radius) bg-chat-bubble px-3.5 py-1.5",
-        )}
-      >
+      <SpadeFace avatar={props.avatar} size={24} state={props.state} />
+      {props.onWatch ? (
+        <button
+          type="button"
+          aria-label="Open its work"
+          onClick={props.onWatch}
+          className="min-w-0 cursor-pointer rounded-sm text-left focus-ring"
+        >
+          <span
+            // Its current phrase, a soft light sweeping across it while it works. Plain text.
+            key={moving ? props.label : undefined}
+            className={cn(
+              "min-w-0 truncate text-ui text-muted-foreground",
+              moving && "step-shimmer step-shimmer-live",
+              props.detail && "max-w-1/2 shrink-0",
+            )}
+          >
+            {props.label}
+          </span>
+        </button>
+      ) : (
         <span
-          // Each new phrase sweeps once in the step's light (`.step-shimmer`: three passes, then
-          // still; still under reduced motion). Plain text, never markup.
+          // Its current phrase, a soft light sweeping across it while it works. Plain text.
           key={moving ? props.label : undefined}
           className={cn(
             "min-w-0 truncate text-ui text-muted-foreground",
-            moving && "step-shimmer",
+            moving && "step-shimmer step-shimmer-live",
             props.detail && "max-w-1/2 shrink-0",
           )}
         >
           {props.label}
         </span>
-        {props.detail && (
-          <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
-            {props.detail}
-          </code>
-        )}
-      </span>
-      {props.since !== undefined && (
-        <span className="shrink-0 text-ui text-subtle-foreground tabular-nums">
-          {formatElapsed(now - props.since)}
-        </span>
+      )}
+      {props.detail && (
+        <code className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
+          {props.detail}
+        </code>
       )}
       {props.onWatch && (
-        <Button size="xs" variant="ghost" onClick={props.onWatch}>
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onWatch?.();
+          }}
+          className="opacity-0 transition-opacity group-hover/work:opacity-100 focus-visible:opacity-100"
+        >
           Watch
         </Button>
       )}
@@ -165,12 +188,43 @@ export function WorkingLine(props: {
   );
 }
 
-/** A group member's or another bot's turn: its 24px face and name, above its run. */
-export function SpeakerLine(props: { avatar: SpadeAvatar; name: string }) {
+/**
+ * A club member's or another bot's sender header: small face and name once per run of messages,
+ * aligned flush to the bubble's edge, with optional quiet inline relay context ("answering Spade").
+ */
+export function SpeakerLine(props: {
+  avatar: SpadeAvatar;
+  name: string;
+  detail?: string | undefined;
+  align?: "start" | "end";
+}) {
   return (
-    <div className="mb-1.5 ml-1 flex min-w-0 items-center gap-2 text-ui font-medium text-muted-foreground">
-      <SpadeFace avatar={props.avatar} size={24} />
-      <span className="truncate">{props.name}</span>
+    <div
+      className={cn(
+        "mb-1 flex max-w-full min-w-0 items-center gap-1.5 text-xs leading-4",
+        props.align === "end" ? "justify-end" : "justify-start",
+      )}
+    >
+      <SpadeFace avatar={props.avatar} size={20} />
+      <span className="truncate font-medium text-foreground/85">{props.name}</span>
+      {props.detail && (
+        <span className="truncate text-subtle-foreground">{`· ${props.detail}`}</span>
+      )}
+    </div>
+  );
+}
+
+/** Unread divider between previously seen and newly arrived messages. */
+export function NewDivider(props: { className?: string }) {
+  return (
+    <div
+      role="separator"
+      aria-label="New messages"
+      className={cn("my-5 flex items-center gap-3", props.className)}
+    >
+      <span aria-hidden className="h-px flex-1 bg-link/30" />
+      <span className="text-[11px] font-semibold tracking-wider text-link uppercase">NEW</span>
+      <span aria-hidden className="h-px flex-1 bg-link/30" />
     </div>
   );
 }
@@ -178,13 +232,199 @@ export function SpeakerLine(props: { avatar: SpadeAvatar; name: string }) {
 /** How long a press on touch is held before the bubble's actions come up. */
 const holdFor = 450;
 
+/** A quiet bare icon beside a bubble: no fill until hovered, subtle muted ink. */
+const bare =
+  "size-7 rounded-full bg-transparent text-subtle-foreground hover:bg-hover/60 hover:text-foreground aria-expanded:bg-hover/60 aria-expanded:text-foreground [&_svg]:size-[18px]";
+
+/** One aggregated emoji chip with optional count, own-reaction highlight, toggle on click, and hover/long-press who-reacted card. */
+function ReactionChip(props: {
+  group: SpadeReactionGroup;
+  side: "bot" | "mine";
+  canReact: boolean;
+  onToggle: ((emoji: string, mine: boolean) => void) | undefined;
+  reactorOf: ((id: string) => SpadeReactor | undefined) | undefined;
+}) {
+  const { group, side, canReact, onToggle, reactorOf } = props;
+  const mine = group.by.includes("person");
+  const count = group.by.length;
+  const [shown, setShown] = useState(false);
+  const longPressed = useRef(false);
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
+  useEffect(() => {
+    if (!shown) return;
+    const away = (event: PointerEvent) => {
+      if (!chipRef.current?.contains(event.target as Node)) setShown(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [shown]);
+
+  const reactors = group.by.map((id) => {
+    const found = reactorOf?.(id);
+    if (found) return { id, ...found };
+    if (id === "person") return { id, name: "You" };
+    return { id, name: id === "bot" ? "Spade" : id };
+  });
+  const names = reactors.map((reactor) => reactor.name);
+  const chipClass = cn(
+    "inline-flex h-6 items-center gap-1 rounded-full text-[12px] leading-none shadow-[0_0_0_2px_var(--background)] transition-colors duration-(--motion-fast)",
+    count > 1 ? "px-2" : "px-1.5",
+    mine
+      ? "bg-[color-mix(in_oklab,var(--chat-mine)_22%,var(--chat-raised))] text-foreground ring-1 ring-inset ring-[color-mix(in_oklab,var(--chat-mine)_55%,transparent)]"
+      : "bg-chat-raised text-muted-foreground ring-1 ring-inset ring-foreground/[0.08]",
+    canReact &&
+      (mine
+        ? "cursor-pointer focus-ring hover:bg-[color-mix(in_oklab,var(--chat-mine)_30%,var(--chat-raised))]"
+        : "cursor-pointer focus-ring hover:bg-hover hover:text-foreground"),
+  );
+  const label = mine
+    ? count > 1
+      ? `Remove your ${group.emoji} reaction (${count} reactions: ${names.join(", ")})`
+      : `Remove your ${group.emoji} reaction`
+    : canReact
+      ? count > 1
+        ? `React ${group.emoji} (${count} reactions: ${names.join(", ")})`
+        : `React ${group.emoji} (${names.join(", ")})`
+      : count > 1
+        ? `Reacted ${group.emoji} (${count}: ${names.join(", ")})`
+        : `Reacted ${group.emoji}`;
+  const content = (
+    <>
+      <Emoji emoji={group.emoji} className="size-3.5 shrink-0" />
+      {count > 1 && <span className="text-[11px] font-medium tabular-nums">{count}</span>}
+    </>
+  );
+  const clearHold = () => clearTimeout(holdTimer.current);
+  const touchProps = {
+    onPointerDown: (event: ReactPointerEvent) => {
+      if (event.pointerType !== "touch") return;
+      event.stopPropagation();
+      longPressed.current = false;
+      clearHold();
+      holdTimer.current = setTimeout(() => {
+        longPressed.current = true;
+        setShown(true);
+      }, holdFor);
+    },
+    onPointerUp: clearHold,
+    onPointerCancel: clearHold,
+    onPointerMove: clearHold,
+    onContextMenu: (event: ReactMouseEvent) => {
+      if (longPressed.current) event.preventDefault();
+    },
+  };
+
+  return (
+    <span
+      ref={chipRef}
+      className="relative inline-flex"
+      onMouseEnter={() => setShown(true)}
+      onMouseLeave={() => setShown(false)}
+    >
+      {canReact && onToggle ? (
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={mine}
+          {...part("spade-reaction", mine && "active")}
+          data-mine={mine || undefined}
+          onFocus={() => setShown(true)}
+          onBlur={() => setShown(false)}
+          onClick={() => {
+            if (longPressed.current) {
+              longPressed.current = false;
+              return;
+            }
+            onToggle(group.emoji, mine);
+          }}
+          {...touchProps}
+          className={chipClass}
+        >
+          {content}
+        </button>
+      ) : (
+        <span
+          {...part("spade-reaction", mine && "active")}
+          role="button"
+          tabIndex={0}
+          aria-label={label}
+          data-mine={mine || undefined}
+          onFocus={() => setShown(true)}
+          onBlur={() => setShown(false)}
+          {...touchProps}
+          className={cn(chipClass, "focus-ring")}
+        >
+          {content}
+        </span>
+      )}
+      {shown && (
+        <div
+          role="tooltip"
+          className={cn(
+            "pointer-events-none absolute bottom-full z-30 mb-1.5 flex min-w-28 flex-col gap-1 rounded-xl border border-border bg-popover px-2.5 py-2 text-[12px] leading-4 text-popover-foreground shadow-lg whitespace-nowrap",
+            side === "bot" ? "left-0" : "right-0",
+          )}
+        >
+          {reactors.map((reactor) => (
+            <div key={reactor.id} className="flex items-center gap-1.5">
+              {reactor.avatar ? (
+                <SpadeFace avatar={reactor.avatar} size={18} />
+              ) : (
+                <span
+                  aria-hidden
+                  className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-full bg-chat-mine/25 text-[10px] font-semibold text-foreground"
+                >
+                  {reactor.name.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <span className={cn("truncate", reactor.id === "person" && "font-medium")}>
+                {reactor.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** Under the bubble's corner: one wrapping chip per emoji with count and who-reacted popover. */
+function ReactionChips(props: {
+  groups: readonly SpadeReactionGroup[];
+  side: "bot" | "mine";
+  canReact: boolean;
+  onToggle: ((emoji: string, mine: boolean) => void) | undefined;
+  reactorOf: ((id: string) => SpadeReactor | undefined) | undefined;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Reactions"
+      className={cn(
+        "relative z-20 -mt-2 mb-1 flex max-w-full flex-wrap gap-1 px-2.5",
+        props.side === "bot" ? "self-start justify-start" : "self-end justify-end",
+      )}
+    >
+      {props.groups.map((group) => (
+        <ReactionChip
+          key={group.emoji}
+          group={group}
+          side={props.side}
+          canReact={props.canReact}
+          onToggle={props.onToggle}
+          reactorOf={props.reactorOf}
+        />
+      ))}
+    </div>
+  );
+}
+
 /**
- * A bubble with its actions: the exact time, Copy and (for the bot's words, where the system can
- * speak) Read aloud, in a small pill at its foot, in room the frame keeps for it, so it never
- * covers what is under the bubble. They come up on hover and on focus, and on a
- * long press on touch, which a tap elsewhere puts away. Read aloud becomes Stop reading while it
- * speaks, in the bot's own voice, and leaving the chat stops it: the reading belongs to this
- * bubble.
+ * A bubble with its optional messenger-style ghost reply above it, outside hover actions (react,
+ * reply, more), and bottom-overlapping aggregated reaction chips. Actions stay vertically centered
+ * on the reply bubble itself even when a ghost reply sits above or reaction chips hang below.
  */
 export function BubbleFrame(props: {
   /** The words Copy takes, without their marks; undefined for none. */
@@ -199,9 +439,14 @@ export function BubbleFrame(props: {
   work?: { shown: boolean; toggle(): void } | undefined;
   /** The message as Reply quotes it, once stored (ADR 0212 §4); undefined offers no Reply. */
   reply?: SpadeQuote | undefined;
-  /** The message it replies to: a quoted line above it. */
+  /** The earlier message this bubble replies to, drawn as a faded ghost bubble above it. */
   quote?: SpadeQuote | undefined;
+  /** Club member name when a club member is replying (for "Flights replied to Inbox"). */
+  replier?: string | undefined;
+  /** All message ids merged into this bubble, for jump-to-original and reactions. */
+  messageIds?: readonly string[] | undefined;
   side: "bot" | "mine";
+  className?: string | undefined;
   children: ReactNode;
 }) {
   const key = useId();
@@ -228,27 +473,43 @@ export function BubbleFrame(props: {
   const onKeep = props.onKeep;
   const work = props.work;
   const [menu, setMenu] = useState(false);
-  const more = onKeep !== undefined || work !== undefined;
-  const any =
-    copy !== undefined || speak !== undefined || props.when !== undefined || more || !!reply;
-  const lit = props.reply !== undefined && replies?.lit === props.reply.id;
+  const [picking, setPicking] = useState(false);
+  const ids =
+    props.messageIds && props.messageIds.length > 0
+      ? props.messageIds
+      : props.reply
+        ? [props.reply.id]
+        : [];
+  const primaryId = ids[0];
+  const groups = spadeAggregateReactions(ids.map((id) => replies?.reactions.get(id)));
+  const personId = ids.find((id) => replies?.reactions.get(id)?.person !== undefined);
+  const personEmoji = personId ? replies?.reactions.get(personId)?.person : undefined;
+  const react = replies?.react;
+  // In a bot's own chat the person reacts to the bot's words; in a club they can react to any message.
+  const canReact =
+    (props.side === "bot" || replies?.canReactOwn === true) &&
+    react !== undefined &&
+    primaryId !== undefined;
+  const lit = replies?.lit !== undefined && ids.includes(replies.lit);
   const release = () => clearTimeout(timer.current);
   return (
     <div
       ref={frame}
-      {...(props.reply ? { [messageAttribute]: props.reply.id } : {})}
+      {...(primaryId ? { [messageAttribute]: primaryId } : {})}
+      {...(ids.length > 1 ? { [messageIdsAttribute]: ids.join(" ") } : {})}
       data-lit={lit || undefined}
       className={cn(
         // The frame takes the side's width limit; the bubble inside fills it (`framed`).
-        "group/bubble relative flex min-w-0 scroll-my-24 flex-col gap-1",
+        "group/bubble flex min-w-0 scroll-my-24 flex-col",
         props.side === "bot" ? "items-start" : "items-end",
         bubbleWidth[props.side],
         // Gone to from a quote: lit a moment, then back (`--motion-slow` out).
         "rounded-(--chat-bubble-radius) outline-2 outline-offset-2 outline-transparent transition-[outline-color] duration-(--motion-slow) data-lit:outline-ring",
         held && "select-none",
+        props.className,
       )}
       onPointerDown={(event) => {
-        if (event.pointerType !== "touch" || !any) return;
+        if (event.pointerType !== "touch") return;
         release();
         timer.current = setTimeout(() => setHeld(true), holdFor);
       }}
@@ -260,82 +521,104 @@ export function BubbleFrame(props: {
         if (held) event.preventDefault();
       }}
     >
-      {props.quote && <QuoteLine quote={props.quote} side={props.side} />}
-      {props.children}
-      {any && (
+      {props.quote && <ReplyGhost quote={props.quote} side={props.side} replier={props.replier} />}
+      <div
+        className={cn(
+          "relative z-10 flex w-fit max-w-full min-w-0 items-center",
+          props.quote && "-mt-1.5 [&>*:first-child]:shadow-[0_0_0_2px_var(--background)]",
+        )}
+      >
+        {props.children}
         <div
-          data-held={held || reading || menu || undefined}
+          data-held={held || reading || menu || picking || undefined}
           className={cn(
-            // Floating over the bubble's top edge, so a run's bubbles sit 4px apart with no
-            // room kept for them (ADR 0212 §7).
-            "absolute -top-4 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
-            props.side === "bot" ? "right-2.5" : "left-2.5",
-            "pointer-events-none opacity-0 group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
+            // Bare icons beside the bubble, centred on it: to its right for the bot's words,
+            // its left for the person's. The padding (not a margin) keeps the hover unbroken.
+            "absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 text-subtle-foreground",
+            props.side === "bot" ? "left-full pl-2" : "right-full pr-2",
+            "pointer-events-none opacity-0 transition-opacity duration-(--motion-fast) group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
           )}
         >
-          {props.when && (
-            <span className="px-2 text-xs leading-4 text-subtle-foreground tabular-nums">
-              {props.when}
-            </span>
+          {canReact && (
+            <Menu open={picking} onOpenChange={setPicking}>
+              <MenuTrigger
+                render={<IconButton icon={SmileyIcon} label="React" size="sm" className={bare} />}
+              />
+              <MenuContent align="center" className="flex min-w-0 flex-row gap-0.5 p-1">
+                {spadeQuickReactions.map((emoji) => (
+                  <MenuItem
+                    key={emoji}
+                    aria-label={`React ${emoji}`}
+                    className="size-8 justify-center p-0 text-lg"
+                    onClick={() =>
+                      react(personId ?? primaryId, personEmoji === emoji ? undefined : emoji)
+                    }
+                  >
+                    <Emoji emoji={emoji} className="size-5" />
+                  </MenuItem>
+                ))}
+              </MenuContent>
+            </Menu>
           )}
           {reply && (
             <IconButton
               icon={ArrowBendUpLeftIcon}
               label="Reply"
               size="sm"
-              className="rounded-full"
+              className={bare}
               onClick={() => {
                 setHeld(false);
                 replies.reply(reply);
               }}
             />
           )}
-          {copy !== undefined && (
-            <IconButton
-              icon={copied ? CheckIcon : CopyIcon}
-              label={copied ? "Copied" : "Copy"}
-              size="sm"
-              className="rounded-full"
-              onClick={() =>
-                void navigator.clipboard?.writeText(copy).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                })
-              }
+          <Menu open={menu} onOpenChange={setMenu}>
+            <MenuTrigger
+              render={<IconButton icon={DotsThreeIcon} label="More" size="sm" className={bare} />}
             />
-          )}
-          {speak !== undefined && (
-            <IconButton
-              icon={reading ? SpeakerSlashIcon : SpeakerHighIcon}
-              label={reading ? "Stop reading" : "Read aloud"}
-              size="sm"
-              className="rounded-full"
-              onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}
-            />
-          )}
-          {more && (
-            <Menu open={menu} onOpenChange={setMenu}>
-              <MenuTrigger
-                render={
-                  <IconButton
-                    icon={DotsThreeIcon}
-                    label="More"
-                    size="sm"
-                    className="rounded-full"
-                  />
-                }
-              />
-              <MenuContent align="end">
-                {work && (
-                  <MenuItem onClick={work.toggle}>
-                    {work.shown ? "Hide work" : "Show work"}
-                  </MenuItem>
-                )}
-                {onKeep && <MenuItem onClick={onKeep}>Keep as a test</MenuItem>}
-              </MenuContent>
-            </Menu>
-          )}
+            <MenuContent align="end">
+              {props.when && (
+                <div className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground tabular-nums">
+                  {`Sent ${props.when}`}
+                </div>
+              )}
+              {copy !== undefined && (
+                <MenuItem
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(copy).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    })
+                  }
+                >
+                  {copied ? "Copied" : "Copy"}
+                </MenuItem>
+              )}
+              {speak !== undefined && (
+                <MenuItem onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}>
+                  {reading ? "Stop reading" : "Read aloud"}
+                </MenuItem>
+              )}
+              {work && (
+                <MenuItem onClick={work.toggle}>{work.shown ? "Hide work" : "Show work"}</MenuItem>
+              )}
+              {onKeep && <MenuItem onClick={onKeep}>Keep as a test</MenuItem>}
+            </MenuContent>
+          </Menu>
         </div>
+      </div>
+      {groups.length > 0 && (
+        <ReactionChips
+          groups={groups}
+          side={props.side}
+          canReact={canReact}
+          onToggle={
+            canReact
+              ? (emoji, mine) => react(personId ?? primaryId, mine ? undefined : emoji)
+              : undefined
+          }
+          reactorOf={replies?.reactorOf}
+        />
       )}
     </div>
   );

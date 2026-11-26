@@ -12,7 +12,7 @@ use crate::status::ThreadStatus;
 
 /// Who sent a person message, and through which route.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct MessageOrigin {
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,11 +41,14 @@ pub struct MessageOrigin {
     pub after_exit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<MessageVia>,
+    /// Fields a newer build wrote; the raw record keeps them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// An outside MCP client that sent for the person.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct OriginClient {
     #[serde(rename = "grantId")]
     pub grant_id: String,
@@ -54,7 +57,7 @@ pub struct OriginClient {
 
 /// One endpoint of a context handoff.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct OriginEndpoint {
     pub provider: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,7 +66,7 @@ pub struct OriginEndpoint {
 
 /// A provider and model whose work a context handoff carries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct HandoffModel {
     pub provider: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,7 +75,7 @@ pub struct HandoffModel {
 
 /// A message sent from another thread by `@` its agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct MessageVia {
     #[serde(rename = "threadId")]
     pub thread_id: String,
@@ -82,7 +85,7 @@ pub struct MessageVia {
 
 /// One addressee of a message sent with `@` bots.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct AddressedTo {
     /// The addressee, kept verbatim (bots, agents, clubs).
     pub to: Vetted,
@@ -93,7 +96,7 @@ pub struct AddressedTo {
 
 /// ace's line under a message sent with `@` mentions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct AskedLine {
     pub about: String,
     pub to: Vec<AddressedTo>,
@@ -106,7 +109,7 @@ pub struct AskedLine {
 
 /// Optional evidence for a stopped delegation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct DelegationFailure {
     pub code: String,
     pub message: String,
@@ -120,7 +123,7 @@ pub struct DelegationFailure {
 
 /// The outcome of one delegated child thread.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct DelegationOutcome {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<DelegationFailure>,
@@ -134,7 +137,7 @@ pub struct DelegationOutcome {
 
 /// The paired machine a delegated child runs on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct AgentMachine {
     pub machine: String,
     pub name: String,
@@ -146,7 +149,7 @@ pub struct AgentMachine {
 
 /// A fork point: the run or item a thread was forked from.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
+#[serde(tag = "type")]
 pub enum ForkPoint {
     /// Forked at a run boundary.
     #[serde(rename = "turn")]
@@ -164,7 +167,7 @@ pub enum ForkPoint {
 
 /// Native history lineage, separate from agent ancestry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct ThreadLineage {
     #[serde(rename = "parentThreadId")]
     pub parent_thread_id: String,
@@ -177,7 +180,7 @@ pub struct ThreadLineage {
 
 /// A delegation item records one delegated child thread.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct DelegationStarted {
     pub origin: String,
     #[serde(rename = "childThreadId")]
@@ -197,20 +200,25 @@ pub struct DelegationStarted {
     pub outcome: Option<DelegationOutcome>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine: Option<AgentMachine>,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A settled delegation and its results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct DelegationSettled {
     pub origin: String,
     pub results: Vec<DelegationOutcome>,
     pub delivery: String,
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Daemon-captured ace result content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
+#[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum ToolResultContent {
     /// Text, at most 32 KiB.
     #[serde(rename = "text")]
@@ -222,7 +230,7 @@ pub enum ToolResultContent {
 
 /// Daemon-captured ace results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct ToolResult {
     #[serde(rename = "isError")]
     pub is_error: bool,
@@ -245,11 +253,15 @@ pub struct ToolResult {
     pub scale: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<ToolResultSize>,
+
+    /// Fields a newer build wrote; the raw record keeps them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Where an ace result renders.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct ToolResultTarget {
     #[serde(rename = "bundleId")]
     pub bundle_id: String,
@@ -261,7 +273,7 @@ pub struct ToolResultTarget {
 
 /// A rendered result's dimensions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct ToolResultSize {
     pub width: i64,
     pub height: i64,
@@ -269,7 +281,7 @@ pub struct ToolResultSize {
 
 /// A bot's words on a reply it posted in the thread.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde()]
 pub struct Speaker {
     pub kind: String,
     pub id: String,
@@ -345,4 +357,26 @@ pub mod leaf_keys {
     /// `InteractionMeasurement` content blocks the reducer never inspects.
     pub const MEASUREMENT_DEEP: &[&str] =
         &["target", "action", "verdict", "confidence", "filmstrip"];
+}
+
+#[cfg(test)]
+mod origin_extra_tests {
+    #[test]
+    fn a_message_origins_unknown_field_survives() {
+        let json = r#"{"kind":"person","futureOrigin":{"a":1}}"#;
+        let origin: super::MessageOrigin = serde_json::from_str(json).unwrap();
+        let text = serde_json::to_string(&origin).unwrap();
+        assert!(text.contains(r#""futureOrigin":{"a":1}"#), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod tool_result_extra_tests {
+    #[test]
+    fn a_tool_results_unknown_field_survives() {
+        let json = r#"{"isError":false,"content":[],"durationMs":1,"futureResult":{"a":1}}"#;
+        let result: super::ToolResult = serde_json::from_str(json).unwrap();
+        let text = serde_json::to_string(&result).unwrap();
+        assert!(text.contains(r#""futureResult":{"a":1}"#), "{text}");
+    }
 }

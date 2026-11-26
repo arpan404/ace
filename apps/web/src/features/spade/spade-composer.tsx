@@ -19,6 +19,8 @@ import { MicButton, TalkLine, useSpadeVoice, VoiceButton, VoiceStrip } from "./s
 import { onPushToTalk, reportPushToTalk, type PushPhase } from "@/boot/desktop-push-to-talk.ts";
 import { useTalkMode } from "./spade-talk-mode.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
+import { useSlashMenu, useSpadeInvocables, type SlashAction } from "./use-spade-slash.ts";
+import { invokedIn } from "./spade-slash.ts";
 
 /** A bot's composer has no project or commands of its own: the person's words and files. */
 const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const;
@@ -62,6 +64,11 @@ export function SpadeComposer(props: {
   quote?: { text: string; onRemove(): void } | undefined;
   /** The message the person replies to (ADR 0212 §4): its strip above the field, sent with it. */
   replying?: { quote: SpadeQuote; onClear(): void } | undefined;
+  /**
+   * The `/` menu: this bot's skills and commands (by its conversation) beside the screen's own
+   * actions. Without it, `/` opens nothing.
+   */
+  slash?: { conversation: string; actions: readonly SlashAction[] } | undefined;
   /** What sits under the capsule: a new bot's templates and how it runs. */
   below?: ReactNode;
   send(message: SpadeMessage): Promise<void>;
@@ -126,6 +133,8 @@ export function SpadeComposer(props: {
     }
     talk.push();
   });
+  const invocables = useSpadeInvocables(props.slash?.conversation);
+  const slash = useSlashMenu(props.slash?.actions ?? [], invocables.data);
   const main = props.main === true;
   useEffect(() => (main ? onPushToTalk((phase) => pressed(phase)) : undefined), [main]);
   const quoted = props.quote?.text;
@@ -146,10 +155,12 @@ export function SpadeComposer(props: {
     if (quoted) composer.current?.focus();
   }, [quoted]);
   const submit = async (draft: Draft) => {
-    const words = draft.text.trim();
+    // A skill or command leading the message: its chip, and the words after it as arguments.
+    const invoked = invokedIn(draft.input);
+    const words = invoked ? invoked.args : draft.text.trim();
     const text = quoted && words ? spadeQuoted(quoted, words) : words;
     const files = draft.files.files.filter((file) => file !== undefined);
-    if (!text && !draft.files.local.length) return false;
+    if (!text && !draft.files.local.length && !invoked) return false;
     try {
       // A file restored from a saved draft has no bytes in this window any more.
       if (files.length !== draft.files.local.length)
@@ -166,6 +177,7 @@ export function SpadeComposer(props: {
         voice: recording,
         ...(draft.devices?.length ? { devices: draft.devices } : {}),
         ...(replying ? { replyTo: replying.quote } : {}),
+        ...(invoked ? { invoke: invoked } : {}),
       });
       if (quoted && words) props.quote?.onRemove();
       replying?.onClear();
@@ -222,6 +234,7 @@ export function SpadeComposer(props: {
           sendsWhileUploading
           filesOnly
           mentionNames={props.mentionNames}
+          slash={props.slash ? slash : undefined}
           autoFocus
           typeToFocus
           label={`Message ${props.name}`}

@@ -30,7 +30,7 @@ export function spadeSandboxSentence(machine: SpadeSecurityMachine): string {
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** A grant as a sentence: "Push to `spade/*` of arpan404/ace". */
+/** Describe what a saved grant covers and whether each call needs approval. */
 export function spadeGrantSentence(grant: SpadeGrant): string {
   switch (grant.kind) {
     case "folder":
@@ -42,11 +42,11 @@ export function spadeGrantSentence(grant: SpadeGrant): string {
         : `Use ${grant.tool} without asking`;
     }
     case "git_push":
-      return `Push to ${grant.branch} of ${grant.repo}`;
+      return `Push to ${grant.branch} of ${grant.repo}, with approval each time`;
     case "pr_comment":
       return grant.ownOnly
-        ? `Comment on its own pull requests in ${grant.repo}`
-        : `Comment on pull requests in ${grant.repo}`;
+        ? `Comment on its own pull requests in ${grant.repo}, with approval each time`
+        : `Comment on pull requests in ${grant.repo}, with approval each time`;
     case "drive_app":
       return `Act in the app ${grant.app}, each step reviewed`;
     case "drive_site":

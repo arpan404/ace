@@ -172,6 +172,27 @@ mod tests {
     }
 
     #[test]
+    fn a_usage_account_id_accepts_512_utf16_units_and_refuses_513() {
+        let with_account = |id: &str| Envelope {
+            usage_account: AccountField::Object {
+                id: text(id),
+                billing_mode: text("api"),
+            },
+            ..frame()
+        };
+        let suffix = "😀";
+        accepts(
+            "512 UTF-16 units",
+            with_account(&format!("{}{suffix}", "a".repeat(510))),
+        );
+        rejects(
+            "513 UTF-16 units",
+            with_account(&format!("{}{suffix}", "a".repeat(511))),
+            "usageAccount.id",
+        );
+    }
+
+    #[test]
     fn the_accepted_envelopes_are_sound() {
         accepts("a plain frame", frame());
         accepts(

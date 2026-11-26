@@ -9,7 +9,16 @@ import { Client } from "./socket-test-support.ts";
 import { scriptedModelInstance, seedScriptedModels } from "./testing/models.ts";
 
 /** Real daemon, SQLite, sockets and timers; only the provider CLI is scripted. */
-export async function idleDaemon() {
+export async function idleDaemon(
+  options: {
+    seedModels?: boolean;
+    deferModels?: boolean;
+    armDeadlineMs?: number;
+    modelHoldMs?: number;
+    modelRetryMs?: number;
+    modelSettled?: (filter: import("@ace/protocol").ModelFilter) => Promise<unknown>;
+  } = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-idle-automation-"));
   const prompts: string[] = [];
   const registry = new AdapterRegistry();
@@ -30,11 +39,32 @@ export async function idleDaemon() {
     }),
     { installed: true, auth: "logged_in", loginHint: "scripted" },
   );
-  const boot = () =>
+  /**
+   * A restart registers the scripted provider's instance as it starts, as a real daemon finds
+   * its installed CLIs at boot, so a schedule's missed run can resolve its model from the first
+   * moment; the first start leaves it to `prepare`, as before.
+   */
+  let admission: { promise: Promise<void>; resolve: () => void } | undefined;
+  const holdModels = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((ready) => (resolve = ready));
+    admission = { promise, resolve };
+    return promise;
+  };
+  const boot = (restarted = false) =>
     startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       engine: { registry },
-      modelInstances: [],
+      modelInstances: restarted ? [scriptedModelInstance("codex", home)] : [],
+      ...(restarted && options.deferModels ? { modelsReady: holdModels() } : {}),
+      ...(options.armDeadlineMs === undefined
+        ? {}
+        : { automationModelWaitMs: options.armDeadlineMs }),
+      ...(options.modelHoldMs === undefined ? {} : { automationModelHoldMs: options.modelHoldMs }),
+      ...(options.modelRetryMs === undefined
+        ? {}
+        : { automationModelRetryMs: options.modelRetryMs }),
+      ...(options.modelSettled === undefined ? {} : { modelSettled: options.modelSettled }),
       providerStatus: {
         env: { ...process.env, PATH: "" },
         versions: async () => ({}),
@@ -45,8 +75,11 @@ export async function idleDaemon() {
   let stopped = false;
   const clients = new Set<Client>();
   let sequence = 0;
+  const registerModels = async () =>
+    seedScriptedModels(daemon.models, scriptedModelInstance("codex", home));
   const prepare = async () => {
-    await seedScriptedModels(daemon.models, scriptedModelInstance("codex", home));
+    // A test that models admission itself registers them when model readiness resolves.
+    if (options.seedModels !== false) await registerModels();
     await daemon.settings.set("access.defaultMode", "full-access", { kind: "global" });
   };
   await prepare();
@@ -59,6 +92,17 @@ export async function idleDaemon() {
   };
   return {
     prompts,
+    /** Register the scripted model now, as model admission finishing a pass would. */
+    registerModels,
+    /** Finish the restart's held model admission after registering its model. */
+    async admitModels() {
+      await registerModels();
+      admission?.resolve();
+    },
+    /** Settle model admission without registering any model (a genuinely missing one). */
+    settleModels() {
+      admission?.resolve();
+    },
     get daemon() {
       return daemon;
     },
@@ -120,7 +164,7 @@ export async function idleDaemon() {
         await disconnect();
         await daemon.close();
       }
-      daemon = await boot();
+      daemon = await boot(true);
       stopped = false;
       await prepare();
     },

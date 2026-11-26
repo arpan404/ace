@@ -60,6 +60,8 @@ pub struct Repo {
     pub(crate) opening: HashSet<ThreadId>,
     /// Idle sessions asked to close to make room; their slots no longer count as taken.
     pub(crate) retiring: HashSet<ThreadId>,
+    /// Threads whose deletion is in flight (E5.10 records them): a receipt refuses them.
+    pub(crate) cleaning: HashSet<ThreadId>,
     pub reclaim: Option<Reclaim>,
     /// The seam's pass-through collaborators (E5.3 scaffolding, `engine-probe` only; the last
     /// E5 owner to land deletes it). Production never sets it.
@@ -82,6 +84,7 @@ impl Default for Repo {
             capacity: 64,
             opening: HashSet::new(),
             retiring: HashSet::new(),
+            cleaning: HashSet::new(),
             reclaim: None,
             probe_passthrough: false,
             live_token: 0,
@@ -118,6 +121,11 @@ impl Repo {
     /// How many snapshots are resident (tests and measurements).
     pub fn resident(&self) -> usize {
         self.snapshots.len()
+    }
+
+    /// `cleaning` (`repository.ts:184`): a thread whose deletion is in flight.
+    pub fn cleaning(&self, id: &str) -> bool {
+        self.cleaning.contains(id)
     }
 
     /// Whether a thread's snapshot is resident.

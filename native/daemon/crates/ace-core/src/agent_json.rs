@@ -93,6 +93,10 @@ impl Serialize for Agent {
                 write_appended(&mut map, self, key)?;
             }
         }
+        // A newer build's fields travel with the agent, as the TypeScript's raw record does.
+        for (key, value) in &self.extra {
+            map.serialize_entry(key, value)?;
+        }
         map.end()
     }
 }

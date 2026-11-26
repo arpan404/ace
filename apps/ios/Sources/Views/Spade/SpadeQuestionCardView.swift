@@ -87,10 +87,10 @@ private struct SpadeAnswerBubble: View {
             Spacer(minLength: UserBubble.inset)
             Text(text)
                 .aceFont(AceDesign.TextRole.message)
-                .foregroundStyle(AceDesign.Surface.background)
+                .foregroundStyle(AceDesign.Ink.onAccent)
                 .padding(.horizontal, AceDesign.Space.margin)
                 .padding(.vertical, AceDesign.Space.related)
-                .background(AceDesign.Ink.accent, in: AceDesign.Shape.bubble)
+                .background(AceDesign.Surface.personBubble, in: AceDesign.Shape.bubble)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("You: \(text)")

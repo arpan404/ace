@@ -39,9 +39,11 @@ impl Inner {
 
     /// An outgoing frame: a tenant's own, its answer, or an init frame to
     /// everyone (`#sent`, `:437`).
-    pub(super) fn sent(&mut self, data: &Value) -> Option<RefusedSend> {
+    pub(super) fn sent(&mut self, data: Value) -> Option<RefusedSend> {
+        // The frame is decoded once by the peer; every recipient shares it.
+        let data = Arc::new(data);
         let sender = self.sender;
-        let tenant = self.router.sent(data, sender.as_ref());
+        let tenant = self.router.sent(&data, sender.as_ref());
         if let Some(tenant) = tenant {
             // `Tenant.deliver` for a muted or closed channel: no frames reach
             // its handlers, and it is not asked to admit one; its requests
@@ -58,7 +60,7 @@ impl Inner {
                 self.admitted_send = None;
             }
             let mut failed = None;
-            if self.deliver_vetted(tenant, Direction::Send, data, admitted, Some(&mut failed)) {
+            if self.deliver_vetted(tenant, Direction::Send, &data, admitted, Some(&mut failed)) {
                 return None;
             }
             if !self.tenants.contains_key(&tenant) {
@@ -69,7 +71,7 @@ impl Inner {
                 self.out.push(HostEffect::Frame {
                     tenant,
                     dir: Direction::Send,
-                    data: data.clone(),
+                    data,
                 });
                 return None;
             }
@@ -80,19 +82,19 @@ impl Inner {
         }
         let method = data.get("method").and_then(Value::as_str)?;
         if method == "initialize" {
-            self.initialize_id = id_of(data);
+            self.initialize_id = id_of(&data);
         }
         if method == "initialize" || method == "initialized" {
-            self.broadcast_init(Direction::Send, data);
+            self.broadcast_init(Direction::Send, &data);
         }
         None
     }
 
     /// Init frames are replayed to every tenant that attaches (`:449`).
-    pub(super) fn broadcast_init(&mut self, dir: Direction, data: &Value) {
-        self.init_frames.push((dir, data.clone()));
+    pub(super) fn broadcast_init(&mut self, dir: Direction, data: &Arc<Value>) {
+        self.init_frames.push((dir, Arc::clone(data)));
         for tenant in self.tenant_ids() {
-            self.deliver(tenant, dir, data, None);
+            self.deliver_shared(tenant, dir, data, None);
         }
     }
 
@@ -125,6 +127,9 @@ impl Inner {
 
     /// One received frame (`#received`, `:495`).
     pub(super) fn received(&mut self, data: Value) -> Pending {
+        // The decoded frame is shared with every recipient: decode once, hand
+        // out copies of the pointer.
+        let data = Arc::new(data);
         let route = self.route(&data);
         let mut pending = Pending {
             route: route.clone(),
@@ -146,22 +151,26 @@ impl Inner {
             }
             Route::All => {
                 for tenant in self.tenant_ids() {
-                    if !self.deliver(tenant, Direction::Recv, &data, None) {
+                    if !self.deliver_shared(tenant, Direction::Recv, &data, None) {
                         pending.failed.insert(tenant);
                     }
                 }
+                // The notification that follows reads its params from here, so the frame
+                // is kept once rather than copied into a second effect (`peer.rs:line`).
+                pending.data = Some(data);
             }
             Route::Tenant { tenant, claimed } => {
                 for thread in claimed {
                     self.claimed(&thread, tenant);
                 }
-                if !self.deliver(tenant, Direction::Recv, &data, None) {
+                if !self.deliver_shared(tenant, Direction::Recv, &data, None) {
                     pending.failed.insert(tenant);
                 }
                 self.track_active(&data);
                 if self.router.opening() == 0 {
                     self.settle_waiting();
                 }
+                pending.data = Some(data);
             }
         }
         pending
@@ -169,15 +178,12 @@ impl Inner {
 
     /// A notification follows its frame; a held one is dispatched on release
     /// (`#notification`, `:521`).
-    pub(super) fn notification(
-        &mut self,
-        pending: Option<Pending>,
-        method: &JsString,
-        params: Option<&Value>,
-    ) {
+    pub(super) fn notification(&mut self, pending: Option<Pending>, method: &JsString) {
         let Some(pending) = pending else {
             return;
         };
+        // The frame the peer already parsed carries `params`; the effect does not copy it.
+        let params = pending.data.as_ref().and_then(|data| data.get("params"));
         if let Some((thread, index)) = &pending.held {
             if let Some(hold) = self.holds.get_mut(thread)
                 && let Some(item) = hold.items.get_mut(*index)
@@ -258,7 +264,7 @@ impl Inner {
                 let admitted = pending
                     .data
                     .as_ref()
-                    .is_some_and(|data| self.deliver(tenant, Direction::Recv, data, None));
+                    .is_some_and(|data| self.deliver_shared(tenant, Direction::Recv, data, None));
                 if admitted {
                     self.serve(&id, tenant, method, params);
                 } else {
@@ -306,6 +312,19 @@ impl Inner {
         data: &Value,
         failed: Option<&mut Option<String>>,
     ) -> bool {
+        // A held frame is released once, so one clone here is not the hot path.
+        let data = Arc::new(data.clone());
+        self.deliver_vetted(tenant, dir, &data, false, failed)
+    }
+
+    /// Delivery of a frame whose decoded value is already shared.
+    pub(super) fn deliver_shared(
+        &mut self,
+        tenant: u64,
+        dir: Direction,
+        data: &Arc<Value>,
+        failed: Option<&mut Option<String>>,
+    ) -> bool {
         self.deliver_vetted(tenant, dir, data, false, failed)
     }
 
@@ -315,7 +334,7 @@ impl Inner {
         &mut self,
         tenant: u64,
         dir: Direction,
-        data: &Value,
+        data: &Arc<Value>,
         admitted: bool,
         failed: Option<&mut Option<String>>,
     ) -> bool {
@@ -329,7 +348,7 @@ impl Inner {
         let verdict = if admitted {
             Admission::Taken
         } else {
-            handlers.admit(dir, data)
+            handlers.admit(dir, data.as_ref())
         };
         match verdict {
             // The frame's delivery is published where the host decides it: a
@@ -339,7 +358,7 @@ impl Inner {
                 self.out.push(HostEffect::Frame {
                     tenant,
                     dir,
-                    data: data.clone(),
+                    data: Arc::clone(data),
                 });
                 true
             }

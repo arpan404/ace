@@ -30,6 +30,63 @@ export function fenceSteer(repo: EngineRepository, command: Command, id: ThreadI
 }
 
 /**
+ * Aims a fresh steer at the turn running as the person sends it (or at nothing, `null`, when no
+ * turn runs). That turn is the one the person meant to steer into: once it ends, the message
+ * queues as the next one instead of cancelling a later turn they never saw.
+ */
+export function aimSteerAtRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.delivery !== "steer" || p.runId !== undefined) return command;
+  return aimAtActiveRun(repo, command, id);
+}
+
+/**
+ * Aims a waiting message the person chooses to steer in at the turn running now, replacing any
+ * target it kept: one that has already ended would bounce it straight back to the queue.
+ */
+export function reaimSteerAtRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.delivery !== "steer") return command;
+  return aimAtActiveRun(repo, command, id);
+}
+
+/**
+ * Aims a steer at the turn an active run names, or at `null` when none runs. Only a session that
+ * steers by cancelling the running turn (ACP) is aimed: every other provider steers natively and
+ * reads no run, and a run it named would fence a steer it never asked for.
+ */
+function aimAtActiveRun(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || !repo.steersByCancel?.(id)) return command;
+  const state = repo.state(id);
+  if (!state) return command;
+  return Command.parse({ ...command, payload: { ...p, runId: activeRootRun(repo, id) } });
+}
+
+/** The root's running turn, or `null` while the thread sits between turns. */
+export function activeRootRun(repo: EngineRepository, id: ThreadId): string | null {
+  const state = repo.state(id);
+  return state?.agents[state.rootKey ?? ""]?.activeRun ?? null;
+}
+
+/**
+ * Records the turn an admitted steer went into, beside its payload rather than in it: a payload
+ * `runId` fences every steer that carries one, so only a live cancel-steered session is stamped.
+ * The lane's cancel path reads this aim where a session that steers by cancelling has no payload
+ * target, such as a steer sent while the session is still opening.
+ */
+export function recordSteerAim(
+  repo: EngineRepository,
+  intent: number,
+  id: ThreadId,
+  command: Command,
+): void {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.delivery !== "steer") return;
+  repo.steerAims.record(intent, activeRootRun(repo, id));
+}
+
+/**
  * Whether what a steer's sender saw no longer holds: the root run it named isn't the active one,
  * or (`null`, it saw none) a root run is active now.
  */

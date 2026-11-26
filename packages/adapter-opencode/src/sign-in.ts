@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { randomBytes } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { basicAuthorization, ownedServerReady, spawnOwnedServer } from "./owned-server.ts";
 
 /*
@@ -82,8 +83,16 @@ export async function openOpenCodeSignIn(options: {
   entropy?: () => string;
   /** A server that hasn't announced itself by then is given up on; the terminal takes over. */
   startupTimeoutMs?: number;
+  /**
+   * OpenCode lists its integrations a moment after it announces its URL: an empty list is asked
+   * for again, every `integrationsPollMs`, for up to this long.
+   */
+  integrationsWaitMs?: number;
+  integrationsPollMs?: number;
 }): Promise<OpenCodeSignIn> {
   const password = options.entropy?.() ?? randomBytes(32).toString("hex");
+  const integrationsWaitMs = options.integrationsWaitMs ?? 3000;
+  const integrationsPollMs = options.integrationsPollMs ?? 100;
   const authorization = basicAuthorization(password);
   const proc = spawnOwnedServer({
     spawn: options.spawn ?? spawnSupervised,
@@ -121,12 +130,22 @@ export async function openOpenCodeSignIn(options: {
     if (!response.ok) throw new Error(`OpenCode sign-in request failed (${response.status})`);
     return response.status === 204 ? undefined : DataReply.parse(await response.json()).data;
   };
+  const readIntegrations = async (): Promise<OpenCodeIntegration[]> =>
+    IntegrationEntries.parse(await request("/api/integration")).flatMap((entry) => {
+      const parsed = Integration.safeParse(entry);
+      return parsed.success ? [parsed.data] : [];
+    });
   return {
     async integrations() {
-      return IntegrationEntries.parse(await request("/api/integration")).flatMap((entry) => {
-        const parsed = Integration.safeParse(entry);
-        return parsed.success ? [parsed.data] : [];
-      });
+      // An empty list right after startup means OpenCode is still loading, not that it has none.
+      const extraAsks = Math.ceil(integrationsWaitMs / integrationsPollMs);
+      for (let ask = 0; ; ask++) {
+        const listed = await readIntegrations();
+        if (listed.length > 0 || ask >= extraAsks) return listed;
+        await sleep(integrationsPollMs, undefined, {
+          signal: AbortSignal.any([options.signal, stopped.signal]),
+        });
+      }
     },
     async begin(integration, method, answer) {
       return Attempt.parse(

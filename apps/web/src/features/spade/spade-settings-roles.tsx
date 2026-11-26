@@ -28,7 +28,7 @@ import { EffortSelect, effortDefault } from "./spade-settings-effort.tsx";
 import { roleGridColumns, RouteSettingRow } from "./spade-settings-route.tsx";
 
 const roleHints: Record<SpadeRole, string> = {
-  task: "Work spun off beside the chat",
+  task: "Work the bot does in the background",
   helper: "Small background tool steps",
   verify: "Checks finished work before stopping",
   review: "Reviews writes before they run",

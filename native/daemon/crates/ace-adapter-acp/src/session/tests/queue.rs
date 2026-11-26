@@ -5,8 +5,8 @@ use ace_adapter_api::session::Delivery;
 use ace_json::{JsString, Value, json};
 
 use super::{
-    ack_writes, core_with_prompt, live_fence, prompt_reply, send, sent_id, sent_json_messages,
-    session_core, settlements, steer_reply,
+    ack_writes, core_with_prompt, live_fence, prompt_reply, runless_fence, send, sent_id,
+    sent_json_messages, session_core, settlements, steer_reply,
 };
 use crate::session::core::{AcpCore, AcpCoreConfig, AcpEffect};
 use crate::session::input::InputSend;
@@ -68,12 +68,63 @@ fn a_queued_fenced_prompt_is_refused_unread_once_the_session_is_idle() {
     assert!(sent_json_messages(&ended).is_empty());
 }
 
-/// A queued steer whose fence is still current when the queue reaches it is sent: TS asks
-/// `fence.current()` again at that moment (`session.ts:718`), it never assumes the turn is
-/// over just because a prompt ended.
-/// A prompt that fails after an earlier one of its batch wrote rethrows the raw error, so
-/// the engine counts the send uncertain, and the rest of the batch is not dropped
-/// (`session.ts:629`-`:636`).
+/// A fence that names a turn, held by a steer the turn could not take, is refused once that
+/// turn's prompt settles even while the double still says current: the prompt it joined is the
+/// turn, and TS's live fence answers for that turn (`session.ts:718`).
+#[test]
+fn a_queued_fenced_steer_is_refused_once_its_turn_settled() {
+    let (mut core, prompt) = core_with_prompt("t-settled-fence");
+    core.steer_via_cancel = true;
+    let (fence, _current) = live_fence(true);
+    let effects = send(&mut core, 60, Delivery::Steer, Some(fence));
+    assert!(
+        sent_json_messages(&effects).is_empty(),
+        "queued behind the turn"
+    );
+    assert_eq!(core.queue_len(), 1);
+
+    let ended = core.stdout_bytes(&prompt_reply(&prompt, "end_turn"));
+    assert_eq!(
+        settlements(&ended, 60),
+        vec![Err((
+            "ACE_STEER_TARGET_LOST".to_owned(),
+            STEER_TARGET_LOST.to_owned()
+        ))]
+    );
+    assert!(
+        sent_json_messages(&ended).is_empty(),
+        "never written into another turn"
+    );
+}
+
+/// `steerViaCancel` hands the steer over with a fence that names no turn, so nothing tells the
+/// core which turn to compare against: the cancelled prompt settles, the queue reaches the steer
+/// while the runless fence still reads current, and it goes out as the next prompt
+/// (`session.ts:717`-`:723`, order 8 in `input.rs::send`).
+#[test]
+fn a_queued_steer_whose_fence_is_still_current_is_sent() {
+    let (mut core, prompt) = core_with_prompt("t-live-fence");
+    core.steer_via_cancel = true;
+    let effects = send(&mut core, 60, Delivery::Steer, Some(runless_fence(true)));
+    assert!(
+        sent_json_messages(&effects).is_empty(),
+        "queued behind the turn"
+    );
+    assert_eq!(core.queue_len(), 1);
+
+    let ended = core.stdout_bytes(&prompt_reply(&prompt, "end_turn"));
+    let settled = settlements(&ended, 60);
+    assert!(
+        settled.is_empty(),
+        "a current runless fence is not refused: {settled:?}"
+    );
+    let sent = sent_json_messages(&ended);
+    assert_eq!(
+        sent[0].get("method").and_then(Value::as_str),
+        Some("session/prompt")
+    );
+}
+
 #[test]
 fn a_written_batch_rethrows_the_raw_error() {
     let mut core = session_core("t-written-batch");
@@ -109,34 +160,6 @@ fn a_written_batch_rethrows_the_raw_error() {
     );
 }
 
-#[test]
-fn a_queued_steer_whose_fence_is_still_current_is_sent() {
-    let (mut core, prompt) = core_with_prompt("t-live-fence");
-    core.steer_via_cancel = true;
-    let (fence, current) = live_fence(true);
-    let effects = send(&mut core, 60, Delivery::Steer, Some(fence));
-    assert!(
-        sent_json_messages(&effects).is_empty(),
-        "queued behind the turn"
-    );
-    assert_eq!(core.queue_len(), 1);
-    assert!(current.load(std::sync::atomic::Ordering::Relaxed));
-
-    let ended = core.stdout_bytes(&prompt_reply(&prompt, "end_turn"));
-    let settled = settlements(&ended, 60);
-    assert!(
-        settled.is_empty(),
-        "a current fence is not refused: {settled:?}"
-    );
-    let sent = sent_json_messages(&ended);
-    assert_eq!(
-        sent[0].get("method").and_then(Value::as_str),
-        Some("session/prompt")
-    );
-}
-
-/// A turn that leaves a shell running without proof refuses the prompts behind it, as
-/// `rejectQueue` does at the prompt's end (`session.ts:786`-`:787`); its own send resolves.
 #[test]
 fn a_prompt_that_leaves_a_shell_running_refuses_the_queue_behind_it() {
     let (mut core, prompt) = core_with_prompt("t-blocked-shell");
@@ -192,6 +215,28 @@ fn one_queue_changed_note_is_published_per_prompt() {
         .count();
     // Two pushes, then the drain's own report once the first prompt went out.
     assert_eq!(notes, 3, "one note per prompt, and the drain's");
+}
+
+/// The promptRequired fallback of a fenced steer is the same rule: once the prompt it was
+/// admitted under settles, the input is refused (`session.ts:718`).
+#[test]
+fn a_prompt_required_fenced_steer_is_refused_once_its_turn_settled() {
+    let (mut core, prompt) = core_with_prompt("t-fallback-fence");
+    let (fence, _current) = live_fence(true);
+    let effects = send(&mut core, 61, Delivery::Steer, Some(fence));
+    let id = sent_id(&effects, "_session/steering").unwrap_or_default();
+    let queued = core.stdout_bytes(&steer_reply(&id, "promptRequired"));
+    assert!(settlements(&queued, 61).is_empty(), "still queued");
+    assert_eq!(core.queue_len(), 1);
+
+    let ended = core.stdout_bytes(&prompt_reply(&prompt, "end_turn"));
+    assert_eq!(
+        settlements(&ended, 61),
+        vec![Err((
+            "ACE_STEER_TARGET_LOST".to_owned(),
+            STEER_TARGET_LOST.to_owned()
+        ))]
+    );
 }
 
 #[test]
@@ -318,8 +363,18 @@ fn an_error_reply_clears_the_root_grace_before_the_next_prompt() {
         "the send carries the agent's message, not the whole error"
     );
     assert!(
-        core.prompt_id.is_some(),
-        "the queued prompt is in flight now"
+        settlements(&after, 70).is_empty(),
+        "the queued prompt is in flight, unsettled"
+    );
+    assert_eq!(
+        sent_json_messages(&after)
+            .iter()
+            .filter(
+                |message| message.get("method").and_then(Value::as_str) == Some("session/prompt")
+            )
+            .count(),
+        1,
+        "the queued prompt went out"
     );
 
     // The cleared grace cannot fire against the new prompt.
@@ -331,7 +386,10 @@ fn an_error_reply_clears_the_root_grace_before_the_next_prompt() {
             .all(|effect| !matches!(effect, AcpEffect::Fatal { .. })),
         "{fired:?}"
     );
-    assert!(core.prompt_id.is_some(), "the new prompt still runs");
+    assert!(
+        settlements(&fired, 70).is_empty(),
+        "the new prompt is still waiting on its reply"
+    );
 }
 
 #[test]

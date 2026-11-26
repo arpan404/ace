@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { ContextService } from "@ace/context";
+import type { ImageWork } from "@ace/media/images";
+import { binaryImages, testMediaBinary } from "@ace/media/testing/images";
 import { DeviceId, type ContextOperation } from "@ace/protocol";
 import { pinnedAgent } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
@@ -216,12 +218,16 @@ test("a WSS attachment read withheld at storage authorization returns no bytes a
   });
 });
 
-test("attachment HTTP reads require current read and thread permission, preserve original bytes and bound preview and ranges", async () => {
+/**
+ * A remote HTTPS attachment world: the daemon's context service over one uploaded PNG, a paired
+ * read device and a paired operator. `images` is the daemon's image work, as `startContext` wires
+ * it (ADR 0208).
+ */
+async function httpsAttachments(options: { images?: ImageWork } = {}) {
   let context: ContextService | undefined;
   const { token } = await import("./socket-test-support.ts");
   const { readFile } = await import("node:fs/promises");
   const { request: httpsRequest } = await import("node:https");
-  const { imageSize } = await import("image-size");
   let allowed = true;
   const f = await setup({
     context: {
@@ -242,6 +248,7 @@ test("attachment HTTP reads require current read and thread permission, preserve
     now: () => 1000,
     authorize: (_device, thread) => thread === f.thread.id,
     workspace: () => undefined,
+    ...(options.images ? { images: options.images } : {}),
   });
   const owned = context;
   cleanups.push(() => owned.close());
@@ -304,6 +311,27 @@ test("attachment HTTP reads require current read and thread permission, preserve
       req.on("error", reject);
       req.end();
     });
+  return {
+    f,
+    token,
+    bytes,
+    sha256,
+    reader,
+    operator,
+    base,
+    get,
+    deny: () => {
+      allowed = false;
+    },
+    allow: () => {
+      allowed = true;
+    },
+  };
+}
+
+test("attachment HTTP reads require current read and thread permission, preserve original bytes and bound ranges", async () => {
+  const { f, token, bytes, sha256, reader, operator, base, get, deny, allow } =
+    await httpsAttachments();
   expect((await get(`${base}/original`, "0".repeat(64))).status).toBe(401);
   expect((await get(`${base}/original`, token)).status).toBe(401);
   expect((await get(`${base}/original`, operator.token)).status).toBe(403);
@@ -322,19 +350,31 @@ test("attachment HTTP reads require current read and thread permission, preserve
     (await get(`${base}/original`, reader.token, { "if-none-match": original.headers.etag ?? "" }))
       .status,
   ).toBe(304);
-  const preview = await get(`${base}/thumbnail`, reader.token);
-  expect(preview.status).toBe(200);
-  expect(preview.bytes.length).toBeLessThan(512 * 1024);
-  expect(imageSize(preview.bytes)).toMatchObject({ width: 320, height: 240 });
-  allowed = false;
+  deny();
   expect(
     (await get(`${base}/original`, reader.token, { "if-none-match": original.headers.etag ?? "" }))
       .status,
   ).toBe(403);
-  allowed = true;
+  allow();
   expect(
     (await get(base.replace(f.thread.id, "other-thread") + "/original", reader.token)).status,
   ).toBe(403);
   await f.request(`/v1/devices/${reader.device.id}`, { method: "DELETE", token });
   expect((await get(`${base}/original`, reader.token)).status).toBe(401);
 });
+
+/** The daemon's image work as production wires it: ace-media's decoders (ADR 0208). */
+const media = testMediaBinary();
+const images = media ? binaryImages(media) : undefined;
+test.skipIf(!images)(
+  "an attachment thumbnail is ace-media's bounded PNG, not the stored original",
+  async () => {
+    const { imageSize } = await import("image-size");
+    const { base, reader, get } = await httpsAttachments(images ? { images } : {});
+    const preview = await get(`${base}/thumbnail`, reader.token);
+    expect(preview.status).toBe(200);
+    expect(preview.bytes.length).toBeLessThan(512 * 1024);
+    expect(preview.bytes.subarray(1, 4).toString("latin1")).toBe("PNG");
+    expect(imageSize(preview.bytes)).toMatchObject({ width: 320, height: 240 });
+  },
+);

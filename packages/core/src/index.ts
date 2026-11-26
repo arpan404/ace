@@ -136,7 +136,7 @@ export { startFakeCore } from "./native.ts";
 export { useCoreBackend, type CoreBackend } from "./backend.ts";
 
 export { externalAgentStatus, readyForChildResults } from "./external.ts";
-export { acceptsPersonInput, continueMessage } from "./person-input.ts";
+export { acceptsPersonInput, compactionBlocked, continueMessage } from "./person-input.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";
 export {
@@ -171,4 +171,5 @@ export {
   isRunningShellTool,
   hasForegroundShellCommand,
   hasRunningForegroundCommand,
+  hasRunningForegroundCommandInTree,
 } from "./steering.ts";

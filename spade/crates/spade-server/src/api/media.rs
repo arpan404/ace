@@ -30,6 +30,7 @@ pub(super) fn routes() -> Router<AppState> {
             "/conversations/{id}/messages",
             post(message).layer(DefaultBodyLimit::max(MESSAGE_BODY)),
         )
+        .route("/conversations/{id}/invocables", get(invocables))
         .route("/documents/{sha256}", get(document))
         .route("/documents/{sha256}/text", get(document_text))
         .route("/audio/{sha256}", get(audio))
@@ -59,6 +60,10 @@ struct Message {
     /// is ignored and the message still goes.
     #[serde(default)]
     reply_to: Value,
+    /// A skill or command the message starts (the composer's `/` menu); refused unless this bot
+    /// may use it now.
+    #[serde(default)]
+    invoke: Option<crate::engine::InvokeRequest>,
 }
 
 #[derive(Deserialize)]
@@ -143,7 +148,15 @@ async fn message(
         .take(spade_core::named_devices::MOST)
         .filter_map(|value| serde_json::from_value(value.clone()).ok())
         .collect();
+    let invoke = match &body.invoke {
+        Some(request) => match state.engine.resolve_invoke(&id, request, &text).await {
+            Ok(invoked) => Some(invoked),
+            Err(error) => return invoke_problem(&error),
+        },
+        None => None,
+    };
     let outgoing = Outgoing {
+        invoke,
         text,
         images,
         documents,
@@ -154,6 +167,25 @@ async fn message(
     match state.engine.send_message(&id, outgoing) {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => send_problem(&error),
+    }
+}
+
+fn invoke_problem(error: &crate::engine::InvokeError) -> Response {
+    use crate::engine::InvokeError;
+    let status = match error {
+        InvokeError::NotFound => StatusCode::NOT_FOUND,
+        InvokeError::Refused(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        InvokeError::Library(_) => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    problem(status, &error.to_string())
+}
+
+/// `GET /v1/conversations/{id}/invocables`: the skills and commands this bot may be told to use,
+/// for the composer's `/` menu.
+async fn invocables(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.invocables(&id).await {
+        Ok(rows) => Json(json!({ "invocables": rows })).into_response(),
+        Err(error) => invoke_problem(&error),
     }
 }
 

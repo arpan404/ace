@@ -210,6 +210,424 @@ test.concurrent.for(["run_once", "skip"] as const)(
   },
 );
 
+test.concurrent(
+  "a missed run_once waits for model readiness and then runs exactly once",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const f = await idleDaemon({
+      seedModels: false,
+      deferModels: true,
+      armDeadlineMs: 100,
+      modelRetryMs: 100,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("deferred-models", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      // The scheduler stays off until this test enables it after the restart.
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // The 100 ms arming bound has passed, so the scheduler is live; model admission is still
+      // running, so the due occurrence must stay due instead of being spent on a refused thread.
+      await delay(500);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "kept" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBe(due);
+      expect(
+        (
+          await connection.ask({
+            type: "automation.inbox",
+            requestId: "held",
+            automationId: automation.id,
+            limit: 50,
+          })
+        ).inbox?.runs,
+      ).toEqual([]);
+      await f.admitModels();
+      await expect.poll(() => f.prompts, { timeout: 30_000 }).toEqual([automation.prompt]);
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "ran",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs,
+        )
+        .toMatchObject([{ status: "succeeded" }]);
+      await delay(500);
+      expect(f.prompts).toEqual([automation.prompt]);
+      expect(f.daemon.store.listThreads()).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "the scheduler arms at its deadline without model admission and keeps the due run",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const f = await idleDaemon({
+      seedModels: false,
+      deferModels: true,
+      armDeadlineMs: 100,
+      modelRetryMs: 100,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("never-ready", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // The held admission never settles. Past the 100 ms bound the scheduler still arms: a
+      // person's Run now is accepted, while the missed occurrence itself is never spent.
+      await delay(500);
+      expect(
+        await connection.ask({
+          type: "automation.run",
+          requestId: "run-now",
+          id: automation.id,
+          variables: {},
+        }),
+      ).toMatchObject({ ok: true });
+      const snapshot = await connection.ask({ type: "automation.list", requestId: "kept" });
+      expect(snapshot.schedules?.find((schedule) => schedule.id === automation.id)?.nextRunAt).toBe(
+        due,
+      );
+      expect(
+        (
+          (
+            await connection.ask({
+              type: "automation.inbox",
+              requestId: "runs",
+              automationId: automation.id,
+              limit: 50,
+            })
+          ).inbox?.runs ?? []
+        ).filter((run) => run.trigger === "schedule"),
+      ).toEqual([]);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "after readiness settles, a missing model fails the due run visibly",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const f = await idleDaemon({
+      seedModels: false,
+      deferModels: true,
+      armDeadlineMs: 100,
+      modelRetryMs: 100,
+      modelSettled: async () => {},
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("missing-model", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      await delay(500);
+      // Readiness settles, but the automation's model was never registered: the run is admitted
+      // and the engine refuses it, which is reported, never a silent loss.
+      f.settleModels();
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "failed",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs?.map((run) => [run.status, run.result]),
+          { timeout: 30_000 },
+        )
+        .toEqual([["failed", "model_unavailable"]]);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "a due run waits for slow model discovery and then runs once",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const discovery = Promise.withResolvers<void>();
+    let asked: string | undefined;
+    const f = await idleDaemon({
+      seedModels: false,
+      modelSettled: (filter) => {
+        asked = `${filter.provider}:${filter.instance ?? ""}`;
+        return discovery.promise;
+      },
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("slow-discovery", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // Discovery for the automation's provider is still running: the occurrence stays due.
+      await delay(500);
+      expect(asked).toBe("codex:");
+      expect(f.prompts).toEqual([]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "held" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBe(due);
+      expect(
+        (
+          await connection.ask({
+            type: "automation.inbox",
+            requestId: "held-runs",
+            automationId: automation.id,
+            limit: 50,
+          })
+        ).inbox?.runs,
+      ).toEqual([]);
+      await f.registerModels();
+      discovery.resolve();
+      await expect.poll(() => f.prompts, { timeout: 30_000 }).toEqual([automation.prompt]);
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "ran",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs,
+        )
+        .toMatchObject([{ status: "succeeded" }]);
+      await delay(300);
+      expect(f.prompts).toEqual([automation.prompt]);
+      expect(f.daemon.store.listThreads()).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "discovery that finishes without the model fails the due run visibly",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const discovery = Promise.withResolvers<void>();
+    const f = await idleDaemon({
+      seedModels: false,
+      modelSettled: () => discovery.promise,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("absent-model", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      await delay(500);
+      expect(f.prompts).toEqual([]);
+      // The provider's discovery finished and its list has no such model: the run is admitted,
+      // refused, and the refusal is recorded, never silently dropped.
+      discovery.resolve();
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "failed",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs?.map((run) => [run.status, run.result]),
+          { timeout: 30_000 },
+        )
+        .toEqual([["failed", "model_unavailable"]]);
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.concurrent(
+  "a held occurrence is released as a visible failure after its bounded discovery wait",
+  { timeout: 180_000 },
+  async ({ expect }) => {
+    const discovery = Promise.withResolvers<void>();
+    const f = await idleDaemon({
+      seedModels: false,
+      modelSettled: () => discovery.promise,
+      // One occurrence never waits forever for discovery; its bound is on the clock.
+      modelHoldMs: 300,
+      modelRetryMs: 100,
+    });
+    try {
+      let connection = await f.connect();
+      const due = Math.ceil((Date.now() + 2000) / 60_000) * 60_000;
+      const automation = {
+        ...f.definition("never-discovered", due),
+        missedRun: "run_once" as const,
+      };
+      expect(
+        await connection.ask({
+          type: "automation.put",
+          requestId: "save",
+          automation,
+          expectedRevision: null,
+        }),
+      ).toMatchObject({ ok: true });
+      await f.daemon.settings.set("automations.enabled", false, { kind: "global" });
+      await f.stop();
+      await delay(Math.max(0, due - Date.now()) + 150);
+      await f.restart();
+      connection = await f.connect();
+      await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+      // Inside the bound the occurrence is held: no run, no thread, still due.
+      await delay(150);
+      expect(f.prompts).toEqual([]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "held" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBe(due);
+      // Past the bound it is admitted and the missing model is recorded, not held forever.
+      await expect
+        .poll(
+          async () =>
+            (
+              await connection.ask({
+                type: "automation.inbox",
+                requestId: "failed",
+                automationId: automation.id,
+                limit: 50,
+              })
+            ).inbox?.runs?.map((run) => [run.status, run.result]),
+          { timeout: 30_000 },
+        )
+        .toEqual([["failed", "model_unavailable"]]);
+      expect(
+        (await connection.ask({ type: "automation.list", requestId: "spent" })).schedules?.find(
+          (schedule) => schedule.id === automation.id,
+        )?.nextRunAt,
+      ).toBeNull();
+      expect(f.prompts).toEqual([]);
+      expect(f.daemon.store.listThreads()).toEqual([]);
+      // A discovery result that arrives later does not re-run the spent occurrence.
+      discovery.resolve();
+      await delay(500);
+      expect(
+        (
+          await connection.ask({
+            type: "automation.inbox",
+            requestId: "still-one",
+            automationId: automation.id,
+            limit: 50,
+          })
+        ).inbox?.runs,
+      ).toHaveLength(1);
+      expect(f.prompts).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test.concurrent("a manual retry and a committed deletion survive daemon restart without another execution", async ({
   expect,
 }) => {

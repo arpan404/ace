@@ -67,4 +67,12 @@ enum TerminalNames {
         if names.count > 200 { names = Dictionary(uniqueKeysWithValues: names.suffix(200).map { ($0.key, $0.value) }) }
         UserDefaults.standard.set(names, forKey: key)
     }
+
+    /// The words a terminal shows: this phone's rename, else the program's own window title
+    /// (OSC 0/2, already bounded by the screen), else the shell's name.
+    static func display(renamed: String?, title: String, shell: String) -> String {
+        if let renamed, !renamed.isEmpty { return renamed }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? shell : String(trimmed.prefix(80))
+    }
 }

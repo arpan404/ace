@@ -1,0 +1,137 @@
+//! Ports `apps/daemon/src/host-identity.server.process.test.ts` (all five cases) and
+//! `apps/daemon/src/computer-name.test.ts`.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use super::{
+    IconColor, IdentityFacts, IdentityRefusal, IdentitySession, MachineIcon, MachineIconKind,
+    SettingValue, host_identity,
+};
+
+fn facts() -> IdentityFacts {
+    IdentityFacts {
+        host_id: "host".to_owned(),
+        default_name: "Laptop".to_owned(),
+        hostname: "laptop".to_owned(),
+        version: "1.2.3".to_owned(),
+        platform: "darwin".to_owned(),
+    }
+}
+
+#[test]
+fn authenticated_identity_uses_the_computer_name_until_the_global_display_name_is_edited() {
+    let first = host_identity(&facts(), None, None);
+    assert_eq!(first.display_name, "Laptop");
+    assert_eq!(first.host_id, "host");
+    assert_eq!(first.version, "1.2.3");
+    assert_eq!(first.platform.as_deref(), Some("darwin"));
+    // The person renames it and picks a mark.
+    let renamed = SettingValue::set("Office".to_owned());
+    let icon = SettingValue::set(MachineIcon {
+        kind: MachineIconKind::Server,
+        color: Some(IconColor::Purple),
+    });
+    let renamed_identity = host_identity(&facts(), Some(&renamed), Some(&icon));
+    assert_eq!(renamed_identity.display_name, "Office");
+    assert_eq!(
+        renamed_identity.icon,
+        Some(MachineIcon {
+            kind: MachineIconKind::Server,
+            color: Some(IconColor::Purple),
+        })
+    );
+    // A reconnect reads the same settings, so it sees the same name and mark.
+    assert_eq!(
+        host_identity(&facts(), Some(&renamed), Some(&icon)),
+        renamed_identity
+    );
+    // An unset icon is left out: the client picks its own default mark.
+    let default_icon = SettingValue::defaults(MachineIcon {
+        kind: MachineIconKind::Laptop,
+        color: None,
+    });
+    assert_eq!(
+        host_identity(&facts(), None, Some(&default_icon)).icon,
+        None
+    );
+    // An empty display name falls back to the computer's own name.
+    let empty = SettingValue::set(String::new());
+    assert_eq!(
+        host_identity(&facts(), Some(&empty), None).display_name,
+        "Laptop"
+    );
+}
+
+#[test]
+fn an_unauthenticated_socket_cannot_read_host_identity() {
+    // A socket with no hello reaches no service: the hello gate refuses it. What T2 owns is
+    // the service's own scope check, which refuses a socket without `read`.
+    let session = IdentitySession::new();
+    assert_eq!(session.begin(false), Err(IdentityRefusal::Forbidden));
+    assert_eq!(IdentityRefusal::Forbidden.code(), "forbidden");
+    assert_eq!(
+        IdentityRefusal::Forbidden.message(),
+        "Identity read unavailable"
+    );
+}
+
+#[test]
+fn identity_requires_read_scope_on_an_authenticated_paired_connection() {
+    // An `operate`-only paired device: the socket is welcomed, the identity read is refused by
+    // the same `allows` the daemon checks it with.
+    let device = crate::devices::Device {
+        id: "phone".to_owned(),
+        name: "Phone".to_owned(),
+        scopes: vec![crate::devices::Scope::Operate],
+        created_at: 1,
+        last_seen_at: 1,
+        revoked_at: None,
+        expires_at: None,
+    };
+    let actor = crate::devices::SessionActor::paired(crate::devices::PairedDevice {
+        device,
+        generation: "g".to_owned(),
+        person: false,
+    });
+    let can_read = crate::devices::allows(&actor, crate::devices::Scope::Read);
+    assert!(!can_read);
+    let session = IdentitySession::new();
+    assert_eq!(session.begin(can_read), Err(IdentityRefusal::Forbidden));
+}
+
+#[test]
+fn identity_says_which_operating_system_and_leaves_out_one_clients_do_not_know() {
+    for (platform, reported) in [
+        ("darwin", Some("darwin")),
+        ("linux", Some("linux")),
+        ("win32", Some("win32")),
+        ("aix", None),
+    ] {
+        let identity = host_identity(
+            &IdentityFacts {
+                platform: platform.to_owned(),
+                ..facts()
+            },
+            None,
+            None,
+        );
+        assert_eq!(identity.platform.as_deref(), reported, "{platform}");
+    }
+}
+
+#[test]
+fn a_second_read_while_the_first_is_pending_is_busy_and_the_first_answers() {
+    let session = IdentitySession::new();
+    session.begin(true).unwrap();
+    assert_eq!(session.begin(true), Err(IdentityRefusal::Busy));
+    assert_eq!(IdentityRefusal::Busy.code(), "busy");
+    let identity = host_identity(&facts(), None, None);
+    assert!(session.finish(true, identity.clone()).is_some());
+    // A socket that lost its read scope while the settings were read is told nothing.
+    session.begin(true).unwrap();
+    assert!(session.finish(false, identity.clone()).is_none());
+    // And the failure answer, which also clears the flag.
+    session.begin(true).unwrap();
+    assert_eq!(session.failed(), IdentityRefusal::Unavailable);
+    session.begin(true).expect("the flag was cleared");
+}

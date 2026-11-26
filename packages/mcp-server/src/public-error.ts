@@ -122,7 +122,7 @@ const issueList = z.array(PublicIssue).max(16);
 /** A log correlation id: opaque, short and never derived from the failure's text. */
 export const ErrorId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
-const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
+export const publicErrorCatalog: Record<PublicToolCode, { message: string; hint: string }> = {
   screen_disabled: {
     message: "Computer use is disabled",
     hint: "The person turns computer use on in ace's Settings; stop and tell them.",
@@ -555,7 +555,7 @@ export class PublicToolError extends Error {
     issues?: unknown,
     errorId?: string,
   ) {
-    const entry = catalog[code];
+    const entry = publicErrorCatalog[code];
     super(entry.message);
     this.code = code;
     this.errorId = ErrorId.safeParse(errorId).success ? errorId : undefined;

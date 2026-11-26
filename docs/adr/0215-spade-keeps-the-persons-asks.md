@@ -185,3 +185,14 @@ public surface is small and is all in `spade_core::asks`:
   and scripted tests leave it off unless they test this, so their steps stay their own.
 - The ledger is the harness's account of the person's words, not the person's task: changing a
   bot's job is still `task_update` (ADR 0126), and lasting facts still go to notes (ADR 0128).
+
+## Amendment (2026-11-23) — Keep the person's own instruction under taint
+
+While untrusted content is in view, `asks` can record a standing instruction
+by giving the exact message id and complete text of the person's latest
+message. Spade gets both from the stored authored message, so a tool result,
+message context, excerpt or model paraphrase cannot supply the instruction.
+Spade accepts surrounding whitespace and refuses text beyond the ledger's
+length limit so truncation cannot change the instruction. Other changes under
+taint stay limited to ask states. Lifting still requires a later message from
+the person and an untainted view.

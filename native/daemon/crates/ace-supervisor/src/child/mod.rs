@@ -276,7 +276,21 @@ fn spawn_owned<E: EventSink + Clone>(
     let writers = job.clone().map(|job| (job, Arc::clone(&budget)));
     #[cfg(not(windows))]
     let writers = ();
-    runtime.spawn(wait_and_close(Arc::clone(&leader), sink, pumps, writers));
+    // A diverted child's consumer is its only reader: whatever the child left in
+    // its pipes must reach the consumer before the exit is reported.
+    let drain = diverted.then(|| {
+        vec![stdout.clone(), stderr.clone()]
+            .into_iter()
+            .flatten()
+            .collect()
+    });
+    runtime.spawn(wait_and_close(
+        Arc::clone(&leader),
+        sink,
+        pumps,
+        writers,
+        drain,
+    ));
     Ok(SupervisedChild {
         leader,
         stdin,
@@ -296,11 +310,38 @@ type Writers = Option<(Arc<ChildJob>, Arc<crate::pump::OutputBudget>)>;
 #[cfg(not(windows))]
 type Writers = ();
 
+/// How long a diverted child's pumps may take to reach their pipes' EOF after
+/// the leader's end before the exit is reported anyway: the sessions' own
+/// 1,000 ms cutoff after the leader's end (`session.ts:272`–`:283`). A pipe a
+/// descendant still holds must not keep the exit from being reported.
+const DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_millis(1_000);
+/// How often a drain checks whether the pumps are done.
+const DRAIN_POLL: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// Reads what the child left in its pipes out to its consumer before the exit
+/// is reported. Node resumes a child's streams at `exit` (`flushStdio`,
+/// `native-process.ts:481`); a diverted child's Rust consumer is their only
+/// reader, so the pumps are resumed once here: a consumer that paused them
+/// still sees every byte the child wrote before it ended.
+async fn drain_pipes(pumps: &[tokio::task::JoinHandle<()>], flows: &[Arc<Flow>]) {
+    for flow in flows {
+        flow.resume();
+    }
+    let deadline = tokio::time::Instant::now() + DRAIN_LIMIT;
+    while !pumps.iter().all(tokio::task::JoinHandle::is_finished) {
+        if tokio::time::Instant::now() >= deadline {
+            return;
+        }
+        tokio::time::sleep(DRAIN_POLL).await;
+    }
+}
+
 async fn wait_and_close<E: EventSink + Clone>(
     leader: Arc<Leader>,
     sink: E,
     pumps: Vec<tokio::task::JoinHandle<()>>,
     writers: Writers,
+    drain: Option<Vec<Arc<Flow>>>,
 ) {
     let watched = Arc::clone(&leader);
     let exit = tokio::task::spawn_blocking(move || watched.wait_exit())
@@ -309,6 +350,13 @@ async fn wait_and_close<E: EventSink + Clone>(
             code: None,
             signal: None,
         });
+    // A diverted child's consumer reads only through its pumps: the bytes the
+    // child wrote are delivered before the exit names its end, bounded so a
+    // pipe a descendant still holds cannot stall it. An undiverted child keeps
+    // node's order (its shell drains the streams nobody reads).
+    if let Some(flows) = &drain {
+        drain_pipes(&pumps, flows).await;
+    }
     // Like node's `exit`: the leader's end, while pipes may still drain. A
     // descendant holding stdout must not hold this back: the shell's exit
     // listener ends the tree once it hears it.
@@ -477,3 +525,6 @@ impl SupervisedChild {
         self.job.clone()
     }
 }
+
+#[cfg(test)]
+mod tests;

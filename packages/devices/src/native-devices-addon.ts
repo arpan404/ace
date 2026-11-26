@@ -6,6 +6,7 @@
  * a cycle: a caller turns a refusal into the `DeviceError` it names.
  */
 import { fileURLToPath } from "node:url";
+import type { CaptureAddon } from "./native-capture-addon.ts";
 
 /** One SDK command the addon decided: `simctl` through `xcrun`, or the device's adb. */
 export interface Step {
@@ -49,6 +50,69 @@ export interface DeviceRecord {
   runtime?: string | undefined;
   serial?: string | undefined;
   model?: string | undefined;
+}
+
+/** The folders a look read searches: the AVD roots and Xcode's DeviceKit roots. */
+export interface ChromeRoots {
+  avdRoots: string[];
+  chromeRoots: string[];
+}
+
+/** One read step: files still to read, or what the read found once it had them. */
+export interface ReadStep {
+  read: string[];
+  directory?: string;
+  text?: string;
+}
+
+/** An image a skin draws, and the corner its diagonal scan starts at. */
+export interface SkinImageRead {
+  key: string;
+  file: string;
+  corner: [number, number] | null;
+  reach: number;
+}
+
+/** A skin's opening, as the shell reads it back to build the look. */
+export interface SkinPlan {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  background: string;
+  mask?: string;
+  short: number;
+  reach: number;
+  backCorner: [number, number] | null;
+}
+
+export interface SkinRead {
+  plan: SkinPlan;
+  images: SkinImageRead[];
+}
+
+/** One drawing of a body built from pieces, as `pdf-svg` paints it. */
+export interface SvgArt {
+  width: number;
+  height: number;
+  svg: string;
+}
+
+export interface PlacedPiece {
+  art: SvgArt;
+  rect: { x: number; y: number; width: number; height: number };
+}
+
+/** A Simulator look, and the pieces still to paint when its body is sliced. */
+export interface ChromeAnswer {
+  chrome: unknown | null;
+  paint?: { width: number; height: number; pieces: PlacedPiece[] };
+}
+
+/** A PDF a chrome names, answered by its key. */
+export interface ArtPath {
+  key: string;
+  path: string;
 }
 
 /** One platform's read: its devices, or the failure that stopped it. */
@@ -161,7 +225,7 @@ interface Answer<T> {
 }
 
 /** The addon's exports, as `ace-daemon-node/src/devices` declares them. */
-interface DevicesAddon {
+interface DevicesAddon extends CaptureAddon {
   devicePlatformIdentity(id: string, capture: boolean, inventory: string): string;
   devicePlatformInstall(platform: string, path: string): string;
   devicePlatformOpenApp(platform: string, app: string, resolved?: string): string;
@@ -206,6 +270,54 @@ interface DevicesAddon {
     node: string | undefined,
   ): string;
   devicePlatformAndroidDimensions(output: string): string;
+  deviceCaptureSimulatorRoute(
+    supported: boolean,
+    command: string | undefined,
+    version: string | undefined,
+    serveSimEnv: boolean,
+    screenAvailable: boolean,
+  ): string;
+  deviceCaptureNeedsToolsDownload(supported: boolean, serveSimEnv: boolean): boolean;
+  deviceCaptureWindows(windows: string, name: string): string;
+  deviceCaptureAndroidLiveViewError(why: string): string;
+  deviceCaptureAndroidNotBooted(): string;
+  deviceCaptureAmbiguousWindow(): string;
+  deviceCaptureWindowNotFound(): string;
+  deviceCaptureHelperVideoUnavailable(): string;
+  deviceCaptureEndpoint(line: string): string;
+  deviceCaptureLocalUrl(value: string, port: number, protocol: string): string;
+  deviceCaptureSibling(stream: string, name: string): string;
+  deviceCaptureScreenConfig(payload: string): string;
+  deviceCaptureSpawnArgs(commandArgs: string, udid: string): string;
+  deviceCaptureTranscode(
+    transcoding: boolean,
+    bitrate: number,
+    maxWidth: number,
+    maxHeight: number,
+    nativeWidth: number | undefined,
+    nativeHeight: number | undefined,
+    source: number | undefined,
+  ): boolean;
+  deviceCaptureEncodeSpec(
+    nativeWidth: number,
+    nativeHeight: number,
+    maxWidth: number,
+    maxHeight: number,
+    bitrate: number,
+  ): string;
+  deviceCaptureStillScale(encodedWidth: number, nativeWidth: number | undefined): number;
+  deviceHostFramesName(runtimeId: string): string;
+  deviceHostFramesBytes(width: number, height: number): string;
+  deviceHostFramesEdge(box: number): number;
+  deviceScreenshotCheckSource(bytes: number): string;
+  deviceScreenshotFitOp(): string;
+  deviceScreenshotScale(encodedWidth: number, sourceWidth: number): number;
+  deviceVideoForwardFrame(
+    unit: string,
+    displayWidth: number,
+    displayHeight: number,
+    sequence: string,
+  ): string;
   devicePlatformCatalogWord(key: string): string;
   devicePlatformInstallTools(request: string): Promise<string>;
   devicePlatformCatalogHint(key: string): string | null;
@@ -260,6 +372,46 @@ interface DevicesAddon {
   devicePlatformScrcpyDeviceReaderDrop(id: number): void;
   devicePlatformSimulatorAxLimits(): string;
   devicePlatformNativeCalls(): number;
+  devicePlatformImageLimits(): string;
+  devicePlatformImageError(what: string, reason?: string, message?: string): string;
+  devicePlatformChromeKey(
+    platform: string,
+    avd: string,
+    simulatorType: string | undefined,
+    open: boolean,
+  ): string | null;
+  devicePlatformPngKey(key: string): string;
+  devicePlatformChromeRoots(env: string, home: string): string;
+  devicePlatformAvdConfig(avd: string, roots: string, files: string): string;
+  devicePlatformSkinDirectories(config: string, sdkRoots: string): string;
+  devicePlatformSkinLayout(directories: string, files: string): string;
+  devicePlatformSkinOpening(layout: string): string;
+  devicePlatformSkinImage(bytes: Buffer, file: string): string | null;
+  devicePlatformSkinChrome(
+    plan: string,
+    backUrl: string,
+    backScan: string,
+    maskUrl?: string,
+    maskScan?: string,
+  ): string;
+  devicePlatformDeviceTypeBundle(types: string, identifier: string): string | null;
+  devicePlatformChromeBundles(identifier: string, roots: string): string;
+  devicePlatformBundleMatches(text: string, identifier: string): boolean;
+  devicePlatformSimulatorArtPaths(
+    bundle: string,
+    chromeDirectory: string,
+    chromeJson: string,
+    mask: string | null,
+    sensorBar: string | null,
+  ): string;
+  devicePlatformSimulatorPanels(profile: string | null, capabilities: string | null): string;
+  devicePlatformSimulatorChrome(
+    panel: string,
+    chromeJson: string,
+    arts: string,
+    bodyUrl: string | undefined,
+  ): string;
+  devicePlatformChromeToPng(chrome: string, rendered: string | null): string;
 }
 
 const library =

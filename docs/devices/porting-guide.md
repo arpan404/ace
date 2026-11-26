@@ -204,6 +204,15 @@ that the emulator checks or that keeps ace safe:
   the stream with today's text; the stream ending on its own reports "Emulator screen stream
   ended"; `close()` ends it without a failure.
 
+**Per-frame paths are not crossed (D3.3, measured 2026-11-25).** A decision made once per
+capture, route or settings change runs in Rust through the addon (`native-video.ts`). A per-frame
+or per-chunk decision does not: converting one scrcpy unit to the forwarded frame through the
+addon measured a median 635,904 ns against the TypeScript's 457 ns for an 8 KiB unit (about
+1,390x slower, JSON both ways), so the H.264 feed, the published frame, the Simulator frame and
+JPEG per-picture decisions and the encoder note stay TypeScript, and the Rust remains the library
+the all-Rust daemon calls directly (ADR 0226). Measure again if a per-frame crossing is ever
+proposed; keep it only within about 5% of the TypeScript.
+
 **Platform gates.** D3.1's `adb` and emulator paths and D3.3's gRPC stream (the frame file's URL
 and MMAP mapping, HTTP/2 to a Windows emulator) pass in the Windows VM and on Linux before
 default-on; macOS alone is not enough.

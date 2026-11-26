@@ -19,7 +19,6 @@ mod permitted;
 pub mod runtime;
 pub mod shape;
 
-pub use full_access::NO_CLASSIFIER;
 pub use named::{Named, named};
 pub use shape::{Shape, shape};
 
@@ -295,14 +294,78 @@ pub struct AppReading {
     pub grantable: bool,
 }
 
-/// What a connected app's tool does, read from what its server and catalogue say ([`mcp`]),
-/// its own name ([`named`]), what its arguments reach ([`shape`]) and whether its definition
-/// changed since Spade pinned it (`changed`). A trusted declaration still wins, and a trusted
-/// server's own read-only interface is a read. Otherwise the name decides only so far: a clear
-/// read with plain arguments and an unchanged definition reads (`guessed`); a payment, a send,
-/// an access change or a delete goes to the person; a read whose arguments reach a destination
-/// or run text, a renamed tool's read, a write and anything Spade can't place stay unresolved,
-/// for the reviewer. An annotation may narrow a read the name makes, never widen one.
+/// Read a connected app's call from its declaration, tool text, and arguments.
+///
+/// Recognized hard stops take priority. A generic command must parse as a read
+/// before any read hint applies. An inferred read still depends on a pinned definition.
+pub fn app_call(
+    tool: Mcp,
+    name: &str,
+    description: &str,
+    schema: &serde_json::Value,
+    arguments: &serde_json::Value,
+    changed: bool,
+) -> AppReading {
+    let said = named(name, description);
+    let call_shape = shape(name, schema, arguments);
+    let operation = shape::command_effect(arguments);
+    let inferred = [
+        Some(said),
+        Some(named(description, "")),
+        operation,
+        arguments
+            .get("operation")
+            .or_else(|| arguments.get("action"))
+            .and_then(serde_json::Value::as_str)
+            .map(|value| named(value, "")),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(hard_stop);
+    if let Some(effect) = tool
+        .declared
+        .filter(|effect| {
+            matches!(
+                effect,
+                Effect::Credential | Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess
+            )
+        })
+        .or(inferred)
+    {
+        return app_tool(
+            Mcp {
+                declared: Some(effect),
+                ..tool
+            },
+            said,
+            call_shape,
+            changed,
+        );
+    }
+    if shape::has_command(schema, arguments) {
+        if operation != Some(Named::Read) || call_shape != Shape::Plain || tool.destructive {
+            let mut reading = app_tool(tool, Named::Unclear, Shape::Code, changed);
+            reading.effect = None;
+            reading.destructive = operation == Some(Named::Destroys);
+            return reading;
+        }
+        if tool.declared.is_none() || tool.declared == Some(Effect::Read) {
+            return app_tool(Mcp::default(), Named::Read, call_shape, changed);
+        }
+    }
+    app_tool(tool, said, call_shape, changed)
+}
+
+fn hard_stop(named: Named) -> Option<Effect> {
+    match named {
+        Named::Pay => Some(Effect::Pay),
+        Named::Send => Some(Effect::SendAsPerson),
+        Named::Access => Some(Effect::ChangeAccess),
+        _ => None,
+    }
+}
+
+/// Read an app tool from its declaration, inferred operation and argument shape.
 pub fn app_tool(tool: Mcp, said: Named, shape: Shape, changed: bool) -> AppReading {
     let plain = shape == Shape::Plain;
     let trusted_read = tool.trusted && tool.annotated && tool.read_only && !tool.destructive;
@@ -320,6 +383,18 @@ pub fn app_tool(tool: Mcp, said: Named, shape: Shape, changed: bool) -> AppReadi
         overwrites: asks_each_call(tool),
         ..reading(effect, false)
     };
+    if let Some(effect) = tool
+        .declared
+        .filter(|effect| {
+            matches!(
+                effect,
+                Effect::Credential | Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess
+            )
+        })
+        .or_else(|| hard_stop(said))
+    {
+        return reading(Some(effect), tool.destructive);
+    }
     if tool.declared.is_some() {
         let effect = mcp(tool);
         return AppReading {
@@ -623,6 +698,55 @@ pub fn route(call: Call<'_>) -> Route {
     }
 }
 
+/// Whether a review can never substitute for the person's decision on this effect.
+pub fn person_only(call: &Call<'_>) -> bool {
+    matches!(
+        call.effect,
+        Some(Effect::Pay | Effect::SendAsPerson | Effect::ChangeAccess)
+    ) || matches!(
+        call.place,
+        Place::Unsandboxed(Class::Sensitive(
+            autonomy::Sensitive::Payment
+                | autonomy::Sensitive::MessageAsPerson
+                | autonomy::Sensitive::Credentials
+        ))
+    )
+}
+
+/// Ordinary deterministic requests are grounds for model review. A review must be able to
+/// read the whole call, and cannot supply independent organization authorization.
+pub fn to_auto_review(call: &Call<'_>, route: Route) -> Route {
+    match route {
+        Route::Ask { line, .. } if call.org.is_none() && !person_only(call) => {
+            if call.fits {
+                Route::Review(Some(line))
+            } else {
+                Route::Refuse(
+                    "Spade couldn't read the whole call for review. Shorten it and retry."
+                        .to_owned(),
+                )
+            }
+        }
+        route => route,
+    }
+}
+
+/// Memoize only host calls whose review does not depend on executable files, a drive
+/// location, or a rule requiring a fresh judgment.
+pub fn may_memo_review(call: &Call<'_>) -> bool {
+    call.place == Place::Host
+        && call.fits
+        && matches!(call.risk, Risk::Read | Risk::Write)
+        && !call.destructive
+        && !call.overwrites
+        && !call.standing
+        && matches!(
+            call.effect,
+            Some(Effect::Read | Effect::Network | Effect::Publish) | None
+        )
+        && call.tool != GIT_PUSH
+}
+
 /// [`route`] after the hard stops of secrets and the organization.
 fn decide(call: Call<'_>, allowed: bool) -> Route {
     // A packaged bot's ceiling, right after: an effect its package didn't declare, or one the
@@ -630,8 +754,14 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
     if let Some(why) = ceiling_refusal(&call) {
         return Route::Refuse(why);
     }
-    // The bot's Permissions next: a switch the person left off refuses what it covers, in every
-    // mode, before any Always allow, grant, review or request.
+    if call.mode == Mode::FullAccess {
+        return call
+            .effect
+            .and_then(|effect| persons(call, effect, false))
+            .unwrap_or_else(|| full_access::route(call));
+    }
+    // In Auto-review, a switch the person left off refuses what it covers before any Always
+    // allow, grant, review or request.
     if let Some(why) = permitted::refusal(&call) {
         return Route::Refuse(why);
     }
@@ -653,7 +783,7 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
         return route;
     }
     // A server's destructive hint makes Spade ask, never skip asking (ADR 0202 §2): the person
-    // decides each call, in every mode, whatever they allowed always or granted. Their "no" for
+    // decides each call, whatever they allowed always or granted. Their "no" for
     // an undeclared tool still refuses it, and a sealed plugin server stays the sandbox's.
     if call.destructive && call.place != Place::Sandbox {
         if call.effect.is_none() && call.remembered == Some(false) {
@@ -662,7 +792,7 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
         return Route::ask(DESTRUCTIVE);
     }
     // A connected app's tool its server marks destructive, though its name doesn't make it a
-    // delete (`update_page`, `move_pages`): the reviewer judges each call, in every mode, told it
+    // delete (`update_page`, `move_pages`): the reviewer judges each call, told it
     // may overwrite, and whatever it won't approve goes to the person (ADR 0202, amendment 6).
     // The person's "no" for a tool that declares nothing still refuses it.
     if call.overwrites && call.place != Place::Sandbox {
@@ -680,11 +810,6 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
                 OVERWRITES
             }),
         );
-    }
-    // Full access is decided here: after the hard stops above, before anything that could reach
-    // the reviewer, so nothing it skips can come first.
-    if call.mode == Mode::FullAccess {
-        return full_access::route(call);
     }
     if call.effect == Some(Effect::Drive) {
         return permitted::drive(call);
@@ -834,30 +959,21 @@ pub fn ceiling_holds(
     ceiling::refusal(ceiling, effect, confined)
 }
 
-/// Where a person-only effect goes: to the person unless their Always allow covers it, or, for a
-/// push or comment, a grant of its own kind. `None` for every other effect.
+/// The person's approval for a typed hard stop or an unknown effect in Auto-review.
 fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
     let line = match effect {
         Effect::Pay => SPENDS,
         Effect::ChangeAccess => CHANGES_ACCESS,
-        Effect::Unknown => UNKNOWN,
+        Effect::Unknown if call.mode != Mode::FullAccess => {
+            if allowed {
+                return Some(Route::Run);
+            }
+            UNKNOWN
+        }
         Effect::SendAsPerson if call.tool == GIT_PUSH => PUSHES,
         Effect::SendAsPerson => SENDS_AS_YOU,
         _ => return None,
     };
-    if allowed {
-        return Some(Route::Run);
-    }
-    // The person granted this push or comment for that repository.
-    if effect == Effect::SendAsPerson && call.granted == Granted::Typed {
-        if !call.tainted {
-            return Some(Route::Run);
-        }
-        // In full access no reviewer looks at it, so the person does.
-        if call.fits && call.mode == Mode::AutoReview {
-            return Some(Route::Review(Some(GRANTED_TAINTED.to_owned())));
-        }
-    }
     let line = match call.target {
         Some(target) if call.tool == GIT_PUSH => {
             format!("It pushes to {target} with your sign-in, so you decide.")

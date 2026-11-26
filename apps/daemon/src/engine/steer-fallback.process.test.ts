@@ -1,6 +1,15 @@
 import { expect, test } from "vitest";
-import type { ThreadId } from "@ace/protocol";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Command, CommandId, ThreadId } from "@ace/protocol";
+import { Store } from "@ace/daemon";
 import { transitionHarness } from "./transition-test-support.ts";
+import { createEngineThread } from "./create-thread.ts";
+import { handleQueue } from "./queue-commands.ts";
+import { EngineRepository } from "./repository.ts";
+import { activeRootRun } from "./steer-selection.ts";
+import { retireThreadIntents } from "./thread-liveness.ts";
 
 type Harness = ReturnType<typeof transitionHarness>;
 
@@ -72,6 +81,53 @@ test("an agent's steer reaches a Claude-like turn at once and leaves the running
     expect(h.backgroundRequests).toEqual([]);
     expect(h.interrupts).toEqual([]);
     expect(h.engine.queue(id).messages).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a steer on a provider that steers natively is admitted with no run of its own", async () => {
+  // Claude reads a steer itself when the running command returns. Aiming one at a run would fence
+  // what the provider handles alone: a lost target requeues it, an idle one is refused once
+  // another turn begins. ace aims only sessions that steer by cancelling, as ACP does.
+  const h = transitionHarness({ steerTiming: "after_tool" });
+  try {
+    const id = await runningCommand(h);
+    expect(agentMessage(h, id, "Use the cached build", "steer", "native-steer").ok).toBe(true);
+    await h.engine.flush();
+    const row = h.store
+      .statement("SELECT payload FROM intents WHERE command_id=?")
+      .get("native-steer");
+    if (!row) throw new Error("Expected the steer to be admitted");
+    expect(Command.parse(JSON.parse(String(row.payload))).payload).not.toHaveProperty("runId");
+    expect(h.inputs.filter((input) => input.text === "Use the cached build")).toMatchObject([
+      { delivery: "steer" },
+    ]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a native steer goes in at once even when its recorded aim names a turn that ended", async () => {
+  // The recorded aim exists for every steer, but only a session that steers by cancelling reads
+  // it. A native steer must never be fenced by it: here the aim names a turn that never ran.
+  const h = transitionHarness({ steerTiming: "after_tool", backgroundTools: "moves" });
+  try {
+    const id = await runningCommand(h);
+    const before = h.inputs.length;
+    expect(agentMessage(h, id, "Use the cached build", "steer", "native-steer").ok).toBe(true);
+    // Written between admission and the lanes: the steer lane runs once this stack unwinds.
+    h.store
+      .statement(
+        "UPDATE engine_steer_aims SET run='lost-turn' WHERE intent_id=(SELECT id FROM intents WHERE command_id='native-steer')",
+      )
+      .run();
+    await h.engine.flush();
+    expect(h.inputs.slice(before)).toMatchObject([
+      { text: "Use the cached build", delivery: "steer" },
+    ]);
+    expect(h.engine.queue(id).messages).toEqual([]);
+    expect(h.errors).toEqual([]);
   } finally {
     await h.close();
   }
@@ -184,6 +240,212 @@ test("the person's choice to steer an agent's message survives a restart", async
     await h.engine.flush();
     expect(h.inputs.filter((input) => input.text === "Review the docs next")).toHaveLength(1);
     expect(h.engine.queue(id).messages).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
+interface SteerThread {
+  repo: EngineRepository;
+  store: Store;
+  id: ThreadId;
+  /** The turn running while the queue commands below apply. */
+  run: string;
+  dependencies: Parameters<typeof handleQueue>[1];
+}
+
+/**
+ * A thread with one turn running, driven by its queue commands alone. The lanes never run here, so
+ * the stored intent and its aim are read exactly as the command left them.
+ */
+async function withSteerThread(take: (thread: SteerThread) => void): Promise<void> {
+  const home = mkdtempSync(join(tmpdir(), "ace-steer-aims-"));
+  const store = new Store(join(home, "state.sqlite"));
+  try {
+    const repo = new EngineRepository(store);
+    const id = ThreadId.parse("steer-aim-thread");
+    createEngineThread(repo, {
+      id,
+      workspaceId: store.createWorkspace(home, "Fixture"),
+      title: "Steer aim",
+      selection: { provider: "codex", options: {} },
+      cwd: home,
+      at: 1,
+      silenceMs: 100,
+    });
+    // A live session that steers by cancelling, as an ACP one does.
+    repo.steersByCancel = () => true;
+    repo.apply(
+      id,
+      [{ type: "turn.started", agent: "root", nativeTurnId: "b", trigger: "user" }],
+      2,
+    );
+    const run = activeRootRun(repo, id);
+    if (!run) throw new Error("Expected a running turn");
+    take({
+      repo,
+      store,
+      id,
+      run,
+      dependencies: {
+        repo,
+        clock: { now: () => 3, setTimer: () => () => {} },
+        ports: {},
+        sync: () => {},
+        schedule: () => {},
+        wake: () => {},
+      },
+    });
+  } finally {
+    await store.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test("a text-only edit never aims a steer at the turn running now", async () => {
+  await withSteerThread(({ repo, id, dependencies }) => {
+    const intent = repo.add(
+      Command.parse({
+        id: "opening-steer",
+        deviceId: "device",
+        payload: {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "late steer" }],
+          delivery: "steer",
+        },
+      }),
+      id,
+    );
+    // Admitted while the session was still opening: it names no turn, payload or aim.
+    repo.steerAims.record(intent, null);
+    expect(repo.pending.steerTarget(intent)).toBeUndefined();
+    expect(
+      handleQueue(
+        Command.parse({
+          id: "edit-steer",
+          deviceId: "device",
+          payload: {
+            type: "queue.edit",
+            threadId: id,
+            expectedRevision: repo.queue.get(id).revision,
+            messageId: "opening-steer",
+            input: [{ type: "text", text: "late steer, edited" }],
+          },
+        }),
+        dependencies,
+      ),
+    ).toMatchObject({ ok: true });
+    // The edit changed the text only: it neither names the turn running now nor replaces the aim
+    // recorded at admission, so the steer still goes back to the queue instead of cancelling it.
+    expect(repo.pending.steerTarget(intent)).toBeUndefined();
+    expect(repo.steerAims.aim(intent)).toBeNull();
+    expect(repo.pending.delivery(id, CommandId.parse("opening-steer"))).toMatchObject({
+      status: "pending",
+      delivery: "steer",
+    });
+  });
+});
+
+test("a resent steer is aimed at the turn running when it goes back in", async () => {
+  await withSteerThread(({ repo, id, run, dependencies }) => {
+    const held = repo.add(
+      Command.parse({
+        id: "held-steer",
+        deviceId: "device",
+        payload: {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "steer once" }],
+          delivery: "steer",
+        },
+      }),
+      id,
+    );
+    repo.steerAims.record(held, null);
+    repo.queue.uncertain(held);
+    expect(
+      handleQueue(
+        Command.parse({
+          id: "resend-steer",
+          deviceId: "device",
+          payload: {
+            type: "queue.resend",
+            threadId: id,
+            expectedRevision: repo.queue.get(id).revision,
+            messageId: "held-steer",
+          },
+        }),
+        dependencies,
+      ),
+    ).toMatchObject({ ok: true });
+    const replacement = [...repo.pending.headers(id)].find(
+      (header) => header.commandId === "resend-steer",
+    );
+    if (!replacement) throw new Error("Expected the resent steer");
+    // The replacement is a steer again, so it keeps the turn running as its aim, as a fresh one
+    // does: a cancel-steered session cancels that turn, never a later one it never saw.
+    expect(replacement.delivery).toBe("steer");
+    expect(repo.steerAims.aim(replacement.id)).toBe(run);
+  });
+});
+
+test("retiring a thread forgets the aim of an uncertain steer it never sent", async () => {
+  await withSteerThread(({ repo, id }) => {
+    const intent = repo.add(
+      Command.parse({
+        id: "uncertain-steer",
+        deviceId: "device",
+        payload: {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "maybe sent" }],
+          delivery: "steer",
+        },
+      }),
+      id,
+    );
+    repo.steerAims.record(intent, null);
+    repo.queue.uncertain(intent);
+    retireThreadIntents(repo, id, 4, "Retired for thread deletion");
+    // The intent is marked failed before its uncertainty is cleared, so its aim is pruned after,
+    // as it is for any send that ends.
+    expect(repo.pending.commandStatus(CommandId.parse("uncertain-steer"))).toBe("failed");
+    expect(repo.steerAims.aim(intent)).toBeUndefined();
+  });
+});
+
+test("a native steer whose named turn already ended goes back to the queue, never interrupting the next", async () => {
+  // A provider whose steer waits for the running command interrupts the turn for a person's
+  // steer; one that names a turn which has since ended must not interrupt the turn running now.
+  const h = transitionHarness({ steerTiming: "after_tool" });
+  try {
+    const id = await runningCommand(h);
+    const run = Object.values(h.store.snapshotThread(id).runs).find(
+      (entry) => entry.state === "active",
+    )?.id;
+    if (!run) throw new Error("Expected a running turn");
+    expect(
+      h.command(
+        {
+          type: "thread.send",
+          threadId: id,
+          input: [{ type: "text", text: "Try the other path" }],
+          delivery: "steer",
+          runId: run,
+        },
+        "named-steer",
+      ).ok,
+    ).toBe(true);
+    // Its turn ended and another runs by the time the lane reads it.
+    h.store
+      .statement(
+        "UPDATE intents SET payload=json_set(payload,'$.payload.runId','ended-turn') WHERE command_id='named-steer'",
+      )
+      .run();
+    await h.engine.flush();
+    expect(h.interrupts).toEqual([]);
+    expect(h.engine.queue(id).messages).toMatchObject([{ id: "named-steer", delivery: "queue" }]);
   } finally {
     await h.close();
   }

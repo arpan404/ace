@@ -7,10 +7,11 @@ import {
   ThreadRunMetadata,
   type AgentStatus,
   type Run,
+  type ThreadStatus,
   type ToolCall,
 } from "@ace/protocol";
 import { expect, test, vi } from "vitest";
-import type { ThreadSource } from "@ace/client";
+import type { ThreadReader, ThreadSource } from "@ace/client";
 import { turnTreeOf } from "./turn-tree.ts";
 import { ledgerOf } from "./thread-ledger.ts";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
@@ -128,6 +129,8 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
   let liveRunId: string | undefined;
   let compactingSince: number | undefined;
   let turnStart: { turn: number; at: number } | undefined;
+  let threadStatus: ThreadStatus = { state: "working", agents: 1 };
+  let queue: ThreadReader["queue"];
   const reader: ActivityReader = {
     get order() {
       return order;
@@ -144,7 +147,7 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
         title: "Work",
         provider: "claude",
         rootAgentId: "root",
-        status: { state: "working", agents: 1 },
+        status: threadStatus,
         createdAt: 0,
         updatedAt: 0,
         // No daemon stamps: these cases cover the turn's own clock, which stands in without them.
@@ -163,7 +166,9 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     interaction: (id) => asked.get(id),
     taskIds: () => [...tasks.keys()],
     task: (id) => tasks.get(id),
-    queue: undefined,
+    get queue() {
+      return queue;
+    },
   };
   return {
     reader,
@@ -171,6 +176,13 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     tasks,
     liveRun: (id: string) => {
       liveRunId = id;
+    },
+    /** The thread's status and its engine queue, as the daemon publishes them. */
+    threadStatus: (next: ThreadStatus) => {
+      threadStatus = next;
+    },
+    queue: (next: ThreadReader["queue"]) => {
+      queue = next;
     },
     /** The daemon's stamp for when the current turn's first run started. */
     turnStarted: (at: number) => {
@@ -833,4 +845,54 @@ test("the main agent's Working time doesn't move when a child's request opens or
   thread.subagent("auditor", { state: "blocked", on: "human", refs: ["sub-asks"] });
   thread.ask(approval("sub-asks", 100 * second, undefined, "auditor"));
   expect(turnActivity(thread.reader, "root")?.rootWorking?.elapsedFrom).toBe(0);
+});
+
+/** A turn the person's steer cancelled: the root interrupted, its run ended by the steer. */
+function steerCancelled() {
+  const thread = world({ state: "interrupted" }, [
+    said("ask", "user", 0),
+    said("steer", "user", 5),
+  ]);
+  thread.runs.set("run-1", {
+    ...run("run-1", "root"),
+    state: "interrupted",
+    endedBy: "steer",
+    endedAt: 10,
+  });
+  thread.threadStatus({ state: "waiting", on: "queue" });
+  thread.queue({ revision: 1, paused: false, lastFailure: null, reason: null, resumeAt: null });
+  return thread;
+}
+
+test("a turn that ended only to let the person's steer in reads as working, not stopped", () => {
+  const thread = steerCancelled();
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", tone: "working" });
+  expect(readStoppedTurn(thread.reader, "root").stopped).toBe(false);
+});
+
+test("a Stop while the steer waits reads as stopped", () => {
+  const thread = steerCancelled();
+  thread.queue({ revision: 2, paused: true, lastFailure: null, reason: "stopped", resumeAt: null });
+  expect(turnActivity(thread.reader, "root")).toBeUndefined();
+  expect(readStoppedTurn(thread.reader, "root").stopped).toBe(true);
+});
+
+test("a steer that failed to send leaves the turn reading as stopped", () => {
+  const thread = steerCancelled();
+  thread.queue({
+    revision: 2,
+    paused: true,
+    lastFailure: { title: "Couldn't send", code: "not_sent" },
+    reason: "not_sent",
+    resumeAt: null,
+  });
+  expect(turnActivity(thread.reader, "root")).toBeUndefined();
+  expect(readStoppedTurn(thread.reader, "root").stopped).toBe(true);
+});
+
+test("a turn interrupted without a steer reads as stopped though a message waits to send", () => {
+  const thread = steerCancelled();
+  thread.runs.set("run-1", { ...run("run-1", "root"), state: "interrupted", endedAt: 10 });
+  expect(turnActivity(thread.reader, "root")).toBeUndefined();
+  expect(readStoppedTurn(thread.reader, "root").stopped).toBe(true);
 });

@@ -148,6 +148,89 @@ fn close_before_the_write_ack_refuses_the_steer() {
     );
 }
 
+/// A line queued ahead of a steer owns its own write: a cancel's acknowledgement must never
+/// mark the steer written, or a close would settle an unsent steer as uncertain
+/// (`session.ts:630`, `intent-delivery.ts:140`-`:147`).
+#[test]
+fn a_cancel_ahead_of_a_queued_steer_never_marks_it_written() {
+    use ace_adapter_api::session::InterruptTarget;
+
+    let mut core = session_core("t-cancel-ahead");
+    // The prompt's line sits in the writer unacknowledged, so every later line queues.
+    let mut opened = Vec::new();
+    core.send(
+        InputSend {
+            operation: 1,
+            input: &[text("hello")],
+            delivery: Delivery::Queue,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut opened,
+    );
+    assert!(core.prompt_id.is_some(), "the prompt is in flight");
+    let mut stop = Vec::new();
+    assert!(
+        core.interrupt(
+            InterruptTarget {
+                agent: None,
+                cascade: false,
+            },
+            &mut stop,
+        )
+        .is_ok()
+    );
+    // The steer queues behind the cancel.
+    let mut steer = Vec::new();
+    core.send(
+        InputSend {
+            operation: 86,
+            input: &[text("hi")],
+            delivery: Delivery::Steer,
+            command_id: None,
+            origin: None,
+            fence: None,
+        },
+        &mut steer,
+    );
+    // Its frame is queued behind the cancel: a send frame, no write yet.
+    assert!(steer.iter().any(|effect| matches!(
+        effect,
+        AcpEffect::Frame {
+            dir: ace_adapter_api::frame::FrameDirection::Send,
+            text,
+            ..
+        } if text.contains("_session/steering")
+    )));
+    assert!(
+        !steer
+            .iter()
+            .any(|effect| matches!(effect, AcpEffect::Write { .. }))
+    );
+
+    // Acking the prompt's line pumps the cancel, whose own ack follows.
+    let pumped = core.written(0);
+    let Some(cancel_ticket) = pumped.iter().find_map(|effect| match effect {
+        AcpEffect::Write { ticket, .. } => Some(*ticket),
+        _ => None,
+    }) else {
+        panic!("the cancel's line was pumped");
+    };
+    let _ = core.written(cancel_ticket);
+
+    // The steer never left, so it is refused, not held uncertain.
+    let mut closed = Vec::new();
+    core.close(ace_adapter_api::session::CloseReason::User, &mut closed);
+    assert_eq!(
+        settlements(&closed, 86),
+        vec![Err((
+            "ACE_INPUT_REJECTED".to_owned(),
+            "ACP session closed".to_owned()
+        ))]
+    );
+}
+
 /// A steer the writer refuses is settled before any line: nothing reached the agent, so it
 /// is a refusal, never uncertain. (The peer's own message bound is higher than the session's
 /// queue cap, so the writer's refusal is the way a steer is settled without a write.)

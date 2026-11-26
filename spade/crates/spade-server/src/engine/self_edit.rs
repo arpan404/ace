@@ -5,20 +5,13 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use spade_core::self_edit::{BY_BOT, Version};
+use spade_core::self_edit::{BY_BOT, TASK_UNCHANGED, TaskUpdate, Version};
 
 use super::{AgentChange, AgentError, AvatarInput, Engine};
 use crate::tools::ToolOutput;
 
 /// The most a `why` keeps: one line.
 const WHY_CHARS: usize = 200;
-
-#[derive(Deserialize)]
-struct TaskUpdate {
-    new_task: String,
-    #[serde(default)]
-    why: String,
-}
 
 #[derive(Deserialize)]
 struct ProfileUpdate {
@@ -42,6 +35,17 @@ fn refused(error: &AgentError) -> ToolOutput {
 }
 
 impl Engine {
+    /// Answer an identical rewrite directly so it can never become a write if the person
+    /// changes the task between this check and tool execution.
+    pub(super) fn task_update_is_unchanged(&self, conversation: &str, arguments: &Value) -> bool {
+        let Ok(update) = TaskUpdate::deserialize(arguments) else {
+            return false;
+        };
+        self.agent_of(conversation)
+            .and_then(|id| self.store.agent(&id).ok().flatten())
+            .is_some_and(|agent| update.unchanged(&agent.task))
+    }
+
     /// `task_update` from `conversation`: the bot's task becomes `new_task` from its next turn,
     /// recorded as the bot's change with its `why`.
     pub(crate) fn bot_task_update(&self, conversation: &str, arguments: Value) -> ToolOutput {
@@ -56,8 +60,8 @@ impl Engine {
             return ToolOutput::error("The new task is empty; say the whole task.");
         }
         match self.store.agent(&id) {
-            Ok(Some(agent)) if agent.task.trim() == task => {
-                return ToolOutput::ok("Your task already says that; nothing changed.");
+            Ok(Some(agent)) if update.unchanged(&agent.task) => {
+                return ToolOutput::ok(TASK_UNCHANGED);
             }
             Ok(Some(_)) => {}
             Ok(None) => return ToolOutput::error("This bot is gone."),

@@ -134,9 +134,23 @@ pub fn sensitive_spans(text: &str, environment: Option<&EnvironmentMatcher>) -> 
 /// `text` with every sensitive span replaced, as the lexical redactor does.
 pub fn redact_original_text(text: &str, environment: Option<&EnvironmentMatcher>) -> String {
     let spans = sensitive_spans(text, environment);
+    rebuild(text, &spans, None)
+}
+
+/// `text` with every sensitive span replaced by `marker`, for a caller that names its own
+/// placeholder (the OpenCode adapter keeps `[redacted]`). `None` when nothing matched, so a
+/// caller can keep borrowing its input. The pattern list and the JSON credential scanner are
+/// this crate's, so the caller cannot drift from the lexical redactor's coverage.
+pub fn redact_with_marker(text: &str, marker: &str) -> Option<String> {
+    let spans = sensitive_spans(text, None);
     if spans.is_empty() {
-        return text.to_owned();
+        return None;
     }
+    Some(rebuild(text, &spans, Some(marker)))
+}
+
+/// Rebuilds `text` from its spans, each replaced by `marker` or by its own replacement.
+fn rebuild(text: &str, spans: &[SensitiveSpan], marker: Option<&str>) -> String {
     let mut parts = String::with_capacity(text.len());
     let mut start = 0;
     for span in spans {
@@ -144,7 +158,7 @@ pub fn redact_original_text(text: &str, environment: Option<&EnvironmentMatcher>
             continue;
         }
         parts.push_str(&text[start..span.start]);
-        parts.push_str(&span.replacement);
+        parts.push_str(marker.unwrap_or(&span.replacement));
         start = span.end;
     }
     parts.push_str(&text[start..]);
@@ -153,7 +167,7 @@ pub fn redact_original_text(text: &str, environment: Option<&EnvironmentMatcher>
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_original_text, sensitive_spans};
+    use super::{redact_original_text, redact_with_marker, sensitive_spans};
     use crate::environment::EnvironmentMatcher;
 
     #[test]
@@ -196,6 +210,20 @@ mod tests {
             ),
             "before <SECRET> after"
         );
+    }
+
+    #[test]
+    fn a_callers_marker_replaces_the_whole_union_or_answers_nothing() {
+        assert_eq!(
+            redact_with_marker("curl -H 'Authorization: Bearer abc.def-1'", "[redacted]")
+                .as_deref(),
+            Some("curl -H 'Authorization: [redacted]'")
+        );
+        assert_eq!(
+            redact_with_marker("token ghp_12345678901234567890", "[redacted]").as_deref(),
+            Some("token [redacted]")
+        );
+        assert_eq!(redact_with_marker("ordinary prose", "[redacted]"), None);
     }
 
     #[test]
