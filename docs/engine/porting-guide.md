@@ -1718,6 +1718,41 @@ server's retry loop and the requests move to Rust as `impl ace_adapter_api::Sess
 becomes an engine port, so the tests' injected fetch still answers. Then `reqwest` comes back,
 without TLS. Briefed with E5.6.
 
+**Landed before E5.6** (`ace/rust-engine-e3-opencode-control`, 2026-11-26). Two units that need
+none of E5.6's ports:
+
+- **The call table** (`session/api.rs`) is the SDK's own routes, not a rule: method, path ids,
+  the query fields in the SDK's order, and each route's body field whitelist. A body no longer
+  carries "params minus the path ids", which leaked `kind`, `sessionID`, `answer` and `cancel`
+  into bodies whose route declares other fields. `session.instructions.put` is
+  `/api/experimental/…`; `session.form.cancel` sends the feedback as the `message` query and no
+  body; `mcp.connect` sends no body; both plugin RPCs send `{input}` and name their `location`;
+  `mcp.add` and `mcp.connect` take the server as a path id. Query encoding is the wire's, not
+  `encodeURIComponent`'s: `URLSearchParams` serialization for the query (space is `+`, `!'()~`
+  escaped), `encodeURIComponent` for a path segment, a null is the text `null`, and an array
+  repeats its key. `scripts/opencode-routes.ts` drives the installed `@opencode/client` with a
+  capturing fetch and records each call's method, target and body in
+  `session/api/routes.golden.json`; the test builds the same call from the same params and
+  compares it, and `check:daemon-native` regenerates the golden and fails on a diff, so a bumped
+  SDK fails until the table follows.
+- **The control's decisions** (`session/control/`): the catalog's first-read policy
+  (`metadata.ts`: 50 ms, 40 reads, 5 s, and a malformed reply is not an empty one); the readiness
+  and environment gates (`readinessStep`, `ace_context` with a description, the settle refusal,
+  the environment one session runs with, minus every credential); the answer to a native
+  interaction (the three decisions, a question's answers per field, an elicitation's content,
+  cancel-with-feedback as the query, one refusal text); prompt admission (the id, the request
+  that started a send, the 4xx that stored nothing, `rejected` vs `uncertain`); and cleanup
+  (shells first, then the tree deepest first). `Request` carries the directory whose client
+  sends a call, because a session route's location is the `x-opencode-directory` header, not a
+  query. `admission.rs` now takes the caller's cancellation, so an aborted caller never takes
+  the lock or a seat, as `throwIfAborted` comes before the waiter-limit check.
+
+**Still for E5.6**: the transport (the scoped client's header, the 768 KiB reply bound, the
+abort), the server process and its retry loop, `promptBody` (`input.ts`, which needs Node's path
+resolution and `pathToFileURL` shared with ACP rather than copied), the locations state machine
+(`mcp-locations.ts`: collision refusal, the 128-location limit, generations and shared work),
+and the `impl Session` wiring.
+
 ### E3-cursor: Cursor (the host wire to a TypeScript SDK host child)
 
 Later, not part of the pilot (owner decision 4). Build after E3-codex.5 and E3-acp.3 are on
@@ -1790,9 +1825,10 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
   `stray`, `connection`, `errorFrame`, `stop`), `ArmTimer`/`CancelTimer` and `Drained`.
 - **The stray-line hold**: a stray line's `host-output` frame takes its place in line order
   (`host.ts:143` emits it before the next line is read). So the core publishes
-  `Port { name: "stray" }` and holds every later event of this session until the facade's
-  `note(host-output)` arrives. The facade answers synchronously inside the same delivery, so the
-  hold lasts one batch. Held events count toward the queue's bound.
+  `Port { name: "stray" }` and holds every later event of this session until the caller's
+  `note(host-output)` arrives. The caller owns the redacted text and answers the port; while the
+  hold is open `holding()` is reported to the read gate, which answers the next delivered chunk
+  `taken(false)`, so a stalled consumer can only grow the hold by the pipes' bounded read-ahead.
 - **(b)**: `frame-batch`'s `unbatch` cases move to `envelope.rs`. Its `FrameBatch` cases stay:
   `FrameBatch` runs in the host child, which stays TypeScript. The six (b) host process files
   are owner question 3.
@@ -1839,11 +1875,14 @@ modules. Paths are in `packages/adapter-cursor/src/` unless named.
   5. Otherwise it writes the `send cancel` frame and the `cancel` request in that step.
   - A host refusal of `send` is `InputRejected` (`:271`–`:274`). Any other failure sets
     `uncertain` from `terminal`, and the error is rethrown.
-- **The exit**: on the supervisor's `close`, the core publishes `Port { name: "exited" }`. The
-  facade answers `handle.exit(code, signal, reason, detail?)` once `proc.exited` resolves
-  (`reason` is the TypeScript supervisor's, `detail` is the facade's `failureMessage`). Then the
-  core publishes the `host-exit` frame (`:156`–`:171`), a `Callback` for `onExit` with
-  `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units), and `Drained`.
+- **The exit**: the Rust daemon owns the child, so its own wait on the child is the exit input:
+  when it resolves, the caller calls `handle.exit(code, signal, reason, detail?)` directly. There
+  is no `Port { name: "exited" }`: that port existed because a TypeScript facade owned the
+  `proc.exited` promise, and the Rust shell does not need to be asked. `exit` may arrive at the
+  leader's end, before the pipes finish; its `host-exit` frame (`:156`–`:171`), the `onExit`
+  `Callback` with `unexpectedStopMessage` (`:31`–`:41`; its `.slice(0, 300)` counts UTF-16 units)
+  and `Drained` are published only after the pipes' close (`pipes_closed`) has drained every
+  frame and settle the host wrote, because the queue drops anything after `Drained`.
 - **The stop**: the host's stop stays TypeScript (`host.ts:254`–`:267`, Windows'
   `stopTreeAfterEof`), asked for by `Port { name: "stop" }`.
 - **(b)**: `tool-guidance` stays: it is open-time text, built in the facade.

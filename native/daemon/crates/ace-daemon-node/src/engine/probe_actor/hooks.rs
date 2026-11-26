@@ -2,7 +2,6 @@
 //! The probe's switches: injected failures, labelled operations, a forced open transaction, the
 //! native frame path and the dependency hooks.
 
-use ace_engine::Core;
 use ace_engine::actor::deps::{ActorDeps, ActorLinks, ActorRepo, ActorTranslator};
 use ace_engine::actor::{intake, mailbox};
 use ace_engine::executor::Lane;
@@ -87,6 +86,13 @@ impl NativeEngine {
         intake::seal(self.engine.core(), &thread_id);
     }
 
+    /// Schedules a deadline without running an operation on the replacement first.
+    #[napi]
+    pub fn probe_schedule(&self, env: Env, thread_id: String) {
+        let _guard = self.ports.enter(env);
+        ace_engine::actor::timer::schedule(self.engine.core(), &thread_id);
+    }
+
     /// Queues one labelled operation, so its ordering against frame batches is visible.
     #[napi]
     pub fn probe_enqueue(&self, env: Env, thread_id: String, label: String) {
@@ -96,7 +102,7 @@ impl NativeEngine {
         mailbox::enqueue(
             core,
             &thread_id,
-            Box::new(move |core: &Rc<Core>| {
+            Box::new(move |core, _actor| {
                 if let Some(log) = &log {
                     log.enqueued.borrow_mut().push(label.clone());
                     log.order.borrow_mut().push(format!("op:{label}"));
@@ -118,21 +124,10 @@ impl NativeEngine {
         mailbox::enqueue(
             core,
             &thread_id,
-            Box::new(move |core: &Rc<Core>| {
-                let retired = core
-                    .with_state(|state| {
-                        state
-                            .actors
-                            .by_thread
-                            .get_mut(&thread)
-                            .map(|actor| actor.retire_generation())
-                    })
-                    .ok()
-                    .flatten();
-                if let Some(generation) = retired {
-                    let deps = core.actor_deps.borrow().clone();
-                    deps.links.expire(core, &thread, generation);
-                }
+            Box::new(move |core, actor| {
+                let retired = actor.borrow_mut().retire_generation();
+                let deps = ace_engine::actor::state::instance_deps(core, actor);
+                deps.links.expire(core, &thread, retired);
                 Ok(())
             }),
         );
@@ -160,13 +155,7 @@ impl NativeEngine {
     pub fn probe_generation(&self, thread_id: String) -> f64 {
         self.engine
             .core()
-            .with_state(|state| {
-                state
-                    .actors
-                    .by_thread
-                    .get(&thread_id)
-                    .map(|actor| actor.generation)
-            })
+            .with_state(|state| state.actors.get(&thread_id).map(|actor| actor.generation))
             .ok()
             .flatten()
             .unwrap_or(0) as f64
@@ -176,6 +165,20 @@ impl NativeEngine {
     #[napi]
     pub fn probe_registered_wakers(&self) -> u32 {
         self.engine.core().registered() as u32
+    }
+
+    #[napi]
+    pub fn probe_stop_actor(&self, env: Env, thread_id: String) {
+        let _guard = self.ports.enter(env);
+        ace_engine::actor::stop(self.engine.core(), &thread_id);
+    }
+
+    #[napi]
+    pub fn probe_stopping_count(&self) -> u32 {
+        self.engine
+            .core()
+            .with_state(|state| state.actors.stopping.len() as u32)
+            .unwrap_or(0)
     }
 
     /// One frame through the native path's intake, with the binding's own batch promise.
@@ -207,9 +210,12 @@ impl NativeEngine {
         envelope.seq = ace_engine::frames::envelope::Field::Number(seq);
         envelope.t = ace_engine::frames::envelope::Field::Number(seq);
         let sdk = channel == "sdk";
+        let Some(actor) = ace_engine::actor::state::current(core, &thread_id) else {
+            return Ok("done".to_string());
+        };
         let ack = intake::frame(
             core,
-            &thread_id,
+            &actor,
             generation as u64,
             intake::FrameInput {
                 frame: ace_engine::actor::state::FrameRef::Native(Box::new(frame)),
@@ -269,9 +275,12 @@ impl NativeEngine {
                 log.flowed.borrow_mut().push(paused);
             }
         });
+        let Some(actor) = ace_engine::actor::state::current(core, &thread_id) else {
+            return Ok(());
+        };
         let (_, completion) = ace_engine::actor::native::native_frame(
             core,
-            &thread_id,
+            &actor,
             generation as u64,
             frame,
             now,
@@ -317,7 +326,9 @@ impl NativeEngine {
                 log.flowed.borrow_mut().push(paused);
             }
         });
-        flow.mirror(core, &thread_id, set);
+        if let Some(actor) = ace_engine::actor::state::current(core, &thread_id) {
+            flow.mirror(core, &actor, set);
+        }
         self.actor.flows.borrow_mut().insert(thread_id, flow);
     }
 
@@ -335,6 +346,7 @@ impl NativeEngine {
         }) as Rc<dyn ActorRepo>;
         let links = Rc::new(ProbeLinks {
             log: Rc::clone(&log),
+            sessions: Rc::clone(&self.probe_threads),
         }) as Rc<dyn ActorLinks>;
         let deps = Rc::new(ActorDeps::new(
             repo,
@@ -355,10 +367,14 @@ impl NativeEngine {
     #[napi]
     pub fn probe_attach_native_translator(&self, thread_id: String) {
         let core = self.engine.core();
-        let deps = core.actor_deps.borrow().clone();
-        deps.translators.borrow_mut().insert(
-            thread_id,
-            (0, ActorTranslator::Native(Box::new(ProbeTranslator))),
-        );
+        core.with_state(|state| {
+            if let Some(mut actor) = state.actors.get_mut(&thread_id) {
+                actor.translator = Some((
+                    actor.generation,
+                    ActorTranslator::Native(Box::new(ProbeTranslator)),
+                ));
+            }
+        })
+        .ok();
     }
 }
