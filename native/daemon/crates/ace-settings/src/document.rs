@@ -73,11 +73,14 @@ pub fn validate_assignment(key: &str, value: &Value) -> Result<Value, SettingsEr
 fn check_known_values(settings: &Map<String, Value>) -> Result<(), SettingsError> {
     for (key, value) in settings {
         if is_key(key) {
-            validate_value(key, value).map_err(|_| {
-                error(
+            // A client blob over its cap is the `size` diagnostic the TypeScript's explicit
+            // client check reports; every other refusal is the document's own message.
+            validate_value(key, value).map_err(|failure| match failure.code {
+                SettingsCode::Size => failure,
+                _ => error(
                     SettingsCode::Validation,
                     "Settings document has invalid known values",
-                )
+                ),
             })?;
         }
     }

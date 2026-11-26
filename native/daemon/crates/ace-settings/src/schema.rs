@@ -281,14 +281,55 @@ fn provider(value: &Value) -> Option<ProviderKind> {
     value.as_str().and_then(|text| text.parse().ok())
 }
 
+/// A number's length as `JSON.stringify` writes it: an integer-valued number is printed
+/// without a fractional part.
+fn js_number_len(number: &serde_json::Number) -> usize {
+    if let Some(value) = number.as_i64() {
+        return value.to_string().len();
+    }
+    if let Some(value) = number.as_u64() {
+        return value.to_string().len();
+    }
+    match number.as_f64() {
+        Some(value) if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 => {
+            (value as i64).to_string().len()
+        }
+        _ => number.to_string().len(),
+    }
+}
+
+/// The size of the blob as the TypeScript measures it: `Buffer.byteLength(JSON.stringify(v))`,
+/// so a JSON array of `0.0` literals counts each as one `0`, not serde's `0.0`.
+fn json_stringify_len(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(true) => 4,
+        Value::Bool(false) => 5,
+        Value::Number(number) => js_number_len(number),
+        Value::String(text) => serde_json::to_string(text).map_or(2, |text| text.len()),
+        Value::Array(items) => {
+            2 + items.iter().map(json_stringify_len).sum::<usize>() + items.len().saturating_sub(1)
+        }
+        Value::Object(entries) => {
+            let mut total = 2;
+            for (index, (key, item)) in entries.iter().enumerate() {
+                if index > 0 {
+                    total += 1;
+                }
+                total += serde_json::to_string(key).map_or(2, |key| key.len()) + 1;
+                total += json_stringify_len(item);
+            }
+            total
+        }
+    }
+}
+
 /// The value Zod keeps for `key`, or the refusal a person sees.
 pub fn validate_value(key: &str, value: &Value) -> Result<Value, SettingsError> {
     let (kind, _) = spec(key)
         .ok_or_else(|| SettingsError::new(SettingsCode::Validation, "Unknown settings key"))?;
     if key.starts_with("clients.") {
-        let bytes = serde_json::to_string(value)
-            .map(|text| text.len())
-            .unwrap_or_default();
+        let bytes = json_stringify_len(value);
         if bytes > MAX_CLIENT_BYTES {
             return Err(SettingsError::new(
                 SettingsCode::Size,
@@ -984,6 +1025,48 @@ mod tests {
             "remote": "origin"
         });
         assert!(validate_value("sourceControl.preferences", &dotted_github_account).is_err());
+    }
+
+    #[test]
+    fn the_client_blob_cap_counts_json_stringify_bytes_and_reports_a_size_diagnostic() {
+        // 17,000 `0.0` literals: 34,001 bytes as `JSON.stringify` writes them, so the size
+        // the crate measures must not refuse what the TypeScript accepts.
+        let zeros = Value::Array(vec![json!(0.0); 17_000]);
+        assert!(validate_value("clients.theme", &zeros).is_ok());
+
+        let oversized = json!("é".repeat(MAX_CLIENT_BYTES));
+        assert_eq!(
+            validate_value("clients.theme", &oversized)
+                .map_err(|error| (error.code, error.message)),
+            Err((
+                SettingsCode::Size,
+                "Client settings blob exceeds 64 KiB".into()
+            ))
+        );
+
+        // Reading a document with an oversized blob reports `size`, not the generic
+        // invalid-known-values refusal.
+        let text = serde_json::json!({
+            "version": 2,
+            "settings": { "clients.theme": "a".repeat(MAX_CLIENT_BYTES) }
+        })
+        .to_string();
+        assert_eq!(
+            crate::document::DecodedDocument::decode(&text)
+                .map_err(|error| (error.code, error.message)),
+            Err((
+                SettingsCode::Size,
+                "Client settings blob exceeds 64 KiB".into()
+            ))
+        );
+
+        // And the accepted array reads back.
+        let text = serde_json::json!({
+            "version": 2,
+            "settings": { "clients.theme": Value::Array(vec![json!(0.0); 17_000]) }
+        })
+        .to_string();
+        assert!(crate::document::DecodedDocument::decode(&text).is_ok());
     }
 
     #[test]
