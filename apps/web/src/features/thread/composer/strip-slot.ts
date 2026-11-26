@@ -6,8 +6,7 @@
  * the connection, then background commands a stopped turn left running, then the queue, then
  * what the main agent waits on while it does nothing itself (with its Stop), then the goal the
  * agent is pursuing, then its task list, then where its work went or came from on another
- * machine, then the context readout with its compact action when nothing else is there. The
- * person can switch the slot to any present item; a
+ * machine. The person can switch the slot to any present item; a
  * request that arrives after that, or one a notification opens, takes it back. Pure.
  */
 export const stripPriority = [
@@ -22,7 +21,6 @@ export const stripPriority = [
   "goal",
   "plan",
   "transfer",
-  "context",
 ] as const;
 export type StripKind = (typeof stripPriority)[number];
 
@@ -49,8 +47,6 @@ export interface StripFacts {
   plan: boolean;
   /** A transfer to another machine runs or failed, or the thread was continued on or from one. */
   transfer?: boolean;
-  /** The provider's context occupancy is known, or it is compacting it now. */
-  context?: boolean;
 }
 
 /** The person moved the slot to `kind`, while these requests were already open. */
@@ -88,12 +84,8 @@ export function stripSlot(facts: StripFacts, pick: StripPick | undefined): Strip
     : pick && !arrived && items.includes(pick.kind)
       ? pick.kind
       : (items[0] as StripKind | undefined);
-  // It is never an indicator either: it is there only while it shows. The context readout sits
-  // beside every slot instead (`ContextTrailing`), so it is never an indicator of its own.
-  return {
-    shown,
-    others: items.filter((kind) => kind !== shown && kind !== "confirm-stop" && kind !== "context"),
-  };
+  // It is never an indicator either: it is there only while it shows.
+  return { shown, others: items.filter((kind) => kind !== shown && kind !== "confirm-stop") };
 }
 
 /** The person chose `kind` from an indicator; choosing a request goes back to the default. */

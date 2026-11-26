@@ -119,18 +119,6 @@ async function handle(line: string) {
         pendingMessageCount: queue ? 1 : 0,
       });
       return;
-    case "compact": {
-      const result = {
-        summary: "The earlier turns, summarised by Pi.",
-        firstKeptEntryId: "entry-1",
-        tokensBefore: 150_000,
-        estimatedTokensAfter: 32_000,
-      };
-      emit({ type: "compaction_start", reason: "manual" });
-      emit({ type: "compaction_end", reason: "manual", result, aborted: false, willRetry: false });
-      reply(c, result);
-      return;
-    }
     case "get_entries":
       if (process.env.FAKE_PI_BAD_ENTRIES === "cycle")
         reply(c, { entries: [{ type: "custom", id: "loop", parentId: "loop" }], leafId: "loop" });

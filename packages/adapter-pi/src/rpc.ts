@@ -77,18 +77,14 @@ export class PiRpc {
       .send(line + "\n", Buffer.byteLength(line) + 1)
       .then(() => this.frame("send", payload));
   }
-  request(
-    command: string,
-    params: Record<string, unknown> = {},
-    timeoutMs = 30_000,
-  ): Promise<unknown> {
+  request(command: string, params: Record<string, unknown> = {}): Promise<unknown> {
     if (this.closed) return Promise.reject(new PiCommandRefused("Pi RPC closed"));
     if (this.pending.size >= 64)
       return Promise.reject(new PiCommandRefused("Pi command capacity exceeded"));
     const id = `ace-${++this.seq}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { command, resolve, reject, cancel: () => {} });
-      if (!this.waitingOnHuman) this.armDeadline(id, timeoutMs);
+      if (!this.waitingOnHuman) this.armDeadline(id);
       void this.write({ type: command, ...params, id }).catch((error: unknown) => {
         this.pending.get(id)?.cancel();
         this.pending.delete(id);
@@ -105,14 +101,14 @@ export class PiRpc {
     this.waitingOnHuman = false;
     for (const id of this.pending.keys()) this.armDeadline(id);
   }
-  private armDeadline(id: string, timeoutMs = 30_000): void {
+  private armDeadline(id: string): void {
     const pending = this.pending.get(id);
     if (!pending) return;
     pending.cancel = this.schedule(() => {
       this.pending.delete(id);
       pending.reject(new Error("Pi command timed out; execution uncertain"));
       this.fail(new Error("Pi command timed out"));
-    }, timeoutMs);
+    }, 30_000);
   }
   close(error = new Error("Pi RPC closed")): void {
     if (this.closed) return;

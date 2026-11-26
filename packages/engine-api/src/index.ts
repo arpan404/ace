@@ -306,12 +306,6 @@ export interface ProviderSession {
   setGoal?(change: import("@ace/protocol").GoalChange): Promise<void>;
   clearGoal?(): Promise<void>;
   /**
-   * Compact the thread's context with the provider's own compaction. Resolves once the provider
-   * has taken it; the compaction itself reports through the provider's frames (a compaction item,
-   * `compacting` activity, then the summary). Providers without native compaction omit it.
-   */
-  compact?(): Promise<void>;
-  /**
    * Optional engine command correlation for providers with durable admission. `origin` names
    * input that isn't the person's (`InputSource`). `fence` (a person's steer aimed at one turn)
    * is checked right before the write: see `SteerFence`.

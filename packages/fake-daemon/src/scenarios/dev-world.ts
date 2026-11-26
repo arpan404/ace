@@ -14,7 +14,6 @@ import { failingSubagent } from "./failing-subagent.ts";
 import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
-import { contextMeter, contextMeterWaiting } from "./context-meter.ts";
 import { chats } from "./chats.ts";
 import { homeList } from "./home-list.ts";
 import { multiDayDemo } from "./multi-day-demo.ts";
@@ -59,14 +58,6 @@ export function devWorld(): WorldThread[] {
       live: { speed: 1 },
     },
     { scenario: replayCursor(), agoMs: 4 * minute, live: { speed: 1 } },
-    // Context occupancy: an idle thread with the readout and its compact icon, a working one
-    // where the icon waits, and a provider without native compaction (Cursor).
-    { scenario: contextMeter(), agoMs: 5 * minute },
-    {
-      scenario: contextMeter({ provider: "cursor", id: "thread-context-cursor" }),
-      agoMs: 6 * minute,
-    },
-    { scenario: contextMeterWaiting(), agoMs: 2 * minute },
     // The thread the right and bottom panels are designed around: its turns already happened,
     // the subagents report back live.
     { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },

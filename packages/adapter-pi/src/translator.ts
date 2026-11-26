@@ -22,8 +22,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
   let lastAnswer: Key | undefined;
   let poisoned = false;
   let settled = false;
-  /** This compaction started its own turn (a manual one on an idle session) to end after it. */
-  let compactionTurn = false;
   // Pi is retrying a failed request: the next output it streams proves the retry got through.
   let retrying = false;
   let prefix = "pi",
@@ -359,47 +357,10 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
             count: list(e.steering).length + list(e.followUp).length,
           },
         ];
-      case "compaction_start": {
-        // A manual compaction on an idle session has no run of its own: one begins here so the
-        // thread reads as compacting, and `compaction_end` ends it. An automatic one is already
-        // inside the run and leaves its ending to the run.
-        const began = start();
-        if (began.length) compactionTurn = true;
-        return [...began, { type: "activity", agent, activity: "compacting" }];
-      }
-      case "compaction_end": {
-        const facts: Fact[] = [];
-        const result = obj(e.result);
-        const summary = str(result.summary);
-        if (e.aborted !== true && !str(e.errorMessage) && summary) {
-          const before = result.tokensBefore;
-          const after = result.estimatedTokensAfter;
-          facts.push({
-            type: "item.upsert",
-            agent,
-            item: `${prefix}:compact:${str(result.firstKeptEntryId) || frame.seq}`,
-            draft: {
-              type: "compaction",
-              complete: true,
-              summary,
-              ...(typeof before === "number" && Number.isInteger(before) && before >= 0
-                ? { tokensBefore: before }
-                : {}),
-              ...(typeof after === "number" && Number.isInteger(after) && after >= 0
-                ? { tokensAfter: after }
-                : {}),
-            },
-          });
-        }
-        if (compactionTurn && e.willRetry !== true) {
-          compactionTurn = false;
-          settled = true;
-          outcome =
-            e.aborted === true ? "interrupted" : str(e.errorMessage) ? "failed" : "completed";
-          facts.push(...finish());
-        }
-        return facts;
-      }
+      case "compaction_start":
+        return [...start(), { type: "activity", agent, activity: "compacting" }];
+      case "compaction_end":
+        return [];
       case "auto_retry_start":
       case "summarization_retry_scheduled":
         retrying = true;

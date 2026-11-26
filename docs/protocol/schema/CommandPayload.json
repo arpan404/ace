@@ -2587,22 +2587,6 @@
     },
     {
       "properties": {
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        },
-        "type": {
-          "const": "thread.compact",
-          "type": "string"
-        }
-      },
-      "required": [
-        "type",
-        "threadId"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"
         },

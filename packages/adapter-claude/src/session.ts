@@ -418,24 +418,6 @@ export async function openSession(
         });
       }
     },
-    // Claude Code's own compaction: `/compact` dispatched as a synthetic turn. It summarises the
-    // session's history in place; the boundary and summary frames become one compaction row.
-    async compact() {
-      ensureOpen();
-      const message: SDKUserMessage & { uuid: string } = {
-        type: "user",
-        uuid: randomUUID(),
-        session_id: sessionId,
-        parent_tool_use_id: null,
-        message: { role: "user", content: "/compact" },
-        priority: "next",
-      };
-      // Not the person's: the echo is dropped and never becomes a message (`isCompactCommand`).
-      message.isSynthetic = true;
-      const payload = encode(message);
-      input.push(message);
-      record("send", "sdk", payload);
-    },
     // The terminal's Ctrl+B: each blocking Bash or subagent call returns at once and keeps
     // running as a background task, so the queued `now` message is taken right away. Throws
     // when background tasks are disabled (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).

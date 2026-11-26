@@ -13,8 +13,6 @@ import { sessionUsage, stepContext, selectModel } from "./usage.ts";
 class TypeScriptOpenCodeTranslator implements Translator {
   private state: NativeState;
   private retrying = new Set<string>();
-  /** Sessions whose manual compaction started a turn of its own, to end when it ends. */
-  private compactionTurns = new Set<string>();
   private diagnostics: import("@ace/protocol").RawPayload[] = [];
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
     this.state = new NativeState(init.rootKey);
@@ -406,39 +404,6 @@ class TypeScriptOpenCodeTranslator implements Translator {
           message: string(object(p.error).message),
         },
       ];
-    }
-    if (type === "session.compaction.started") {
-      // A manual compaction on an idle session has no execution of its own: one begins here so
-      // the thread reads as compacting, and `ended` or `failed` ends it.
-      const began = state.active.has(id)
-        ? []
-        : state.start(id, `compaction:${id}:${e.durable?.seq ?? e.id}`);
-      if (began.length) this.compactionTurns.add(id);
-      return [...began, { type: "activity", agent, activity: "compacting" }];
-    }
-    if (type === "session.compaction.ended") {
-      // The summary OpenCode keeps as the session's own compaction entry. A redelivered event
-      // lands on the same row through its durable sequence.
-      const own = this.compactionTurns.delete(id);
-      return [
-        {
-          type: "item.upsert",
-          agent,
-          item: `compaction:${id}:${e.durable?.seq ?? e.id}`,
-          draft: {
-            type: "compaction",
-            complete: true,
-            ...(string(p.text) ? { summary: string(p.text) } : {}),
-          },
-        },
-        ...(own ? state.end(id, "completed") : []),
-      ];
-    }
-    if (type === "session.compaction.failed") {
-      const own = this.compactionTurns.delete(id);
-      return own
-        ? state.end(id, "failed", p.error)
-        : [{ type: "activity", agent, activity: "thinking" }];
     }
     if (type === "session.model.selected") return selectModel(state, id, p.model);
     if (type === "session.usage.updated") return sessionUsage(state, id, p);

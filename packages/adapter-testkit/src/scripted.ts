@@ -17,8 +17,6 @@ export type ScriptedCommand =
   | { type: "stopTask"; task: Key }
   /** Only on adapters whose capabilities say `goals`. */
   | { type: "goal"; change: GoalChange | "clear" }
-  /** Only on adapters whose capabilities say `compaction`. */
-  | { type: "compact" }
   | { type: "close"; reason: "idle" | "user" | "shutdown" };
 
 export interface ScriptedStep {
@@ -142,13 +140,6 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
               },
               async clearGoal() {
                 await receive({ type: "goal", change: "clear" });
-              },
-            }
-          : {}),
-        ...(capabilities.compaction
-          ? {
-              async compact() {
-                await receive({ type: "compact" });
               },
             }
           : {}),

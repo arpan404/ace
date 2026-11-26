@@ -49,7 +49,6 @@ export function createOpenCodeAdapter(
           send: (input, delivery, commandId, origin, fence) =>
             session.send(input, delivery, commandId, origin, fence),
           configure: (selection) => session.configure(selection),
-          compact: () => session.compact(),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),

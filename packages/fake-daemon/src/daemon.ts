@@ -5,7 +5,6 @@ import { FakeSpade } from "./spade.ts";
 import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
-import { fakeCompaction, fakeCompactionProviders, fakeMeterUpdates } from "./thread-meter.ts";
 import type { FakeHistory } from "./history-wire.ts";
 import type { FakeNotificationControls } from "./notification-feed.ts";
 import type { FakeMachineUpdate } from "./machine-update-wire.ts";
@@ -615,8 +614,6 @@ export class FakeDaemon implements Host {
         accessModes: fakeAccessModes(init.provider),
         // Codex's goals are native: ace sets, pauses and clears them (`thread.goal.*`).
         goals: init.provider === "codex",
-        // The providers whose own compaction ace can ask for (`thread.compact`).
-        compaction: fakeCompactionProviders.has(init.provider),
         ...init.capabilities,
       },
       ...(init.details ? { details: init.details } : {}),
@@ -800,9 +797,19 @@ export class FakeDaemon implements Host {
         now,
       );
       if (metadata) followups.push(metadata);
-      // The daemon turns a provider's context sample, or a finished compaction, into the
-      // agent's replaceable meter.
-      followups.push(...fakeMeterUpdates(payload, host.view.contextMeters));
+      // The daemon turns a provider's context sample into the agent's replaceable meter.
+      if (payload.type === "context.sampled")
+        followups.push({
+          type: "context_meter.updated",
+          meter: {
+            agentId: payload.agentId,
+            epoch: (host.view.contextMeters?.[payload.agentId]?.epoch ?? 0) + 1,
+            usedTokens: payload.usedTokens,
+            windowTokens: payload.windowTokens ?? null,
+            ...(payload.model ? { model: payload.model } : {}),
+            source: "provider",
+          },
+        });
       if (payload.type === "thread.updated" && payload.status)
         followups.push({
           type: "thread.client.updated",
@@ -1462,14 +1469,6 @@ export class FakeDaemon implements Host {
         );
         if ("error" in next) return { commandId, ok: false, error: next.error };
         this.append(host, [{ type: "thread.updated", goal: next.goal }], now);
-        return { commandId, ok: true };
-      }
-      case "thread.compact": {
-        const host = this.threads.get(payload.threadId);
-        if (!host) return { commandId, ok: false, error: "thread_not_found" };
-        const next = fakeCompaction(host.view, host.state.rootKey ?? "root", this.options.clock());
-        if ("error" in next) return { commandId, ok: false, error: next.error };
-        this.apply(payload.threadId, next.facts, this.options.clock());
         return { commandId, ok: true };
       }
       case "thread.archive": {

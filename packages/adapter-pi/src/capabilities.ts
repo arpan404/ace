@@ -37,8 +37,6 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
     backgroundTaskControl: false,
     backgroundVisibility: "none",
     planMode: false,
-    // The `compact` RPC command summarises the session's own history.
-    compaction: supported,
     tokenUsage: supported,
     imageInput: supported,
     attachmentInput: {

@@ -81,8 +81,6 @@ const refusals: Record<string, string> = {
     "That agent can't start with this effort or speed. Pick another and try again.",
   permission_mode_unsupported: "That agent doesn't offer this access mode. Pick another.",
   unsupported_goal: "This agent can't keep a goal across turns. Describe it in a message instead.",
-  unsupported_compact: "This agent can't compact its context.",
-  thread_not_idle: "Wait for this turn to finish before compacting.",
   goal_not_found: "There's no goal to change.",
   not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",

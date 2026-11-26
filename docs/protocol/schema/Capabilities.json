@@ -82,9 +82,6 @@
       ],
       "type": "string"
     },
-    "compaction": {
-      "type": "boolean"
-    },
     "fork": {
       "type": "boolean"
     },

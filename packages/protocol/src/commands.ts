@@ -177,12 +177,6 @@ export const CommandPayload = z.discriminatedUnion("type", [
   /** Set, pause or resume the provider's native goal (Codex). */
   z.object({ type: z.literal("thread.goal.set"), threadId: ThreadId, change: GoalChange }),
   z.object({ type: z.literal("thread.goal.clear"), threadId: ThreadId }),
-  /**
-   * Ask the provider to compact this thread's context with its own native compaction. Refused
-   * (`unsupported_compact`) when it has none, and (`thread_not_idle`) while its agent works, when
-   * the provider can't take one.
-   */
-  z.object({ type: z.literal("thread.compact"), threadId: ThreadId }),
   z.object({
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,

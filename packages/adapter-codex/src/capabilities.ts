@@ -32,8 +32,6 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     goals: supported,
     backgroundVisibility: supported ? "full" : "none",
     planMode: supported,
-    // `thread/compact/start` on the thread's own session.
-    compaction: supported,
     tokenUsage: supported,
     imageInput: supported,
     attachmentInput: {
