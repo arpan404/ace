@@ -749,6 +749,31 @@ mod tests {
     }
 
     #[test]
+    fn a_sixteen_parameter_fast_variant_is_rejected_for_its_seventeenth_tier_parameter() {
+        // The SDK allows 16 variant params; a fast variant's tier adds serviceTier,
+        // which is 17 and over the protocol's tier-parameter bound.
+        let params: Vec<Value> = (0..15)
+            .map(|n| json!({ "id": format!("p{n}"), "value": "x" }))
+            .chain([json!({ "id": "fast", "value": "true" })])
+            .collect();
+        let payload = json!([{
+            "id": "fast-model",
+            "variants": [{ "displayName": "Fast", "isDefault": true, "params": params }]
+        }]);
+        let mut rejected = Vec::new();
+        let rows = normalize_cursor_sdk(&payload, &instance(), &mut |entry| rejected.push(entry))
+            .unwrap_or_default();
+        assert!(rows.is_empty());
+        assert_eq!(
+            rejected,
+            [CursorModelRejection {
+                index: 0,
+                reason: OVER_LIMITS_REASON
+            }]
+        );
+    }
+
+    #[test]
     fn a_forty_variant_model_keeps_only_standard_context_variants_and_its_efforts() {
         // Claude Opus 4.8's real listing: thinking × context × effort × fast, default at 1m.
         let efforts = ["low", "medium", "high", "xhigh", "max"];

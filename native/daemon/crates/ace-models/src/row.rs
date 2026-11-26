@@ -144,6 +144,11 @@ fn optional_label_fits(value: Option<&str>) -> bool {
     value.is_none_or(label_fits)
 }
 
+/// A generated label newtype (possibly nested) through its `Display`.
+fn optional_text_fits<T: std::fmt::Display>(value: Option<&T>) -> bool {
+    value.is_none_or(|value| label_fits(&value.to_string()))
+}
+
 /// The bounds `CatalogModel.parse` enforces, checked on the row ace is about to store.
 pub fn validate_row(model: &CatalogModel) -> Result<(), RowError> {
     let labels = [
@@ -167,7 +172,19 @@ pub fn validate_row(model: &CatalogModel) -> Result<(), RowError> {
         model.default_effort.as_ref().map(|value| value.0.as_str()),
         model.default_tier.as_ref().map(|value| value.0.as_str()),
     ];
-    if !labels.into_iter().all(optional_label_fits) {
+    if !labels.into_iter().all(optional_label_fits)
+        || !optional_text_fits(model.acp_agent_id.as_ref())
+        || !optional_text_fits(model.installation_id.as_ref())
+        || !optional_text_fits(model.instance_id.as_ref())
+        || !model
+            .source
+            .as_ref()
+            .is_none_or(|source| label_fits(&source.id.0) && label_fits(&source.label.0))
+        || !model
+            .aliases
+            .as_ref()
+            .is_none_or(|aliases| aliases.iter().all(|alias| label_fits(&alias.0)))
+    {
         return Err(RowError("Model row has an oversized label"));
     }
     if model.efforts.len() > EFFORTS_LIMIT {
@@ -193,12 +210,32 @@ pub fn validate_row(model: &CatalogModel) -> Result<(), RowError> {
     {
         return Err(RowError("Model row has an oversized effort"));
     }
-    if !model
-        .service_tiers
-        .iter()
-        .all(|tier| label_fits(&tier.id.0) && label_fits(&tier.name.0))
-    {
-        return Err(RowError("Model row has an oversized service tier"));
+    for tier in model.service_tiers.iter() {
+        if !label_fits(&tier.id.0) || !label_fits(&tier.name.0) {
+            return Err(RowError("Model row has an oversized service tier"));
+        }
+        if tier
+            .speed
+            .as_deref()
+            .is_some_and(|speed| !label_fits(speed))
+        {
+            return Err(RowError("Model row has an oversized label"));
+        }
+        if tier.parameters.len() > 16 {
+            return Err(RowError("Model row has too many tier parameters"));
+        }
+        for (key, value) in &tier.parameters {
+            // Keys are labels; string values are `max(256)` with no minimum.
+            let fits = label_fits(key)
+                && match value {
+                    Value::String(value) => value.chars().count() <= LABEL_LIMIT,
+                    Value::Bool(_) => true,
+                    _ => false,
+                };
+            if !fits {
+                return Err(RowError("Model row has an oversized tier parameter"));
+            }
+        }
     }
     if !model
         .input_modalities
@@ -206,6 +243,9 @@ pub fn validate_row(model: &CatalogModel) -> Result<(), RowError> {
         .all(|modality| label_fits(&modality.0))
     {
         return Err(RowError("Model row has an oversized input modality"));
+    }
+    if model.raw.json.chars().count() > 2048 || model.raw.json.len() > 2048 {
+        return Err(RowError("Model row has an oversized raw payload"));
     }
     let bytes =
         serde_json::to_string(model).map_err(|_| RowError("Model row is not serializable"))?;
@@ -310,6 +350,127 @@ mod tests {
         assert_eq!(row["raw"]["truncated"], false);
     }
 
+    fn tier(parameters: Value) -> ModelTier {
+        ModelTier {
+            id: "tier".to_owned().into(),
+            name: "Tier".to_owned().into(),
+            parameters: parameters.as_object().cloned().unwrap_or_default(),
+            speed: None,
+        }
+    }
+
+    #[test]
+    fn tier_parameters_are_at_most_sixteen_with_label_keys_and_bounded_values() {
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        let sixteen = (0..16)
+            .map(|n| (format!("p{n}"), Value::String("v".into())))
+            .collect::<serde_json::Map<_, _>>();
+        model.service_tiers = vec![tier(Value::Object(sixteen))].into();
+        assert!(validate_row(&model).is_ok());
+        let seventeen = (0..17)
+            .map(|n| (format!("p{n}"), Value::String("v".into())))
+            .collect::<serde_json::Map<_, _>>();
+        model.service_tiers = vec![tier(Value::Object(seventeen))].into();
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has too many tier parameters"))
+        );
+        // Keys are labels and string values are at most 256 code points; booleans pass.
+        let long_key = format!("{}x", "🚀".repeat(LABEL_LIMIT));
+        model.service_tiers = vec![tier(json!({ long_key: true }))].into();
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized tier parameter"))
+        );
+        model.service_tiers = vec![tier(json!({ "p": "🚀".repeat(LABEL_LIMIT + 1) }))].into();
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized tier parameter"))
+        );
+        model.service_tiers =
+            vec![tier(json!({ "p": true, "q": "🚀".repeat(LABEL_LIMIT) }))].into();
+        assert!(validate_row(&model).is_ok());
+    }
+
+    #[test]
+    fn source_identity_aliases_and_a_tier_speed_are_labels_too() {
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        let long = "🚀".repeat(LABEL_LIMIT + 1);
+        if let Some(source) = model.source.take() {
+            let mut source = (*source).clone();
+            source.id = long.clone().into();
+            model.source = Some(source.into());
+        }
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized label"))
+        );
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        if let Some(source) = model.source.take() {
+            let mut source = (*source).clone();
+            source.label = long.clone().into();
+            model.source = Some(source.into());
+        }
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized label"))
+        );
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        model.acp_agent_id = decoded_text(Some(&long));
+        model.installation_id = decoded_text(Some("i"));
+        model.instance_id = decoded_text(Some("n"));
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized label"))
+        );
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        model.aliases = Some(vec![long.clone().into()].into());
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized label"))
+        );
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        let mut tier = tier(json!({}));
+        tier.speed = Some(long);
+        model.service_tiers = vec![tier].into();
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized label"))
+        );
+    }
+
+    #[test]
+    fn the_raw_copy_is_at_most_two_kibibytes_of_utf8() {
+        let mut model = base(&instance(), "m", "M", &json!({}));
+        model.raw = CatalogRaw {
+            json: "a".repeat(2048),
+            truncated: false,
+        };
+        assert_eq!(validate_row(&model), Ok(()));
+        model.raw = CatalogRaw {
+            json: "a".repeat(2049),
+            truncated: true,
+        };
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized raw payload"))
+        );
+        // The bound is UTF-8 bytes: 200 emoji are 800 bytes and fit; 600 are over.
+        model.raw = CatalogRaw {
+            json: "🚀".repeat(200),
+            truncated: false,
+        };
+        assert_eq!(validate_row(&model), Ok(()));
+        model.raw = CatalogRaw {
+            json: "🚀".repeat(600),
+            truncated: true,
+        };
+        assert_eq!(
+            validate_row(&model),
+            Err(RowError("Model row has an oversized raw payload"))
+        );
+    }
+
     #[test]
     fn the_rows_label_bound_counts_code_points_and_the_row_bound_counts_bytes() {
         // 256 emoji are 256 code points but 1,024 UTF-8 bytes: accepted.
@@ -320,12 +481,11 @@ mod tests {
             validate_row(&model),
             Err(RowError("Model row has an oversized label"))
         );
-        // A row whose compact JSON passes 8 KiB is refused even with short labels.
+        // A row whose compact JSON passes 8 KiB is refused even when every field is
+        // inside its own bound: 32 aliases of 256 emoji each are 32 KiB.
         let mut large = base(&instance(), "m", "M", &json!({}));
-        large.raw = CatalogRaw {
-            json: format!("{{\"note\":\"{}\"}}", "x".repeat(ROW_LIMIT)),
-            truncated: true,
-        };
+        large.aliases =
+            Some(vec!["🚀".repeat(LABEL_LIMIT).to_owned().into(); ALIASES_LIMIT].into());
         assert_eq!(
             validate_row(&large),
             Err(RowError("Model row exceeds 8 KiB"))
