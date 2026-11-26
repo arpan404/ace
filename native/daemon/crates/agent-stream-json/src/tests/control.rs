@@ -112,6 +112,18 @@ fn the_recorded_append_system_prompt_keeps_its_place() {
 }
 
 #[test]
+fn absent_subagent_flags_stay_absent() {
+    let mut init = initialize();
+    init.hooks.clear();
+    init.forward_subagent_text = false;
+    init.per_task_stop_affordance = false;
+    assert_eq!(
+        request_text(&requested(Request::Initialize(init))),
+        r#"{"subtype":"initialize"}"#
+    );
+}
+
+#[test]
 fn request_ids_count_up_from_ace_one() {
     let mut controls = Controls::new();
     let (first, envelope) = controls

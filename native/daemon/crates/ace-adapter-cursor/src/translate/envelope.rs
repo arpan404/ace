@@ -84,7 +84,7 @@ pub fn native_identity(value: &Value) -> BudgetResult<Option<JsString>> {
 
 fn identity(value: &Value) -> Option<&JsString> {
     match value {
-        Value::String(text) if !text.is_empty() && text.len_utf16() <= 512 => Some(text),
+        Value::String(text) if !text.is_empty() && text.len_code_points() <= 512 => Some(text),
         _ => None,
     }
 }
@@ -123,7 +123,7 @@ pub fn parse_envelope(value: &Value) -> Option<Envelope<'_>> {
     let generation = value.get("generation").and_then(identity)?;
     let operation_id = value.get("operationId").and_then(identity)?;
     let kind = match value.get("kind") {
-        Some(Value::String(kind)) if !kind.is_empty() && kind.len_utf16() <= 128 => kind,
+        Some(Value::String(kind)) if !kind.is_empty() && kind.len_code_points() <= 128 => kind,
         _ => return None,
     };
     let segment = {
@@ -177,4 +177,20 @@ pub fn parse_envelope(value: &Value) -> Option<Envelope<'_>> {
         body,
         raw: value.get("raw"),
     })
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn an_envelope_identity_counts_code_points_but_native_admission_counts_units() {
+        for length in [512, 513] {
+            let id = "😀".repeat(length);
+            let envelope = ace_json::parse(&format!(r#"{{"schemaVersion":1,"generation":"{id}","operationId":"op","kind":"event","segment":0,"body":{{}}}}"#)).expect("envelope");
+            assert_eq!(parse_envelope(&envelope).is_some(), length == 512);
+        }
+        assert!(native_identity(&Value::from("😀".repeat(256))).is_ok());
+        assert!(native_identity(&Value::from("😀".repeat(257))).is_err());
+    }
 }

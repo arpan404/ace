@@ -8,7 +8,6 @@ use crate::session::frames::{Calls, Effect};
 
 use super::cache::Catalog;
 use super::{CatalogSource, CodexToolFacts};
-use crate::session::state::utf16_len;
 
 /// Enough for any catalog Codex ships or fetches (`maxPages`).
 const MAX_PAGES: u64 = 10;
@@ -81,7 +80,7 @@ impl Pager {
                 self.done = Some(None);
                 return Vec::new();
             };
-            if utf16_len(model) > 512 || utf16_len(id) > 512 {
+            if model.chars().count() > 512 || id.chars().count() > 512 {
                 self.done = Some(None);
                 return Vec::new();
             }
@@ -100,7 +99,7 @@ impl Pager {
                 self.done = Some(Some(std::mem::take(&mut self.slugs)));
                 Vec::new()
             }
-            Some(cursor) if utf16_len(&cursor) > 4096 || self.pages >= MAX_PAGES => {
+            Some(cursor) if cursor.chars().count() > 4096 || self.pages >= MAX_PAGES => {
                 self.done = Some(None);
                 Vec::new()
             }
@@ -134,7 +133,7 @@ impl Config {
         let bounded = |key: &str, max: usize| -> Option<Option<String>> {
             match config.get(key) {
                 None | Some(Value::Null) => Some(None),
-                Some(Value::String(text)) if utf16_len(text.as_str()) <= max => {
+                Some(Value::String(text)) if text.len_code_points() <= max => {
                     Some(Some(text.as_str().to_owned()))
                 }
                 Some(_) => None,
@@ -153,7 +152,7 @@ impl Config {
                         .and_then(|entry| entry.get("model_catalog_url"))
                     {
                         None | Some(Value::Null) => None,
-                        Some(Value::String(text)) if utf16_len(text.as_str()) <= 4096 => {
+                        Some(Value::String(text)) if text.len_code_points() <= 4096 => {
                             Some(text.as_str().to_owned())
                         }
                         _ => return None,
@@ -227,4 +226,30 @@ impl Config {
 
 pub(crate) fn non_empty(value: Option<&str>) -> Option<String> {
     value.filter(|text| !text.is_empty()).map(str::to_owned)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn config_string_bounds_count_code_points() {
+        for (field, limit) in [
+            ("model", 512),
+            ("model_provider", 256),
+            ("model_catalog_json", 4096),
+            ("model_catalog_url", 4096),
+        ] {
+            for length in [limit, limit + 1] {
+                let text = "😀".repeat(length);
+                let config = if field == "model_catalog_url" {
+                    format!(r#"{{"model_providers":{{"openai":{{"{field}":"{text}"}}}}}}"#)
+                } else {
+                    format!(r#"{{"{field}":"{text}"}}"#)
+                };
+                let reply = ace_json::parse(&format!(r#"{{"config":{config}}}"#)).expect("reply");
+                assert_eq!(Config::parse(&reply).is_some(), length == limit, "{field}");
+            }
+        }
+    }
 }

@@ -17,6 +17,9 @@ pub enum Deferred {
     /// Run at the commit itself, in place: a promoted actor must be visible to the very next
     /// synchronous lookup, as the TypeScript's eviction at the call was.
     Run(Box<dyn FnOnce()>),
+    /// Run after the transaction's events published, as the TypeScript's `afterCommit` does: a
+    /// naming prompt waits for the thread the receipt created to be readable.
+    AfterPublish(Box<dyn FnOnce()>),
 }
 
 /// Where a released deferred goes: the engine wakes a parked task or spawns the future.
@@ -76,7 +79,7 @@ impl AfterCommit {
             match (host.as_deref(), item) {
                 (Some(host), Deferred::Wake(thread, lane)) => host.wake(&thread, lane),
                 (Some(host), Deferred::Spawn(lane, future)) => host.spawn(lane, future),
-                (Some(host), Deferred::Run(run)) => host.run(run),
+                (Some(host), Deferred::Run(run) | Deferred::AfterPublish(run)) => host.run(run),
                 // Detached: the engine is closing, and the work is dropped.
                 (None, _) => {}
             }
@@ -216,6 +219,21 @@ mod tests {
         after.release(&[first]);
         assert_eq!(host.woken.borrow().len(), 2, "a token releases once");
         assert_eq!(after.pending(), 0);
+    }
+
+    #[test]
+    fn an_after_publish_decision_waits_for_the_publication() {
+        let (after, host) = attached();
+        let ran = Rc::new(std::cell::Cell::new(false));
+        let flag = Rc::clone(&ran);
+        let token = after.defer(Deferred::AfterPublish(Box::new(move || flag.set(true))));
+        // The committed-run pass leaves it for the release the shell calls after publication.
+        let remaining = after.release_runs(&[token]);
+        assert_eq!(remaining, vec![token]);
+        assert!(!ran.get(), "it does not run before the events publish");
+        assert!(host.woken.borrow().is_empty());
+        after.release(&remaining);
+        assert!(ran.get(), "the post-publication release runs it");
     }
 
     #[test]

@@ -376,7 +376,7 @@ impl PiTranslator {
                 } else {
                     "reasoning".to_owned()
                 },
-                append: delta,
+                append: delta.into(),
             },
         );
     }

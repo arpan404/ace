@@ -70,8 +70,8 @@ export function probeFor(
       return parseTurns(turnLog());
     },
     woken,
-    apply: (threadId: string, facts: readonly unknown[], now: number) =>
-      required("probeApply")(threadId, JSON.stringify(facts), now),
+    apply: (threadId: string, facts: readonly unknown[], now: number, generation?: number) =>
+      required("probeApply")(threadId, JSON.stringify(facts), now, generation),
     applyRolledBack: (threadId: string, facts: readonly unknown[], now: number) =>
       required("probeApplyRolledBack")(threadId, JSON.stringify(facts), now),
     passThroughCollaborators: () => {
@@ -194,5 +194,7 @@ export function probeFor(
     attachNativeTranslator: (thread) => required("probeAttachNativeTranslator")(thread),
     retire: (thread) => required("probeRetire")(thread),
     applied: (thread) => required("probeApplied")(thread) as string,
+    inputFacts: (method, args) =>
+      JSON.parse(required("probeInputFacts")(method, JSON.stringify(args)) as string) as unknown,
   };
 }

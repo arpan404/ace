@@ -63,7 +63,7 @@ fn permission_options(value: &Value) -> Result<Map, String> {
         }
     }
     let permissions = text(options.get("permissions"))
-        .filter(|text| !text.is_empty() && text.len_utf16() <= PROFILE_MAX)
+        .filter(|text| !text.is_empty() && text.len_code_points() <= PROFILE_MAX)
         .ok_or_else(|| "Codex permission mode needs a profile of 1 to 256 characters".to_owned())?;
     let reviewer = text(options.get("approvalsReviewer"))
         .filter(|text| REVIEWERS.contains(&text.as_str()))
@@ -113,7 +113,7 @@ pub fn configured_turn_policy(value: &Value) -> Result<Map, String> {
         }
         // `z.string().min(1).max(256)`: a present value must be a profile name
         // of that length, so a bad one never falls back to the sandbox mode.
-        Some(Value::String(name)) if !name.is_empty() && name.len_utf16() <= PROFILE_MAX => {
+        Some(Value::String(name)) if !name.is_empty() && name.len_code_points() <= PROFILE_MAX => {
             Some(name.clone())
         }
         Some(_) => {
@@ -257,6 +257,24 @@ mod tests {
     }
 
     #[test]
+    fn a_permission_profile_counts_code_points_like_zods_max_256() {
+        for length in [256, 257] {
+            let mode = format!(
+                r#"{{"permissions":"{}","approvalsReviewer":"user"}}"#,
+                "😀".repeat(length)
+            );
+            let policy = codex_thread_policy(Some(&mode));
+            assert_eq!(policy.is_ok(), length == 256, "{length}");
+            if let Ok(policy) = policy {
+                assert_eq!(
+                    policy.get("permissions").and_then(Value::as_str),
+                    Some("😀".repeat(256).as_str())
+                );
+            }
+        }
+    }
+
+    #[test]
     fn no_chosen_mode_leaves_codexs_own_configuration_in_place() {
         assert_eq!(
             object(codex_thread_policy(None).expect("nothing chosen")),
@@ -368,5 +386,23 @@ mod tests {
             object(codex_shell_env_config(agent_env.as_object())),
             json("{}")
         );
+    }
+
+    #[test]
+    fn native_default_profile_accepts_256_emoji() {
+        for length in [256, 257] {
+            let name = "😀".repeat(length);
+            let reply = json(&format!(
+                r#"{{"config":{{"default_permissions":"{name}","approval_policy":"never"}}}}"#
+            ));
+            let policy = configured_turn_policy(&reply);
+            assert_eq!(policy.is_ok(), length == 256);
+            if let Ok(policy) = policy {
+                assert_eq!(
+                    policy.get("permissions").and_then(Value::as_str),
+                    Some(name.as_str())
+                );
+            }
+        }
     }
 }

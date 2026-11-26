@@ -218,7 +218,7 @@ fn valid_permission_mode(value: Option<&Json>) -> bool {
     match value {
         None => true,
         Some(Json::Null) => true,
-        Some(Json::String(mode)) => !mode.is_empty() && mode.len() <= 4096,
+        Some(Json::String(mode)) => !mode.is_empty() && mode.len_code_points() <= 4096,
         _ => false,
     }
 }
@@ -564,10 +564,10 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
         "input.admitted" => {
             matches!(
                 fact.get("nativeInputId"),
-                Some(Json::String(id)) if !id.is_empty() && id.len() <= 512
+                Some(Json::String(id)) if !id.is_empty() && id.len_utf16() <= 512
             ) && match fact.get("commandId") {
                 None | Some(Json::Null) => true,
-                Some(Json::String(id)) => !id.is_empty() && id.len() <= 512,
+                Some(Json::String(id)) => !id.is_empty() && id.len_utf16() <= 512,
                 _ => false,
             }
         }
@@ -575,7 +575,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
             Some(Json::Array(ids)) => {
                 ids.len() <= 64
                     && ids.iter().all(
-                        |id| matches!(id, Json::String(id) if !id.is_empty() && id.len() <= 512),
+                        |id| matches!(id, Json::String(id) if !id.is_empty() && id.len_utf16() <= 512),
                     )
             }
             _ => false,
@@ -798,6 +798,84 @@ fn ensure_moved_target(to: &Map) -> bool {
     to.keys()
         .all(|key| ["hostId", "name", "threadId"].contains(&key.as_str()))
         && matches!(to.get("hostId"), Some(Json::String(id)) if !id.is_empty())
-        && matches!(to.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+        && matches!(to.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len_code_points() <= 256)
         && matches!(to.get("threadId"), Some(Json::String(id)) if !id.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_fact_ids_fit_the_first_512_utf16_units() {
+        let state = crate::state::create_thread_state(
+            "thread".to_owned(),
+            None,
+            crate::state::CoreConfig {
+                provider: "codex".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .expect("empty thread");
+        for (field, kind) in [
+            ("nativeInputId", "input.admitted"),
+            ("commandId", "input.admitted"),
+            ("nativeInputIds", "input.consumed"),
+        ] {
+            for length in [256, 257] {
+                let id = "😀".repeat(length);
+                let mut fact = Map::new();
+                fact.insert("nativeInputId", Json::from("input"));
+                fact.insert(
+                    field,
+                    if field == "nativeInputIds" {
+                        ace_json::json!([id])
+                    } else {
+                        Json::from(id)
+                    },
+                );
+                assert_eq!(
+                    shape_valid(&state, &fact, kind, 0),
+                    Ok(length == 256),
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn turn_permission_mode_and_moved_names_count_code_points() {
+        let state = crate::state::create_thread_state(
+            "thread".to_owned(),
+            None,
+            crate::state::CoreConfig {
+                provider: "codex".to_owned(),
+                silence_ms: 30_000.0,
+                liveness: None,
+            },
+        )
+        .expect("empty thread");
+        for length in [4096, 4097] {
+            let fact = ace_json::json!({
+                "type":"turn.started", "trigger":"user", "permissionMode":"😀".repeat(length)
+            });
+            assert_eq!(
+                shape_valid(&state, fact.as_object().expect("object"), "turn.started", 0),
+                Ok(length == 4096),
+                "permissionMode"
+            );
+        }
+        for length in [256, 257] {
+            let fact = ace_json::json!({
+                "type":"thread.moved",
+                "to":{"hostId":"h","name":"😀".repeat(length),"threadId":"t"}
+            });
+            assert_eq!(
+                shape_valid(&state, fact.as_object().expect("object"), "thread.moved", 0),
+                Ok(length == 256),
+                "moved name"
+            );
+        }
+    }
 }

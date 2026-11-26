@@ -62,7 +62,8 @@ fn approval_target_with_path(
         _ => return None,
     };
     if let Some(p) = path {
-        if p.is_empty() || p.len() > 4096 {
+        // `ApprovalTarget.paths` is a patched-zod `.max(4096)`: code points.
+        if p.is_empty() || p.chars().count() > 4096 {
             return None;
         }
         // Insert paths before access to keep schema order on rebuild.
@@ -277,4 +278,24 @@ fn option_value(id: &str, label: &str, kind: &str) -> Value {
     map.insert("label".to_owned(), Value::from(label.to_owned()));
     map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     Value::Object(map)
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::request_for;
+    use ace_json::Value;
+
+    #[test]
+    fn an_approval_path_counts_code_points_like_approval_target_paths() {
+        for length in [2000, 4096, 4097] {
+            let input = ace_json::json!({"file_path": "😀".repeat(length)});
+            let request = request_for("Edit", &input, &Value::Null);
+            let paths = request.pointer("/target/paths");
+            assert_eq!(paths.is_some(), length <= 4096, "{length}");
+            if let Some(Value::Array(paths)) = paths {
+                assert_eq!(paths.len(), 1);
+                assert_eq!(paths[0], input.get("file_path").cloned().unwrap());
+            }
+        }
+    }
 }
