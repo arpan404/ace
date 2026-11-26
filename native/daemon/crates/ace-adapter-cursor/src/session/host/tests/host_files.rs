@@ -237,3 +237,28 @@ fn a_notification_batch_whose_inner_frame_is_not_an_envelope_stops_the_host_as_a
         )
     );
 }
+
+#[test]
+fn a_stderr_tail_without_its_newline_crosses_before_the_drain() {
+    let mut host = core();
+    // A host that dies right after its last diagnostic: the bytes have no newline, so only the
+    // pipes' close can complete the line.
+    assert!(
+        host.stderr_bytes(b"Runtime dependency disappeared")
+            .is_empty()
+    );
+    let finished = host.finish();
+    assert_eq!(
+        port(&finished, PORT_STDERR),
+        Some(r#"{"line":"Runtime dependency disappeared"}"#.to_owned())
+    );
+    let port_at = finished
+        .iter()
+        .position(|effect| matches!(effect, HostEffect::Port { name, .. } if *name == PORT_STDERR))
+        .expect("the stderr tail");
+    let drained_at = finished
+        .iter()
+        .position(|effect| *effect == HostEffect::Drained)
+        .expect("drained");
+    assert!(port_at < drained_at);
+}
