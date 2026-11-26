@@ -53,9 +53,10 @@ impl MjpegDecoder {
         self.begun
     }
 
-    /// Adds one chunk and returns every picture it completed, in stream order.
-    pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<MjpegFrame>, Error> {
-        let mut frames = Vec::new();
+    /// Adds one chunk, handing every picture it completed to `frames` in stream order. A
+    /// malformed part is the error, but the pictures before it in the same chunk are delivered
+    /// first: the TypeScript emits each one as it completes, so a still can still settle.
+    pub fn push(&mut self, chunk: &[u8], frames: &mut Vec<MjpegFrame>) -> Result<(), Error> {
         let mut at = 0usize;
         while at < chunk.len() {
             if self.image.is_none() {
@@ -116,7 +117,7 @@ impl MjpegDecoder {
                 });
             }
         }
-        Ok(frames)
+        Ok(())
     }
 
     /// Reads a complete part header: its boundary, the picture's length and its content type.
@@ -208,8 +209,13 @@ mod tests {
         let stream = part("frame", &image);
         for split in 1..stream.len() {
             let mut decoder = MjpegDecoder::new("frame").expect("valid boundary");
-            let mut seen = decoder.push(&stream[..split]).expect("reads");
-            seen.extend(decoder.push(&stream[split..]).expect("reads"));
+            let mut seen = Vec::new();
+            decoder
+                .push(&stream[..split], &mut seen)
+                .expect("reads the start");
+            decoder
+                .push(&stream[split..], &mut seen)
+                .expect("reads the rest");
             assert_eq!(
                 seen,
                 vec![MjpegFrame {
@@ -225,6 +231,29 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_picture_before_a_malformed_part_arrives_before_the_error() {
+        let image = tiny();
+        let mut stream = part("frame", &image);
+        stream.extend(b"--frame\r\ncontent-length: 999999999\r\ncontent-type: image/jpeg\r\n\r\n");
+        let mut decoder = MjpegDecoder::new("frame").expect("valid boundary");
+        let mut seen = Vec::new();
+        let error = decoder
+            .push(&stream, &mut seen)
+            .expect_err("malformed part");
+        assert_eq!(
+            seen,
+            vec![MjpegFrame {
+                image,
+                width: 20,
+                height: 10,
+                frame: 1
+            }],
+            "the picture completed before the bad part"
+        );
+        assert!(error.to_string().contains("exceeds limit"), "{error}");
+    }
+
+    #[test]
     fn two_parts_count_up_and_a_leading_line_break_is_not_a_new_frame() {
         let image = tiny();
         let mut stream = part("frame", &image);
@@ -233,10 +262,12 @@ mod tests {
         // A second, four-byte picture body the decoder hands on after reading its size.
         stream.extend([0xff, 0xd8, 0xff, 0xd9]);
         let mut decoder = MjpegDecoder::new("frame").expect("valid boundary");
+        let mut seen = Vec::new();
         let error = decoder
-            .push(&stream)
+            .push(&stream, &mut seen)
             .expect_err("the second body has no frame header");
         assert!(error.to_string().contains("Missing JPEG dimensions"));
+        assert_eq!(seen.len(), 1, "the first picture still came");
         assert_eq!(decoder.started(), 2);
     }
 
@@ -250,10 +281,17 @@ mod tests {
             b"--other\r\ncontent-length: 4\r\ncontent-type: image/jpeg\r\n\r\nabcd".to_vec(),
         ] {
             let mut decoder = MjpegDecoder::new("frame").expect("valid");
-            assert!(decoder.push(&stream).is_err(), "refused: {stream:?}");
+            assert!(
+                decoder.push(&stream, &mut Vec::new()).is_err(),
+                "refused: {stream:?}"
+            );
         }
         let mut decoder = MjpegDecoder::new("frame").expect("valid");
-        assert!(decoder.push(&part("frame", &image)).is_ok());
+        assert!(
+            decoder
+                .push(&part("frame", &image), &mut Vec::new())
+                .is_ok()
+        );
     }
 
     #[test]

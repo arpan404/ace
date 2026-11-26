@@ -85,20 +85,27 @@ pub fn grpc_frame(message: &[u8]) -> Vec<u8> {
 }
 
 /// One field's varint value or length-delimited bytes; a repeated field keeps its last value.
+/// A varint wider than 64 bits is refused before its tag or length is read: the TypeScript's
+/// number arithmetic overflows past the message and reports it truncated, never empty.
 fn fields(message: &[u8]) -> Result<std::collections::HashMap<u32, Field<'_>>, FrameError> {
     let mut out = std::collections::HashMap::new();
     let mut offset = 0usize;
     let read = |offset: &mut usize| -> Result<u64, FrameError> {
         let mut value: u64 = 0;
-        let mut scale: u64 = 1;
+        let mut shift: u32 = 0;
         loop {
             let byte = *message.get(*offset).ok_or(FrameError::Truncated)?;
             *offset += 1;
-            value = value.wrapping_add(u64::from(byte & 0x7f).wrapping_mul(scale));
-            scale = scale.wrapping_mul(128);
+            let bits = u64::from(byte & 0x7f);
+            // The tenth byte carries one bit (bit 63); anything more does not fit.
+            if shift > 63 || (shift == 63 && bits > 1) {
+                return Err(FrameError::Truncated);
+            }
+            value |= bits << shift;
             if byte < 0x80 {
                 return Ok(value);
             }
+            shift += 7;
         }
     };
     while offset < message.len() {
@@ -340,6 +347,33 @@ mod tests {
             screen_notice(&[0x0a, 5, 1]),
             Err(FrameError::Truncated),
             "a length past the end is truncated"
+        );
+    }
+
+    #[test]
+    fn a_varint_wider_than_64_bits_is_refused_before_any_tag_or_length_is_read() {
+        // A length of 2^64: 0x0a (field 1, length-delimited) then the overflowing varint.
+        let mut length = vec![0x0a];
+        length.extend([0x80; 9]);
+        length.push(0x02);
+        assert_eq!(
+            screen_notice(&length),
+            Err(FrameError::Truncated),
+            "a length of 2^64 is not an empty message"
+        );
+        // A tag of 2^64 is refused the same way, before its wire type is looked at.
+        let mut tag = vec![0x80; 9];
+        tag.push(0x02);
+        assert_eq!(screen_notice(&tag), Err(FrameError::Truncated));
+        // The largest 64-bit value still reads as one.
+        let mut largest = vec![0x30];
+        largest.extend([0xff; 9]);
+        largest.push(0x01);
+        assert_eq!(
+            screen_notice(&largest)
+                .expect("a bounded varint")
+                .timestamp_us,
+            u64::MAX
         );
     }
 

@@ -8,7 +8,7 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use url::Url;
 
 mod stream;
@@ -72,35 +72,44 @@ pub struct Endpoint {
     pub ws_url: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct EndpointJson {
-    device: String,
-    port: f64,
-    #[serde(rename = "streamUrl")]
-    stream_url: String,
-    #[serde(rename = "wsUrl")]
-    ws_url: String,
-}
+const MALFORMED_ENDPOINT: &str = "Simulator helper endpoint is malformed";
 
-/// The first JSON line a helper printed, as its endpoint, or why it is not one.
+/// The first JSON line a helper printed, as its endpoint, or why it is not one. Parsed as
+/// JavaScript does (`ace_json`), so a repeated key keeps its last value rather than failing.
 pub fn parse_endpoint(line: &str) -> Result<Endpoint, Error> {
-    let value: EndpointJson = serde_json::from_str(line)
-        .map_err(|_| invalid("Simulator helper endpoint is malformed"))?;
-    if !valid_uuid(&value.device) {
-        return Err(invalid("Simulator helper endpoint is malformed"));
+    let malformed = || invalid(MALFORMED_ENDPOINT);
+    let value = ace_json::parse(line).map_err(|_| malformed())?;
+    let record = value.as_object().ok_or_else(malformed)?;
+    let device = record
+        .get("device")
+        .and_then(|field| field.as_str())
+        .ok_or_else(malformed)?;
+    if !valid_uuid(device) {
+        return Err(malformed());
     }
-    let port = value.port;
+    let port = record
+        .get("port")
+        .and_then(|field| field.as_f64())
+        .ok_or_else(malformed)?;
     if !port.is_finite() || port.fract() != 0.0 || !(1.0..=65_535.0).contains(&port) {
-        return Err(invalid("Simulator helper endpoint is malformed"));
+        return Err(malformed());
     }
-    if code_points(&value.stream_url) > 4096 || code_points(&value.ws_url) > 4096 {
-        return Err(invalid("Simulator helper endpoint is malformed"));
+    let stream_url = record
+        .get("streamUrl")
+        .and_then(|field| field.as_str())
+        .ok_or_else(malformed)?;
+    let ws_url = record
+        .get("wsUrl")
+        .and_then(|field| field.as_str())
+        .ok_or_else(malformed)?;
+    if code_points(stream_url) > 4096 || code_points(ws_url) > 4096 {
+        return Err(malformed());
     }
     Ok(Endpoint {
-        device: value.device,
+        device: device.to_string(),
         port: port as u16,
-        stream_url: value.stream_url,
-        ws_url: value.ws_url,
+        stream_url: stream_url.to_string(),
+        ws_url: ws_url.to_string(),
     })
 }
 
@@ -151,36 +160,41 @@ pub fn sibling_str(stream: &str, name: &str) -> Result<String, Error> {
 pub struct ScreenConfig {
     pub width: u32,
     pub height: u32,
+    /// Left out when serve-sim named none: never `null`, which the shell would assign over a
+    /// known orientation (before the first picture, and on every key action after it).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub orientation: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ScreenConfigJson {
-    width: f64,
-    height: f64,
-    orientation: Option<String>,
-}
-
-/// One control message's payload as a screen config, or `None` for anything malformed.
+/// One control message's payload as a screen config, or `None` for anything malformed. Parsed
+/// as JavaScript does (`ace_json`), so a repeated key keeps its last value; `orientation` is a
+/// zod optional string, so an explicit `null` is not one and refuses the whole report.
 pub fn screen_config(payload: &[u8]) -> Option<ScreenConfig> {
-    let value: ScreenConfigJson = serde_json::from_slice(payload).ok()?;
+    let text = String::from_utf8_lossy(payload);
+    let value = ace_json::parse(&text).ok()?;
+    let record = value.as_object()?;
     let dimension = |number: f64| {
         number.is_finite() && number.fract() == 0.0 && (1.0..=16_384.0).contains(&number)
     };
-    if !dimension(value.width) || !dimension(value.height) {
+    let width = record.get("width")?.as_f64()?;
+    let height = record.get("height")?.as_f64()?;
+    if !dimension(width) || !dimension(height) {
         return None;
     }
-    if value
-        .orientation
+    let orientation = match record.get("orientation") {
+        None => None,
+        Some(field) => Some(field.as_str()?.to_string()),
+    };
+    if orientation
         .as_ref()
         .is_some_and(|text| code_points(text) > 64)
     {
         return None;
     }
     Some(ScreenConfig {
-        width: value.width as u32,
-        height: value.height as u32,
-        orientation: value.orientation,
+        width: width as u32,
+        height: height as u32,
+        orientation,
     })
 }
 
@@ -272,6 +286,26 @@ mod tests {
     }
 
     #[test]
+    fn a_repeated_endpoint_field_keeps_its_last_value_as_json_parse_does() {
+        // serde would refuse a repeated key; the shell's JSON.parse keeps the last one.
+        let line = format!(
+            r#"{{"device":"{UUID}","port":1,"port":8080,"streamUrl":"http://127.0.0.1:8080/stream.mjpeg","wsUrl":"ws://127.0.0.1:8080/control"}}"#
+        );
+        assert_eq!(
+            parse_endpoint(&line).expect("last port wins").port,
+            8080,
+            "the second port is the endpoint's"
+        );
+        let bad = format!(
+            r#"{{"device":"{UUID}","port":8080,"port":0,"streamUrl":"http://127.0.0.1:8080/stream.mjpeg","wsUrl":"ws://127.0.0.1:8080/control"}}"#
+        );
+        assert!(
+            parse_endpoint(&bad).is_err(),
+            "the last port is the one checked"
+        );
+    }
+
+    #[test]
     fn a_helper_route_must_be_local_at_its_port_without_credentials_or_a_fragment() {
         assert!(local_url("http://127.0.0.1:8080/stream.mjpeg", 8080, "http:").is_ok());
         for bad in [
@@ -346,6 +380,34 @@ mod tests {
             "\u{1f600}".repeat(65)
         );
         assert_eq!(screen_config(too_long.as_bytes()), None);
+    }
+
+    #[test]
+    fn a_screen_config_without_an_orientation_leaves_the_key_out_and_a_null_refuses_the_report() {
+        let config = screen_config(br#"{"width":1206,"height":2622,"width":10}"#);
+        assert_eq!(
+            config,
+            Some(ScreenConfig {
+                width: 10,
+                height: 2622,
+                orientation: None
+            }),
+            "a repeated width keeps its last value"
+        );
+        let text = ace_json::ser::to_string(&config.expect("config")).expect("serializes");
+        assert_eq!(
+            text, r#"{"width":10,"height":2622}"#,
+            "no orientation key, never a null the shell would assign over the screen's"
+        );
+        // z.string().optional() takes a missing key, not an explicit null.
+        assert_eq!(
+            screen_config(br#"{"width":10,"height":10,"orientation":null}"#),
+            None
+        );
+        assert_eq!(
+            screen_config(br#"{"width":10,"height":10,"orientation":7}"#),
+            None
+        );
     }
 
     #[test]

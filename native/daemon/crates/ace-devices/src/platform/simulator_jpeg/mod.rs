@@ -276,22 +276,27 @@ impl SimulatorJpeg {
         let Some(decoder) = link.decoder.as_mut() else {
             return Vec::new();
         };
-        match decoder.push(bytes) {
-            Ok(frames) => {
-                let mut actions = Vec::new();
-                for frame in frames {
-                    actions.extend(self.received(
-                        request,
-                        frame.image,
-                        frame.width,
-                        frame.height,
-                        frame.frame,
-                        now,
-                    ));
-                }
+        let mut pictures = Vec::new();
+        let result = decoder.push(bytes, &mut pictures);
+        let mut actions = Vec::new();
+        // Every picture the chunk completed is this still's before a later part in the same
+        // chunk can fail: the TypeScript emits each one as it completes.
+        for frame in pictures {
+            actions.extend(self.received(
+                request,
+                frame.image,
+                frame.width,
+                frame.height,
+                frame.frame,
+                now,
+            ));
+        }
+        match result {
+            Ok(()) => actions,
+            Err(error) => {
+                actions.extend(self.ended_with(request, Reason::text(&error.to_string())));
                 actions
             }
-            Err(error) => self.ended_with(request, Reason::text(&error.to_string())),
         }
     }
 
@@ -373,7 +378,6 @@ impl SimulatorJpeg {
     }
 }
 
-#[cfg(test)]
 #[cfg(test)]
 mod tests;
 

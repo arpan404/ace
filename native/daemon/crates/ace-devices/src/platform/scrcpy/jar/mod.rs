@@ -102,28 +102,43 @@ where
             "No directory for the scrcpy server".to_string(),
         ));
     };
-    create_tools_directory(directory)?;
-    // The bytes are verified before anything is written: a failed or cancelled download, and a
-    // checksum mismatch, leave the directory as it was.
     let bytes = fetch(&release.url, release.bytes).await?;
+    write_server(directory, release, id, &bytes, || Ok(()))
+}
+
+/// The pinned server's bytes in place: the size and checksum are checked before anything is
+/// written, so a failed, cancelled or mismatched download leaves the directory as it was.
+/// `publishable` runs once the verified bytes are staged and before the rename, so a caller
+/// with its own deadline can still refuse to publish. Both the capture's jar and the live tools
+/// install go through this one write path.
+pub fn write_server(
+    directory: &Path,
+    release: &ScrcpyRelease,
+    id: &str,
+    bytes: &[u8],
+    publishable: impl Fn() -> Result<(), Error>,
+) -> Result<PathBuf, Error> {
     if bytes.len() as u64 > release.bytes {
         return Err(unavailable(
             "scrcpy-server download is too large".to_string(),
         ));
     }
-    if digest_sha256_hex(&bytes) != release.sha256 {
+    if digest_sha256_hex(bytes) != release.sha256 {
         return Err(unavailable(
             "scrcpy-server download failed its checksum".to_string(),
         ));
     }
+    create_tools_directory(directory)?;
     let path = directory.join(server_name(release));
     // Concurrent first uses each write their own file; the last rename wins with identical
     // bytes.
     let partial = directory.join(format!("{}.{id}.partial", server_name(release)));
-    let written = write_private(&partial, &bytes).and_then(|()| {
-        fs::rename(&partial, &path)
-            .map_err(|error| unavailable(format!("scrcpy-server download failed: {error}")))
-    });
+    let written = write_private(&partial, bytes)
+        .and_then(|()| publishable())
+        .and_then(|()| {
+            fs::rename(&partial, &path)
+                .map_err(|error| unavailable(format!("scrcpy-server download failed: {error}")))
+        });
     // A write or rename that failed never leaves its partial file behind.
     if written.is_err() {
         let _ = fs::remove_file(&partial);

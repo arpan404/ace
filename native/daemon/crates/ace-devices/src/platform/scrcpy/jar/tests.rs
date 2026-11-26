@@ -200,6 +200,63 @@ async fn a_cancelled_download_leaves_nothing_behind() {
     assert_eq!(directory.entries(), Vec::<String>::new());
 }
 
+#[test]
+fn the_shared_write_path_refuses_bytes_that_are_not_the_pinned_release_before_writing() {
+    let directory = Directory::new("write-server");
+    let release = release_for(b"pinned scrcpy server bytes");
+    let error = write_server(
+        directory.path(),
+        &release,
+        "a",
+        b"pinned scrcpy server bytez",
+        || Ok(()),
+    )
+    .expect_err("wrong bytes");
+    match error {
+        Error::Failed(failure) => {
+            assert_eq!(failure.code, Code::ToolMissing);
+            assert_eq!(
+                failure.message,
+                "scrcpy-server download failed its checksum"
+            );
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    assert_eq!(
+        directory.entries(),
+        Vec::<String>::new(),
+        "the refusal left nothing behind"
+    );
+    // The same bytes the pin names take the one write path, and a refusal to publish keeps
+    // them out of the tool's name.
+    let path = write_server(
+        directory.path(),
+        &release,
+        "b",
+        b"pinned scrcpy server bytes",
+        || Ok(()),
+    )
+    .expect("writes");
+    assert_eq!(
+        fs::read(&path).expect("reads"),
+        b"pinned scrcpy server bytes"
+    );
+    assert_eq!(directory.entries(), vec![server_name(&release)]);
+    let refused = write_server(
+        directory.path(),
+        &release,
+        "c",
+        b"pinned scrcpy server bytes",
+        || Err(unavailable("publish cancelled".to_string())),
+    )
+    .expect_err("cancelled");
+    assert!(
+        refused.to_string().contains("publish cancelled"),
+        "{refused}"
+    );
+    assert_eq!(directory.entries(), vec![server_name(&release)]);
+}
+
 #[tokio::test]
 async fn a_download_over_the_pinned_size_is_refused_before_anything_is_written() {
     let directory = Directory::new("size");

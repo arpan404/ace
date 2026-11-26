@@ -300,6 +300,55 @@ fn a_recording_keeps_the_stream_open_and_takes_every_picture_at_the_frame_interv
 }
 
 #[test]
+fn a_picture_before_a_malformed_part_settles_the_still_before_the_stream_fails() {
+    let mut jpeg = idle();
+    let (still, _) = jpeg.replay().expect("asks");
+    jpeg.response(1, true, Some("multipart/x-mixed-replace; boundary=frame"));
+    // serve-sim's picture arrives whole, then the rest of the same chunk is malformed.
+    let mut chunk = part(&tiny());
+    chunk.extend(b"--frame\r\ncontent-length: 999999999\r\ncontent-type: image/jpeg\r\n\r\n");
+    let received = jpeg.chunk(1, &chunk, 0.0);
+    assert!(
+        received.contains(&Action::Source {
+            width: 20,
+            height: 10
+        }),
+        "the whole picture came before the error"
+    );
+    let drained = jpeg.step();
+    let all = settled(&received)
+        .into_iter()
+        .chain(settled(&drained))
+        .collect::<Vec<_>>();
+    assert!(
+        all.contains(&(still, Ok(()))),
+        "the pending still succeeds: {all:?}"
+    );
+    // The picture closed the request the still was waiting on, so its malformed tail is no
+    // one's: the TypeScript's abort skips the failure the same way.
+    assert!(
+        !received
+            .iter()
+            .chain(drained.iter())
+            .any(|action| matches!(action, Action::Failure(_))),
+        "a closed request's tail is not the capture's failure"
+    );
+
+    // A recording keeps the request open: the picture is delivered, then the stream fails.
+    let (mut jpeg, request) = started();
+    let actions = jpeg.chunk(request, &chunk, 0.0);
+    let picture = actions
+        .iter()
+        .position(|action| matches!(action, Action::Source { .. }))
+        .expect("the picture came first");
+    let failure = actions
+        .iter()
+        .position(|action| matches!(action, Action::Failure(_)))
+        .expect("the stream fails after it");
+    assert!(picture < failure, "{actions:?}");
+}
+
+#[test]
 fn a_response_that_cannot_be_read_fails_the_request_without_a_capture_failure() {
     let (mut jpeg, request) = started();
     assert_eq!(jpeg.chunk(request, b"nothing", 0.0), Vec::new());
