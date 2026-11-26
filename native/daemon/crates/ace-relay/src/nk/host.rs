@@ -11,6 +11,7 @@ use std::sync::Arc;
 use ace_auth::RemoteAuth;
 use ace_auth::devices::{Device, Member, PairedDevice, Scope, SessionActor};
 use ace_json::Value;
+use zeroize::Zeroize;
 
 use super::admission::{NkAdmission, NkSession};
 use super::hello::{HelloConfirm, HelloEarly};
@@ -118,10 +119,13 @@ impl NkHost<'_> {
         ephemeral: &[u8],
         expire: impl FnOnce() + Send + 'static,
     ) -> Option<NkAccepted> {
-        use zeroize::Zeroize;
-        let parsed = ace_json::parse(std::str::from_utf8(payload).ok()?);
+        // Invalid UTF-8 is a refusal like any other, and the plaintext is wiped on that path too:
+        // the buffer may hold a credential, so no early return may skip the wipe.
+        let parsed = std::str::from_utf8(payload)
+            .ok()
+            .and_then(|text| ace_json::parse(text).ok());
         payload.zeroize();
-        let value = parsed.ok()?;
+        let value = parsed?;
         self.admit(&value, ephemeral, expire)
     }
 
@@ -133,7 +137,7 @@ impl NkHost<'_> {
         ephemeral: &[u8],
         expire: impl FnOnce() + Send + 'static,
     ) -> Option<NkAccepted> {
-        let early = HelloEarly::parse(payload)?;
+        let mut early = HelloEarly::parse(payload)?;
         if !self.admission.claim(&early.device_id) {
             return None;
         }
@@ -152,6 +156,15 @@ impl NkHost<'_> {
             claim.release();
             return None;
         };
+        // The ticket is spent and the grant checked: nothing downstream reads either, so neither
+        // outlives the admission (porting guide rule 8). The account id, not the grant, is what
+        // the channel's later check uses.
+        if let Some(mut ticket) = early.ticket.take() {
+            ticket.zeroize();
+        }
+        if let Some(mut grant) = early.grant.take() {
+            grant.zeroize();
+        }
         Some(NkAccepted {
             early,
             actor: held.actor,
