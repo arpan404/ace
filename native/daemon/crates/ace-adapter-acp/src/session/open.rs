@@ -178,6 +178,40 @@ impl AcpCore {
         Value::Object(params)
     }
 
+    /// `openWithSignIn`'s second attempt (`packages/provider-kit/src/acp-sign-in.ts:30`): the
+    /// session request again, never `initialize`, which this session already ran. The facade's
+    /// second call settles on the retry's own reply, under the same stall deadline.
+    pub fn retry_open_session(&mut self, facade_id: u64) -> Vec<AcpEffect> {
+        let mut effects = Vec::new();
+        if self.closed {
+            effects.push(AcpEffect::Settle {
+                id: facade_id,
+                result: Err(AcpErrorWire::open_failed("ACP session closed")),
+            });
+            return effects;
+        }
+        if self.open.is_some() {
+            effects.push(AcpEffect::Settle {
+                id: facade_id,
+                result: Err(AcpErrorWire::open_failed(
+                    "ACP session open already in progress",
+                )),
+            });
+            return effects;
+        }
+        let Some(spec) = self.session_spec.clone() else {
+            effects.push(AcpEffect::Settle {
+                id: facade_id,
+                result: Err(AcpErrorWire::open_failed("ACP session did not initialize")),
+            });
+            return effects;
+        };
+        self.open_stalled = true;
+        self.arm_deadline("open", OPEN_STALL_MS, &mut effects);
+        self.send_session_open(facade_id, spec, &mut effects);
+        effects
+    }
+
     pub(crate) fn on_open_rpc_settled(
         &mut self,
         rpc_id: u64,
@@ -350,7 +384,9 @@ impl AcpCore {
             has_system_prompt,
         };
         // The sign-in retry re-sends only this request: `initialize` ran once
-        // (`acp-sign-in.ts:30`).
+        // (`acp-sign-in.ts:30`). The facade's second attempt reads it back by
+        // `retry_open_session`; nothing else keeps it.
+        self.session_spec = Some(spec.clone());
         self.open_stalled = true;
         self.arm_deadline("open", OPEN_STALL_MS, effects);
         self.send_session_open(facade_id, spec, effects);
