@@ -3,4 +3,5 @@
 //! helpers from `@ace/models` that decide the default sentinel, the execution id and the
 //! catalog filter, and (later in 4e) `EngineModels::select`.
 
+pub mod select;
 pub mod selection;

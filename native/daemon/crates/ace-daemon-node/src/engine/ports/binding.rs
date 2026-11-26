@@ -210,6 +210,36 @@ impl Ports for JsPorts {
         self.has_move_target
     }
 
+    fn has_models(&self) -> bool {
+        self.models_resolve.is_some() && self.models_list.is_some()
+    }
+
+    fn models_resolve(&self, json: &str) -> Result<String, PortError> {
+        let Some(function) = self.models_resolve.as_ref() else {
+            return Err(PortError::Unbound("models.resolve"));
+        };
+        self.call(function, json.to_owned())
+    }
+
+    fn models_list(&self, json: &str) -> Result<String, PortError> {
+        let Some(function) = self.models_list.as_ref() else {
+            return Err(PortError::Unbound("models.list"));
+        };
+        self.call(function, json.to_owned())
+    }
+
+    fn models_update_permission_modes(&self, instance: &str, json: &str) -> Result<(), PortError> {
+        let Some(function) = self.models_update_permission_modes.as_ref() else {
+            return Err(PortError::Unbound("models.updatePermissionModes"));
+        };
+        self.call(
+            function,
+            FnArgs {
+                data: (instance.to_owned(), json.to_owned()),
+            },
+        )
+    }
+
     fn admits(&self) -> Result<bool, PortError> {
         self.call(&self.admits, ())
     }

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use ace_engine::ports::Ports;
 use ace_engine::{Engine, Inputs};
 use napi::Env;
-use napi::bindgen_prelude::{FunctionRef, JsObjectValue, Object};
+use napi::bindgen_prelude::{FnArgs, FunctionRef, JsObjectValue, Object};
 use napi_derive::napi;
 
 use super::ports::JsPorts;
@@ -143,6 +143,17 @@ impl NativeDatabase {
                 .get_named_property::<FunctionRef<String, super::ports::ResetAtJs>>("resetAt")
                 .ok(),
             bindings.get_named_property("selectInstance").ok(),
+            bindings
+                .get_named_property::<FunctionRef<String, String>>("modelsResolve")
+                .ok(),
+            bindings
+                .get_named_property::<FunctionRef<String, String>>("modelsList")
+                .ok(),
+            bindings
+                .get_named_property::<FunctionRef<FnArgs<(String, String)>, ()>>(
+                    "modelsUpdatePermissionModes",
+                )
+                .ok(),
         )?);
         let stack = self.transaction_state();
         let pump: PumpHandle = Arc::new(Mutex::new(Some(
