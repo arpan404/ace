@@ -209,7 +209,7 @@ fn status_of(failure: &DiscoveryFailure) -> Option<u32> {
 fn text_of(failure: &DiscoveryFailure) -> String {
     let bounded = |text: &Option<String>| {
         text.as_deref()
-            .map(|text| text.chars().take(8192).collect::<String>())
+            .map(|text| ace_models::text::slice_utf16(text, 8192))
             .unwrap_or_default()
     };
     [

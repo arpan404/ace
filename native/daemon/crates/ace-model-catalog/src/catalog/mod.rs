@@ -474,6 +474,17 @@ pub(crate) struct Inner {
     pub(crate) observed_check: Option<Cancel>,
     pub(crate) flight_token: u64,
     pub(crate) removals: BTreeSet<String>,
+    /// Flights still settling, even when their row is gone.
+    pub(crate) drain_flights: Vec<Flight>,
+    /// Gates for invalidations, removals, probes and accepted writes.
+    pub(crate) drain_gates: Vec<crate::signals::Gate>,
+    /// Closed until the first shutdown drain finishes; every `close` waits here.
+    pub(crate) shutdown_wait: Option<crate::signals::Gate>,
+    /// A deferred cache delete for this id must finish before writes land.
+    pub(crate) deletion_barriers: BTreeMap<String, crate::signals::Gate>,
+    /// One connection-metadata probe may run per row at a time.
+    pub(crate) connection_probes: BTreeMap<String, crate::signals::Gate>,
+    pub(crate) active_probes: usize,
 }
 
 /// The catalog a daemon serves.
@@ -545,6 +556,12 @@ impl Catalog {
             observed_check: None,
             flight_token: 0,
             removals: BTreeSet::new(),
+            drain_flights: Vec::new(),
+            drain_gates: Vec::new(),
+            shutdown_wait: None,
+            deletion_barriers: BTreeMap::new(),
+            connection_probes: BTreeMap::new(),
+            active_probes: 0,
         };
         let instances = options.instances.clone();
         #[allow(clippy::arc_with_non_send_sync)]
@@ -1006,20 +1023,20 @@ impl Catalog {
 
     /// Shuts the catalog down: abort flights, drain writes, flush deletions, close storage.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        let (flights, invalidations, observed, writes) = self.with_inner(|inner| {
-            if inner.closed {
-                return (Vec::new(), Vec::new(), None, Vec::new());
+        let (wait, work) = self.with_inner(|inner| {
+            if let Some(wait) = inner.shutdown_wait.clone() {
+                return (Some(wait), None);
             }
+            let wait = crate::signals::Gate::new();
+            inner.shutdown_wait = Some(wait.clone());
             inner.closed = true;
             inner.listeners.clear();
-            // Every probe is aborted before anything is awaited, so a probe waiting on
-            // its own signal returns and its gate opens.
             for signal in inner.probe_signals.drain(..) {
                 signal.abort();
             }
             let observed = inner.observed_check.take();
-            let mut flights = Vec::new();
-            let mut invalidations = Vec::new();
+            let mut flights = inner.drain_flights.clone();
+            let mut gates = inner.drain_gates.clone();
             for state in inner.states.values_mut() {
                 if let Some(abort) = &state.abort {
                     abort.abort();
@@ -1028,33 +1045,53 @@ impl Catalog {
                     flights.push(flight.clone());
                 }
                 if let Some(pending) = &state.invalidating {
-                    invalidations.push(pending.clone());
+                    gates.push(pending.done.clone());
                 }
             }
             let mut writes: Vec<crate::signals::Gate> =
                 inner.write_tails.values().cloned().collect();
             writes.append(&mut inner.accepted_writes);
             writes.append(&mut inner.owned);
-            (flights, invalidations, observed, writes)
+            gates.append(&mut writes);
+            (
+                Some(wait),
+                Some((flights, gates, observed)),
+            )
         });
+        let Some(wait) = wait else {
+            return Ok(());
+        };
+        let Some((flights, gates, observed)) = work else {
+            wait.wait().await;
+            return Ok(());
+        };
         if let Some(cancel) = observed {
             cancel();
         }
         for flight in flights {
             flight.done.wait().await;
         }
-        for pending in invalidations {
-            pending.done.wait().await;
-        }
-        // Accepted session writes are drained before storage closes.
-        for tail in writes {
-            tail.wait().await;
+        for gate in gates {
+            gate.wait().await;
         }
         let deletions = self.with_inner(|inner| inner.deletions.flush());
         deletions?;
         let mut storage = self.storage.clone();
         storage.close().map_err(CatalogError::Cache)?;
+        self.with_inner(|inner| {
+            if let Some(done) = inner.shutdown_wait.take() {
+                done.open();
+            }
+        });
         Ok(())
+    }
+
+    pub(crate) fn track_flight(&self, flight: &Flight) {
+        self.with_inner(|inner| inner.drain_flights.push(flight.clone()));
+    }
+
+    pub(crate) fn track_gate(&self, gate: &crate::signals::Gate) {
+        self.with_inner(|inner| inner.drain_gates.push(gate.clone()));
     }
 }
 
@@ -1191,11 +1228,15 @@ pub(crate) fn validate_instance(instance: &ModelInstance) -> Result<(), CatalogE
     {
         return Err(CatalogError::InvalidInstance);
     }
+    if let Some(method) = &instance.sign_in_method
+        && method.chars().count() > 128
+    {
+        return Err(CatalogError::InvalidInstance);
+    }
     for value in [
         instance.acp_agent_id.as_deref(),
         instance.installation_id.as_deref(),
         instance.instance_id.as_deref(),
-        instance.sign_in_method.as_deref(),
         instance.profile_revision.as_deref(),
         instance.installation_version.as_deref(),
         instance.home_dir.as_deref(),

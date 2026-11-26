@@ -92,7 +92,7 @@ fn version_tail_is_clear(rest: &str) -> bool {
 /// The first `major.minor[.patch][-prerelease]` in a CLI's version output.
 pub fn parse_cli_version(text: Option<&str>) -> Option<CliVersion> {
     let text = text.filter(|text| !text.is_empty())?;
-    let head: String = text.chars().take(4096).collect();
+    let head = ace_models::text::slice_utf16(text, 4096);
     // The first match whose tail does not read as a longer version, as the anchored
     // TypeScript regex does.
     let pattern = version_pattern()?;

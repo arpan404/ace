@@ -20,12 +20,21 @@ use crate::catalog::{
     CatalogDiscover, Clock, DiagnosticSink, DiscoverResult, DiscoveryOutcome, DiscoveryRequest,
 };
 use crate::discovery::http::{HttpGet, HttpReply, HttpRequest};
+use crate::discovery::opencode_connections::{
+    cli_listing_eligible, connected_opencode_providers,
+};
 use crate::discovery::process::{ProcessCommand, ProcessRunner, completed};
+use crate::sources::{SourceState, SourceStatus};
 use crate::failures::{DiscoveryFailure, FailureCode};
 use crate::signals::Signal;
 
 /// The path a v2 server answers its catalog on.
 pub const CATALOG_PATH: &str = "/api/model";
+
+fn aborted_for(signal: &Signal) -> Box<dyn Fn() -> bool> {
+    let signal = signal.clone();
+    Box::new(move || signal.is_aborted())
+}
 
 /// A failure a non-2xx status stands for, keeping only the status as data.
 pub fn status_failure(status: u16) -> DiscoveryFailure {
@@ -141,11 +150,32 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
         let pause = self.pause.clone();
         let process = self.process.clone();
         Box::pin(async move {
+            let instance = request.instance;
+            let connected = if let Some(process) = process.as_ref() {
+                diagnostic(crate::catalog::DiscoveryDiagnostics {
+                    stage: Some("connections".to_owned()),
+                    ..Default::default()
+                });
+                let map = connected_opencode_providers(
+                    &**process,
+                    &instance,
+                    &aborted_for(&signal),
+                )
+                .unwrap_or_default();
+                if !map.is_empty() {
+                    diagnostic(crate::catalog::DiscoveryDiagnostics {
+                        sources: Some(map.values().cloned().collect()),
+                        ..Default::default()
+                    });
+                }
+                map
+            } else {
+                std::collections::BTreeMap::new()
+            };
             diagnostic(crate::catalog::DiscoveryDiagnostics {
                 stage: Some("metadata".to_owned()),
                 ..Default::default()
             });
-            let instance = request.instance;
             // A v2 server answers for a Location: its directory rides on the query.
             let url = format!(
                 "{}{CATALOG_PATH}?location[directory]={}",
@@ -159,22 +189,77 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
             let mut pause_fn = move |millis| pause(millis);
             let mut models =
                 read_opencode_catalog(&*http, &url, &instance, &*clock, &mut pause_fn, &aborted)?;
-            // A server that lists no rows still has a CLI that knows them, and a server
-            // that lists only ids is supplemented from the same listing.
+            let source_statuses = std::collections::BTreeMap::new();
             if let Some(process) = process.clone() {
+                diagnostic(crate::catalog::DiscoveryDiagnostics {
+                    stage: Some("model-ids".to_owned()),
+                    ..Default::default()
+                });
+                let mut seen: std::collections::BTreeSet<String> =
+                    models.iter().map(|row| row.id.0.clone()).collect();
                 let args = if instance.isolated_service {
                     vec!["models".to_owned(), "--standalone".to_owned()]
                 } else {
                     vec!["models".to_owned()]
                 };
                 let command = ProcessCommand::for_instance(&instance, args);
-                let output = process.run(&command, &aborted)?;
-                let listing = completed(output)?;
-                let listed = parse_opencode_listing(&listing, &instance)
-                    .map_err(|message| failure(FailureCode::ParseFailure, message))?;
-                for row in listed {
-                    if !models.iter().any(|known| known.id.0 == row.id.0) {
-                        models.push(row);
+                let listing = process
+                    .run(&command, &aborted)
+                    .and_then(|output| completed(output));
+                match listing {
+                    Ok(listing) => {
+                        let listed = parse_opencode_listing(&listing, &instance);
+                        match listed {
+                            Ok(rows) => {
+                                for row in rows {
+                                    if cli_listing_eligible(&row.id.0, &connected, &source_statuses)
+                                        && seen.insert(row.id.0.clone())
+                                    {
+                                        models.push(row);
+                                    }
+                                }
+                            }
+                            Err(message) => {
+                                if models.is_empty() {
+                                    return Err(failure(FailureCode::ParseFailure, message));
+                                }
+                                let detail = crate::failures::discovery_error(
+                                    Some(&DiscoveryFailure::new(message)),
+                                    FailureCode::DiscoveryFailed,
+                                    &crate::failures::ErrorContext::default(),
+                                );
+                                return Ok(DiscoveryOutcome {
+                                    models,
+                                    sources: Some(vec![SourceStatus {
+                                        source: ace_models::source::provider_source("opencode"),
+                                        status: SourceState::Stale,
+                                        last_refreshed_at: None,
+                                        error: Some(detail),
+                                    }]),
+                                    permission_modes: None,
+                                });
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        if models.is_empty() {
+                            return Err(error);
+                        }
+                        let detail = crate::failures::discovery_error(
+                            Some(&error),
+                            FailureCode::DiscoveryFailed,
+                            &crate::failures::ErrorContext::default(),
+                        );
+                        return Ok(DiscoveryOutcome {
+                            models,
+                            sources: Some(vec![SourceStatus {
+                                source: ace_models::source::provider_source("opencode"),
+                                status: SourceState::Stale,
+                                last_refreshed_at: None,
+                                error: Some(detail),
+                            }]),
+                            permission_modes: None,
+                        });
                     }
                 }
             }
@@ -183,7 +268,11 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
             }
             Ok(DiscoveryOutcome {
                 models,
-                sources: None,
+                sources: if source_statuses.is_empty() {
+                    None
+                } else {
+                    Some(source_statuses.into_values().collect())
+                },
                 permission_modes: None,
             })
         })
@@ -636,13 +725,21 @@ mod tests {
             command: &crate::discovery::process::ProcessCommand,
             _aborted: &dyn Fn() -> bool,
         ) -> Result<crate::discovery::process::ProcessOutput, DiscoveryFailure> {
-            assert_eq!(command.args, ["models"]);
             *self.calls.lock().unwrap_or_else(|error| error.into_inner()) += 1;
-            Ok(crate::discovery::process::ProcessOutput {
+            if command.args.first().is_some_and(|arg| arg == "auth") {
+                return Ok(crate::discovery::process::ProcessOutput {
                     status: Some(0),
-                    stdout: "opencode/deepseek-v4.1-flash\n{\n  \"id\": \"deepseek-v4.1-flash\",\n  \"providerID\": \"opencode\",\n  \"name\": \"DeepSeek V4.1 Flash\",\n  \"status\": \"active\",\n  \"variants\": { \"high\": {}, \"low\": {} },\n  \"capabilities\": { \"input\": { \"text\": true } }\n}\nollama/qwen3\n".to_owned(),
+                    stdout: r#"[{"id":"opencode","connections":[{"type":"oauth"}]},{"id":"ollama","local":true,"connections":[]}]"#
+                        .to_owned(),
                     stderr: String::new(),
-                })
+                });
+            }
+            assert_eq!(command.args.first().map(String::as_str), Some("models"));
+            Ok(crate::discovery::process::ProcessOutput {
+                status: Some(0),
+                stdout: "opencode/deepseek-v4.1-flash\n{\n  \"id\": \"deepseek-v4.1-flash\",\n  \"providerID\": \"opencode\",\n  \"name\": \"DeepSeek V4.1 Flash\",\n  \"status\": \"active\",\n  \"variants\": { \"high\": {}, \"low\": {} },\n  \"capabilities\": { \"input\": { \"text\": true } }\n}\nollama/qwen3\n".to_owned(),
+                stderr: String::new(),
+            })
         }
     }
 
@@ -669,12 +766,12 @@ mod tests {
             Arc::new(|_metadata: DiscoveryDiagnostics| {}),
         ))
         .unwrap_or_else(|error| panic!("{error:?}"));
-        assert_eq!(
+        assert!(
             *process
                 .calls
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()),
-            1
+                .unwrap_or_else(|error| error.into_inner())
+                >= 2
         );
         assert_eq!(outcome.models.len(), 2);
         assert_eq!(outcome.models[0].id.0, "opencode/deepseek-v4.1-flash");

@@ -37,19 +37,29 @@ impl Drop for Release {
 impl Catalog {
     /// Takes this instance's place in the write queue, after every write before it.
     pub(crate) async fn hold_writes(&self, id: &str) -> Release {
-        let previous = self.with_inner(|inner| inner.write_tails.get(id).cloned());
+        let gate = Gate::new();
+        let previous = self.with_inner(|inner| {
+            let previous = inner.write_tails.get(id).cloned();
+            inner.write_tails.insert(id.to_owned(), gate.clone());
+            previous
+        });
         if let Some(previous) = previous {
             previous.wait().await;
         }
-        let gate = Gate::new();
-        self.with_inner(|inner| {
-            inner.write_tails.insert(id.to_owned(), gate.clone());
-        });
         Release {
             catalog: self.clone(),
             id: id.to_owned(),
             gate,
         }
+    }
+
+    fn session_owner(&self, input: &ModelInstance) -> bool {
+        self.with_inner(|inner| {
+            inner.states.get(&input.id).is_some_and(|state| {
+                state.config.login_revision == input.login_revision
+                    && self.cache_revision(&state.config) == self.cache_revision(input)
+            })
+        })
     }
 
     /// Metadata from an already authorized session. No process or inference starts.
@@ -65,13 +75,7 @@ impl Catalog {
             return Err(CatalogError::SessionActivityCapacity);
         }
         validate_instance(&input)?;
-        let state_exists = self.with_inner(|inner| {
-            inner.states.get(&input.id).is_some_and(|state| {
-                state.config.login_revision == input.login_revision
-                    && self.cache_revision(&state.config) == self.cache_revision(&input)
-            })
-        });
-        if !state_exists {
+        if !self.session_owner(&input) {
             return Err(CatalogError::SessionGenerationChanged);
         }
         let rows = ace_models::acp::normalize_acp(metadata, &input)
@@ -88,6 +92,11 @@ impl Catalog {
         let refreshed_at = self.now();
         self.with_inner(|inner| inner.session_writes += 1);
         let release = self.hold_writes(&input.id).await;
+        if !self.session_owner(&input) {
+            drop(release);
+            self.with_inner(|inner| inner.session_writes = inner.session_writes.saturating_sub(1));
+            return Err(CatalogError::SessionGenerationChanged);
+        }
         let result = self
             .commit_session_write(
                 &input,
@@ -112,14 +121,18 @@ impl Catalog {
         identity: String,
         refreshed_at: f64,
     ) -> Result<(), CatalogError> {
-        if self.with_inner(|inner| !inner.states.contains_key(&input.id)) {
+        if !self.session_owner(input) {
             return Err(CatalogError::SessionGenerationChanged);
+        }
+        if let Some(barrier) = self.with_inner(|inner| inner.deletion_barriers.get(&input.id).cloned())
+        {
+            barrier.wait().await;
         }
         let pending = self.with_inner(|inner| inner.deletions.has(&input.id));
         if pending {
             self.with_inner(|inner| inner.deletions.remove(&input.id))?;
         }
-        if self.with_inner(|inner| !inner.states.contains_key(&input.id)) {
+        if !self.session_owner(input) {
             return Err(CatalogError::SessionGenerationChanged);
         }
         let (models, previous) = self.with_inner(|inner| {
@@ -179,8 +192,12 @@ impl Catalog {
         if self.with_inner(|inner| inner.closed) {
             return;
         }
-        let generation =
-            self.with_inner(|inner| inner.states.get(instance).map(|state| state.generation));
+        let (generation, login_revision) = self.with_inner(|inner| {
+            inner
+                .states
+                .get(instance)
+                .map(|state| (state.generation, state.config.login_revision.clone()))
+        }).unwrap_or((0, String::new()));
         let needs_write = self.with_inner(|inner| {
             let Some(state) = inner.states.get_mut(instance) else {
                 return false;
@@ -198,8 +215,15 @@ impl Catalog {
         let instance = instance.to_owned();
         // An accepted write is visible to close before its task first runs.
         let gate = crate::signals::Gate::new();
-        self.with_inner(|inner| inner.accepted_writes.push(gate.clone()));
+        let previous = self.with_inner(|inner| {
+            let previous = inner.write_tails.get(&instance).cloned();
+            inner.accepted_writes.push(gate.clone());
+            inner.write_tails.insert(instance.clone(), gate.clone());
+            previous
+        });
+        self.track_gate(&gate);
         let token = generation;
+        let login = login_revision;
         self.options.spawn.spawn(Box::pin(async move {
             struct Accepted(crate::signals::Gate, Catalog, crate::signals::Gate);
             impl Drop for Accepted {
@@ -211,18 +235,50 @@ impl Catalog {
                 }
             }
             let _accepted = Accepted(gate.clone(), catalog.clone(), gate.clone());
-            if token.is_some_and(|token| {
-                catalog.with_inner(|inner| !crate::catalog::owns(inner, &instance, token))
+            if let Some(previous) = previous {
+                previous.wait().await;
+            }
+            if catalog.with_inner(|inner| {
+                inner.states.get(&instance).is_none_or(|state| {
+                    !crate::catalog::owns(inner, &instance, token)
+                        || state.config.login_revision != login
+                })
             }) {
                 return;
             }
-            catalog.persist_permission_modes(&instance, modes).await;
+            catalog
+                .persist_permission_modes(&instance, modes, token, &login, gate)
+                .await;
         }));
     }
 
-    async fn persist_permission_modes(&self, instance: &str, modes: Vec<Value>) {
+    async fn persist_permission_modes(
+        &self,
+        instance: &str,
+        modes: Vec<Value>,
+        generation: u64,
+        login_revision: &str,
+        gate: Gate,
+    ) {
         self.with_inner(|inner| inner.session_writes += 1);
-        let release = self.hold_writes(instance).await;
+        let release = Release {
+            catalog: self.clone(),
+            id: instance.to_owned(),
+            gate,
+        };
+        if self.with_inner(|inner| {
+            inner
+                .states
+                .get(instance)
+                .is_none_or(|state| {
+                    !crate::catalog::owns(inner, instance, generation)
+                        || state.config.login_revision != login_revision
+                })
+        }) {
+            drop(release);
+            self.with_inner(|inner| inner.session_writes = inner.session_writes.saturating_sub(1));
+            return;
+        }
         let current = self.with_inner(|inner| {
             inner
                 .states

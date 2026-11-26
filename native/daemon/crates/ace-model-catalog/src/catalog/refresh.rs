@@ -20,6 +20,87 @@ use crate::gate::{AcpRowFacts, RefreshCause, acp_probe_allowed};
 use crate::signals::Signal;
 use crate::sources::SourceStatus;
 
+struct DeadlineScope {
+    cancel: Option<super::Cancel>,
+    timed_out: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl DeadlineScope {
+    fn arm(catalog: &Catalog, signal: &Signal) -> Self {
+        let timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = timed_out.clone();
+        let abort = signal.clone();
+        let cancel = catalog.options.deadline.arm(
+            catalog.options.timeout_ms,
+            Box::new(move || {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                abort.abort();
+            }),
+        );
+        Self {
+            cancel: Some(cancel),
+            timed_out,
+        }
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Drop for DeadlineScope {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            cancel();
+        }
+    }
+}
+
+enum ProbePlan {
+    Run {
+        config: ace_models::instance::ModelInstance,
+        generation: u64,
+        revision: String,
+        signal: Signal,
+        gate: crate::signals::Gate,
+    },
+    Capped {
+        config: ace_models::instance::ModelInstance,
+    },
+}
+
+struct ConnectionProbeGuard {
+    catalog: Catalog,
+    id: String,
+    gate: crate::signals::Gate,
+    signal: Signal,
+    deadline: DeadlineScope,
+    registered: bool,
+}
+
+impl Drop for ConnectionProbeGuard {
+    fn drop(&mut self) {
+        self.catalog.with_inner(|inner| {
+            if self.registered {
+                inner.active_probes = inner.active_probes.saturating_sub(1);
+                if inner
+                    .connection_probes
+                    .get(&self.id)
+                    .is_some_and(|known| known.same(&self.gate))
+                {
+                    inner.connection_probes.remove(&self.id);
+                }
+                inner
+                    .owned
+                    .retain(|known| !known.same(&self.gate));
+                inner.probe_signals.retain(|known| !known.same(&self.signal));
+            }
+            self.gate.open();
+        });
+    }
+}
+
 /// Re-checks every stale row, scheduling a flight for the ones whose retry pause is over.
 pub(crate) fn revalidate(catalog: &Catalog, ids: &[String], cause: RefreshCause) {
     if catalog.with_inner(|inner| inner.closed) {
@@ -176,10 +257,31 @@ impl Catalog {
             }
             flight
         };
+        self.track_flight(&flight);
         if let Some(config) = self.registered(id) {
             self.notify_config(&config);
         }
         FlightStart::Started(flight)
+    }
+
+    fn may_commit(
+        &self,
+        id: &str,
+        flight: &Flight,
+        revision: &str,
+        signal: &Signal,
+    ) -> bool {
+        self.with_inner(|inner| {
+            let Some(state) = inner.states.get(id) else {
+                return false;
+            };
+            owns(inner, id, flight.generation)
+                && state.flight_token == Some(flight.token)
+                && state.probe_revision.as_deref() == Some(revision)
+                && state.abort.as_ref().is_some_and(|abort| abort.same(signal))
+                && !signal.is_aborted()
+                && !inner.closed
+        })
     }
 
     /// One flight's body. Every write re-checks that this row and revision are current.
@@ -237,21 +339,7 @@ impl Catalog {
                 merge_diagnostics(&mut current, metadata);
             })
         };
-        let mut timed_out = false;
-        let expire: Box<dyn Fn() + Send + Sync> = {
-            let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let flag = timed_out.clone();
-            let signal = signal.clone();
-            Box::new(move || {
-                flag.store(true, std::sync::atomic::Ordering::SeqCst);
-                signal.abort();
-            })
-        };
-        let cancel = self.options.deadline.arm(self.options.timeout_ms, expire);
-        let timed_out_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let _ = &timed_out_flag;
-        // The deadline's own flag is private to the closure; a second signal-only race
-        // tells an abort from a timeout by asking whether the deadline fired.
+        let deadline = DeadlineScope::arm(self, &signal);
         let abort_signal = signal.clone();
         // A failed home/identity guard revokes cached choices and never launches the
         // provider; a CLI below ace's minimum is refused before it is probed.
@@ -304,6 +392,9 @@ impl Catalog {
             );
             return;
         }
+        if !self.may_commit(id, &flight, &revision, &signal) {
+            return;
+        }
         let inflight = self.options.discover.discover(
             DiscoveryRequest {
                 instance: with_binary_path(
@@ -315,18 +406,17 @@ impl Catalog {
             sink,
         );
         let outcome = futures::future::select(inflight, abort_signal.wait()).await;
+        let timed_out = deadline.timed_out();
         let result = match outcome {
             futures::future::Either::Left((result, _)) => {
-                cancel();
-                Some(result)
+                if timed_out || signal.is_aborted() || !self.may_commit(id, &flight, &revision, &signal)
+                {
+                    None
+                } else {
+                    Some(result)
+                }
             }
-            futures::future::Either::Right(((), _)) => {
-                // The deadline's abort and a caller's abort look the same here; a timed-out
-                // discovery is the one the deadline armed, so treat it as a timeout.
-                cancel();
-                timed_out = true;
-                None
-            }
+            futures::future::Either::Right(((), _)) => None,
         };
         let diagnostics = diagnostics
             .lock()
@@ -334,11 +424,10 @@ impl Catalog {
             .clone();
         match result {
             None => {
-                let _ = timed_out;
                 self.fail(
                     id,
                     None,
-                    if timed_out {
+                    if timed_out || signal.is_aborted() {
                         FailureCode::Timeout
                     } else {
                         FailureCode::DiscoveryFailed
@@ -362,7 +451,10 @@ impl Catalog {
                 self.fail(id, Some(failure), code, started_at, &diagnostics, &revision);
             }
             Some(Ok(outcome)) => {
-                self.commit(id, outcome, started_at, &diagnostics, &revision)
+                if !self.may_commit(id, &flight, &revision, &signal) {
+                    return;
+                }
+                self.commit(id, outcome, started_at, &diagnostics, &revision, &flight, &signal)
                     .await;
             }
         }
@@ -553,6 +645,8 @@ impl Catalog {
         started_at: f64,
         diagnostics: &DiscoveryDiagnostics,
         revision: &str,
+        flight: &Flight,
+        signal: &Signal,
     ) {
         let Some(config) = self.registered(id) else {
             return;
@@ -568,10 +662,22 @@ impl Catalog {
             );
             return;
         }
+        if !self.may_commit(id, flight, revision, signal) {
+            return;
+        }
+        if let Some(barrier) = self.with_inner(|inner| inner.deletion_barriers.get(id).cloned()) {
+            barrier.wait().await;
+        }
         let release = self.hold_writes(id).await;
+        if !self.may_commit(id, flight, revision, signal) {
+            drop(release);
+            return;
+        }
         let current = self.with_inner(|inner| {
             inner.states.get(id).and_then(|state| {
-                (state.probe_revision.as_deref() == Some(revision)).then(|| state.entry.clone())
+                let current = self.revision(&state.config);
+                (state.probe_revision.as_deref() == Some(revision) && current == revision)
+                    .then(|| state.entry.clone())
             })
         });
         let Some(previous) = current else {
@@ -994,35 +1100,77 @@ impl Catalog {
                 .collect()
         });
         for id in ids {
-            let Some(config) = self.registered(&id) else {
-                continue;
-            };
-            let generation =
-                self.with_inner(|inner| inner.states.get(&id).map(|state| state.generation));
-            let revision = self.revision(&config);
-            let Some(signal) = self.with_inner(|inner| {
-                let state = inner.states.get(&id)?;
+            let planned = self.with_inner(|inner| {
+                if inner.closed {
+                    return None;
+                }
+                let state = inner.states.get_mut(&id)?;
                 if state.flight.is_some() || self.now() < state.probe_retry_at.max(state.retry_at) {
                     return None;
                 }
-                Some(Signal::new())
-            }) else {
-                continue;
-            };
-            // The probe owns a deadline, a shutdown abort and a registry entry: a probe
-            // outliving its row or the daemon acts on nothing.
-            let gate = crate::signals::Gate::new();
-            self.with_inner(|inner| {
+                if inner.connection_probes.contains_key(&id) {
+                    return None;
+                }
+                if inner.active_probes >= 64 {
+                    let config = state.config.clone();
+                    state.error = Some(StatusError::DiscoveryFailed);
+                    return Some(ProbePlan::Capped { config });
+                }
+                let generation = state.generation;
+                let revision = self.revision(&state.config);
+                let signal = Signal::new();
+                let gate = crate::signals::Gate::new();
+                inner.active_probes += 1;
+                inner.connection_probes.insert(id.clone(), gate.clone());
                 inner.probe_signals.push(signal.clone());
                 inner.owned.push(gate.clone());
+                self.track_gate(&gate);
+                Some(ProbePlan::Run {
+                    config: state.config.clone(),
+                    generation,
+                    revision,
+                    signal,
+                    gate,
+                })
             });
-            let cancel = self.options.deadline.arm(
-                self.options.timeout_ms,
-                Box::new({
-                    let signal = signal.clone();
-                    move || signal.abort()
-                }),
-            );
+            let Some(plan) = planned else {
+                continue;
+            };
+            if let ProbePlan::Capped { config } = &plan {
+                let started = self.now();
+                let revision = self.revision(config);
+                self.fail(
+                    &id,
+                    None,
+                    FailureCode::DiscoveryFailed,
+                    started,
+                    &DiscoveryDiagnostics::default(),
+                    &revision,
+                );
+                continue;
+            }
+            let ProbePlan::Run {
+                config,
+                generation,
+                revision,
+                signal,
+                gate,
+            } = plan
+            else {
+                continue;
+            };
+            let deadline = DeadlineScope::arm(self, &signal);
+            let _guard = ConnectionProbeGuard {
+                catalog: self.clone(),
+                id: id.clone(),
+                gate: gate.clone(),
+                signal: signal.clone(),
+                deadline,
+                registered: true,
+            };
+            if self.with_inner(|inner| inner.closed) {
+                continue;
+            }
             let request = DiscoveryRequest {
                 instance: with_binary_path(
                     &config,
@@ -1034,23 +1182,30 @@ impl Catalog {
                 Box::pin(signal.wait()),
             )
             .await;
-            cancel();
-            self.with_inner(|inner| {
-                inner.owned.retain(|known| !known.same(&gate));
-                inner.probe_signals.retain(|known| !known.same(&signal));
-            });
-            gate.open();
             if signal.is_aborted() {
                 continue;
             }
             let futures::future::Either::Left((result, _)) = outcome else {
                 continue;
             };
+            let timed_out = _guard.deadline.timed_out();
+            if timed_out {
+                self.with_inner(|inner| {
+                    if let Some(state) = inner.states.get_mut(&id) {
+                        state.error = Some(StatusError::Timeout);
+                        state.probe_retry_at = self.now() + self.options.retry_ms;
+                    }
+                });
+                if let Some(config) = self.registered(&id) {
+                    self.notify_config(&config);
+                }
+                continue;
+            }
             let current = self.with_inner(|inner| {
-                owns(inner, &id, generation.unwrap_or(u64::MAX))
-                    && !inner.closed
-                    && self.registered(&id).map(|config| self.revision(&config))
-                        == Some(revision.clone())
+                let Some(state) = inner.states.get(&id) else {
+                    return false;
+                };
+                owns(inner, &id, generation) && !inner.closed && self.revision(&state.config) == revision
             });
             if !current {
                 continue;
@@ -1082,10 +1237,11 @@ impl Catalog {
                     }
                 }
                 Err(_) => {
+                    let now = self.now();
                     self.with_inner(|inner| {
                         if let Some(state) = inner.states.get_mut(&id) {
                             state.error = Some(StatusError::DiscoveryFailed);
-                            state.probe_retry_at = state.retry_at;
+                            state.probe_retry_at = state.retry_at.max(now + self.options.retry_ms);
                         }
                     });
                     if let Some(config) = self.registered(&id) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Registering, re-registering, invalidating and removing rows (`catalog.ts`).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ace_models::instance::{Backend, ModelInstance};
 use ace_protocol::generated::ProviderKind;
@@ -226,6 +226,8 @@ impl Catalog {
 
     /// Removes a row: state, cached choices, and a flush of in-flight discovery.
     pub async fn remove_instance(&self, instance: &str) -> Result<(), CatalogError> {
+        let removal_gate = crate::signals::Gate::new();
+        self.track_gate(&removal_gate);
         let (flights, invalidations, tail) = self.with_inner(|inner| {
             let removal = inner.removals.contains(instance);
             if removal {
@@ -273,16 +275,20 @@ impl Catalog {
         if let Some(tail) = tail {
             tail.wait().await;
         }
-        let _ = self.with_inner(|inner| inner.deletions.remove(instance));
+        let deleted = self.with_inner(|inner| inner.deletions.remove(instance));
         let retried = self.with_inner(|inner| inner.deletions.retry());
         let removed = self.with_inner(|inner| {
             inner.removals.remove(instance);
             true
         });
         let _ = removed;
-        match retried.into_iter().find(|result| result.is_err()) {
-            Some(Err(error)) => Err(CatalogError::Cache(error)),
-            _ => Ok(()),
+        removal_gate.open();
+        match deleted {
+            Err(error) => Err(CatalogError::Cache(error)),
+            _ => match retried.into_iter().find(|result| result.is_err()) {
+                Some(Err(error)) => Err(CatalogError::Cache(error)),
+                _ => Ok(()),
+            },
         }
     }
 
@@ -301,7 +307,9 @@ impl Catalog {
             selected
         };
         let mut pending = Vec::new();
+        let failures = Arc::new(Mutex::new(Vec::<CatalogError>::new()));
         for id in &selected {
+            let barrier = crate::signals::Gate::new();
             let captured = self.with_inner(|inner| {
                 let state = inner.states.get_mut(id)?;
                 if state.config.provider == ProviderKind::Acp {
@@ -324,9 +332,14 @@ impl Catalog {
                 continue;
             };
             self.register_instance(config, admit)?;
+            self.with_inner(|inner| {
+                inner.deletion_barriers.insert(id.clone(), barrier.clone());
+            });
+            self.track_gate(&barrier);
             let catalog = self.clone();
             let id = id.clone();
             let done = crate::signals::Gate::new();
+            catalog.track_gate(&done);
             self.with_inner(|inner| {
                 if let Some(state) = inner.states.get_mut(&id) {
                     state.invalidating = Some(crate::catalog::Flight {
@@ -336,6 +349,7 @@ impl Catalog {
                     });
                 }
             });
+            let failures = failures.clone();
             pending.push(Box::pin(async move {
                 if let Some(flight) = flights {
                     flight.done.wait().await;
@@ -346,8 +360,18 @@ impl Catalog {
                 if let Some(tail) = tail {
                     tail.wait().await;
                 }
-                let _ = catalog.with_inner(|inner| inner.deletions.remove(&id));
+                let deleted = catalog.with_inner(|inner| inner.deletions.remove(&id));
+                catalog.with_inner(|inner| {
+                    inner.deletion_barriers.remove(&id);
+                });
+                barrier.open();
                 done.open();
+                if let Err(error) = deleted {
+                    failures
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push(CatalogError::Cache(error));
+                }
             }));
         }
         for task in pending {
@@ -356,7 +380,12 @@ impl Catalog {
         self.with_inner(|inner| {
             inner.invalidations = inner.invalidations.saturating_sub(selected.len());
         });
-        Ok(())
+        failures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain(..)
+            .next()
+            .map_or(Ok(()), Err)
     }
 
     /// Settings changed: rows whose effective configuration changed are fenced and refreshed.

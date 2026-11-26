@@ -231,7 +231,7 @@ pub fn resolve_model(
         tier: tier.cloned(),
         effort,
         stale: stale(&chosen.instance.0),
-        reason: reason.chars().take(1024).collect(),
+        reason: ace_models::text::slice_utf16(&reason, 1024),
     })
 }
 

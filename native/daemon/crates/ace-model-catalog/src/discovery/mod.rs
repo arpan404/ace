@@ -8,6 +8,7 @@
 
 pub mod http;
 pub mod opencode;
+pub mod opencode_connections;
 pub mod process;
 
 pub use http::{HttpGet, HttpReply, HttpRequest};
