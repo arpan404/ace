@@ -22,3 +22,4 @@ pub mod preferences;
 pub mod resolve;
 pub mod signals;
 pub mod sources;
+pub mod text;

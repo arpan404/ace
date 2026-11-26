@@ -1394,6 +1394,34 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
     );
 }
 #[test]
+fn a_sign_in_method_is_held_to_128_code_points() {
+    let catalog = fixture(
+        Vec::new(),
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+    )
+    .catalog;
+    for (index, (method, accepted)) in [
+        ("m".repeat(128), true),
+        ("m".repeat(129), false),
+        ("🌍".repeat(128), true),
+        ("🌍".repeat(129), false),
+        (String::new(), false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut account = instance(ProviderKind::Codex, &format!("account-{index}"));
+        account.sign_in_method = Some(method);
+        assert_eq!(
+            catalog.register_instance(account, None).is_ok(),
+            accepted,
+            "case {index}"
+        );
+    }
+}
+
+#[test]
 fn a_live_accounts_connection_probe_settles_the_catalog() {
     for succeeds in [true, false] {
         let (fingerprint, reported_error, listed, closed) =

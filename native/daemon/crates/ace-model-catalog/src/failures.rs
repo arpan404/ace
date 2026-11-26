@@ -209,7 +209,7 @@ fn status_of(failure: &DiscoveryFailure) -> Option<u32> {
 fn text_of(failure: &DiscoveryFailure) -> String {
     let bounded = |text: &Option<String>| {
         text.as_deref()
-            .map(|text| text.chars().take(8192).collect::<String>())
+            .map(|text| crate::text::utf16_prefix(text, 8192))
             .unwrap_or_default()
     };
     [
@@ -434,6 +434,28 @@ mod tests {
             source: None,
             backend: Some("cursor-sdk"),
         }
+    }
+
+    #[test]
+    fn a_classification_reads_at_most_8192_utf16_units_of_each_field() {
+        // 4096 astral characters are 8192 UTF-16 units: the marker after them sits past
+        // the TypeScript's `.slice(0, 8192)` and cannot classify the failure.
+        let beyond = DiscoveryFailure {
+            reason: Some(format!("{}MODULE_NOT_FOUND", "🌍".repeat(4096))),
+            ..DiscoveryFailure::default()
+        };
+        assert_eq!(
+            discovery_failure_code(Some(&beyond), FailureCode::DiscoveryFailed),
+            FailureCode::DiscoveryFailed
+        );
+        let within = DiscoveryFailure {
+            reason: Some(format!("{}MODULE_NOT_FOUND", "🌍".repeat(4000))),
+            ..DiscoveryFailure::default()
+        };
+        assert_eq!(
+            discovery_failure_code(Some(&within), FailureCode::DiscoveryFailed),
+            FailureCode::NotConfigured
+        );
     }
 
     #[test]

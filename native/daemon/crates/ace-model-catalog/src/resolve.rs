@@ -231,7 +231,7 @@ pub fn resolve_model(
         tier: tier.cloned(),
         effort,
         stale: stale(&chosen.instance.0),
-        reason: reason.chars().take(1024).collect(),
+        reason: crate::text::utf16_prefix(&reason, 1024),
     })
 }
 
@@ -369,6 +369,26 @@ mod tests {
         ] {
             assert!(resolve_model(&spec, &rows, |_| false).is_err());
         }
+    }
+
+    #[test]
+    fn a_resolution_reason_is_cut_at_1024_utf16_units() {
+        let rows = [row("normal", true, None)];
+        let picked = resolve_model(
+            &RoleSpec {
+                role: "🌍".repeat(600),
+                ..RoleSpec::default()
+            },
+            &rows,
+            |_| false,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            picked.reason.encode_utf16().count() <= 1024,
+            "{} units",
+            picked.reason.encode_utf16().count()
+        );
+        assert!(picked.reason.starts_with("🌍"));
     }
 
     #[test]

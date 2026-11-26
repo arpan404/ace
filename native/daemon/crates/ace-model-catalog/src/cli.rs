@@ -92,7 +92,7 @@ fn version_tail_is_clear(rest: &str) -> bool {
 /// The first `major.minor[.patch][-prerelease]` in a CLI's version output.
 pub fn parse_cli_version(text: Option<&str>) -> Option<CliVersion> {
     let text = text.filter(|text| !text.is_empty())?;
-    let head: String = text.chars().take(4096).collect();
+    let head: String = crate::text::utf16_prefix(text, 4096);
     // The first match whose tail does not read as a longer version, as the anchored
     // TypeScript regex does.
     let pattern = version_pattern()?;
@@ -287,6 +287,21 @@ mod tests {
         }
         assert_eq!(parse_cli_version(Some("no version here")), None);
         assert_eq!(parse_cli_version(None), None);
+    }
+
+    #[test]
+    fn the_version_scan_stops_at_4096_utf16_units() {
+        // 2048 astral characters are the whole 4096-unit window, so a version behind
+        // them is outside the TypeScript's `text.slice(0, 4096)`.
+        assert_eq!(
+            parse_cli_version(Some(&format!("{} v1.2.3", "🌍".repeat(2048)))),
+            None
+        );
+        assert_eq!(
+            parse_cli_version(Some(&format!("{} v1.2.3", "🌍".repeat(2000))))
+                .map(|version| format_cli_version(&version)),
+            Some("1.2.3".to_owned())
+        );
     }
 
     #[test]

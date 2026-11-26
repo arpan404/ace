@@ -1191,11 +1191,16 @@ pub(crate) fn validate_instance(instance: &ModelInstance) -> Result<(), CatalogE
     {
         return Err(CatalogError::InvalidInstance);
     }
+    // The sign-in method is its own bound: 1 to 128 code points (`ModelInstance.parse`).
+    if let Some(method) = &instance.sign_in_method
+        && !(1..=128).contains(&method.chars().count())
+    {
+        return Err(CatalogError::InvalidInstance);
+    }
     for value in [
         instance.acp_agent_id.as_deref(),
         instance.installation_id.as_deref(),
         instance.instance_id.as_deref(),
-        instance.sign_in_method.as_deref(),
         instance.profile_revision.as_deref(),
         instance.installation_version.as_deref(),
         instance.home_dir.as_deref(),
