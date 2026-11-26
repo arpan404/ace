@@ -115,6 +115,8 @@ pub struct TickOutcome {
     pub input: Option<Value>,
     /// The next deadline after the tick (the timer re-arms for it).
     pub deadline: Option<i64>,
+    /// The automation whose occurrence was consumed or skipped, whose hold is over.
+    pub consumed: Option<String>,
 }
 
 pub struct Scheduler<'a> {
@@ -235,8 +237,17 @@ impl<'a> Scheduler<'a> {
     /// without a run; otherwise the due occurrence is admitted under the current admission gate
     /// and the next one is persisted with its jittered deadline.
     pub fn tick(&self, ids: &dyn IdSource) -> Result<TickOutcome> {
+        self.tick_skipping(ids, &std::collections::HashSet::new())
+    }
+
+    /// One due schedule's turn, skipping automations a caller is holding (`service.ts:565`).
+    pub fn tick_skipping(
+        &self,
+        ids: &dyn IdSource,
+        skip: &std::collections::HashSet<String>,
+    ) -> Result<TickOutcome> {
         let now = self.clock.now_ms();
-        let Some(job) = self.store.next_scheduled()? else {
+        let Some(job) = self.store.next_scheduled_skipping(skip)? else {
             return Ok(TickOutcome::default());
         };
         if job.due.is_none_or(|due| due > now) {
@@ -244,6 +255,7 @@ impl<'a> Scheduler<'a> {
                 run: None,
                 input: None,
                 deadline: job.due,
+                consumed: None,
             });
         }
         let Some(nominal) = job.nominal else {
@@ -252,7 +264,11 @@ impl<'a> Scheduler<'a> {
             return Ok(TickOutcome {
                 run: None,
                 input: None,
-                deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                deadline: self
+                    .store
+                    .next_scheduled_skipping(skip)?
+                    .and_then(|job| job.due),
+                consumed: Some(job.automation.id.clone()),
             });
         };
         let recurrence = match Self::recurrence(&job.automation) {
@@ -263,7 +279,11 @@ impl<'a> Scheduler<'a> {
                 return Ok(TickOutcome {
                     run: None,
                     input: None,
-                    deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                    deadline: self
+                        .store
+                        .next_scheduled_skipping(skip)?
+                        .and_then(|job| job.due),
+                    consumed: Some(job.automation.id.clone()),
                 });
             }
             Err(error) => {
@@ -271,7 +291,11 @@ impl<'a> Scheduler<'a> {
                 return Ok(TickOutcome {
                     run: None,
                     input: None,
-                    deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                    deadline: self
+                        .store
+                        .next_scheduled_skipping(skip)?
+                        .and_then(|job| job.due),
+                    consumed: Some(job.automation.id.clone()),
                 });
             }
         };
@@ -285,7 +309,11 @@ impl<'a> Scheduler<'a> {
                 return Ok(TickOutcome {
                     run: None,
                     input: None,
-                    deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                    deadline: self
+                        .store
+                        .next_scheduled_skipping(skip)?
+                        .and_then(|job| job.due),
+                    consumed: Some(job.automation.id.clone()),
                 });
             }
         };
@@ -310,7 +338,11 @@ impl<'a> Scheduler<'a> {
             return Ok(TickOutcome {
                 run: None,
                 input: None,
-                deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                deadline: self
+                    .store
+                    .next_scheduled_skipping(skip)?
+                    .and_then(|job| job.due),
+                consumed: Some(job.automation.id.clone()),
             });
         }
         let run_id = ids.next_id();
@@ -325,7 +357,7 @@ impl<'a> Scheduler<'a> {
             Ok(input) => (Some(input), None),
             Err(error) => (None, Some(error.to_string())),
         };
-        let skip = if self.admission.open() {
+        let refusal = if self.admission.open() {
             None
         } else {
             Some(
@@ -344,7 +376,7 @@ impl<'a> Scheduler<'a> {
                     now,
                     input: input.as_ref(),
                     failure: failure.as_deref(),
-                    skip: skip.as_deref(),
+                    skip: refusal.as_deref(),
                 },
             )?;
             self.store.advance(
@@ -365,14 +397,22 @@ impl<'a> Scheduler<'a> {
                 return Ok(TickOutcome {
                     run: None,
                     input: None,
-                    deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+                    deadline: self
+                        .store
+                        .next_scheduled_skipping(skip)?
+                        .and_then(|job| job.due),
+                    consumed: Some(job.automation.id.clone()),
                 });
             }
         };
         Ok(TickOutcome {
             run: Some(claimed),
             input,
-            deadline: self.store.next_scheduled()?.and_then(|job| job.due),
+            deadline: self
+                .store
+                .next_scheduled_skipping(skip)?
+                .and_then(|job| job.due),
+            consumed: Some(job.automation.id.clone()),
         })
     }
 

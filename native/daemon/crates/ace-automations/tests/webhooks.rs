@@ -67,6 +67,8 @@ impl Harness {
                 ids: &self.ids,
                 workspace: None,
                 model_loading: None,
+                model_hold_ms: None,
+                model_retry_ms: None,
             },
         )
     }
@@ -334,6 +336,8 @@ fn a_retried_delivery_returns_its_run_instead_of_starting_another_also_after_res
             ids: &ids,
             workspace: None,
             model_loading: None,
+            model_hold_ms: None,
+            model_retry_ms: None,
         },
     );
     service.start().expect("restart");

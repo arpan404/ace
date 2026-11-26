@@ -16,6 +16,7 @@ use crate::decisions::{
 };
 use crate::error::{AutomationsError, Result};
 use crate::recurrence::Occurrence;
+use crate::scheduler::MAX_TIMER_DELAY_MS;
 use crate::scheduler::{Admission, Clock, IdSource, Random, Scheduler};
 use crate::store::{AutomationStore, Claim, Definition, JobMetadata, Trigger};
 
@@ -71,6 +72,10 @@ pub struct Ports<'a> {
     pub workspace: Option<&'a dyn Workspace>,
     /// Whether discovery for this automation's provider is still running.
     pub model_loading: Option<&'a dyn Fn(&Definition) -> bool>,
+    /// How long one occurrence waits for discovery before its model counts as unavailable.
+    pub model_hold_ms: Option<i64>,
+    /// How often a held schedule checks again when no readiness wake arrives.
+    pub model_retry_ms: Option<i64>,
 }
 
 /// The lifecycle the TypeScript keeps in `lifecycle.ts`: start owns resources until it ends.
@@ -159,6 +164,8 @@ pub struct Service<'a> {
     /// Settled runs whose terminal write was refused: the outcome and ownership are kept until
     /// SQLite accepts them, and the timer tries again.
     finishes: HashMap<String, Finish>,
+    /// Due schedules held for model discovery: `id\0nominal` to the tick that first held it.
+    held: HashMap<String, i64>,
     errors: Vec<String>,
 }
 
@@ -172,6 +179,11 @@ struct Retry {
     attempt: u32,
     due: i64,
 }
+
+/// How long one occurrence waits for model discovery before its model counts as unavailable.
+const MODEL_HOLD_MS: i64 = 30_000;
+/// How often a held schedule checks again when no readiness wake arrives.
+const MODEL_RETRY_MS: i64 = 30_000;
 
 #[derive(Debug, Clone)]
 struct Finish {
@@ -196,6 +208,7 @@ impl<'a> Service<'a> {
             timer: None,
             retries: HashMap::new(),
             finishes: HashMap::new(),
+            held: HashMap::new(),
             errors: Vec::new(),
         }
     }
@@ -223,6 +236,59 @@ impl<'a> Service<'a> {
 
     fn now(&self) -> i64 {
         self.ports.clock.now_ms()
+    }
+
+    fn hold_key(id: &str, nominal: Option<i64>) -> String {
+        format!("{id}\u{0}{}", nominal.unwrap_or(0))
+    }
+
+    fn clear_holds(&mut self, id: &str) {
+        let prefix = format!("{id}\u{0}");
+        self.held.retain(|key, _| !key.starts_with(&prefix));
+    }
+
+    fn held_ids(&self) -> HashSet<String> {
+        self.held
+            .keys()
+            .filter_map(|key| key.split('\u{0}').next().map(str::to_owned))
+            .collect()
+    }
+
+    /// The next job that may fire (`service.ts:565`). A due schedule whose model discovery is
+    /// still running is held per occurrence, so it keeps its place instead of being spent on a
+    /// thread the engine would refuse, beaten only by [`Ports::model_hold_ms`].
+    fn next_due(&mut self, now: i64) -> Result<Option<JobMetadata>> {
+        let mut skip: HashSet<String> = HashSet::new();
+        loop {
+            let Some(job) = self.store.next_skipping(&skip)? else {
+                return Ok(None);
+            };
+            if job.automation.trigger.kind() != "schedule" {
+                return Ok(Some(job));
+            }
+            let Some(loading) = self.ports.model_loading else {
+                return Ok(Some(job));
+            };
+            let id = job.automation.id.clone();
+            let key = Service::hold_key(&id, job.nominal);
+            let prefix = format!("{id}\u{0}");
+            // A newer occurrence replaces an older one's hold; only then does its wait restart.
+            self.held
+                .retain(|existing, _| !existing.starts_with(&prefix) || existing == &key);
+            if !loading(&job.automation) {
+                self.held.remove(&key);
+                return Ok(Some(job));
+            }
+            let hold = self.ports.model_hold_ms.unwrap_or(MODEL_HOLD_MS);
+            if let Some(since) = self.held.get(&key)
+                && now - *since >= hold
+            {
+                self.held.remove(&key);
+                return Ok(Some(job));
+            }
+            self.held.entry(key).or_insert(now);
+            skip.insert(id);
+        }
     }
 
     fn publish(&mut self, run: &Value) {
@@ -297,6 +363,7 @@ impl<'a> Service<'a> {
         self.actions.clear();
         self.retries.clear();
         self.finishes.clear();
+        self.held.clear();
         self.cancel_timer();
         for watch in watches {
             if let Some(workspace) = self.ports.workspace {
@@ -544,6 +611,7 @@ impl<'a> Service<'a> {
         }
         self.carry_out(Some(id));
         self.drop_watch(id);
+        self.clear_holds(id);
         self.arm();
         Ok(skipped)
     }
@@ -734,9 +802,10 @@ impl<'a> Service<'a> {
         if !self.lives.live() {
             return Ok(None);
         }
-        if let Some(job) = self.store.next(&[])?
+        let now = self.now();
+        if let Some(job) = self.next_due(now)?
             && job.automation.trigger.kind() == "github"
-            && job.due.is_some_and(|due| due <= self.now())
+            && job.due.is_some_and(|due| due <= now)
         {
             let interval = match &job.automation.trigger {
                 Trigger::Github {
@@ -745,7 +814,7 @@ impl<'a> Service<'a> {
                 _ => 0,
             };
             self.store
-                .advance(&job.automation.id, job.nominal, Some(self.now() + interval))?;
+                .advance(&job.automation.id, job.nominal, Some(now + interval))?;
             self.actions.push(Action::PollGithub {
                 automation_id: job.automation.id,
             });
@@ -753,7 +822,8 @@ impl<'a> Service<'a> {
             return Ok(None);
         }
         let generation = self.generation;
-        let outcome = self.scheduler().tick(self.ports.ids);
+        let skip = self.held_ids();
+        let outcome = self.scheduler().tick_skipping(self.ports.ids, &skip);
         let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(error) => {
@@ -761,6 +831,9 @@ impl<'a> Service<'a> {
                 return Err(error);
             }
         };
+        if let Some(id) = outcome.consumed.clone() {
+            self.clear_holds(&id);
+        }
         let run = match outcome.run {
             Some(claimed) => {
                 if claimed.created {
@@ -783,20 +856,28 @@ impl<'a> Service<'a> {
         Ok(run)
     }
 
-    /// The scheduler's timer delay (`service.ts:617`).
-    pub fn arm_delay(&self) -> Result<Option<i64>> {
+    /// The scheduler's timer delay (`service.ts:617`), including a held occurrence's recheck.
+    pub fn arm_delay(&mut self) -> Result<Option<i64>> {
         if !self.lives.live() {
             return Ok(None);
         }
-        let Some(job) = self.store.next(&[])? else {
-            return Ok(None);
-        };
-        let Some(due) = job.due else {
-            return Ok(None);
-        };
-        Ok(Some(
-            (due - self.now()).clamp(0, crate::scheduler::MAX_TIMER_DELAY_MS),
-        ))
+        let now = self.now();
+        let due = self.next_due(now)?.and_then(|job| job.due);
+        let mut delay = due.map(|due| (due - now).clamp(0, MAX_TIMER_DELAY_MS));
+        if !self.held.is_empty() {
+            let retry = self
+                .ports
+                .model_retry_ms
+                .unwrap_or(MODEL_RETRY_MS)
+                .clamp(0, MAX_TIMER_DELAY_MS);
+            delay = Some(delay.map_or(retry, |current| current.min(retry)));
+        }
+        Ok(delay)
+    }
+
+    /// Discovery settled (`service.ts:553`): a held occurrence may fire now.
+    pub fn models_ready(&mut self) {
+        self.arm();
     }
 
     /// Build every run index in one write. For a file over the idle threshold, the host calls

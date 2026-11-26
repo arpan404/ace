@@ -190,6 +190,8 @@ impl Harness {
                 ids: &self.ids,
                 workspace: Some(&self.workspace),
                 model_loading: None,
+                model_hold_ms: None,
+                model_retry_ms: None,
             },
         )
     }

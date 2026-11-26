@@ -107,6 +107,8 @@ fn github_polls_establish_a_baseline_emit_changes_and_keep_etags_across_restart(
             ids: &h.ids,
             workspace: Some(&h.workspace),
             model_loading: None,
+            model_hold_ms: None,
+            model_retry_ms: None,
         },
     );
     service.start().expect("start");
@@ -554,5 +556,103 @@ fn a_failed_file_replacement_keeps_the_old_watcher_and_late_events_cannot_fire_t
     assert_eq!(
         input_prompt(&service.take_actions()[0]),
         "Review src/new.ts"
+    );
+}
+
+#[test]
+fn a_schedule_held_for_model_discovery_lets_another_due_job_run_and_fires_on_readiness() {
+    let h = Harness::new();
+    let loading = std::cell::Cell::new(true);
+    let is_loading = |automation: &Definition| automation.id == "held" && loading.get();
+    let mut service = Service::new(
+        &h.store,
+        Ports {
+            clock: &h.clock,
+            random: &h.random,
+            admission: &h.admission,
+            timer: &h.timer,
+            ids: &h.ids,
+            workspace: Some(&h.workspace),
+            model_loading: Some(&is_loading),
+            model_hold_ms: Some(60_000),
+            model_retry_ms: Some(5_000),
+        },
+    );
+    service.start().expect("start");
+    let mut held = scheduled("skip", 0);
+    held.id = "held".to_owned();
+    let mut other = scheduled("skip", 0);
+    other.id = "other".to_owned();
+    h.clock.0.set(START);
+    service.put(&held, None).expect("held");
+    service.put(&other, None).expect("other");
+
+    assert!(service.tick().expect("tick").is_some());
+    let actions = service.take_actions();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(sv(&execute(&actions[0]).1, "automationId"), Some("other"));
+    assert!(
+        service
+            .inbox(50, None, Some("held"), None)
+            .expect("inbox")
+            .0
+            .is_empty(),
+        "the held occurrence is not spent"
+    );
+    assert_eq!(service.armed_delay().expect("delay"), 5_000);
+
+    loading.set(false);
+    service.models_ready();
+    assert_eq!(service.armed_delay().expect("delay"), 0);
+    let run = service.tick().expect("tick").expect("held run");
+    assert_eq!(sv(&run, "automationId"), Some("held"));
+    assert_eq!(service.take_actions().len(), 1);
+    assert!(
+        service.tick().expect("tick").is_none(),
+        "the occurrence fires once"
+    );
+}
+
+#[test]
+fn a_held_occurrence_fires_once_its_window_passes_without_a_wakeup() {
+    let h = Harness::new();
+    let is_loading = |automation: &Definition| automation.id == "held";
+    let mut service = Service::new(
+        &h.store,
+        Ports {
+            clock: &h.clock,
+            random: &h.random,
+            admission: &h.admission,
+            timer: &h.timer,
+            ids: &h.ids,
+            workspace: Some(&h.workspace),
+            model_loading: Some(&is_loading),
+            model_hold_ms: Some(1000),
+            model_retry_ms: Some(200),
+        },
+    );
+    service.start().expect("start");
+    let mut held = scheduled("skip", 0);
+    held.id = "held".to_owned();
+    let mut other = scheduled("skip", 0);
+    other.id = "other".to_owned();
+    h.clock.0.set(START);
+    service.put(&held, None).expect("held");
+    service.put(&other, None).expect("other");
+
+    assert!(service.tick().expect("tick").is_some());
+    assert_eq!(
+        sv(&execute(&service.take_actions()[0]).1, "automationId"),
+        Some("other")
+    );
+    assert_eq!(service.armed_delay().expect("delay"), 200);
+
+    h.clock.0.set(START + 1000);
+    let run = service.timer_fired().expect("timer").expect("held run");
+    assert_eq!(sv(&run, "automationId"), Some("held"));
+    assert_eq!(service.take_actions().len(), 1);
+    assert!(
+        service.tick().expect("tick").is_none(),
+        "the occurrence fires once"
     );
 }

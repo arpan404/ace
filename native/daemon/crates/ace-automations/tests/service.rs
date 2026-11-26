@@ -75,6 +75,8 @@ fn a_waiting_run_survives_a_restart_and_starts_after_the_run_it_waited_for() {
             ids: &h.ids,
             workspace: Some(&h.workspace),
             model_loading: None,
+            model_hold_ms: None,
+            model_retry_ms: None,
         },
     );
     service.start().expect("start");
@@ -529,6 +531,8 @@ fn deduplicates_repeated_events_even_after_restart() {
             ids: &h.ids,
             workspace: Some(&h.workspace),
             model_loading: None,
+            model_hold_ms: None,
+            model_retry_ms: None,
         },
     );
     service.start().expect("start");
@@ -729,6 +733,8 @@ fn persists_count_progress_and_stops_at_the_limit_after_a_restart() {
             ids: &h.ids,
             workspace: Some(&h.workspace),
             model_loading: None,
+            model_hold_ms: None,
+            model_retry_ms: None,
         },
     );
     service.start().expect("start");
@@ -997,6 +1003,8 @@ fn retrying_creation_with_the_same_idempotency_key_when_a_crash_preceded_thread_
             ids: &h.ids,
             workspace: Some(&h.workspace),
             model_loading: None,
+            model_hold_ms: None,
+            model_retry_ms: None,
         },
     );
     service.start().expect("restart");

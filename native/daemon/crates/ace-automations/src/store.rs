@@ -643,9 +643,35 @@ impl AutomationStore {
         self.first_readable(&ids)
     }
 
+    /// The readable automation due first that is not skipped (`store.ts:318`).
+    pub fn next_skipping(
+        &self,
+        skip: &std::collections::HashSet<String>,
+    ) -> Result<Option<JobMetadata>> {
+        let ids: Vec<String> = self
+            .due_ids(false)?
+            .into_iter()
+            .filter(|id| !skip.contains(id))
+            .collect();
+        self.first_readable(&ids)
+    }
+
     /// The readable due schedule first.
     pub fn next_scheduled(&self) -> Result<Option<JobMetadata>> {
         let ids = self.due_ids(true)?;
+        self.first_readable(&ids)
+    }
+
+    /// The readable due schedule first that is not skipped (`store.ts:328`).
+    pub fn next_scheduled_skipping(
+        &self,
+        skip: &std::collections::HashSet<String>,
+    ) -> Result<Option<JobMetadata>> {
+        let ids: Vec<String> = self
+            .due_ids(true)?
+            .into_iter()
+            .filter(|id| !skip.contains(id))
+            .collect();
         self.first_readable(&ids)
     }
 
