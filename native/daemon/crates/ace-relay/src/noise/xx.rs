@@ -3,7 +3,7 @@
 //! host id checked the moment the responder's static key arrives — before that message's payload
 //! is opened.
 
-use super::{Ephemeral, KeyPair, MAX_MESSAGE, SessionKeys, Symmetric, XX_PROTOCOL, host_id, split};
+use super::{KeyPair, MAX_MESSAGE, SessionKeys, Symmetric, XX_PROTOCOL, host_id, split};
 use crate::error::RelayError;
 
 /// The size overhead each handshake message carries: e, e+s+tags, s+tags.
@@ -36,7 +36,7 @@ impl NoiseXx {
     /// arrives.
     pub fn initiator(
         static_key: KeyPair,
-        ephemeral: Ephemeral,
+        ephemeral: KeyPair,
         prologue: &[u8],
         pinned: Option<&str>,
     ) -> Self {
@@ -46,7 +46,7 @@ impl NoiseXx {
             failed: false,
             sym: Symmetric::new(XX_PROTOCOL, prologue),
             static_key: Some(static_key),
-            ephemeral: Some(ephemeral.key()),
+            ephemeral: Some(ephemeral),
             remote_ephemeral: None,
             remote_static: None,
             pinned: pinned.map(str::to_owned),
@@ -56,14 +56,14 @@ impl NoiseXx {
     }
 
     /// The daemon: its static key is the identity the client pinned.
-    pub fn responder(static_key: KeyPair, ephemeral: Ephemeral, prologue: &[u8]) -> Self {
+    pub fn responder(static_key: KeyPair, ephemeral: KeyPair, prologue: &[u8]) -> Self {
         Self {
             initiator: false,
             step: 0,
             failed: false,
             sym: Symmetric::new(XX_PROTOCOL, prologue),
             static_key: Some(static_key),
-            ephemeral: Some(ephemeral.key()),
+            ephemeral: Some(ephemeral),
             remote_ephemeral: None,
             remote_static: None,
             pinned: None,
@@ -125,15 +125,21 @@ impl NoiseXx {
             self.sym.mix_hash(&public);
         }
         if self.step == 1 {
-            let ephemeral = self.own_ephemeral()?.private().to_owned();
             let remote = self
                 .remote_ephemeral
                 .ok_or(RelayError::Noise("Missing remote key"))?;
-            self.sym.mix_key(&ephemeral, &remote)?;
+            let ephemeral = self
+                .ephemeral
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing ephemeral key"))?;
+            self.sym.mix_key(ephemeral, &remote)?;
             let static_public = self.own_static()?.public;
             parts.extend_from_slice(&self.sym.encrypt(&static_public)?);
-            let static_private = self.own_static()?.private().to_owned();
-            self.sym.mix_key(&static_private, &remote)?;
+            let static_key = self
+                .static_key
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing static key"))?;
+            self.sym.mix_key(static_key, &remote)?;
         }
         if self.step == 2 {
             let static_public = self.own_static()?.public;
@@ -142,8 +148,11 @@ impl NoiseXx {
             let remote = self
                 .remote_ephemeral
                 .ok_or(RelayError::Noise("Missing remote key"))?;
-            let static_private = self.own_static()?.private().to_owned();
-            self.sym.mix_key(&static_private, &remote)?;
+            let static_key = self
+                .static_key
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing static key"))?;
+            self.sym.mix_key(static_key, &remote)?;
         }
         parts.extend_from_slice(&self.sym.encrypt(payload)?);
         self.step += 1;
@@ -191,11 +200,14 @@ impl NoiseXx {
             self.sym.mix_hash(&remote);
         }
         if self.step == 1 {
-            let ephemeral = self.own_ephemeral()?.private().to_owned();
             let remote = self
                 .remote_ephemeral
                 .ok_or(RelayError::Noise("Missing remote key"))?;
-            self.sym.mix_key(&ephemeral, &remote)?;
+            let ephemeral = self
+                .ephemeral
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing ephemeral key"))?;
+            self.sym.mix_key(ephemeral, &remote)?;
         }
         if self.step > 0 {
             let sealed = &message[offset..offset + 48];
@@ -210,8 +222,11 @@ impl NoiseXx {
             {
                 return Err(RelayError::Noise("Pinned fingerprint mismatch"));
             }
-            let ephemeral = self.own_ephemeral()?.private().to_owned();
-            self.sym.mix_key(&ephemeral, &static_key)?;
+            let ephemeral = self
+                .ephemeral
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing ephemeral key"))?;
+            self.sym.mix_key(ephemeral, &static_key)?;
         }
         let payload = self.sym.decrypt(&message[offset..])?;
         self.step += 1;

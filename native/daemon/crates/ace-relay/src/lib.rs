@@ -51,8 +51,8 @@ pub use nk::host::{
     AccountAdmission, NkAccepted, NkAccount, NkHost, account_device_actor, main_actor,
 };
 pub use noise::{
-    Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, NoiseNk, NoiseXx,
-    SessionKeys, XX_PROTOCOL, fingerprint, host_id,
+    KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, NoiseNk, NoiseXx, SessionKeys,
+    XX_PROTOCOL, fingerprint, host_id,
 };
 pub use route::{RelayPairingRoute, RelayRoute, relay_pairing, relay_route};
 pub use socket::{
