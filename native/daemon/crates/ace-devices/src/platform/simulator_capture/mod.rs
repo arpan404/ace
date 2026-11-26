@@ -8,7 +8,7 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 mod stream;
@@ -63,7 +63,8 @@ pub const AGENT_STILL: AgentStill = AgentStill {
 };
 
 /// The endpoint serve-sim announces on its stdout.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Endpoint {
     pub device: String,
     pub port: u16,
@@ -138,8 +139,15 @@ pub fn sibling(stream: &Url, name: &str) -> Result<Url, Error> {
     Ok(url)
 }
 
+/// The route beside a stream URL, from its text form.
+pub fn sibling_str(stream: &str, name: &str) -> Result<String, Error> {
+    let url = Url::parse(stream)
+        .map_err(|_| invalid("Simulator helper returned a non-local endpoint"))?;
+    sibling(&url, name).map(|url| url.to_string())
+}
+
 /// serve-sim announces the screen's size and orientation on its control socket (tag 130).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ScreenConfig {
     pub width: u32,
     pub height: u32,

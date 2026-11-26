@@ -17,7 +17,8 @@ pub const WINDOW_ATTEMPTS: usize = 12;
 pub const WINDOW_RETRY_MS: u64 = 500;
 
 /// Which capture a Simulator's run starts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SimulatorRoute {
     /// ace's serve-sim, the preferred path.
     ServeSim,
@@ -26,7 +27,7 @@ pub enum SimulatorRoute {
 }
 
 /// A Simulator capture's start: its route and whether an outdated helper is replaced first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct SimulatorStart {
     pub route: SimulatorRoute,
     pub replace_helper: bool,

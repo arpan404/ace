@@ -2,6 +2,8 @@
 //! `simulator-transcode.ts`: when ace-media re-encodes a Simulator's picture for a viewer
 //! (E3b, in `media-vt`), and at what size. Pure: no encoder, no clock, no sockets.
 
+use serde::Serialize;
+
 /// The least serve-sim sends while the screen is busy (its documented default is 6 to 30 Mbit/s
 /// by screen size). Until a busier rate has been measured, a viewer is judged against this.
 pub const SIMULATOR_SOURCE_FLOOR: f64 = 6_000_000.0;
@@ -65,7 +67,7 @@ pub struct EncodeSettings {
 /// The encode ace-media re-encodes a Simulator at for a viewer (E3b, the `--transcode`
 /// replacement): serve-sim's native picture fitted inside the viewer's box at its aspect, never
 /// larger than native, even sides, at the viewer's bit rate.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EncodeSpec {
     pub id: u32,
     pub codec: &'static str,

@@ -16,6 +16,7 @@ import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
 import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
 import { nativeId } from "./commands.ts";
 import type { DeviceMedia } from "./media-paths.ts";
+import { nativeSimulatorRoute, nativeVideo, nativeWindows } from "./native-video.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -86,7 +87,17 @@ export async function startCapture(options: {
       checkAbort();
     }
     const { command, version, supported } = status;
-    if (command && supported) {
+    const route = nativeVideo
+      ? nativeSimulatorRoute({
+          supported,
+          command,
+          version,
+          serveSimEnv: Boolean(options.env["ACE_SERVE_SIM"]),
+          screenAvailable: Boolean(options.screen),
+        }).route
+      : undefined;
+    if (route ? route === "serveSim" : Boolean(command && supported)) {
+      if (!command) throw new Error("serve-sim's command is missing");
       const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
       if (version)
@@ -297,12 +308,21 @@ async function simulatorWindow(
   for (let attempt = 0; ; attempt++) {
     const inventory = await screen.deviceTargets();
     checkAbort();
-    const exact = inventory.windows.filter(
-      (window) =>
-        deviceWindowBundles.has(window.bundleId) &&
-        (window.title === name ||
-          [" –", " —", " -", " ("].some((suffix) => window.title.startsWith(`${name}${suffix}`))),
-    );
+    const chosen = nativeVideo ? nativeWindows(inventory.windows, name) : undefined;
+    const exact = chosen
+      ? chosen.choice === "one"
+        ? [inventory.windows[chosen.index]]
+        : chosen.choice === "many"
+          ? inventory.windows.slice(0, 2)
+          : []
+      : inventory.windows.filter(
+          (window) =>
+            deviceWindowBundles.has(window.bundleId) &&
+            (window.title === name ||
+              [" –", " —", " -", " ("].some((suffix) =>
+                window.title.startsWith(`${name}${suffix}`),
+              )),
+        );
     if (exact.length === 1 && exact[0]) return exact[0];
     if (exact.length > 1)
       throw new DeviceError(

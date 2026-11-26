@@ -206,6 +206,50 @@ interface DevicesAddon {
     node: string | undefined,
   ): string;
   devicePlatformAndroidDimensions(output: string): string;
+  deviceCaptureSimulatorRoute(
+    supported: boolean,
+    command: string | undefined,
+    version: string | undefined,
+    serveSimEnv: boolean,
+    screenAvailable: boolean,
+  ): string;
+  deviceCaptureNeedsToolsDownload(supported: boolean, serveSimEnv: boolean): boolean;
+  deviceCaptureWindows(windows: string, name: string): string;
+  deviceCaptureAndroidLiveViewError(why: string): string;
+  deviceCaptureEndpoint(line: string): string;
+  deviceCaptureLocalUrl(value: string, port: number, protocol: string): string;
+  deviceCaptureSibling(stream: string, name: string): string;
+  deviceCaptureScreenConfig(payload: string): string;
+  deviceCaptureSpawnArgs(commandArgs: string, udid: string): string;
+  deviceCaptureTranscode(
+    transcoding: boolean,
+    bitrate: number,
+    maxWidth: number,
+    maxHeight: number,
+    nativeWidth: number | undefined,
+    nativeHeight: number | undefined,
+    source: number | undefined,
+  ): boolean;
+  deviceCaptureEncodeSpec(
+    nativeWidth: number,
+    nativeHeight: number,
+    maxWidth: number,
+    maxHeight: number,
+    bitrate: number,
+  ): string;
+  deviceCaptureStillScale(encodedWidth: number, nativeWidth: number | undefined): number;
+  deviceHostFramesName(runtimeId: string): string;
+  deviceHostFramesBytes(width: number, height: number): string;
+  deviceHostFramesEdge(box: number): number;
+  deviceScreenshotCheckSource(bytes: number): string;
+  deviceScreenshotFitOp(): string;
+  deviceScreenshotScale(encodedWidth: number, sourceWidth: number): number;
+  deviceVideoForwardFrame(
+    unit: string,
+    displayWidth: number,
+    displayHeight: number,
+    sequence: string,
+  ): string;
   devicePlatformCatalogWord(key: string): string;
   devicePlatformInstallTools(request: string): Promise<string>;
   devicePlatformCatalogHint(key: string): string | null;

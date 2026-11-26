@@ -521,6 +521,18 @@ length-size-3 refusal is unreachable and is not reproduced. The splitter keeps t
 record bound (8 MiB, the length prefix included) and an empty body refused at once, and its
 buffer never holds more than the record still arriving.
 
+U3's once-per-capture decisions are wired through the addon under `ACE_DEVICE_PLATFORM=native`
+by `packages/devices/src/native-video.ts`: the Simulator route, the tools-download need, the
+window choice, the helper endpoint, the screen config, the spawn plan, the transcode plan and
+encode spec, `host-frames`' file name, size and square, and a screenshot's source bound, fit and
+scale. Per-frame decisions were measured before any wiring: one scrcpy unit converted to the
+forwarded frame through the addon took a median 635,904 ns against the TypeScript's 457 ns for
+an 8 KiB unit (about 1,390x slower, JSON across both directions), and the once-per-change
+transcode decision 429 ns against 117 ns. The per-frame paths therefore stay in TypeScript and
+the Rust stays the library the all-Rust daemon calls directly (ADR 0226): the H.264 feed, the
+published frame, `SimulatorFrames`/`SimulatorJpeg` per picture and the encoder note are not
+crossed.
+
 `host_frames.rs` keeps the host encoder's decisions: the shared file `emulator-frames-<id>.rgba`
 sized to one RGBA picture of the display, the screenshot square as the box rounded and never
 below 64, the note each lit picture sends (its capture time in ms), the failure route (before

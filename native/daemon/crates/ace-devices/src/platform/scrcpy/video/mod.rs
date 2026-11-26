@@ -8,6 +8,8 @@
 //! A capture runs this in-process, so no chunk crosses the addon per frame; if a unit is ever
 //! wired that way, it needs a paired median measurement against the TypeScript first.
 
+use serde::{Deserialize, Serialize};
+
 use crate::platform::Error;
 
 /// scrcpy's H.264 codec id (`'h264'` as a big-endian word).
@@ -38,7 +40,7 @@ pub enum VideoEvent {
 }
 
 /// A capture's own video unit, as `scrcpy-video.ts` declares it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoUnit {
     /// Annex B access unit; a keyframe carries the parameter sets in front of it.
     pub payload: Vec<u8>,

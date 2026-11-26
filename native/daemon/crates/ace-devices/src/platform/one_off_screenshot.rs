@@ -29,7 +29,7 @@ pub struct DeviceShot {
 }
 
 /// The ace-media fit a screenshot asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct FitOp {
     pub max_pixels: u64,
     pub width: u32,
