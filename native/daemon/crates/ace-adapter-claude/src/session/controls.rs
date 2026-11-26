@@ -16,7 +16,8 @@ impl ClaudeWire {
     /// One control request. The envelope is admitted (16 MiB) and captured before its write, so a
     /// refusal writes nothing.
     pub fn control(&mut self, request_json: &str, id: u64) -> Result<Vec<Effect>, ClaudeError> {
-        if self.finished || self.failed {
+        // A request after the close's input end reaches nothing, as a send does.
+        if self.finished || self.failed || !self.input_open {
             return Err(ClaudeError::Refused(CLOSED.to_owned()));
         }
         let request = parse_request(request_json)?;
