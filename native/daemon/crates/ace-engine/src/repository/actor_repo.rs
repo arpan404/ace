@@ -255,7 +255,7 @@ impl State {
         let snapshot = self.repo.require_state(store, id)?;
         // A first send the provider accepted but has not started yet is still live work.
         let has_run = snapshot.borrow().state.has_run;
-        if !has_run && self.awaiting(id)? {
+        if !has_run && crate::intents::store::awaiting(store.conn(), id)?.is_some() {
             return Ok(false);
         }
         let agents_ready = self.readiness_agents_ready(id)?;

@@ -19,7 +19,6 @@ use ace_json::{JsString, Value};
 use ace_store::{Connection, Value as Cell, stmt_cache};
 
 use crate::transitions::handoff::{self, HandoffSource, PortableHandoff};
-use crate::transitions::readiness;
 use crate::{EngineError, EngineStore, State};
 
 const COUNT: &str = "SELECT ordinal FROM history_items WHERE thread_id=? AND created_seq<=? ORDER BY created_seq DESC LIMIT 1";
@@ -1020,15 +1019,15 @@ fn item_source(item: &mut Item) -> Option<Value> {
     }
 }
 
+/// The thread's whole tree is between turns. It reads the actor's own definition
+/// (`repository.ts:505`-`:509`), so a first send the provider accepted but has not started a
+/// run keeps the transition from closing a session out from under it.
 pub(crate) fn thread_quiescent(
     store: &EngineStore,
     state: &mut State,
     id: &str,
 ) -> Result<bool, EngineError> {
-    let snapshot = state.repo.require_state(store, id)?;
-    let view = snapshot.borrow_mut().quiescence_view()?;
-    let ready = readiness::agents_ready(store.conn(), id)?;
-    Ok(readiness::quiescent(&view, ready))
+    state.actor_quiescent(store, id)
 }
 
 /// `validateCitations` (`transition-history.ts:134`): every citation belongs to the fork and is

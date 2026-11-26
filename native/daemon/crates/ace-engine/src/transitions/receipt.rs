@@ -224,3 +224,105 @@ pub fn accept(
         Err(error) => fail(id, &error.to_string()),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::prelude::handle;
+    use crate::executor::{Notified, Notifier};
+    use crate::frames::live::UnportedLive;
+    use crate::repository::testsupport::{Shell, header, home, sql_text};
+    use crate::{Engine, Inputs};
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    struct ManualPump;
+
+    impl Notifier for ManualPump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    fn engine_on(conn: &Arc<ace_store::Connection>) -> Engine {
+        let (_, shell) = Shell::store_with_controls(conn);
+        Engine::new(
+            shell.clone(),
+            shell,
+            Inputs::default(),
+            "[]",
+            Box::new(ManualPump),
+            conn,
+            Rc::new(crate::actor::ActorDeps::production(
+                Rc::new(UnportedLive),
+                0.0,
+            )),
+        )
+        .expect("the test engine constructs")
+    }
+
+    /// A fork of `t` with an item of its own, so a merge has something to cite.
+    fn fork_of_t(conn: &Arc<ace_store::Connection>) {
+        let lineage = r#"{"lineage":{"parentThreadId":"t","parentAgentId":"root","point":{"type":"turn","runId":"r"},"mode":"portable","lossy":true}}"#;
+        conn.exec(&format!(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, client) VALUES ('t2', 'workspace', 'Fork', 'claude', '{{\"state\":\"new\"}}', 0, 0, {})",
+            sql_text(lineage)
+        ))
+        .expect("fork thread");
+        conn.exec(&format!(
+            "INSERT INTO thread_state VALUES ('t2', {}, 0)",
+            sql_text(&header("t2"))
+        ))
+        .expect("fork state");
+        conn.exec(&format!(
+            "INSERT INTO items VALUES ('own', 't2', 1, {})",
+            sql_text(
+                r#"{"id":"own","agentId":"root","type":"message","role":"assistant","complete":true,"createdAt":1,"parts":[{"type":"text","text":"done"}]}"#
+            )
+        ))
+        .expect("own item");
+    }
+
+    fn merge_command(patch: bool) -> Value {
+        let patch = if patch {
+            r#","patch":"diff --git a/x b/x""#
+        } else {
+            ""
+        };
+        ace_json::parse(&format!(
+            r#"{{"id":"cmd-merge","deviceId":"d","payload":{{"type":"thread.merge","threadId":"t2","summary":"done","citations":[{{"threadId":"t2","itemId":"own"}}]{patch}}}}}"#
+        ))
+        .expect("command")
+    }
+
+    // From `transition-regressions`: a patch merge waits for the source tree, and a first send
+    // the provider accepted but has not started a run is still live work.
+    #[test]
+    fn a_patch_merge_refuses_a_source_whose_accepted_first_send_has_no_run() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,awaiting,position) \
+             VALUES ('send-1','t','thread.send','{\"type\":\"thread.send\"}','pending',1,1)",
+        )
+        .expect("awaiting send");
+        let engine = engine_on(&conn);
+        let core = engine.core();
+        let result = core
+            .with_state(|state| handle(core, state, &merge_command(true)))
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        assert_eq!(
+            result.get("error").and_then(Value::as_str),
+            Some("source_tree_is_live")
+        );
+        assert!(
+            !core
+                .with_state(|state| state.transition_guarded(&core.store, "t"))
+                .expect("the state is free")
+                .expect("guarded"),
+            "a refused merge holds no guard"
+        );
+    }
+}
