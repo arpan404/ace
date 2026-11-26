@@ -37,6 +37,9 @@ hmac = { version = "0.13" }
 # zeroize: every private key, chaining key and cipher key the crate owns is wiped on drop; snow
 # keeps its own copies unzeroized, so the handshakes are ace's over these primitives instead.
 zeroize = { version = "1" }
+# flate2: the relayed channel's deflated JSON, raw DEFLATE at level 6 on the zlib-rs backend,
+# as `deflateRawSync`/`inflateRawSync` write it (`channel.ts`).
+flate2 = { version = "1.1.11", default-features = false, features = ["zlib-rs"] }
 # chacha20poly1305: the media cipher's ChaCha20-Poly1305 (RustCrypto), the primitive `cipher.ts`
 # builds its ordered states and rekeys on. `zeroize` wipes the cipher's key schedule when the
 # AEAD object is dropped (its default feature set would otherwise leave it).

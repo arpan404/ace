@@ -8,6 +8,7 @@
 
 pub mod channel;
 pub mod cipher;
+pub mod codec;
 pub mod error;
 pub mod host;
 pub mod http;
@@ -24,6 +25,13 @@ pub use channel::{
     chunk_room, control_room, files_routes_to_scoped, support_local_only,
 };
 pub use cipher::{CipherState, Snapshot};
+pub use codec::flow::{
+    CREDIT_FLAG, FLOW_WINDOW, FlowCredit, credit_fragment, fragment_cost, read_credit,
+};
+pub use codec::{
+    Assembler, BINARY_MESSAGE_LIMIT, CHUNK, Codec, DEFLATE_THRESHOLD, Kind, LOGICAL_MESSAGE_LIMIT,
+    Message, PLAIN_HIGH_WATER, REKEY_INTERVAL, Received,
+};
 pub use error::RelayError;
 pub use host::{
     Backoff, ClientSlots, ControlMessage, FirstMessage, HTTP_FEATURE, HostOptions, HttpAnswer,
