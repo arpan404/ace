@@ -162,12 +162,17 @@ pub fn normalize_codex(
             label(value).ok_or(NativeError("Malformed Codex model page"))?;
         }
     }
-    let mut rows = Vec::new();
+    // The page is validated in full before `chatMetadata` filters it, as the
+    // TypeScript's `CodexPage.parse(payload).data.filter(...)` does.
+    let mut natives = Vec::with_capacity(data.len());
     for raw in data {
-        if !chat_metadata(raw) {
+        natives.push(parse_model(raw)?);
+    }
+    let mut rows = Vec::new();
+    for native in natives {
+        if !chat_metadata(&native.raw) {
             continue;
         }
-        let native = parse_model(raw)?;
         let mut model = base(instance, &native.id, &native.display_name, &native.raw);
         model.is_default = native.is_default.into();
         model.hidden = native.hidden.into();
@@ -323,6 +328,19 @@ mod tests {
         let rows = normalize_codex(&page, &instance()).unwrap_or_default();
         let ids: Vec<&str> = rows.iter().map(|row| row.id.0.as_str()).collect();
         assert_eq!(ids, ["chat"]);
+    }
+
+    #[test]
+    fn a_malformed_non_chat_codex_entry_fails_the_whole_page() {
+        // `CodexPage.parse` validates every entry before `chatMetadata` filters, so a
+        // broken entry fails discovery even when it would not be listed.
+        let mut page = payload("chat");
+        let chat = page["data"][0].clone();
+        page["data"] = json!([chat, { "model": 5, "internal": true }]);
+        assert_eq!(
+            normalize_codex(&page, &instance()).err(),
+            Some(NativeError("Malformed Codex model"))
+        );
     }
 
     #[test]

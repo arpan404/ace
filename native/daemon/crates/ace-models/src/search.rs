@@ -206,13 +206,90 @@ pub fn search_models<'a>(models: &'a [CatalogModel], query: &str) -> Vec<&'a Cat
             .then_with(|| legacy(model_a).cmp(&legacy(model_b)))
             .then_with(
                 || match (model_a.sort_key.as_ref(), model_b.sort_key.as_ref()) {
-                    (Some(key_a), Some(key_b)) => key_a.0.cmp(&key_b.0),
+                    (Some(key_a), Some(key_b)) => locale_compare(&key_a.0, &key_b.0),
                     _ => std::cmp::Ordering::Equal,
                 },
             )
             .then_with(|| order_a.cmp(order_b))
     });
     scored.into_iter().map(|(_, _, model)| model).collect()
+}
+
+/// `String.prototype.localeCompare` as the catalog uses it, for the sort keys
+/// `classifyCatalog` builds (lowercase families, padded digits, `:`, `-`, `.`).
+///
+/// ICU's default collation compares letters/digits first (digits before letters,
+/// case-insensitively), then, at equal primary text, punctuation and case: end of
+/// string sorts before punctuation, punctuation before an alphanumeric, and the
+/// punctuation order is `- _ . : / + space`; lowercase sorts before uppercase. This
+/// is that order for ASCII sort keys; it does not carry ICU's accent tables.
+pub fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    fn is_punctuation(character: char) -> bool {
+        !character.is_alphanumeric()
+    }
+    fn primary(character: char) -> Option<(u8, char)> {
+        if character.is_ascii_digit() {
+            Some((0, character))
+        } else if character.is_alphabetic() {
+            Some((1, character.to_lowercase().next().unwrap_or(character)))
+        } else {
+            None
+        }
+    }
+    fn punctuation_rank(character: char) -> u8 {
+        match character {
+            '-' => 1,
+            '_' => 2,
+            '.' => 3,
+            ':' => 4,
+            '/' => 5,
+            '+' => 6,
+            ' ' => 7,
+            _ => 8,
+        }
+    }
+    fn tertiary(character: Option<char>) -> u8 {
+        match character {
+            None => 0,
+            Some(character) if is_punctuation(character) => punctuation_rank(character),
+            Some(_) => 9,
+        }
+    }
+    let primary_a: Vec<char> = a.chars().filter_map(primary).map(|(_, c)| c).collect();
+    let primary_b: Vec<char> = b.chars().filter_map(primary).map(|(_, c)| c).collect();
+    // Digits before letters, then the letter/digit's lowercase value.
+    let class = |c: char| u8::from(!c.is_ascii_digit());
+    let ordered = primary_a
+        .iter()
+        .map(|c| (class(*c), *c))
+        .cmp(primary_b.iter().map(|c| (class(*c), *c)));
+    if ordered != std::cmp::Ordering::Equal {
+        return ordered;
+    }
+    let mut left = a.chars();
+    let mut right = b.chars();
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (next_a, next_b) => {
+                let weight_a = tertiary(next_a);
+                let weight_b = tertiary(next_b);
+                if weight_a != weight_b {
+                    return weight_a.cmp(&weight_b);
+                }
+                if let (Some(a), Some(b)) = (next_a, next_b)
+                    && !is_punctuation(a)
+                    && !is_punctuation(b)
+                {
+                    let case_a = a.is_uppercase();
+                    let case_b = b.is_uppercase();
+                    if case_a != case_b {
+                        return case_a.cmp(&case_b);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The upstream a model is served through: its native provider, or its id's route prefix.
@@ -394,6 +471,45 @@ mod tests {
             ModelNameMatch::Ambiguous(_) => "ambiguous".into(),
             ModelNameMatch::None => "none".into(),
         }
+    }
+
+    #[test]
+    fn sort_keys_order_the_way_the_typescripts_locale_compare_does() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        // Measured with Node's String.prototype.localeCompare (default locale).
+        let cases = [
+            ("a-b", "ab", Less),
+            ("ab", "a-b", Greater),
+            ("Opus", "opus", Greater),
+            ("opus", "Opus", Less),
+            ("gpt-6-1-sol", "gpt-6.1-sol", Less),
+            ("a b", "ab", Less),
+            ("a_b", "ab", Less),
+            ("a", "a-", Less),
+            ("10", "9", Less),
+            ("a", "1", Greater),
+            ("0:Opus", "0:opus", Greater),
+            ("0:opus", "0:Opus", Less),
+            ("same", "same", Equal),
+        ];
+        for (a, b, expected) in cases {
+            assert_eq!(locale_compare(a, b), expected, "{a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn equal_scores_order_by_the_sort_key_with_locale_rules() {
+        let mut lower = simple(ProviderKind::Codex, "gpt-6-sol", "GPT-6 Sol");
+        lower.sort_key = crate::row::decoded_text(Some("0:opus"));
+        let mut upper = simple(ProviderKind::Codex, "gpt-6-sol", "GPT-6 Sol");
+        upper.sort_key = crate::row::decoded_text(Some("0:Opus"));
+        let models = [upper, lower];
+        let rows = search_models(&models, "sol");
+        let keys: Vec<&str> = rows
+            .iter()
+            .filter_map(|model| model.sort_key.as_ref().map(|key| key.0.as_str()))
+            .collect();
+        assert_eq!(keys, ["0:opus", "0:Opus"]);
     }
 
     #[test]

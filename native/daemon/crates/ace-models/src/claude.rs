@@ -110,12 +110,17 @@ pub fn normalize_claude(
     if models.len() > ROWS_LIMIT {
         return Err(NativeError("Malformed Claude model list"));
     }
-    let mut rows = Vec::new();
+    // The list is validated in full before `chatMetadata` filters it, as the
+    // TypeScript's `ClaudeModels.parse(payload).models.filter(...)` does.
+    let mut natives = Vec::with_capacity(models.len());
     for raw in models {
-        if !chat_metadata(raw) {
+        natives.push(parse_model(raw)?);
+    }
+    let mut rows = Vec::new();
+    for native in natives {
+        if !chat_metadata(&native.raw) {
             continue;
         }
-        let native = parse_model(raw)?;
         let mut model = base(instance, &native.value, &native.display_name, &native.raw);
         model.resolved_model_id = decoded_text(native.resolved_model.as_deref());
         model.context_window = native.context_window.and_then(nonzero);
@@ -240,6 +245,21 @@ mod tests {
                 "speed": "fast",
                 "parameters": { "fastMode": true, "serviceTier": "fast" }
             }])
+        );
+    }
+
+    #[test]
+    fn a_malformed_non_chat_claude_entry_fails_the_whole_list() {
+        // `ClaudeModels.parse` validates every model before `chatMetadata` filters.
+        let payload = json!({
+            "models": [
+                { "value": "claude-opus-5-5", "displayName": "Opus 5.5" },
+                { "value": 5, "displayName": "Broken", "internal": true }
+            ]
+        });
+        assert_eq!(
+            normalize_claude(&payload, &instance()).err(),
+            Some(NativeError("Malformed Claude model"))
         );
     }
 
