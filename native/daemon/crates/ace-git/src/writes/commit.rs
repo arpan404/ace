@@ -416,9 +416,15 @@ mod tests {
         request.expected_head = crate::reads::info::head(&port, &repo.to_string_lossy())
             .await
             .expect("head");
-        let error = commit_changes(&port, &repo.to_string_lossy(), &request)
-            .await
-            .expect_err("overlong");
+        let error = commit_changes(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &request,
+            false,
+        )
+        .await
+        .expect_err("overlong");
         assert_eq!(error.code, GitErrorCode::InvalidArgument);
         assert_eq!(error.message, "The commit message is too long");
     }
