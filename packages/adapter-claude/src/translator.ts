@@ -17,6 +17,8 @@ import { message, stream, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
 import { number, object, string, raw, type Data } from "./native.ts";
 import { tokenCounts } from "./token-counts.ts";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
+import { createNativeTranslator } from "./native-translator.ts";
 
 /** Any token in or out of the model means the turn reached it. */
 function modelAnswered(data: Data): boolean {
@@ -25,6 +27,7 @@ function modelAnswered(data: Data): boolean {
 }
 
 export function createTranslator(init: { rootKey: Key }): Translator {
+  if (translatorBackend("claude") === "native") return createNativeTranslator(init);
   let state = new ClaudeState(init.rootKey);
   let accounting = new ResultUsage();
   let queue = new NativeQueue();

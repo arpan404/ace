@@ -1,6 +1,7 @@
 import type { ProcessListing } from "./process-listing.ts";
-import { killGroupWhile, signalOwnedMembers } from "./process-owner.ts";
-import type { TreeIo, TreeMember } from "./process-tree.ts";
+import { killGroup, killGroupWhile, signalOwnedMembers } from "./process-owner.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { systemTreeIo, type TreeIo, type TreeMember } from "./process-tree.ts";
 import type { StartOrder } from "./start-order.ts";
 
 /** One signal for a leader's group, with what proves which processes are the group's. */
@@ -33,6 +34,19 @@ export function startOf(pid: number, listing: ProcessListing): string | undefine
  */
 export function deliverGroupSignal(request: GroupSignal, io: GroupIo): void {
   const { leader } = request;
+  // Under the native supervisor the signal goes only through a handle that holds the leader, so
+  // the number cannot be handed to another group between a check and kill(-pid): by the start
+  // read at spawn, and never by pid alone (E2a). The TypeScript rules below are the switch-off
+  // path; an injected table keeps them too, since the supervisor's own tables are the system's.
+  if (supervisorBackend() === "native" && io.tree === systemTreeIo) {
+    killGroup(
+      leader.pid,
+      request.signal,
+      undefined,
+      leader.start === "" ? undefined : leader.start,
+    );
+    return;
+  }
   const pinned = () => request.unreaped && startOf(leader.pid, io.listing) === leader.start;
   if (pinned() && killGroupWhile(leader.pid, request.signal, pinned) !== "unpinned") return;
   signalOwnedMembers(request.members, request.signal, io.tree);

@@ -131,6 +131,8 @@ export function createThreadState(init: {
   threadId: ThreadId;
   rootAgent?: RootAgentInit;
   config: CoreConfig;
+  /** Seed plain state before the core takes it over (an imported thread's root). */
+  seed?: (state: ThreadState) => void;
 }): ThreadState {
   if (!Number.isFinite(init.config.silenceMs) || init.config.silenceMs < 0) {
     throw new Error("silenceMs must be finite and nonnegative");
@@ -142,7 +144,7 @@ export function createThreadState(init: {
   ) {
     throw new Error("liveness must be agent or transport");
   }
-  return {
+  const state: ThreadState = {
     threadId: init.threadId,
     config: { ...init.config },
     ...(init.rootAgent ? { initialRoot: structuredClone(init.rootAgent) } : {}),
@@ -172,4 +174,6 @@ export function createThreadState(init: {
     hasRun: false,
     status: { state: "new" },
   };
+  init.seed?.(state);
+  return state;
 }

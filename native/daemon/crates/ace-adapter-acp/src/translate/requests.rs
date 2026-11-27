@@ -1,0 +1,301 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Incoming permission requests (`requests.ts`).
+
+use crate::translate::approval::interaction_key;
+use crate::translate::data::{js_string, object, raw};
+use crate::translate::state::TranslationState;
+use crate::translate::tool_raw::retain_tool_raw;
+use ace_json::{JsString, Map, Value};
+
+/// Open an incoming request. Returns true when the frame is handled.
+pub fn open_request(
+    state: &mut TranslationState,
+    shell_output: &mut crate::translate::shell_output::ShellOutput,
+    id: &crate::translate::data::RpcId,
+    method: &str,
+    params: &Map,
+    frame: &Value,
+    facts: &mut Vec<Value>,
+) -> bool {
+    let key = crate::translate::state::rpc_key(id);
+    if state.requests.contains_key(&key) {
+        state.notice(facts, frame, method, None, None);
+        return true;
+    }
+    let params_value = Value::Object(params.clone());
+    let request =
+        crate::translate::interactions::interaction_request(method, &params_value, state.quirks);
+    let native_tool = {
+        let direct = js_string(params.get("toolCallId").unwrap_or(&Value::Null)).cloned();
+        let direct = direct.filter(|id| !id.is_empty());
+        if let Some(id) = direct {
+            id
+        } else {
+            js_string(
+                object(params.get("toolCall").unwrap_or(&Value::Null))
+                    .get("toolCallId")
+                    .unwrap_or(&Value::Null),
+            )
+            .cloned()
+            .unwrap_or_default()
+        }
+    };
+    // Resolve the tool and its owner without holding borrows across facts.
+    let (tool_key, owner_key) = {
+        let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+            .cloned()
+            .unwrap_or_default();
+        if !session_id.is_empty() {
+            // Ensure the agent exists (may push agent.seen facts).
+            let agent_key = state.agent_key(&session_id, facts);
+            let found = state.tool_mut(&agent_key, &session_id, &native_tool);
+            match found {
+                Some(key) => (Some(key), agent_key),
+                None => {
+                    let fallback = state.tool_key_for_native(&native_tool);
+                    (fallback, agent_key)
+                }
+            }
+        } else {
+            let fallback = state.tool_key_for_native(&native_tool);
+            let owner = fallback
+                .as_ref()
+                .and_then(|key| state.tools.get(key))
+                .map(|tool| tool.owner_key.clone())
+                .unwrap_or_else(|| state.root.key.clone());
+            (fallback, owner)
+        }
+    };
+    let Some(request_value) = request else {
+        if method.starts_with("cursor/")
+            && let Some(tool_key) = tool_key
+        {
+            let payload = raw(frame, method, None);
+            let update = Value::Object(Map::new());
+            // Borrow the tool mutably for raw retention.
+            if let Some(tool) = state.tools.get_mut(&tool_key) {
+                // Inline retain to avoid borrowing state twice.
+                let mut owned = tool.clone();
+                retain_tool_raw(&mut owned, payload, &update);
+                *tool = owned;
+            }
+            let tool_snapshot = state.tools.get(&tool_key).cloned();
+            if let Some(tool) = tool_snapshot {
+                if tool.finalized
+                    && !["pending", "running", "awaiting_approval"].contains(&tool.status.as_str())
+                {
+                    let owner = tool.owner_key.clone();
+                    state.notice(facts, frame, method, None, Some(&owner));
+                    return true;
+                }
+                let mut draft = Map::with_capacity(1);
+                let mut call = Map::with_capacity(1);
+                call.insert("raw".to_owned(), Value::from(tool.raw.clone()));
+                draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
+                draft.insert("call".to_owned(), Value::Object(call));
+                let mut fact = Map::with_capacity(4);
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(tool.owner_key.clone()));
+                fact.insert("item".to_owned(), Value::from(tool.key.clone()));
+                fact.insert("draft".to_owned(), Value::Object(draft));
+                facts.push(Value::Object(fact));
+                return true;
+            }
+        }
+        return false;
+    };
+    // A request's own call replaces what an earlier update said.
+    let call = object(params.get("toolCall").unwrap_or(&Value::Null)).clone();
+    // Capture owner info for updateTool calls.
+    let owner_native_for_update = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+        .cloned()
+        .unwrap_or_default();
+    let owner_key_for_update = owner_key.clone();
+    if !native_tool.is_empty()
+        && call.keys().any(|key| key != "toolCallId")
+        && state.tools.get(tool_key.as_deref().unwrap_or("")).is_some()
+    {
+        // The request's own call is what approving runs: it replaces what an earlier update said.
+        let mut merged = call.clone();
+        merged.insert("toolCallId".to_owned(), Value::from(native_tool.clone()));
+        merged.insert(
+            "sessionUpdate".to_owned(),
+            Value::from("tool_call_update".to_owned()),
+        );
+        let merged_value = Value::Object(merged);
+        crate::translate::update_tool::handle_tool_call(
+            state,
+            shell_output,
+            &owner_key_for_update,
+            &owner_native_for_update,
+            &merged_value,
+            frame,
+            facts,
+        );
+    }
+    // Synthesized tool for approval-first requests.
+    let mut tool_key = tool_key;
+    if tool_key.is_none()
+        && let Some(synthesized) = request_tool(method, &params_value)
+    {
+        let owner_snapshot = owner_key.clone();
+        let owner_native_snapshot = owner_native_for_update.clone();
+        let synthesized_value = Value::Object(synthesized);
+        crate::translate::update_tool::handle_tool_call(
+            state,
+            shell_output,
+            &owner_snapshot,
+            &owner_native_snapshot,
+            &synthesized_value,
+            frame,
+            facts,
+        );
+        // Re-resolve after the update created it.
+        let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+            .cloned()
+            .unwrap_or_default();
+        if !session_id.is_empty() {
+            // agent already ensured; look up tool again.
+            if let Some(agent_key) = state
+                .agents
+                .get(&session_id)
+                .map(|a| a.key.clone())
+                .or_else(|| {
+                    if session_id == state.root.native_id {
+                        Some(state.root.key.clone())
+                    } else {
+                        None
+                    }
+                })
+            {
+                tool_key = state.tool_mut(&agent_key, &session_id, &native_tool);
+                if tool_key.is_none() {
+                    tool_key = state.tool_key_for_native(&native_tool);
+                }
+            } else {
+                // Root or unknown session: fall back to native lookup.
+                tool_key = state.tool_key_for_native(&native_tool);
+            }
+        } else {
+            tool_key = state.tool_key_for_native(&native_tool);
+        }
+    }
+    let interaction = interaction_key(id);
+    state.requests.insert(
+        key,
+        crate::translate::state::RequestState {
+            key: interaction.clone(),
+            method: method.to_owned(),
+            params: params.clone(),
+            owner_key: owner_key.clone(),
+            owner_native_id: js_string(params.get("sessionId").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default(),
+            request: request_value.clone(),
+            tool_key: tool_key.clone(),
+        },
+    );
+    if let Some(tool_key) = tool_key {
+        if let Some(tool) = state.tools.get_mut(&tool_key) {
+            tool.status = "awaiting_approval".to_owned();
+        }
+        state.live_tools.insert(tool_key.clone());
+        let tool_snapshot = state.tools.get(&tool_key).cloned();
+        if let Some(tool) = tool_snapshot {
+            let mut draft = Map::with_capacity(2);
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
+            let mut call = Map::with_capacity(1);
+            call.insert(
+                "status".to_owned(),
+                Value::from("awaiting_approval".to_owned()),
+            );
+            draft.insert("call".to_owned(), Value::Object(call));
+            let mut fact = Map::with_capacity(4);
+            fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(owner_key.clone()));
+            fact.insert("item".to_owned(), Value::from(tool.key));
+            fact.insert("draft".to_owned(), Value::Object(draft));
+            facts.push(Value::Object(fact));
+        }
+    }
+    let mut fact = Map::with_capacity(7);
+    fact.insert(
+        "type".to_owned(),
+        Value::from("interaction.opened".to_owned()),
+    );
+    fact.insert("agent".to_owned(), Value::from(owner_key));
+    fact.insert("interaction".to_owned(), Value::from(interaction));
+    fact.insert("blocking".to_owned(), Value::Bool(true));
+    fact.insert("request".to_owned(), request_value);
+    if let Some(tool_key) = state
+        .requests
+        .values()
+        .next_back()
+        .and_then(|req| req.tool_key.clone())
+        && let Some(tool) = state.tools.get(&tool_key)
+    {
+        fact.insert("item".to_owned(), Value::from(tool.key.clone()));
+    }
+    fact.insert(
+        "raw".to_owned(),
+        Value::from(vec![raw(frame, method, None)]),
+    );
+    facts.push(Value::Object(fact));
+    true
+}
+
+/// The tool a request names, as a tool_call update.
+pub fn request_tool(method: &str, params: &Value) -> Option<Map> {
+    let params_map = object(params);
+    let call = object(params_map.get("toolCall").unwrap_or(&Value::Null));
+    let tool_call_id: JsString = {
+        if let Some(id) = js_string(params_map.get("toolCallId").unwrap_or(&Value::Null))
+            && !id.is_empty()
+        {
+            id.clone()
+        } else {
+            js_string(call.get("toolCallId").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default()
+        }
+    };
+    if tool_call_id.is_empty() {
+        return None;
+    }
+    let mut out = Map::new();
+    for (key, value) in call.iter() {
+        out.insert(key.clone(), value.clone());
+    }
+    out.insert("toolCallId".to_owned(), Value::from(tool_call_id));
+    out.insert(
+        "sessionUpdate".to_owned(),
+        Value::from("tool_call".to_owned()),
+    );
+    let kind = js_string(call.get("kind").unwrap_or(&Value::Null)).cloned();
+    out.insert(
+        "kind".to_owned(),
+        Value::from(
+            kind.filter(|kind| !kind.is_empty())
+                .unwrap_or_else(|| JsString::from("other")),
+        ),
+    );
+    let title = js_string(call.get("title").unwrap_or(&Value::Null)).cloned();
+    out.insert(
+        "title".to_owned(),
+        Value::from(
+            title
+                .filter(|title| !title.is_empty())
+                .unwrap_or_else(|| JsString::from(method)),
+        ),
+    );
+    let status = js_string(call.get("status").unwrap_or(&Value::Null)).cloned();
+    out.insert(
+        "status".to_owned(),
+        Value::from(
+            status
+                .filter(|status| !status.is_empty())
+                .unwrap_or_else(|| JsString::from("pending")),
+        ),
+    );
+    Some(out)
+}

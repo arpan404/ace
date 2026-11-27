@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-adapter-pi"
+description = "The pi provider's translator (E1) and session (E3, except Claude) behind @ace/engine-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# ace-core: translators return its facts; only the core allocates ace ids.
+ace-core = { path = "../ace-core" }
+# serde: translator structs serialize facts field-for-field as the TypeScript emits.
+serde = { version = "1", features = ["derive"] }
+# ace-json: frames read as validated raw JSON with JavaScript semantics; facts
+# serialize with JSON.stringify's bytes.
+ace-json = { path = "../ace-json" }
+# indexmap: the translator's JavaScript Maps (tools, dialogs) iterate in insertion order.
+indexmap = { version = "2" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
+ace-supervisor = { path = "../ace-supervisor" }

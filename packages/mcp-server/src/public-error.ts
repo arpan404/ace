@@ -122,7 +122,7 @@ const issueList = z.array(PublicIssue).max(16);
 /** A log correlation id: opaque, short and never derived from the failure's text. */
 export const ErrorId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
-const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
+export const publicErrorCatalog: Record<PublicToolCode, { message: string; hint: string }> = {
   screen_disabled: {
     message: "Computer use is disabled",
     hint: "The person turns computer use on in ace's Settings; stop and tell them.",
@@ -536,6 +536,25 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "The action may or may not have run there. Check with a read-only tool before trying again.",
   },
 };
+/** The setting that grants each device permission: authored once, in the shared catalog. */
+export const permissionHints: Record<NonNullable<DeviceFailure["permission"]>, string> = {
+  screenRecording:
+    "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper.",
+  accessibility:
+    "Open System Settings > Privacy & Security > Accessibility and enable Ace Screen Helper.",
+};
+
+/**
+ * The words a failure renders when the shared catalog has none of its own. A build that lost an
+ * entry says so; it never repeats the private words of the device or helper that failed.
+ */
+export const publicErrorFallbacks = {
+  missing: {
+    message: "This failure has no entry in ace's error catalog",
+    hint: "Reinstall ace; its error catalog is incomplete.",
+  },
+};
+
 export class PublicToolError extends Error {
   readonly code: PublicToolCode;
   readonly hint: string;
@@ -555,7 +574,7 @@ export class PublicToolError extends Error {
     issues?: unknown,
     errorId?: string,
   ) {
-    const entry = catalog[code];
+    const entry = publicErrorCatalog[code];
     super(entry.message);
     this.code = code;
     this.errorId = ErrorId.safeParse(errorId).success ? errorId : undefined;
@@ -574,11 +593,6 @@ export class PublicToolError extends Error {
     this.phase = parsedPhase.success ? parsedPhase.data : undefined;
     const parsed = DeviceFailure.shape.permission.safeParse(permission);
     this.permission = code === "permission_denied" && parsed.success ? parsed.data : undefined;
-    this.hint =
-      this.permission === "screenRecording"
-        ? "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper."
-        : this.permission === "accessibility"
-          ? "Open System Settings > Privacy & Security > Accessibility and enable Ace Screen Helper."
-          : entry.hint;
+    this.hint = this.permission === undefined ? entry.hint : permissionHints[this.permission];
   }
 }

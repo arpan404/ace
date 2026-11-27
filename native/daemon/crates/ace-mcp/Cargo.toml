@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-mcp"
+description = "The MCP server's core in Rust (docs/mcp-server/porting-guide.md): the catalog both backends read, then the server (M2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: the catalog's values keep JSON.parse/JSON.stringify semantics, never serde_json's.
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error for a catalog that isn't the shape this crate reads.
+thiserror = "2"
+# indexmap: the TypeScript's Maps (tool entries, leases) iterate in insertion order.
+indexmap = { version = "2" }
+# sha2: a bearer is stored by its SHA-256 digest, never in the clear.
+sha2 = { version = "0.11" }
+# tokio: the server's abort signals and its timers (sync and time only; the daemon owns the
+# runtime that runs them).
+tokio = { version = "1.54", features = ["sync", "time", "rt", "macros"] }
+# futures: a tool's handler and an observer's completion are boxed futures the daemon polls.
+futures = { version = "0.3" }
+# base64: a mirrored `Mcp-Param-*` header may be `=?base64?…?=`, as the SDK writes it.
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+# getrandom: a legacy transport session's id is random (UUID v4), as `randomUUID` makes it.
+getrandom = { version = "0.4" }
+# ace-store: M3 call record correlation shares the daemon's single SQLite connection (ADR 0222).
+ace-store = { path = "../ace-store" }
+
+[dev-dependencies]
+tempfile = { version = "3" }

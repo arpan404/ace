@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-provider-installs"
+description = "Installing and updating the provider CLIs: the reviewed allowlist, the commands they run, and the plan that picks one, ported from @ace/provider-kit/installers and the daemon's provider-install planner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# serde_json: wire shapes are checked against @ace/protocol's exact JSON.
+serde_json = "1"
+
+[dependencies]
+# ace-json: registry replies and settings files keep JSON.parse's value semantics.
+ace-json = { path = "../ace-json" }
+# ace-protocol: the provider kind and install agent names clients send.
+ace-protocol = { path = "../ace-protocol" }
+# serde: plans and commands are wire values with @ace/protocol's field names.
+serde = { version = "1", features = ["derive"] }
+# regex: release versions and the settings files' channel share the TypeScript's patterns.
+regex = { version = "1" }

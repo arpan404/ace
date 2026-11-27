@@ -4,6 +4,9 @@ import { findAndroidTools } from "./android-tools.ts";
 import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
 import type { DeviceFailure } from "@ace/protocol/devices";
+import { devicePlatformBackend } from "@ace/provider-kit/native-switches";
+import { catalogHint, catalogWord } from "./catalog.ts";
+import { type RefusalWord, answered, nativeDevices, Refused } from "./native-devices-addon.ts";
 
 export type DeviceErrorCode = DeviceFailure["code"];
 export class DeviceError extends Error {
@@ -24,6 +27,33 @@ export class DeviceError extends Error {
     this.permission = permission;
   }
 }
+/** The catalog's refusal `key`, as today's `DeviceError`: the one place the TypeScript reads a word. */
+export function catalogRefusal(key: string): DeviceError {
+  const word = catalogWord(key);
+  return new DeviceError(word.code, word.message, word.hint);
+}
+/** A catalog word with a built message (a key's or a verb's name) and the catalog's hint. */
+export function catalogFailure(key: string, message: string): DeviceError {
+  const word = catalogWord(key);
+  return new DeviceError(word.code, message, word.hint);
+}
+/** A tool word's hint with a built message: the key names a `tools` entry, not a refusal. */
+export function catalogToolFailure(key: string, message: string): DeviceError {
+  return new DeviceError("not_supported", message, catalogHint(key));
+}
+/** The addon's refusal as today's `DeviceError`, so `instanceof` and its code both hold. */
+export function deviceRefusal(word: RefusalWord): DeviceError {
+  return new DeviceError(word.code as DeviceErrorCode, word.message, word.hint);
+}
+/** Runs one addon export, raising its refusal as the `DeviceError` it names. */
+export function deviceAnswer<T>(invoke: () => string): T {
+  try {
+    return answered<T>(invoke);
+  } catch (error) {
+    if (error instanceof Refused) throw deviceRefusal(error.refusal);
+    throw error;
+  }
+}
 export type SDKOptions = {
   platform: string;
   /** The CPU architecture, as `process.arch` names it. */
@@ -39,25 +69,25 @@ export async function resolveAndroidSDK(
 ): Promise<{ adb: string; emulator?: string | undefined }> {
   const { adb, emulator } = await findAndroidTools({ env: options.env, home: options.home });
   if (adb) return { adb, emulator };
+  if (devicePlatformBackend() === "native")
+    return deviceAnswer<{ adb: string; emulator?: string | undefined }>(() =>
+      nativeDevices().devicePlatformResolveAndroidSdk(
+        adb,
+        emulator,
+        options.platform,
+        options.arch,
+      ),
+    );
   // Google's SDK repository has the emulator and platform-tools for x86-64 Linux only; on arm64
   // a distribution's adb still reaches phones and network devices.
-  if (options.platform === "linux" && options.arch === "arm64")
-    throw new DeviceError(
-      "sdk_missing",
-      "adb was not found",
-      "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) to use Android phones and network devices. Android emulators aren't available on Linux arm64.",
-    );
-  if (options.platform === "linux")
-    throw new DeviceError(
-      "sdk_missing",
-      "adb was not found",
-      "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) for Android phones, or Android Studio's Platform Tools and Android Emulator with ANDROID_HOME set to the SDK directory for emulators too.",
-    );
-  throw new DeviceError(
-    "sdk_missing",
-    "Android SDK platform-tools were not found",
-    "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory.",
-  );
+  const key =
+    options.platform === "linux"
+      ? options.arch === "arm64"
+        ? "adbMissingArm"
+        : "adbMissingLinux"
+      : "sdkMissing";
+  const word = catalogWord(key);
+  throw new DeviceError(word.code, word.message, word.hint);
 }
 
 /**
@@ -65,59 +95,98 @@ export async function resolveAndroidSDK(
  * refusal of every Simulator action, so people and agents know where that work goes instead.
  */
 export function iosNeedsMac(): DeviceError {
-  return new DeviceError(
-    "not_supported",
-    "iOS Simulators need a paired Mac",
-    "Pair a Mac running ace in Settings › Fleet and use its Simulators there; agents can delegate that work to the Mac. Android emulators and phones work on this Windows machine.",
-  );
+  if (devicePlatformBackend() === "native")
+    return deviceRefusal(
+      deviceAnswer<RefusalWord>(() => nativeDevices().devicePlatformIosNeedsMac()),
+    );
+  const word = catalogWord("iosNeedsMac");
+  return new DeviceError(word.code, word.message, word.hint);
 }
 /** Said once in the device list on Linux arm64, where Google publishes no Android Emulator. */
 export function armEmulatorNote(): DeviceError {
-  return new DeviceError(
-    "not_supported",
-    "Android emulators aren't available on Linux arm64",
-    "Google publishes the Android Emulator for x86-64 Linux only. Android phones on USB and devices on the network work here through adb.",
-  );
-}
-export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
-  if (options.platform === "win32") throw iosNeedsMac();
-  if (options.platform !== "darwin")
-    throw new DeviceError(
-      "not_supported",
-      "iOS Simulator requires macOS",
-      "Use a macOS daemon with Xcode installed.",
+  if (devicePlatformBackend() === "native")
+    return deviceRefusal(
+      deviceAnswer<RefusalWord>(() => nativeDevices().devicePlatformArmEmulatorNote()),
     );
+  const word = catalogWord("armEmulatorNote");
+  return new DeviceError(word.code, word.message, word.hint);
+}
+/** The injected scheduler in `probeOutput`'s order, when the native platform gave one. */
+function probeSchedule(
+  options: SDKOptions,
+): ((run: () => void, ms: number) => () => void) | undefined {
+  if (devicePlatformBackend() !== "native") return undefined;
+  const after = options.after;
+  return after ? (run, ms) => after(ms, run) : undefined;
+}
+
+export async function resolveXcode(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
+  if (devicePlatformBackend() === "native") return resolveXcodeNatively(options);
+  if (options.platform === "win32") throw iosNeedsMac();
+  if (options.platform !== "darwin") {
+    const word = catalogWord("iosNeedsMacOs");
+    throw new DeviceError(word.code, word.message, word.hint);
+  }
   const [select, xcrun, open] = await Promise.all(
     ["xcode-select", "xcrun", "open"].map((name) => findExecutable(name, options.env)),
   );
-  if (!select || !xcrun || !open)
-    throw new DeviceError(
-      "sdk_missing",
-      "Xcode tools were not found",
-      "Install Xcode and select it with xcode-select -s /Applications/Xcode.app/Contents/Developer.",
-    );
+  if (!select || !xcrun || !open) {
+    const word = catalogWord("xcodeMissing");
+    throw new DeviceError(word.code, word.message, word.hint);
+  }
   let output;
   try {
+    const schedule = probeSchedule(options);
     output = await (options.probe ?? probeOutput)(select, ["-p"], {
       env: options.env,
       maxBytes: 4096,
+      ...(schedule ? { schedule } : {}),
     });
   } catch {
-    throw new DeviceError(
-      "sdk_missing",
-      "Xcode developer directory is unavailable",
-      "Run xcode-select -s /Applications/Xcode.app/Contents/Developer.",
-    );
+    const word = catalogWord("xcodeUnavailable");
+    throw new DeviceError(word.code, word.message, word.hint);
   }
   if (
     output.code !== 0 ||
     !z.string().max(4096).refine(isAbsolute).safeParse(output.stdout).success ||
     output.stdout.endsWith("CommandLineTools")
-  )
-    throw new DeviceError(
-      "sdk_missing",
-      "A full Xcode installation is required",
-      "Run xcode-select -s /Applications/Xcode.app/Contents/Developer, then accept the Xcode license.",
-    );
+  ) {
+    const word = catalogWord("xcodeNotFull");
+    throw new DeviceError(word.code, word.message, word.hint);
+  }
+  return { xcrun, open };
+}
+
+/**
+ * `resolveXcode` with `ace-devices` deciding the refusals. The executables and the selection
+ * probe stay here, in today's order: the host refusal first, then the tools, then the probe.
+ */
+async function resolveXcodeNatively(options: SDKOptions): Promise<{ xcrun: string; open: string }> {
+  const addon = nativeDevices();
+  const host = deviceAnswer<RefusalWord | null>(() =>
+    addon.devicePlatformXcodeHostRefusal(options.platform),
+  );
+  if (host) throw deviceRefusal(host);
+  const [select, xcrun, open] = await Promise.all(
+    ["xcode-select", "xcrun", "open"].map((name) => findExecutable(name, options.env)),
+  );
+  if (!select || !xcrun || !open)
+    throw deviceRefusal(deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeToolsRefusal()));
+  let output;
+  try {
+    const schedule = probeSchedule(options);
+    output = await (options.probe ?? probeOutput)(select, ["-p"], {
+      env: options.env,
+      maxBytes: 4096,
+      ...(schedule ? { schedule } : {}),
+    });
+  } catch {
+    // The probe could not run at all: today's own refusal, distinct from a failing selection.
+    throw deviceRefusal(deviceAnswer<RefusalWord>(() => addon.devicePlatformXcodeProbeFailure()));
+  }
+  const refused = deviceAnswer<RefusalWord | null>(() =>
+    addon.devicePlatformXcodeSelection(output.code, output.stdout),
+  );
+  if (refused) throw deviceRefusal(refused);
   return { xcrun, open };
 }

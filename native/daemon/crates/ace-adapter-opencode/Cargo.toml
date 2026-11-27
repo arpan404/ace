@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-adapter-opencode"
+description = "The opencode provider's translator (E1) and session (E3, except Claude) behind @ace/engine-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# serde: facts and requests serialize straight into the output buffer, never via a Value tree.
+serde = { version = "1", features = ["derive"] }
+# ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
+# JSON.stringify semantics, no recursion, raw splices).
+ace-json = { path = "../ace-json" }
+# base64: the server's Basic authorization header (owned-server.ts).
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+# indexmap: translator maps keep TypeScript insertion order so fact order matches.
+indexmap = { version = "2" }
+# thiserror: the translator's typed internal errors, mapped to diagnostics, never thrown.
+thiserror = { version = "2" }
+# ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
+ace-supervisor = { path = "../ace-supervisor" }
+# ace-redaction: credential shapes and secret-key names have one owner, so a shape fixed
+# for another caller cannot leak out of this adapter (ADR 0224 §8a).
+ace-redaction = { path = "../ace-redaction" }

@@ -18,12 +18,15 @@ import type { AcpQuirks } from "./quirks/types.ts";
 import { TranslationState, type AgentState } from "./state.ts";
 import { endPrompt, settleImplicitTurn } from "./lifecycle.ts";
 import { toolDetail, toolError, toolStatus, toolTitle, todos, mergeToolData } from "./tools.ts";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
+import { NativeAcpTranslator } from "./native-translator.ts";
 
 const errorKey = (text: string) => createHash("sha256").update(text).digest("hex");
 export function createAcpTranslator(
   init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
   quirks: AcpQuirks = genericQuirks,
 ): Translator {
+  if (translatorBackend("acp") === "native") return new NativeAcpTranslator(init, quirks);
   return new AcpTranslator(
     new TranslationState(init.rootKey, quirks, init.threadId, init.identity),
   );

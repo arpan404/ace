@@ -44,7 +44,7 @@ export class OpenCodeSession implements ProviderSession {
   private client: OpenCodeClient;
   private catalog: ReturnType<typeof createExtensionCatalog>;
   private controller = new AbortController();
-  private translator: OpenCodeTranslator;
+  private translator: InstanceType<typeof OpenCodeTranslator>;
   private ownership: SessionOwnership;
   private history = new HistoryReader();
   private sequence = 0;

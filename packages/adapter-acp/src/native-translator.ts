@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * E1: the native ACP translator shell. It provides the adapter's exported
+ * translator over a native handle, chosen at the exported name by one check
+ * of the switch module. With the switch off it is unused; with the switch on
+ * and the addon missing it fails, never falls back.
+ */
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { Fact } from "@ace/core";
+import type { RawPayload, ThreadId } from "@ace/protocol";
+import type { Frame, Translator } from "@ace/engine-api";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
+import type { TranslatorIdentity } from "./identity.ts";
+import { antigravityQuirks } from "./quirks/antigravity.ts";
+import { genericQuirks } from "./quirks/generic.ts";
+import { extensionQuirks } from "./testing/extension-quirks.ts";
+import type { AcpQuirks } from "./quirks/types.ts";
+
+interface AddonTranslator {
+  translate(frameJson: string, now: number): string;
+  tick(now: number): string;
+  takeDiagnostics(): string;
+  nextDeadline(): number | null | undefined;
+}
+
+interface Addon {
+  NativeAcpTranslator: new (
+    threadId: string,
+    rootKey: string,
+    generation: string,
+    cursor: number,
+    quirks: string,
+  ) => AddonTranslator;
+}
+
+const library =
+  process.platform === "win32"
+    ? "ace_daemon_node.dll"
+    : process.platform === "darwin"
+      ? "libace_daemon_node.dylib"
+      : "libace_daemon_node.so";
+
+function addonPath(): string {
+  const explicit = process.env.ACE_STORE_ADDON;
+  if (explicit) return explicit;
+  return fileURLToPath(
+    new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
+  );
+}
+
+let loaded: Addon | undefined;
+function addon(): Addon {
+  if (loaded) return loaded;
+  const path = addonPath();
+  if (!existsSync(path)) {
+    throw new Error(
+      `ACE_TRANSLATORS=acp needs the native addon at ${path}; build it with cargo build --release in native/daemon`,
+    );
+  }
+  const module = { exports: {} as Record<string, unknown> };
+  (process as unknown as { dlopen: (mod: unknown, path: string) => void }).dlopen(module, path);
+  loaded = module.exports as unknown as Addon;
+  return loaded;
+}
+
+function quirksName(quirks: AcpQuirks): string {
+  if (quirks === (antigravityQuirks as AcpQuirks)) return "antigravity";
+  if (quirks === (extensionQuirks as AcpQuirks)) return "extension";
+  if (quirks === (genericQuirks as AcpQuirks)) return "generic";
+  // Fall back by provider for custom quirks objects in tests.
+  return quirks.provider === "antigravity" ? "antigravity" : "generic";
+}
+
+/** The native translator: frames as JSON in, facts as JSON out, per frame. */
+export class NativeAcpTranslator implements Translator {
+  private readonly handle: AddonTranslator;
+  constructor(
+    init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
+    quirks: AcpQuirks = genericQuirks,
+  ) {
+    const { NativeAcpTranslator: NativeHandle } = addon();
+    this.handle = new NativeHandle(
+      String(init.threadId),
+      init.rootKey,
+      init.identity.generation,
+      init.identity.cursor,
+      quirksName(quirks),
+    );
+  }
+  takeDiagnostics(): RawPayload[] {
+    return JSON.parse(this.handle.takeDiagnostics()) as RawPayload[];
+  }
+  nextDeadline() {
+    const deadline = this.handle.nextDeadline();
+    return (deadline ?? undefined) as number | undefined;
+  }
+  tick(now: number): Fact[] {
+    return JSON.parse(this.handle.tick(now)) as Fact[];
+  }
+  translate(frame: Frame, now: number): Fact[] {
+    // The frame crosses as JSON text; ace-json keeps lone surrogates and
+    // every own field (including `__proto__`) exactly. No copy, no
+    // normalisation: TypeScript session routing keeps the original ids.
+    const frameJson = JSON.stringify({
+      seq: frame.seq,
+      t: frame.t,
+      dir: frame.dir,
+      channel: frame.channel,
+      data: frame.data,
+    });
+    return JSON.parse(this.handle.translate(frameJson, now)) as Fact[];
+  }
+}
+
+/** Whether this process serves the ACP translator natively. */
+export function nativeAcpTranslatorEnabled(): boolean {
+  return translatorBackend("acp") === "native";
+}

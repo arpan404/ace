@@ -9,24 +9,34 @@ import { decode, hash } from "./decode.ts";
 import { CheckpointNumbers } from "./checkpoint-numbers.ts";
 import { parseRemotes, parseStatus, parseWorktrees } from "./parse.ts";
 import { nativeWorktreePaths } from "./parse.ts";
+import { resolveCommitRef, worktreeRecords } from "./native-refs.ts";
 import { GitError, type RepositoryInfo, type Status, type Worktree } from "./types.ts";
+
+export interface RepositoryOptions {
+  checkpointCounterCacheSize?: number | undefined;
+  /** False with a non-default `gitBinary` or an injected `spawn`: ref reads stay TypeScript. */
+  nativeRefsAllowed?: boolean | undefined;
+}
 
 export class Repository {
   readonly cli: GitCli;
   readonly numbers: CheckpointNumbers;
   readonly now: () => Date | Promise<Date>;
   readonly tempDirectory: string;
+  /** Whether `ACE_GIT=refs` may serve this instance's ref reads (no injected binary or spawn). */
+  readonly nativeRefsAllowed: boolean;
 
   constructor(
     cli: GitCli,
     now: () => Date | Promise<Date>,
     tempDirectory: string,
-    counterCapacity?: number,
+    options: RepositoryOptions = {},
   ) {
     this.cli = cli;
-    this.numbers = new CheckpointNumbers(cli, counterCapacity);
+    this.numbers = new CheckpointNumbers(cli, options.checkpointCounterCacheSize);
     this.now = now;
     this.tempDirectory = tempDirectory;
+    this.nativeRefsAllowed = options.nativeRefsAllowed ?? true;
   }
 
   async serial<T>(root: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -88,21 +98,8 @@ export class Repository {
   }
 
   async worktrees(repo: string, signal?: AbortSignal): Promise<Worktree[]> {
-    if (this.cli.platform === "win32")
-      return nativeWorktreePaths(
-        parseWorktrees(
-          (await this.cli.call(repo, ["worktree", "list", "--porcelain", "-z"], { signal })).stdout,
-        ),
-      );
-    return parseWorktrees(
-      (
-        await this.cli.call(
-          repo,
-          ["worktree", "list", "--porcelain", "-z"],
-          signal ? { signal } : {},
-        )
-      ).stdout,
-    );
+    const trees = parseWorktrees(await worktreeRecords(this, repo, signal));
+    return this.cli.platform === "win32" ? nativeWorktreePaths(trees) : trees;
   }
 
   async status(root: string): Promise<Status> {
@@ -171,25 +168,11 @@ export class Repository {
     directoryFd?: number,
   ): Promise<string> {
     if (!ref || ref.includes("\0")) throw new GitError("invalid_ref", "A commit ref is required");
-    const result = await this.cli.call(
-      root,
-      ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
-      { allowFailure: true, directoryFd, ...(signal ? { signal } : {}) },
-    );
-    if (result.exitCode !== 0) {
-      // HEAD naming a branch that has no commit yet is a new repository, not a bad ref.
-      if (
-        ref === "HEAD" &&
-        (
-          await this.cli.call(root, ["symbolic-ref", "--quiet", "HEAD"], {
-            allowFailure: true,
-            directoryFd,
-          })
-        ).exitCode === 0
-      )
-        throw new GitError("unborn_head", "The repository has no commits yet");
-      throw new GitError("invalid_ref", `Commit not found: ${ref}`);
-    }
-    return hash(textOutput(result));
+    const resolved = await resolveCommitRef(this, root, ref, signal, directoryFd);
+    if (resolved.kind === "commit") return hash(resolved.id);
+    // HEAD naming a branch that has no commit yet is a new repository, not a bad ref.
+    if (resolved.kind === "unborn")
+      throw new GitError("unborn_head", "The repository has no commits yet");
+    throw new GitError("invalid_ref", `Commit not found: ${ref}`);
   }
 }

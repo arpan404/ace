@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nativeInput, nativeSimulatorScreens, nativeTouchTarget } from "./native-input.ts";
 
 /** One of a Simulator's built-in screens: devicectl's display id, native pixel size, and lit. */
 export interface SimulatorScreen {
@@ -19,6 +20,7 @@ const Report = z.object({
 
 /** The screens in `devicectl device info displays --json-output`; empty when unreadable. */
 export function readSimulatorScreens(report: unknown): SimulatorScreen[] {
+  if (nativeInput) return nativeSimulatorScreens(report);
   const parsed = Report.safeParse(report);
   if (!parsed.success) return [];
   return parsed.data.result.displays.flatMap((raw) => {
@@ -41,6 +43,7 @@ export function touchTarget(
   screens: readonly SimulatorScreen[],
   picture: { width: number; height: number } | undefined,
 ): number {
+  if (nativeInput) return nativeTouchTarget(screens, picture);
   if (screens.length < 2) return 0;
   const shown =
     picture &&

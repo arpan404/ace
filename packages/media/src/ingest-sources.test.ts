@@ -1036,3 +1036,75 @@ describe("agents' stills", () => {
     expect(takes(v)).toEqual([]);
   });
 });
+
+/** A scrcpy reader's unit, tagged with its reader generation (extension tag 2). */
+function tagged(dial: number, mark: number): MediaFrame {
+  return { ...unitFrame(mark), extension: new Uint8Array([0, 2, 0, 4, 0, 0, 0, dial]) };
+}
+
+it("a scrcpy source ace-media reads itself stays open when its reader ends, and nothing of an earlier reader generation, nor an ack for one, reaches the current one", () => {
+  const w = world();
+  w.state.capabilities = { ...capabilities, ingest: [...capabilities.ingest, "scrcpy"] };
+  w.state.features = [...w.state.features, "scrcpy-video"];
+  const greetings: { path: string; dial: number }[] = [];
+  const l = producer("scrcpy");
+  const source = w.sources.add({
+    ...l.p,
+    origin: { kind: "scrcpy", host: "127.0.0.1", port: 5000 },
+    mediaReads: true,
+    deadlineMs: 10_000,
+    greeted: (greeting) => void greetings.push(greeting),
+  });
+  w.status("s1", "starting");
+  // Its reader ended (a restart closed the old tunnel): the producer decides, the open stays.
+  w.status("s1", "ended", "scrcpy-closed");
+  expect(l.refused).toEqual(["scrcpy-closed"]);
+  expect(w.closed()).toEqual([]);
+  // So the restart's dial reaches it, as reader generation 1, on the same open.
+  source.dial?.("127.0.0.1", 5001);
+  expect(w.sent.at(-1)?.message).toEqual({
+    type: "source.dial",
+    source: "s1",
+    host: "127.0.0.1",
+    port: 5001,
+    dial: 1,
+  });
+  // Generation 0's greeting, end and units, queued before ace-media took the dial, cross it
+  // on the same open and say nothing.
+  w.sources.message({ type: "source.greeted", source: "s1", dial: 0 });
+  w.sources.message({
+    type: "source.status",
+    source: "s1",
+    status: "ended",
+    reason: "scrcpy-closed",
+    dial: 0,
+  });
+  w.router.push(encodeEgress(1, 0, tagged(0, 7)));
+  expect(greetings).toEqual([]);
+  expect(l.refused).toEqual(["scrcpy-closed"]);
+  expect(l.units).toEqual([]);
+  // Generation 1's do.
+  w.router.push(encodeEgress(1, 1, tagged(1, 8)));
+  expect(l.units.map((unit) => unit.frame.payload[0])).toEqual([8]);
+  w.sources.message({ type: "source.greeted", source: "s1", dial: 1 });
+  expect(greetings).toEqual([{ path: "s1", dial: 1 }]);
+  const acks = () =>
+    w.sent.flatMap(({ message }) =>
+      message.type === "source.controlConnected" ? [[message.source, message.dial]] : [],
+    );
+  // An ack for the generation before never goes out.
+  source.controlConnected?.({ path: "s1", dial: 0 });
+  expect(acks()).toEqual([]);
+  // ace-media restarts between the greeting and control's connect: the new open carries the
+  // generation, and never gets the ack meant for the reader that greeted on the old one.
+  w.sources.exited();
+  w.sources.replay();
+  const reopened = w.opened().at(-1);
+  expect(reopened).toMatchObject({ dial: 1, origin: { port: 5001 } });
+  const path = reopened?.source ?? "";
+  w.status(path, "starting");
+  source.controlConnected?.({ path: "s1", dial: 1 });
+  expect(acks()).toEqual([]);
+  source.controlConnected?.({ path, dial: 1 });
+  expect(acks()).toEqual([[path, 1]]);
+});

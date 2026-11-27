@@ -5,6 +5,8 @@ import type { KeptJournal } from "./process-marker.ts";
 import { memberOf, type TreeMember } from "./process-tree.ts";
 import type { WatchJournal } from "./process-watch.ts";
 import { DatabaseSync } from "./sqlite.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 
 /*
  * Beside the process inventory, by pid and kernel start:
@@ -31,9 +33,21 @@ const schema = [
 ];
 
 export class EscapeeJournal implements WatchJournal, KeptJournal, LineageJournal {
-  private readonly db: DatabaseSync;
+  private readonly db: DatabaseSync | undefined;
   private readonly run: string;
   private readonly identify: (pid: number) => TreeMember | undefined;
+  private readonly native:
+    | {
+        record(members: readonly TreeMember[]): void;
+        forget(members: readonly TreeMember[]): void;
+        earlier(): EscapeeRow[];
+        keep(pid: number): void;
+        recordLineage(uniques: readonly string[]): void;
+        forgetEarlierLineage(): void;
+        kept(): TreeMember[];
+        close(): void;
+      }
+    | undefined;
   constructor(
     path: string,
     run: string,
@@ -41,62 +55,113 @@ export class EscapeeJournal implements WatchJournal, KeptJournal, LineageJournal
   ) {
     this.run = run;
     this.identify = identify;
-    this.db = new DatabaseSync(path);
-    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-    for (const statement of schema) this.db.exec(statement);
+    if (supervisorBackend() === "native") {
+      const addon = supervisorAddon();
+      const handle = new addon.NativeJournal(path, run);
+      const earlier = (): EscapeeRow[] =>
+        (JSON.parse(handle.earlier()) as { pid: number; start: string; run: string }[]).map((row) =>
+          Row.parse(row),
+        );
+      this.native = {
+        record: (members) =>
+          handle.record(JSON.stringify(members.map(({ pid, start }) => ({ pid, start })))),
+        forget: (members) =>
+          handle.forget(JSON.stringify(members.map(({ pid, start }) => ({ pid, start })))),
+        earlier,
+        keep: (pid) => {
+          const member = identify(pid);
+          if (member) handle.keep(member.pid, member.start);
+        },
+        recordLineage: (uniques) => handle.recordLineage([...uniques]),
+        forgetEarlierLineage: () => handle.forgetEarlierLineage(),
+        kept: () =>
+          (JSON.parse(handle.kept()) as { pid: number; start: string }[]).map((row) =>
+            Member.parse(row),
+          ),
+        close: () => handle.close(),
+      };
+      // The native journal opens its tables; the TypeScript side stays shut.
+      this.db = undefined;
+      return;
+    }
+    const db = new DatabaseSync(path);
+    this.db = db;
+    db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    for (const statement of schema) db.exec(statement);
+  }
+  private store(): DatabaseSync {
+    const db = this.db;
+    if (!db) throw new Error("Escapee journal is native");
+    return db;
   }
   record(members: readonly TreeMember[]): void {
-    const count = Number(this.db.prepare("SELECT COUNT(*) AS n FROM escapees").get()?.n);
-    const insert = this.db.prepare(
+    const native = this.native;
+    if (native) return native.record(members);
+    const count = Number(this.store().prepare("SELECT COUNT(*) AS n FROM escapees").get()?.n);
+    const insert = this.store().prepare(
       "INSERT INTO escapees VALUES (?,?,?) ON CONFLICT(pid,start) DO UPDATE SET run=excluded.run",
     );
     for (const member of members.slice(0, Math.max(0, rowLimit - count)))
       insert.run(member.pid, member.start, this.run);
   }
   forget(members: readonly TreeMember[]): void {
-    const remove = this.db.prepare("DELETE FROM escapees WHERE pid=? AND start=?");
+    const native = this.native;
+    if (native) return native.forget(members);
+    const remove = this.store().prepare("DELETE FROM escapees WHERE pid=? AND start=?");
     for (const member of members) remove.run(member.pid, member.start);
   }
   /** What earlier runs recorded and never forgot: their leftovers, if still running. */
   earlier(): EscapeeRow[] {
-    return this.db
+    const native = this.native;
+    if (native) return native.earlier();
+    return this.store()
       .prepare("SELECT pid,start,run FROM escapees WHERE run<>? ORDER BY pid")
       .all(this.run)
       .map((row) => Row.parse(row));
   }
   keep(pid: number): void {
+    const native = this.native;
+    if (native) return native.keep(pid);
     const member = this.identify(pid);
     if (!member) return;
-    const count = Number(this.db.prepare("SELECT COUNT(*) AS n FROM kept").get()?.n);
+    const count = Number(this.store().prepare("SELECT COUNT(*) AS n FROM kept").get()?.n);
     // Spent rows (processes long gone) are dropped first, so the table never fills with them.
     if (count >= rowLimit) {
       for (const row of this.kept()) if (!this.identify(row.pid)) this.unkeep(row);
     }
-    this.db
+    this.store()
       .prepare("INSERT INTO kept VALUES (?,?) ON CONFLICT(pid,start) DO NOTHING")
       .run(member.pid, member.start);
   }
   recordLineage(uniques: readonly string[]): void {
-    const insert = this.db.prepare(
+    const native = this.native;
+    if (native) return native.recordLineage(uniques);
+    const insert = this.store().prepare(
       "INSERT INTO lineage VALUES (?,?) ON CONFLICT(unique_id) DO UPDATE SET run=excluded.run",
     );
     for (const unique of uniques) insert.run(unique, this.run);
   }
   /** Lineage rows of runs other than this one: spent once this run has started. */
   forgetEarlierLineage(): void {
-    this.db.prepare("DELETE FROM lineage WHERE run<>?").run(this.run);
+    const native = this.native;
+    if (native) return native.forgetEarlierLineage();
+    this.store().prepare("DELETE FROM lineage WHERE run<>?").run(this.run);
   }
   kept(): TreeMember[] {
-    return this.db
+    const native = this.native;
+    if (native) return native.kept();
+    return this.store()
       .prepare("SELECT pid,start FROM kept ORDER BY pid")
       .all()
       .map((row) => Member.parse(row));
   }
   private unkeep(member: TreeMember): void {
-    this.db.prepare("DELETE FROM kept WHERE pid=? AND start=?").run(member.pid, member.start);
+    this.store().prepare("DELETE FROM kept WHERE pid=? AND start=?").run(member.pid, member.start);
   }
   close(): void {
-    this.db.close();
+    const native = this.native;
+    if (native) return native.close();
+    this.store().close();
   }
 }
 
@@ -108,6 +173,19 @@ export function readOwnership(
   path: string,
   run: string | undefined,
 ): { escapees: TreeMember[]; kept: TreeMember[]; lineage: string[] } {
+  if (supervisorBackend() === "native") {
+    if (!existsSync(path)) return { escapees: [], kept: [], lineage: [] };
+    const ownership = JSON.parse(supervisorAddon().supervisorReadOwnership(path, run)) as {
+      escapees: { pid: number; start: string }[];
+      kept: { pid: number; start: string }[];
+      lineage: string[];
+    };
+    return {
+      escapees: ownership.escapees.map((row) => Member.parse(row)),
+      kept: ownership.kept.map((row) => Member.parse(row)),
+      lineage: ownership.lineage,
+    };
+  }
   if (!existsSync(path)) return { escapees: [], kept: [], lineage: [] };
   const db = new DatabaseSync(path, { readOnly: true });
   try {

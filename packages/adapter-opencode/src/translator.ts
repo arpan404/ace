@@ -2,13 +2,15 @@ import type { Fact, Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import { InteractionResolution } from "@ace/protocol";
 import { adapterWarning, type Frame, type Translator } from "@ace/engine-api";
+import { translatorBackend } from "@ace/provider-kit/native-switches";
+import { NativeOpenCodeTranslator } from "./native-translator.ts";
 import { NativeEvent, eventSession } from "./boundaries.ts";
 import { object, array, string, number, retryReason, type Data } from "./data.ts";
 import { NativeState } from "./native-state.ts";
 import { tool, text, projected, syntheticKind } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
 import { sessionUsage, stepContext, selectModel } from "./usage.ts";
-export class OpenCodeTranslator implements Translator {
+class TypeScriptOpenCodeTranslator implements Translator {
   private state: NativeState;
   private retrying = new Set<string>();
   /** Sessions whose manual compaction started a turn of its own, to end when it ends. */
@@ -472,3 +474,12 @@ export class OpenCodeTranslator implements Translator {
     return [];
   }
 }
+/**
+ * The exported translator name is the native class when `ACE_TRANSLATORS`
+ * names `opencode`, so tests and sessions constructing it with `new` run
+ * the native translator unchanged.
+ */
+export const OpenCodeTranslator =
+  translatorBackend("opencode") === "native"
+    ? NativeOpenCodeTranslator
+    : TypeScriptOpenCodeTranslator;

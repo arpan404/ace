@@ -1,5 +1,7 @@
 import type { Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { NativeRpcWriter } from "./native-streams.ts";
 
 type Write = {
   line: string;
@@ -10,7 +12,7 @@ type Write = {
 };
 
 /** A bounded FIFO; only one write is handed to stdin until callback and drain. */
-export class RpcWriter {
+class TypeScriptRpcWriter {
   readonly #stream: Writable;
   readonly #maxQueuedBytes: number;
   readonly #queue = new Map<number, Write>();
@@ -116,5 +118,25 @@ export class RpcWriter {
       write.reject(error instanceof Error ? error : new Error(String(error)));
       this.#pump();
     }
+  }
+}
+
+/** The bounded stdin FIFO; the native queue lives in `ace-supervisor` (`rpc-writer.ts`). */
+export class RpcWriter {
+  readonly #impl: {
+    send(line: string, bytes: number, signal?: AbortSignal): Promise<void>;
+    close(error: Error): void;
+  };
+  constructor(stream: Writable, maxQueuedBytes: number) {
+    this.#impl =
+      supervisorBackend() === "native"
+        ? new NativeRpcWriter(stream, maxQueuedBytes)
+        : new TypeScriptRpcWriter(stream, maxQueuedBytes);
+  }
+  send(line: string, bytes: number, signal?: AbortSignal): Promise<void> {
+    return this.#impl.send(line, bytes, signal);
+  }
+  close(error: Error): void {
+    this.#impl.close(error);
   }
 }

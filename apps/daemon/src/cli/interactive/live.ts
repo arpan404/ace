@@ -1,5 +1,5 @@
 import type { Client, ThreadSubscription } from "@ace/client";
-import { ProviderKind, type Project, type ThreadListEntry } from "@ace/protocol";
+import type { Project, ThreadListEntry } from "@ace/protocol";
 import { projectLabel } from "@ace/ui-core";
 import { homeRows, type HomeRow } from "./home-rows.ts";
 import type { OpenRequest } from "./request-answer.ts";
@@ -7,9 +7,9 @@ import { threadRequests } from "./requests.ts";
 
 /**
  * What the interactive views read from the daemon, through `@ace/client`'s own stores (ADR
- * 0178 §9): the thread list (`threads()`), the threads with open requests, the open row's
- * agents and the attached thread (`thread(id)`). The client owns reconnects and the outbox;
- * this only holds leases and says when something changed.
+ * 0178 §9): the thread list (`threads()`), the threads with open requests, and the open row's
+ * agents (`thread(id)`). The client owns reconnects and the outbox; this only holds leases and
+ * says when something changed.
  */
 export interface Live {
   rows(now: number): HomeRow[];
@@ -21,10 +21,9 @@ export interface Live {
   connection(): string | undefined;
   requests(): OpenRequest[];
   entry(id: string): ThreadListEntry | undefined;
-  /** Leases one thread for as long as a view shows it; `undefined` lets it go. */
-  follow(slot: "tree" | "attach", id: string | undefined): ThreadSubscription | undefined;
-  followed(slot: "tree" | "attach"): ThreadSubscription | undefined;
-  defaultProvider(): ProviderKind | undefined;
+  /** Leases the open row's thread for as long as its tree shows; `undefined` lets it go. */
+  follow(id: string | undefined): ThreadSubscription | undefined;
+  followed(): ThreadSubscription | undefined;
   projects(): readonly Project[];
   close(): void;
 }
@@ -35,15 +34,8 @@ const requestLeases = 16;
 export function openLive(client: Client, signal: AbortSignal, changed: () => void): Live {
   const list = client.threads();
   const names = new Map<string, Project>();
-  let provider: ProviderKind | undefined;
   const asking = new Map<string, { lease: ThreadSubscription; stop: () => void }>();
-  const slots: Record<
-    "tree" | "attach",
-    { id: string; lease: ThreadSubscription; stop: () => void } | undefined
-  > = {
-    tree: undefined,
-    attach: undefined,
-  };
+  let slot: { id: string; lease: ThreadSubscription; stop: () => void } | undefined;
   const entries = (): ThreadListEntry[] =>
     list.store.ids.flatMap((id) => {
       const entry = list.store.thread(id);
@@ -80,7 +72,7 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
   });
   const stopConnection = client.connectionState().subscribe(changed);
   syncRequests();
-  // Project names and the default provider: read once, quietly; rows show ids until then.
+  // Project names: read once, quietly; rows show ids until then.
   void client
     .request(
       { type: "projects.request", operation: { op: "workspace.list", limit: 100 } },
@@ -90,14 +82,6 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
       if (response.result.kind !== "projects") return;
       for (const project of response.result.projects) names.set(project.id, project);
       changed();
-    })
-    .catch(() => {});
-  void client
-    .settingsGet("providers.default", {}, { signal })
-    .then((result) => {
-      const value = result.entries.find((entry) => entry.key === "providers.default")?.value;
-      const parsed = ProviderKind.safeParse(value);
-      if (parsed.success) provider = parsed.data;
     })
     .catch(() => {});
   return {
@@ -134,19 +118,17 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
       return all.toSorted((a, b) => a.interaction.createdAt - b.interaction.createdAt);
     },
     entry: (id) => list.store.thread(id),
-    follow(slot, id) {
-      const held = slots[slot];
-      if (held && held.id === id) return held.lease;
-      held?.stop();
-      held?.lease.release();
-      slots[slot] = undefined;
+    follow(id) {
+      if (slot && slot.id === id) return slot.lease;
+      slot?.stop();
+      slot?.lease.release();
+      slot = undefined;
       if (!id) return undefined;
       const lease = client.thread(id);
-      slots[slot] = { id, lease, stop: watch(lease) };
+      slot = { id, lease, stop: watch(lease) };
       return lease;
     },
-    followed: (slot) => slots[slot]?.lease,
-    defaultProvider: () => provider,
+    followed: () => slot?.lease,
     projects: () => [...names.values()],
     close() {
       stopList();
@@ -156,11 +138,9 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
         held.lease.release();
       }
       asking.clear();
-      for (const slot of ["tree", "attach"] as const) {
-        slots[slot]?.stop();
-        slots[slot]?.lease.release();
-        slots[slot] = undefined;
-      }
+      slot?.stop();
+      slot?.lease.release();
+      slot = undefined;
       list.release();
     },
   };

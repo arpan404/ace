@@ -7,6 +7,7 @@ import { GitError, type PushOptions } from "./types.ts";
 import { excludeAcePrivate, isAcePrivate, personPathspecs } from "./ace-private.ts";
 import { validateRepoPaths } from "./source-control-ops.ts";
 import { failureMessage } from "./failure-text.ts";
+import { branchNameLines } from "./native-refs.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
 const maxPathBytes = 256 * 1024;
@@ -276,13 +277,7 @@ export async function listBranches(
   worktree: string,
 ): Promise<{ branches: string[]; truncated: boolean }> {
   const root = await repository.root(worktree);
-  const result = await repository.cli.call(
-    root,
-    ["for-each-ref", "--count=1001", "--format=%(refname:short)", "refs/heads", "refs/remotes"],
-    { captureBytes: 1_048_576 },
-  );
-  const branches = BranchNames.parse(
-    result.stdout.toString("utf8").trim().split("\n").filter(Boolean),
-  );
+  const listing = await branchNameLines(repository, root);
+  const branches = BranchNames.parse(listing.toString("utf8").trim().split("\n").filter(Boolean));
   return { branches: branches.slice(0, 1000), truncated: branches.length > 1000 };
 }

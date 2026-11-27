@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Fact } from "./index.ts";
-import { harness } from "./test-helper.ts";
+import { cloneState, harness } from "./test-helper.ts";
 
 describe("lenient fact rejection", () => {
   it("invalid input for an unseen agent emits a warning without publishing a phantom agent", () => {
     const h = harness();
     h.see();
-    const before = structuredClone(h.state);
+    const before = cloneState(h.state);
     const fact: Fact = {
       type: "item.upsert",
       agent: "unseen",
@@ -26,7 +26,7 @@ describe("lenient fact rejection", () => {
         raw: [{ type: "core.rejected_fact", data: fact }],
       },
     });
-    const after = structuredClone(h.state);
+    const after = cloneState(h.state);
     // Rejection can persist its diagnostic, but must not change existing engine state.
     after.items = before.items;
     delete after.rejectionNotices;
@@ -65,14 +65,14 @@ describe("lenient fact rejection", () => {
     const h = harness();
     h.see();
     h.send({ type: "agent.linked", agent: "child", parent: "root" });
-    const before = structuredClone(h.state);
+    const before = cloneState(h.state);
     const events = h.send({ type: "agent.linked", agent: "root", parent: "child" });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: "item.created",
       item: { type: "notice", level: "warning" },
     });
-    const after = structuredClone(h.state);
+    const after = cloneState(h.state);
     after.items = before.items;
     delete after.rejectionNotices;
     expect(after).toEqual(before);
@@ -128,7 +128,7 @@ describe("lenient fact rejection", () => {
       h.see();
       if (kind === "interaction") h.question("key");
       else h.background("key");
-      const before = structuredClone(h.state);
+      const before = cloneState(h.state);
       const fact =
         kind === "interaction"
           ? {
@@ -156,7 +156,7 @@ describe("lenient fact rejection", () => {
           raw: [{ type: "core.rejected_fact", data: fact }],
         },
       });
-      const after = structuredClone(h.state);
+      const after = cloneState(h.state);
       after.items = before.items;
       delete after.rejectionNotices;
       expect(after).toEqual(before);
@@ -224,7 +224,7 @@ describe("lenient fact rejection", () => {
         },
       };
       h.send(order === "child-first" ? link : call);
-      const before = structuredClone(h.state);
+      const before = cloneState(h.state);
       const fact = order === "child-first" ? call : link;
       const events = h.send(fact);
       expect(events).toHaveLength(1);
@@ -237,7 +237,7 @@ describe("lenient fact rejection", () => {
         },
       });
       expect(h.agent("root")).toMatchObject({ parentId: null });
-      const after = structuredClone(h.state);
+      const after = cloneState(h.state);
       after.items = before.items;
       delete after.rejectionNotices;
       expect(after).toEqual(before);

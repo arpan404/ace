@@ -2,7 +2,7 @@ import { once } from "node:events";
 import type { IncomingMessage } from "node:http";
 import { describe, expect, it } from "vitest";
 import { Agent, AgentId, Item, ServerMessage } from "@ace/protocol";
-import type { WebSocket } from "ws";
+import { WebSocket } from "ws";
 import { ticketSocket } from "./client-access.ts";
 import { cleanups, identity, setup } from "./remote-test-support.ts";
 
@@ -127,5 +127,34 @@ describe("socket compression", () => {
     remote.socket.send(JSON.stringify({ type: "ping", pad: "a".repeat(2 * 1024 * 1024) }));
     const [code] = (await closed) as [number];
     expect(code).toBe(1009);
+  });
+
+  it("answers a window-bits offer with =8 and both no-context-takeover parameters", async () => {
+    // Both legs, so `ws` on the off leg produces the same answer the native
+    // listener must (`native-remote.process` proves the native side in depth).
+    const f = await setup();
+    const offers = [
+      [
+        { serverMaxWindowBits: 8 },
+        "permessage-deflate; server_max_window_bits=8; server_no_context_takeover; client_no_context_takeover",
+      ],
+      [
+        { clientMaxWindowBits: 8 },
+        "permessage-deflate; client_max_window_bits=8; server_no_context_takeover; client_no_context_takeover",
+      ],
+    ] as const;
+    for (const [options, expected] of offers) {
+      const socket = new WebSocket(f.server.remoteUrl, {
+        rejectUnauthorized: false,
+        perMessageDeflate: options,
+      });
+      const answered = once(socket, "upgrade");
+      const closed = once(socket, "close");
+      await once(socket, "open");
+      const [response] = (await answered) as [IncomingMessage];
+      expect(response.headers["sec-websocket-extensions"]).toBe(expected);
+      socket.close();
+      await closed;
+    }
   });
 });

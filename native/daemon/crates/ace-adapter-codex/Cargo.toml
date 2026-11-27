@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-adapter-codex"
+description = "The codex provider's translator (E1) and session (E3, except Claude) behind @ace/engine-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
+ace-supervisor = { path = "../ace-supervisor" }
+# ace-core: translators return its Fact type; only the core allocates ace ids.
+ace-core = { path = "../ace-core" }
+# serde: translator state and typed views deserialize from provider JSON.
+serde = { version = "1", features = ["derive"] }
+# ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
+# JSON.stringify semantics, no recursion, raw splices).
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error enum for the crate, mapped in the binding (no unwrap/expect).
+thiserror = { version = "2" }
+# sha2: answer-echo digests interaction answer text with SHA-256, as the TypeScript does.
+sha2 = { version = "0.11" }
+# indexmap: agents, open items, children and requests iterate in insertion order,
+# as the TypeScript Maps and Sets do; fact order must match field for field.
+indexmap = { version = "2" }
+
+[dev-dependencies]
+# tokio: the moved (b) cases spawn the adapter's fake app-server through the
+# supervisor's diverted child (E3.0b), which needs the daemon's own runtime.
+tokio = { version = "1.54", features = ["rt-multi-thread", "time"] }

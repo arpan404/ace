@@ -2,7 +2,7 @@ import { cliOutputs } from "@ace/protocol/cli-outputs";
 import type { SpadeMethod } from "@ace/protocol";
 import { describe, expect, test } from "vitest";
 import { botListLines, botOrder } from "./render/spade.ts";
-import { chatOnce, findBot, listBots, type ChatClock, type SpadeCall } from "./spade-bots.ts";
+import { findBot, listBots, type SpadeCall } from "./spade-bots.ts";
 
 /** A bot as Spade's `/v1/agents` sends it. */
 function wireBot(id: string, name: string, extra: Record<string, unknown> = {}) {
@@ -23,30 +23,13 @@ function wireBot(id: string, name: string, extra: Record<string, unknown> = {}) 
   };
 }
 
-/** A Spade that answers `/v1/agents` from `roster()` and records every message sent. */
+/** A Spade that answers `/v1/agents` from `roster()`. */
 function fakeSpade(roster: () => unknown[]) {
-  const sent: { path: string; body: unknown }[] = [];
-  const call: SpadeCall = async (method: SpadeMethod, path: string, body?: unknown) => {
+  const call: SpadeCall = async (method: SpadeMethod, path: string) => {
     if (method === "GET" && path === "/v1/agents") return JSON.stringify({ agents: roster() });
-    if (method === "POST") {
-      sent.push({ path, body });
-      return "{}";
-    }
     throw new Error(`unexpected ${method} ${path}`);
   };
-  return { call, sent };
-}
-
-/** Time that moves only when the chat sleeps. */
-function fakeClock(start = 10_000): ChatClock & { at: () => number } {
-  let now = start;
-  return {
-    now: () => now,
-    at: () => now,
-    sleep: async (ms) => {
-      now += ms;
-    },
-  };
+  return { call };
 }
 
 const roster = [
@@ -87,74 +70,6 @@ describe("a BOT reference finds one bot by id, name or an unambiguous start", ()
         detail: expect.objectContaining({ code: "not_found" }),
       }),
     );
-  });
-});
-
-describe("one chat message ends on the bot's reply, on the person, or at the deadline", () => {
-  test("a reply after the message was sent is printed, and the message went to the bot's conversation", async () => {
-    const clock = fakeClock();
-    let polls = 0;
-    const spade = fakeSpade(() => {
-      polls++;
-      if (polls === 1)
-        return [wireBot("b_writer1", "Writer", { state: "working", status: "drafting" })];
-      return [
-        wireBot("b_writer1", "Writer", {
-          last_message: { from: "agent", text: "Here are the notes.", at: clock.at() },
-        }),
-      ];
-    });
-    const [bot] = await listBots(fakeSpade(() => roster.slice(1, 2)).call);
-    if (!bot) throw new Error("no bot");
-    const outcome = await chatOnce(
-      spade.call,
-      bot,
-      "Draft the notes",
-      clock,
-      clock.now() + 60_000,
-      new AbortController().signal,
-    );
-    expect(outcome).toMatchObject({ kind: "reply", text: "Here are the notes." });
-    expect(spade.sent).toEqual([
-      { path: "/v1/conversations/c_b_writer1/messages", body: { text: "Draft the notes" } },
-    ]);
-  });
-
-  test("an older reply is never taken for the answer: no new one by the deadline is a timeout", async () => {
-    const clock = fakeClock();
-    const stale = wireBot("b_writer1", "Writer", {
-      last_message: { from: "agent", text: "old", at: 5 },
-    });
-    const spade = fakeSpade(() => [stale]);
-    const [bot] = await listBots(spade.call);
-    if (!bot) throw new Error("no bot");
-    const outcome = await chatOnce(
-      spade.call,
-      bot,
-      "hi",
-      clock,
-      clock.now() + 5_000,
-      new AbortController().signal,
-    );
-    expect(outcome.kind).toBe("timeout");
-  });
-
-  test("a bot that stops on an approval hands back to the person", async () => {
-    const clock = fakeClock();
-    const spade = fakeSpade(() => [
-      wireBot("b_writer1", "Writer", { state: "waiting", waiting_for: "approval" }),
-    ]);
-    const [bot] = await listBots(spade.call);
-    if (!bot) throw new Error("no bot");
-    const outcome = await chatOnce(
-      spade.call,
-      bot,
-      "go",
-      clock,
-      clock.now() + 60_000,
-      new AbortController().signal,
-    );
-    expect(outcome.kind).toBe("waiting");
   });
 });
 

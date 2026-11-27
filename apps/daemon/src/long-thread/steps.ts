@@ -127,20 +127,25 @@ export function stepSurface(
   return valid(surface);
 }
 
-export function readTurnSteps(
+/** One step index row, as `long_items` holds it and the native fetcher returns it. */
+export interface TurnStepRow {
+  item_id: string;
+  created_seq: number;
+}
+
+/**
+ * Shape a steps page from its index rows, with the store's existing item,
+ * trust and tail code. The native fetcher returns the rows; this shapes them
+ * exactly as `readTurnSteps` does, so streaming tails, the 1 MiB budget and
+ * trust (including in-memory trust) match the legacy path.
+ */
+export function shapeTurnSteps(
   source: TurnStepsSource,
   query: TurnStepsRequest,
   head: number,
+  endSeq: number,
+  rows: readonly TurnStepRow[],
 ): TurnStepsResponse {
-  const turn = source.data
-    .sql("SELECT end_seq FROM long_turns WHERE thread_id=? AND ordinal=?")
-    .get(query.threadId, query.turnOrdinal);
-  if (!turn) throw new Error("turn_target_unavailable");
-  const rows = source.data
-    .sql(
-      "SELECT item_id,created_seq FROM long_items WHERE thread_id=? AND ordinal=? AND created_seq>? AND (role IS NULL OR role<>'user') ORDER BY created_seq LIMIT ?",
-    )
-    .all(query.threadId, query.turnOrdinal, query.after ?? 0, query.limit + 1);
   const steps: TurnStep[] = [];
   let bytes = 512;
   for (const row of rows.slice(0, query.limit)) {
@@ -183,8 +188,34 @@ export function readTurnSteps(
     threadId: query.threadId,
     turnOrdinal: query.turnOrdinal,
     seq: head,
-    endSeq: Number(turn.end_seq),
+    endSeq: Number(endSeq),
     steps,
     after: more && last !== undefined ? last : null,
   });
+}
+
+export function readTurnSteps(
+  source: TurnStepsSource,
+  query: TurnStepsRequest,
+  head: number,
+): TurnStepsResponse {
+  const turn = source.data
+    .sql("SELECT end_seq FROM long_turns WHERE thread_id=? AND ordinal=?")
+    .get(query.threadId, query.turnOrdinal);
+  if (!turn) throw new Error("turn_target_unavailable");
+  const rows = source.data
+    .sql(
+      "SELECT item_id,created_seq FROM long_items WHERE thread_id=? AND ordinal=? AND created_seq>? AND (role IS NULL OR role<>'user') ORDER BY created_seq LIMIT ?",
+    )
+    .all(query.threadId, query.turnOrdinal, query.after ?? 0, query.limit + 1);
+  return shapeTurnSteps(
+    source,
+    query,
+    head,
+    Number(turn.end_seq),
+    rows.map((row) => ({
+      item_id: String((row as { item_id: unknown }).item_id),
+      created_seq: Number((row as { created_seq: unknown }).created_seq),
+    })),
+  );
 }

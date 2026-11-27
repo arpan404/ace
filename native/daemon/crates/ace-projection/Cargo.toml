@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-projection"
+description = "The daemon's thread projection fold in Rust (phase 5.1): @ace/projection's updateThread"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: every JS-visible value crosses as JSON text with JavaScript's key order,
+# numbers and lone surrogates, never as a Rust String for a JS string.
+ace-json = { path = "../ace-json" }
+# ace-protocol: the shape table the column encoders strip and default through (5.3b).
+ace-protocol = { path = "../ace-protocol" }

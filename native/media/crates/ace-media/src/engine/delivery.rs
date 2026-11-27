@@ -1041,6 +1041,7 @@ impl Delivery {
                                     reason: None,
                                     attempts: None,
                                     acceleration: None,
+                                    dial: None,
                                 },
                             );
                         }

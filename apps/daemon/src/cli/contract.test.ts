@@ -183,7 +183,7 @@ describe("old spellings retire on schedule", () => {
 
 describe("completion", () => {
   test.each([
-    [[":"], ["account", "chat", "completion"]],
+    [[":"], ["account", "completion"]],
     [[":thr"], ["thread"]],
     [
       ["thread", ":s"],

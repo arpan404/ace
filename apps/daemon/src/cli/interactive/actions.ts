@@ -1,35 +1,12 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { CommandTable } from "../commands/table.ts";
 import type { Terminal } from "../tui/terminal.ts";
 import type { Place } from "./effects.ts";
 
 /**
- * The things the interactive views hand the terminal over for (ADR 0178 §9): $EDITOR, and
- * the existing commands run in place (doctor, triage, Spade, market, settings, projects), so
- * the views use the same data paths and output as the scripted commands.
+ * The things the interactive views hand the terminal over for (ADR 0178 §9): the existing
+ * commands run in place (doctor, triage, Spade, Store, settings, projects), so the views use
+ * the same data paths and output as the scripted commands.
  */
-
-/** Opens $VISUAL or $EDITOR on `text`; returns what the person saved, or `text` unchanged. */
-export function editText(terminal: Terminal, text: string, env: NodeJS.ProcessEnv): string {
-  const editor =
-    env.VISUAL?.trim() || env.EDITOR?.trim() || (process.platform === "win32" ? "notepad" : "vi");
-  const folder = mkdtempSync(join(tmpdir(), "ace-prompt-"));
-  const file = join(folder, "prompt.md");
-  writeFileSync(file, text, { mode: 0o600 });
-  terminal.suspend();
-  try {
-    // The editor command may carry its own flags ("code --wait"): the shell splits it.
-    const result = spawnSync(`${editor} "${file}"`, { stdio: "inherit", shell: true });
-    if (result.status !== 0) return text;
-    return readFileSync(file, "utf8").replace(/\n$/, "");
-  } finally {
-    rmSync(folder, { recursive: true, force: true });
-    terminal.resume();
-  }
-}
 
 /** The table's command for each place, first one this build has. */
 const placeCommands: Record<Place, readonly string[]> = {

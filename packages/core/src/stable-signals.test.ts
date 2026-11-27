@@ -1,12 +1,12 @@
 import { expect, test } from "vitest";
 import { apply, FactBatch, nextDeadline, type Fact } from "./index.ts";
-import { harness } from "./test-helper.ts";
+import { cloneState, harness } from "./test-helper.ts";
 
 function compare(facts: Fact[], now: number, prepare: (h: ReturnType<typeof harness>) => void) {
   const h = harness("codex", { silenceMs: 100 });
   prepare(h);
-  const expected = structuredClone(h.state);
-  const actual = structuredClone(h.state);
+  const expected = cloneState(h.state);
+  const actual = cloneState(h.state);
   let sequence = 0;
   const ctx = { now, ids: { next: (kind: string) => `${kind}-extra-${++sequence}` } };
   const batch = new FactBatch(actual, { deadline: nextDeadline(actual) });

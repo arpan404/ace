@@ -1,0 +1,369 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The thread actors (E5.2): the one mailbox that orders a thread's frames, ticks and engine
+//! operations, and the task that folds them one per poll.
+
+pub mod deps;
+pub mod failure;
+pub mod flow;
+pub mod fold;
+pub mod frame_ack;
+pub mod intake;
+pub mod leases;
+pub mod mailbox;
+pub mod native;
+#[cfg(feature = "engine-probe")]
+pub mod probe;
+pub mod promotion;
+pub mod rules;
+pub mod state;
+pub mod task;
+pub mod timer;
+
+#[cfg(test)]
+mod tests;
+
+pub use deps::{
+    ActorDeps, ActorLinks, ActorRepo, ActorTranslator, BatchAck, JsBatchTranslator, Route,
+    ScheduleView, TranslatedFrame, Unported,
+};
+#[cfg(feature = "engine-probe")]
+pub use probe::run_op_opened;
+pub use promotion::restore_promotion;
+pub use state::{ActorInstance, ActorRef, Actors, FrameRef, Pending};
+pub use task::spawn_mailbox;
+pub use timer::keeps_timer;
+
+use crate::executor::TaskId;
+use crate::{Core, EngineError, State, ThreadId};
+use std::rc::Rc;
+
+/// `actor(id)` (`index.ts:528`–`:562`): the actor, created at capacity or inside a transaction.
+pub fn get_or_create(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
+    if core.with_state(|state| state.actors.by_thread.contains_key(thread))? {
+        return Ok(());
+    }
+    let deps = core.actor_deps.borrow().clone();
+    let limits = core.with_state(|state| state.limits)?;
+    let retiring = deps.repo.retiring_count(core)?;
+    let room = limits.max_active_threads as usize + retiring;
+    let open = core.store.is_open();
+    // Victims in insertion order: outside a transaction they are evicted at the call; inside one
+    // they are pledged and moved aside, so a lookup of one builds a fresh actor (step 7).
+    let mut victims: Vec<ThreadId> = Vec::new();
+    let mut skipped: Vec<ThreadId> = Vec::new();
+    loop {
+        let occupied = core.with_state(|state| state.actors.occupied())?;
+        if occupied.saturating_sub(victims.len()) < room {
+            break;
+        }
+        let candidate = core.with_state(|state| {
+            state
+                .actors
+                .by_thread
+                .iter()
+                .find(|(id, _)| {
+                    !state.actors.seats[*id].provisional
+                        && !victims.contains(id)
+                        && !skipped.contains(id)
+                })
+                .map(|(id, _)| id.clone())
+        })?;
+        let Some(candidate) = candidate else {
+            break;
+        };
+        if deps.repo.reserved_slot(core, &candidate)? {
+            // A retiring session keeps its actor until its close completes: skip, never pledge.
+            skipped.push(candidate);
+            continue;
+        }
+        victims.push(candidate);
+        if !open {
+            break;
+        }
+    }
+    if !open {
+        for victim in &victims {
+            // The victim leaves at the call, and every acknowledgement it still held settles.
+            promotion::evict_now(core, victim);
+        }
+        if core.with_state(|state| state.actors.occupied())? >= room {
+            return Err(EngineError::ActorCapacityExceeded);
+        }
+    } else if core
+        .with_state(|state| state.actors.occupied())?
+        .saturating_sub(victims.len())
+        >= room
+    {
+        // Every remaining actor holds a slot: throw at the call, as TypeScript does.
+        return Err(EngineError::ActorCapacityExceeded);
+    }
+    let released = deps.repo.released_thread(core, thread)?;
+    // A fresh actor takes the stored maximum, whichever backend retired the last generation.
+    let generation = deps.repo.latest_generation(core, thread)?;
+    let seat = core.with_state(|state| {
+        let seat = state.actors.next_seat;
+        state.actors.next_seat += 1;
+        seat
+    })?;
+    let mut actor = ActorInstance::new(thread.clone(), generation);
+    actor.release_requested = released;
+    actor.deps = Some(Rc::clone(&deps));
+    actor.instance = core.with_state(|state| {
+        let instance = state.actors.next_instance;
+        state.actors.next_instance += 1;
+        instance
+    })?;
+    let actor = Rc::new(std::cell::RefCell::new(actor));
+    if !open {
+        core.with_state(|state| {
+            state.actors.seats.insert(
+                thread.clone(),
+                state::Seat {
+                    order: seat,
+                    provisional: open,
+                },
+            );
+            state.actors.by_thread.insert(thread.clone(), actor);
+        })?;
+        spawn_mailbox(core, thread);
+        return Ok(());
+    }
+    // Capture the victims' positions, then remove from the highest index down so the captured
+    // positions stay exact. The kept-aside actors are restored there on a rollback.
+    let mut aside = Vec::new();
+    let mut positions: Vec<(usize, ThreadId)> = Vec::new();
+    for victim in &victims {
+        if let Some(index) = core.with_state(|state| state.actors.by_thread.get_index_of(victim))? {
+            positions.push((index, victim.clone()));
+        }
+    }
+    positions.sort_unstable_by_key(|(index, _)| std::cmp::Reverse(*index));
+    for (index, victim) in positions {
+        if let Some((victim_actor, seat)) = core.with_state(|state| state.actors.remove(&victim))? {
+            let instance = victim_actor.borrow().instance;
+            core.with_state(|state| {
+                state
+                    .actors
+                    .aside
+                    .insert(instance, Rc::clone(&victim_actor));
+            })?;
+            aside.push((index, seat, victim_actor));
+        }
+    }
+    core.with_state(|state| {
+        state.actors.seats.insert(
+            thread.clone(),
+            state::Seat {
+                order: seat,
+                provisional: open,
+            },
+        );
+        state.actors.by_thread.insert(thread.clone(), actor);
+        state.actors.reserved.insert(thread.clone(), ());
+    })?;
+    let promotion = Rc::new(state::Promotion {
+        created: thread.clone(),
+        pledges: victims.clone(),
+        kept_aside: std::cell::RefCell::new(aside),
+        state: std::cell::RefCell::new(state::PromotionState::default()),
+        owner: Rc::downgrade(core),
+    });
+    core.with_state(|state| {
+        for victim in &victims {
+            state.actors.pledges.insert(victim.clone(), ());
+        }
+    })?;
+    // The promotion runs at the commit itself, so the next synchronous lookup sees it, exactly
+    // as the TypeScript's eviction at the call was visible at once (step 7).
+    let owner = Rc::clone(core);
+    let committed = Rc::clone(&promotion);
+    core.defer(crate::executor::Deferred::Run(Box::new(move || {
+        promotion::commit_promotion(&owner, &committed);
+    })));
+    core.record_wake(thread);
+    Ok(())
+}
+
+/// `stop()` (`actor.ts:599`): seal first, then stop everything the actor holds.
+pub fn stop(core: &Rc<Core>, thread: &ThreadId) {
+    if let Some(actor) = state::current(core, thread) {
+        stop_instance(core, &actor);
+    }
+}
+
+pub(crate) fn stop_instance(core: &Rc<Core>, actor: &ActorRef) {
+    intake::catch_up_instance(core, actor);
+    intake::seal_instance(core, actor);
+    let drains = {
+        let mut state = actor.borrow_mut();
+        state.stopped = true;
+        state.pressure = false;
+        std::mem::take(&mut state.drains)
+    };
+    timer::disarm_instance(core, actor);
+    leases::release_instance_inputs(core, actor);
+    for drain in drains {
+        let _ = drain.send(());
+    }
+    core.record_actor_wake(actor);
+}
+
+/// `flush_all` (E5.1's `actor::flush_all`): seal and flush every actor, excluding the caller.
+pub async fn flush_all(core: &Rc<Core>, exclude: Option<TaskId>) -> Result<(), EngineError> {
+    let instances: Vec<_> = core.with_state(|state| {
+        state.actors.seals += 1;
+        state.actors.instances().cloned().collect()
+    })?;
+    for actor in instances {
+        mailbox::task::flush_instance(core, &actor, exclude).await;
+    }
+    Ok(())
+}
+
+/// `close_flush`: every actor seals and flushes, under close's deadline.
+pub async fn close_flush(core: &Rc<Core>) -> Result<(), EngineError> {
+    flush_all(core, None).await
+}
+
+/// `close_stop`: every actor stops, and its waker goes with it.
+pub fn close_stop(core: &Rc<Core>) {
+    let threads: Vec<ThreadId> = core
+        .with_state(|state| state.actors.by_thread.keys().cloned().collect())
+        .unwrap_or_default();
+    for thread in threads {
+        stop(core, &thread);
+    }
+}
+
+/// Close can cut a parked mailbox short, so it takes over the task's cleanup. Both registries are
+/// retired: no actor stays current, so a late frame finds none to admit, and nothing an actor held
+/// (a frame payload, a batch's acknowledgement, a waker) outlives the close.
+pub(crate) fn finish_close(core: &Core) {
+    let actors: Vec<ActorRef> = core
+        .with_state(|state| {
+            state
+                .actors
+                .instances()
+                .chain(state.actors.aside.values())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    for actor in &actors {
+        retire_instance(core, actor);
+    }
+    core.with_state(|state| {
+        state.actors.by_thread.clear();
+        state.actors.seats.clear();
+        state.actors.aside.clear();
+        state.actors.stopping.clear();
+        state.actors.reserved.clear();
+        state.actors.pledges.clear();
+    })
+    .ok();
+}
+
+/// One actor at close: refused for good, its held work released and its acknowledgements rejected.
+/// The frames are dropped rather than sealed, since the executor is shut and no mailbox will fold
+/// them: a sealed batch would keep its payloads and senders alive with nothing to run them.
+pub(crate) fn retire_instance(core: &Core, actor: &ActorRef) {
+    let (pending, ack, in_flight, mailbox, flush_waiters, drains, timers) = {
+        let mut state = actor.borrow_mut();
+        state.stopped = true;
+        state.pressure = false;
+        state.waker = None;
+        for shared in state.staged.values() {
+            *shared.borrow_mut() = mailbox::Staged::Discarded;
+        }
+        (
+            std::mem::take(&mut state.pending),
+            state.pending_ack.take(),
+            state.in_flight.take(),
+            std::mem::take(&mut state.mailbox),
+            std::mem::take(&mut state.flush_waiters),
+            std::mem::take(&mut state.drains),
+            [
+                state.timer.take().map(|(timer, _)| timer.key),
+                state.batch_timer.take().map(|timer| timer.key),
+            ],
+        )
+    };
+    for key in timers.into_iter().flatten() {
+        core.ports.cancel_timer(key);
+    }
+    intake::release_handles(core, actor, &pending);
+    let mut acks: Vec<mailbox::SharedAck> = Vec::new();
+    if let Some(ack) = ack {
+        acks.push(Rc::new(std::cell::RefCell::new(ack)));
+    }
+    // The op the mailbox took would otherwise lose its acknowledgement and frame handles.
+    if let Some(in_flight) = in_flight {
+        if let Some(ack) = in_flight.ack {
+            acks.push(ack);
+        }
+        if let Some(handles) = in_flight.handles {
+            mailbox::release_owned(core, actor, &handles);
+        }
+    }
+    for op in mailbox {
+        match op {
+            mailbox::Op::Batch(batch) => {
+                mailbox::release_owned(core, actor, &batch.handles);
+                acks.push(batch.ack);
+            }
+            mailbox::Op::Settle(ack) => acks.push(ack),
+            _ => {}
+        }
+    }
+    for ack in &acks {
+        // The facade's own promises reject with Engine closed through `reject_pending`; a native
+        // session's gate is failed here, so it stops reading instead of waiting forever.
+        ack.borrow_mut().reject("Engine closed");
+    }
+    for waiter in flush_waiters {
+        let _ = waiter.send(());
+    }
+    for drain in drains {
+        let _ = drain.send(());
+    }
+}
+
+/// Whether the actors hold no work E5.1 must wait for.
+pub fn quiescent(state: &State, exclude: Option<TaskId>) -> bool {
+    state.actors.instances().all(|actor| {
+        let actor = actor.borrow();
+        let own = exclude.is_some() && actor.mailbox_task == exclude;
+        mailbox::actor_quiescent(&actor) || own
+    })
+}
+
+/// `liveThreadIds()` (`index.ts:1049`): the actors' ids in insertion order.
+pub fn live_thread_ids(state: &State) -> Vec<ThreadId> {
+    state.actors.by_thread.keys().cloned().collect()
+}
+
+/// `observeInputs`, called by E5.3's apply.
+pub use leases::observe_inputs;
+
+/// `workload()`'s figures (`index.ts:795`–`:806`): attached sessions, then the frames and bytes
+/// every actor the engine still owes work for holds. An evicted actor's accepted tail is still
+/// engine work while it stops, so it counts; TypeScript forgets it the moment the actor leaves its
+/// map, which is the one place Rust is deliberately stricter (behaviour.md §20).
+pub fn workload_counts(state: &State) -> (usize, usize, usize) {
+    let mut sessions = 0;
+    let mut frames = 0;
+    let mut bytes = 0;
+    for actor in state.actors.instances() {
+        let actor = actor.borrow();
+        if actor.session_attached {
+            sessions += 1;
+        }
+        let (actor_frames, actor_bytes) = actor.backlog();
+        frames += actor_frames;
+        bytes += actor_bytes;
+    }
+    (sessions, frames, bytes)
+}
+
+/// A thread's own rules, for E5.3's calls.
+pub use rules::has_running_foreground_command;

@@ -16,7 +16,7 @@ import { tlsFixtureHome } from "./process-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { loadIdentity, publicKeyFingerprint } from "./tls-identity.ts";
 import { trustedCertificate } from "./tailscale-certificate.ts";
-import { sniListener } from "./sni-listener.ts";
+import { testSniListener } from "./sni-test-support.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { X509Certificate } from "node:crypto";
 
@@ -299,15 +299,15 @@ test("a renewed Tailscale certificate is served to new connections without resta
   });
   cleanups.push(() => certificate.stop());
   const pinned = loadIdentity(tlsFixtureHome());
-  const listener = sniListener({
-    tls: {
-      ...pinned,
-      SNICallback: (servername, done) => done(null, certificate.select(servername)),
+  const listener = testSniListener(
+    {
+      tls: { ...pinned },
+      requests: (_request, response) => response.writeHead(204).end(),
+      delay: systemDeliveryRuntime.delay,
+      log: () => {},
     },
-    requests: (_request, response) => response.writeHead(204).end(),
-    delay: systemDeliveryRuntime.delay,
-    log: () => {},
-  });
+    certificate,
+  );
   const port = await listener.listen("127.0.0.1", 0);
   cleanups.push(() => listener.close());
   await certificate.ready;
@@ -345,3 +345,23 @@ test("the pin gives way only to a trusted certificate for the exact ts.net name 
     /fingerprint mismatch/,
   );
 });
+
+test("the native listener serves the trusted ts.net certificate, and the pin for every other name", async () => {
+  const ca = await authority();
+  const leaf = await ca.leaf(tailnet);
+  const { identity, link } = await tailnetDaemon(async () => `${leaf.cert}${ca.root}${leaf.key}`);
+
+  await expect.poll(async () => (await link()).hostname, { timeout: 5000 }).toBe(tailnet);
+  const port = Number((await link()).port);
+  // The exact name asked for is answered with Tailscale's certificate; every other name, another
+  // ts.net one included, still gets ace's pinned certificate.
+  expect(await presented(port, tailnet)).toBe(publicKeyFingerprint(leaf.cert));
+  expect(await presented(port, "other.tail1234.ts.net")).toBe(identity.fingerprint);
+  expect(await presented(port)).toBe(identity.fingerprint);
+  // A client that trusts Tailscale's authority and pins ace's identity reaches the listener.
+  expect(await pinnedGet(port, tailnet, identity.fingerprint, [ca.root])).toBeGreaterThan(0);
+  // The other name is not answered with it, so a client pinning that certificate refuses it.
+  await expect(
+    pinnedGet(port, "other.tail1234.ts.net", publicKeyFingerprint(leaf.cert), [ca.root]),
+  ).rejects.toThrow(/fingerprint mismatch/);
+}, 30_000);

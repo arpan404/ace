@@ -1,0 +1,542 @@
+{
+  "platform": {
+    "installSimulatorApp": {
+      "code": "not_supported",
+      "message": "iOS Simulator installs Simulator-built .app bundles",
+      "hint": "Extract a Simulator-built .app from the IPA; device-only IPA binaries cannot run in Simulator."
+    },
+    "installAndroidApk": {
+      "code": "invalid_data",
+      "message": "Android install requires an .apk",
+      "hint": "Select an APK built for the emulator architecture."
+    },
+    "installPathRelative": {
+      "code": "invalid_data",
+      "message": "Device install path must be absolute",
+      "hint": "Supply the full path to the package on this machine."
+    },
+    "installPathInvalid": {
+      "code": "invalid_data",
+      "message": "Device install path is not valid",
+      "hint": "Supply a path of 1 to 4096 bytes on this machine."
+    },
+    "appIdInvalid": {
+      "code": "invalid_data",
+      "message": "Device app identifier is not valid",
+      "hint": "Use a bundle id or package name, or package/activity for Android."
+    },
+    "appNotLaunchable": {
+      "code": "not_found",
+      "message": "Android app has no launchable activity",
+      "hint": "Supply a package/activity component or install the app first."
+    },
+    "urlInvalid": {
+      "code": "invalid_data",
+      "message": "Device URL is not valid",
+      "hint": "Use a URL with a scheme, such as https:// or myapp://."
+    },
+    "localeUnsupported": {
+      "code": "not_supported",
+      "message": "Runtime locale configuration is not supported by the installed public CLI contract",
+      "hint": "Change language in the device Settings app, then restart the app."
+    },
+    "locationPhysical": {
+      "code": "not_supported",
+      "message": "Only an emulator's location can be set",
+      "hint": "Use a mock location app on the device, or set the location on an emulator."
+    },
+    "simulatorNotBooted": {
+      "code": "not_booted",
+      "message": "Selected Simulator is not booted",
+      "hint": "Boot this Simulator before starting capture."
+    },
+    "simulatorNameAmbiguous": {
+      "code": "busy",
+      "message": "Booted Simulators have ambiguous display names",
+      "hint": "Rename one Simulator or shut down the duplicate before starting capture."
+    },
+    "identityPlatformMismatch": {
+      "code": "invalid_data",
+      "message": "Device identity does not match its platform",
+      "hint": "Refresh the device list."
+    },
+    "identityNotUdid": {
+      "code": "invalid_data",
+      "message": "Simulator identity is not a UDID",
+      "hint": "Refresh the device list."
+    },
+    "identityNotAvd": {
+      "code": "invalid_data",
+      "message": "Android device identity is not an AVD name",
+      "hint": "Refresh the device list."
+    },
+    "sizeUndecoded": {
+      "code": "invalid_data",
+      "message": "Android display size could not be decoded",
+      "hint": "Check adb shell wm size on the selected emulator."
+    },
+    "iosNeedsMac": {
+      "code": "not_supported",
+      "message": "iOS Simulators need a paired Mac",
+      "hint": "Pair a Mac running ace in Settings › Fleet and use its Simulators there; agents can delegate that work to the Mac. Android emulators and phones work on this Windows machine."
+    },
+    "iosNeedsMacOs": {
+      "code": "not_supported",
+      "message": "iOS Simulator requires macOS",
+      "hint": "Use a macOS daemon with Xcode installed."
+    },
+    "xcodeMissing": {
+      "code": "sdk_missing",
+      "message": "Xcode tools were not found",
+      "hint": "Install Xcode and select it with xcode-select -s /Applications/Xcode.app/Contents/Developer."
+    },
+    "xcodeUnavailable": {
+      "code": "sdk_missing",
+      "message": "Xcode developer directory is unavailable",
+      "hint": "Run xcode-select -s /Applications/Xcode.app/Contents/Developer."
+    },
+    "xcodeNotFull": {
+      "code": "sdk_missing",
+      "message": "A full Xcode installation is required",
+      "hint": "Run xcode-select -s /Applications/Xcode.app/Contents/Developer, then accept the Xcode license."
+    },
+    "adbMissingArm": {
+      "code": "sdk_missing",
+      "message": "adb was not found",
+      "hint": "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) to use Android phones and network devices. Android emulators aren't available on Linux arm64."
+    },
+    "adbMissingLinux": {
+      "code": "sdk_missing",
+      "message": "adb was not found",
+      "hint": "Install your distribution's adb (Debian/Ubuntu: sudo apt install adb) for Android phones, or Android Studio's Platform Tools and Android Emulator with ANDROID_HOME set to the SDK directory for emulators too."
+    },
+    "sdkMissing": {
+      "code": "sdk_missing",
+      "message": "Android SDK platform-tools were not found",
+      "hint": "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory."
+    },
+    "deviceServiceClosed": {
+      "code": "command_failed",
+      "message": "Device service is closed",
+      "hint": "Restart the device service."
+    },
+    "androidEmulatorMissing": {
+      "code": "sdk_missing",
+      "message": "The Android Emulator was not found",
+      "hint": "Install the Android Emulator from Android Studio's SDK Manager, then set ANDROID_HOME to the SDK directory."
+    },
+    "androidBootBusy": {
+      "code": "busy",
+      "message": "Emulator process limit or boot already in progress",
+      "hint": "Wait for the current boot or shut down another emulator."
+    },
+    "androidPortLimit": {
+      "code": "limit",
+      "message": "No emulator console port available",
+      "hint": "Close unused emulators."
+    },
+    "toolsNowhere": {
+      "code": "tool_missing",
+      "message": "ace has nowhere to keep device tools",
+      "hint": "Restart ace; its home directory should hold them."
+    },
+    "armEmulatorNote": {
+      "code": "not_supported",
+      "message": "Android emulators aren't available on Linux arm64",
+      "hint": "Google publishes the Android Emulator for x86-64 Linux only. Android phones on USB and devices on the network work here through adb."
+    },
+    "iosRecentsKey": {
+      "code": "not_supported",
+      "message": "iOS Simulator has no Recents key",
+      "hint": "A slow swipe up from the bottom edge opens the app switcher; or open_app the app you want."
+    },
+    "iosBackKey": {
+      "code": "not_supported",
+      "message": "iOS has no Back key",
+      "hint": "Use a gesture or the app's back control."
+    },
+    "androidActionKey": {
+      "code": "not_supported",
+      "message": "Android has no Action button",
+      "hint": "The Action button is on iPhone 15 Pro and later; on Android, open_app or use the app's own control."
+    },
+    "watchSideKey": {
+      "code": "not_supported",
+      "message": "Only Apple Watch has a side key",
+      "hint": "On a phone or tablet the side or top button is the power key."
+    },
+    "androidClipboardLiveView": {
+      "code": "not_supported",
+      "message": "The Android clipboard needs ace's live view of the emulator",
+      "hint": "Start the device view (sim_start), then retry; adb has no clipboard command that works on every emulator."
+    },
+    "inputOutsideScreen": {
+      "code": "invalid_data",
+      "message": "Input is outside the device screen",
+      "hint": "Use a point inside the current frame."
+    },
+    "pasteTooLong": {
+      "code": "limit",
+      "message": "Text is too long to paste",
+      "hint": "Type shorter text."
+    },
+    "jpegTooLarge": {
+      "code": "limit",
+      "message": "Android JPEG exceeds 8 MiB",
+      "hint": "Reduce emulator resolution."
+    },
+    "simulatorIncompletePicture": {
+      "code": "invalid_data",
+      "message": "The Simulator sent an incomplete picture",
+      "hint": "Retry; if it persists, restart the device view."
+    },
+    "pasteTimedOut": {
+      "code": "command_failed",
+      "message": "Android paste timed out",
+      "hint": "Retry the text."
+    },
+    "clipboardWriteTimedOut": {
+      "code": "command_failed",
+      "message": "Android clipboard write timed out",
+      "hint": "Retry the text."
+    },
+    "clipboardReadWaiting": {
+      "code": "busy",
+      "message": "A clipboard read is already waiting",
+      "hint": "Retry shortly."
+    },
+    "androidControlRestarted": {
+      "code": "busy",
+      "message": "Android control restarted during a clipboard read",
+      "hint": "Retry."
+    },
+    "simulatorTreeMalformed": {
+      "code": "invalid_data",
+      "message": "Simulator accessibility tree is malformed",
+      "hint": "Read the UI tree again; restart the live view if it keeps failing."
+    },
+    "simulatorTreeUnreadable": {
+      "code": "invalid_data",
+      "message": "Simulator accessibility tree is malformed",
+      "hint": "Read the UI tree again."
+    },
+    "simulatorTargetStale": {
+      "code": "stale_ref",
+      "message": "Simulator UI target is stale or no longer visible",
+      "hint": "Read the UI tree again before acting."
+    },
+    "simulatorActionUnsupported": {
+      "code": "not_supported",
+      "message": "Simulator UI target does not support this action",
+      "hint": "Read supported actions from the current tree."
+    },
+    "simulatorSizeUnknown": {
+      "code": "not_found",
+      "message": "Simulator screen size is not known yet",
+      "hint": "Wait for the live view's first frame, then read the tree again."
+    },
+    "simulatorAxUnavailable": {
+      "code": "command_failed",
+      "message": "Simulator accessibility is unavailable",
+      "hint": "Unlock the Simulator and wait for an app to be frontmost, then read the tree again."
+    },
+    "simulatorAxBudget": {
+      "code": "limit",
+      "message": "Simulator accessibility tree exceeds its budget",
+      "hint": "Reduce the app's UI tree."
+    },
+    "simulatorAxTimeout": {
+      "code": "timeout",
+      "message": "Simulator accessibility read timed out",
+      "hint": "Read the UI tree again."
+    },
+    "simulatorNoFold": {
+      "code": "not_supported",
+      "message": "This device doesn't fold",
+      "hint": "Only foldable simulators, such as the iPhone Duo, have a posture."
+    },
+    "deviceNoFold": {
+      "code": "not_supported",
+      "message": "This device doesn't fold",
+      "hint": "Only foldable simulators and emulators, such as the iPhone Duo, have a posture."
+    },
+    "simulatorFoldFailed": {
+      "code": "not_supported",
+      "message": "This simulator couldn't be folded",
+      "hint": "Fold it from Xcode's device tool; this Xcode may have changed how folding works."
+    },
+    "androidNoFold": {
+      "code": "not_supported",
+      "message": "This device doesn't fold",
+      "hint": "Only foldable emulators, such as a Pixel Fold, have a posture."
+    },
+    "androidFoldFailed": {
+      "code": "not_supported",
+      "message": "This emulator couldn't be folded",
+      "hint": "Fold it from the emulator's extended controls; this emulator may be too old."
+    },
+    "androidTreeBudget": {
+      "code": "limit",
+      "message": "Android UI dump exceeds the XML budget",
+      "hint": "Reduce the app's UI tree."
+    },
+    "androidXmlMalformed": {
+      "code": "invalid_data",
+      "message": "Malformed Android UI XML",
+      "hint": "Refresh the device tree."
+    },
+    "androidXmlDeclaration": {
+      "code": "invalid_data",
+      "message": "Unexpected XML declaration",
+      "hint": "Refresh the device tree."
+    },
+    "androidHierarchyDuplicate": {
+      "code": "invalid_data",
+      "message": "Duplicate UI hierarchy",
+      "hint": "Refresh the device tree."
+    },
+    "androidNodeUnclosed": {
+      "code": "invalid_data",
+      "message": "Unclosed Android UI node",
+      "hint": "Refresh the device tree."
+    },
+    "androidNodeOutsideHierarchy": {
+      "code": "invalid_data",
+      "message": "UI node outside hierarchy",
+      "hint": "Refresh the device tree."
+    },
+    "androidTreeUnbalanced": {
+      "code": "invalid_data",
+      "message": "Unbalanced Android UI tree",
+      "hint": "Refresh the device tree."
+    },
+    "androidNestingBudget": {
+      "code": "limit",
+      "message": "Android UI nesting exceeds the parser budget",
+      "hint": "Reduce the app's UI nesting."
+    },
+    "androidXmlIncomplete": {
+      "code": "invalid_data",
+      "message": "Incomplete Android UI XML",
+      "hint": "Refresh the device tree."
+    },
+    "androidEntityInvalid": {
+      "code": "invalid_data",
+      "message": "Invalid Android UI entity",
+      "hint": "Refresh the device tree."
+    },
+    "androidAttributesMalformed": {
+      "code": "invalid_data",
+      "message": "Malformed Android UI attributes",
+      "hint": "Refresh the device tree."
+    },
+    "androidBoundsInvalid": {
+      "code": "invalid_data",
+      "message": "Invalid Android UI bounds",
+      "hint": "Refresh the device tree."
+    },
+    "androidTargetStale": {
+      "code": "stale_ref",
+      "message": "Android UI target is stale or no longer visible",
+      "hint": "Read the UI tree again before acting."
+    },
+    "androidActionUnsupported": {
+      "code": "not_supported",
+      "message": "Android UI target does not support this action",
+      "hint": "Read supported actions from the current tree."
+    },
+    "androidUiQueueFull": {
+      "code": "busy",
+      "message": "Device UI read queue is full",
+      "hint": "Wait for another UI read to complete."
+    },
+    "simulatorTreeOnAndroid": {
+      "code": "not_supported",
+      "message": "Simulator tree uses the screen session",
+      "hint": "Use the device service's Simulator tree operation."
+    },
+    "androidHelperStartFailed": {
+      "code": "command_failed",
+      "message": "Android UI helper did not start",
+      "hint": "Read the UI tree again; ace falls back to uiautomator."
+    },
+    "androidHelperExited": {
+      "code": "command_failed",
+      "message": "Android UI helper exited",
+      "hint": "Read the UI tree again; ace falls back to uiautomator."
+    },
+    "androidHelperTimedOut": {
+      "code": "command_failed",
+      "message": "Android UI helper timed out",
+      "hint": "Read the UI tree again; ace falls back to uiautomator."
+    },
+    "androidInputEnded": {
+      "code": "command_failed",
+      "message": "Android input transport ended or refused input",
+      "hint": "Reconnect the emulator and take control again."
+    },
+    "simulatorTooManyFingers": {
+      "code": "not_supported",
+      "message": "iOS Simulator input supports at most two fingers",
+      "hint": "Use pointerId 0 or 1."
+    },
+    "leaseRequired": {
+      "code": "lease_required",
+      "message": "Controller lease required",
+      "hint": "Call sim_start to take control again; wait while a person controls the simulator."
+    },
+    "inputQueueFull": {
+      "code": "busy",
+      "message": "Device input queue is full",
+      "hint": "Wait for pending device actions."
+    },
+    "commandQueueFull": {
+      "code": "busy",
+      "message": "Device command queue is full",
+      "hint": "Wait for pending device actions."
+    },
+    "bindingBusy": {
+      "code": "busy",
+      "message": "Device is changing threads",
+      "hint": "Retry in a moment."
+    },
+    "bindingDisabled": {
+      "code": "busy",
+      "message": "Devices turned off while binding",
+      "hint": "Turn devices on and retry."
+    },
+    "inputOneFinger": {
+      "code": "not_supported",
+      "message": "This device view supports one finger",
+      "hint": "Send pointer input without a pointerId, or use one finger."
+    },
+    "unsupportedAction": {
+      "code": "invalid_data",
+      "message": "Unsupported queued device action",
+      "hint": "Use a device command."
+    },
+    "screenDisabled": {
+      "code": "permission_denied",
+      "message": "Computer use is off",
+      "hint": "Turn it on in Computer use, then try again."
+    },
+    "frontmostTyping": {
+      "code": "not_supported",
+      "message": "Typing reaches the Simulator only while Simulator is the frontmost app",
+      "hint": "Click the Simulator window once, then type here. Or turn off Simulator's I/O › Keyboard › Connect Hardware Keyboard and tap the on-screen keyboard in the live view. With idb installed, ace types while Simulator stays in the background."
+    },
+    "screenLimit": {
+      "code": "busy",
+      "message": "Another live view is using the screen helper",
+      "hint": "Stop the other simulator's live view or screen session, then start this one."
+    },
+    "permissionScreenRecording": {
+      "code": "permission_denied",
+      "message": "ace needs Screen Recording permission to show the Simulator",
+      "hint": "Open System Settings › Privacy & Security › Screen Recording, turn on Ace Screen Helper, then try again."
+    },
+    "permissionAccessibility": {
+      "code": "permission_denied",
+      "message": "ace needs Accessibility permission to send taps and keys to the Simulator",
+      "hint": "Open System Settings › Privacy & Security › Accessibility, turn on Ace Screen Helper, then try again."
+    },
+    "uiNeedsRef": {
+      "code": "not_supported",
+      "message": "ui needs a ref",
+      "hint": "Read sim_ui and pass one of its refs."
+    },
+    "personControlling": {
+      "code": "lease_required",
+      "message": "A person is controlling this device",
+      "hint": "Wait until the person hands it back, then call sim_start again."
+    },
+    "otherAgentUsing": {
+      "code": "busy",
+      "message": "Another agent is using this device",
+      "hint": "Use another simulator, or retry after that agent finishes."
+    },
+    "controlChanged": {
+      "code": "busy",
+      "message": "Device control changed",
+      "hint": "Take control again."
+    },
+    "deviceNotTaken": {
+      "code": "lease_required",
+      "message": "Device is not taken for this thread",
+      "hint": "Call sim_start to take this simulator first."
+    },
+    "devicesDisabled": {
+      "code": "permission_denied",
+      "message": "Devices are disabled",
+      "hint": "Enable devices in the device panel."
+    },
+    "controlChangedRead": {
+      "code": "lease_required",
+      "message": "Control of this device changed during the read",
+      "hint": "Call sim_start again, then read the clipboard again."
+    },
+    "liveViewH264Only": {
+      "code": "not_supported",
+      "message": "Device live views are H.264 video only",
+      "hint": "Update ace on this device; live views no longer stream JPEG."
+    },
+    "captureNoVideo": {
+      "code": "not_supported",
+      "message": "This device's capture can't stream video for a live view",
+      "hint": "Live views are H.264 only. Restart the device's live view; if it persists, check its capture tools."
+    },
+    "personOnly": {
+      "code": "permission_denied",
+      "message": "Only a person can do this",
+      "hint": "Use the sim_* tools; sim_start takes the simulator for this thread."
+    },
+    "toolsPersonOnly": {
+      "code": "permission_denied",
+      "message": "Only a person can download device tools",
+      "hint": "Ask the person to download device tools in Devices."
+    },
+    "humanAuthorization": {
+      "code": "permission_denied",
+      "message": "Human authorization required",
+      "hint": "Ask the user to grant the permission from the device panel."
+    }
+  },
+  "adbTransports": {
+    "defaultPhysicalName": "Android device",
+    "tooManyTransports": {
+      "message": "Too many Android devices are connected",
+      "hint": "Disconnect unused devices or emulators."
+    },
+    "blocked": {
+      "noPermissions": {
+        "messageSuffix": " is connected, but this user can't open it over USB",
+        "hintLinux": "Linux needs a udev rule for Android devices: install your distribution's rules (Debian/Ubuntu: sudo apt install android-udev-rules; Fedora: sudo dnf install android-tools; Arch: sudo pacman -S android-udev), add yourself to the plugdev group (sudo usermod -aG plugdev $USER, then sign out and back in), unplug and replug the device, then run adb kill-server.",
+        "hintOther": "Unplug and replug the device, then run adb kill-server."
+      },
+      "network": {
+        "messageSuffix": " hasn't allowed this computer yet",
+        "hint": "On the device, allow the debugging prompt. For wireless debugging, pair first: Developer options > Wireless debugging > Pair device with pairing code, then run adb pair HOST:PORT and adb connect HOST:PORT."
+      },
+      "usb": {
+        "messageSuffix": " is waiting for you to allow USB debugging",
+        "hint": "Unlock the device and tap Allow on the \"Allow USB debugging?\" prompt. No prompt? Unplug and replug it, or revoke USB debugging authorizations in Developer options and reconnect."
+      }
+    }
+  },
+  "tools": {
+    "downloadHint": "Check the network and download the device tools again from Devices.",
+    "againHint": "Download the device tools again from Devices.",
+    "scrcpyHint": "ace downloads scrcpy-server on first use. Check the network, or set ACE_SCRCPY_SERVER to a verified copy.",
+    "downloadTimeout": "The device tools download took too long",
+    "simulatorPasteTimeoutHint": "Check that the Simulator is booted and responding, then retry.",
+    "simulatorPasteFailedHint": "Check that the Simulator is booted, then retry.",
+    "androidNoKeyHint": "Use the app's own controls instead.",
+    "iosNoKeyHint": "Use the Simulator Device menu or the app's navigation.",
+    "foregroundRequiredHint": "Bring the selected Simulator window forward before retrying, or install idb for native device input. ace will not change your desktop focus for an agent.",
+    "personBusyHint": "Try again shortly, or work elsewhere meanwhile.",
+    "simRefUnknownHint": "Read sim_ui and act on one of the refs it returns.",
+    "simStaleRefHint": "Read sim_ui again and act on a current ref.",
+    "simActionUnsupportedHint": "Use one of the element's actions, or tap it.",
+    "simActionNoRefHint": "Pass coordinates or the action's own fields."
+  }
+}

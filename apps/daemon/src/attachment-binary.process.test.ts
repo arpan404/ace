@@ -24,6 +24,8 @@ import { fixture, token } from "./socket-test-support.ts";
 import { createDevThread } from "./commands.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { startFilesRelay } from "./files-relay.ts";
+import { NativeSocket } from "./native-socket.ts";
+import { transportParts } from "@ace/provider-kit/native-switches";
 
 const schedule = (callback: () => void, delay: number) => {
   const timer = setTimeout(callback, delay);
@@ -522,17 +524,19 @@ test("an original still arrives whole while a slow link briefly queues other out
   const client = new Client(f.options);
   // A phone over Tailscale drains slowly: right after the first chunk, a transcript part sits
   // queued on the socket for a moment. Only the socket's backlog counter is controlled; the
-  // daemon, its outbox and the socket are real, and the backlog drains on its own.
-  const property = Object.getOwnPropertyDescriptor(WebSocket.prototype, "bufferedAmount");
+  // daemon, its outbox and the socket are real, and the backlog drains on its own. The daemon's
+  // socket is whichever class the switch selects: the count has to patch that one.
+  const socketClass = transportParts().has("loopback") ? NativeSocket : WebSocket;
+  const property = Object.getOwnPropertyDescriptor(socketClass.prototype, "bufferedAmount");
   const real = property?.get;
-  if (!property || !real) throw new Error("ws exposes no bufferedAmount");
+  if (!property || !real) throw new Error("The daemon's socket exposes no bufferedAmount");
   let drainsAt: number | undefined;
   try {
     await client.start();
     await expect.poll(() => client.state).toBe("ready");
-    Object.defineProperty(WebSocket.prototype, "bufferedAmount", {
+    Object.defineProperty(socketClass.prototype, "bufferedAmount", {
       ...property,
-      get(this: WebSocket): number {
+      get(this: WebSocket | NativeSocket): number {
         const queued = Number(real.call(this));
         if (f.binaryFrames() === 0) return queued;
         drainsAt ??= performance.now() + 100;
@@ -543,7 +547,7 @@ test("an original still arrives whole while a slow link briefly queues other out
     expect(Buffer.from(image.bytes)).toEqual(f.bytes);
     expect(drainsAt).toBeDefined();
   } finally {
-    Object.defineProperty(WebSocket.prototype, "bufferedAmount", property);
+    Object.defineProperty(socketClass.prototype, "bufferedAmount", property);
     await client.close();
     await f.close();
   }

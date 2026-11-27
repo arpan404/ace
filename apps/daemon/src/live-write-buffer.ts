@@ -5,6 +5,8 @@ import { EventEncodings } from "./event-encodings.ts";
 export interface BufferedSnapshot {
   persist(): void;
   committed(): void;
+  /** The batch was replaced or dropped without storing it: release what the snapshot holds. */
+  discarded?(): void;
 }
 export interface BufferScheduler {
   delay(callback: () => void, ms: number): () => void;
@@ -17,6 +19,43 @@ export const bufferScheduler: BufferScheduler = {
   },
 };
 
+/** The counters `streamingMetrics` reports for the live path. */
+export interface BufferMetrics {
+  flushes: number;
+  rows: number;
+  failures: number;
+  liveBytes: number;
+  peakBytes: number;
+}
+
+/**
+ * What `StoreStream` needs from a live write buffer: this class with the switch off, and
+ * `NativeLiveBuffer` (`native-writer/live.ts`) with it on. The shell owns the event objects,
+ * the snapshots and the timer; the buffer owns the batch's bookkeeping and returns deadlines.
+ */
+export interface LiveBuffer {
+  readonly failed: boolean;
+  readonly size: number;
+  readonly quiet: boolean;
+  readonly bytes: number;
+  readonly head: number | undefined;
+  readonly metrics: BufferMetrics;
+  has(thread: ThreadId): boolean;
+  threads(): ThreadId[];
+  batch(thread?: ThreadId): { events: Event[]; snapshots: Map<ThreadId, BufferedSnapshot> };
+  overfull(bytes: number): boolean;
+  append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void;
+  after(seq: number): Event[];
+  full(): boolean;
+  begin(): void;
+  committed(threads: readonly ThreadId[], rows: number): void;
+  discard(thread: ThreadId): void;
+  retry(): number;
+  rearm(): void;
+  settled(signal?: AbortSignal): Promise<void>;
+  stop(): void;
+}
+
 const weightOfBytes = (bytes: number) => bytes * 8 + 512;
 /** Rows a subscriber may already hold are written within this bound. */
 const eventDelayMs = 75;
@@ -25,7 +64,7 @@ const eventDelayMs = 75;
 const quietDelayMs = 1000;
 
 /** Uncommitted data is pinned, never evicted. Admission drains before reaching the hard cap. */
-export class LiveWriteBuffer {
+export class LiveWriteBuffer implements LiveBuffer {
   private events: Event[] = [];
   private snapshots = new Map<ThreadId, BufferedSnapshot>();
   private cancel: (() => void) | undefined;
@@ -34,17 +73,27 @@ export class LiveWriteBuffer {
   private waiters = new Set<() => void>();
   /** Consecutive failed attempts at the pinned batch; zero while healthy. */
   private failures = 0;
-  readonly metrics = { flushes: 0, rows: 0, failures: 0, liveBytes: 0, peakBytes: 0 };
+  readonly metrics: BufferMetrics = {
+    flushes: 0,
+    rows: 0,
+    failures: 0,
+    liveBytes: 0,
+    peakBytes: 0,
+  };
   /** `encodings` is shared with the wire encoder, which sends these same events. */
   constructor(privateOptions: {
     scheduler: BufferScheduler;
     attempt(): void;
+    /** The delay after the `failures`-th consecutive failure; the TypeScript rule by default. */
+    retryDelay?(failures: number): number;
     encodings?: EventEncodings;
   }) {
     this.options = privateOptions;
     this.encodings = privateOptions.encodings ?? new EventEncodings();
+    this.retryDelay = privateOptions.retryDelay ?? liveWriteRetryDelay;
   }
   private readonly encodings: EventEncodings;
+  private readonly retryDelay: (failures: number) => number;
   private readonly options;
   get failed(): boolean {
     return this.failures > 0;
@@ -88,6 +137,9 @@ export class LiveWriteBuffer {
    * applied in memory, so refusing them here would make a mailbox retry apply them twice; the
    * stream() size guard bounds the overshoot and full() drains it at once. */
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
+    // One snapshot per thread: the batch's rows carry the thread's header, so a newer append
+    // replaces the older one and releases what it held.
+    this.snapshots.get(thread)?.discarded?.();
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
       // One encoding sizes both the weight and the metric.
@@ -123,13 +175,14 @@ export class LiveWriteBuffer {
   }
   /** Quarantine: forget a thread's events and snapshot without storing them. */
   discard(thread: ThreadId): void {
+    this.snapshots.get(thread)?.discarded?.();
     this.remove([thread]);
   }
   /** A failed attempt keeps the batch pinned and schedules the next one; returns its delay. */
   retry(): number {
     this.failures++;
     this.metrics.failures++;
-    const ms = liveWriteRetryDelay(this.failures);
+    const ms = this.retryDelay(this.failures);
     this.begin();
     this.arm(ms);
     return ms;

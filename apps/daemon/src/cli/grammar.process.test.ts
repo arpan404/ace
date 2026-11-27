@@ -3,13 +3,13 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { CliCommandTree, CliError } from "@ace/protocol/cli-output";
 import { afterEach, expect, test } from "vitest";
+import { cliProgram } from "./pty-test-support.ts";
 
 // The real CLI against an empty temp home with no daemon: what works with ace down (ADR 0092),
 // what bare `ace` does off a terminal, and how a wrong command line exits.
-const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
+const cli = cliProgram();
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -21,12 +21,22 @@ async function emptyHome() {
   return { root, env: { HOME: root, USERPROFILE: root, ACE_HOME: join(root, "ace") } };
 }
 
-function run(env: Record<string, string>, args: string[], command = process.execPath) {
-  const child = spawn(command, command === process.execPath ? [cli, ...args] : args, {
-    env: { ...process.env, ACE_THREAD_ID: undefined, ACE_NO_INPUT: undefined, ...env },
-    // `script` needs a stdin it can read terminal settings from: /dev/null, not a socket.
-    stdio: [command === process.execPath ? "pipe" : "ignore", "pipe", "pipe"],
-  });
+function run(env: Record<string, string>, args: string[], kind: "cli" | "script" = "cli") {
+  const child = spawn(
+    kind === "cli" ? cli.command : "script",
+    kind === "cli" ? [...cli.prefix, ...args] : args,
+    {
+      env: {
+        ...process.env,
+        ...cli.env,
+        ACE_THREAD_ID: undefined,
+        ACE_NO_INPUT: undefined,
+        ...env,
+      },
+      // `script` needs a stdin it can read terminal settings from: /dev/null, not a socket.
+      stdio: [kind === "cli" ? "pipe" : "ignore", "pipe", "pipe"],
+    },
+  );
   let stdout = "";
   let stderr = "";
   child.stdout?.on("data", (bytes: Buffer) => (stdout += bytes.toString()));
@@ -65,6 +75,11 @@ test("help, version, completion and doctor's help work with ace down", async () 
 
 test("tab completion with ace down answers from the table and writes nothing", async () => {
   const { root, env } = await emptyHome();
+  // With nothing typed yet, the top of the table is the answer.
+  const top = await run(env, ["__complete"]);
+  expect(top.code, top.stderr).toBe(0);
+  expect(top.stdout.split("\n")).toEqual(expect.arrayContaining(["help", "thread"]));
+  expect(await run(env, ["__complete", "--"])).toEqual(top);
   const verbs = await run(env, ["__complete", "--", "thread", ":s"]);
   expect(verbs.code, verbs.stderr).toBe(0);
   expect(verbs.stdout.split("\n")).toEqual(expect.arrayContaining(["show", "start"]));
@@ -87,6 +102,18 @@ test("a wrong command line exits 64 with the nearest command, as one CliError wi
   });
 });
 
+test("removed chat spellings are usage errors that name the app", async () => {
+  const { env } = await emptyHome();
+  for (const args of [["chat"], ["thread", "attach"], ["spade", "chat"]]) {
+    const output = await run(env, args);
+    expect(output.code, args.join(" ")).toBe(64);
+    expect(output.stderr).toContain("✕ Chat with agents in the ace app. The CLI manages ace.");
+  }
+  const json = await run(env, ["chat", "--json"]);
+  expect(json.code).toBe(64);
+  expect(JSON.parse(json.stdout)).toMatchObject({ status: "usage", code: "retired_command" });
+});
+
 test("a command that needs the daemon says ace isn't running, exit 4, never a file error", async () => {
   const { env } = await emptyHome();
   const output = await run(env, ["thread", "list"]);
@@ -106,7 +133,7 @@ test.skipIf(process.platform === "win32")(
   "an old spelling works with a one-line notice on a terminal, and none in a pipe",
   async () => {
     const { env } = await emptyHome();
-    const line = [process.execPath, cli, "threads", "list"];
+    const line = [cli.command, ...cli.prefix, "threads", "list"];
     const args =
       process.platform === "darwin"
         ? ["-q", "/dev/null", ...line]

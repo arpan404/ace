@@ -1,7 +1,8 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
+import { existsSync, statSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { promisify } from "node:util";
 import { bunBinary } from "../../../scripts/runtimes.ts";
@@ -34,13 +35,152 @@ export interface RunningDaemon {
   stop(): Promise<void>;
 }
 
-/** A clean environment: nothing from the person's shell, their HOME or their ace data. */
+/** A native switch the caller may set, and the addon variables its shell loads (ADR 0222-0226). */
+interface SwitchRow {
+  readonly variable: string;
+  /** The addon paths it needs, each one an absolute path to an existing file. */
+  readonly addons: readonly string[];
+  /** Why a set switch has no usable addon: the shell that loads one does not exist yet. */
+  readonly absent?: string;
+}
+
+/**
+ * The native switches and the addon each one loads. The bench bundles the daemon into a temporary
+ * directory, so the development-build path a shell would resolve from its own file
+ * (`native/daemon/target/release/…`, three levels up) does not exist there: a set switch needs its
+ * addon named absolutely, and the bench refuses to start rather than measure the other backend.
+ */
+const switchRows: readonly SwitchRow[] = [
+  { variable: "ACE_STORE", addons: ["ACE_STORE_ADDON"] },
+  // The bench sets the supervisor's addon explicitly: the shell falls back to the store's.
+  { variable: "ACE_SUPERVISOR", addons: ["ACE_SUPERVISOR_ADDON"] },
+  // The Codex, Claude, Cursor and ACP shells read only the store's addon; OpenCode reads only
+  // ACE_TRANSLATORS_ADDON, and Pi reads it first, then the store's.
+  { variable: "ACE_TRANSLATORS", addons: ["ACE_STORE_ADDON", "ACE_TRANSLATORS_ADDON"] },
+  {
+    variable: "ACE_SESSIONS",
+    addons: [],
+    absent:
+      "the daemon bench's only provider is claude, which has no native session; measure sessions with apps/daemon/bench/session-stream.ts",
+  },
+  {
+    variable: "ACE_ENGINE",
+    addons: [],
+    absent: "no shell loads an engine addon yet",
+  },
+  {
+    variable: "ACE_CORE",
+    addons: [],
+    absent:
+      "the core's native loader is a placeholder, and the wasm build is never loaded by the daemon",
+  },
+  { variable: "ACE_GIT", addons: ["ACE_GIT_ADDON"] },
+  // The bench sets the transport's addon explicitly: its shell falls back to the store's.
+  { variable: "ACE_TRANSPORT", addons: ["ACE_TRANSPORT_ADDON"] },
+];
+
+/**
+ * The names forwarded from the bench's own environment. `ACE_STORE_READS` is a switch too, but it
+ * selects reads from the store's addon rather than loading one, and it refuses without
+ * `ACE_STORE=native`; the evidence path is where the bundled daemon writes what the bench reads.
+ */
+const switchVariables: readonly string[] = [
+  ...new Set([
+    ...switchRows.map((row) => row.variable),
+    ...switchRows.flatMap((row) => row.addons),
+    "ACE_STORE_READS",
+    "ACE_TRANSPORT_EVIDENCE",
+  ]),
+];
+
+/**
+ * The directory OpenSSL lives in on the host's PATH. The LAN leg makes the daemon's TLS identity
+ * with it (`tls-identity.ts`), and the child's PATH holds only the fake CLIs otherwise.
+ */
+function opensslDirectory(): string | undefined {
+  const named = process.platform === "win32" ? "openssl.exe" : "openssl";
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (directory === "") continue;
+    if (existsSync(join(directory, named))) return directory;
+  }
+  return undefined;
+}
+
+/** The child's PATH: the fake CLIs first, and the host's OpenSSL for a LAN leg's TLS identity. */
+function benchPath(bin: string): string {
+  const openssl = benchListen() === "lan" ? opensslDirectory() : undefined;
+  return [bin, ...(openssl === undefined ? [] : [openssl])].join(delimiter);
+}
+
+/** Refuses `variable` unless it is an absolute path to a regular file. */
+function requireAddon(variable: string, because: string): void {
+  const value = process.env[variable];
+  if (value === undefined || value === "")
+    throw new Error(`${because} but ${variable} is unset or empty`);
+  if (!isAbsolute(value)) throw new Error(`${because} but ${variable} is relative: ${value}`);
+  const stats = statSync(value, { throwIfNoEntry: false });
+  if (stats === undefined || !stats.isFile())
+    throw new Error(`${because} but ${variable} names no regular file: ${value}`);
+}
+
+/** Refuses a switch the bench cannot run honestly, before it starts or measures anything. */
+function checkSwitches(): void {
+  for (const row of switchRows) {
+    const value = process.env[row.variable];
+    if (value === undefined || value === "") continue;
+    const because = `${row.variable}=${value} is set in the bench's environment`;
+    if (row.absent !== undefined) throw new Error(`${because}, but ${row.absent}`);
+    for (const addon of row.addons) requireAddon(addon, `${because} and needs ${addon}`);
+  }
+}
+
+/**
+ * The switches and addon paths from the bench's own environment, so one benchmark can measure the
+ * same workload on each backend. Everything else stays the clean environment below.
+ */
+function switches(): NodeJS.ProcessEnv {
+  const passed: NodeJS.ProcessEnv = {};
+  for (const name of switchVariables) {
+    const value = process.env[name];
+    if (value !== undefined) passed[name] = value;
+  }
+  return passed;
+}
+
+/**
+ * The transport's own names, passed explicitly (T1b.5's remote leg): the daemon bench's child
+ * serves the LAN listener only when these reach it, and its run reads the evidence file back.
+ */
+function transportSwitches(): NodeJS.ProcessEnv {
+  const passed: NodeJS.ProcessEnv = {};
+  for (const name of ["ACE_TRANSPORT", "ACE_TRANSPORT_ADDON", "ACE_TRANSPORT_EVIDENCE"] as const) {
+    const value = process.env[name];
+    if (value !== undefined) passed[name] = value;
+  }
+  return passed;
+}
+
+/**
+ * The listening mode the bench asked for: a paired run sets `ACE_LISTEN=lan` so the remote
+ * listener is opened (T1b.5); anything else keeps the bench's own `local`.
+ */
+function benchListen(): string {
+  return process.env.ACE_LISTEN === "lan" ? "lan" : "local";
+}
+
+/**
+ * A clean environment: nothing from the person's shell, their HOME or their ace data, except the
+ * native switches and addon paths above, which a run must set to measure a backend.
+ */
 export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
+  checkSwitches();
   const { home, aceHome, bin, tmp } = settings.root;
   return {
+    ...transportSwitches(),
+    ...switches(),
     HOME: home,
     USERPROFILE: home,
-    PATH: bin,
+    PATH: benchPath(bin),
     SHELL: "/bin/sh",
     TMPDIR: tmp,
     LANG: "C.UTF-8",
@@ -52,7 +192,9 @@ export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
     ACE_HOME: aceHome,
     ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
     ACE_PORT: "0",
-    ACE_LISTEN: "local",
+    ACE_LISTEN: benchListen(),
+    // A local bench's LAN listener advertises loopback, so its pairing link is reachable here.
+    ...(benchListen() === "lan" ? { ACE_ADVERTISE_HOST: "127.0.0.1" } : {}),
     ACE_LOG_LEVEL: "warn",
     ACE_MAINTENANCE: "0",
     ACE_DEV: "0",

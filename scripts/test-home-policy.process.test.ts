@@ -75,6 +75,22 @@ test("an Android run that boots an AVD reaches the runner's AVD folder and its g
   });
 });
 
+test("a devices switch run reaches the workers that prove the native phase", () => {
+  const env = isolatedTestEnvironment(
+    {
+      ...desktop,
+      ACE_DEVICE_PLATFORM: "native",
+      ACE_DEVICE_PLATFORM_ADDON: "/tmp/libace_daemon_node.dylib",
+    },
+    home,
+    "/home/person",
+  );
+  expect(env).toMatchObject({
+    ACE_DEVICE_PLATFORM: "native",
+    ACE_DEVICE_PLATFORM_ADDON: "/tmp/libace_daemon_node.dylib",
+  });
+});
+
 test("a test run finds the person's Rust toolchains, unless the runner names its own", () => {
   // rustup reads its default toolchain from RUSTUP_HOME, which falls back to $HOME/.rustup.
   expect(isolatedTestEnvironment(desktop, home, "/home/person").RUSTUP_HOME).toBe(

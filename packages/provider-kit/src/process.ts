@@ -15,11 +15,12 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { admitProcess, registerGroup, signalTree } from "./process-owner.ts";
+import { admitProcess, registerGroup, signalNativeTree, signalTree } from "./process-owner.ts";
+import { stopRetainedGroup as stopRetainedGroupByPid } from "./process-owner.ts";
 import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { windowsTreeRunning } from "./process-owner.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
   type WindowsJob,
@@ -28,6 +29,16 @@ import {
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 import { markedEnv } from "./process-marker.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import {
+  launchEnv,
+  nativeChildJob,
+  nativeKillWindowsTree,
+  nativeSpawnChild,
+  NativeChildProcess,
+  type NativeOutputTarget,
+  type SpawnedChild,
+} from "./native-process.ts";
 import { childGroup, stopRetainedGroup, type LeaderGroup } from "./leader-group.ts";
 import { newGroupToken, withGroupToken } from "./group-token.ts";
 export {
@@ -76,6 +87,12 @@ export type SpawnOptions = {
   /** Durable resource ownership brackets the native spawn, including the crash gap. */
   lease?: ProcessLease;
   outputFlow?: OutputFlow;
+  /**
+   * A Rust session's consumer for the child's pipes (E3.0b). With it, the
+   * child's stdout, stderr and stdin belong to the session, and the returned
+   * streams carry no data. Requires `ACE_SUPERVISOR=native`.
+   */
+  nativeOutput?: NativeOutputTarget;
   command: string;
   args?: readonly string[];
   cwd?: string;
@@ -140,14 +157,18 @@ function spawnOwned(
 ): RawSupervisedProcess {
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
-  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const native = supervisorBackend() === "native";
+  // A Rust session can only take a child's pipes from the native supervisor.
+  if (options.nativeOutput !== undefined && !native)
+    throw new Error("nativeOutput needs ACE_SUPERVISOR=native");
+  const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   let group: LeaderGroup | undefined;
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
       : group
         ? stopRetainedGroup(group, graceMs)
-        : Promise.resolve();
+        : stopRetainedGroupByPid(pid, graceMs, groupOf(child));
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -156,28 +177,53 @@ function spawnOwned(
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
-  const token = windows ? undefined : newGroupToken();
+  // Only the TypeScript backend's child carries the group token; the native one is held by its
+  // supervisor, which needs no marker in the environment.
+  const token = windows || native ? undefined : newGroupToken();
   const env = markedEnv({ ...base, ...options.env });
-  const child = spawn(target.command, target.args, {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: token === undefined ? env : withGroupToken(env, token),
-    ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
-    windowsVerbatimArguments: target.verbatim,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const nodeChild = native
+    ? undefined
+    : spawn(target.command, target.args, {
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        env: token === undefined ? env : withGroupToken(env, token),
+        ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
+        windowsVerbatimArguments: target.verbatim,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+  const child: SpawnedChild =
+    nodeChild ??
+    nativeSpawnChild({
+      command: target.command,
+      args: target.args,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      env: launchEnv(env),
+      stdin: "piped",
+      stdout: "piped",
+      stderr: "piped",
+      verbatim: target.verbatim,
+      hide: true,
+      contain: windows && options.windowsJobFactory === undefined,
+      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+      ...(options.nativeOutput === undefined ? {} : { nativeOutput: options.nativeOutput }),
+    });
   const pid = child.pid;
-  if (pid !== undefined) group = childGroup(pid, token, child);
+  // The TypeScript backend's group, read at spawn; the native child is its own group handle.
+  if (pid !== undefined && nodeChild !== undefined) group = childGroup(pid, token, nodeChild);
   // First of all exit listeners: once the leader is reaped its group number is never signalled.
   child.once("exit", () => group?.reaped());
   reportBunStdinFailures(child.stdin);
   // Never throws: stops run from timers, exit listeners and voided stop() calls.
-  const terminate = () =>
-    group ? signalTree(group, false, windows, killTree, child) : Promise.resolve();
+  const signalGroupTree = (force: boolean) =>
+    pid === undefined
+      ? Promise.resolve()
+      : group
+        ? signalTree(pid, force, windows, killTree, child, group)
+        : signalNativeTree(pid, force, windows, killTree, child);
+  const terminate = () => signalGroupTree(false);
   /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
   let exitKill: Promise<void> | undefined;
   /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
-  const destroyed = () =>
-    group ? signalTree(group, true, windows, killTree, child).catch(() => {}) : Promise.resolve();
+  const destroyed = () => signalGroupTree(true).catch(() => {});
   const destroy = () => {
     destroyed().catch(() => {});
   };
@@ -186,7 +232,8 @@ function spawnOwned(
   const controller = new AbortController();
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
-  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const factory =
+    options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let outputBytes = 0;
@@ -245,6 +292,10 @@ function spawnOwned(
   };
   // Pipe errors are surfaced to writers through write callbacks, never unhandled events.
   child.stdin.on("error", () => {});
+  /** Frees the native child behind a native spawn, releasing its event sink. */
+  const disposeNative = () => {
+    if (child instanceof NativeChildProcess) child.dispose();
+  };
   const release = () => {
     if (ended) return;
     ended = true;
@@ -254,23 +305,27 @@ function spawnOwned(
       // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
       // without a kernel32 binding, is reported and ownership still ends.
       exitKill = destroyed();
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
       job?.dispose();
     }
     controller.abort();
   };
   child.once("error", () => {
     failed = true;
+    // A failed spawn never opens pipes, so no close follows its error.
+    disposeNative();
     release();
   });
   child.once("exit", release);
   const exited = new Promise<ProcessExit>((resolve) => {
     child.once("close", (code, signal) => {
       release();
+      // The pipes are done: releasing the native sink cannot lose bytes.
+      disposeNative();
       closed = true;
       if (timer) clearTimeout(timer);
       if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
-        unregisterGroup(pid);
+        unregisterGroup(pid, groupOf(child));
         job?.dispose();
       }
       const outcome: ProcessExit = {
@@ -287,7 +342,10 @@ function spawnOwned(
                 ? "signal"
                 : "exit",
       };
-      (exitKill ?? Promise.resolve()).then(() => resolve(outcome)).catch(() => resolve(outcome));
+      // The native backend's signal is delivered synchronously, so nothing of it is waited for.
+      if (native) resolve(outcome);
+      else
+        (exitKill ?? Promise.resolve()).then(() => resolve(outcome)).catch(() => resolve(outcome));
     });
   });
   const handle: RawSupervisedProcess = {
@@ -310,7 +368,7 @@ function spawnOwned(
             clearTimeout(retainedKill);
             cancelRecheck?.();
             if (windows) {
-              unregisterGroup(pid);
+              unregisterGroup(pid, groupOf(child));
               job?.dispose();
             }
           };
@@ -353,17 +411,25 @@ function spawnOwned(
       if (!closed && pid !== undefined && (!stopped || shortens(graceMs))) {
         // A later stop with a shorter grace (a daemon shutdown overtaking a polite close)
         // brings the SIGKILL forward; it never pushes one back.
-        if (!stopped) termDelivered = terminate();
+        if (!stopped) {
+          if (native) void terminate();
+          else termDelivered = terminate();
+        }
         stopped = true;
         killAt ??= performance.now() + graceMs;
-        (termDelivered ?? Promise.resolve())
-          .then(() => {
-            // The leader's exit already ended the group; nothing is left to escalate.
-            if (ended || closed) return;
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(() => destroy(), graceMs);
-          })
-          .catch(() => {});
+        // The native backend's SIGTERM is delivered synchronously: its grace starts now.
+        if (native) {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => destroy(), graceMs);
+        } else
+          (termDelivered ?? Promise.resolve())
+            .then(() => {
+              // The leader's exit already ended the group; nothing is left to escalate.
+              if (ended || closed) return;
+              if (timer) clearTimeout(timer);
+              timer = setTimeout(() => destroy(), graceMs);
+            })
+            .catch(() => {});
       }
       return exited;
     },
@@ -376,7 +442,10 @@ function spawnOwned(
         name: options.name,
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       },
-      () => destroy(),
+      () => {
+        disposeNative();
+        destroy();
+      },
     );
   try {
     if (pid !== undefined) options.lease?.spawned(pid);
@@ -384,7 +453,7 @@ function spawnOwned(
     // A journal failure cannot leave an unowned process running.
     if (pid !== undefined) {
       destroy();
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
       job?.dispose();
     }
     throw error;

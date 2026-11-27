@@ -26,6 +26,8 @@ import {
 } from "./spade/account-grant-http.ts";
 
 type Handler = (request: IncomingMessage, response: ServerResponse) => void;
+/** Wraps the loopback chain, so the transport can gate it before any handler runs. */
+type Guard = (handler: Handler) => Handler;
 /** `/mcp` (with or without a query) to the daemon's MCP handler; everything else to `next`. */
 function mcpFirst(options: ServerOptions, next: Handler): Handler {
   // Read per request: Spade's service publishes its grant check after the server listens.
@@ -63,6 +65,8 @@ export function httpChains(
   access: Access,
   maintenance: MaintenanceGate,
   preview: () => DaemonPreview | undefined,
+  /** The loopback chain's outer gate; absent with today's in-process listener. */
+  guard?: Guard,
 ): { local: Server; remoteHttp(): ReturnType<typeof transfersHttp> } {
   // Outside MCP clients at the ts.net name (ADR 0122) come first; everything else is the
   // paired-device chain below.
@@ -81,34 +85,32 @@ export function httpChains(
   // A Suit's scene and assets, by their URL's own grant (`suits/urls.ts`).
   const origins = webOriginAllowlist(options.webOrigins);
   const suits = (next: Handler): Handler => suitsHttp(() => options.suits, origins, next);
-  const local = httpServer(
-    // `<daemon-endpoint>/mcp` (contract, "Finding the daemon"): the same MCP handler as its own
-    // listener, for clients such as Spade that know only the daemon's address. Loopback only.
-    orgHttpGate(
-      false,
-      org,
-      mcpFirst(
-        options,
-        webHttp(
-          options.webRoot,
-          attachmentsHttp(
+  // `<daemon-endpoint>/mcp` (contract, "Finding the daemon"): the same MCP handler as its own
+  // listener, for clients such as Spade that know only the daemon's address. Loopback only.
+  const localChain = orgHttpGate(
+    false,
+    org,
+    mcpFirst(
+      options,
+      webHttp(
+        options.webRoot,
+        attachmentsHttp(
+          options,
+          auth,
+          false,
+          iconsHttp(
             options,
             auth,
             false,
-            iconsHttp(
-              options,
-              auth,
-              false,
-              suits(
-                previewHttp(
-                  preview,
-                  accessHttp({
-                    ...access,
-                    authenticate: auth.localBearer.bind(auth),
-                    maintenance,
-                    ...(options.shutdown ? { shutdown: options.shutdown } : {}),
-                  }),
-                ),
+            suits(
+              previewHttp(
+                preview,
+                accessHttp({
+                  ...access,
+                  authenticate: auth.localBearer.bind(auth),
+                  maintenance,
+                  ...(options.shutdown ? { shutdown: options.shutdown } : {}),
+                }),
               ),
             ),
           ),
@@ -116,6 +118,7 @@ export function httpChains(
       ),
     ),
   );
+  const local = httpServer(guard === undefined ? localChain : guard(localChain));
   // Paired devices only: one chain for the static and the runtime-toggled TLS listener.
   const remoteHttp = () =>
     orgHttpGate(

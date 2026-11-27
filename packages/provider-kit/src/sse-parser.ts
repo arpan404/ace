@@ -1,4 +1,6 @@
 import { byteLimit } from "./byte-limit.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { NativeSseParser } from "./native-streams.ts";
 
 export class SseLimitError extends Error {}
 export type SseLimits = { maxLineBytes?: number; maxEventBytes?: number };
@@ -6,7 +8,7 @@ export type SseLimits = { maxLineBytes?: number; maxEventBytes?: number };
 export type SseEvent = { data: string; event: string; id: string };
 
 /** Incremental UTF-8 text framing. CR, LF and split CRLF all terminate lines. */
-export class SseParser {
+class TypeScriptSseParser {
   lastEventId = "";
   retryMs: number | undefined;
   #line = "";
@@ -89,5 +91,35 @@ export class SseParser {
           this.retryMs = Number(value);
         break;
     }
+  }
+}
+
+/** The SSE parser `@ace/provider-kit/streams` exports; the native one is E2b's. */
+export class SseParser {
+  readonly #impl: {
+    readonly lastEventId: string;
+    readonly retryMs: number | undefined;
+    feed(text: string): void;
+  };
+  constructor(emit: (event: SseEvent) => void, lastEventId = "", limits: SseLimits = {}) {
+    this.#impl =
+      supervisorBackend() === "native"
+        ? new NativeSseParser(
+            emit,
+            lastEventId,
+            byteLimit(limits.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes"),
+            byteLimit(limits.maxEventBytes ?? 16 * 1024 * 1024, "maxEventBytes"),
+            (message) => new SseLimitError(message),
+          )
+        : new TypeScriptSseParser(emit, lastEventId, limits);
+  }
+  get lastEventId(): string {
+    return this.#impl.lastEventId;
+  }
+  get retryMs(): number | undefined {
+    return this.#impl.retryMs;
+  }
+  feed(text: string): void {
+    this.#impl.feed(text);
   }
 }

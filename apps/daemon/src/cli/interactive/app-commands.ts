@@ -33,11 +33,8 @@ export function commands(app: App): Commands {
     };
   };
   /** The thread an open request belongs to, from the stores the views follow. */
-  const requestThread = (id: string): string | undefined => {
-    const listed = app.live?.requests().find((open) => open.interaction.id === id);
-    if (listed) return listed.interaction.threadId;
-    return app.live?.followed("attach")?.store.interaction(id)?.threadId;
-  };
+  const requestThread = (id: string): string | undefined =>
+    app.live?.requests().find((open) => open.interaction.id === id)?.interaction.threadId;
   return {
     async submit(payload, doneText) {
       const session = app.session;

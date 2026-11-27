@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-provider-status"
+description = "Each provider's row in ace's setup: what discovery observed, what it means for readiness, and the onboarding checklist, ported from `apps/daemon/src/provider-status-row.ts` and `@ace/core`'s provider readiness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# serde_json: wire shapes are checked against @ace/protocol's exact JSON.
+serde_json = "1"
+
+[dependencies]
+# ace-protocol: the provider kind clients name.
+ace-protocol = { path = "../ace-protocol" }
+# ace-provider-installs: install guidance is the reviewed manifest's, never guessed.
+ace-provider-installs = { path = "../ace-provider-installs" }
+# serde: rows are wire values with @ace/protocol's field names.
+serde = { version = "1", features = ["derive"] }

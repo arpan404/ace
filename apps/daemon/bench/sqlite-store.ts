@@ -12,14 +12,27 @@
  * It sends no provider requests and opens no sockets.
  */
 import { performance } from "node:perf_hooks";
-import { statSync } from "node:fs";
+import { mkdtempSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { engineBackend } from "@ace/provider-kit/native-switches";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { randomUUID } from "node:crypto";
-import { AgentItem, ThreadId, type EventPayload, type ServerMessage } from "@ace/protocol";
+import {
+  AgentItem,
+  ThreadId,
+  type EventPayload,
+  type ServerMessage,
+  type WorkspaceId,
+} from "@ace/protocol";
+import type { Fact } from "@ace/core";
 import { Store, createDevThread } from "../src/index.ts";
+import { EngineRepository } from "../src/engine/repository.ts";
+import { createEngineThread } from "../src/engine/create-thread.ts";
 import { subscribe } from "../src/subscription.ts";
 import { migrateEngine } from "../src/engine/migrations.ts";
 import { writeMeasurement } from "./output.ts";
+import { installSplit, split, summarize, type Split } from "./sqlite-split.ts";
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -33,6 +46,18 @@ const output = args.get("output") ?? "";
 const repeats = Number(args.get("repeats") ?? 15);
 const writeItems = Number(args.get("write-items") ?? 200);
 const deltasPerItem = Number(args.get("deltas") ?? 40);
+// `--split`: also split each read's time into SQLite, JSON.parse and the rest, record the heap
+// the reads retain, and hold WAL checkpoints during the write phase so its WAL growth per
+// commit can be read off, then time that checkpoint on its own.
+const splitting = args.has("split");
+if (splitting) installSplit();
+const splits = new Map<string, Split[]>();
+let phase = "";
+const gc = () => (globalThis as { Bun?: { gc(full: boolean): void } }).Bun?.gc(true);
+const heapMiB = () => {
+  gc();
+  return +(process.memoryUsage().heapUsed / 1048576).toFixed(1);
+};
 
 const round = (n: number) => +n.toFixed(3);
 function stats(samples: number[]) {
@@ -47,6 +72,13 @@ function stats(samples: number[]) {
   };
 }
 function time<T>(run: () => T): [T, number] {
+  if (splitting && phase) {
+    const [result, one] = split(run);
+    const list = splits.get(phase) ?? [];
+    list.push(one);
+    splits.set(phase, list);
+    return [result, one.wallMs];
+  }
   const start = performance.now();
   const result = run();
   return [result, performance.now() - start];
@@ -69,7 +101,8 @@ const sized = probe
   .prepare(
     `SELECT t.id AS id, COUNT(i.id) AS items, (MIN(i.created_seq) + MAX(i.created_seq)) / 2 AS mid
      FROM threads t JOIN items i ON i.thread_id=t.id
-     WHERE t.archived_at IS NULL GROUP BY t.id ORDER BY items DESC`,
+     WHERE t.archived_at IS NULL AND json_extract(t.client,'$.deletedAt') IS NULL
+     GROUP BY t.id ORDER BY items DESC`,
   )
   .all() as { id: string; items: number; mid: number }[];
 probe.close();
@@ -80,6 +113,114 @@ const picked = [...largest, ...median].map((row) => ({
   items: row.items,
   mid: row.mid,
 }));
+
+/**
+ * `engineCommit`: one thread's fold-and-save commits of a fixed batch (one message, ten appends,
+ * a turn end), timed through the engine repository. Switch off runs `EngineRepository.apply`;
+ * switch on needs the `engine-probe` build and runs the same batch through the probe's fold
+ * (`ACE_ENGINE=native ACE_STORE=native`). The batch names no input, interaction or transition, so
+ * the probe's pass-through collaborators do what the TypeScript ones do here: nothing. The figure
+ * is printed beside the store's own timings; both sides fold equivalent work.
+ */
+function engineFacts(text: string, item: string): Fact[] {
+  return [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item,
+      draft: {
+        type: "message",
+        role: "assistant",
+        parts: [{ type: "text", text }],
+        complete: false,
+      },
+    },
+    ...Array.from({ length: 10 }, (): Fact => ({
+      type: "item.delta",
+      agent: "root",
+      item,
+      field: "text",
+      append: ` ${text}`,
+    })),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+  ];
+}
+
+const engineCommitRows = (store: Store, id: ThreadId) =>
+  store.atomic(
+    (db) =>
+      db
+        .prepare(
+          `SELECT (SELECT COUNT(*) FROM engine_inputs WHERE thread_id=?) AS inputs,
+                  (SELECT COUNT(*) FROM engine_interaction_requests WHERE thread_id=?) AS interactions,
+                  (SELECT COUNT(*) FROM intents WHERE thread_id=?) AS intents`,
+        )
+        .get(id, id, id) as { inputs: number; interactions: number; intents: number },
+  );
+
+function engineCommitOff(store: Store, workspace: WorkspaceId, home: string) {
+  const repo = new EngineRepository(store);
+  const id = ThreadId.parse(randomUUID());
+  createEngineThread(repo, {
+    id,
+    workspaceId: workspace,
+    title: "Engine commit",
+    selection: { provider: "codex", options: {} },
+    cwd: home,
+    at: Date.now(),
+    silenceMs: 30_000,
+  });
+  const batch = engineFacts("bench", "bench-item");
+  const samples: number[] = [];
+  let at = Date.now();
+  for (let index = 0; index < repeats; index++) {
+    at += 1;
+    samples.push(time(() => repo.apply(id, batch, at))[1]);
+  }
+  const rows = engineCommitRows(store, id);
+  return { samples, balanced: rows.inputs + rows.interactions + rows.intents };
+}
+
+/** The same batch through the probe's fold: needs the `engine-probe` build. */
+async function engineCommitOn(home: string) {
+  const { engineSeam } = await import("../src/native-engine/testing.ts");
+  const { createThreadState } = await import("@ace/core");
+  const seam = await engineSeam({ options: { home } });
+  try {
+    await seam.engine.ready();
+    seam.probe.passThroughCollaborators();
+    const workspace = seam.store.createWorkspace(seam.home, "Bench");
+    const thread = createDevThread(seam.store, workspace);
+    const state = createThreadState({
+      threadId: thread.id as never,
+      rootAgent: {
+        agent: "root" as never,
+        fidelity: "full" as never,
+        native: { provider: "codex", nativeId: "native-root" } as never,
+        cwd: seam.home,
+      },
+      config: { provider: "codex", silenceMs: 30_000 },
+    });
+    seam.store.atomic((db) =>
+      db
+        .prepare("INSERT INTO thread_state VALUES (?, ?, 0)")
+        .run(thread.id, JSON.stringify({ ...state, engineSnapshot: 9 })),
+    );
+    const batch = engineFacts("bench", "bench-item");
+    const samples: number[] = [];
+    let at = Date.now();
+    for (let index = 0; index < repeats; index++) {
+      at += 1;
+      const start = performance.now();
+      seam.probe.apply(thread.id, batch, at);
+      samples.push(performance.now() - start);
+    }
+    const rows = engineCommitRows(seam.store, thread.id);
+    return { samples, balanced: rows.inputs + rows.interactions + rows.intents };
+  } finally {
+    await seam.close();
+  }
+}
 
 const result: Record<string, unknown> = {
   db: path,
@@ -92,7 +233,25 @@ const cpuMs = (since: NodeJS.CpuUsage) => {
   const used = process.cpuUsage(since);
   return +((used.user + used.system) / 1000).toFixed(1);
 };
-const [store, openMs] = time(() => new Store(path, (error) => console.error("store error", error)));
+// A checkpoint worker that never answers: the WAL keeps every frame the write phase commits.
+const heldCheckpoints = () => {
+  const worker = {
+    postMessage() {},
+    on() {
+      return worker;
+    },
+    terminate: async () => 0,
+  };
+  return worker;
+};
+const [store, openMs] = time(
+  () =>
+    new Store(
+      path,
+      (error) => console.error("store error", error),
+      splitting ? { checkpointWorker: heldCheckpoints } : {},
+    ),
+);
 result.openMs = +openMs.toFixed(3);
 // The engine opens its schema when the daemon starts; this includes its one-time upgrade passes.
 result.engineOpenMs = +time(() => store.atomic(migrateEngine))[1].toFixed(3);
@@ -112,13 +271,16 @@ const backfillStart = performance.now();
 await store.search.backfill(store, { signal: new AbortController().signal });
 result.searchBackfillMs = +(performance.now() - backfillStart).toFixed(1);
 
+phase = "sidebarPage";
 // The app's sidebar: the first page after start, then repeats (served from its page cache
 // until any write lands).
+result.heapBeforeReadsMiB = splitting ? heapMiB() : undefined;
 result.sidebarPageFirst = +time(() => store.sidebarPage({ limit: 20 }))[1].toFixed(3);
 result.sidebarPage = stats(
   Array.from({ length: repeats }, () => time(() => store.sidebarPage({ limit: 20 }))[1]),
 );
 
+phase = "listThreads";
 // Sidebar: the list every client loads first, then a windowed subscription like the app's.
 result.listThreads = stats(
   Array.from({ length: repeats }, () => time(() => store.listThreads())[1]),
@@ -142,6 +304,7 @@ result.sidebarWindow = stats(
   }),
 );
 
+phase = "threadOpen";
 // Opening a thread: the subscription snapshot a client receives when it opens one.
 function openThread(id: ThreadId): { ms: number; bytes: number } {
   let bytes = 0;
@@ -163,7 +326,7 @@ function openThread(id: ThreadId): { ms: number; bytes: number } {
   stop();
   return { ms: ms || performance.now() - start, bytes };
 }
-const firstOpen = picked.map((row) => openThread(row.id));
+const firstOpen = picked.map((row) => time(() => openThread(row.id))[0]);
 result.threadOpenFirst = {
   ...stats(firstOpen.map((s) => s.ms)),
   bytes: firstOpen.map((s) => s.bytes),
@@ -174,6 +337,7 @@ result.threadOpenRepeat = stats(
   ).flat(),
 );
 
+phase = "scrollBack";
 // Scrolling back: 50-item pages from the newest item to the first, as the transcript does.
 function scrollBack(id: ThreadId) {
   const pages: number[] = [];
@@ -189,6 +353,7 @@ function scrollBack(id: ThreadId) {
 }
 result.scrollBackPages = stats(largest.flatMap((row) => scrollBack(ThreadId.parse(row.id))));
 
+phase = "turnsPage";
 // Long-thread navigation: turn pages and the item window a client jumps to.
 result.turnsPage = stats(
   picked.flatMap((row) =>
@@ -198,6 +363,7 @@ result.turnsPage = stats(
     ),
   ),
 );
+phase = "itemsWindow";
 result.itemsWindow = stats(
   picked.flatMap((row) =>
     Array.from(
@@ -210,6 +376,7 @@ result.itemsWindow = stats(
   ),
 );
 const head = store.headSeq();
+phase = "catchUp";
 result.catchUp = stats(
   picked.flatMap((row) =>
     Array.from(
@@ -221,6 +388,7 @@ result.catchUp = stats(
     ),
   ),
 );
+phase = "threadSearch";
 result.threadSearch = stats(
   largest.flatMap((row) =>
     ["error", "test", "function", "bun run"].map(
@@ -237,7 +405,12 @@ result.threadSearch = stats(
   ),
 );
 
+phase = "";
 result.readCpuMs = cpuMs(cpuStart);
+if (splitting) {
+  result.heapAfterReadsMiB = heapMiB();
+  result.splits = Object.fromEntries([...splits].map(([name, list]) => [name, summarize(list)]));
+}
 // Global search runs in the daemon's search workers; the first query includes their start.
 const terms = ["error", "migration", "sqlite", "bun run test", "sidebar"];
 const searchSamples: number[] = [];
@@ -267,6 +440,8 @@ const commits: number[] = [];
 const writeStart = performance.now();
 const writeCpu = process.cpuUsage();
 const liveBeforeWrites = live();
+const walBeforeWrites = store.streamingMetrics().walBytes;
+const transactionsBeforeWrites = store.streamingMetrics().transactions;
 for (let index = 0; index < writeItems; index++) {
   const id = randomUUID();
   const tool = index % 2 === 1;
@@ -354,6 +529,35 @@ result.writes = {
   ...store.streamingMetrics(),
 };
 result.threadOpenAfterWrites = openThread(thread.id);
+if (splitting) {
+  const metrics = store.streamingMetrics();
+  const commitsWritten = metrics.transactions - transactionsBeforeWrites;
+  const walGrowth = metrics.walBytes - walBeforeWrites;
+  const checkpoint = new DatabaseSync(path);
+  const [, passiveMs] = time(() => checkpoint.prepare("PRAGMA wal_checkpoint(PASSIVE)").get());
+  checkpoint.close();
+  result.walProbe = {
+    commits: commitsWritten,
+    walBytes: walGrowth,
+    walBytesPerCommit: Math.round(walGrowth / Math.max(1, commitsWritten)),
+    walPagesPerCommit: +(walGrowth / 4120 / Math.max(1, commitsWritten)).toFixed(1),
+    checkpointPassiveMs: +passiveMs.toFixed(1),
+  };
+}
+
+// `engineCommit`: the engine's own fold-and-save commits, switch off and (with the probe build
+// and `ACE_ENGINE=native ACE_STORE=native`) on.
+{
+  const off = engineCommitOff(store, store.createWorkspace(path, "Engine commit"), path);
+  const figure: Record<string, unknown> = {
+    off: { ...stats(off.samples), rowsOutsideTheEngine: off.balanced },
+  };
+  if (engineBackend() === "native") {
+    const on = await engineCommitOn(mkdtempSync(join(tmpdir(), "ace-engine-commit-")));
+    figure.on = { ...stats(on.samples), rowsOutsideTheEngine: on.balanced, probe: true };
+  }
+  result.engineCommit = figure;
+}
 
 await store.close();
 const after = new DatabaseSync(path);

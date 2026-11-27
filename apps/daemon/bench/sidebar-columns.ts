@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Thread } from "@ace/protocol";
 import { openSidebarColumns, repairSidebarColumns } from "../src/sidebar-columns.ts";
 import { SidebarLive } from "../src/sidebar-live.ts";

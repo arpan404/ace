@@ -2,6 +2,8 @@ import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
 import type { OutputFlow } from "./flow-control.ts";
 import { byteLimit } from "./byte-limit.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeReadJsonLines } from "./native-streams.ts";
 export { RpcWriter } from "./rpc-writer.ts";
 /** LF only. Each chunk is scanned once; fragments are joined only at a record boundary. */
 export function readJsonLines(
@@ -11,6 +13,8 @@ export function readJsonLines(
   onError: (error: Error) => void,
   flow?: OutputFlow,
 ): () => void {
+  if (supervisorBackend() === "native")
+    return nativeReadJsonLines(input, maxBytes, onLine, onError, flow);
   const limit = byteLimit(maxBytes, "maxLineBytes");
   const decoder = new StringDecoder("utf8");
   let parts: string[] = [];

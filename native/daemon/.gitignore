@@ -1,0 +1,4 @@
+/target
+*.node
+/wasm-pkg
+/wasm-pkg-nodejs

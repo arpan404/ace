@@ -160,28 +160,6 @@ export const spadeCommands: readonly CommandSpec[] = [
     ],
   },
   {
-    id: "spade.chat",
-    words: ["spade", "chat"],
-    summary: "Talk with a bot (Spade's main bot by default)",
-    description:
-      "With TEXT it sends one message and prints the reply. Without it, on a terminal, it is a conversation: type a line, read the answer, Ctrl-C to leave.",
-    group: "spade-market",
-    mutates: true,
-    args: [
-      { name: "BOT", summary: "A bot's id or name; Spade's main bot when omitted", ref: "bot" },
-      { name: "TEXT", summary: "One message to send; - reads it from stdin", stdin: true },
-    ],
-    output: "spade.chat",
-    exits: [
-      { code: 2, when: "the bot is waiting on you for an approval or a question" },
-      { code: 3, when: "no reply came within --timeout (it may still answer)" },
-    ],
-    examples: [
-      { command: "ace spade chat", summary: "A conversation with Spade" },
-      { command: 'ace spade chat writer "Draft the release notes"', summary: "One message" },
-    ],
-  },
-  {
     id: "bot.running",
     words: ["bot", "running"],
     summary: "Every bot: what it does now, its spend today, its network and next wake",

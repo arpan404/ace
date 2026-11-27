@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { EntityCollection, Thread, ThreadId } from "@ace/protocol";
 import { StatusStore } from "../src/status-store.ts";
 import { ThreadReads } from "../src/thread-reads.ts";

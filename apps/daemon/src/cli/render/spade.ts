@@ -130,7 +130,7 @@ export function botLines(bot: CliSpadeBot, now: number, color = false): string[]
     lines.push(
       `Last          ${bot.lastMessage.from === "person" ? "you" : bot.name}, ${age(bot.lastMessage.at, now)} ago: ${oneLine(bot.lastMessage.text)}`,
     );
-  lines.push(`Chat with it: ace spade chat ${bot.id}`);
+  lines.push("Talk with it in the ace app's Spade.");
   return lines;
 }
 

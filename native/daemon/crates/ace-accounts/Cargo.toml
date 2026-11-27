@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-accounts"
+description = "The person's provider accounts: instances, their homes and environments, quota readings, availability, login output and scheduling, ported from @ace/accounts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: provider quota payloads and environments keep JSON.parse's value semantics, never serde_json.
+ace-json = { path = "../ace-json" }
+# indexmap: quota windows keep the provider's object order and removal semantics.
+indexmap = { version = "2" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# regex: home discovery names, login prompts and login URL review, with the TypeScript's patterns.
+regex = { version = "1" }
+# url: reviewed sign-in links are parsed with the WHATWG rules `new URL` uses.
+url = { version = "2" }
+# unicode-segmentation: badge initials and limits count extended grapheme clusters as Intl.Segmenter does.
+unicode-segmentation = "1"
+# jiff: IANA time zones for a limit error's reset clock (ambiguous and missing DST times must stay
+# unguessed), and RFC 3339 resets. It is already in the workspace lock through gix-date; its
+# bundled tzdb keeps lookups off the host's files.
+jiff = { version = "0.2", features = ["tzdb-bundle-always"] }

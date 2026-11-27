@@ -143,25 +143,6 @@ Shortcut: `ace run`.
     git diff | ace thread start - --provider claude --follow
     # Prompt from stdin, then follow the whole tree
 
-### `ace thread attach [THREAD] [flags]`
-
-Talk with an agent in this terminal.
-
-- `THREAD`: A thread to continue; omit to start one
-
-- `--project PROJECT`: A project id, name or path
-- `--provider PROVIDER`: codex, claude, cursor, opencode, antigravity or pi
-- `--model MODEL`: The model to use
-- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
-
-Shortcut: `ace chat`.
-
-    ace chat
-    # A new conversation in this folder
-
-    ace chat t_9f2c41
-    # Continue a thread
-
 ### `ace thread send THREAD TEXT|- [flags]`
 
 Queue a message for when the agent's turn ends.
@@ -951,21 +932,6 @@ The bot keeps its id, history, notes, files and routines (they arrive paused). E
 
     ace spade move research --to studio --target-remote studio
     # Move Research to the studio, saying so there through its remote profile
-
-### `ace spade chat [BOT] [TEXT|-]`
-
-Talk with a bot (Spade's main bot by default).
-
-With TEXT it sends one message and prints the reply. Without it, on a terminal, it is a conversation: type a line, read the answer, Ctrl-C to leave.
-
-- `BOT`: A bot's id or name; Spade's main bot when omitted
-- `TEXT`: One message to send; - reads it from stdin
-
-    ace spade chat
-    # A conversation with Spade
-
-    ace spade chat writer "Draft the release notes"
-    # One message
 
 ### `ace bot running`
 

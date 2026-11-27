@@ -80,10 +80,10 @@ describe("home rows", () => {
 describe("home keys", () => {
   const rows = rowsOf(entry("a", { state: "working", agents: 1 }), entry("b", { state: "done" }));
 
-  it("moves with j and k and attaches to the selected row on Enter", () => {
+  it("moves with j and k and shows the selected row's state on Enter", () => {
     const { effects } = press(rows, "j\r");
-    expect(effects).toEqual([{ kind: "attach", threadId: "b" }]);
-    expect(press(rows, "jk\r").effects).toEqual([{ kind: "attach", threadId: "a" }]);
+    expect(effects).toEqual([{ kind: "thread-show", threadId: "b" }]);
+    expect(press(rows, "jk\r").effects).toEqual([{ kind: "thread-show", threadId: "a" }]);
   });
 
   it("asks before stopping, and stops the whole tree on y", () => {
@@ -115,10 +115,10 @@ describe("home keys", () => {
     ]);
   });
 
-  it("filters by typed words and attaches to what the filter keeps", () => {
+  it("filters by typed words and shows what the filter keeps", () => {
     const { state, effects } = press(rows, "/Thread b\r\r");
     expect(state.filter).toEqual({ text: "Thread b", editing: false });
-    expect(effects).toEqual([{ kind: "attach", threadId: "b" }]);
+    expect(effects).toEqual([{ kind: "thread-show", threadId: "b" }]);
   });
 
   it("opens the agent tree under the row and folds it again", () => {
@@ -148,7 +148,7 @@ describe("home view", () => {
     expect(lines[1]).toContain("ace/relay-sleep");
     expect(lines[1]).toContain("claude");
     expect(lines.at(-1)).toBe(
-      "n new thread · r requests 1 · p projects · s Spade · m Store · , settings · d doctor · ? help · q quit",
+      "r requests 1 · p projects · s Spade · m Store · , settings · d doctor · t triage · ? help · q quit",
     );
     for (const line of lines) expect(textWidth(line)).toBeLessThanOrEqual(110);
   });
@@ -187,6 +187,6 @@ describe("home view", () => {
     expect(lines[2]).toContain("│ ✓ claude");
     expect(lines[3]).toContain("◌ reviewer");
     expect(lines[3]).toContain("1m 2s");
-    expect(lines.at(-1)).toContain("↵ attach · ← fold");
+    expect(lines.at(-1)).toContain("↵ show · ← fold");
   });
 });

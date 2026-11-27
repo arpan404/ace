@@ -1,5 +1,6 @@
 import type { CliCommand, CliCommandTree } from "@ace/protocol/cli-output";
 import { globalFlags } from "../commands/globals.ts";
+import { retiredCommand } from "../commands/retired.ts";
 import type { CommandSpec, FlagSpec } from "../commands/spec.ts";
 import type { CommandTable } from "../commands/table.ts";
 import { usageFailure } from "../output.ts";
@@ -16,6 +17,8 @@ export interface HelpAnswer {
 /** Pure. Unknown words are a usage error with the nearest command or topic. */
 export function helpFor(table: CommandTable, words: readonly string[]): HelpAnswer {
   if (words.length === 0) return { text: overview(table) };
+  const retired = retiredCommand(words);
+  if (retired) throw usageFailure(retired.message, { code: "retired_command", hint: retired.hint });
   const key = words.join(" ");
   if (key === "topics")
     return {

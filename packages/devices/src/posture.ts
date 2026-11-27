@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { DevicePosture } from "@ace/protocol/devices";
+import { nativeDevices } from "./native-devices-addon.ts";
+import { nativeInput } from "./native-input.ts";
 
 /**
  * The hinge angle each posture folds to, in degrees: 0 is shut, 180 flat. Half open sits well
@@ -24,6 +26,8 @@ const Displays = z
 
 /** How many screens a `devicectl` display report lists, or undefined when it can't be read. */
 export function screenCount(report: unknown): number | undefined {
+  if (nativeInput)
+    return nativeDevices().devicePlatformScreenCount(JSON.stringify(report)) ?? undefined;
   const parsed = Displays.safeParse(report);
   return parsed.success ? parsed.data.result.displays.length : undefined;
 }
@@ -38,6 +42,13 @@ export function screenCount(report: unknown): number | undefined {
  * the last posture ace asked for decides between them.
  */
 export function readPosture(report: unknown, requested?: DevicePosture): DevicePosture | undefined {
+  if (nativeInput) {
+    const answer = nativeDevices().devicePlatformPostureRead(
+      JSON.stringify(report),
+      requested === undefined ? undefined : requested,
+    );
+    return answer === null ? undefined : (JSON.parse(answer) as DevicePosture);
+  }
   const parsed = Displays.safeParse(report);
   if (!parsed.success) return undefined;
   const displays = parsed.data.result.displays.flatMap((raw) => {

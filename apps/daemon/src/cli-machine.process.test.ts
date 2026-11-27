@@ -8,6 +8,7 @@ import { cliOutputs } from "@ace/protocol/cli-outputs";
 import { afterEach, describe, expect, test } from "vitest";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
+import { cliProgram } from "./cli/pty-test-support.ts";
 
 /*
  * The machine entry points and the rescue path, through the real `ace` (ADR 0178 §13, ADR 0092):
@@ -44,12 +45,17 @@ async function emptyHome() {
   return { root, home, env };
 }
 
-/** Runs the CLI with `node`, optionally with a loader hook. */
+/** Runs the CLI, optionally with a loader hook; under ACE_CLI_IMPL=rust it runs the binary. */
 function run(args: string[], env: NodeJS.ProcessEnv, preload?: string) {
-  const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), cli, ...args], {
-    env: { ...process.env, ...env },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const program = cliProgram();
+  const child = spawn(
+    program.command,
+    [...program.prefix, ...(preload ? ["--import", preload] : []), ...args],
+    {
+      env: { ...process.env, ...env, ...program.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (bytes: Buffer) => (stdout += bytes.toString()));
@@ -134,9 +140,9 @@ describe("help, version, completion, doctor and triage work when the rest of ace
     expect(triage.stdout).toContain("# ace triage playbook");
   }, 60_000);
 
-  // A broken install is simulated with Node's module hooks, which Bun lacks; the CLI's own
-  // module graph is the same on either runtime.
-  test.skipIf(Boolean(process.versions.bun))(
+  // A broken install is simulated with Node's module hooks, which Bun lacks and which the
+  // Rust binary never loads; the CLI's own module graph is the same on either runtime.
+  test.skipIf(Boolean(process.versions.bun) || process.env.ACE_CLI_IMPL === "rust")(
     "with other commands' modules broken",
     async () => {
       const { root, env } = await emptyHome();

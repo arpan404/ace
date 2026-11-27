@@ -17,6 +17,9 @@ OpenCode discovery reads served model metadata even when `auth list` reports no
 connections. Enabled Zen models with zero input, output and cache pricing in every
 reported cost tier remain usable without credentials. Paid and other unconnected
 upstreams remain filtered. No model IDs or free-model count are hard-coded in ace.
+Only the CLI's id-only listing, which carries no metadata at all, can be qualified by
+the shape of an id (`-free`, `big-pickle`); a catalog row that carries metadata is
+judged by its own pricing and enabled flag.
 
 `CatalogModel.free?` marks these models for a Free badge. A Zen source discovered
 only through free models has `source.requiresAuth: false`, so Settings offers
@@ -163,6 +166,15 @@ GitHub Copilot labelled as a subscription. Other Pi provider groups do not imply
 an authentication/payment method when Pi has not supplied it. Codex, Claude and
 Cursor use account IDs and account labels; a client may render one account flat.
 
+The final merge over the HTTP catalog, the CLI listing and the rows retained from a
+failed source applies eligibility, dedup and the 512-row cap once: a fresh reply wins over
+a retained row with the same id, and the cap drops retained rows before fresh ones so a
+healthy source is never cut for a stale one. Every source whose rows did not fit is
+reported stale with its fixed error, including a source the reply never named because its
+first row was cut. Failure classification parses each field on its own, so a null
+`status` falls back to a usable `statusCode` (`status: null, statusCode: 429` is rate
+limited).
+
 Cache payload schema v2 accepts unversioned/v1 rows, repairs old OpenCode
 execution IDs, and cleans names/classification before serving. The next durable
 replacement writes v2. Startup serves the persisted rows and revalidates in the
@@ -231,3 +243,52 @@ the catalog. Explicit metadata or fallback failures retain failure semantics.
 An instance-level `not_configured` result has informational severity and the
 `provider.sign_in` action. It clears old models, does not accumulate failure
 backoff, and is rechecked on explicit refresh, login change or cache max age.
+
+## Concurrency
+
+The Rust catalog runs one actor. It owns registrations, flight and probe tokens,
+per-instance write order, deletion markers, and capacity. A bounded mailbox takes
+commands and replies with `Catalog is busy` when full. Workers report results on a
+separate queue whose size is bounded by the operations that can still report. Their
+wake never waits for command ingress. A caller dropping its reply leaves admitted
+work in actor order.
+
+The catalog arms a flight deadline at admission. The home guard and any prerequisite
+revocation run before the flight takes a discovery slot. A deadline settles the
+flight's refresh waiters even if the result is queued or a storage call has already
+started. Task capacity stays occupied until the task exits. Each refresh batch waits
+for specific flight tokens, so an old attempt cannot answer a waiter for its
+replacement.
+
+Four storage workers can serve different instances concurrently. The actor sends one
+job at a time per instance. The owning registration and effective revision follow
+the job through the queue and are checked again on completion. The storage port
+checks the write's fence after staging and immediately before committing it. A newer
+revision, superseded owner, or expired deadline discards a write that has yet to
+commit. Each pending deletion has one active attempt. Waiters with the same
+prerequisite share that attempt, and only its token can clear its marker. Failed
+deletions keep their marker for retry.
+
+Listeners, error callbacks, timers, storage and the spawner run outside the actor.
+Clock and settings values reach the actor as snapshots. Notifications are bounded
+hints to re-read. Shutdown disconnects public admission first, aborts discovery and
+probes, and cancels obsolete and queued replaces. An accepted permission report
+that already holds the first write place still drains. Close waits for active I/O,
+flushes pending revocations, then closes storage. Callbacks can themselves close
+the catalog. Concurrent closes join the same result. A failed durable close retains
+enough state for a later retry.
+
+Caps include 64 outstanding discovery tasks, 64 probe tasks, 256 refresh batches,
+1024 waiters per flight, probe, removal or close, 64 session writes, 128 removals,
+128 invalidations, and 1152 pending deletion markers. Session payloads are checked
+against the 4 MiB CLI and 256 KiB ACP budgets before admission. Session metadata and
+permission modes are bound to the registration token returned by
+`Catalog.registration`, even when a replacement registration keeps the same login.
+
+## Intended differences from the TypeScript
+
+- Cutting text at a limit (`resolve.ts`'s 1024, `discovery-failure.ts`'s 8192, `cli-versions.ts`'s 4096) counts UTF-16 code units as the TypeScript does, but a cut never splits an astral character, so the last character of a truncated string is whole where the TypeScript could leave an unpaired surrogate.
+- The CLI's `models` listing is parsed with its JSON metadata, so an id the listing describes keeps its name, context and efforts; the TypeScript appends an id-only row for the same line.
+- A discovery built without a process runner (a caller that only has the HTTP port) takes the server's catalog unfiltered, because no connection status can be read.
+- A stalled home guard cannot take a discovery slot. Expiring a refresh settles its waiters before blocked storage returns. Concurrent revocations with the same prerequisite share one durable deletion.
+- A caller that goes away does not cancel the catalog's work (see Concurrency). The TypeScript cannot observe this because its promises are never cancelled, so its equivalent behaviour is that the same work runs to completion.

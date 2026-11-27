@@ -3,6 +3,7 @@ import { readFile, readdir, cp, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+// oxlint-disable-next-line no-restricted-imports -- the release tool's own process, never the daemon's events.sqlite (ADR 0222).
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { Store, readConfig } from "@ace/daemon";

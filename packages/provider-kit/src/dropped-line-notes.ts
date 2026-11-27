@@ -1,4 +1,6 @@
 import type { DroppedOutputLine } from "./bounded-line-framing.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeDroppedLineNotes } from "./native-streams.ts";
 
 export type DroppedLineNotes = {
   /** Feed every drop the spawn reports; a split line counts once, at its final size. */
@@ -17,6 +19,7 @@ export function droppedLineNotes(options: {
   schedule: (run: () => void, ms: number) => () => void;
   intervalMs?: number;
 }): DroppedLineNotes {
+  if (supervisorBackend() === "native") return nativeDroppedLineNotes(options);
   const intervalMs = options.intervalMs ?? 1000;
   let lines = 0;
   let bytes = 0;

@@ -4,8 +4,9 @@ import { afterEach, expect, test } from "vitest";
 import { DeviceId, HostId, ThreadId } from "@ace/protocol";
 import { pinnedKeepAliveAgent } from "../client-access.ts";
 import { systemDeliveryRuntime } from "../delivery-runtime.ts";
+import { peerOf } from "../http-peer.ts";
 import { tlsFixtureHome } from "../process-test-support.ts";
-import { sniListener } from "../sni-listener.ts";
+import { testSniListener } from "../sni-test-support.ts";
 import { loadIdentity } from "../tls-identity.ts";
 import { MachineConnections } from "./connections.ts";
 import { machineCallsHttp } from "./http.ts";
@@ -14,7 +15,8 @@ import { machineRequest } from "./transport.ts";
 /*
  * How long the listener keeps a connection, on whichever runtime runs these: short before a
  * request on it authenticated, long after, and the answers' `Keep-Alive` header saying so. Bun
- * runs them from sni-keep-alive.process.test.ts, Node from sni-keep-alive-on-node.process.test.ts.
+ * runs them from sni-keep-alive.process.test.ts, Node from sni-keep-alive-on-node.process.test.ts,
+ * and `ACE_TRANSPORT=native,remote` runs them against Rust's listener (T1b.4).
  */
 
 const token = "a".repeat(64);
@@ -48,7 +50,8 @@ export function keepAliveCases() {
 
   /**
    * This build's machine-calls listener: by default 300 ms before authentication and 5 s after,
-   * or with the limits it ships with.
+   * or with the limits it ships with. Connections are counted as the transport sees them
+   * (`peerOf`), which through the native hop is the hop's connection, not the request's socket.
    */
   async function listener(
     limits: { keepAlive: number; trustedKeepAlive: number } | "shipped" = {
@@ -56,17 +59,18 @@ export function keepAliveCases() {
       trustedKeepAlive: 5000,
     },
   ) {
-    const sockets: TLSSocket[] = [];
+    const connections: string[] = [];
     const handler = machineCallsHttp(
       () => ({ handle: async () => ({ status: 200, body: { ok: true } }) }),
       (presented) => (presented === token ? { ...device, scopes: [...device.scopes] } : undefined),
       (_request, response) => response.writeHead(404).end(),
     );
-    const server = sniListener({
+    const server = testSniListener({
       tls: identity,
       requests: (request, response) => {
-        const socket = request.socket as TLSSocket;
-        if (!sockets.includes(socket)) sockets.push(socket);
+        const peer = peerOf(request);
+        const connection = `${peer.address}:${peer.remotePort}`;
+        if (!connections.includes(connection)) connections.push(connection);
         handler(request, response);
       },
       delay: systemDeliveryRuntime.delay,
@@ -75,21 +79,26 @@ export function keepAliveCases() {
     });
     const port = await server.listen("127.0.0.1", 0);
     cleanups.push(() => server.close());
-    return { sockets, origin: `https://127.0.0.1:${port}/` };
+    return { connections, origin: `https://127.0.0.1:${port}/` };
   }
 
-  /** One call on a kept-open connection of the test's own, returning the answer's Keep-Alive. */
+  /** One call on a kept-open connection of the test's own: its Keep-Alive and that connection. */
   function call(address: string, bearer: string) {
     const agent = pinnedKeepAliveAgent(identity.fingerprint, { get: () => undefined, set() {} }, 1);
     cleanups.push(() => agent.destroy());
-    return new Promise<string | undefined>((resolve, reject) => {
+    return new Promise<{ keepAlive: string | undefined; socket: TLSSocket }>((resolve, reject) => {
       const request = httpsRequest(
         new URL("/v1/machine-calls", address),
         { method: "POST", agent, headers: { authorization: `Bearer ${bearer}` } },
         (response) => {
           response.resume();
           const header = response.headers["keep-alive"];
-          response.on("end", () => resolve(typeof header === "string" ? header : undefined));
+          response.on("end", () =>
+            resolve({
+              keepAlive: typeof header === "string" ? header : undefined,
+              socket: request.socket as TLSSocket,
+            }),
+          );
         },
       );
       request.on("error", reject);
@@ -120,8 +129,8 @@ export function keepAliveCases() {
       // Past the short limit and Node's own one-second grace after it.
       await wait(2000);
     }
-    expect(target.sockets).toHaveLength(1);
-    expect(await call(target.origin, token)).toBe("timeout=5");
+    expect(target.connections).toHaveLength(1);
+    expect((await call(target.origin, token)).keepAlive).toBe("timeout=5");
   });
 
   test("with the shipped limits, calls past the short limit still reuse an authenticated connection", async () => {
@@ -147,12 +156,14 @@ export function keepAliveCases() {
       ).resolves.toEqual({ ok: true });
       if (i < 2) await wait(6500);
     }
-    expect(target.sockets).toHaveLength(1);
+    expect(target.connections).toHaveLength(1);
   }, 30_000);
 
   test("a connection that never authenticated is closed after the short limit, as its answer says", async () => {
     const target = await listener();
-    expect(await call(target.origin, "f".repeat(64))).toBe("timeout=0");
-    await expect.poll(() => target.sockets[0]?.destroyed, { timeout: 1500 }).toBe(true);
+    const answered = await call(target.origin, "f".repeat(64));
+    expect(answered.keepAlive).toBe("timeout=0");
+    // The client's own socket: however the listener drops it, this end sees the close.
+    await expect.poll(() => answered.socket.destroyed, { timeout: 1500 }).toBe(true);
   });
 }

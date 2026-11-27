@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { Event } from "@ace/protocol";
 import { decodeStoredPayload } from "../src/stored-decode.ts";

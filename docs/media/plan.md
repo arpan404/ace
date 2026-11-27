@@ -485,6 +485,12 @@ H   ..   payload
   time (Unix ms) and f64 its exact scale (`packages/media/src/producer-stamp.ts`). ace-media
   passes extensions through untouched. The Mac screen helper sends it on every unit, so the
   daemon's legacy consumers get the same frame header and packet the helper socket carries.
+- **Reader generation (D1).** A scrcpy source ace-media reads itself runs one reader per dial,
+  and every dial carries a reader generation from the daemon (`source.dial.dial`, a reopen's
+  `source.open.dial`). ace-media stamps it on that reader's `source.greeted`, `source.ready`,
+  its end (`source.status.dial`) and every unit (extension u16 tag 2, u16 length 4, u32 the
+  generation), and drops a `source.controlConnected` for any other generation; the daemon drops
+  anything not of the source's current one.
 - **Restarts.** The ingest socket path and WebSocket port change on every ace-media start.
   Producers learn them from the daemon with each `stream.configure` or capture start, so a
   restart never leaves a producer writing to a dead address.

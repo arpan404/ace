@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
+import { cliProgram } from "./cli/pty-test-support.ts";
+
+/*
+ * The real CLI in a child process: the TypeScript entry, or the Rust binary with
+ * ACE_CLI_IMPL=rust (ADR 0221), so one suite describes both implementations.
+ */
+const program = cliProgram();
 export function startCli(home: string, args: string[], stdin = "", env: NodeJS.ProcessEnv = {}) {
   const invocation = openCli(home, args, env);
   invocation.child.stdin.end(stdin);
@@ -8,8 +13,8 @@ export function startCli(home: string, args: string[], stdin = "", env: NodeJS.P
 }
 /** An open stdin lets process tests exercise a real interactive CLI session. */
 export function openCli(home: string, args: string[], env: NodeJS.ProcessEnv = {}) {
-  const child = spawn(process.execPath, [cli, ...args], {
-    env: { ...process.env, ...env, ACE_HOME: home },
+  const child = spawn(program.command, [...program.prefix, ...args], {
+    env: { ...process.env, ...program.env, ...env, ACE_HOME: home },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stdout = "",

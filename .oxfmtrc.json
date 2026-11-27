@@ -11,6 +11,7 @@
     "**/*.gen.ts",
     "docs/protocol",
     "docs/daemon/cli.md",
+    "native/cli/table.json",
     "spade/docs/runtime.md",
     "spade/spec/*.md",
     "spade/spec/schemas/**",
@@ -18,6 +19,13 @@
     "spade/target/**",
     "spade/crates/spade-server/shipped/**",
     "spade/crates/spade-classify/model/REPORT.md",
-    "spade/crates/spade-server/src/a2a/card/*-signed.json"
+    "spade/crates/spade-server/src/a2a/card/*-signed.json",
+    "native/daemon/catalog/tools.json",
+    "native/daemon/catalog/errors.json",
+    "native/daemon/catalog/instructions.json",
+    "native/daemon/catalog/control-hints.json",
+    "native/daemon/catalog/session-guidance.json",
+    "native/daemon/catalog/listing-headers.json",
+    "native/daemon/crates/ace-adapter-opencode/src/session/api/routes.golden.json"
   ]
 }

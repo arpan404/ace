@@ -1,15 +1,11 @@
-import { composerOf } from "../tui/composer.ts";
 import type { Key } from "../tui/keys.ts";
-import { editText, placeWords, runInPlace } from "./actions.ts";
-import type { App } from "./app-context.ts";
-import { attachedWork, enterAttach, leavingWords, send, slash, unfold } from "./app-attach.ts";
+import { placeWords, runInPlace } from "./actions.ts";
+import { leavingWords, type App } from "./app-context.ts";
 import type { Commands } from "./app-commands.ts";
 import { connect, startDaemon } from "./app-daemon.ts";
-import { attachKey } from "./attach-model.ts";
 import type { Effect } from "./effects.ts";
 import { homeKey } from "./home-model.ts";
-import { askNewThread } from "./new-thread.ts";
-import { requestsKey, requestsStart, threadRequests } from "./requests.ts";
+import { requestsKey, requestsStart } from "./requests.ts";
 
 /**
  * Keys to the current screen's model, and the effects the models ask for, carried out against
@@ -24,28 +20,16 @@ export async function onKey(app: App, commands: Commands, key: Key): Promise<voi
     const next = homeKey(app.home, live.rows(Date.now()), key);
     app.home = next.state;
     effects = next.effects;
-  } else if (app.screen === "requests") {
+  } else {
     const next = requestsKey(app.requests, live.requests(), key, app.height() - 6);
     app.requests = next.state;
-    effects = next.effects;
-  } else {
-    const reader = live.followed("attach")?.store;
-    const open = reader?.thread
-      ? threadRequests(reader, {
-          title: reader.thread.title,
-          project: "",
-          provider: reader.thread.provider,
-        })
-      : [];
-    const next = attachKey(app.attach, open[0], key, app.height() - 8, attachedWork(app));
-    app.attach = next.state;
     effects = next.effects;
   }
   app.schedule();
   for (const each of effects) {
     // Daemon round trips report when they land; keys go on meanwhile. Effects that hand the
-    // terminal over (prompts, the editor, doctor) hold the next keys until they return.
-    if (each.kind === "command" || each.kind === "send" || each.kind === "slash")
+    // terminal over (prompts, doctor, thread show) hold the next keys until they return.
+    if (each.kind === "command")
       void effect(app, commands, each).catch((error: unknown) =>
         app.flash(error instanceof Error ? error.message : String(error)),
       );
@@ -60,39 +44,24 @@ async function effect(app: App, commands: Commands, next: Effect): Promise<void>
       return app.quit(next.farewell || leavingWords(app), next.code);
     case "command":
       return commands.submit(next.payload, next.done);
-    case "attach":
-      return enterAttach(app, next.threadId);
     case "home":
       app.screen = "home";
-      app.live?.follow("attach", undefined);
-      app.attached = undefined;
       return app.schedule();
     case "requests":
       app.screen = "requests";
       app.requests = requestsStart;
       return app.schedule();
     case "tree":
-      app.live?.follow("tree", next.threadId);
+      app.live?.follow(next.threadId);
       return app.schedule();
-    case "send":
-      return send(app, commands, next.text, next.delivery);
-    case "slash":
-      return slash(app, commands, next.line);
-    case "unfold":
-      return unfold(app, next.key);
-    case "editor":
-      app.attach = {
-        ...app.attach,
-        composer: composerOf(editText(terminal, next.text, app.start.env)),
-      };
-      return app.schedule();
-    case "new-thread": {
-      const chosen = await askNewThread(terminal, {
-        cwd: process.cwd(),
-        projects: app.live?.projects() ?? [],
-        defaultProvider: app.live?.defaultProvider(),
-      });
-      if (chosen) enterAttach(app, undefined, chosen);
+    case "thread-show": {
+      const remote = app.start.args.flags.remote;
+      await runInPlace(terminal, [
+        "thread",
+        "show",
+        next.threadId,
+        ...(typeof remote === "string" ? ["--remote", remote] : []),
+      ]);
       return app.schedule();
     }
     case "place": {
@@ -118,8 +87,6 @@ async function effect(app: App, commands: Commands, next: Effect): Promise<void>
     case "triage":
       await runInPlace(terminal, ["triage"]);
       return app.schedule();
-    case "start":
-      return;
   }
 }
 

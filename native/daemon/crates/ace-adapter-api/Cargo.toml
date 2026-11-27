@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-adapter-api"
+description = "The adapter interface (@ace/engine-api) as Rust traits and errors, with the byte helpers every adapter uses"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-core: translators return its facts; only the core allocates ace ids.
+ace-core = { path = "../ace-core" }
+# ace-protocol: frames, sessions and selections are protocol values (generated, never hand-edited).
+ace-protocol = { path = "../ace-protocol" }
+# futures: Session's methods return LocalBoxFuture; the engine's executor is
+# single-threaded, so session futures stay on it and never need Send.
+futures = { version = "0.3" }
+# serde: the adapter interface types serialize for tests and diagnostics.
+serde = { version = "1", features = ["derive"] }
+# ace-json: frames keep each message's encoding as canonical Raw text; diagnostics
+# keep the redacted encoding without re-encoding it.
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# base64: binary-elision measures the decoded bytes of base64 and data-URL strings.
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+# sha2: binary-elision hashes elided attachment bytes with SHA-256, the same digest
+# the TypeScript uploader records, so an echo still matches the attachment it carries.
+sha2 = { version = "0.11" }
+# tokio: the event queue's wake is a `Notify`, so `sync` alone; a session's bridge
+# never runs an executor here, it only wakes the binding's port.
+tokio = { version = "1.54", features = ["sync"] }
+# ace-supervisor: the read gate answers a diverted child's chunk and resumes its
+# pumps, so it names the supervisor's `Delivered` and `OutputControl` (E3.0b).
+# The dependency runs one way: the supervisor never names an adapter type.
+ace-supervisor = { path = "../ace-supervisor" }

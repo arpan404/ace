@@ -1,0 +1,874 @@
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * The transport's proof run (ADR 0226, T1a.8): every test file that starts a server, run twice,
+ * once with the Rust loopback listener on and once with `ACE_TRANSPORT` off, one file at a time.
+ *
+ * The list comes from `list-server-tests.ts`, plus the rule-named files its seed closure misses
+ * (`CASE_RULE_FILES`). Each leg writes a Vitest JSON report and the on leg a fresh
+ * `ACE_TRANSPORT_EVIDENCE` file; a report is read with `JSON.parse(readFileSync(...))`, never
+ * `require`. Every test of both legs is recorded per test. The on leg is `native` only when it
+ * executed a test and the evidence file holds a listener line: case markers alone are not proof.
+ * A Node-only suite (`scripts/test-tiers.ts`) runs in its own leg on Node. A skipped test in a
+ * file with no identified platform guard is a failure, so one guard can't hide an unrelated skip.
+ *
+ * The on leg runs first. When it passes with no evidence, the switch never took effect and the
+ * off leg would be identical, so the off leg is skipped and recorded as such; a failing on leg or
+ * one with native evidence still runs the off leg.
+ *
+ * Runs with `node scripts/t1a-proof.ts`. It exits non-zero on any failed leg (a test failed in
+ * either leg, a leg's Vitest process exited non-zero, or a report is missing, unparsable or
+ * empty), or a skip without a platform guard, and a merge must cover every discovered file. An on
+ * leg with no evidence is a note, not a failure: the closure deliberately lists the files that
+ * import a server-starting helper, and some of them never start a server, so their on leg has no
+ * listener to prove. Before
+ * each file it waits up to two minutes for the shared machine's 1-minute load average to fall
+ * under 60, then runs anyway: this run proves pass/fail and evidence, not timing. A leg that
+ * failed only by timing out is rerun once, alone, and the table says so.
+ *
+ * For a long list: `--from N` starts at the Nth file (1-based), `--shard i/n` keeps the files
+ * whose sorted index is `i` mod `n`, `--only <text>` keeps the files whose path contains it, and
+ * `--results <path>` writes this run's results as JSON.
+ * `--merge <path...>` reads those JSON files and proof-run logs and exits by the same rules. Every
+ * result file records the switch it ran, and a merge refuses two switches or a log from a switch
+ * run (a log holds no per-case findings). A duplicate keeps the worse result: failed legs, then
+ * cases the evidence could not prove, then unexplained skips, then failed tests.
+ *
+ * `--switch=<value>` is the on leg's `ACE_TRANSPORT` (default `native`; T1b.5 runs
+ * `--switch=native,remote`). When the value names `remote`, the on leg's evidence is checked per
+ * case as well (`transport-evidence.ts`): every traffic case must own what the remote listener
+ * handled inside its own markers, the lifecycle cases their own proof, and every bind its close of
+ * the same listener instance. The per-case table is printed and a case the evidence cannot prove is
+ * `NONE`, which fails the run. T1a's run, the default, is unchanged.
+ */
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { loadavg, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { listServerTests } from "./list-server-tests.ts";
+import { realNode } from "./runtimes.ts";
+import { nodeOnlySuites } from "./test-tiers.ts";
+import {
+  caseEvidence,
+  caseTable,
+  hasListenerLine,
+  requiresCaseEvidence,
+  type CaseEvidence,
+} from "./transport-evidence.ts";
+import { CASE_RULE_FILES } from "./transport-evidence-rules.ts";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+const require = createRequire(import.meta.url);
+const vitestBin = join(dirname(require.resolve("vitest/package.json")), "vitest.mjs");
+
+/** The on leg's `ACE_TRANSPORT` when none is named: T1a's run. */
+const DEFAULT_SWITCH = "native";
+
+type Leg = "off" | "on";
+
+/** One test's result, as the report gives it. */
+interface Result {
+  file: string;
+  fullName: string;
+  /** The test's own name, without the suites above it. */
+  title: string;
+  leg: Leg;
+  status: string;
+  message?: string;
+}
+
+interface LegRun {
+  /** The report was missing, unparsable, or held no test. */
+  noReport: string | undefined;
+  results: Result[];
+  /** The Vitest process's own exit status and output, for a failure's diagnosis. */
+  status: number | null;
+  output: string;
+  /** The leg was not run: the on leg passed with no native evidence, so it would be identical. */
+  skipped?: boolean;
+}
+
+interface FileRun {
+  file: string;
+  off: LegRun;
+  on: LegRun;
+  /** How the on leg proved itself: `native`, `NONE`, `platform-skipped`, or why not. */
+  evidence: "native" | "NONE" | "platform-skipped" | "no-report";
+  /** A leg that failed only by timing out was rerun once alone. */
+  rerun: { off: boolean; on: boolean };
+  /** The file has a `runIf`/`skipIf` guard on the platform, so its skips are expected. */
+  platformGuard: boolean;
+  /** The file guards a case on the transport switch: that skip is expected on the off leg. */
+  switchGuard: boolean;
+  /** What the on leg's evidence proves per case; absent when the switch names no `remote`. */
+  cases?: CaseEvidence;
+}
+
+/** One file of the sorted list, with the index a shard and the progress line use. */
+interface Entry {
+  index: number;
+  file: string;
+}
+
+const REPORT_TIMEOUT_MS = 15 * 60 * 1000;
+/** The proof run's worker bound on this shared machine. */
+const MAX_WORKERS = 2;
+/** How long one file may wait for the load to settle before it runs anyway. */
+const LOAD_WAIT_MS = 2 * 60 * 1000;
+
+/** A blocking sleep; the proof run holds the shared machine between runs. */
+function sleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** The 1-minute load average, or 0 where the platform has no such reading. */
+function oneMinuteLoad(): number {
+  if (process.platform === "darwin") {
+    const read = spawnSync("sysctl", ["-n", "vm.loadavg"], { encoding: "utf8" });
+    const match = /^\{\s*([\d.]+)/.exec(read.stdout ?? "");
+    if (match?.[1] !== undefined) return Number(match[1]);
+    return 0;
+  }
+  if (process.platform === "linux") return loadavg()[0] ?? 0;
+  return 0;
+}
+
+/**
+ * Holds until the 1-minute load average is under 60, checking every 30 s for at most two minutes,
+ * then runs anyway: the machine is shared, other threads keep the load high, and this run proves
+ * pass/fail rather than timing.
+ */
+function waitForLoad(): void {
+  const deadline = Date.now() + LOAD_WAIT_MS;
+  for (;;) {
+    const load = oneMinuteLoad();
+    if (load < 60 || Date.now() >= deadline) return;
+    sleep(30_000);
+  }
+}
+
+/**
+ * Names the file derives from `process.platform` (a guard's constant, such as
+ * `const windows = process.platform === "win32"`), so a `runIf(windows)` counts as identified.
+ */
+function platformConstants(text: string): string[] {
+  const names: string[] = [];
+  for (const match of text.matchAll(
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*process\.platform/g,
+  )) {
+    if (match[1] !== undefined) names.push(match[1]);
+  }
+  return names;
+}
+
+/** Whether a file guards a case on `transportParts()`: its off-leg skip is the switch, not a hole. */
+function hasSwitchGuard(text: string): boolean {
+  return /\.(?:runIf|skipIf)\s*\([^)]*transportParts\(/.test(text);
+}
+
+/** Whether a file identifies a skip as a platform guard rather than an unexplained one. */
+function hasPlatformGuard(text: string): boolean {
+  const names = platformConstants(text);
+  for (const match of text.matchAll(/\.(?:runIf|skipIf)\s*\(([^)]*)/g)) {
+    const condition = match[1] ?? "";
+    if (condition.includes("process.platform")) return true;
+    if (names.some((name) => new RegExp(`\\b${name}\\b`).test(condition))) return true;
+  }
+  return false;
+}
+
+/**
+ * What the evidence file says: `native` needs a listener line. Case markers alone are not proof:
+ * with `--switch` a run may write markers for every test, including files that never start one.
+ */
+function evidenceOf(path: string): boolean {
+  return hasListenerLine(path);
+}
+
+/** Whether a leg failed only because a test timed out, so one rerun alone is the fair reading. */
+function timedOutOnly(run: LegRun): boolean {
+  const failed = run.results.filter((result) => result.status === "failed");
+  return (
+    run.noReport === undefined &&
+    failed.length > 0 &&
+    failed.every((result) => /timed out in \d+ ?ms/i.test(result.message ?? ""))
+  );
+}
+
+/** Whether a file matches one of the tier table's Node-only globs (`*` spans anything). */
+function isNodeOnly(file: string): boolean {
+  return nodeOnlySuites.some((pattern) => {
+    const escaped = pattern
+      .split("*")
+      .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+      .join(".*");
+    return new RegExp(`^${escaped}$`).test(file);
+  });
+}
+
+/** The command one leg runs: Vitest on Bun, and on Node for a Node-only suite. */
+function vitestCommand(file: string, reportPath: string): { command: string; args: string[] } {
+  const common = [`--maxWorkers=${MAX_WORKERS}`, "--reporter=json", `--outputFile=${reportPath}`];
+  if (!isNodeOnly(file))
+    return { command: "bun", args: ["--bun", "x", "vitest", "run", file, ...common] };
+  const node = realNode();
+  if (node === undefined)
+    throw new Error(`${file} is a Node-only suite, and no node is on PATH to run it`);
+  return {
+    command: node,
+    args: [vitestBin, "run", file, "--project=node-process", ...common],
+  };
+}
+
+/** One leg's outcome, from its report only. */
+function runLeg(
+  file: string,
+  leg: Leg,
+  reportPath: string,
+  evidencePath: string,
+  transport: string,
+): LegRun {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (leg === "off") {
+    delete env.ACE_TRANSPORT;
+    delete env.ACE_TRANSPORT_EVIDENCE;
+    delete env.ACE_TRANSPORT_ADDON;
+  } else {
+    env.ACE_TRANSPORT = transport;
+    env.ACE_TRANSPORT_EVIDENCE = evidencePath;
+  }
+  const { command, args } = vitestCommand(file, reportPath);
+  const run = spawnSync(command, args, {
+    cwd: root,
+    env,
+    encoding: "utf8",
+    timeout: REPORT_TIMEOUT_MS,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+  if (!existsSync(reportPath))
+    return { noReport: "missing", results: [], status: run.status, output };
+  let decoded: unknown;
+  try {
+    const text = readFileSync(reportPath, "utf8");
+    if (text.trim() === "") return { noReport: "empty", results: [], status: run.status, output };
+    decoded = JSON.parse(text);
+  } catch {
+    return { noReport: "unparsable", results: [], status: run.status, output };
+  }
+  const parsed = decoded as {
+    numTotalTests?: unknown;
+    testResults?: {
+      name?: unknown;
+      assertionResults?: {
+        fullName?: unknown;
+        title?: unknown;
+        status?: unknown;
+        failureMessages?: unknown;
+      }[];
+    }[];
+  };
+  if (parsed.numTotalTests === 0)
+    return { noReport: "empty", results: [], status: run.status, output };
+  const results: Result[] = [];
+  for (const suite of parsed.testResults ?? []) {
+    const suiteFile = typeof suite.name === "string" ? suite.name : file;
+    for (const assertion of suite.assertionResults ?? []) {
+      const status = typeof assertion.status === "string" ? assertion.status : "unknown";
+      const messages = Array.isArray(assertion.failureMessages)
+        ? assertion.failureMessages.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      results.push({
+        file: suiteFile,
+        fullName: typeof assertion.fullName === "string" ? assertion.fullName : "",
+        title: typeof assertion.title === "string" ? assertion.title : "",
+        leg,
+        status,
+        ...(messages.length ? { message: messages.join("\n").slice(0, 600) } : {}),
+      });
+    }
+  }
+  if (!results.length) return { noReport: "empty", results: [], status: run.status, output };
+  return { noReport: undefined, results, status: run.status, output };
+}
+
+/** Whether a leg executed at least one test, as opposed to skipping all of them. */
+function executed(run: LegRun): boolean {
+  return run.results.some((result) => result.status === "passed" || result.status === "failed");
+}
+
+/** How the on leg proved itself. */
+function evidenceOfRun(run: LegRun, ran: boolean, witness: string, platformGuard: boolean) {
+  if (run.noReport !== undefined) return "no-report" as const;
+  if (!ran) return platformGuard ? ("platform-skipped" as const) : ("no-report" as const);
+  return evidenceOf(witness) ? ("native" as const) : ("NONE" as const);
+}
+
+/** One file's two legs, from this process. */
+function runFile(entry: Entry, name: string, work: string, transport: string): FileRun {
+  const { file } = entry;
+  waitForLoad();
+  const evidencePath = join(work, `${name}-evidence.jsonl`);
+  let on = runLeg(file, "on", join(work, `${name}-on.json`), evidencePath, transport);
+  // A leg that failed only by timing out gets one more run, alone, on a fresh report.
+  let rerunOn = false;
+  if (timedOutOnly(on)) {
+    rerunOn = true;
+    on = runLeg(
+      file,
+      "on",
+      join(work, `${name}-on-retry.json`),
+      `${evidencePath}.retry`,
+      transport,
+    );
+  }
+  const witness = rerunOn ? `${evidencePath}.retry` : evidencePath;
+  const text = readFileSync(join(root, file), "utf8");
+  const platformGuard = hasPlatformGuard(text);
+  const evidence = evidenceOfRun(on, executed(on), witness, platformGuard);
+  // The per-case rules are the remote listener's: a native-only run has no case to prove. A file
+  // the rules name is checked even with no evidence at all, so its missing proof is a failure; any
+  // other file keeps T1a.8's note.
+  const cases =
+    transport.split(",").includes("remote") &&
+    on.noReport === undefined &&
+    executed(on) &&
+    (evidence === "native" || requiresCaseEvidence(file))
+      ? caseEvidence(
+          file,
+          witness,
+          on.results
+            .filter((result) => result.status === "passed" || result.status === "failed")
+            .map((result) => ({ fullName: result.fullName, title: result.title })),
+        )
+      : undefined;
+  let off: LegRun;
+  let rerunOff = false;
+  // The on leg passed with no evidence: ACE_TRANSPORT never took effect, so the off leg (which
+  // runs without it) would be the same tests with the same result. Record the skip, run nothing.
+  // A failing on leg still gets its off leg, so a pre-existing failure is not mistaken for one.
+  if (evidence === "NONE" && !legFailed(on)) {
+    off = { noReport: undefined, results: [], status: null, output: "", skipped: true };
+  } else {
+    off = runLeg(file, "off", join(work, `${name}-off.json`), "", transport);
+    if (timedOutOnly(off)) {
+      rerunOff = true;
+      off = runLeg(file, "off", join(work, `${name}-off-retry.json`), "", transport);
+    }
+  }
+  return {
+    file,
+    off,
+    on,
+    evidence,
+    ...(cases === undefined ? {} : { cases }),
+    rerun: { off: rerunOff, on: rerunOn },
+    platformGuard,
+    switchGuard: hasSwitchGuard(text),
+  };
+}
+
+/** A log's exit field: `none` is a leg with no status (a skipped off leg). */
+function logExit(value: string | undefined): number | null {
+  return value === undefined || value === "none" ? null : Number(value);
+}
+
+/** A leg's statuses, as a log can carry them: pending and todo count as skipped. */
+function statusCounts(results: readonly Result[]): {
+  passed: number;
+  failed: number;
+  skipped: number;
+} {
+  let passed = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const result of results) {
+    if (result.status === "passed") passed++;
+    else if (result.status === "failed") failed++;
+    else skipped++;
+  }
+  return { passed, failed, skipped };
+}
+
+/** One leg's state and counts: every status is kept, and so is the Vitest exit. */
+function legText(token: string, run: LegRun, note?: string): string {
+  const state = note === undefined ? token : `${token} (${note})`;
+  if (run.skipped === true) return state;
+  const { passed, failed, skipped } = statusCounts(run.results);
+  return `${state} pass=${passed} fail=${failed} skip=${skipped} exit=${run.status ?? "none"}`;
+}
+
+/** The progress line, and the form `--merge` reads back from a log. */
+function progressLine(entry: Entry, total: number, run: FileRun): string {
+  const offState = run.off.skipped
+    ? legText("skipped", run.off, "on had no native evidence")
+    : legText(run.off.noReport ?? "ran", run.off);
+  const onState = legText(run.on.noReport ?? run.evidence, run.on);
+  const rerun =
+    run.rerun.off || run.rerun.on
+      ? ` (rerun ${[run.rerun.off ? "off" : "", run.rerun.on ? "on" : ""].filter(Boolean).join(" ")})`
+      : "";
+  return `[${String(entry.index + 1).padStart(3)}/${total}] off ${offState}  on ${onState}${rerun}  ${run.file}`;
+}
+
+function main(): number {
+  const args = process.argv.slice(2);
+  if (args.includes("--help")) {
+    console.log(
+      [
+        "scripts/t1a-proof.ts — every test file that starts a server, run twice (switch on, then off)",
+        "",
+        "  node scripts/t1a-proof.ts [--switch=native] [--from N] [--to N] [--shard i/n]",
+        "    [--only <text>] [--results <path>] [--merge <path...>]",
+        "",
+        "  --switch=<value>  the on leg's ACE_TRANSPORT (default native; T1b.5: native,remote)",
+        "  --shard i/n       keep the files whose sorted index is i mod n",
+        "  --results <path>  write this run's results as JSON (the merge input)",
+        "  --merge <paths>   read JSON results and proof-run logs, then report and exit by the rules",
+        "",
+        "With --switch naming remote, the on leg's evidence is checked per case.",
+      ].join("\n"),
+    );
+    return 0;
+  }
+  const flag = (name: string): string | undefined => {
+    const at = args.indexOf(name);
+    return at < 0 ? undefined : args[at + 1];
+  };
+  const merge = (() => {
+    const at = args.indexOf("--merge");
+    if (at < 0) return undefined;
+    return args.slice(at + 1).filter((value) => !value.startsWith("--"));
+  })();
+  if (merge !== undefined) {
+    const { runs, duplicates, refused, switches, logsWithoutCases, unrecordedSwitches } =
+      mergeRuns(merge);
+    console.log(`=== switch: ${switches.length ? switches.join(", ") : "not recorded"} ===`);
+    // A merge is one run's proof: two switches' results never add up, and a native shard must
+    // never fill a remote one.
+    if (switches.length > 1) {
+      console.log(
+        `\n=== merge refused: ${switches.length} switches (${switches.join(", ")}) ===\n` +
+          "  merge only the result files of one --switch run",
+      );
+      return 1;
+    }
+    report(runs);
+    const failed = failures(runs);
+    const uncovered = uncoveredFiles(runs);
+    if (duplicates.length) {
+      console.log(`\n=== duplicate results (${duplicates.length}) ===`);
+      for (const file of duplicates) console.log(`  ${file}: kept the worse result`);
+    }
+    if (refused.length) {
+      console.log(`\n=== refused logs (${refused.length}) ===`);
+      for (const path of refused)
+        console.log(`  ${path}: no per-test statuses (an older runner's log)`);
+    }
+    if (logsWithoutCases.length) {
+      console.log(`\n=== refused logs, no per-case findings (${logsWithoutCases.length}) ===`);
+      for (const path of logsWithoutCases)
+        console.log(`  ${path}: a switch run's proof is in its --results JSON, not a log`);
+    }
+    if (unrecordedSwitches.length) {
+      console.log(`\n=== refused results, no switch recorded (${unrecordedSwitches.length}) ===`);
+      for (const path of unrecordedSwitches)
+        console.log(`  ${path}: rerun that shard with this script so the file names its switch`);
+    }
+    if (uncovered.length) {
+      console.log(`\n=== merge is incomplete (${uncovered.length}) ===`);
+      for (const file of uncovered) console.log(`  missing: ${file}`);
+    }
+    const withCases = runs.filter((run) => run.cases !== undefined).length;
+    if (withCases) console.log(`\ncase evidence: ${withCases} files, from their JSON results`);
+    return failed ||
+      uncovered.length ||
+      refused.length ||
+      logsWithoutCases.length ||
+      unrecordedSwitches.length
+      ? 1
+      : 0;
+  }
+  const files = discoveredFiles();
+  const from = Math.max(1, Number(flag("--from") ?? "1"));
+  const to = Math.min(files.length, Number(flag("--to") ?? String(files.length)));
+  const shard = flag("--shard");
+  const [shardIndex, shardCount] =
+    shard === undefined ? [0, 1] : shard.split("/").map((value) => Number(value));
+  if (
+    shardCount === undefined ||
+    shardIndex === undefined ||
+    !(shardCount > 0) ||
+    shardIndex < 0 ||
+    shardIndex >= shardCount
+  )
+    throw new Error("--shard takes i/n with 0 <= i < n");
+  const only = flag("--only");
+  // `--switch=<value>` (the brief's form) and `--switch <value>` both work, as the other flags do.
+  const switchArgument =
+    args.find((value) => value.startsWith("--switch="))?.slice("--switch=".length) ??
+    flag("--switch") ??
+    DEFAULT_SWITCH;
+  if (switchArgument.trim() === "")
+    throw new Error("--switch takes the on leg's ACE_TRANSPORT, such as native or native,remote");
+  const entries: Entry[] = [];
+  for (const [index, file] of files.entries())
+    if (
+      index + 1 >= from &&
+      index + 1 <= to &&
+      index % shardCount === shardIndex &&
+      (only === undefined || file.includes(only))
+    )
+      entries.push({ index, file });
+  const work = mkdtempSync(join(tmpdir(), "t1a-proof-"));
+  const runs: FileRun[] = [];
+  const started = Date.now();
+  try {
+    for (const entry of entries) {
+      const run = runFile(entry, `${entry.index}`, work, switchArgument);
+      runs.push(run);
+      console.log(progressLine(entry, files.length, run));
+    }
+  } finally {
+    report(runs);
+    rmSync(work, { recursive: true, force: true });
+  }
+  const results = flag("--results");
+  if (results !== undefined)
+    writeFileSync(results, `${JSON.stringify({ switch: switchArgument, files: runs })}\n`);
+  console.log(`\n${entries.length} files in ${Math.round((Date.now() - started) / 1000)} s`);
+  return failures(runs) ? 1 : 0;
+}
+
+/** The current progress line: state, per-status counts, the Vitest exit, rerun, file. */
+const MODERN_LINE =
+  /^\[\s*\d+\/\d+\]\s+off\s+(ran|skipped|missing|unparsable|empty)(?:\s+\(([^)]*)\))?(?:\s+pass=(\d+)\s+fail=(\d+)\s+skip=(\d+)\s+exit=(\S+))?\s+on\s+(\S+)(?:\s+pass=(\d+)\s+fail=(\d+)\s+skip=(\d+)\s+exit=(\S+))?(?:\s+\(rerun\s+([^)]*)\))?\s{2,}(.+)$/;
+
+/** A leg from a log line: placeholders keep the status, no test names to recover. */
+function legFromLog(
+  state: string,
+  passed: number,
+  failed: number,
+  skipped: number,
+  status: number | null,
+  leg: Leg,
+): LegRun {
+  if (state === "skipped")
+    return { noReport: undefined, results: [], status: null, output: "", skipped: true };
+  if (state === "missing" || state === "unparsable" || state === "empty")
+    return { noReport: state, results: [], status, output: "" };
+  const results: Result[] = [];
+  for (let index = 0; index < passed + failed + skipped; index++)
+    results.push({
+      file: "",
+      fullName: "(log only)",
+      title: "(log only)",
+      leg,
+      status: index < passed ? "passed" : index < passed + failed ? "failed" : "skipped",
+    });
+  return { noReport: undefined, results, status, output: "" };
+}
+
+/** Results from one proof-run log, which keeps each test's status and the leg's exit. */
+function runsFromLog(path: string): FileRun[] {
+  const runs: FileRun[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const modern = MODERN_LINE.exec(line);
+    if (modern !== null) {
+      const [, offState, , op, of, os, oe, onToken, np, nf, ns, ne, rerun, file] = modern;
+      const off = legFromLog(
+        offState ?? "",
+        Number(op ?? 0),
+        Number(of ?? 0),
+        Number(os ?? 0),
+        logExit(oe),
+        "off",
+      );
+      const noReport = onToken === "missing" || onToken === "unparsable" || onToken === "empty";
+      const on = legFromLog(
+        noReport ? (onToken ?? "") : "ran",
+        Number(np ?? 0),
+        Number(nf ?? 0),
+        Number(ns ?? 0),
+        logExit(ne),
+        "on",
+      );
+      const evidence: FileRun["evidence"] =
+        onToken === "native" || onToken === "NONE" || onToken === "platform-skipped"
+          ? onToken
+          : "no-report";
+      const rerunFlags = rerun ?? "";
+      runs.push({
+        file: file ?? "",
+        off,
+        on,
+        evidence,
+        rerun: { off: rerunFlags.includes("off"), on: rerunFlags.includes("on") },
+        platformGuard: false,
+        switchGuard: false,
+      });
+    }
+  }
+  return runs;
+}
+
+/** A log this script can read: one whose every row is the modern counted form. */
+function isModernLog(path: string): boolean {
+  const lines = readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line.startsWith("["));
+  return lines.length > 0 && lines.every((line) => MODERN_LINE.test(line));
+}
+
+/** T1a.8's list, plus the rule-named files its seed closure does not reach (T1b.5). */
+function discoveredFiles(): string[] {
+  const files = new Set(listServerTests());
+  for (const file of CASE_RULE_FILES) if (existsSync(join(root, file))) files.add(file);
+  return [...files].toSorted((left, right) => left.localeCompare(right));
+}
+
+/** The discovered files a merge does not cover. */
+function uncoveredFiles(runs: readonly FileRun[]): string[] {
+  const present = new Set(runs.map((run) => run.file));
+  return discoveredFiles().filter((file) => !present.has(file));
+}
+
+/** Skips no guard explains, which are failures; a log names no guard, so every skip counts. */
+function unexplainedSkips(run: FileRun): number {
+  if (run.platformGuard) return 0;
+  return skips(run).filter((result) => !(run.switchGuard && result.leg === "off")).length;
+}
+
+/**
+ * How bad a result is. Higher is worse, so a duplicate can never be a clean run hiding a later
+ * failed proof: failed legs first, then the cases the evidence could not prove, then skips no
+ * guard explains, then failed tests.
+ */
+function severity(run: FileRun): number {
+  const legs = (legFailed(run.off) ? 1 : 0) + (legFailed(run.on) ? 1 : 0);
+  const findings = run.cases?.findings.length ?? 0;
+  const skipsUnseen = unexplainedSkips(run);
+  const tests = [...run.off.results, ...run.on.results].filter(
+    (result) => result.status === "failed",
+  ).length;
+  return legs * 1_000_000 + findings * 10_000 + skipsUnseen * 100 + tests;
+}
+
+/**
+ * JSON results and modern logs, deduped by file. On a duplicate the worse result is kept, so a
+ * later pass can never hide an earlier failure; the file is named in the report. A log without
+ * per-test statuses is refused rather than guessed.
+ */
+function mergeRuns(paths: readonly string[]): {
+  runs: FileRun[];
+  duplicates: string[];
+  refused: string[];
+  /** The switches the result files recorded; a merge needs exactly one. */
+  switches: string[];
+  /** A log merged into a switch run, where the per-case findings can't be recovered. */
+  logsWithoutCases: string[];
+  /** Result files that recorded no switch: their legs' switch is unknown, so they prove nothing. */
+  unrecordedSwitches: string[];
+} {
+  const merged = new Map<string, FileRun>();
+  const duplicates = new Set<string>();
+  const refused: string[] = [];
+  const switches = new Set<string>();
+  const logsWithoutCases: string[] = [];
+  const unrecordedSwitches: string[] = [];
+  const add = (run: FileRun) => {
+    // A report written by an older runner may spell "no failure" as null.
+    for (const leg of [run.off, run.on])
+      if ((leg.noReport as unknown) === null) leg.noReport = undefined;
+    const existing = merged.get(run.file);
+    if (existing === undefined) {
+      merged.set(run.file, run);
+      return;
+    }
+    duplicates.add(run.file);
+    if (severity(run) > severity(existing)) merged.set(run.file, run);
+  };
+  const json = paths.filter((path) => path.endsWith(".json"));
+  const logs = paths.filter((path) => !path.endsWith(".json"));
+  for (const path of json) {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+      switch?: unknown;
+      files?: FileRun[];
+    };
+    if (typeof parsed.switch === "string") switches.add(parsed.switch);
+    else unrecordedSwitches.push(path);
+    for (const run of parsed.files ?? []) add(run);
+  }
+  const switchNames = [...switches];
+  const remoteSwitch = switchNames.some((name) => name.split(",").includes("remote"));
+  for (const path of logs) {
+    // A log carries per-file counts, never the per-case findings a remote proof turns on: mixing
+    // one in would let a file's cases pass silently, so a switch run refuses logs outright.
+    if (remoteSwitch) {
+      logsWithoutCases.push(path);
+      continue;
+    }
+    if (!isModernLog(path)) {
+      refused.push(path);
+      continue;
+    }
+    for (const run of runsFromLog(path)) add(run);
+  }
+  return {
+    runs: [...merged.values()].toSorted((left, right) => left.file.localeCompare(right.file)),
+    duplicates: [...duplicates].toSorted(),
+    refused,
+    switches: switchNames.toSorted(),
+    logsWithoutCases,
+    unrecordedSwitches,
+  };
+}
+
+/** Counts as a failed leg: a failed test, a missing report, or a non-zero Vitest exit. */
+function legFailed(run: LegRun): boolean {
+  if (run.skipped === true) return false;
+  return (
+    run.noReport !== undefined ||
+    run.status !== 0 ||
+    run.results.some((result) => result.status === "failed")
+  );
+}
+
+/** Why a leg failed: its failed tests, its missing report, or its exit. */
+function why(leg: LegRun): string {
+  const failedTests = leg.results.filter((one) => one.status === "failed");
+  if (failedTests.length)
+    return failedTests
+      .map((one) => `${one.fullName}\n      ${(one.message ?? "").split("\n")[0]}`)
+      .join("\n    ");
+  if (leg.noReport !== undefined) return `report: ${leg.noReport}\n${tail(leg.output)}`;
+  return `exit status ${String(leg.status)}`;
+}
+
+/** The skips of a file, from both legs. */
+function skips(run: FileRun): Result[] {
+  return [...run.off.results, ...run.on.results].filter(
+    (result) => result.status !== "passed" && result.status !== "failed",
+  );
+}
+
+/** Whether any rule failed; prints each failing group. */
+function failures(runs: readonly FileRun[]): boolean {
+  let failed = false;
+  const onOnly = runs.filter((run) => legFailed(run.on) && !legFailed(run.off) && !run.off.skipped);
+  const offOnly = runs.filter((run) => legFailed(run.off) && !legFailed(run.on));
+  const both = runs.filter((run) => legFailed(run.on) && legFailed(run.off));
+  const noEvidence = runs.filter((run) => run.on.noReport === undefined && run.evidence === "NONE");
+  const noReport = runs.filter(
+    (run) => run.off.noReport !== undefined || run.on.noReport !== undefined,
+  );
+  // A native-only case skips on the off leg by design (the switch guard); everything else, and
+  // every skip on the on leg, needs a platform guard to be explained.
+  const unexplained = runs.filter(
+    (run) =>
+      !run.platformGuard && skips(run).some((result) => !(run.switchGuard && result.leg === "off")),
+  );
+  const skipped = runs.filter((run) => skips(run).length > 0);
+  // Every case the on leg's evidence could not prove (`transport-evidence.ts`): T1b.5's rule.
+  const unproven = runs.filter((run) => (run.cases?.findings.length ?? 0) > 0);
+
+  console.log("\n=== failures ===");
+  const group = (title: string, entries: readonly FileRun[], detail: () => void) => {
+    if (!entries.length) return;
+    failed = true;
+    console.log(`\n${title} (${entries.length})`);
+    for (const entry of entries) console.log(`  ${entry.file}`);
+    detail();
+  };
+  const note = (title: string, entries: readonly FileRun[], detail: () => void) => {
+    if (!entries.length) return;
+    console.log(`\n${title} (${entries.length})`);
+    for (const entry of entries) console.log(`  ${entry.file}`);
+    detail();
+  };
+  group("on leg fails, off passes", onOnly, () => {
+    for (const entry of onOnly) console.log(`    on: ${why(entry.on)}`);
+  });
+  group("off leg fails, on passes", offOnly, () => {
+    for (const entry of offOnly) console.log(`    off: ${why(entry.off)}`);
+  });
+  group("both legs fail (pre-existing)", both, () => {
+    for (const entry of both) console.log(`    off: ${why(entry.off)}\n    on: ${why(entry.on)}`);
+  });
+  // Not a failure: the file is in the list because it imports a server-starting helper, but the
+  // on leg never reached a listener, so there is no native evidence to prove and nothing to fix.
+  note("on leg without evidence (NONE): reported, not a failure", noEvidence, () => {
+    for (const entry of noEvidence) console.log(`    ${entry.file}: ${entry.evidence}`);
+  });
+  group("no report", noReport, () => {
+    for (const entry of noReport) {
+      if (entry.off.noReport !== undefined)
+        console.log(`    ${entry.file} off: ${entry.off.noReport}\n${tail(entry.off.output)}`);
+      if (entry.on.noReport !== undefined)
+        console.log(`    ${entry.file} on: ${entry.on.noReport}\n${tail(entry.on.output)}`);
+    }
+  });
+  group("skips with no platform guard", unexplained, () => {
+    for (const entry of unexplained)
+      for (const result of skips(entry).filter((one) => !(entry.switchGuard && one.leg === "off")))
+        console.log(`    ${entry.file} ${result.leg}: ${result.fullName} (${result.status})`);
+  });
+  group("case evidence missing (NONE)", unproven, () => {
+    for (const entry of unproven)
+      for (const finding of entry.cases?.findings ?? [])
+        console.log(`    ${entry.file}: ${finding}`);
+  });
+
+  console.log(`\n=== skipped tests (${skipped.length} files) ===`);
+  for (const entry of skipped) {
+    const guard = entry.platformGuard
+      ? "platform guard"
+      : entry.switchGuard
+        ? "switch guard"
+        : "NO GUARD";
+    console.log(`  ${entry.file} [${guard}]`);
+    for (const result of skips(entry))
+      console.log(`    ${result.leg}: ${result.fullName} (${result.status})`);
+  }
+  return failed;
+}
+
+function tail(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed === "") return "    (no output)";
+  return trimmed
+    .split("\n")
+    .slice(-20)
+    .map((line) => `      ${line}`)
+    .join("\n");
+}
+
+/** The per-file table, for the PR. */
+function report(runs: readonly FileRun[]): void {
+  const count = (run: FileRun, leg: "off" | "on") => {
+    if (leg === "off" && run.off.skipped) return "skipped";
+    const results = leg === "off" ? run.off.results : run.on.results;
+    const passed = results.filter((result) => result.status === "passed").length;
+    return `${passed}/${results.length}`;
+  };
+  console.log("\n=== per file ===");
+  console.log("off\t on\t evidence\tfile");
+  for (const run of runs)
+    console.log(
+      `${count(run, "off")}\t${count(run, "on")}\t${run.evidence}\t${run.file}` +
+        `${run.rerun.off || run.rerun.on ? `\t(rerun ${run.rerun.off ? "off " : ""}${run.rerun.on ? "on" : ""})` : ""}`,
+    );
+  // T1b.5's case table: each case, its listeners and ports, the events they reported, the counts.
+  const withCases = runs.filter((run) => run.cases !== undefined);
+  if (withCases.length) {
+    console.log("\n=== per case ===");
+    for (const run of withCases) {
+      const cases = run.cases;
+      if (cases === undefined) continue;
+      for (const line of caseTable(run.file, cases)) console.log(line);
+    }
+  }
+}
+
+process.exitCode = main();

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+import { DatabaseSync, type SQLOutputValue } from "@ace/provider-kit/sqlite";
 import { createDevThread } from "../src/commands.ts";
 import { Store } from "../src/store.ts";
 import { sidebarPageStorage } from "../src/sidebar-page-storage.ts";

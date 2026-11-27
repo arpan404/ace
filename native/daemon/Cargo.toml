@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# The daemon's Rust core: the event store first (ADR 0222), later the engine,
+# adapters, agent-control and machines, each a crate in this workspace.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+# No cargo strip. On macOS, rustc 1.95 strips with its bundled rust-objcopy, which can lay
+# out the symbol string pool so that macOS 27's dyld refuses the dylib ("mis-aligned
+# LINKEDIT string pool"). It depends on the library's contents: the device inventory (D2)
+# build hit it while earlier builds of this branch loaded. The addon is loaded straight from
+# target/release, so it stays unstripped; packaging, when it ships, strips with Apple's strip.
+strip = false

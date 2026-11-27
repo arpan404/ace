@@ -1,6 +1,8 @@
 import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
-import type { WebSocket, WebSocketServer } from "ws";
+import type { WebSocketServer } from "ws";
+import { peerOf } from "./http-peer.ts";
+import type { MainSocket } from "./main-socket.ts";
 import type { PreAuthAdmission } from "./socket-admission.ts";
 
 const refuseUpgrade = (socket: Duplex, status: string) =>
@@ -9,24 +11,58 @@ const refuseUpgrade = (socket: Duplex, status: string) =>
   );
 
 /**
- * The daemon's own address on this loopback listener (`http://127.0.0.1:<port>`, `localhost`
+ * The daemon's own address on its loopback listener (`http://127.0.0.1:<port>`, `localhost`
  * or `[::1]`): the origin of the web app it serves itself. Only literal loopback names count,
- * so a rebound DNS name pointing here is still refused.
+ * so a rebound DNS name pointing here is still refused. The port is the listener's public one:
+ * with the native transport that is its own port, never the internal server's.
  */
-function ownLoopbackOrigin(origin: string, listener: Server): boolean {
-  const address = listener.address();
-  if (!address || typeof address === "string") return false;
+export function ownLoopbackOrigin(origin: string, port: number): boolean {
   try {
     const url = new URL(origin);
     return (
       url.origin === origin &&
       url.protocol === "http:" &&
       ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
-      Number(url.port) === address.port
+      Number(url.port) === port
     );
   } catch {
     return false;
   }
+}
+
+/** What to do with an arriving WebSocket upgrade. */
+export type UpgradeDecision = "accept" | "forbidden" | "unavailable" | "drop";
+
+/**
+ * The upgrade admission rules, in order: only `/`, an allowed Origin on loopback (or, when the
+ * daemon serves the web app, its own loopback origin), then the connection and
+ * pre-authentication budgets.
+ */
+export function upgradeDecision(input: {
+  url: string | undefined;
+  origin: string | undefined;
+  isLocal: boolean;
+  address: string;
+  servesRenderer: boolean;
+  ownOrigin(origin: string): boolean;
+  allowedOrigins: ReadonlySet<string>;
+  full(): boolean;
+  preAuth: PreAuthAdmission;
+}): UpgradeDecision {
+  if (input.url !== "/") return "drop";
+  // Loopback shares the HTTP access allowlist. Remote clients authenticate
+  // with paired-device tickets, including native clients with URL-derived Origin.
+  if (
+    input.isLocal &&
+    input.origin !== undefined &&
+    !input.allowedOrigins.has(input.origin) &&
+    !(input.servesRenderer && input.ownOrigin(input.origin))
+  ) {
+    return "forbidden";
+  }
+  const kind: "local" | "remote" = input.isLocal ? "local" : "remote";
+  if (input.full() || !input.preAuth.admits(kind, input.address)) return "unavailable";
+  return "accept";
 }
 
 /**
@@ -44,30 +80,37 @@ export function admitUpgrades(
     servesRenderer?: boolean;
     preAuth: PreAuthAdmission;
     full(): boolean;
-    remoteSockets: Set<WebSocket>;
+    /** Remote sockets, `ws` and native in one set: a retire or a shutdown sweeps them together. */
+    remoteSockets: Set<MainSocket>;
   },
 ): Server {
   const { wss, preAuth, remoteSockets } = options;
   return listener.on("upgrade", (request, socket, head) => {
-    if (request.url !== "/") {
+    const address = peerOf(request).address;
+    const kind: "local" | "remote" = isLocal ? "local" : "remote";
+    const decision = upgradeDecision({
+      url: request.url,
+      origin: request.headers.origin,
+      isLocal,
+      address,
+      servesRenderer: options.servesRenderer === true,
+      ownOrigin: (origin) => {
+        const bound = listener.address();
+        return bound !== null && typeof bound !== "string" && ownLoopbackOrigin(origin, bound.port);
+      },
+      allowedOrigins: options.allowedOrigins,
+      full: options.full,
+      preAuth,
+    });
+    if (decision === "drop") {
       socket.destroy();
       return;
     }
-    // Loopback shares the HTTP access allowlist. Remote clients authenticate
-    // with paired-device tickets, including native clients with URL-derived Origin.
-    const origin = request.headers.origin;
-    if (
-      isLocal &&
-      origin !== undefined &&
-      !options.allowedOrigins.has(origin) &&
-      !(options.servesRenderer && ownLoopbackOrigin(origin, listener))
-    ) {
+    if (decision === "forbidden") {
       refuseUpgrade(socket, "403 Forbidden");
       return;
     }
-    const kind: "local" | "remote" = isLocal ? "local" : "remote";
-    const address = request.socket.remoteAddress ?? "unknown";
-    if (options.full() || !preAuth.admits(kind, address)) {
+    if (decision === "unavailable") {
       refuseUpgrade(socket, "503 Service Unavailable");
       return;
     }

@@ -1,44 +1,36 @@
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import type { RequestListener, Server } from "node:http";
-import { SettingsValues } from "@ace/protocol";
-import { SettingsError, transportNetworks } from "@ace/settings";
-import { defaults } from "@ace/settings/defaults";
+import { SettingsError } from "@ace/settings";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import { relayPairing, relayRoute } from "./relay-route.ts";
 import { computerName } from "./computer-name.ts";
 import { remoteDirect } from "./remote-direct.ts";
 import { remoteRelays } from "./remote-relays.ts";
+import type { SniListener, SniListenerOptions } from "./sni-listener.ts";
 import { startRelayTransport } from "./services/transports.ts";
-import { remoteNetworksStatus } from "./remote-status.ts";
-import type { ReachFacts } from "./external-mcp/reach.ts";
+import { remoteRuntimeView } from "./remote-runtime-view.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { logFields } from "@ace/diagnostics";
 import type { DirectNetwork } from "./remote-direct-policy.ts";
 import {
   addedDirect,
   remotePlan,
-  remotePreferenceKeys,
   type RemotePlan,
   type RemotePreferences as Preferences,
 } from "./remote-policy.ts";
+import {
+  defaultRemotePreferences,
+  readRemotePreferences,
+  remotePreferenceChange,
+  remoteSettingKeys,
+  StoredRemotePreferences,
+} from "./remote-preferences.ts";
 
-/** Settings this runtime applies: the networks, and the older single choice it translates. */
-const keys = [...remotePreferenceKeys, "remote.transport"] as const;
-/** How long making a pairing link waits on a Tailscale certificate fetched again for it. */
-const pairingCertificateWaitMs = 15_000;
-/**
- * How long making a pairing link waits on remote access still starting: the direct listener, then,
- * with no direct address, the person's own relay. Past it the link names what serves by then.
- */
-export const pairingStartWaitMs = 15_000;
+export { pairingStartWaitMs } from "./remote-runtime-view.ts";
+
 /** How often the address remote access listens on is checked against the network's. */
 export const addressCheckMs = 30_000;
-/**
- * How long closing waits for remote access's queued work (a settings change, a check) and then
- * for the relays to stop. Registrations under way are aborted first, so this is only a backstop:
- * shutdown never waits on the network (ADR 0170).
- */
+/** Bounds the drain of the settings queue and relay registrations (ADR 0170). */
 export const remoteCloseWaitMs = 2_000;
 /** What status says while the saved remote settings can't be read; access stays off meanwhile. */
 export const settingsUnreadable =
@@ -46,32 +38,22 @@ export const settingsUnreadable =
 /** What status says while a saved change to remote access can't be read yet. */
 export const settingsChangeUnreadable =
   "Couldn't read the latest remote access settings, so a change may not have taken effect yet. ace tries again on its own; if this keeps up, restart ace.";
-const Stored = SettingsValues.pick({
-  "remote.enabled": true,
-  "remote.lan": true,
-  "remote.tailscale": true,
-  "remote.relay": true,
-  "remote.relayUrl": true,
-});
 
-/**
- * Owns network resources separately from local sessions and their event history: the direct
- * listener (LAN and Tailscale) and every relay, each run together and failing on its own
- * (ADR 0112).
- */
+/** Owns the direct listener and relay registrations independently of local sessions (ADR 0112). */
 export function remoteRuntime(
   options: ServerOptions,
   auth: RemoteAuth,
   http: RequestListener,
   attach: (server: Server) => void,
   disconnect: () => void,
+  /** Creates the native HTTPS listener when enabled. */
+  listener?: (options: SniListenerOptions) => SniListener,
 ) {
   options.relay = undefined;
   const delay = options.runtime?.delay ?? systemDeliveryRuntime.delay;
   const every = options.runtime?.every ?? systemDeliveryRuntime.every;
   const now = options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now;
-  // The first pass, which the daemon no longer waits for before it listens: the direct
-  // listener's part, and every network's. Both settle, never reject, and settle on close.
+  // Startup runs in the background. These also settle on close.
   const directStarted = Promise.withResolvers<void>();
   const networksStarted = Promise.withResolvers<void>();
   let firstPass = true;
@@ -88,8 +70,7 @@ export function remoteRuntime(
   let stopWatch: (() => void) | undefined;
   let retry: (() => void) | undefined;
   let retryMs = 1000;
-  // Until the saved settings are read, the defaults (remote access on, the LAN only).
-  let preferences: Preferences = Stored.parse(defaults);
+  let preferences = defaultRemotePreferences();
   let closed = false;
   let tail = Promise.resolve();
   let stop: (() => void) | undefined;
@@ -97,11 +78,8 @@ export function remoteRuntime(
   let stopAccount: (() => void) | undefined;
   let reconciling = false;
   let dirty = false;
-  // Whether the saved settings were read once: until then nothing opens, and status says why.
   let loaded = false;
-  // Whether the saved settings must be read again before anything is applied: until the first
-  // read, and after any read that failed. Every retry reads while it is set, never applying the
-  // last choice it knows, which a saved change (remote access turned off) may have replaced.
+  // Read saved settings before applying changes on startup or after a failed read.
   let stale = true;
   let unreadable: string | undefined;
   // What the change under way brings up: each of its networks reads `waiting` until it serves.
@@ -126,7 +104,14 @@ export function remoteRuntime(
     if (typeof saved?.value === "string" && saved.value) return saved.value;
     return options.hostName ?? (await computerName().catch(() => undefined));
   };
-  const direct = remoteDirect({ options, http, attach, disconnect, clearPending });
+  const direct = remoteDirect({
+    options,
+    http,
+    attach,
+    disconnect,
+    clearPending,
+    ...(listener === undefined ? {} : { listener }),
+  });
   // Links name the relay only while no direct address serves; then closing it withdraws them.
   const relays = remoteRelays({
     options,
@@ -250,22 +235,10 @@ export function remoteRuntime(
     options.log?.(new Error(message));
     scheduleRetry();
   };
-  const read = async (base: Preferences): Promise<Preferences> => {
-    const entries = (await options.settings?.read({ keys: [...remotePreferenceKeys], scope: {} }))
-      ?.entries;
-    const next: Record<string, unknown> = { ...base };
-    for (const entry of entries ?? []) next[entry.key] = entry.value;
-    const parsed = Stored.safeParse(next);
-    return parsed.success ? parsed.data : base;
-  };
-  /**
-   * Every read of the saved choice. One that fails marks the settings stale, says so in status
-   * and keeps a retry scheduled, whoever asked (a start, a change, a write), so recovery never
-   * waits on another event.
-   */
+  // A failed read leaves the settings stale and schedules recovery.
   const readSaved = async (): Promise<Preferences> => {
     try {
-      const next = await read(preferences);
+      const next = await readRemotePreferences(options.settings, preferences);
       stale = false;
       loaded = true;
       unreadable = undefined;
@@ -279,10 +252,6 @@ export function remoteRuntime(
       throw new SettingsError("io", message);
     }
   };
-  /**
-   * Reads the saved choice and brings the networks to it. Until a read succeeds, the networks
-   * stay as they are (off before the first), status says why, and the retry timer reads again.
-   */
   const sync = async (retryRefused = false): Promise<void> => {
     const next = await readSaved().catch(() => undefined);
     if (next) await apply(next, undefined, retryRefused);
@@ -304,14 +273,10 @@ export function remoteRuntime(
         if (dirty && !closed) reconcile();
       });
   };
-  /**
-   * Follows settings, the account and the network's address. Installed before the first start,
-   * so a sign-in, sign-out or settings change while it waits on the network is applied, in
-   * order, once it ends.
-   */
+  // Subscribe before startup so changes that arrive during the first bind are applied in order.
   const watch = async () => {
     const unsubscribe = await Promise.resolve(
-      options.settings?.subscribe({ keys: [...keys], scope: {} }, (event) => {
+      options.settings?.subscribe({ keys: [...remoteSettingKeys], scope: {} }, (event) => {
         if (event.type === "changed") reconcile();
       }),
     ).catch((failure: unknown) => {
@@ -325,8 +290,7 @@ export function remoteRuntime(
       return;
     }
     stop = unsubscribe;
-    // Signing in, out or to another account changes ace's relay registration; a refusal
-    // waiting for a sign-in is tried again.
+    // An account change retries ace's relay registration.
     stopAccount = options.machineAccount?.onChange(() => {
       if (closed) return;
       retry?.();
@@ -345,12 +309,10 @@ export function remoteRuntime(
     if (closed) return;
     await serialize(() => sync()).catch(recover);
   };
-  /** Waits on `task` while closing, at most `remoteCloseWaitMs`; overrunning is logged. */
   const bounded = (name: string, task: Promise<unknown>) =>
     shutdownDeadline(name, task, delay, remoteCloseWaitMs).catch((error: unknown) =>
       options.log?.(error instanceof Error ? error : new Error(String(error))),
     );
-  /** Stops remote access within a bounded time; a second call waits on the first. */
   const close = (): Promise<void> =>
     (closing ??= (async () => {
       closed = true;
@@ -367,65 +329,30 @@ export function remoteRuntime(
       // work waiting on it ends, instead of shutdown waiting out its deadline. The relay expires
       // a registration that never finished; the next start registers afresh.
       const relaysClosed = relays.close(false);
+      if (listener !== undefined) {
+        // Drop native HTTP hops before Rust can forward a reply during shutdown.
+        await Promise.all([
+          direct.close(),
+          bounded("Remote access queue", tail).then(() => bounded("Remote relays", relaysClosed)),
+        ]);
+        return;
+      }
       await bounded("Remote access queue", tail);
       await bounded("Remote relays", relaysClosed);
       await direct.close();
     })());
   const giveUp = () => void close();
   return {
-    /**
-     * What a pairing link names: the direct address while LAN or Tailscale serves, else the
-     * person's own relay (ADR 0070). ace's relay admits account devices only, which never pair.
-     */
-    /**
-     * Before a link is made: waits for remote access still starting (the direct listener, then,
-     * with no direct address, the relays), at most `pairingStartWaitMs`, then fetches a failed
-     * Tailscale certificate again (`refreshCertificate`).
-     */
-    beforePairing: async () => {
-      const deadline = Promise.withResolvers<void>();
-      const cancel = delay(() => deadline.resolve(), pairingStartWaitMs);
-      try {
-        await Promise.race([directStarted.promise, deadline.promise]);
-        if (!direct.open()) await Promise.race([networksStarted.promise, deadline.promise]);
-      } finally {
-        cancel();
-      }
-      await direct.refreshCertificate(pairingCertificateWaitMs);
-    },
-    /** Settles once the direct listener's first start ended, or remote access closed. */
-    directStarted: directStarted.promise,
-    /** Settles once every network's first start ended, or remote access closed. */
-    started: networksStarted.promise,
-    pairing: () => {
-      const own = relays.selfHosted() && options.relay ? relayPairing(options.relay) : undefined;
-      const address = direct.connection();
-      // A direct link also names the person's own relay, so a machine that can't reach the
-      // address can still redeem it there (ADR 0182).
-      if (address) return own ? { ...address, alsoRelay: own.relay } : address;
-      return own;
-    },
-    status: () => {
-      const config = options.remoteConfig;
-      const networks = remoteNetworksStatus({
-        direct: {
-          serving: direct.serving(),
-          errors: direct.errors(),
-          warnings: direct.warnings(),
-          address: direct.address,
-        },
-        relays: relays.view(),
-        ...(pending ? { pending } : {}),
-      });
-      const error = unreadable ?? networks.error;
-      return {
-        ...networks,
-        ...(error ? { error } : {}),
-        listenOverride: config?.listenOverride ? config.listen : null,
-        relayOverride: config?.relayUrl !== undefined,
-        ...(options.relay ? relayRoute(options.relay, options.hostId) : {}),
-      };
-    },
+    ...remoteRuntimeView({
+      options,
+      direct,
+      relays,
+      delay,
+      directStarted: directStarted.promise,
+      networksStarted: networksStarted.promise,
+      pendingPlan: () => pending,
+      settingsError: () => unreadable,
+    }),
     async start() {
       // A stop while starting closes now: what waits on the network is given up, not awaited.
       const lifetime = options.lifetime;
@@ -444,45 +371,17 @@ export function remoteRuntime(
     get relayHostId() {
       return relays.relayHostId();
     },
-    /** Where outside MCP clients can reach this machine beyond loopback (ADR 0122). */
-    outsideReach: (): ReachFacts => ({
-      tailscale: () =>
-        direct.tailnet() ?? {
-          problem:
-            direct.errors().tailscale ??
-            direct.warnings().tailscale ??
-            (direct.serving().tailscale
-              ? "Tailscale hasn't issued this machine's HTTPS certificate yet."
-              : "Turn on Tailscale in Remote access."),
-        },
-      relay: () => {
-        const hosted = relays.hosted();
-        if (!hosted)
-          return { problem: "Sign in to an ace account and turn on ace's relay in Remote access." };
-        const url = new URL(hosted.url);
-        const scheme = url.protocol === "ws:" ? "http:" : "https:";
-        return { origin: `${scheme}//${url.host}`, hostId: hosted.hostId };
-      },
-    }),
     set(key: string, value: unknown, commit: () => Promise<void>) {
-      if (!keys.some((item) => item === key)) return commit();
+      if (!remoteSettingKeys.some((item) => item === key)) return commit();
       return serialize(async () => {
         retry?.();
         retry = undefined;
-        // Applied on top of the saved choice, never on the defaults or a choice a later saved
-        // change replaced. A read that fails refuses the write and leaves a retry scheduled.
+        // Read stale preferences before applying a write.
         if (stale) preferences = await readSaved();
         const before = preferences;
-        // An older app's single network choice becomes the networks it meant.
-        const change =
-          key === "remote.transport"
-            ? transportNetworks(
-                SettingsValues.shape["remote.transport"].parse(value),
-                before["remote.relayUrl"],
-              )
-            : { [key]: value };
+        const change = remotePreferenceChange(before, key, value);
         try {
-          await apply(Stored.parse({ ...before, ...change }), before);
+          await apply(StoredRemotePreferences.parse({ ...before, ...change }), before);
           await commit();
         } catch (failure) {
           await apply(before).catch(recover);

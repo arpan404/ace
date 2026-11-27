@@ -1,16 +1,19 @@
 import type { Event, EventPayload, ThreadId } from "@ace/protocol";
 import { canonicalEvent } from "./canonical-event.ts";
-import type { StreamSequences } from "./stream-sequences.ts";
+import type { SequenceAllocator } from "./stream-sequences.ts";
 import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
 import { isDiskFull } from "./sqlite-failure.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
+import { compactDeltas, NativeLiveBuffer, retryDelay } from "./native-writer/live.ts";
 import {
-  compactDeltas,
   LiveWriteBuffer,
   type BufferScheduler,
   type BufferedSnapshot,
+  type LiveBuffer,
 } from "./live-write-buffer.ts";
+import type { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { storeWriterOn } from "@ace/provider-kit/native-switches";
 
 /** Reports a settlement's failure to the post-commit pass that owns it. */
 export type FailureReport = (error: unknown) => void;
@@ -96,7 +99,7 @@ export function settleOutcomes(
 
 /** Thin store shell around the pinned buffer. Sequence reservation and publication share one owner. */
 export class StoreStream {
-  readonly buffer: LiveWriteBuffer;
+  readonly buffer: LiveBuffer;
   // Buffered envelopes through this sequence have reached subscribers. They are stored under
   // their own sequences, compacted (a merged row takes its span's final sequence). The held
   // suffix was never seen: it is stored uncompacted and exactly the stored rows publish after
@@ -113,9 +116,10 @@ export class StoreStream {
   private strikes = 0;
   resyncs = 0;
   constructor(privateOptions: {
+    readonly db: DatabaseSync;
     scheduler: BufferScheduler;
     nextId(): string;
-    sequences: StreamSequences;
+    sequences: SequenceAllocator;
     blocked(): boolean;
     transaction(run: () => void, outcome: TransactionOutcome): void;
     /** Store an envelope under its own sequence; returns it and any follow-up rows. */
@@ -132,11 +136,19 @@ export class StoreStream {
     quarantined(thread: ThreadId, error: Error): void;
   }) {
     this.options = privateOptions;
-    this.buffer = new LiveWriteBuffer({
-      scheduler: privateOptions.scheduler,
-      attempt: () => this.scheduled(),
-      ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
-    });
+    this.buffer = storeWriterOn("live")
+      ? new NativeLiveBuffer({
+          db: privateOptions.db,
+          scheduler: privateOptions.scheduler,
+          attempt: () => this.scheduled(),
+          ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
+        })
+      : new LiveWriteBuffer({
+          scheduler: privateOptions.scheduler,
+          attempt: () => this.scheduled(),
+          retryDelay: (failures) => retryDelay(this.options.db, failures),
+          ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
+        });
   }
   private readonly options;
   metrics() {
@@ -218,7 +230,31 @@ export class StoreStream {
     if (this.flushing || this.sealed || !this.buffer.size) return;
     this.attempt();
   }
+  /**
+   * The native engine's pumped flush (E5.2 step 16): `run` installs the hook the deadline and
+   * retry timer ask instead of attempting inline, and `undefined` restores the timer.
+   */
+  setEngineFlush(run: (() => void) | undefined): void {
+    this.engineFlush = run;
+  }
+  /**
+   * The attempt the engine's pump task runs: the scheduled path (`scheduled()`), never `flush()`,
+   * so a pinned batch still retries instead of waiting on itself.
+   */
+  runScheduled(): void {
+    this.scheduledNow();
+  }
+  private engineFlush: (() => void) | undefined;
   private scheduled(): void {
+    // With a native engine attached the attempt belongs to its pump, never this timer callback.
+    const engine = this.engineFlush;
+    if (engine !== undefined) {
+      engine();
+      return;
+    }
+    this.scheduledNow();
+  }
+  private scheduledNow(): void {
     if (this.options.blocked()) {
       // Maintenance or history publication holds writes; they drain the buffer when done.
       this.buffer.rearm();
@@ -282,7 +318,7 @@ export class StoreStream {
     const { events, snapshots } = this.buffer.batch(thread);
     const threads = [...snapshots.keys()];
     const split = events.findIndex((event) => event.seq > this.publishedThrough);
-    const published = compactDeltas(split < 0 ? events : events.slice(0, split));
+    const published = compactDeltas(this.options.db, split < 0 ? events : events.slice(0, split));
     const held = split < 0 ? [] : events.slice(split);
     // A retry may find rows an earlier attempt already committed: those count as stored.
     const fresh = (event: Event) => !recovering || !this.options.stored(event);

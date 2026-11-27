@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-engine"
+description = "The daemon's engine: actors, intents, delivery, sessions, recovery and transitions on the native core (E5 owns the port)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The probe hooks the seam tests drive: a forced open transaction, and the actor-probe seams.
+engine-probe = []
+
+[dependencies]
+# ace-store: the engine reads and writes its tables through the store's connection and transaction stack, in Rust once E5 lands.
+ace-store = { path = "../ace-store" }
+# ace-core: the fact reducer the engine folds frame batches with.
+ace-core = { path = "../ace-core" }
+# ace-projection: the queue's snooze-wake rules (E5.4a).
+ace-projection = { path = "../ace-projection" }
+# ace-adapter-api: the Session trait the engine drives, with its bridge rules.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# async-task: the local executor's spawn_local runnables (from smol-rs, Apache-2.0/MIT, the parts async-executor is made of); engine state is Rc, never shared, never locked.
+async-task = "4.7"
+# concurrent-queue: the executor's ready queue beside async-task.
+concurrent-queue = "2.5"
+# futures: LocalBoxFuture for session calls and oneshot channels for commit acknowledgements.
+futures = "0.3"
+# lru: the engine's bounded record cache (today RecordBudget).
+lru = "0.19"
+# serde_json: the core's Run.executionSource is a serde_json value (E4's shape).
+serde_json = { version = "1", features = ["preserve_order"] }
+# serde: engine state and records serialize for tests and stored rows.
+serde = { version = "1", features = ["derive"] }
+# ace-json: JSON goes through it (rule 8), never serde_json: the registry view and later
+# module payloads keep JavaScript's key order, numbers and lone surrogates.
+ace-json = { path = "../ace-json" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# indexmap: the actor maps iterate in insertion order, as the TypeScript `Map` does (rule 8).
+indexmap = "2"
+# sha2: an attachment echo hashes the bytes a data URL carries, as the TypeScript does.
+sha2 = "0.10"
+# base64: the echo decodes that data URL exactly as `Buffer.from(…, "base64")` does.
+base64 = "0.22"
+# JavaScript regex and WHATWG URL semantics for stored command validation.
+regress = { version = "0.12", features = ["utf16"] }
+url = "2"
+# ace-adapter-claude, ace-adapter-pi: the input journal re-signs an input with the rendering the
+# provider's own adapter sends (E5.4b), so the two stay one copy.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
+ace-adapter-pi = { path = "../ace-adapter-pi" }

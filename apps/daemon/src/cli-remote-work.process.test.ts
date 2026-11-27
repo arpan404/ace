@@ -2,27 +2,22 @@ import { expect, test } from "vitest";
 import { remoteCliFixture } from "./cli-remote-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 
-test.each(["run", "chat"])(
-  "remote %s refuses client-relative and host paths before registering or admitting work",
+test(
+  "remote run refuses client-relative and host paths before registering or admitting work",
   { timeout: 30000 },
-  async (verb) => {
+  async () => {
     const f = await remoteCliFixture();
     try {
       const before = f.daemon.store.listThreads().map((thread) => thread.id);
       for (const project of ["./repo", f.h.home, "unregistered-workspace"]) {
-        const args = [
-          verb,
-          ...(verb === "run" ? ["Do not admit this prompt"] : []),
+        const result = await invoke(f.home, [
+          "run",
+          "Do not admit this prompt",
           "--project",
           project,
           ...f.remoteArgs,
           "--json",
-        ];
-        const result = await invoke(
-          f.home,
-          args,
-          verb === "chat" ? "Do not admit this prompt\n/quit\n" : "",
-        );
+        ]);
         const records: unknown[] = result.stdout
           .trim()
           .split("\n")

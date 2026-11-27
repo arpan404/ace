@@ -1,4 +1,5 @@
-import { deriveThreadStatus, readyForChildResults, type ThreadState } from "@ace/core";
+import { readyForChildResults, type ThreadState } from "@ace/core";
+import { deriveThreadStatus } from "@ace/core/typescript";
 import type { Capabilities, CommandId, ThreadId } from "@ace/protocol";
 import type { InputFate } from "./input-fate.ts";
 import type { AdapterRegistry } from "./registry.ts";

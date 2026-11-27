@@ -1,11 +1,34 @@
 import type { StatementSync } from "node:sqlite";
 import type { FailureReport, TransactionOutcome } from "./store-stream.ts";
 
+/**
+ * The one allocator the store's writers share: the event writer's ordinary appends, the live
+ * buffer and deletion tombstones. `store.ts` builds one (`StreamSequences`, or the native one
+ * behind `ACE_STORE_WRITER`), so its cursor is the only cursor and a rollback can never reuse
+ * a sequence. Implementations keep no second cursor of their own.
+ */
+export interface SequenceAllocator {
+  /** Reads `host_sequence`. Nothing before this may touch SQL (the database is not migrated). */
+  initialize(): void;
+  /** The highest sequence a committed reservation holds; `NaN` while none has. */
+  reservedThrough(): number;
+  /** The larger of the event and tombstone high-water marks; 0 when both are empty. */
+  head(): number;
+  /** Whether a subscriber holding `after` can resume from committed state. */
+  replaySafe(after: number): boolean;
+  /** Allocate provisionally. The cursor moves before exhaustion throws, so nothing is reused. */
+  next(after: number): number;
+  /** Reserve a range for a live batch; confirmation is the outermost commit's. */
+  prepare(events: number, after: number): void;
+  /** Whether a committed reservation covers `seq`. */
+  covers(seq: number): boolean;
+}
+
 /** Reserve ranges durably before publishing events. Old builds also skip this high-water mark, so
  * the existing host_sequence format remains readable in both directions. Every sequence handed
  * out lies inside a reserved range, and `reserved` hears of each range before it is used, so a
  * mark kept outside the database covers every sequence a client may hold (ADR 0128). */
-export class StreamSequences {
+export class StreamSequences implements SequenceAllocator {
   private cursor = 0;
   private reserved = 0;
   /** Ranges written by transactions that have not settled yet; a rollback forgets them. */

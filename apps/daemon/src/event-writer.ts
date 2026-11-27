@@ -1,19 +1,23 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { type Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
-import { updateThread } from "@ace/projection";
+import { storeWriterOn } from "@ace/provider-kit/native-switches";
+import { foldThread } from "./native-writer/fold.ts";
+import { createThread, storeEvent } from "./native-writer/events.ts";
+import { writeThreadColumns, type ColumnsWritten } from "./native-writer/thread-columns.ts";
 import { canonicalEvent } from "./canonical-event.ts";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
 import {
+  coldRowValues,
   threadColumnChanges,
-  threadColumnValue,
+  writtenColumns,
   type ColumnValue,
   type ThreadColumn,
 } from "./thread-columns.ts";
 import { rebuildThread } from "./thread-row.ts";
 import { keepThreadRowConfirmed, threadRowConfirmed } from "./thread-row-trust.ts";
 import type { FrozenThread } from "./thread-cache.ts";
-import type { StreamSequences } from "./stream-sequences.ts";
+import type { SequenceAllocator } from "./stream-sequences.ts";
 import type { PayloadStore } from "./payload-store.ts";
 import type { HistoryIndex } from "./history-index.ts";
 import type { StatusStore } from "./status-store.ts";
@@ -26,7 +30,7 @@ import type { MeasurementStore } from "./measurement-store.ts";
 import type { NeedsYouThreads } from "./needs-you-threads.ts";
 interface EventWriteSource {
   db: DatabaseSync;
-  sequences: StreamSequences;
+  sequences: SequenceAllocator;
   payloads: PayloadStore;
   history: HistoryIndex;
   status: StatusStore;
@@ -130,35 +134,58 @@ export class EventWriter {
       let thread: Thread;
       if (event.payload.type === "thread.created") {
         thread = event.payload.thread;
-        if (
-          this.source
-            .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
-            .get(thread.workspaceId)
-        )
-          throw new Error("workspace_unregistered");
-        if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
-        this.source
-          .statement(
-            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        if (storeWriterOn("events")) {
+          // The same check order as the TypeScript path: an unregistered workspace wins
+          // over an invalid or duplicate creation. The native writer checks it again.
+          if (
+            this.source
+              .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
+              .get(thread.workspaceId)
           )
-          .run(
-            thread.id,
-            thread.workspaceId,
-            thread.title,
-            thread.provider,
-            JSON.stringify(thread.status),
-            thread.createdAt,
-            event.at,
-            thread.imported ? JSON.stringify(thread.imported) : null,
-          );
-        // Work starting in a project makes it the most recently used one there (ADR 0180): a
-        // machine's default checkout. A thread imported from history started nothing now.
-        if (!thread.imported)
+            throw new Error("workspace_unregistered");
+          if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
+          createThread(this.source.db, {
+            id: thread.id,
+            workspaceId: thread.workspaceId,
+            title: thread.title,
+            provider: thread.provider,
+            statusJson: JSON.stringify(thread.status),
+            createdAt: thread.createdAt,
+            updatedAt: event.at,
+            importedJson: thread.imported ? JSON.stringify(thread.imported) : null,
+            imported: Boolean(thread.imported),
+          });
+        } else {
+          if (
+            this.source
+              .statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?")
+              .get(thread.workspaceId)
+          )
+            throw new Error("workspace_unregistered");
+          if (thread.id !== threadId || checkout) throw new Error("Invalid thread creation");
           this.source
             .statement(
-              "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=max(opened_at,excluded.opened_at)",
+              "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .run(thread.workspaceId, event.at);
+            .run(
+              thread.id,
+              thread.workspaceId,
+              thread.title,
+              thread.provider,
+              JSON.stringify(thread.status),
+              thread.createdAt,
+              event.at,
+              thread.imported ? JSON.stringify(thread.imported) : null,
+            );
+          // Work starting in a project makes it the most recently used one there (ADR 0180): a
+          // machine's default checkout. A thread imported from history started nothing now.
+          if (!thread.imported)
+            this.source
+              .statement(
+                "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=max(opened_at,excluded.opened_at)",
+              )
+              .run(thread.workspaceId, event.at);
+        }
       } else {
         const existing = previous;
         if (!existing) throw new Error("Unknown thread");
@@ -167,7 +194,7 @@ export class EventWriter {
       const liveChange = liveMetadataChange(this.source.db, thread, event.payload, event.at);
       if (liveChange) followup = liveChange;
       if (!delta) {
-        updateThread(thread, event);
+        foldThread(this.source.db, thread, event);
         this.writeThread(checkout?.base, thread, event.payload);
         this.source.needsYou.observe(thread);
       }
@@ -176,10 +203,23 @@ export class EventWriter {
       this.source.history.record(event);
       this.source.status.persist(event, thread);
       this.source.longThreads.append(event, thread, previousSeq);
-      this.source
-        .statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)")
-        .run(seq, event.id, threadId, at, event.payload.type, JSON.stringify(event.payload));
-      this.source.statement("UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1").run(seq);
+      if (storeWriterOn("events"))
+        storeEvent(this.source.db, {
+          seq,
+          id: event.id,
+          threadId,
+          at,
+          kind: event.payload.type,
+          payloadJson: JSON.stringify(event.payload),
+        });
+      else {
+        this.source
+          .statement(
+            "INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(seq, event.id, threadId, at, event.payload.type, JSON.stringify(event.payload));
+        this.source.statement("UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1").run(seq);
+      }
       this.source.mcp.apply(event, thread);
       events.push(event);
     }
@@ -216,7 +256,24 @@ export class EventWriter {
     thread: Thread,
     payload: EventPayload,
   ): void {
-    const changes = threadColumnChanges(previous, thread, writtenColumns(payload));
+    const wanted = writtenColumns(payload);
+    const written = storeWriterOn("columns")
+      ? writeThreadColumns(this.source.db, previous, thread, wanted)
+      : this.writeColumns(previous, thread, wanted);
+    if (written?.revision === undefined) return;
+    const { thread: rebuilt, canonical } = rebuildThread(previous, written.row, written.parts);
+    if (written.confirmed && canonical)
+      keepThreadRowConfirmed((sql) => this.source.statement(sql), thread.id, written.revision);
+    if (previous) this.source.rememberThread(thread.id, written.revision, rebuilt, written.row);
+    else this.source.rememberCreatedThread(thread.id, written.revision, rebuilt, written.row);
+  }
+  /** The TypeScript path: the same writes, statement for statement. */
+  private writeColumns(
+    previous: FrozenThread | undefined,
+    thread: Thread,
+    wanted: readonly ThreadColumn[],
+  ): ColumnsWritten | undefined {
+    const changes = threadColumnChanges(previous, thread, wanted);
     if (!changes.hot.length && !changes.cold.length) return;
     // A new row is written whole here; an existing one keeps the columns this write leaves.
     const confirmed =
@@ -229,54 +286,17 @@ export class EventWriter {
         .run(...changes.hot.map(([, value]) => value), thread.id);
     if (changes.cold.length) {
       // A new cold row also needs the column that did not change.
-      const value = (name: ThreadColumn) => {
-        const change = changes.cold.find(([column]) => column === name);
-        return change ? change[1] : previous ? threadColumnValue(previous, name) : null;
-      };
+      const values = coldRowValues(previous, changes);
       this.source
         .statement(
           `INSERT INTO thread_cold (thread_id, details, capabilities) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET ${changes.cold.map(([name]) => `${name} = excluded.${name}`).join(", ")}`,
         )
-        .run(thread.id, value("details"), value("capabilities"));
+        .run(thread.id, values[0], values[1]);
     }
     const revision = this.source
       .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
       .get(thread.id)?.revision;
     if (typeof revision !== "number") return;
-    const { thread: rebuilt, canonical } = rebuildThread(previous, changes.row, changes.parts);
-    if (confirmed && canonical)
-      keepThreadRowConfirmed((sql) => this.source.statement(sql), thread.id, revision);
-    if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
-    else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
+    return { row: changes.row, parts: changes.parts, confirmed, revision };
   }
-}
-
-const updated: ThreadColumn[] = [
-  "workspace_id",
-  "title",
-  "status",
-  "updated_at",
-  "archived_at",
-  "root_agent_id",
-  "provider",
-  "transitions",
-  "provider_metadata",
-  "capabilities",
-  // Any event may fold client fields (a status change sets activitySeq), so all are checked.
-  "client",
-  "details",
-];
-/** The columns an event may write. Others keep their stored value, whatever it folded. */
-function writtenColumns(payload: EventPayload): ThreadColumn[] {
-  if (payload.type === "item.delta") return [];
-  const columns = [...updated];
-  if (
-    payload.type === "thread.created" ||
-    (payload.type === "thread.updated" &&
-      (payload.effectiveCapabilities !== undefined ||
-        payload.acpSupport !== undefined ||
-        payload.acp !== undefined))
-  )
-    columns.push("acp");
-  return columns;
 }

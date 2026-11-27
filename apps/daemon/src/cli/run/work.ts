@@ -26,24 +26,12 @@ async function open(context: CommandContext): Promise<void> {
   return (await import("../open.ts")).openCommand(args, await context.config());
 }
 
-async function attach(context: CommandContext): Promise<void> {
-  const { flags, words } = context.args;
-  const id = words[0] ?? flags.thread;
-  const args = {
-    ...context.args,
-    words: ["chat"],
-    flags: { ...flags, ...(typeof id === "string" ? { thread: id } : {}) },
-  };
-  return (await import("../chat.ts")).chatCommand(args, await context.config());
-}
-
 export const workHandlers: Handlers = {
   "thread.list": async (context) => (await reads()).threadList(context),
   "thread.show": async (context) => (await reads()).threadShow(context),
   "thread.status": async (context) => (await reads()).threadStatus(context),
   "thread.tree": async (context) => (await reads()).threadTree(context),
   "thread.start": async (context) => (await actions()).threadStart(context),
-  "thread.attach": attach,
   "thread.send": async (context) => (await actions()).threadMessage(context, "queue"),
   "thread.steer": async (context) => (await actions()).threadMessage(context, "steer"),
   "thread.stop": async (context) => (await actions()).threadStop(context),

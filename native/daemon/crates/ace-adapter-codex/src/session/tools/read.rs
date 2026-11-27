@@ -1,0 +1,303 @@
+// SPDX-License-Identifier: Apache-2.0
+//! `readCodexToolFacts`: two requests, a catalog pager and a 2.5-second
+//! deadline, as a sans-IO machine.
+
+use ace_json::{Map, Value};
+
+use super::cache::{Cached, Catalog, CodexCatalogCache};
+use super::catalog::{Config, Pager, non_empty};
+use super::{CodexToolFacts, codex_needs_catalog};
+use crate::session::frames::{Calls, Effect};
+
+/// How long a thread start waits for these facts (`toolFactsDeadlineMs`).
+pub const TOOL_FACTS_DEADLINE_MS: f64 = 2_500.0;
+/// One request's default deadline (`request` in `session.ts`).
+const REQUEST_MS: f64 = 30_000.0;
+
+/// What the read produced, once.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolFactsOutcome {
+    Facts(CodexToolFacts),
+    /// `signal.throwIfAborted()`: the caller fails the open instead of guessing.
+    Aborted,
+}
+
+/// Where `readCodexToolFacts` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Config,
+    Catalog,
+    Done,
+}
+
+/// `readCodexToolFacts` as a machine: one `config/read`, then one catalog read
+/// raced against the deadline. It never blocks and never reads a clock; the
+/// deadline is the shell's timer.
+#[derive(Debug)]
+pub struct ToolFactsRead {
+    model: Option<String>,
+    wake: u64,
+    deadline_key: String,
+    stage: Stage,
+    timed_out: bool,
+    aborted: bool,
+    config_call: u64,
+    config_arrived: bool,
+    config: Option<Config>,
+    /// The catalog read started beside the config, before its key was known.
+    early: Option<Pager>,
+    /// The load this read owns.
+    main: Option<Pager>,
+    /// The key another read is loading for this read.
+    waiting_for: Option<String>,
+    facts: CodexToolFacts,
+    outcome: Option<ToolFactsOutcome>,
+}
+
+impl ToolFactsRead {
+    /// `readCodexToolFacts`: the config read starts, and the catalog beside it
+    /// on a host that has none yet and a model was asked for.
+    pub fn start(
+        cwd: &str,
+        model: Option<&str>,
+        catalog_cache: &mut CodexCatalogCache,
+        calls: &mut Calls,
+        wake: u64,
+    ) -> (ToolFactsRead, Vec<Effect>) {
+        let deadline_key = format!("tool-facts:{wake}");
+        let config_call = calls.take();
+        let mut read = ToolFactsRead {
+            model: non_empty(model),
+            wake,
+            deadline_key: deadline_key.clone(),
+            stage: Stage::Config,
+            timed_out: false,
+            aborted: false,
+            config_call,
+            config_arrived: false,
+            config: None,
+            early: None,
+            main: None,
+            waiting_for: None,
+            facts: CodexToolFacts::default(),
+            outcome: None,
+        };
+        let mut effects = vec![Effect::ArmTimer {
+            key: deadline_key,
+            ms: TOOL_FACTS_DEADLINE_MS,
+        }];
+        // The catalog does not depend on the thread: on a host that has none
+        // yet, it is read beside the config.
+        if read.model.is_some() && catalog_cache.size() == 0 {
+            let (pager, started) = Pager::start(calls, None);
+            read.early = Some(pager);
+            effects.extend(started);
+        }
+        effects.push(Effect::Request {
+            call: config_call,
+            method: "config/read".to_owned(),
+            params: config_params(cwd),
+            timeout_ms: Some(REQUEST_MS),
+        });
+        (read, effects)
+    }
+
+    pub fn outcome(&self) -> Option<&ToolFactsOutcome> {
+        self.outcome.as_ref()
+    }
+
+    /// `signal.throwIfAborted()`: nothing is guessed after a cancellation.
+    pub fn abort(&mut self) {
+        self.aborted = true;
+    }
+
+    /// Whether `call` is one this read waits on.
+    pub fn awaits(&self, call: u64) -> bool {
+        (call == self.config_call && !self.config_arrived)
+            || self.early.as_ref().is_some_and(|pager| pager.call == call)
+            || self.main.as_ref().is_some_and(|pager| pager.call == call)
+    }
+
+    /// One call's reply, or its failure.
+    pub fn settled(
+        &mut self,
+        calls: &mut Calls,
+        catalog_cache: &mut CodexCatalogCache,
+        call: u64,
+        result: Option<&Value>,
+    ) -> Vec<Effect> {
+        if call == self.config_call && !self.config_arrived {
+            self.config_arrived = true;
+            self.config = result.and_then(Config::parse);
+            return self.advance(calls, catalog_cache);
+        }
+        let mut effects = Vec::new();
+        for pager in [&mut self.early, &mut self.main].into_iter().flatten() {
+            if pager.call == call && pager.done.is_none() {
+                effects.extend(pager.page(calls, result));
+            }
+        }
+        let done = self
+            .main
+            .as_ref()
+            .filter(|pager| pager.done.is_some())
+            .and_then(|pager| pager.done.clone());
+        if let (Some(done), Some(main)) = (done, self.main.as_mut())
+            && let Some(key) = main.key.take()
+        {
+            // The load lands in the cache whether or not this read still waits
+            // on it, and every other read that joined it is handed the value.
+            effects.extend(self.publish_load(catalog_cache, &key, done));
+        }
+        if self.stage == Stage::Catalog && self.main.as_ref().is_some_and(|p| p.done.is_some()) {
+            self.facts.catalog = self.main.take().and_then(|pager| pager.done.flatten());
+            effects.extend(self.finish(ToolFactsOutcome::Facts(self.facts.clone())));
+        }
+        effects
+    }
+
+    /// The discovery deadline passed: every read still in flight is unknown.
+    pub fn deadline(
+        &mut self,
+        calls: &mut Calls,
+        catalog_cache: &mut CodexCatalogCache,
+    ) -> Vec<Effect> {
+        if self.stage == Stage::Done {
+            return Vec::new();
+        }
+        self.timed_out = true;
+        if self.stage == Stage::Config {
+            return self.advance(calls, catalog_cache);
+        }
+        if let Some(key) = self.waiting_for.take() {
+            catalog_cache.abandon(&key, self.wake);
+        }
+        self.facts.catalog = None;
+        self.finish(ToolFactsOutcome::Facts(self.facts.clone()))
+    }
+
+    /// A read waiting on another session's load was woken with its value.
+    pub fn catalog_ready(&mut self, catalog: Option<Catalog>) -> Vec<Effect> {
+        if self.stage != Stage::Catalog || self.waiting_for.is_none() {
+            return Vec::new();
+        }
+        self.waiting_for = None;
+        self.facts.catalog = catalog;
+        self.finish(ToolFactsOutcome::Facts(self.facts.clone()))
+    }
+
+    /// `configFacts` and the catalog decision, once the config read landed (or
+    /// its deadline passed).
+    fn advance(&mut self, calls: &mut Calls, catalog_cache: &mut CodexCatalogCache) -> Vec<Effect> {
+        if self.stage != Stage::Config {
+            return Vec::new();
+        }
+        if !self.config_arrived && !self.timed_out {
+            return Vec::new();
+        }
+        self.facts = match &self.config {
+            Some(config) => config.facts(self.model.as_deref()),
+            None => CodexToolFacts {
+                model: self.model.clone(),
+                ..CodexToolFacts::default()
+            },
+        };
+        if self.aborted {
+            return self.finish(ToolFactsOutcome::Aborted);
+        }
+        if !codex_needs_catalog(&self.facts) {
+            return self.finish(ToolFactsOutcome::Facts(self.facts.clone()));
+        }
+        let key = match &self.config {
+            Some(config) => config.key(),
+            // `config ? ... : null`: the key of an unread config.
+            None => "[\"openai\",null,null]".to_owned(),
+        };
+        self.stage = Stage::Catalog;
+        if let Some(mut pager) = self.early.take() {
+            pager.key = Some(key.clone());
+            match catalog_cache.put(&key, self.wake) {
+                Cached::Ready(catalog) => {
+                    self.facts.catalog = catalog;
+                    return self.finish(ToolFactsOutcome::Facts(self.facts.clone()));
+                }
+                Cached::Waiting => {
+                    // Another read owns the key; this load still lands, but its
+                    // value is theirs to keep.
+                    pager.key = None;
+                    self.early = Some(pager);
+                    self.waiting_for = Some(key);
+                    return Vec::new();
+                }
+                Cached::Start => return self.adopt_load(pager, catalog_cache),
+            }
+        }
+        match catalog_cache.read(&key, self.wake) {
+            Cached::Ready(catalog) => {
+                self.facts.catalog = catalog;
+                self.finish(ToolFactsOutcome::Facts(self.facts.clone()))
+            }
+            Cached::Waiting => {
+                self.waiting_for = Some(key);
+                Vec::new()
+            }
+            Cached::Start => {
+                let (pager, started) = Pager::start(calls, Some(key));
+                self.main = Some(pager);
+                started
+            }
+        }
+    }
+
+    /// Takes a load as this read's own. One that already landed (it ran beside
+    /// the config read) fills the cache and settles this read at once.
+    fn adopt_load(&mut self, pager: Pager, catalog_cache: &mut CodexCatalogCache) -> Vec<Effect> {
+        let done = pager.done.clone();
+        if let (Some(done), Some(key)) = (done, pager.key.clone()) {
+            let mut effects = self.publish_load(catalog_cache, &key, done.clone());
+            self.facts.catalog = done;
+            effects.extend(self.finish(ToolFactsOutcome::Facts(self.facts.clone())));
+            return effects;
+        }
+        self.main = Some(pager);
+        Vec::new()
+    }
+
+    /// Settles an owned load and tells every other read that waited on it.
+    fn publish_load(
+        &self,
+        catalog_cache: &mut CodexCatalogCache,
+        key: &str,
+        catalog: Option<Catalog>,
+    ) -> Vec<Effect> {
+        let settled = catalog_cache.settle(key, catalog);
+        settled
+            .waiters
+            .into_iter()
+            .filter(|wake| *wake != self.wake)
+            .map(|wake| Effect::WakeCatalog {
+                wake,
+                catalog: settled.catalog.clone(),
+            })
+            .collect()
+    }
+
+    fn finish(&mut self, outcome: ToolFactsOutcome) -> Vec<Effect> {
+        if self.stage == Stage::Done {
+            return Vec::new();
+        }
+        self.stage = Stage::Done;
+        self.outcome = Some(outcome);
+        vec![Effect::CancelTimer {
+            key: self.deadline_key.clone(),
+        }]
+    }
+}
+
+/// `config/read`'s params.
+fn config_params(cwd: &str) -> Value {
+    let mut params = Map::new();
+    params.insert("cwd", Value::from(cwd));
+    params.insert("includeLayers", Value::Bool(false));
+    Value::Object(params)
+}

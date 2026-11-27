@@ -94,6 +94,25 @@ it.each([false, true])(
   },
 );
 
+it("a committed reservation confirms after the usage listeners", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-store-reservation-"));
+  cleanup.push(() => rmSync(home, { recursive: true, force: true }));
+  const order: string[] = [];
+  const store = new Store(join(home, "events.sqlite"), console.error, {
+    lineage: {
+      read: () => undefined,
+      write: () => {
+        order.push("reservation");
+      },
+    },
+  });
+  cleanup.push(() => store.close());
+  store.subscribeUsage(() => order.push("usage"));
+  order.length = 0;
+  store.prepareLiveWrite(100);
+  expect(order).toEqual(["usage", "reservation"]);
+});
+
 describe("store", () => {
   it.each(["transaction", "savepoint"])(
     "a held view stays live after a snapshot in a rejected %s",

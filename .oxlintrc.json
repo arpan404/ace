@@ -58,6 +58,12 @@
             "allowTypeImports": true
           },
           {
+            "name": "node:sqlite",
+            "importNames": ["DatabaseSync", "backup"],
+            "message": "Open SQLite through @ace/provider-kit/sqlite: with ACE_STORE=native the whole process must use the native store's SQLite (ADR 0222).",
+            "allowTypeImports": true
+          },
+          {
             "name": "worker_threads",
             "importNames": ["Worker"],
             "message": "Start worker threads with startWorker from @ace/provider-kit/worker: on Bun only it can hand a worker the perf gate's measurement preloads, and a worker started past it goes unmeasured.",
@@ -128,6 +134,9 @@
     {
       "files": [
         "packages/provider-kit/src/worker.ts",
+        "packages/provider-kit/src/sqlite.ts",
+        "packages/provider-kit/src/sqlite-backup.ts",
+        "packages/provider-kit/src/native-node-sqlite.ts",
         "apps/desktop/**",
         "apps/web/**",
         "**/*.test.ts",

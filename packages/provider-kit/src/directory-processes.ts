@@ -3,6 +3,8 @@ import { opendir, readlink } from "node:fs/promises";
 import { isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 
 const execute = promisify(execFile);
 const pidSchema = z.coerce.number().int().positive();
@@ -74,6 +76,24 @@ function kill(pid: number) {
 }
 /** Re-check the directory lease before signaling, then wait for kernel termination. */
 export async function terminateDirectoryProcesses(directories: readonly string[]): Promise<void> {
+  if (supervisorBackend() === "native") {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        supervisorAddon().supervisorTerminateDirectoryProcesses(
+          JSON.stringify(directories),
+          process.pid,
+          // napi calls threadsafe functions error-first.
+          (_error: unknown, outcome: string) => {
+            if (outcome === "ok") resolve();
+            else reject(new Error(outcome));
+          },
+        );
+      } catch (error) {
+        reject(error);
+      }
+    });
+    return;
+  }
   for (let batch = 0; batch < 64; batch++) {
     const selected = (await directoryPids(directories)).filter((pid) => pid !== process.pid);
     if (!selected.length) return;

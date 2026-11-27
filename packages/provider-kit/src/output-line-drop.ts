@@ -1,5 +1,7 @@
 import { Transform } from "node:stream";
 
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeDroppingOutputGate } from "./native-streams.ts";
 import { BoundedLineFraming, type DroppedOutputLine } from "./bounded-line-framing.ts";
 export type { DroppedOutputLine } from "./bounded-line-framing.ts";
 export class OutputLineDroppedError extends Error {
@@ -42,6 +44,8 @@ export function droppingOutputGate(
   fail: (error: Error) => void,
   dropped: (line: DroppedOutputLine) => void,
 ): Transform {
+  if (supervisorBackend() === "native")
+    return nativeDroppingOutputGate(limit, admit, fail, dropped);
   let framing: BoundedLineFraming | undefined = new BoundedLineFraming(limit);
   return new Transform({
     transform(chunk: Buffer, _encoding, done) {

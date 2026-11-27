@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-store"
+description = "The daemon's event store: a Rust API other crates call directly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-json: the live buffer's compaction merges JavaScript strings and counts their bytes,
+# lone surrogates included, so the events cross as ace-json values, never Rust strings.
+ace-json = { path = "../ace-json" }
+# ace-projection: the thread column encoders (5.3b-1) the column writer binds, so the stored
+# values are byte-for-byte the ones the shape table and the vectors pin.
+ace-projection = { path = "../ace-projection" }
+# The SQLite rusqlite bundles, wrapped directly: a statement must outlive a single call
+# (a JavaScript iterator steps it across calls), which rusqlite's borrowed statements
+# cannot express. `src/sqlite.rs` is the only unsafe code.
+libsqlite3-sys = { version = "0.39", features = ["bundled"] }
+# Native reads build wire JSON; RawValue keeps stored JSON as stored.
+serde_json = { version = "1", features = ["raw_value"] }
+# Phase 2 wire types borrow from rows and serialize without intermediate trees.
+serde = { version = "1", features = ["derive"] }
+# Phase 2 cursors are SHA-256 fingerprints and base64url, as `@ace/search` writes them.
+sha2 = { version = "0.10" }
+base64 = { version = "0.22" }
+# Search terms match `/[\p{L}\p{N}\p{M}_]+/u`, as `@ace/search` tokenises them.
+unicode-general-category = { version = "1.1.0" }
+

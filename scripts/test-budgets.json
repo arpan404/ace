@@ -129,6 +129,7 @@
     "apps/daemon/src/machines/child-schedule.test.ts": "Property simulations of the remote-child scheduler on machines of up to 1,000 children, turn by turn over minutes (about 35s under heavy load on 2026-11-14); the pure module's whole cost, no I/O"
   },
   "process": {
+    "apps/daemon/src/cross-mode.process.test.ts": "Boots ten daemons alternately on one home (five Bun, five ace-daemon-bin), each a real process that starts, serves and stops: 45.6s in the 2026-11 run. The rounds are the gate ADR 0226 §8 names, so they cannot be cut without dropping a direction",
     "packages/browser/src/media-video.process.test.ts": "Two real-Chrome streams through the ace-media binary (a tab with route flips and a kill, and a VideoToolbox-encoded screencast): about 30 s on a loaded Mac",
     "packages/devices/src/frame-encoder-media.process.test.ts": "Builds the Swift screen helper when its sources changed, then streams a picture file through it and the ace-media binary with four route flips and a kill: about 30 s on a loaded Mac",
     "packages/screen/src/helper-identity.native.process.test.ts": "Builds the Swift screen helper when its sources changed (about 30 s), then reads its signature",
@@ -209,7 +210,6 @@
     "packages/plugins/src/manager.process.test.ts": "TODO cleanup (37.9s in the 2026-10 timing run)",
     "packages/browser/src/text-wait.process.test.ts": "TODO cleanup (37.8s in the 2026-10 timing run)",
     "packages/client/src/files-scoped.process.test.ts": "TODO cleanup (36.0s in the 2026-10 timing run)",
-    "apps/daemon/src/cli-chat.process.test.ts": "TODO cleanup (35.7s in the 2026-10 timing run)",
     "packages/browser/src/page-cursor.process.test.ts": "TODO cleanup (35.5s in the 2026-10 timing run)",
     "packages/git/src/checkpoints.process.test.ts": "TODO cleanup (35.3s in the 2026-10 timing run)",
     "packages/browser-extension/src/my-chrome-page-edges.process.test.ts": "TODO cleanup (35.1s in the 2026-10 timing run)",

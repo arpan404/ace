@@ -25,6 +25,11 @@ export interface MachineTunnelWiring {
 export interface MachineTunnel extends TunnelHost {
   /** Holds `server`'s port as ace's whenever it listens, from the bind, until it closes. */
   track(server: Server): void;
+  /**
+   * Holds a port ace bound without a `node:net` server (the native listener) as ace's, from the
+   * bind until the returned release is called.
+   */
+  hold(port: number): () => void;
 }
 
 const now = () => performance.now();
@@ -127,6 +132,7 @@ export function startMachineTunnel(wiring: MachineTunnelWiring): MachineTunnel {
     attach: host.attach,
     recheck: host.recheck,
     track,
+    hold: (port) => acePorts.hold(port),
     close() {
       listens.unsubscribe(onListen);
       stopRescope();

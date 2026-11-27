@@ -7,6 +7,7 @@ import { DeviceId } from "@ace/protocol";
 import { Client, fixture, token } from "./socket-test-support.ts";
 import { setup } from "./remote-test-support.ts";
 import { DevicesService, DevicePlatform } from "@ace/devices";
+import { transportParts } from "@ace/provider-kit/native-switches";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -48,6 +49,25 @@ test("a page on another origin cannot open the loopback socket, while allowed an
   const native = await f.open();
   await hello(native);
 });
+
+test.runIf(transportParts().has("loopback"))(
+  "an upgrade sent straight to the internal hop port is destroyed, never admitted",
+  async () => {
+    const f = await fixture();
+    cleanups.push(() => f.close());
+    const internal = f.server.internalHttpUrl;
+    expect(internal).toBeDefined();
+    if (internal === undefined) return;
+    const client = new Client(`ws://${new URL(internal).host}`);
+    cleanups.push(async () => client.socket.terminate());
+    const outcome = await new Promise<"open" | "answered" | "refused">((resolve) => {
+      client.socket.once("open", () => resolve("open"));
+      client.socket.once("unexpected-response", () => resolve("answered"));
+      client.socket.once("error", () => resolve("refused"));
+    });
+    expect(outcome).toBe("refused");
+  },
+);
 
 test("the web app the daemon serves itself can open its socket, while other local pages still cannot", async () => {
   const webRoot = mkdtempSync(join(tmpdir(), "ace-web-root-"));

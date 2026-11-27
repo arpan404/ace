@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { TLSSocket } from "node:tls";
 import {
   aceToolDispatch,
   aceToolSearch,
@@ -18,6 +17,7 @@ import {
   type OutsideScope,
 } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
+import { peerAddress, peerOf } from "../http-peer.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
 import { computerName } from "../computer-name.ts";
 import type { RelayHttpHandler } from "../relay-http.ts";
@@ -248,12 +248,10 @@ export async function externalMcp(context: ServiceContext) {
   const tailscaleHook = (request: IncomingMessage, response: ServerResponse): boolean => {
     const webhooks = context.services.automationWebhooks;
     if (!webhooks?.enabled("tailscale")) return false;
-    const socket = request.socket;
-    const servername = socket instanceof TLSSocket ? socket.servername : null;
     const base = tailscaleBase(
       {
         host: request.headers.host ?? null,
-        servername: typeof servername === "string" ? servername : null,
+        servername: peerOf(request).servername,
       },
       reach().tailscale(),
       { ...reachSettings.current(), tailscale: true },
@@ -286,18 +284,16 @@ export async function externalMcp(context: ServiceContext) {
       const path = (request.url ?? "/").split("?")[0] ?? "/";
       if (isHookPath(path)) return tailscaleHook(request, response);
       if (!outsidePath(path)) return false;
-      const socket = request.socket;
-      const servername = socket instanceof TLSSocket ? socket.servername : null;
       const host = request.headers.host ?? null;
       const base = tailscaleBase(
-        { host, servername: typeof servername === "string" ? servername : null },
+        { host, servername: peerOf(request).servername },
         reach().tailscale(),
         reachSettings.current(),
       );
       if (!base) return false;
       tailnet = base;
       // The tailnet peer, for per-caller limits. Always set here, so a client's copy never counts.
-      request.headers[peerHeader] = request.socket.remoteAddress ?? "";
+      request.headers[peerHeader] = peerAddress(request);
       void onTailscale(request, response).catch((error: unknown) =>
         context.log.log("warn", `Serving a Tailscale MCP request failed: ${String(error)}`),
       );

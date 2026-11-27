@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[licenses]
+# The allowlist of native/files. MPL-2.0 and copyleft stay out.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unlicense",
+  "CC0-1.0",
+]
+
+[advisories]
+# RUSTSEC-2023-0071 (Marvin, RSA private-key timing): `rsa` is used only to
+# generate the daemon's pinned identity and to sign one TBS it composes itself
+# (ace-daemon-bin/src/identity/certificate.rs); there is no decryption and no
+# attacker-chosen ciphertext, and TLS handshake signing is rustls/aws-lc-rs.
+# Recorded here because `check:daemon-native` runs bans/licenses/sources only.
+ignore = ["RUSTSEC-2023-0071"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[bans]
+# `gix`'s `pack-cache-lru-static` feature pulls `uluru` (MPL-2.0), which must
+# stay off (ADR 0224 §9): deny it by name so Cargo's feature unification
+# across the workspace cannot sneak it in. Checked by `check:daemon-native`.
+deny = ["uluru"]

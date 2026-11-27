@@ -2,16 +2,16 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { CliError } from "@ace/protocol/cli-output";
 import { afterEach, describe, expect, test } from "vitest";
+import { cliProgram } from "./pty-test-support.ts";
 
 /*
  * The real CLI against an empty temp home with no daemon (ADR 0178 §10, §12.5): in an agent's
  * shell it refuses what is the person's before it reaches for a daemon (exit 2, never the 4 of
  * "ace isn't running"), and off a terminal nobody can answer a request.
  */
-const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
+const cli = cliProgram();
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -24,8 +24,14 @@ async function home(): Promise<Record<string, string>> {
 }
 
 function run(env: Record<string, string>, args: string[]) {
-  const child = spawn(process.execPath, [cli, ...args], {
-    env: { ...process.env, ACE_THREAD_ID: undefined, ACE_NO_INPUT: undefined, ...env },
+  const child = spawn(cli.command, [...cli.prefix, ...args], {
+    env: {
+      ...process.env,
+      ...cli.env,
+      ACE_THREAD_ID: undefined,
+      ACE_NO_INPUT: undefined,
+      ...env,
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stdout = "";
@@ -45,6 +51,8 @@ const theirs = [
   ["request", "answer", "int_123456", "yes"],
   ["thread", "approve", "t_123456"],
   ["config", "set", "logs.maxBytes", "10MB"],
+  // No arguments at all: the person-only refusal comes before the missing-argument error.
+  ["config", "set"],
   ["config", "unset", "logs.maxBytes"],
   ["feature", "on", "marketplace"],
   ["spade", "on"],

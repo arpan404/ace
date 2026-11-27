@@ -7,7 +7,8 @@ import {
 import type { ScreenInput } from "@ace/protocol";
 import type { Simulator } from "@ace/screen";
 import { refuseAndroidKey } from "./key-support.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogHint } from "./catalog.ts";
+import { catalogRefusal, DeviceError } from "./sdk.ts";
 
 const AVD = z
   .string()
@@ -16,12 +17,7 @@ const AVD = z
   .regex(/^[a-zA-Z0-9_.-]+$/);
 export function nativeId(device: Device): string {
   const prefix = `${device.platform}:`;
-  if (!device.id.startsWith(prefix))
-    throw new DeviceError(
-      "invalid_data",
-      "Device identity does not match its platform",
-      "Refresh the device list.",
-    );
+  if (!device.id.startsWith(prefix)) throw catalogRefusal("identityPlatformMismatch");
   return device.platform === "ios"
     ? z.string().uuid().parse(device.id.slice(prefix.length))
     : AVD.parse(device.id.slice(prefix.length));
@@ -116,12 +112,7 @@ export function androidDimensions(output: string): { width: number; height: numb
   const physical = /^Physical size: (\d+x\d+)$/m.exec(output)?.[1];
   const override = /^Override size: (\d+x\d+)$/m.exec(output)?.[1];
   const value = override ?? physical;
-  if (!value)
-    throw new DeviceError(
-      "invalid_data",
-      "Android display size could not be decoded",
-      "Check adb shell wm size on the selected emulator.",
-    );
+  if (!value) throw catalogRefusal("sizeUndecoded");
   const [width, height] = z
     .tuple([z.coerce.number().int().min(1).max(32768), z.coerce.number().int().min(1).max(32768)])
     .parse(value.split("x"));
@@ -190,7 +181,7 @@ export function simulatorInput(input: DeviceInput): ScreenInput {
     throw new DeviceError(
       "not_supported",
       "This hardware key is not supported by iOS Simulator",
-      "Use the Simulator Device menu or the app's navigation.",
+      catalogHint("iosNoKeyHint"),
     );
   return mapped;
 }
@@ -198,12 +189,7 @@ export function simulatorInput(input: DeviceInput): ScreenInput {
 export function simulatorDevice(input: Device, inventory: readonly Simulator[]): Device {
   const device = DeviceSchema.parse(input);
   const selected = inventory.find((candidate) => candidate.udid === nativeId(device));
-  if (!selected || selected.state !== "Booted")
-    throw new DeviceError(
-      "not_booted",
-      "Selected Simulator is not booted",
-      "Boot this Simulator before starting capture.",
-    );
+  if (!selected || selected.state !== "Booted") throw catalogRefusal("simulatorNotBooted");
   return DeviceSchema.parse({
     ...device,
     name: selected.name,
@@ -229,10 +215,6 @@ export function simulatorIdentity(input: Device, inventory: readonly Simulator[]
         candidate.name === selected.name,
     )
   )
-    throw new DeviceError(
-      "busy",
-      "Booted Simulators have ambiguous display names",
-      "Rename one Simulator or shut down the duplicate before starting capture.",
-    );
+    throw catalogRefusal("simulatorNameAmbiguous");
   return device;
 }

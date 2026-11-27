@@ -11,7 +11,7 @@ import { Command, ThreadId } from "@ace/protocol";
 import { scriptedProvider } from "./scripted.ts";
 import { allocationMarkers, windowSampler } from "./allocation-meter.ts";
 import * as v8 from "node:v8";
-import { DatabaseSync, StatementSync } from "node:sqlite";
+import { DatabaseSync, StatementSync } from "@ace/provider-kit/sqlite";
 import { setImmediate } from "node:timers/promises";
 import { writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";

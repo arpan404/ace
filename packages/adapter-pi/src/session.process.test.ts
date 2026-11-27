@@ -2,7 +2,15 @@ import { expect, test } from "vitest";
 import type { Frame } from "@ace/engine-api";
 import { createPiTranslator, openPiSession } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
+import { spawnTextSupervised } from "@ace/provider-kit/process";
+import { sessionBackend } from "@ace/provider-kit/native-switches";
+import { fileURLToPath } from "node:url";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sessionHarness } from "./testing/harness.ts";
+import { sessionFixture } from "./testing/native-history.ts";
+import { openNativePiSession, type NativeSessionsAddon } from "./native-session.ts";
 import { obj, str } from "./native.ts";
 const received = (type: string, id?: string) => (f: { dir: string; data: unknown }) =>
   f.dir === "recv" && obj(f.data).type === type && (id === undefined || obj(f.data).id === id);
@@ -214,6 +222,187 @@ test("interrupt clears native queued continuation before aborting", async () => 
     await h.dispose();
   }
 });
+const nativeOnly = sessionBackend("pi") === "native";
+/** A loaded addon whose session constructor throws, as a stale build can. */
+function staleAddon(): never {
+  throw new Error("stale addon");
+}
+/** Rejects after `ms`: a paused session that never resumes must fail, not hang the file. */
+const later = (ms: number, message: string) =>
+  new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(message)), ms));
+async function until(done: () => boolean, ms: number, message: string): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+test.skipIf(!nativeOnly)(
+  "a stale native handle releases the lease before a credential file exists",
+  async () => {
+    let ended = false;
+    await expect(
+      openNativePiSession(
+        {
+          threadId: ThreadId.parse("native-throw"),
+          cwd: process.cwd(),
+          signal: new AbortController().signal,
+          onFrame() {},
+          onExit() {},
+        },
+        {
+          cli: {
+            installed: true,
+            path: "synthetic-pi",
+            version: "0.85.1",
+            auth: "unknown",
+            loginHint: "none",
+          },
+          openMcp() {
+            return {
+              url: "http://127.0.0.1:1/mcp",
+              bearer: "b".repeat(64),
+              end() {
+                ended = true;
+              },
+            };
+          },
+        },
+        () => ({ PiSessionNative: staleAddon }) as unknown as NativeSessionsAddon,
+      ),
+    ).rejects.toThrow("stale addon");
+    expect(ended).toBe(true);
+  },
+);
+test.skipIf(!nativeOnly)(
+  "engine backpressure pauses the diverted child and a resume delivers the next frame",
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "ace-pi-flow-"));
+    await writeFile(join(home, "source.jsonl"), sessionFixture(home, "native", 3));
+    const controller = new AbortController();
+    let paused = false;
+    let release: (() => void) | undefined;
+    let frames = 0;
+    let settled = false;
+    const session = await openPiSession(
+      {
+        threadId: ThreadId.parse("pi-flow"),
+        rootKey: "root",
+        cwd: process.cwd(),
+        env: { FAKE_PI_HOME: home },
+        signal: controller.signal,
+        outputFlow: {
+          paused: () => paused,
+          wait: () =>
+            new Promise<void>((resolve) => {
+              release = resolve;
+            }),
+        },
+        onFrame(frame) {
+          frames++;
+          if (frame.dir === "recv" && obj(frame.data).type === "agent_end") settled = true;
+        },
+        onExit() {},
+      },
+      {
+        sessionReferenceDir: join(home, "references"),
+        cli: {
+          installed: true,
+          path: "synthetic-pi",
+          version: "0.85.1",
+          auth: "unknown",
+          loginHint: "none",
+        },
+        runtime: {
+          now: () => 0,
+          secret: () => "c".repeat(64),
+          schedule: (callback, ms) => {
+            const timer = setTimeout(callback, ms);
+            return () => clearTimeout(timer);
+          },
+          spawn: (options) =>
+            spawnTextSupervised({
+              ...options,
+              command: process.execPath,
+              args: [
+                fileURLToPath(new URL("./testing/fake-pi.ts", import.meta.url)),
+                ...(options.args ?? []),
+              ],
+            }),
+        },
+      },
+    );
+    let passed = false;
+    try {
+      frames = 0;
+      paused = true;
+      const image = Buffer.alloc(300 * 1024, 7).toString("base64");
+      const sent = session.send(
+        [
+          { type: "text", text: "image-echo" },
+          { type: "image", mimeType: "image/png", url: `data:image/png;base64,${image}` },
+        ],
+        "queue",
+      );
+      // The first frame after the pause makes the bridge pause the child; a reply larger
+      // than one chunk then leaves its pump stopped at the gate until the resume below.
+      await until(() => frames > 0, 5_000, "no frame arrived");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      paused = false;
+      release?.();
+      release = undefined;
+      await Promise.race([sent, later(5_000, "paused output never resumed")]);
+      await until(() => settled, 10_000, "the turn after the resume never ended");
+      passed = true;
+    } finally {
+      // A paused pump that never resumes would leave close waiting for Drained forever.
+      await Promise.race([
+        session.close("shutdown"),
+        later(2_000, passed ? "close" : "close after the red run"),
+      ]).catch(() => {});
+      controller.abort();
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+test.skipIf(!nativeOnly)(
+  "a failed stop leaves the session stop-only and a retried close still finishes",
+  async () => {
+    let attempts = 0;
+    const h = await sessionHarness({
+      runtime: {
+        spawn: (options) => {
+          const proc = spawnTextSupervised({
+            ...options,
+            command: process.execPath,
+            args: [
+              fileURLToPath(new URL("./testing/fake-pi.ts", import.meta.url)),
+              ...(options.args ?? []),
+            ],
+          });
+          const stop = proc.stop.bind(proc);
+          proc.stop = async (opts) => {
+            attempts++;
+            if (attempts === 1) throw new Error("stop failed");
+            return stop(opts);
+          };
+          return proc;
+        },
+      },
+    });
+    try {
+      await expect(h.session.close("shutdown")).rejects.toThrow("stop failed");
+      // No write follows a failed stop: the retry alone is left.
+      await expect(h.session.send(text("late"), "queue")).rejects.toThrow("Pi session closed");
+      expect(
+        h.frames.filter((frame) => frame.dir === "send" && obj(frame.data).type === "prompt"),
+      ).toEqual([]);
+      await h.session.close("shutdown");
+    } finally {
+      await h.dispose();
+    }
+  },
+);
 test("Pi releases older than 0.85.1 are refused before process launch, naming the supported range", async () => {
   const context = {
     threadId: ThreadId.parse("test"),

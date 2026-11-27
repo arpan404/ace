@@ -1,6 +1,6 @@
 # How the CLI's commands behave
 
-Notes on behaviour behind the commands: idempotency, waits, chat, remotes, storage and repair. They
+Notes on behaviour behind the commands: idempotency, waits, the home, remotes, storage and repair. They
 use the spellings from before [ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md);
 §8 there maps each to its new name, and [the command reference](../daemon/cli.md) is generated from
 the command table.
@@ -194,44 +194,21 @@ headless hosts receive needs-human with the URL. No token is placed in the URL.
 Remote project paths must be absolute paths on the remote host. Remote opening uses
 that host's web app after the CLI verifies the profile connection.
 
-## Terminal chat
+## The interactive home
 
-```
-ace chat --project . --provider claude
-ace chat --thread THREAD
-ace chat --thread THREAD --stream jsonl
-```
+Bare `ace` on a terminal opens a management home: the threads at work, what needs
+the person and what finished unseen. `r` walks the requests waiting on you, `p`
+opens projects, `s` Spade, `m` the Store, `,` settings, `d` doctor and `t` triage;
+`↵` shows the selected thread's state with `ace thread show`, and `→` opens its
+agent tree under the row. Chatting with agents happens in the ace app.
 
-Chat creates a real ace thread on the first prompt, or attaches to `--thread`.
-Its messages and approvals appear in the GUI and mobile clients. `/stop` interrupts
-the tree, `/steer TEXT` redirects work, `/model MODEL` changes the thread's selection,
-and `/resume [THREAD]` resumes its held input or session. `/approve [INTERACTION]
-[OPTION]` and `/deny [INTERACTION]` resolve permissions. A single displayed approval
-also accepts `y` or `n`. Questions and elicitation require a suitable ace client.
-Use `//` to send a prompt that begins with `/`. On a terminal, with the composer
-empty, `↑` and `↓` walk the transcript's "Worked for" lines and `↵` unfolds the one
-reached: its steps print below it in the scrollback, or open in place while that
-turn still runs.
-
-The interactive home (bare `ace` on a terminal) draws its first frame from the
-rows the last run kept in `ACE_HOME/cli-home-rows.json` (the first 40, readable
-only by the person, never for a remote), before the daemon answers. A kept row
-keeps only what it is (title, project, branch, provider) and says "Syncing" in
-place of a status until the live list replaces it, so a stale copy never shows a
-thread as done while it works or waits on the person. The live list is kept again
-once the daemon has confirmed it, and on the way out.
-
-Tree status includes descendant work and queue attention. A disconnected observer
-shows uncertainty. `/quit` or EOF detaches and leaves work running; that successful
-detach does not claim that work completed. Chat has no default observation deadline;
-an explicit `--timeout` limits the session. Human terminals show a bounded streaming
-preview above the input prompt, then print the completed message. Terminal control
-sequences in provider text are stripped. Piped human output streams text directly.
-`--json` and `--stream jsonl` emit one typed chat record per line, with admitted IDs
-and retry keys when an action becomes uncertain.
-Credential revocation stops chat input and returns uncertain with the latest
-thread and retry key. `/quit` also interrupts receipt observation immediately;
-an unacknowledged command remains in the durable outbox for a later retry.
+The home draws its first frame from the rows the last run kept in
+`ACE_HOME/cli-home-rows.json` (the first 40, readable only by the person, never for
+a remote), before the daemon answers. A kept row keeps only what it is (title,
+project, branch, provider) and says "Syncing" in place of a status until the live
+list replaces it, so a stale copy never shows a thread as done while it works or
+waits on the person. The live list is kept again once the daemon has confirmed it,
+and on the way out.
 
 ## Server and remote profiles
 

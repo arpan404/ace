@@ -72,6 +72,10 @@ export function isolatedTestEnvironment(
     ACE_HISTORY_INSTANCES: "[]",
     ACE_MODEL_INSTANCES: "[]",
     ACE_TEST_REAL_HOME: realHome,
+    // Names the Rust daemon binary for `daemon-launch-test-support.ts`, test-only.
+    ...(ambient.ACE_TEST_DAEMON_BINARY !== undefined
+      ? { ACE_TEST_DAEMON_BINARY: ambient.ACE_TEST_DAEMON_BINARY }
+      : {}),
     // This flag opts into only the dedicated native fixture, never a user app or home.
     ...(ambient.ACE_SCREEN_INTEGRATION === "1" ? { ACE_SCREEN_INTEGRATION: "1" } : {}),
     // This one lets the computer engine operate Calculator, and only Calculator.
@@ -110,6 +114,83 @@ export function isolatedTestEnvironment(
     // A web build made already, for the editor's browser tests; without it they build their own.
     ...(ambient.ACE_EDITOR_PERF_BUILD !== undefined
       ? { ACE_EDITOR_PERF_BUILD: ambient.ACE_EDITOR_PERF_BUILD }
+      : {}),
+    // The store implementation switch (ADR 0222): a run with it on proves the native store.
+    ...(ambient.ACE_STORE !== undefined ? { ACE_STORE: ambient.ACE_STORE } : {}),
+    ...(ambient.ACE_STORE_ADDON !== undefined ? { ACE_STORE_ADDON: ambient.ACE_STORE_ADDON } : {}),
+    ...(ambient.ACE_STORE_READS !== undefined ? { ACE_STORE_READS: ambient.ACE_STORE_READS } : {}),
+    // The writer switch's fold part (5.1) and its evidence file: the fold shell reads them in
+    // workers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_STORE_WRITER !== undefined
+      ? { ACE_STORE_WRITER: ambient.ACE_STORE_WRITER }
+      : {}),
+    // The starting-off cross run's writer parts: the off boots alternate on these.
+    ...(ambient.ACE_STORE_WRITER_CROSS !== undefined
+      ? { ACE_STORE_WRITER_CROSS: ambient.ACE_STORE_WRITER_CROSS }
+      : {}),
+    ...(ambient.ACE_STORE_WRITER_EVIDENCE !== undefined
+      ? { ACE_STORE_WRITER_EVIDENCE: ambient.ACE_STORE_WRITER_EVIDENCE }
+      : {}),
+    // The engine and adapter switches (ADR 0223) and the cross-mode gate's log: shells and
+    // boot hooks read them in workers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_TRANSLATORS !== undefined ? { ACE_TRANSLATORS: ambient.ACE_TRANSLATORS } : {}),
+    ...(ambient.ACE_SESSIONS !== undefined ? { ACE_SESSIONS: ambient.ACE_SESSIONS } : {}),
+    ...(ambient.ACE_SESSIONS_ADDON !== undefined
+      ? { ACE_SESSIONS_ADDON: ambient.ACE_SESSIONS_ADDON }
+      : {}),
+    ...(ambient.ACE_SUPERVISOR_ADDON !== undefined
+      ? { ACE_SUPERVISOR_ADDON: ambient.ACE_SUPERVISOR_ADDON }
+      : {}),
+    ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
+    ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
+    // The native engine's first-build evidence file, beside the store writer's (E5.1).
+    ...(ambient.ACE_ENGINE_EVIDENCE !== undefined
+      ? { ACE_ENGINE_EVIDENCE: ambient.ACE_ENGINE_EVIDENCE }
+      : {}),
+    ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
+    // The devices switches (ADR 0225): a run with one on proves the native phase.
+    ...(ambient.ACE_SCRCPY_VIDEO !== undefined
+      ? { ACE_SCRCPY_VIDEO: ambient.ACE_SCRCPY_VIDEO }
+      : {}),
+    ...(ambient.ACE_DEVICE_PLATFORM !== undefined
+      ? { ACE_DEVICE_PLATFORM: ambient.ACE_DEVICE_PLATFORM }
+      : {}),
+    ...(ambient.ACE_DEVICE_PLATFORM_ADDON !== undefined
+      ? { ACE_DEVICE_PLATFORM_ADDON: ambient.ACE_DEVICE_PLATFORM_ADDON }
+      : {}),
+    ...(ambient.ACE_DEVICE_INVENTORY !== undefined
+      ? { ACE_DEVICE_INVENTORY: ambient.ACE_DEVICE_INVENTORY }
+      : {}),
+    ...(ambient.ACE_DEVICE_INVENTORY_ADDON !== undefined
+      ? { ACE_DEVICE_INVENTORY_ADDON: ambient.ACE_DEVICE_INVENTORY_ADDON }
+      : {}),
+    // The git implementation switch (ADR 0224, G0) and the gate's logs and
+    // verify mode: the git shells read them in workers, where every other
+    // ACE_* value stays scrubbed.
+    ...(ambient.ACE_GIT !== undefined ? { ACE_GIT: ambient.ACE_GIT } : {}),
+    ...(ambient.ACE_GIT_ADDON !== undefined ? { ACE_GIT_ADDON: ambient.ACE_GIT_ADDON } : {}),
+    ...(ambient.ACE_GIT_OP_LOG !== undefined ? { ACE_GIT_OP_LOG: ambient.ACE_GIT_OP_LOG } : {}),
+    ...(ambient.ACE_GIT_DIGEST_LOG !== undefined
+      ? { ACE_GIT_DIGEST_LOG: ambient.ACE_GIT_DIGEST_LOG }
+      : {}),
+    ...(ambient.ACE_GIT_VERIFY !== undefined ? { ACE_GIT_VERIFY: ambient.ACE_GIT_VERIFY } : {}),
+    ...(ambient.ACE_GIT_CROSS_START !== undefined
+      ? { ACE_GIT_CROSS_START: ambient.ACE_GIT_CROSS_START }
+      : {}),
+    ...(ambient.ACE_NATIVE_CROSS !== undefined
+      ? { ACE_NATIVE_CROSS: ambient.ACE_NATIVE_CROSS }
+      : {}),
+    ...(ambient.ACE_NATIVE_CROSS_LOG !== undefined
+      ? { ACE_NATIVE_CROSS_LOG: ambient.ACE_NATIVE_CROSS_LOG }
+      : {}),
+    // The transport switch (ADR 0226, T0.1) with its addon and evidence paths: the listener reads
+    // them in workers and launch helpers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_TRANSPORT !== undefined ? { ACE_TRANSPORT: ambient.ACE_TRANSPORT } : {}),
+    ...(ambient.ACE_TRANSPORT_ADDON !== undefined
+      ? { ACE_TRANSPORT_ADDON: ambient.ACE_TRANSPORT_ADDON }
+      : {}),
+    ...(ambient.ACE_TRANSPORT_EVIDENCE !== undefined
+      ? { ACE_TRANSPORT_EVIDENCE: ambient.ACE_TRANSPORT_EVIDENCE }
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
     // Rust toolchains are installed once per machine too. rustup finds its default toolchain

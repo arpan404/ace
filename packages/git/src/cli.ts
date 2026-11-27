@@ -42,7 +42,14 @@ import { count, decode } from "./decode.ts";
 import type { GitJob } from "./git-job.ts";
 import type { GitProcess } from "./git-processes.ts";
 import { ConfigFacts, configEnvironment } from "./config-facts.ts";
-import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
+import {
+  learnConfigSources,
+  standardConfigFiles,
+  type RawConfigSources,
+} from "./config-learning.ts";
+import { listedSources, parseLayout, watchedPaths } from "./config-sources.ts";
+import { gitPartOn } from "@ace/provider-kit/native-switches";
+import { NativeCoreCli } from "./native-core.ts";
 import {
   GitError,
   toGitError,
@@ -144,6 +151,34 @@ function untilCancelled<T>(work: Promise<T>, signal: AbortSignal | undefined): P
   });
 }
 
+/** The TypeScript answer for a watched-path computation the core will redo. */
+function watchedPathFallback(input: RawConfigSources): string[] | undefined {
+  const single = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    if (input.isWindows && value.endsWith("\r\n")) return value.slice(0, -2);
+    if (value.endsWith("\n")) return value.slice(0, -1);
+    return value;
+  };
+  const [gitDir, commonDir, toplevel] = [
+    single(input.gitDir),
+    single(input.commonDir),
+    single(input.toplevel),
+  ];
+  const layout =
+    gitDir === undefined || commonDir === undefined || toplevel === undefined
+      ? undefined
+      : parseLayout(input.cwd, gitDir, commonDir, toplevel);
+  if (!layout) return undefined;
+  const listed =
+    input.listing === undefined ? undefined : listedSources(input.listing, layout, input.home);
+  return listed ? watchedPaths(input.cwd, layout, listed, input.standard) : undefined;
+}
+
+/** The TypeScript answer for a default guarded call (`nonExecutingEnv`). */
+function nonExecutingPolicy(): { env: Record<string, string>; args: string[] } {
+  return { env: nonExecutingEnv(), args: [] };
+}
+
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
@@ -170,7 +205,7 @@ export class GitCli {
   private readonly standardFiles = new Map<string, Promise<string[] | undefined>>();
   private ready: VerificationAttempt | undefined;
   private readonly runtime: GitProcessRuntime;
-  private readonly calls = new Set<Promise<Output>>();
+  private readonly calls = new Set<Promise<unknown>>();
   private readonly cancellations = new Set<() => void>();
   private readonly drains = new Set<Promise<void>>();
   /** Leases of processes this service killed, retired once their process groups are gone. */
@@ -180,6 +215,7 @@ export class GitCli {
   /** Windows: the job module once loaded, `null` when it can't load (see `git-job.ts`). */
   private jobs: typeof import("./git-job.ts") | null | undefined;
   private jobsLoading: Promise<void> | undefined;
+  private readonly nativeCore: NativeCoreCli | undefined;
 
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
@@ -241,6 +277,9 @@ export class GitCli {
         "invalid_argument",
         "timeoutMs must be an integer between 1 and 2147483647",
       );
+    }
+    if (gitPartOn("core")) {
+      this.nativeCore = new NativeCoreCli(options, this.runtime, this.killed, this.leaseProbe);
     }
   }
 
@@ -314,6 +353,11 @@ export class GitCli {
    */
   bounded<T>(work: () => Promise<T>): Promise<T> {
     return this.boundedReads.run(true, work);
+  }
+
+  /** The core serving this instance's lease operations, when `ACE_GIT=core` is on. */
+  leaseCore(): NativeCoreCli | undefined {
+    return this.nativeCore;
   }
 
   protectWorktree(path: string): void {
@@ -393,7 +437,8 @@ export class GitCli {
     if (this.closing) return this.closing;
     this.closed = true;
     for (const cancel of this.cancellations) cancel();
-    this.closing = Promise.allSettled(this.calls)
+    const nativeClose = this.nativeCore ? [this.nativeCore.close()] : [];
+    this.closing = Promise.allSettled([...this.calls, ...nativeClose])
       .then(() => Promise.allSettled(this.drains))
       // Killed processes' leaders have exited: retire the leases whose groups are gone now,
       // so shutdown leaves nothing behind that it could have settled.
@@ -409,12 +454,36 @@ export class GitCli {
     if (this.calls.size >= 64)
       return Promise.reject(new GitError("git_busy", "Git call limit reached"));
     const result = this.runCall(cwd, args, options);
+    this.track(result);
+    return result;
+  }
+  /**
+   * Admission, cancellation and drain for work the service runs without a Git process (G1's
+   * native ref reads): the same closed check, 64-call limit, `close()` cancellation and
+   * drain as `call`. The work is tracked until it settles, not until its caller stops
+   * waiting on a timeout; `cancel` stops it early, on `close()` too.
+   */
+  nativeCall<T>(run: () => Promise<T>, cancel?: () => void): Promise<T> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.calls.size >= 64)
+      return Promise.reject(new GitError("git_busy", "Git call limit reached"));
+    const result = run();
+    this.track(result);
+    if (cancel !== undefined) {
+      this.cancellations.add(cancel);
+      void result.then(
+        () => this.cancellations.delete(cancel),
+        () => this.cancellations.delete(cancel),
+      );
+    }
+    return result;
+  }
+  private track(result: Promise<unknown>): void {
     this.calls.add(result);
     void result.then(
       () => this.calls.delete(result),
       () => this.calls.delete(result),
     );
-    return result;
   }
   /** A user-admitted fetch retains all tree execution guards, including in protected roots. */
   fetch(
@@ -464,6 +533,7 @@ export class GitCli {
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.nativeCore) return this.nativeCore.pause(milliseconds);
     return new Promise((resolve, reject) => {
       const cancelled = () => {
         stop();
@@ -597,17 +667,21 @@ export class GitCli {
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
-      env: nonExecutingEnv(),
+      env: await this.nonExecutingPolicyEnv(),
       signal,
     });
-    const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
-    const [major, minor] = version
-      ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
-          count,
-        )
-      : [0, 0];
+    const text = textOutput(result);
+    const native = this.nativeCore?.decodeVersion(text);
+    const version = native ? undefined : /^git version (\d+)\.(\d+)\.(\d+)/.exec(text);
+    const [major, minor] =
+      native ??
+      (version
+        ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
+            count,
+          )
+        : [0, 0]);
     if (
-      !version ||
+      (!version && native === undefined) ||
       major === undefined ||
       minor === undefined ||
       major < 2 ||
@@ -649,14 +723,21 @@ export class GitCli {
       : guarded
         ? nonExecutingEnv(keys)
         : hooklessEnv(keys);
+    const prepared = await this.policyFor(
+      {
+        keys,
+        guarded,
+        hookless,
+        transport: transport
+          ? { protocols: transport.protocols, sshCommand: settings.sshCommand }
+          : null,
+      },
+      () => ({ env, args: guarded || transport ? ["-c", "protocol.allow=never"] : [] }),
+    );
     return this.executeRaw(
       cwd,
-      [
-        ...(guarded || transport ? ["-c", "protocol.allow=never"] : []),
-        ...(transport ? credentialHelperArgs(settings.helpers) : []),
-        ...args,
-      ],
-      { ...options, env: { ...options.env, ...env } },
+      [...prepared.args, ...(transport ? credentialHelperArgs(settings.helpers) : []), ...args],
+      { ...options, env: { ...options.env, ...prepared.env } },
     );
   }
 
@@ -673,7 +754,18 @@ export class GitCli {
     env: Record<string, string> = {},
   ): Promise<T> {
     if (this.closed) return compute();
-    return this.facts.read(cwd, this.configKeyEnv(env), name, compute, keep);
+    const keyEnv = this.configKeyEnv(env);
+    if (this.nativeCore === undefined) return this.facts.read(cwd, keyEnv, name, compute, keep);
+    return this.nativeCore.configFactsRead(
+      { cwd, name, env: Object.entries(keyEnv) },
+      {
+        sources: (sourcesCwd, envPairs) =>
+          this.configSources(sourcesCwd, Object.fromEntries(envPairs)),
+        compute,
+        keep: (value) => keep?.(value as T) ?? true,
+      },
+      () => this.facts.read(cwd, keyEnv, name, compute, keep),
+    ) as Promise<T>;
   }
 
   /** Call environment and the inherited variables that place the global config files. */
@@ -704,6 +796,13 @@ export class GitCli {
       () => this.standardConfigFiles(env, query),
       env.HOME,
       this.runtime.platform,
+      this.nativeCore === undefined
+        ? undefined
+        : (input) =>
+            this.nativeCore!.configWatch(
+              { ...input, listing: input.listing?.toString("utf8") },
+              () => watchedPathFallback(input),
+            ),
     );
   }
 
@@ -726,6 +825,32 @@ export class GitCli {
     return files;
   }
 
+  /**
+   * The execution policy for one call (G2c): the core decides the environment
+   * and guard arguments when `ACE_GIT=core` is on, `typescript` otherwise.
+   */
+  private policyFor(
+    input: {
+      keys: string;
+      guarded: boolean;
+      hookless: boolean;
+      transport: { protocols: readonly string[]; sshCommand?: string | undefined } | null;
+    },
+    typescript: () => { env: Record<string, string>; args: string[] },
+  ): Promise<{ env: Record<string, string>; args: string[] }> {
+    if (this.nativeCore === undefined) return Promise.resolve(typescript());
+    return this.nativeCore.preparePolicy(input, typescript);
+  }
+
+  /** `nonExecutingEnv()`, decided by the core when it is on. */
+  private async nonExecutingPolicyEnv(): Promise<Record<string, string>> {
+    const prepared = await this.policyFor(
+      { keys: "", guarded: true, hookless: false, transport: null },
+      nonExecutingPolicy,
+    );
+    return prepared.env;
+  }
+
   private executionKeys(cwd: string, options: CallOptions): Promise<string> {
     // A directory pinned by descriptor may sit behind a path that no longer leads to it.
     if (options.directoryFd !== undefined) return this.queryExecutionKeys(cwd, options);
@@ -743,7 +868,7 @@ export class GitCli {
       cwd,
       ["-c", "protocol.allow=never", ...executionKeyQuery],
       {
-        env: { ...options.env, ...nonExecutingEnv() },
+        env: { ...options.env, ...(await this.nonExecutingPolicyEnv()) },
         allowFailure: true,
         captureBytes: 1_048_576,
         signal: options.signal,
@@ -764,9 +889,9 @@ export class GitCli {
     cwd: string,
     options: CallOptions,
   ): Promise<{ helpers: GitCredentialHelper[]; sshCommand: string | undefined }> {
-    const query = (args: string[]) =>
+    const query = async (args: string[]) =>
       this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
-        env: nonExecutingEnv(),
+        env: await this.nonExecutingPolicyEnv(),
         allowFailure: true,
         captureBytes: 1_048_576,
         signal: options.signal,
@@ -826,10 +951,62 @@ export class GitCli {
 
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.nativeCore) {
+      if (this.runtime.platform === "win32" && options.directoryFd !== undefined) {
+        return this.executeLeased(cwd, args, options, options.directoryFd);
+      }
+      const attempt = this.configuredBinary === undefined ? this.ready : undefined;
+      return this.nativeCore
+        .executeRaw(
+          {
+            cwd,
+            args,
+            binary: this.binary,
+            env: options.env ?? {},
+            write: options.write === true,
+            stripAskpass: typeof this.executionPolicy.getStore() === "object",
+            executionDisabled: this.executionDisabledAt(cwd),
+            allowFailure: options.allowFailure === true,
+            ...(options.captureBytes === undefined ? {} : { captureBytes: options.captureBytes }),
+            ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+            stopAtCapture: options.stopAtCapture === true,
+            ...(options.stopAfterMs === undefined ? {} : { stopAfterMs: options.stopAfterMs }),
+            bounded:
+              options.stopAtCapture === true ||
+              options.stopAfterMs !== undefined ||
+              this.boundedReads.getStore() === true,
+            ...(options.input === undefined ? {} : { input: options.input }),
+            ...(options.output === undefined ? {} : { output: options.output }),
+            ...(options.consume === undefined ? {} : { consume: options.consume }),
+            ...(options.stderr === undefined ? {} : { stderr: options.stderr }),
+            ...(options.beforeSpawn === undefined ? {} : { beforeSpawn: options.beforeSpawn }),
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.directoryFd === undefined ? {} : { directoryFd: options.directoryFd }),
+          },
+          () => this.executeRawTs(cwd, args, options),
+        )
+        .catch((error: unknown) => {
+          if (
+            error instanceof GitError &&
+            error.code === "git_missing" &&
+            attempt &&
+            this.ready === attempt
+          ) {
+            this.ready = undefined;
+            this.resolvedBinary = undefined;
+          }
+          throw error;
+        });
+    }
+    return this.executeRawTs(cwd, args, options);
+  }
+
+  private executeRawTs(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     if (this.runtime.platform === "win32" && this.jobs === undefined)
       return (this.jobsLoading ?? Promise.resolve()).then(() => {
         this.jobs ??= null;
-        return this.executeRaw(cwd, args, options);
+        return this.executeRawTs(cwd, args, options);
       });
     const binary = this.binary;
     const env = inheritedEnv();
