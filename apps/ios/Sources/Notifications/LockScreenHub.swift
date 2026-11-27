@@ -18,14 +18,15 @@ import WidgetKit
         /// How often a running activity is rebuilt while ace is open, so an unchanged inbox
         /// never reaches its stale date while it is still being confirmed. Nil: never.
         var renewal: Duration? = nil
-        static var system: Edges {
+        /// Main actor: the ActivityKit edge is a main-actor object.
+        @MainActor static var system: Edges {
             Edges(activity: SystemMachineActivity(), writeSnapshot: { LockSnapshotStore.write($0) },
                   writeMachines: { MachineSnapshotStore.write($0) },
                   reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() },
                   readSnapshot: { LockSnapshotStore.read() }, renewal: .seconds(MachineActivityPlan.renewEvery))
         }
         /// Touches nothing outside the process: the default where no app runs (tests, previews).
-        static var inert: Edges { Edges(activity: InertActivity(), writeSnapshot: { _ in }, reloadWidgets: {}) }
+        @MainActor static var inert: Edges { Edges(activity: InertActivity(), writeSnapshot: { _ in }, reloadWidgets: {}) }
     }
     /// How long a burst of inbox changes is gathered into one rebuild.
     static let coalesce: Duration = .milliseconds(300)
