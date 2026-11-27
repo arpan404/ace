@@ -344,18 +344,29 @@ fn pending_still_matches(session: &Session, assignment: &Assignment) -> bool {
         && assignment.revision == session.control_revision
 }
 
+/// Retire the bind reservation at `epoch`, and only that one: a reservation that
+/// started later holds a newer epoch and keeps its guard and its owner, so its own
+/// cleanup is not refused by a stale assignment that landed later.
+fn retire_bind_at_epoch(session: &mut Session, epoch: u64) {
+    if !session.changing_binding || session.binding_epoch != epoch {
+        return;
+    }
+    session.binding_epoch = session.binding_epoch.saturating_add(1);
+    session.changing_binding = false;
+    session.binding_owner = None;
+}
+
 /// Retire the bind reservation this owner's takeover started, if it is still
 /// running. An invalidated assignment must not leave the device reserved for a
 /// cleanup nobody will finish: a person starts a threaded bind, hands back or
 /// drops, and an agent's bind would otherwise be refused `bindingBusy` until the
 /// person's stale continuation lands.
 fn retire_owner_bind(session: &mut Session, owner: &str) {
-    if !session.changing_binding || session.binding_owner.as_deref() != Some(owner) {
+    if session.binding_owner.as_deref() != Some(owner) {
         return;
     }
-    session.binding_epoch = session.binding_epoch.saturating_add(1);
-    session.changing_binding = false;
-    session.binding_owner = None;
+    let epoch = session.binding_epoch;
+    retire_bind_at_epoch(session, epoch);
 }
 
 /// `disconnect` / owner drop: invalidate only this owner's pending takeover
@@ -382,6 +393,13 @@ pub fn begin_assign(
     // This takeover invalidates the requester's earlier one, so that one's bind
     // reservation goes with it: a hand-back is not blocked by its own clean-up.
     retire_owner_bind(session, &requester.owner);
+    // It invalidates the assignment it replaces too, so the bind that assignment
+    // left in flight is retired with it, at the epoch it holds: one person replaces
+    // another's cleanup bind without a thread, and the agent that follows must bind
+    // without waiting for the displaced person's stale continuation.
+    if let Some(displaced) = session.pending_controller.clone() {
+        retire_owner_bind(session, &displaced);
+    }
     // A later person supersedes an earlier person's reservation, as `assignController`
     // does: the revision moves, so the earlier one loses with `controlChanged`.
     session.control_revision = session.control_revision.saturating_add(1);

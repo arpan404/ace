@@ -216,6 +216,61 @@ fn a_stale_agent_claim_after_the_person_dropped_mid_takeover_is_rejected() {
 }
 
 #[test]
+fn a_second_person_replacing_a_cleanup_bind_frees_it_for_the_agent_before_the_first_resumes() {
+    let mut session = Session::new("ios:AAAA");
+    let other = Actor::human("person-2");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("the first person's threaded takeover");
+    assert!(
+        session.changing_binding,
+        "the first person's bind is still cleaning up"
+    );
+
+    // A second person takes control without a thread: the first person's assignment
+    // is invalidated while their bind is still out.
+    let second = begin_assign(&mut session, &other, NOW).expect("the second person");
+    assert!(
+        !session.changing_binding,
+        "the displaced assignment's bind is retired with it"
+    );
+
+    // The second person hands back, and the first person disconnects, before either
+    // continuation lands.
+    let hand_back = begin_assign(&mut session, &other, NOW).expect("hand back");
+    finish_assign(&mut session, hand_back, None, NOW).expect("released");
+    invalidate_pending_owner(&mut session, "person");
+
+    // The next agent binds and holds the device.
+    assert_eq!(
+        claim_for_agent(&mut session, &agent(), NOW),
+        Ok(Claim::Take)
+    );
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent binds");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+
+    // The first person's stale continuation changes nothing.
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-person",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect_err("the first person's assignment was displaced");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+    let _ = second;
+}
+
+#[test]
 fn a_person_who_took_control_and_disconnected_lets_the_agent_claim_and_hold_it() {
     let mut session = Session::new("ios:AAAA");
     let person_assign = begin_assign(&mut session, &person(), NOW).expect("the person takes");
