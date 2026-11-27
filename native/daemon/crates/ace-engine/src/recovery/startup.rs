@@ -429,6 +429,12 @@ fn intent_step(
                 crate::cursor_reconcile::mark(state, thread);
                 return Ok(());
             }
+            if intent.kind == "thread.merge"
+                && matches!(intent.status.as_str(), "pending" | "queued")
+                && let Some(core) = core.self_rc()
+            {
+                return crate::transitions::dispatch::recover_thread(&core, state, thread);
+            }
             if intent.status == "running" || intent.awaiting {
                 let delivery = matches!(
                     intent.kind.as_str(),

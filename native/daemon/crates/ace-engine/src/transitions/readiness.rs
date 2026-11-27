@@ -13,16 +13,17 @@
 //! already loads the tasks it counts.
 //!
 //! **Rebuilt.** Both answering methods check the thread's readiness rebuild before they read
-//! (E5.3 brief, "Readiness"): a thread not yet rebuilt answers false, never "done". E5.4's owner
-//! decision of 2026-11-24 adds no fill, so the boot rebuild the TypeScript opener runs is the
-//! answer for every thread in a home this build opened.
+//! (E5.3 brief, "Readiness"): a thread not yet rebuilt answers false, never "done". The rebuild
+//! runs at boot in bounded pages (`BootRebuild`), each thread's index swapped in one transaction
+//! so a record that cannot decode leaves its previous rows in place; while boot is still running,
+//! a thread it has not reached answers false, and after it every thread answers from its rows.
 
-use crate::repository::collaborators::{MoveFacts, QuiescenceView};
+use crate::repository::collaborators::QuiescenceView;
 use crate::repository::residency::cell_text;
 use crate::snapshot::Snapshot;
-use crate::{EngineError, State};
+use crate::{EngineError, EngineStore, State};
 use ace_core::person_input::PersonInputFacts;
-use ace_core::state::{AgentRecord, ThreadState};
+use ace_core::state::AgentRecord;
 use ace_core::status::AgentStatus;
 use ace_store::{Value as Cell, stmt_cache};
 use std::cell::RefCell;
@@ -42,7 +43,7 @@ fn never_started(record: &AgentRecord) -> bool {
 }
 
 /// `agentReady` (`transition-readiness.ts:17`).
-fn agent_ready(record: &AgentRecord, now: i64) -> bool {
+pub(crate) fn agent_ready(record: &AgentRecord, now: i64) -> bool {
     if record.external_status.is_some() {
         return true;
     }
@@ -98,6 +99,9 @@ pub fn accepts_person_input(
     thread: &str,
     now: i64,
 ) -> Result<bool, EngineError> {
+    if !is_rebuilt(state, thread) {
+        return Ok(false);
+    }
     let Some(snapshot) = state.readiness_snapshot(thread)? else {
         return Err(EngineError::MissingState);
     };
@@ -135,12 +139,233 @@ pub fn accepts_person_input(
     ))
 }
 
+/// Whether the thread's readiness rebuild committed this boot.
+pub fn rebuilt(_store: &EngineStore, state: &State, thread: &str) -> Result<bool, EngineError> {
+    Ok(is_rebuilt(state, thread))
+}
+
+/// Whether the thread's readiness answer is one this boot stands behind. Before boot (or after
+/// it) every thread is; during the rebuild only a thread it has already replaced is.
+pub fn is_rebuilt(state: &State, thread: &str) -> bool {
+    !state.transitions.booting || state.transitions.rebuilt.contains(thread)
+}
+
+pub fn mark_rebuilt(state: &mut State, thread: &str) {
+    state.transitions.rebuilt.insert(thread.to_owned());
+}
+
 /// `TransitionReadiness.agentsReady` (`:88`): no stored blocker for the thread.
 pub fn agents_ready(
     conn: &std::sync::Arc<ace_store::Connection>,
     thread: &str,
 ) -> Result<bool, EngineError> {
     Ok(stmt_cache::get_row(conn, FIND, vec![Cell::Text(thread.to_owned())])?.is_none())
+}
+
+pub fn agents_ready_checked(
+    store: &EngineStore,
+    state: &State,
+    thread: &str,
+) -> Result<bool, EngineError> {
+    if !rebuilt(store, state, thread)? {
+        return Ok(false);
+    }
+    agents_ready(store.conn(), thread)
+}
+
+/// `TransitionReadiness.update` (`:59`): one agent's blocker row follows its record.
+fn update(
+    conn: &std::sync::Arc<ace_store::Connection>,
+    thread: &str,
+    key: &str,
+    state: &ace_core::state::ThreadState,
+    now: i64,
+) -> Result<(), EngineError> {
+    let ready = state
+        .agents
+        .get(key)
+        .is_none_or(|record| agent_ready(record, now));
+    let params = vec![Cell::Text(thread.to_owned()), Cell::Text(key.to_owned())];
+    if ready {
+        stmt_cache::run(conn, REMOVE, params)?;
+    } else {
+        stmt_cache::run(conn, PUT, params)?;
+    }
+    Ok(())
+}
+
+const REBUILD_SLICE: i64 = 256;
+
+/// One thread's blockers, replaced in one transaction. The thread's stored agents are read in
+/// bounded slices first, so a record that cannot decode fails the rebuild before anything is
+/// written: the old index stays until its replacement is complete.
+pub fn rebuild_thread(store: &EngineStore, now: i64, thread: &str) -> Result<(), EngineError> {
+    let conn = store.conn();
+    let mut blocked: Vec<String> = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let rows = stmt_cache::all_rows(
+            conn,
+            "SELECT key,value FROM engine_state_records WHERE section='agents' AND thread_id=? AND key>? ORDER BY key LIMIT ?",
+            vec![
+                Cell::Text(thread.to_owned()),
+                Cell::Text(cursor.clone()),
+                Cell::Integer(REBUILD_SLICE),
+            ],
+        )?;
+        if rows.is_empty() {
+            break;
+        }
+        for row in &rows {
+            let key = row
+                .get("key")
+                .and_then(cell_text)
+                .ok_or_else(|| EngineError::Records("agent key".into()))?;
+            let value = row
+                .get("value")
+                .and_then(cell_text)
+                .ok_or_else(|| EngineError::Records("agent record".into()))?;
+            let parsed =
+                ace_json::parse(value).map_err(|error| EngineError::Records(error.to_string()))?;
+            let record: AgentRecord = ace_json::from_value(&parsed)
+                .map_err(|error| EngineError::Records(error.to_string()))?;
+            if !agent_ready(&record, now) {
+                blocked.push(key.to_owned());
+            }
+            cursor = key.to_owned();
+        }
+    }
+    store.atomic(|_tx| {
+        stmt_cache::run(
+            conn,
+            "DELETE FROM engine_transition_blockers WHERE thread_id=?",
+            vec![Cell::Text(thread.to_owned())],
+        )?;
+        for key in &blocked {
+            stmt_cache::run(
+                conn,
+                PUT,
+                vec![Cell::Text(thread.to_owned()), Cell::Text(key.clone())],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+/// One page of the threads a boot rebuild has to visit, by thread id.
+fn rebuild_page(store: &EngineStore, cursor: &str, limit: i64) -> Result<Vec<String>, EngineError> {
+    let rows = stmt_cache::all_rows(
+        store.conn(),
+        "SELECT thread_id FROM (
+             SELECT DISTINCT thread_id FROM engine_state_records WHERE section='agents'
+             UNION SELECT DISTINCT thread_id FROM engine_transition_blockers
+         ) WHERE thread_id > ? ORDER BY thread_id LIMIT ?",
+        vec![Cell::Text(cursor.to_owned()), Cell::Integer(limit)],
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| row.get("thread_id").and_then(cell_text).map(str::to_owned))
+        .collect())
+}
+
+/// The boot rebuild's cursor: one bounded page of threads per step (ADR 0170), each thread's
+/// index swapped in its own transaction.
+#[derive(Debug, Default)]
+pub struct BootRebuild {
+    cursor: String,
+    done: bool,
+}
+
+impl BootRebuild {
+    /// Rebuilds the next page; `true` when there is no page left.
+    pub fn step(
+        &mut self,
+        store: &EngineStore,
+        state: &mut State,
+        now: i64,
+    ) -> Result<bool, EngineError> {
+        if self.done {
+            return Ok(true);
+        }
+        let threads = rebuild_page(store, &self.cursor, REBUILD_SLICE)?;
+        if threads.is_empty() {
+            self.done = true;
+            return Ok(true);
+        }
+        for thread in &threads {
+            rebuild_thread(store, now, thread)?;
+        }
+        self.cursor = threads.last().cloned().unwrap_or_default();
+        self.done = threads.len() < REBUILD_SLICE as usize;
+        for thread in &threads {
+            mark_rebuilt(state, thread);
+        }
+        Ok(self.done)
+    }
+}
+
+/// Every thread that has agent records or stale blockers, in pages.
+pub fn rebuild(store: &EngineStore, now: i64) -> Result<Vec<String>, EngineError> {
+    let mut built = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let threads = rebuild_page(store, &cursor, REBUILD_SLICE)?;
+        if threads.is_empty() {
+            return Ok(built);
+        }
+        for thread in &threads {
+            rebuild_thread(store, now, thread)?;
+        }
+        cursor = threads.last().cloned().unwrap_or_default();
+        built.extend(threads);
+    }
+}
+
+/// `TransitionReadiness.capture` (`:63`): the agents a batch's events touched get their blocker
+/// row from the state the batch produced. Events that name no known agent change nothing, and
+/// the order is the batch's own, as the TypeScript's `Set` keeps it.
+pub fn capture(
+    state: &ace_core::state::ThreadState,
+    conn: &std::sync::Arc<ace_store::Connection>,
+    events: &[ace_json::Value],
+    now: i64,
+) -> Result<(), EngineError> {
+    let mut changed: Vec<&str> = Vec::new();
+    for event in events {
+        let kind = event.get("type").and_then(ace_json::Value::as_str);
+        let id = match kind {
+            Some("agent.created") => event
+                .get("agent")
+                .and_then(|agent| agent.get("id"))
+                .and_then(ace_json::Value::as_str),
+            Some("agent.status" | "agent.updated") => {
+                event.get("agentId").and_then(ace_json::Value::as_str)
+            }
+            Some("run.started") => event
+                .get("run")
+                .and_then(|run| run.get("agentId"))
+                .and_then(ace_json::Value::as_str),
+            Some("run.ended") => event
+                .get("runId")
+                .and_then(ace_json::Value::as_str)
+                .and_then(|run| state.runs.get(run))
+                .map(|run| run.agent_id.as_str()),
+            _ => None,
+        };
+        let Some(key) = id
+            .and_then(|id| state.indexes.agent_keys_by_id.get(id))
+            .map(String::as_str)
+        else {
+            continue;
+        };
+        if !changed.contains(&key) {
+            changed.push(key);
+        }
+    }
+    for key in changed {
+        update(conn, &state.thread_id, key, state, now)?;
+    }
+    Ok(())
 }
 
 /// `quiescent` (`transition-history.ts:8`): the tree holds no live work and every agent is
@@ -159,7 +384,7 @@ pub fn quiescent(view: &QuiescenceView, agents_ready: bool) -> bool {
 
 impl State {
     /// The engine's clock, as `TransitionReadiness`'s `now` (`transition-readiness.ts:40`).
-    fn readiness_now(&self) -> i64 {
+    pub(crate) fn readiness_now(&self) -> i64 {
         self.engine
             .upgrade()
             .map(|core| core.ports.now() as i64)
@@ -168,7 +393,7 @@ impl State {
 
     /// The thread's snapshot: resident, else loaded from the store. A caller never holds a
     /// borrow of it across these hooks (E5.3's collaborator rule).
-    fn readiness_snapshot(
+    pub(crate) fn readiness_snapshot(
         &mut self,
         thread: &str,
     ) -> Result<Option<Rc<RefCell<Snapshot>>>, EngineError> {
@@ -195,45 +420,6 @@ impl State {
             .try_borrow_mut()
             .map_err(|_| EngineError::Reentrant)?;
         refresh_blocked(&mut borrowed, now)
-    }
-}
-
-impl MoveFacts for State {
-    /// `readiness.capture` is E5.9's; it stays the trait's default.
-    /// `readiness.refreshBlocked`: the thread's blockers follow its agents, read through the
-    /// snapshot's records.
-    fn readiness_refresh_blocked(&mut self, state: &ThreadState) -> Result<(), EngineError> {
-        let now = self.readiness_now();
-        let thread = state.thread_id.clone();
-        self.refresh_blocked_now(&thread, now)
-    }
-
-    /// `readiness.agentsReady`.
-    fn readiness_agents_ready(&mut self, thread: &str) -> Result<bool, EngineError> {
-        let Some(core) = self.engine.upgrade() else {
-            return Ok(true);
-        };
-        agents_ready(core.store.conn(), thread)
-    }
-
-    /// `readiness.acceptsPersonInput`: the root is between turns and free for the next message,
-    /// read through the snapshot's records.
-    fn readiness_accepts_person_input(&mut self, state: &ThreadState) -> Result<bool, EngineError> {
-        let now = self.readiness_now();
-        let thread = state.thread_id.clone();
-        if self.readiness_snapshot(&thread)?.is_none() {
-            return Ok(ace_core::person_input::accepts_person_input(state, now));
-        }
-        accepts_person_input(self, &thread, now)
-    }
-
-    /// `quiescent` (`transition-history.ts:8`), over E5.3's view.
-    fn quiescent(
-        &mut self,
-        view: &QuiescenceView,
-        agents_ready: bool,
-    ) -> Result<bool, EngineError> {
-        Ok(quiescent(view, agents_ready))
     }
 }
 
@@ -319,6 +505,7 @@ mod tests {
             ace_core::person_input::accepts_person_input(&cold, 0),
             "the cold state alone reads no root, which is the bug the load fixes"
         );
+        state.transitions.rebuilt.insert("t".to_owned());
         assert!(
             !accepts_person_input(&mut state, "t", 0).expect("an answer"),
             "the root's active run holds the thread"
@@ -333,12 +520,215 @@ mod tests {
             .expect("corrupt agent");
         let mut state = State::default();
         state.repo.probe_passthrough = true;
+        state.transitions.rebuilt.insert("t".to_owned());
         let _ = state.repo.require_state(&store, "t").expect("snapshot");
         let error = accepts_person_input(&mut state, "t", 0).expect_err("a corrupt row fails");
         assert!(
             !error.to_string().is_empty(),
             "the decode error is reported, not swallowed as an absent root"
         );
+    }
+
+    // From `transition-readiness.ts:54`: the boot rebuild forgets every blocker and seeds one
+    // per stored agent that is not ready.
+    #[test]
+    fn a_boot_rebuild_seeds_only_the_unready_stored_agents() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'stale')")
+            .expect("stale blocker");
+        let stored =
+            |value: serde_json::Value| format!("'{}'", value.to_string().replace('\'', "''"));
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'working', {})",
+            stored(agent_json("a-working", "working", Some("run-1")))
+        ))
+        .expect("working");
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'idle', {})",
+            stored(agent_json("a-idle", "idle", None))
+        ))
+        .expect("idle");
+        let mut state = State::default();
+        let store = Shell::store(&conn);
+        let threads = rebuild(&store, 10).expect("rebuild");
+        for thread in threads {
+            mark_rebuilt(&mut state, &thread);
+        }
+        let keys = stmt_cache::all_rows(&conn, KEYS, vec![Cell::Text("t".into())])
+            .expect("rows")
+            .iter()
+            .filter_map(|row| row.get("agent_key").and_then(cell_text).map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["working"]);
+    }
+
+    // A stored agent that cannot decode must not leave the thread with no index at all: the
+    // old blockers stay until the replacement is complete.
+    #[test]
+    fn a_failed_agent_decode_keeps_the_threads_previous_blockers() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'working')")
+            .expect("old blocker");
+        let stored =
+            |value: serde_json::Value| format!("'{}'", value.to_string().replace('\'', "''"));
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'working', {})",
+            stored(agent_json("a-working", "working", Some("run-1")))
+        ))
+        .expect("working");
+        conn.exec(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'corrupt', '{not json')",
+        )
+        .expect("corrupt");
+        let store = Shell::store(&conn);
+        let failed = rebuild_thread(&store, 10, "t");
+        assert!(failed.is_err(), "the corrupt record fails the rebuild");
+        let keys = stmt_cache::all_rows(&conn, KEYS, vec![Cell::Text("t".into())])
+            .expect("rows")
+            .iter()
+            .filter_map(|row| row.get("agent_key").and_then(cell_text).map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["working"], "the old index is still there");
+    }
+
+    #[test]
+    fn a_captured_batch_moves_only_the_blockers_whose_agents_it_names() {
+        let conn = home("t", &header("t"));
+        let mut state = state();
+        state.thread_id = "t".into();
+        let mut working = agent_json("a-root", "working", Some("run-1"));
+        working["activeRun"] = serde_json::json!("run-1");
+        state.agents.insert(
+            "root".into(),
+            serde_json::from_value(working).expect("a working root"),
+        );
+        state
+            .indexes
+            .agent_keys_by_id
+            .insert("a-root".into(), "root".into());
+        state.runs.insert(
+            "run-1".into(),
+            serde_json::from_value(serde_json::json!({
+                "id": "run-1", "threadId": "t", "agentId": "a-root", "trigger": "person", "state": "active", "startedAt": 1
+            }))
+            .expect("a run"),
+        );
+        let status = |kind: &str| {
+            vec![
+                ace_json::parse(&format!(r#"{{"type":"{kind}","agentId":"a-root"}}"#))
+                    .expect("event"),
+            ]
+        };
+        // The working root blocks a transition.
+        capture(&state, &conn, &status("agent.status"), 10).expect("capture");
+        assert!(!agents_ready(&conn, "t").expect("ready"));
+        // The same event after the batch made it idle clears the row.
+        state.agents.insert(
+            "root".into(),
+            serde_json::from_value(agent_json("a-root", "idle", None)).expect("idle root"),
+        );
+        capture(&state, &conn, &status("agent.status"), 10).expect("capture");
+        assert!(agents_ready(&conn, "t").expect("ready"));
+        // A blocker another agent holds is not touched by an event that names this one, nor by
+        // an event that names no known agent.
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'child')")
+            .expect("blocker");
+        let unknown = vec![
+            ace_json::parse(r#"{"type":"agent.updated","agentId":"ghost"}"#).expect("event"),
+            ace_json::parse(r#"{"type":"item.created","item":{"id":"i"}}"#).expect("event"),
+        ];
+        capture(&state, &conn, &unknown, 10).expect("capture");
+        assert!(!agents_ready(&conn, "t").expect("the child still blocks"));
+    }
+
+    #[test]
+    fn a_run_end_resolves_its_agent_through_the_states_run_index() {
+        let conn = home("t", &header("t"));
+        let mut state = state();
+        state.thread_id = "t".into();
+        state.agents.insert(
+            "child".into(),
+            serde_json::from_value(agent_json("a-child", "idle", None)).expect("a child"),
+        );
+        state
+            .indexes
+            .agent_keys_by_id
+            .insert("a-child".into(), "child".into());
+        state.runs.insert(
+            "run-2".into(),
+            serde_json::from_value(serde_json::json!({
+                "id": "run-2", "threadId": "t", "agentId": "a-child", "trigger": "agent", "state": "active", "startedAt": 1
+            }))
+            .expect("a run"),
+        );
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'child')")
+            .expect("blocker");
+        // A run.started whose agent id has ended and whose record is idle clears the row.
+        let events = vec![
+            ace_json::parse(r#"{"type":"run.ended","runId":"run-2","state":"done"}"#)
+                .expect("event"),
+        ];
+        capture(&state, &conn, &events, 10).expect("capture");
+        assert!(agents_ready(&conn, "t").expect("ready"));
+        // A run.segment that names no run leaves the row alone.
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'child')")
+            .expect("blocker");
+        let events = vec![
+            ace_json::parse(r#"{"type":"run.ended","runId":"gone","state":"done"}"#)
+                .expect("event"),
+        ];
+        capture(&state, &conn, &events, 10).expect("capture");
+        assert!(!agents_ready(&conn, "t").expect("still blocked"));
+    }
+
+    /// The smallest state the status rules accept, with the thread the home names.
+    fn state() -> ace_core::state::ThreadState {
+        serde_json::from_value(serde_json::json!({
+            "threadId": "t",
+            "config": { "provider": "claude", "silenceMs": 1000 },
+            "status": { "state": "done" },
+            "agents": {},
+            "runs": {},
+            "items": {},
+            "interactions": {},
+            "tasks": {},
+            "interactionHistory": {},
+            "taskHistory": {},
+            "indexes": {
+                "liveTools": {}, "pendingInteractions": {}, "runningTasks": {},
+                "agentKeysById": {}, "childrenByParent": {}, "pendingSpawnLinks": {},
+                "pendingItemLinks": {}
+            },
+            "outcomeOrder": 0,
+            "pendingNotices": [],
+            "itemLinks": {},
+            "queueCount": 0,
+            "queueSources": { "engine": 0, "provider": 0 },
+            "hasRun": false
+        }))
+        .expect("a state")
+    }
+
+    /// One agent record in the stored shape.
+    fn agent_json(id: &str, state: &str, run: Option<&str>) -> serde_json::Value {
+        let status = if state == "working" {
+            serde_json::json!({ "state": state, "activity": "thinking" })
+        } else {
+            serde_json::json!({ "state": state })
+        };
+        let mut record = serde_json::json!({
+            "agent": {
+                "id": id, "threadId": "t", "origin": "root",
+                "native": { "provider": "claude" }, "fidelity": "full", "cwd": "/w",
+                "status": status, "createdAt": 0
+            },
+            "activity": state,
+            "lastSignalAt": 0
+        });
+        if let Some(run) = run {
+            record["activeRun"] = serde_json::json!(run);
+        }
+        record
     }
 
     #[test]

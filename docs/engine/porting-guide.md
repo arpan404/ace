@@ -2548,6 +2548,26 @@ For every E5 item:
 
 ## When you are done
 
+- E5.9: merge intents execute in Rust `transitions::dispatch` after the receipt commits and on
+  restart, settling their intent and guards in the merge's own transaction. Three entry points
+  still wait on later items: `thread.fork` creation on E5.4e's `create_engine_thread`
+  (`commands::create`); a live move's `capture_machine_handoff`/`adopt_machine_handoff` on
+  E5.4e's `thread.move` command and E5.8's restart adoption; and the checkout fence
+  (`moves::workspace` `begin`/`commit`/`fail`) on the daemon's workspace runtime
+  (`workspace-runtime.ts`) having a Rust owner. Boot prunes stale guards and settles an
+  interrupted move only once its roots are gone; settling a root that still exists needs Git's
+  own answer through E5.5's `worktreeGit` port. A patch merge's Git effect and the durable
+  evidence that reconciles an interrupted one land with that same port; until then a patch
+  merge is refused with `NativeEngineIncomplete` (E5.5), its intent records the failure and both
+  guards are released.
+- E5.9 intended differences from the TypeScript: a `thread.switch` is refused with
+  `NativeEngineIncomplete` (E5.6) until the sessions and models ports land, and a switch intent
+  found on restart stays queued for that dispatcher, because accepting it and running nothing
+  would show a switch that never happened. Merge execution keeps only the protocol's citation
+  ids (a client's extra citation fields would fail core's message validation, where the Zod
+  command parse strips them). A handoff envelope cut between a surrogate pair shows U+FFFD for
+  the half a Rust string cannot hold, where JavaScript keeps the lone surrogate. Boot's readiness
+  rebuild answers "not ready" only while it runs, and only for a thread it has not reached.
 - Every (a) file of your item passes alone with the switch on and off; your (b) cases pass as
   `cargo test -p <crate>`; `check:daemon-native` passes.
 - Report: the files run and their results, the bench figures off and on, any behaviour you found

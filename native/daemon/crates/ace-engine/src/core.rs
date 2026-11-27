@@ -381,12 +381,37 @@ impl Core {
                 recovery::prepare_ready(&core).await?;
             }
         }
+        self.with_state(|state| transitions::begin_boot(&self.store, state))??;
         // The restart pass in bounded slices: the same threads, recovered the same way, each
         // slice and each thread's recovery a separate pump step (E5.8, ADR 0170).
         if let Some(core) = self.self_rc() {
             recovery::startup::run(&core).await?;
         }
+        // Checkout moves a restart interrupted: a root that no longer exists has no Git writer
+        // left, so its fence goes; a root still there waits for the workspace runtime to ask
+        // Git, and keeps its reservation until then.
+        let now = self.ports.now();
+        let settled = self.with_state(|state| {
+            crate::moves::workspace::settle_after_restart(&self.store, state, now, &|root| {
+                !std::path::Path::new(root).exists()
+            })
+        })?;
+        match settled {
+            Ok(_) => {}
+            Err(error) => self.ports.report(format!("checkout moves: {error}")),
+        }
+        let now = now as i64;
+        let mut rebuild = transitions::readiness::BootRebuild::default();
+        loop {
+            let done = self.with_state(|state| rebuild.step(&self.store, state, now))??;
+            if done {
+                break;
+            }
+            // One pump step between pages: a large home never rebuilds in one turn.
+            yield_once().await;
+        }
         self.with_state(|state| {
+            transitions::finish_boot(state);
             state.lifecycle = Lifecycle::Ready;
         })
     }

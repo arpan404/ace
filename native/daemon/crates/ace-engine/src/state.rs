@@ -69,7 +69,7 @@ impl Default for State {
             commands: commands::Commands::default(),
             sessions: sessions::Sessions::default(),
             recovery: recovery::Recovery::default(),
-            transitions: transitions::Transitions,
+            transitions: transitions::Transitions::default(),
             liveness: liveness::Liveness,
             cursor: cursor_reconcile::CursorReconciles::default(),
             steering: crate::steering::Steering::default(),

@@ -200,7 +200,8 @@ mod tests {
     use std::sync::Arc;
 
     fn temp_connection() -> (Arc<Connection>, std::path::PathBuf) {
-        // A counter as well as the clock: parallel cases in one process can read the same instant.
+        // A counter as well as the clock: parallel cases in one process can read the same
+        // instant, and two opens of one path would share the tables they are asserting on.
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
             "ace-correlations-{}-{}-{}.sqlite",

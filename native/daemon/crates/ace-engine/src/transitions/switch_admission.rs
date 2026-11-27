@@ -41,6 +41,62 @@ pub fn switch_route(current: &SwitchSide<'_>, next: &SwitchSide<'_>) -> &'static
     "in_place"
 }
 
+/// The ACP agent a switch runs on (`switchAgent`, `switch-admission.ts:23`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentChoice {
+    /// The thread stays on its provider, or is not ACP.
+    None,
+    Identity(Value),
+    /// It enters ACP or changes agent without naming one.
+    Required,
+}
+
+/// One identity the protocol's `AcpIdentity` accepts: all three ids, each a non-empty string.
+fn acp_identity(value: &Value) -> Option<Value> {
+    let id = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty() && text.chars().count() <= 512)
+            .map(str::to_owned)
+    };
+    let mut identity = ace_json::Map::new();
+    identity.insert("acpAgentId", Value::from(id("acpAgentId")?.as_str()));
+    identity.insert(
+        "installationId",
+        Value::from(id("installationId")?.as_str()),
+    );
+    identity.insert("instanceId", Value::from(id("instanceId")?.as_str()));
+    Some(Value::Object(identity))
+}
+
+/// `switchAgent` (`switch-admission.ts:23`): the identity a switch names, the thread's own when
+/// it keeps its agent, or `required` when it enters ACP without naming one.
+pub fn switch_agent(thread: &Value, selection: &Value) -> AgentChoice {
+    if selection.get("provider").and_then(Value::as_str) != Some("acp") {
+        return AgentChoice::None;
+    }
+    if let Some(named) = acp_identity(selection) {
+        return AgentChoice::Identity(named);
+    }
+    let own = acp_identity(thread);
+    let keeps_agent = || {
+        selection
+            .get("instanceId")
+            .and_then(Value::as_str)
+            .is_none()
+            || own.as_ref().and_then(|own| own.get("instanceId")) == selection.get("instanceId")
+    };
+    match own {
+        Some(own)
+            if thread.get("provider").and_then(Value::as_str) == Some("acp") && keeps_agent() =>
+        {
+            AgentChoice::Identity(own)
+        }
+        _ => AgentChoice::Required,
+    }
+}
+
 /// What a thread runs on when it has never switched: its provider and its session metadata.
 fn running(core: &Core, state: &mut State, id: &str) -> Result<Value, EngineError> {
     let provider = {
@@ -176,4 +232,73 @@ pub fn record_switch(
     core.store
         .write_events(id, &ace_json::to_string(&events), at)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod switch_agent_tests {
+    use super::*;
+
+    fn thread(provider: &str, instance: Option<&str>) -> Value {
+        let mut value = ace_json::Map::new();
+        value.insert("provider", Value::from(provider));
+        if let Some(instance) = instance {
+            value.insert("instanceId", Value::from(instance));
+            value.insert("acpAgentId", Value::from("agent"));
+            value.insert("installationId", Value::from("install"));
+        }
+        Value::Object(value)
+    }
+
+    fn selection(provider: &str, instance: Option<&str>, named: bool) -> Value {
+        let mut value = ace_json::Map::new();
+        value.insert("provider", Value::from(provider));
+        if let Some(instance) = instance {
+            value.insert("instanceId", Value::from(instance));
+        }
+        if named {
+            value.insert("acpAgentId", Value::from("named-agent"));
+            value.insert("installationId", Value::from("named-install"));
+        }
+        Value::Object(value)
+    }
+
+    // From `transition-acp.process.test.ts`: entering ACP needs a named agent, and staying on
+    // the thread's own agent keeps its identity.
+    #[test]
+    fn entering_acp_requires_an_identity_and_staying_keeps_the_threads() {
+        assert_eq!(
+            switch_agent(&thread("claude", None), &selection("codex", None, false)),
+            AgentChoice::None
+        );
+        let named = switch_agent(
+            &thread("claude", None),
+            &selection("acp", Some("new"), true),
+        );
+        assert!(
+            matches!(named, AgentChoice::Identity(identity) if identity.get("acpAgentId").and_then(Value::as_str) == Some("named-agent"))
+        );
+        assert_eq!(
+            switch_agent(
+                &thread("claude", None),
+                &selection("acp", Some("new"), false)
+            ),
+            AgentChoice::Required
+        );
+        let own = switch_agent(&thread("acp", Some("own")), &selection("acp", None, false));
+        assert!(
+            matches!(own, AgentChoice::Identity(identity) if identity.get("instanceId").and_then(Value::as_str) == Some("own"))
+        );
+        let same = switch_agent(
+            &thread("acp", Some("own")),
+            &selection("acp", Some("own"), false),
+        );
+        assert!(matches!(same, AgentChoice::Identity(_)));
+        assert_eq!(
+            switch_agent(
+                &thread("acp", Some("own")),
+                &selection("acp", Some("other"), false)
+            ),
+            AgentChoice::Required
+        );
+    }
 }

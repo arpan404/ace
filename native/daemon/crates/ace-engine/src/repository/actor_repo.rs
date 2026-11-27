@@ -9,7 +9,7 @@
 use ace_json::Value;
 
 use crate::actor::deps::{ActorRepo, Route, ScheduleView, Unported};
-use crate::repository::collaborators::{InputFacts, MoveFacts};
+use crate::repository::collaborators::MoveFacts;
 use crate::repository::residency::{cell_int, text};
 use crate::{Core, EngineError, State, ThreadId};
 
@@ -246,7 +246,8 @@ impl State {
         Ok(Route { provider, backend })
     }
 
-    /// `repo.quiescent(requireState(id))` (`actor.ts:461`, `repository.ts:496`).
+    /// `repo.quiescent(requireState(id))` (`actor.ts:461`, `repository.ts:496`). Transitions
+    /// read the same rule, so a first send no run has started keeps both from closing a session.
     pub fn actor_quiescent(
         &mut self,
         store: &crate::EngineStore,
@@ -255,7 +256,7 @@ impl State {
         let snapshot = self.repo.require_state(store, id)?;
         // A first send the provider accepted but has not started yet is still live work.
         let has_run = snapshot.borrow().state.has_run;
-        if !has_run && self.awaiting(id)? {
+        if !has_run && crate::intents::store::awaiting(store.conn(), id)?.is_some() {
             return Ok(false);
         }
         let agents_ready = self.readiness_agents_ready(id)?;

@@ -23,9 +23,11 @@ const OPTION: &str =
     "SELECT value FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?";
 const SET: &str = "INSERT INTO engine_transitions VALUES (?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET value=excluded.value";
+const PRUNE_GUARDS: &str = "DELETE FROM engine_transition_guards WHERE command_id NOT IN (SELECT command_id FROM intents WHERE status IN ('pending','queued','running'))";
+const OPTION_COUNT: &str = "SELECT COUNT(*) AS n FROM engine_model_options WHERE thread_id=?";
 
 use crate::transitions::metadata::{
-    TransitionMetadata, admit_metadata, metadata_json, parse_metadata,
+    TransitionMetadata, admit_metadata, invalid, metadata_json, parse_metadata,
 };
 /// `TransitionState.pruneGuards` (`:78`): guards whose command is no longer outstanding go.
 pub fn prune_guards(conn: &std::sync::Arc<ace_store::Connection>) -> Result<(), EngineError> {
@@ -246,6 +248,46 @@ impl State {
             .and_then(|selection| selection.get("options").cloned()))
     }
 
+    /// `TransitionState.pruneGuards` (`:98`): guards whose command is no longer live.
+    pub fn transition_prune_guards(&mut self, store: &EngineStore) -> Result<(), EngineError> {
+        store.atomic(|tx| {
+            stmt_cache::run(tx.conn(), PRUNE_GUARDS, Vec::new())?;
+            Ok(())
+        })
+    }
+
+    /// `TransitionState.admitModel` (`:176`): a selection may be admitted while the thread still
+    /// has room to remember it. It writes nothing.
+    pub fn transition_admit_model(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        selection: &Value,
+    ) -> Result<(), EngineError> {
+        let provider = selection
+            .get("provider")
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid("selection has no provider"))?;
+        let model = selection.get("model").and_then(Value::as_str).unwrap_or("");
+        let count = stmt_cache::get_row(store.conn(), OPTION_COUNT, vec![text(id)])?
+            .and_then(|row| {
+                row.get("n")
+                    .and_then(crate::repository::residency::cell_int)
+            })
+            .unwrap_or(0);
+        let remembered = stmt_cache::get_row(
+            store.conn(),
+            OPTION,
+            vec![text(id), text(provider), text(model)],
+        )?;
+        if count >= 32 && remembered.is_none() {
+            return Err(EngineError::Records(
+                "Remembered model capacity exceeded".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     /// `TransitionState.set` (`:130`): the metadata, in the schema's shape and bounded.
     pub fn transition_set(
         &mut self,
@@ -309,6 +351,96 @@ mod tests {
     }
 
     #[test]
+    fn pruning_drops_only_guards_whose_command_is_no_longer_live() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        conn.exec(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ('t2', 'workspace', 'Thread', 'claude', '{\"state\":\"new\"}', 0, 0)",
+        )
+        .expect("thread");
+        for (thread, command) in [("t", "live"), ("t2", "dead")] {
+            state
+                .transition_guard(&store, thread, command)
+                .expect("guard");
+        }
+        conn.exec(
+            "INSERT INTO intents (id, command_id, thread_id, kind, status, payload) VALUES (1, 'live', 't', 'thread.send', 'running', '{}')",
+        )
+        .expect("intent");
+        state.transition_prune_guards(&store).expect("prune");
+        assert_eq!(
+            state
+                .transition_guard_owner(&store, "t")
+                .expect("owner")
+                .as_deref(),
+            Some("live")
+        );
+        assert!(
+            state
+                .transition_guard_owner(&store, "t2")
+                .expect("owner")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn delivering_an_input_clears_the_handoff_marker_fallback_and_context_only() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        state
+            .transition_set(
+                &store,
+                "t",
+                &value(
+                    r#"{"selection":{"provider":"codex","options":{}},"handoff":{"sources":[]},"marker":"m","fallback":{"sources":[]},"context":["c"]}"#,
+                ),
+            )
+            .expect("set");
+        state.transition_delivered(&store, "t").expect("delivered");
+        let read = state.transition_get(&store, "t").expect("get");
+        assert!(read.handoff.is_none());
+        assert!(read.marker.is_none());
+        assert!(read.fallback.is_none());
+        assert!(read.context.is_empty());
+        assert_eq!(
+            read.selection
+                .and_then(|s| s.get("provider").and_then(Value::as_str).map(str::to_owned)),
+            Some("codex".to_owned())
+        );
+        // Nothing to clear is a no-op, not a write.
+        state.transition_delivered(&store, "t").expect("again");
+    }
+
+    #[test]
+    fn a_model_is_admitted_without_writing_and_capped_at_thirty_two() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        for index in 0..32 {
+            let selection = value(&format!(
+                r#"{{"provider":"codex","model":"m{index}","options":{{}}}}"#
+            ));
+            state
+                .transition_remember(&store, "t", &selection)
+                .expect("remember");
+        }
+        let extra = value(r#"{"provider":"codex","model":"m32","options":{}}"#);
+        assert_eq!(
+            state
+                .transition_admit_model(&store, "t", &extra)
+                .unwrap_err()
+                .to_string(),
+            "Remembered model capacity exceeded"
+        );
+        let known = value(r#"{"provider":"codex","model":"m1","options":{}}"#);
+        state
+            .transition_admit_model(&store, "t", &known)
+            .expect("a known model is admitted");
+    }
+
+    #[test]
     fn metadata_is_stored_in_schema_order_with_its_context_defaulted() {
         let conn = home("t", &header("t"));
         let store = Shell::store(&conn);
@@ -335,6 +467,41 @@ mod tests {
         assert_eq!(
             state.transition_get(&store, "none").expect("get").context,
             Vec::<String>::new()
+        );
+    }
+}
+
+#[cfg(test)]
+mod boot_tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    // `transition-state.ts:98`: a restart prunes guards whose command is no longer live, and
+    // keeps the one whose intent is still queued.
+    #[test]
+    fn a_boot_prunes_stale_guards_and_keeps_a_live_ones() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        conn.exec("INSERT INTO engine_transition_guards VALUES ('t','stale')")
+            .expect("stale");
+        conn.exec(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) \
+             VALUES ('t2', 'workspace', 'Second', 'claude', '{\"state\":\"new\"}', 0, 0)",
+        )
+        .expect("second thread");
+        conn.exec("INSERT INTO engine_transition_guards VALUES ('t2','live')")
+            .expect("live");
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,position) \
+             VALUES ('live','t2','thread.send','{}','pending',1)",
+        )
+        .expect("intent");
+        crate::transitions::begin_boot(&store, &mut state).expect("boot");
+        assert!(!state.transition_guarded(&store, "t").expect("pruned"));
+        assert!(
+            state.transition_guarded(&store, "t2").expect("kept"),
+            "the queued command still owns its guard"
         );
     }
 }

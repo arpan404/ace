@@ -215,6 +215,7 @@ pub(crate) struct Shell {
     pinned: Cell<bool>,
     /// Each buffered live write: thread, events, time and callback token.
     pub buffered: RefCell<Vec<(String, String, f64, u64)>>,
+    /// Every `writeEvents` batch, in call order, so a case can read the status it published.
     rolled_back: RefCell<Vec<String>>,
     /// Whether `after_commit` defers: off by default, so `Core::defer` releases at once as the
     /// binding does outside a transaction. A case that needs a commit or rollback to take effect
@@ -297,6 +298,11 @@ impl Shell {
         self.generation.set(self.generation.get() + 1.0);
     }
 
+    /// The head sequence `headSeq` answers, so a case can read history through a cutoff.
+    pub fn head(&self, seq: f64) {
+        self.seq.set(seq);
+    }
+
     /// The tokens a committed frame released, out of the shell so the engine's sink can run them.
     #[allow(dead_code)]
     pub fn take_released(&self) -> Vec<u64> {
@@ -343,6 +349,11 @@ impl Shell {
 
     pub fn cancelled(&self) -> Vec<u64> {
         self.cancelled.borrow().clone()
+    }
+
+    /// Every event batch the engine wrote, in call order.
+    pub fn event_writes(&self) -> Vec<(String, String, f64)> {
+        self.written.borrow().clone()
     }
 
     pub fn reports(&self) -> Vec<String> {
@@ -698,49 +709,88 @@ impl Ports for Shell {
         Ok(())
     }
     fn get_thread(&self, thread: &str) -> Result<Option<String>, PortError> {
-        // The row a receipt reads: the test's own copy when it set one, else the stored row the
-        // writer projected, as the real shell answers.
         if let Some(row) = self.threads.borrow().get(thread) {
             return Ok(Some(row.clone()));
         }
-        let row = ace_store::stmt_cache::get_row(
+        // The row as `store.getThread` shapes it: the columns the engine reads, and the JSON
+        // columns parsed so `lineage`/`details`/`live` are objects, never strings.
+        let Some(row) = ace_store::stmt_cache::get_row(
             &self.conn,
-            "SELECT id, workspace_id, title, provider, status, created_at, updated_at, archived_at, client, provider_metadata FROM threads WHERE id=?",
+            "SELECT * FROM threads WHERE id=?",
             vec![ace_store::Value::Text(thread.to_owned())],
         )
-        .map_err(store)?;
-        let Some(row) = row else {
+        .map_err(|error| PortError::Threw(error.to_string()))?
+        else {
             return Ok(None);
         };
-        let mut out = ace_json::Map::new();
+        let mut value = ace_json::Map::new();
+        value.insert("id", ace_json::Value::from(thread));
+        if let Some(workspace) = row
+            .get("workspace_id")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("workspaceId", ace_json::Value::from(workspace));
+        }
+        if let Some(title) = row
+            .get("title")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("title", ace_json::Value::from(title));
+        }
+        if let Some(provider) = row
+            .get("provider")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("provider", ace_json::Value::from(provider));
+        }
         for (column, key) in [
-            ("id", "id"),
-            ("workspace_id", "workspaceId"),
-            ("title", "title"),
-            ("provider", "provider"),
             ("status", "status"),
+            ("imported", "imported"),
+            ("acp", "acp"),
+            ("transitions", "transitions"),
+            ("provider_metadata", "providerMetadata"),
+            ("client", "client"),
         ] {
-            if let Some(value) = row.get(column) {
-                let text = crate::repository::residency::cell_text(value);
-                if column == "status" {
-                    let parsed = text
-                        .and_then(|text| ace_json::parse(text).ok())
-                        .unwrap_or(ace_json::Value::Null);
-                    out.insert(key, parsed);
-                } else if let Some(text) = text {
-                    out.insert(key, ace_json::Value::from(text));
+            if let Some(text) = row
+                .get(column)
+                .and_then(crate::repository::residency::cell_text)
+                && let Ok(parsed) = ace_json::parse(text)
+            {
+                value.insert(key, parsed);
+            }
+        }
+        if let Some(root) = row
+            .get("root_agent_id")
+            .and_then(crate::repository::residency::cell_text)
+        {
+            value.insert("rootAgentId", ace_json::Value::from(root));
+        }
+        // The TypeScript's `details`, `deletedAt` and `live` live in the client JSON.
+        if let Some(client) = value.get("client").cloned()
+            && let Some(object) = client.as_object()
+        {
+            for key in [
+                "details",
+                "deletedAt",
+                "live",
+                "lineage",
+                "switch",
+                "continuation",
+                "movedTo",
+            ] {
+                if let Some(entry) = object.get(key) {
+                    value.insert(key, entry.clone());
                 }
             }
         }
-        if let Some(metadata) = row
-            .get("provider_metadata")
-            .and_then(crate::repository::residency::cell_text)
-            .and_then(|text| ace_json::parse(text).ok())
-            && let Some(title_source) = metadata.get("titleSource")
+        if let Some(source) = value
+            .get("providerMetadata")
+            .and_then(|metadata| metadata.get("titleSource"))
+            .cloned()
         {
-            out.insert("titleSource", title_source.clone());
+            value.insert("titleSource", source);
         }
-        Ok(Some(ace_json::to_string(&ace_json::Value::Object(out))))
+        Ok(Some(ace_json::to_string(&ace_json::Value::Object(value))))
     }
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
