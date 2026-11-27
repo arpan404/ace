@@ -66,7 +66,7 @@ fn limited_header(thread: &str, until: Option<i64>) -> String {
 
 /// Every thread an engine folds has its session binding row (the TypeScript's createEngineThread).
 fn session_row(conn: &Arc<Connection>) {
-    conn.exec("INSERT INTO engine_sessions (thread_id, cwd) VALUES ('t', '/tmp')")
+    conn.exec("INSERT OR REPLACE INTO engine_sessions (thread_id, cwd) VALUES ('t', '/tmp')")
         .unwrap();
 }
 
@@ -224,7 +224,7 @@ fn migrate_now_times_nothing_and_leaves_the_move_to_the_policy() {
 fn a_cursor_turn_a_restart_cut_short_that_finished_while_closing_releases_the_restart_hold() {
     let conn = home("t", &root_header("t", ""));
     conn.exec(
-        "INSERT INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', 'cursor-sdk')",
+        "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', 'cursor-sdk')",
     )
     .unwrap();
     queue(

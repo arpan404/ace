@@ -352,7 +352,7 @@ fn tail(
     }
     let held_send = kind == "thread.send" && crate::queue::store::get(&core.store, thread)?.paused;
     let mut reclaimed = reclaimed;
-    if !held_send && !state.repo.reserve(&core.store, thread)? {
+    if !held_send && !state.repo.reserve_without_reclaim(&core.store, thread)? {
         let freed =
             crate::release::reclaim::reclaim_idle_slot(core, state, &|_| false, &|_| false)?;
         let Some(freed) = freed else {

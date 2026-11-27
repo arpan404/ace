@@ -19,7 +19,7 @@ fn cursor_thread(conn: &Arc<ace_store::Connection>, id: &str, instance: Option<&
     ))
     .unwrap();
     conn.exec(&format!(
-        "INSERT INTO engine_sessions (thread_id, cwd, instance_id) VALUES ('{id}', '/tmp', {})",
+        "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, instance_id) VALUES ('{id}', '/tmp', {})",
         instance.map_or("NULL".to_owned(), |instance| format!("'{instance}'"))
     ))
     .unwrap();

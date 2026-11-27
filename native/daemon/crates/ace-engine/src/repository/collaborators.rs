@@ -247,7 +247,7 @@ pub trait InputFacts: ProbeGate {
 /// E5.6's session facts.
 pub trait SessionFacts: ProbeGate {
     /// `session(id)`: the thread's model and native session id.
-    fn session(&mut self, _thread: &str) -> Result<SessionInfo, EngineError> {
+    fn session(&mut self, _store: &EngineStore, _thread: &str) -> Result<SessionInfo, EngineError> {
         self.not_ported("a provider session", "E5.6", SessionInfo::default())
     }
     /// `shapeProviderError`.
@@ -262,6 +262,19 @@ pub trait SessionFacts: ProbeGate {
     /// `structuredError`.
     fn structured_error(&mut self, error: Value, _provider: &str) -> Result<Value, EngineError> {
         self.not_ported("a structured error", "E5.6", error)
+    }
+    /// `repo.observe`'s meters half: a replaced conversation and the batch's events (E5.6).
+    #[allow(clippy::too_many_arguments)]
+    fn observe_context(
+        &mut self,
+        _store: &EngineStore,
+        _thread: &str,
+        _process_started: bool,
+        _events: &[Value],
+        _at: f64,
+        _instance: Option<&str>,
+    ) -> Result<(), EngineError> {
+        self.not_ported("a context sample", "E5.6", ())
     }
 }
 
@@ -430,7 +443,6 @@ impl FrameFacts for State {
         )
     }
 }
-impl SessionFacts for State {}
 impl RecoveryFacts for State {}
 
 #[cfg(test)]

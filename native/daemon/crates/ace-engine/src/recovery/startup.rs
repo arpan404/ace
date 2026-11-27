@@ -613,7 +613,7 @@ fn second_pass_in(
     // Recovery controls already accepted before a crash are safe only when unclaimed.
     if (crate::intents::store::recovery(core.store.conn(), thread)?.is_some()
         || crate::intents::store::transition(core.store.conn(), thread)?.is_some())
-        && state.repo.reserve(&core.store, thread)?
+        && state.reserve_slot(&core.store, thread)?
     {
         holds::wake(core, thread);
     }

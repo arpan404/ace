@@ -29,7 +29,7 @@ impl State {
         if channel != "sdk" {
             return Ok(None);
         }
-        let endpoint = self.session(id)?;
+        let endpoint = self.session(store, id)?;
         let state = self.repo.require_state(store, id)?;
         let provider = state.borrow().state.config.provider.clone();
         if provider != "cursor" || endpoint.backend.as_deref() != Some("cursor-sdk") {

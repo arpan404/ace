@@ -16,7 +16,7 @@ pub use adapter::{Adapter, TranslatorInit};
 pub use error::AdapterApiError;
 pub use frame::{BillingMode, Frame, FrameDirection, UsageAccount};
 pub use session::{
-    CloseReason, Delivery, InterruptTarget, Session, SessionContext, SteerFence,
-    assert_steer_target,
+    CloseReason, Delivery, InputSource, InterruptTarget, Reopen, SendInput, Session,
+    SessionContext, SessionExit, SessionFrame, SessionObserver, SteerFence, assert_steer_target,
 };
 pub use translator::Translator;

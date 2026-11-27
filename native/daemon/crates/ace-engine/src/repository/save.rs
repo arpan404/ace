@@ -42,7 +42,7 @@ impl State {
                 )
             });
             if needs_source {
-                self.capture_sources(id, snapshot, &mut payloads)?;
+                self.capture_sources(store, id, snapshot, &mut payloads)?;
             }
             {
                 let borrowed = snapshot.borrow();
@@ -105,11 +105,12 @@ impl State {
     /// `captureExecutionSources` (`repository.ts:304`-`:319`).
     fn capture_sources(
         &mut self,
+        store: &EngineStore,
         id: &str,
         snapshot: &Rc<RefCell<Snapshot>>,
         payloads: &mut [Value],
     ) -> Result<(), EngineError> {
-        let session = self.session(id)?;
+        let session = self.session(store, id)?;
         let selection = match self.transitions_get(id)? {
             Some(selection) => selection,
             None => Selection {

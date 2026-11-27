@@ -84,7 +84,7 @@ fn live_thread(conn: &Arc<ace_store::Connection>, question: bool) {
     conn.exec(r#"UPDATE threads SET status='{"state":"working"}' WHERE id='t'"#)
         .unwrap();
     conn.exec(
-        "INSERT INTO engine_sessions (thread_id, cwd, native_session_id) VALUES ('t', '/tmp', 'native-1')",
+        "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, native_session_id) VALUES ('t', '/tmp', 'native-1')",
     )
     .unwrap();
     if question {
@@ -220,7 +220,7 @@ fn a_turn_that_finished_while_ace_shut_its_provider_down_is_not_continued_after_
          VALUES ('t', 1, 'restart', 'Continue where you left off.', 'restart', 2)",
     )
     .unwrap();
-    conn.exec("INSERT INTO engine_sessions (thread_id, cwd) VALUES ('t', '/tmp')")
+    conn.exec("INSERT OR REPLACE INTO engine_sessions (thread_id, cwd) VALUES ('t', '/tmp')")
         .unwrap();
     let (engine, _) = engine_on(&conn);
     run(&engine);

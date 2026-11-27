@@ -141,7 +141,7 @@ pub fn wake_queued(core: &Rc<Core>) -> Result<(), EngineError> {
         if fenced(core, &thread)? {
             continue;
         }
-        let reserved = core.with_state(|state| state.repo.reserve(&core.store, &thread))??;
+        let reserved = core.with_state(|state| state.reserve_slot(&core.store, &thread))??;
         if reserved {
             wake(core, &thread)?;
         }

@@ -1,23 +1,108 @@
 // SPDX-License-Identifier: Apache-2.0
-//! E5.6 declares sessions and their provider processes; E5.1 holds their place and the
-//! silence preparation `ready()` runs before recovery.
+//! E5.6: the engine's provider sessions. This unit holds the decisions a session's open makes
+//! (provider errors, failure copy, the environment, the open route and its startup skips) and the
+//! stored bindings the session reads; the open flow itself lands with the provider-session trait.
+//!
+//! Moved cases: `agent-env.test.ts`, and the pure halves of `open-failure.process.test.ts`.
+
+use ace_json::Value;
 
 use crate::executor::TaskId;
-use crate::{EngineError, State};
+use crate::repository::collaborators::{SessionFacts, SessionInfo};
+use crate::{EngineError, EngineStore, State, ThreadId};
 
-/// The open sessions (E5.6).
-#[derive(Debug, Default)]
-pub struct Sessions;
+/// The engine's session interface, in the shape E5.6 consumes (declared by E3-pi.3): a session
+/// hands its frames, identity, failure and terminal exit to one `SessionObserver`, in order.
+pub use ace_adapter_api::{SessionExit, SessionFrame, SessionObserver};
 
-/// `silence.prepareGlobal()`: E5.6 fills this. E5.1's engine opens no session and holds no
-/// silence state, so there is nothing to prepare.
-pub fn prepare_silence(_state: &mut State) -> Result<(), EngineError> {
-    Ok(())
+/// The open sessions (E5.6): their silence thresholds and the bindings a provider left behind.
+#[derive(Default)]
+pub struct Sessions {
+    pub silence: crate::meters::silence::SilenceThresholds,
+    pub provider_sessions: ProviderSessions,
+    /// The sessions open on a thread now, by thread.
+    pub attached: indexmap::IndexMap<ThreadId, attach::Attached>,
+    /// Threads whose session is closing (`sessions.isClosing`), so a slot reclaim never asks a
+    /// closing session to close again.
+    pub closing: std::collections::HashSet<ThreadId>,
 }
 
-/// Whether sessions hold no work E5.1 must wait for (E5.6 fills this).
-pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
-    true
-}
-
+pub mod attach;
+pub mod background_ports;
+pub mod compact;
+pub mod env;
+pub mod errors;
+pub mod failure_copy;
 pub mod metadata;
+pub mod observer;
+pub mod open;
+pub mod open_session;
+pub mod ports;
+pub mod provider_sessions;
+
+pub use provider_sessions::{LeftSession, ProviderSessions};
+
+/// `silence.prepareGlobal()`: the resolver's global setting, read before recovery settles
+/// threads. The thresholds leave the state for the await and return with the setting applied.
+pub async fn prepare_silence(
+    thresholds: &mut crate::meters::silence::SilenceThresholds,
+) -> Result<(), EngineError> {
+    thresholds.prepare_global().await
+}
+
+impl Sessions {
+    /// `sessions.isClosing(id)`.
+    pub fn is_closing(&self, id: &str) -> bool {
+        self.closing.contains(id)
+    }
+}
+
+/// Whether sessions hold no work E5.1 must wait for: a queue with events still to fold is work,
+/// a session merely waiting for its provider is not.
+pub fn quiescent(state: &State, _exclude: Option<TaskId>) -> bool {
+    state
+        .sessions
+        .attached
+        .values()
+        .all(|attached| attached.inbox.is_empty())
+}
+
+impl SessionFacts for State {
+    /// `session(id)`: the stored binding a fold, a queue read and a capability read share.
+    fn session(&mut self, store: &EngineStore, thread: &str) -> Result<SessionInfo, EngineError> {
+        let metadata = metadata::session(store, thread)?;
+        Ok(SessionInfo {
+            model: metadata.model,
+            native_session_id: metadata.native_session_id,
+            backend: metadata.backend,
+        })
+    }
+
+    fn shape_provider_error(
+        &mut self,
+        fact: Value,
+        provider: &str,
+        model: Option<&str>,
+    ) -> Result<Value, EngineError> {
+        Ok(errors::shape_provider_error(fact, provider, model))
+    }
+
+    fn structured_error(&mut self, error: Value, provider: &str) -> Result<Value, EngineError> {
+        Ok(errors::structured_error(error, provider, None))
+    }
+
+    fn observe_context(
+        &mut self,
+        store: &EngineStore,
+        thread: &str,
+        process_started: bool,
+        events: &[Value],
+        at: f64,
+        instance: Option<&str>,
+    ) -> Result<(), EngineError> {
+        self.observe_context_batch(store, thread, process_started, events, at, instance)
+    }
+}
+
+#[cfg(test)]
+mod tests;

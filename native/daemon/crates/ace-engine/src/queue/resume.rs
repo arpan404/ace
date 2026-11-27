@@ -100,7 +100,7 @@ pub fn limit_or_resume(
     if crate::intents::store::recovering(core.store.conn(), thread)? {
         return Ok(fail("recovery_in_progress"));
     }
-    if !state.repo.reserve(&core.store, thread)? {
+    if !state.reserve_slot(&core.store, thread)? {
         return Ok(fail("engine_capacity_exceeded"));
     }
     crate::intents::lifecycle::add(&core.store, command, thread, None, None)?;

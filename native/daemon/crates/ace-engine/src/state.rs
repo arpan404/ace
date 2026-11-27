@@ -30,6 +30,8 @@ pub struct State {
     pub actors: actor::Actors, // E5.2
     /// A live-buffer flush task is queued on the pump (E5.2 step 16): the coalescing flag.
     pub live_flush: std::rc::Rc<std::cell::Cell<bool>>,
+    /// The context occupancy meters (E5.6).
+    pub meters: crate::meters::Meters,
     pub repo: repository::Repo,                  // E5.3
     pub permissions: crate::access::Permissions, // E5.7
     pub commands: commands::Commands,            // E5.4
@@ -61,10 +63,11 @@ impl Default for State {
             flush_depth: 0,
             actors: actor::Actors::default(),
             live_flush: std::rc::Rc::new(std::cell::Cell::new(false)),
+            meters: crate::meters::Meters::default(),
             repo: repository::Repo::default(),
             permissions: crate::access::Permissions::default(),
             commands: commands::Commands::default(),
-            sessions: sessions::Sessions,
+            sessions: sessions::Sessions::default(),
             recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions,
             liveness: liveness::Liveness,
@@ -91,7 +94,7 @@ pub trait EngineStack {
 pub struct Inputs {
     pub limits: limits::LimitOverrides,
     pub idle_ms: Option<f64>,
-    /// `options.silenceMs` (`silence.ts:56`): the engine's default threshold, 5 minutes.
+    /// `options.silenceMs` (`silence.ts:56`): the explicit threshold, or the engine's 5-minute default.
     pub silence_ms: Option<f64>,
     pub has_preferences: bool,
     pub has_models: bool,
@@ -105,6 +108,23 @@ impl Inputs {
             || self.has_models
             || self.has_providers_activated
             || self.has_resolve_silence
+    }
+}
+
+impl State {
+    /// `repo.reserve`, with the reclaim hook's view of this state's actors and sessions.
+    pub fn reserve_slot(
+        &mut self,
+        store: &crate::EngineStore,
+        id: &str,
+    ) -> Result<bool, EngineError> {
+        let State {
+            repo,
+            actors,
+            sessions,
+            ..
+        } = self;
+        repo.reserve(store, id, actors, sessions)
     }
 }
 

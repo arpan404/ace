@@ -38,7 +38,7 @@ impl Pass {
         )
         .expect("engine");
         conn.exec(
-            "INSERT INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', NULL)",
+            "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', NULL)",
         )
         .expect("session");
         conn.exec(queue).expect("queue");

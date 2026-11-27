@@ -108,7 +108,7 @@ mod store {
         conn.exec("UPDATE threads SET provider='cursor' WHERE id='t'")
             .unwrap();
         conn.exec(
-            "INSERT INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', 'cursor-sdk')",
+            "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', 'cursor-sdk')",
         )
         .unwrap();
     }

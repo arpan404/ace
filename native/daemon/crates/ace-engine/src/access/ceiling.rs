@@ -428,7 +428,7 @@ mod tests {
             "INSERT INTO threads (id,workspace_id,title,provider,status,created_at,updated_at) \
              VALUES ('{id}','workspace','{id}','{provider}','{{\"state\":\"new\"}}',0,0);
              INSERT INTO thread_state VALUES ('{id}', {}, 0);
-             INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('{id}','/tmp','{provider}-cli-default');",
+             INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('{id}','/tmp','{provider}-cli-default');",
             crate::repository::testsupport::sql_text(&header(id))
         ))
         .expect("a thread");
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn a_child_ceiling_is_its_parents_running_mode_and_its_stored_identity_is_rechecked() {
         let (conn, store, mut state) = store_with("root");
-        conn.exec("INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('root','/tmp','claude-cli-default')")
+        conn.exec("INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('root','/tmp','claude-cli-default')")
             .unwrap();
         add_thread(&conn, "child", "claude");
         add_thread(&conn, "grandchild", "claude");
@@ -541,7 +541,7 @@ mod tests {
     fn an_acp_identity_without_its_install_fields_fails_the_ceiling() {
         let (conn, store, mut state) = store_with_provider("acp-child", "acp");
         conn.exec(
-            "INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-child','/tmp','one:default');
+            "INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-child','/tmp','one:default');
              UPDATE threads SET provider='acp', acp='{}' WHERE id='acp-child';
              INSERT INTO engine_permissions VALUES ('acp-child',NULL,NULL,'missing', 'acp',NULL,'{\"provider\":\"acp\"}');",
         )
@@ -563,7 +563,7 @@ mod tests {
     fn a_profile_reported_access_mode_is_read_from_the_acp_column() {
         let (conn, store, mut state) = store_with_provider("acp-profile", "acp");
         conn.exec(
-            "INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-profile','/tmp','one:default');
+            "INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-profile','/tmp','one:default');
              UPDATE threads SET provider='acp', acp='{\"effectiveCapabilities\":{\"accessModes\":[{\"mode\":\"read-only\",\"native\":\"plan\"}],\"permissions\":{\"modes\":[\"plan\"],\"nativeAutoReview\":false,\"toolGate\":true}}}' WHERE id='acp-profile';",
         )
         .expect("reported capabilities");
@@ -615,12 +615,12 @@ mod tests {
         let (conn, store, mut state) = store_with_provider("acp-parent", "acp");
         let acp = r#"{"acpAgentId":"local:one","installationId":"approved-one","instanceId":"one:default"}"#;
         conn.exec(&format!(
-            "INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-parent','/tmp','one:default');
+            "INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-parent','/tmp','one:default');
              UPDATE threads SET provider='acp', acp='{acp}' WHERE id='acp-parent';
              INSERT INTO threads (id,workspace_id,title,provider,status,created_at,updated_at)
                VALUES ('acp-child','workspace','C','acp','{{\"state\":\"new\"}}',0,0);
              INSERT INTO thread_state VALUES ('acp-child', {}, 0);
-             INSERT INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-child','/tmp','one:default');
+             INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,instance_id) VALUES ('acp-child','/tmp','one:default');
              UPDATE threads SET acp='{acp}' WHERE id='acp-child';",
             crate::repository::testsupport::sql_text(&header("acp-child").replace("\"provider\":\"codex\"", "\"provider\":\"acp\""))
         ))

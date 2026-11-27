@@ -64,6 +64,7 @@ impl State {
         let mut continuation_started = false;
         let mut takes_input: HashMap<String, bool> = HashMap::new();
         let mut emitted: Vec<Value> = Vec::new();
+        let process_started = facts.iter().any(|fact| kind(fact) == "process.started");
         for input in facts {
             if self.interactions_obsolete(id, &input)? {
                 continue;
@@ -135,7 +136,7 @@ impl State {
             let attributed = self.attribute_input(id, correlated)?;
             let mut fact = self.attribute_ace_action(id, attributed)?;
             if needs_shaping(&fact) {
-                let model = self.session(id)?.model;
+                let model = self.session(store, id)?.model;
                 let state = snapshot.borrow();
                 fact = self.shape_provider_error(
                     fact,
@@ -215,6 +216,19 @@ impl State {
             self.interactions_opened(id, &fact, generation)?;
             self.settle_interactions(store, id, &snapshot, &mut batch, &mut events, now)?;
             self.interactions_observe(id, &events)?;
+            if observes_meters(process_started, &events) {
+                let instance = crate::sessions::metadata::session(store, id)
+                    .ok()
+                    .and_then(|metadata| metadata.instance_id);
+                self.observe_context(
+                    store,
+                    id,
+                    process_started,
+                    &events,
+                    now,
+                    instance.as_deref(),
+                )?;
+            }
             if let Some(takes) = start_takes_input {
                 for event in &events {
                     if kind(event) == "run.started"
@@ -304,6 +318,27 @@ impl State {
             .update_deadlines(&raw_facts, &emitted, now as i64);
         Ok(FoldedFrame::new(snapshot, &raw_facts, emitted))
     }
+}
+
+/// Whether a batch can move a context meter (`index.ts:381`-`:396`).
+fn observes_meters(process_started: bool, events: &[Value]) -> bool {
+    process_started
+        || events.iter().any(|event| {
+            matches!(
+                kind(event),
+                "usage.updated" | "context.sampled" | "agent.updated"
+            ) || matches!(kind(event), "item.created" | "item.updated")
+                && event
+                    .get("item")
+                    .and_then(|item| item.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("compaction")
+                || kind(event) == "agent.status"
+                    && event.get("status").is_some_and(|status| {
+                        status.get("state").and_then(Value::as_str) == Some("working")
+                            && status.get("activity").and_then(Value::as_str) == Some("compacting")
+                    })
+        })
 }
 
 #[cfg(test)]

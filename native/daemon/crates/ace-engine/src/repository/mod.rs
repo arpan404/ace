@@ -26,9 +26,9 @@ pub mod stream;
 #[cfg(test)]
 pub(crate) mod testsupport;
 
-use crate::ThreadId;
 use crate::records::RecordBudget;
 use crate::snapshot::Snapshot;
+use crate::{EngineStore, ThreadId};
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -42,8 +42,17 @@ pub fn quiescent(_state: &crate::State, _exclude: Option<crate::executor::TaskId
     true
 }
 
+/// What a reclaim hook may read and mark (E5.6): the actors, the sessions, the store and the
+/// repository whose slot count asked for the reclaim.
+pub struct ReclaimView<'a> {
+    pub actors: &'a mut crate::actor::Actors,
+    pub sessions: &'a crate::sessions::Sessions,
+    pub store: &'a EngineStore,
+    pub repo: &'a Repo,
+}
+
 /// One reclaim hook: retires a warm idle session when every slot is taken (E5.6).
-pub type Reclaim = Box<dyn Fn(&HashSet<ThreadId>) -> Option<ThreadId>>;
+pub type Reclaim = Box<dyn Fn(&HashSet<ThreadId>, ReclaimView<'_>) -> Option<ThreadId>>;
 
 pub struct Repo {
     /// The resident snapshots, oldest first.

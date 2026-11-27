@@ -38,7 +38,9 @@ impl CreationStore for RepoStore<'_> {
     }
 
     fn reserve(&mut self, id: &str) -> bool {
-        self.repo.reserve(self.store, id).unwrap_or(false)
+        self.repo
+            .reserve_without_reclaim(self.store, id)
+            .unwrap_or(false)
     }
 
     fn release(&mut self, id: &str) {

@@ -199,10 +199,10 @@ fn a_thrown_receipt_leaves_no_reclaim_marks_behind() {
             let mut actor = crate::actor::ActorInstance::new("warm".to_owned(), 0);
             actor.session_attached = true;
             actor.idle_since = Some(1.0);
-            state
-                .actors
-                .by_thread
-                .insert("warm".to_owned(), std::rc::Rc::new(std::cell::RefCell::new(actor)));
+            state.actors.by_thread.insert(
+                "warm".to_owned(),
+                std::rc::Rc::new(std::cell::RefCell::new(actor)),
+            );
         })
         .unwrap();
     // The create reclaims the slot, then its first write fails and the transaction rolls back.

@@ -40,6 +40,8 @@ fn imported(conn: &Arc<ace_store::Connection>, native_id: Option<&str>) {
     // An imported thread has no engine state of its own yet: adoption builds it.
     conn.exec("DELETE FROM thread_state WHERE thread_id='t'")
         .unwrap();
+    conn.exec("DELETE FROM engine_sessions WHERE thread_id='t'")
+        .unwrap();
     conn.exec(
         r#"UPDATE threads SET imported='{"native":{"nativeId":"import-native"},"instanceId":"instance-1"}' WHERE id='t'"#,
     )

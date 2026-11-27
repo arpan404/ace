@@ -296,7 +296,7 @@ mod tests {
         let conn = home(name, &header(name));
         let store = Shell::store(&conn);
         conn.exec(&format!(
-            "INSERT INTO engine_sessions (thread_id,cwd,native_session_id,backend) VALUES ('{name}','/tmp','native-1','acp')"
+            "INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,native_session_id,backend) VALUES ('{name}','/tmp','native-1','acp')"
         ))
         .unwrap();
         (conn, store)

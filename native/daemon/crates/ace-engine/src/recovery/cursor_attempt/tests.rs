@@ -70,7 +70,7 @@ fn root_header(thread: &str) -> String {
 
 fn session_row(conn: &Arc<ace_store::Connection>) {
     conn.exec(
-        "INSERT INTO engine_sessions (thread_id, cwd, native_session_id, backend) VALUES ('t', '/tmp', 'native-1', 'cursor-sdk')",
+        "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, native_session_id, backend) VALUES ('t', '/tmp', 'native-1', 'cursor-sdk')",
     )
     .unwrap();
 }

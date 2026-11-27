@@ -66,7 +66,7 @@ fn thread(conn: &Arc<ace_store::Connection>, id: &str, status: &str) {
     ))
     .unwrap();
     conn.exec(&format!(
-        "INSERT INTO engine_sessions (thread_id, cwd) VALUES ('{id}', '/tmp')"
+        "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd) VALUES ('{id}', '/tmp')"
     ))
     .unwrap();
 }

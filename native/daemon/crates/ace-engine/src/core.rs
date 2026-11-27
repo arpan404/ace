@@ -372,7 +372,11 @@ impl Core {
                 .providers_activated()
                 .await
                 .map_err(EngineError::Port)?;
-            self.with_state(sessions::prepare_silence)??;
+            let mut thresholds =
+                self.with_state(|state| std::mem::take(&mut state.sessions.silence))?;
+            let prepared = sessions::prepare_silence(&mut thresholds).await;
+            self.with_state(|state| state.sessions.silence = thresholds)?;
+            prepared?;
             if let Some(core) = self.self_rc() {
                 recovery::prepare_ready(&core).await?;
             }

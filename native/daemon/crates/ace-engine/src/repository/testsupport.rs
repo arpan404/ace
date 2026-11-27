@@ -16,19 +16,25 @@ use crate::{EngineStack, EngineStore};
 
 pub(crate) const HEADER: &str = r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"codex","silenceMs":1000},"initialRoot":{"agent":"root","fidelity":"full","native":{"provider":"codex","nativeId":"native-root"},"cwd":"/tmp"},"agents":{},"runs":{},"items":{},"interactions":{},"tasks":{},"interactionHistory":{},"taskHistory":{},"indexes":{"liveTools":{},"pendingInteractions":{},"runningTasks":{},"agentKeysById":{},"childrenByParent":{},"pendingSpawnLinks":{},"pendingItemLinks":{}},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#;
 
+/// A unique suffix per home: the clock alone collides between parallel cases.
+fn next_home() -> u128 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_nanos())
+        .unwrap_or(0);
+    now * 64 + u128::from(counter)
+}
+
 /// A fresh home with the opener's schema, and one thread whose state is `header`.
 pub(crate) fn home(thread: &str, header: &str) -> Arc<Connection> {
     // A counter as well as the clock: parallel cases in one process can read the same instant.
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "ace-engine-home-{}-{}-{}-{}.sqlite",
+        "ace-engine-home-{}-{}-{}.sqlite",
         std::process::id(),
         thread,
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or(0)
+        next_home(),
     ));
     let conn = Connection::open(
         path.to_str().unwrap_or_default(),
@@ -54,6 +60,13 @@ pub(crate) fn home(thread: &str, header: &str) -> Arc<Connection> {
     conn.exec(&format!(
         "INSERT INTO thread_state VALUES ('{thread}', {}, 0)",
         sql_text(header)
+    ))
+    .unwrap();
+    // Every real thread has its session row from creation: a fold reads it for its model and
+    // native session id (E5.6's `session`).
+    conn.exec(&format!(
+        "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) \
+         VALUES ('{thread}', '/tmp', NULL, NULL, NULL, NULL, NULL)"
     ))
     .unwrap();
     conn

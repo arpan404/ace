@@ -308,7 +308,8 @@ mod tests {
                 let header = header("host").replace('\'', "''");
                 store.conn().exec(&format!(
                     "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ('host','workspace','Spade','claude','{{\"state\":\"new\"}}',0,0);
-                     INSERT INTO thread_state VALUES ('host','{header}',0);"
+                     INSERT INTO thread_state VALUES ('host','{header}',0);
+                     INSERT INTO engine_sessions (thread_id,cwd) VALUES ('host','/tmp');"
                 ))?;
                 state.permission_ensure(store, "host")?;
                 Ok(())
@@ -360,7 +361,7 @@ mod tests {
         with(&engine, |state, store| {
             // A host thread has its session row from `createEngineThread`; the ledger names its
             // binding.
-            store.conn().exec("INSERT INTO engine_sessions (thread_id,cwd,native_session_id) VALUES ('host3','/tmp','native-1')")?;
+            store.conn().exec("INSERT OR REPLACE INTO engine_sessions (thread_id,cwd,native_session_id) VALUES ('host3','/tmp','native-1')")?;
             state.apply_facts(
                 store,
                 "host3",

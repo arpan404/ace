@@ -25,8 +25,53 @@ impl Repo {
         self.retiring.len()
     }
 
-    /// `reserve` (`:516`), inside the store's transaction.
-    pub fn reserve(&mut self, store: &EngineStore, id: &str) -> Result<bool, EngineError> {
+    /// `reserve` (`:516`), inside the store's transaction. `actors` and `sessions` are the reclaim
+    /// hook's view, passed by the state that owns both.
+    pub fn reserve(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+        actors: &mut crate::actor::Actors,
+        sessions: &crate::sessions::Sessions,
+    ) -> Result<bool, EngineError> {
+        store.atomic(|tx| {
+            if stmt_cache::get_row(tx.conn(), SLOT, vec![text(id)])?.is_some() {
+                return Ok(true);
+            }
+            let count = stmt_cache::get_row(tx.conn(), COUNT, vec![])?
+                .and_then(|row| row.get("count").and_then(cell_int))
+                .unwrap_or(0);
+            if count - self.retiring.len() as i64 >= self.capacity as i64 {
+                // Evict before refusing: a finished thread's warm session gives up its slot.
+                let freed = match &self.reclaim {
+                    Some(reclaim) => reclaim(
+                        &self.retiring,
+                        super::ReclaimView {
+                            actors,
+                            sessions,
+                            store,
+                            repo: self,
+                        },
+                    ),
+                    None => None,
+                };
+                let Some(freed) = freed else {
+                    return Ok(false);
+                };
+                self.retiring.insert(freed);
+            }
+            stmt_cache::run(tx.conn(), TAKE, vec![text(id)])?;
+            Ok(true)
+        })
+    }
+
+    /// `reserve` without invoking the in-place reclaim hook: used when the caller reclaims
+    /// explicitly so its marks wait for commit.
+    pub fn reserve_without_reclaim(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+    ) -> Result<bool, EngineError> {
         self.reserve_counting(store, id, 0)
     }
 
@@ -59,16 +104,7 @@ impl Repo {
                 .unwrap_or(0);
             let retiring = self.retiring.len() as i64 + pending_retire as i64;
             if count - retiring >= self.capacity as i64 {
-                // Evict before refusing: a finished thread's warm session gives up its slot.
-                // The live receipt path is `reclaim_idle_slot` and records its marks at the
-                // commit; this hook is E5.6's, and the caller that sets it records its own.
-                let freed = match &self.reclaim {
-                    Some(reclaim) => reclaim(&self.retiring),
-                    None => None,
-                };
-                if freed.is_none() {
-                    return Ok(false);
-                }
+                return Ok(false);
             }
             stmt_cache::run(tx.conn(), TAKE, vec![text(id)])?;
             Ok(true)

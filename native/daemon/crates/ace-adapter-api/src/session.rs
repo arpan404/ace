@@ -5,10 +5,12 @@
 //! write. E3 ports each provider's session onto this trait.
 
 use ace_core::Key;
+use ace_json::Raw;
 use ace_protocol::generated::{ContentPart, ExecutionSelection, GoalChange, InteractionResolution};
 use futures::future::LocalBoxFuture;
 
 use crate::error::AdapterApiError;
+use crate::frame::FrameDirection;
 
 /// How a send joins the provider: `"queue"` waits for the run to end,
 /// `"steer"` joins the running turn.
@@ -147,6 +149,16 @@ pub trait Session {
         resolution: InteractionResolution,
     ) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
     fn stop_task(&self, task: Key) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
+    /// The provider's own context compaction (`thread.compact`). Providers without one omit it, so
+    /// the engine refuses with `unsupported_compact` before it ever asks; this default keeps the
+    /// refusal where the engine calls anyway.
+    fn compact(&self) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+        Box::pin(async {
+            Err(AdapterApiError::Frame(
+                "provider has no native compaction".to_owned(),
+            ))
+        })
+    }
     fn close(&self, reason: CloseReason) -> LocalBoxFuture<'_, Result<(), AdapterApiError>>;
 }
 
@@ -155,4 +167,44 @@ pub trait Session {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reopen {
     Reopen,
+}
+
+/// One frame a session hands the engine, in the order the session produced it.
+pub struct SessionFrame {
+    /// The session's frame number, from zero.
+    pub seq: u64,
+    /// Milliseconds since the session started: `Math.round(now - started)`.
+    pub t: i64,
+    pub dir: FrameDirection,
+    /// Transport channel: `"stdio"` for provider I/O, `"lifecycle"` for notes.
+    pub channel: String,
+    /// The redacted encoding exactly as received; admission (byte and node
+    /// bounds) already ran in the session.
+    pub data: Raw,
+}
+
+/// Why a session ended, as the provider's exit names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionExit {
+    /// A close ace asked for, rather than the child ending on its own.
+    pub deliberate: bool,
+    /// The provider's own exit message, e.g. `"Pi process exit, code 0"`.
+    pub message: String,
+}
+
+/// Where a session's frames, identity, failure and exit go: the engine's
+/// session interface (E5.6). Every method runs in the session's order, from the
+/// thread that produced the event; an implementation enqueues and returns and
+/// never blocks the session.
+pub trait SessionObserver: Send + Sync + 'static {
+    /// One admitted frame.
+    fn frame(&self, frame: SessionFrame);
+    /// The provider's own session id, once known and before any frame from it
+    /// is echoed.
+    fn identity(&self, native_session_id: &str);
+    /// The session cannot go on: the engine closes it, unexpectedly.
+    fn fatal(&self, message: &str);
+    /// The terminal barrier: the child's pipes are closed and every frame they
+    /// produced was delivered before this.
+    fn exit(&self, exit: SessionExit);
 }

@@ -94,7 +94,7 @@ fn live_header(thread: &str, question: bool) -> String {
 
 /// Every thread an engine folds has its session binding row (the TypeScript's createEngineThread).
 fn session_row(conn: &Arc<Connection>) {
-    conn.exec("INSERT INTO engine_sessions (thread_id, cwd) VALUES ('t', '/tmp')")
+    conn.exec("INSERT OR REPLACE INTO engine_sessions (thread_id, cwd) VALUES ('t', '/tmp')")
         .unwrap();
 }
 

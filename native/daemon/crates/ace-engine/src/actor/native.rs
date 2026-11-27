@@ -158,15 +158,52 @@ pub fn account_value(frame: &Frame) -> Option<Value> {
     Some(ace_json::json!({"id": account.id, "billingMode": billing_mode}))
 }
 
-/// A native translator's fact as the JSON the fold works on.
+/// A native translator's fact as the JSON the fold works on: the `type` tag first, then the body
+/// the translator built without it (the ACP translator strips it, Pi keeps it out).
 pub fn fact_to_value(fact: ace_core::RawFact) -> Option<Value> {
-    let text = ace_json::ser::to_string(&fact).ok()?;
-    ace_json::parse(&text).ok()
+    let mut value = ace_json::Map::new();
+    value.insert("type", Value::from(fact.fact_type.as_str()));
+    match fact.data.to_value() {
+        Value::Object(body) => {
+            for (key, field) in body {
+                value.insert(key, field);
+            }
+        }
+        other => {
+            value.insert("data", other);
+        }
+    }
+    Some(Value::Object(value))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::check_payload;
+    use super::{check_payload, fact_to_value};
+    use ace_core::RawFact;
+    use ace_json::Raw;
+
+    #[test]
+    fn a_native_fact_is_the_folds_typed_shape() {
+        // A translator builds the body without its tag (`type` names the fold); the engine puts
+        // the tag back, first, so the core's tagged fact enum reads it.
+        let fact = RawFact {
+            fact_type: "signal".to_owned(),
+            data: Raw::from_json("{\"agent\":\"root\"}").expect("json"),
+        };
+        assert_eq!(
+            ace_json::to_string(&fact_to_value(fact).expect("value")),
+            "{\"type\":\"signal\",\"agent\":\"root\"}"
+        );
+        let fact = RawFact {
+            fact_type: "turn.started".to_owned(),
+            data: Raw::from_json("[1]").expect("json"),
+        };
+        assert_eq!(
+            ace_json::to_string(&fact_to_value(fact).expect("value")),
+            "{\"type\":\"turn.started\",\"data\":[1]}",
+            "a non-object body stays under data"
+        );
+    }
 
     #[test]
     fn the_bridge_limits_are_the_provider_payload_constructors() {

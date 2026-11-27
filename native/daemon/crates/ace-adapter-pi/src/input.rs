@@ -11,7 +11,7 @@ use ace_json::Value;
 use thiserror::Error;
 
 /// The input errors the TypeScript throws, byte for byte.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PiInputError {
     #[error("Unresolved Pi mention")]
     UnresolvedMention,

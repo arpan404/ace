@@ -248,7 +248,11 @@ pub fn create(
         .unwrap_or_else(|| core.ports.thread_id());
     // A prepared thread runs nothing until it is sent work, which reserves a slot then.
     let mut reclaimed = None;
-    if kind != "thread.prepare" && !state.repo.reserve(&core.store, &thread_id)? {
+    if kind != "thread.prepare"
+        && !state
+            .repo
+            .reserve_without_reclaim(&core.store, &thread_id)?
+    {
         let freed =
             crate::release::reclaim::reclaim_idle_slot(core, state, &|_| false, &|_| false)?;
         let Some(freed) = freed else {

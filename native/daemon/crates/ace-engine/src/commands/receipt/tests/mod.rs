@@ -78,7 +78,7 @@ impl Receipt {
         receipt.thread_row("{}");
         receipt.queue("INSERT INTO engine_queue (thread_id) VALUES ('t')");
         receipt.session(
-            "INSERT INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', NULL)",
+            "INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', NULL)",
         );
         receipt
     }
