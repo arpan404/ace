@@ -314,6 +314,12 @@ pub(crate) mod test_support {
                 let mut stdout = child.stdout.take().ok_or_else(|| {
                     GitError::new(crate::core::error::GitErrorCode::GitMissing, "no stdout")
                 })?;
+                let limit = command
+                    .capture_bytes
+                    .unwrap_or(crate::core::cli::DEFAULT_CAPTURE_BYTES);
+                let mut stdout_buf = Vec::new();
+                let mut truncated = false;
+                let mut exceeded_default = false;
                 let mut buffer = vec![0u8; 8 * 1024];
                 loop {
                     let read = stdout
@@ -322,7 +328,22 @@ pub(crate) mod test_support {
                     if read == 0 {
                         break;
                     }
-                    consume(&buffer[..read]);
+                    let chunk = &buffer[..read];
+                    consume(chunk);
+                    if limit > 0 {
+                        let remaining = limit.saturating_sub(stdout_buf.len());
+                        if remaining > 0 {
+                            stdout_buf.extend_from_slice(&chunk[..remaining.min(chunk.len())]);
+                        }
+                        if chunk.len() > remaining {
+                            truncated = true;
+                            if command.capture_bytes.is_none() {
+                                exceeded_default = true;
+                            }
+                        }
+                    } else if command.capture_bytes != Some(0) {
+                        truncated = true;
+                    }
                 }
                 drop(stdout);
                 let status = child.wait().map_err(|error| {
@@ -332,12 +353,17 @@ pub(crate) mod test_support {
                     )
                 })?;
                 let stderr = stderr.join().unwrap_or_default();
+                if exceeded_default {
+                    return Err(GitError::new(
+                        GitErrorCode::OutputTooLarge,
+                        "Git metadata exceeded 64 MiB",
+                    ));
+                }
                 Ok(CommandOutput {
-                    // `captureBytes: 0`: the caller holds nothing of the stream.
-                    stdout: Vec::new(),
+                    stdout: stdout_buf,
                     stderr: String::from_utf8_lossy(&stderr).into_owned(),
                     exit_code: status.code().unwrap_or(-1),
-                    truncated: false,
+                    truncated,
                     stopped: None,
                 })
             })
@@ -376,6 +402,14 @@ pub(crate) mod test_support {
                     Err(timeout) => return Err(timeout),
                 };
                 let mut stdout = output.stdout;
+                if command.capture_bytes.is_none()
+                    && stdout.len() > crate::core::cli::DEFAULT_CAPTURE_BYTES
+                {
+                    return Err(GitError::new(
+                        GitErrorCode::OutputTooLarge,
+                        "Git metadata exceeded 64 MiB",
+                    ));
+                }
                 let truncated = command
                     .capture_bytes
                     .is_some_and(|bytes| stdout.len() > bytes);
