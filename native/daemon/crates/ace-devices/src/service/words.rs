@@ -6,7 +6,7 @@
 //! The catalog's one reader is [`crate::platform::words`]; this module only
 //! turns its word into the crate's typed [`DeviceError`].
 
-use crate::error::{DeviceError, DeviceErrorCode};
+use crate::error::{DeviceError, DeviceErrorCode, DevicePermission};
 
 /// The refusal `key` names, as the crate's typed error.
 pub fn refusal(key: &str) -> DeviceError {
@@ -16,6 +16,25 @@ pub fn refusal(key: &str) -> DeviceError {
         word.message,
         word.hint,
     )
+}
+
+/// The refusal `key` names, carrying the macOS permission it is about. The code
+/// stays the catalog's, so a permission refusal's code cannot drift from the word.
+pub fn refusal_with_permission(key: &str, permission: DevicePermission) -> DeviceError {
+    match refusal(key) {
+        DeviceError::Coded {
+            code,
+            message,
+            hint,
+            ..
+        } => DeviceError::Coded {
+            code,
+            message,
+            hint,
+            permission: Some(permission),
+        },
+        other => other,
+    }
 }
 
 /// The next step of a refusal whose message is data (an element's name, a

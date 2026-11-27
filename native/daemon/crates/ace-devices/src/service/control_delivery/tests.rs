@@ -132,6 +132,33 @@ fn a_flush_while_the_transport_is_still_backed_up_rearms() {
 }
 
 #[test]
+fn a_reply_never_arms_a_timer_so_a_flush_is_idle_without_a_backed_up_push() {
+    let mut delivery = ControlDelivery::new();
+    assert_eq!(
+        delivery.send(reply("result"), BUFFERED_LIMIT + 1),
+        Ok(Sent::Write(reply("result")))
+    );
+    assert_eq!(delivery.pending(), 0);
+    assert_eq!(delivery.fire(1, 0), Flush::Idle);
+
+    // The first push that has to wait arms a timer; a flush leaves none behind.
+    assert_eq!(
+        delivery.send(inventory("inventory"), BUFFERED_LIMIT + 1),
+        Ok(Sent::Held { arm: Some(1) })
+    );
+    let Flush::Write(writes) = delivery.fire(1, 0) else {
+        panic!("the armed timer writes what waits");
+    };
+    assert_eq!(messages(&writes), ["inventory"]);
+    assert_eq!(delivery.fire(1, 0), Flush::Idle, "the timer retired");
+    assert_eq!(
+        delivery.send(state("d1", "state"), BUFFERED_LIMIT + 1),
+        Ok(Sent::Held { arm: Some(2) }),
+        "the next wait arms its own timer"
+    );
+}
+
+#[test]
 fn a_stale_timer_does_nothing_and_close_refuses_every_send() {
     let mut delivery = ControlDelivery::new();
     assert_eq!(delivery.fire(7, 0), Flush::Idle);

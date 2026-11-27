@@ -1,5 +1,5 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
-import { catalogRefusal } from "./catalog.ts";
+import { catalogRefusal } from "./sdk.ts";
 import { deviceFrameRate } from "./stream-profile.ts";
 import { commonStream, sameStream, StreamOwners } from "@ace/screen";
 

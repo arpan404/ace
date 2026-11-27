@@ -11,6 +11,7 @@ const startsAgent = new Set<CommandPayload["type"]>([
   "thread.switch",
   "thread.merge",
   "thread.goal.set",
+  "thread.compact",
   "queue.resume",
   "queue.resend",
 ]);

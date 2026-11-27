@@ -1,4 +1,4 @@
-import { catalogRefusal } from "./catalog.ts";
+import { catalogRefusal } from "./sdk.ts";
 import { DeviceLogs } from "./logs.ts";
 import {
   closeDeviceRecording,

@@ -21,13 +21,7 @@ pub fn permission_key(permission: DevicePermission) -> &'static str {
 /// `permissionDenied`: which permission and how to grant it, carrying the
 /// permission on the failure so a client can offer the right fix.
 pub fn permission_denied(permission: DevicePermission) -> DeviceError {
-    let word = crate::platform::words::refusal(permission_key(permission));
-    DeviceError::Coded {
-        code: DeviceErrorCode::PermissionDenied,
-        message: word.message.into(),
-        hint: word.hint.into(),
-        permission: Some(permission),
-    }
+    words::refusal_with_permission(permission_key(permission), permission)
 }
 
 /// The error a screen helper or manager reported: its stable message and code.

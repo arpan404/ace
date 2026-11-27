@@ -1,4 +1,4 @@
-import { catalogRefusal } from "./catalog.ts";
+import { catalogRefusal } from "./sdk.ts";
 export type Actor = {
   kind: "human" | "agent";
   owner: string;

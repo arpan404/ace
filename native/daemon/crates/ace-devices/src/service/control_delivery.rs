@@ -122,8 +122,9 @@ impl<M> ControlDelivery<M> {
         self.pending.len()
     }
 
+    /// `schedule()`: one timer at a time, and never one with nothing to flush.
     fn arm(&mut self) -> Option<u64> {
-        if self.cancel.is_some() {
+        if self.cancel.is_some() || self.pending.is_empty() {
             return None;
         }
         self.next_timer = self.next_timer.saturating_add(1);

@@ -89,6 +89,15 @@ fn a_settled_choice_ends_the_loop_and_a_failure_ends_its_own_goal() {
 }
 
 #[test]
+fn the_older_of_two_equal_goals_fails_while_the_newer_still_runs() {
+    let mut setting = SettingGoal::new();
+    let first = setting.want(true, false);
+    let second = setting.want(true, false);
+    setting.failed(first);
+    assert_eq!(setting.current().map(|goal| goal.id()), Some(second.id()));
+}
+
+#[test]
 fn a_newer_choice_with_the_same_value_still_keeps_the_loop_going() {
     // The TypeScript compares goals by identity, so a second choice that looks
     // the same is still a newer one: the older tail must not end the loop.
@@ -96,8 +105,10 @@ fn a_newer_choice_with_the_same_value_still_keeps_the_loop_going() {
     let first = setting.want(true, false);
     let second = setting.want(true, false);
     assert_ne!(first.id(), second.id(), "each choice is its own");
+    // `Done` would end the loop for the goal it belongs to, so only an identity
+    // comparison keeps it going for the newer choice.
     assert!(
-        setting.settle(first, Step::Devices, true),
+        setting.settle(first, Step::Done, true),
         "a newer choice is in force"
     );
     assert_eq!(setting.current().map(|goal| goal.id()), Some(second.id()));

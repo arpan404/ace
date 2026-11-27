@@ -98,3 +98,18 @@ fn a_registered_sim_act_call_is_validated_by_its_actions_rule() {
     // An action that is not in the table at all.
     assert!(check_fields("mystery", &["simId"]).is_err());
 }
+
+#[test]
+fn open_app_without_app_id_fails_and_foreign_fields_are_refused() {
+    let issues = check_fields("open_app", &["simId"]).expect_err("needs appId");
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue == "Missing required field: appId")
+    );
+
+    let issues = check_fields("open_app", &["simId", "appId", "extra"]).expect_err("foreign field");
+    assert_eq!(issues, [String::from("Unrecognized key: \"extra\"")]);
+
+    assert_eq!(check_fields("open_app", &["simId", "appId"]), Ok(()));
+}

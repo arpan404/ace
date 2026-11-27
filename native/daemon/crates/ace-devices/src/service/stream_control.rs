@@ -93,13 +93,39 @@ pub fn live_view_request(settings: StreamSettings) -> Result<StreamSettings, Dev
     Ok(settings)
 }
 
+/// `commonStream`: every viewer decodes the shared capture's H.264, and the
+/// slowest panel sets each budget (`@ace/screen`'s `commonStream`).
+pub fn common_stream(profiles: &[StreamSettings]) -> Option<StreamSettings> {
+    if profiles.is_empty() {
+        return None;
+    }
+    Some(StreamSettings {
+        codec: Codec::H264,
+        max_width: profiles.iter().map(|p| p.max_width).min()?,
+        max_height: profiles.iter().map(|p| p.max_height).min()?,
+        fps: profiles.iter().map(|p| p.fps).min()?,
+        bitrate: profiles.iter().map(|p| p.bitrate).min()?,
+    })
+}
+
+/// `commonDeviceStream`: the viewers' common budget, or the unwatched capture's
+/// stream when nobody watches.
+pub fn common_device_stream(profiles: &[StreamSettings]) -> StreamSettings {
+    common_stream(profiles).unwrap_or(DEVICE_IMAGE_STREAM)
+}
+
+/// `sameStream`: the five settings that decide whether a capture must change.
+pub fn same_stream(a: StreamSettings, b: StreamSettings) -> bool {
+    a == b
+}
+
 /// The stream an idle capture takes: a recording's video while one runs, else the
-/// caller's own idle choice.
-pub fn idle_stream(recording: bool) -> StreamSettings {
+/// caller's own idle choice (still-capable captures pass [`DEVICE_STILL_STREAM`]).
+pub fn idle_stream(recording: bool, idle: StreamSettings) -> StreamSettings {
     if recording {
         DEVICE_RECORDING_STREAM
     } else {
-        DEVICE_IMAGE_STREAM
+        idle
     }
 }
 

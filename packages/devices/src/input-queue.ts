@@ -1,4 +1,4 @@
-import { catalogRefusal } from "./catalog.ts";
+import { catalogRefusal } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import type { LifecycleOwner } from "./lifecycle.ts";
@@ -20,8 +20,7 @@ export async function enqueueDeviceInput<T>(
 ): Promise<T> {
   owner.authorize(session, actor);
   const ticket = session.lease.ticket(actor);
-  if (session.pendingInput[actor.kind] >= 32)
-    throw catalogRefusal("inputQueueFull");
+  if (session.pendingInput[actor.kind] >= 32) throw catalogRefusal("inputQueueFull");
   // Waiting for the person retains this ticket too; a takeover still invalidates it.
   const release = session.lease.retain(actor, ticket);
   session.pending++;
@@ -75,8 +74,7 @@ export function enqueueSharedInput<T>(
   owner: LifecycleOwner,
 ): Promise<T> {
   owner.authorize(session, actor);
-  if (session.pendingInput[actor.kind] >= 32)
-    throw catalogRefusal("inputQueueFull");
+  if (session.pendingInput[actor.kind] >= 32) throw catalogRefusal("inputQueueFull");
   session.pending++;
   session.pendingInput[actor.kind]++;
   const guard = () => {

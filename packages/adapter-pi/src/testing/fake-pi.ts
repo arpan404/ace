@@ -18,6 +18,8 @@ const history = new NativeHistory();
 if (process.env.FAKE_PI_HOME) history.load(join(process.env.FAKE_PI_HOME, "source.jsonl"));
 let queue = false,
   inputDelivered = false;
+/** A compaction whose reply waits for its summary (a slow one, in tests). */
+let compactPending: z.infer<typeof Command> | undefined;
 let confirmFork: ((confirmed: boolean) => void) | undefined;
 const extension = process.argv[process.argv.indexOf("-e") + 1] ?? "";
 if (process.env.FAKE_PI_LOAD_FAILURE) {
@@ -119,6 +121,24 @@ async function handle(line: string) {
         pendingMessageCount: queue ? 1 : 0,
       });
       return;
+    case "compact": {
+      const result = {
+        summary: "The earlier turns, summarised by Pi.",
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 150_000,
+        estimatedTokensAfter: 32_000,
+      };
+      emit({ type: "compaction_start", reason: "manual" });
+      // A real compaction runs for a while: its reply comes when the summary is written. The
+      // test holds it until a Stop aborts it, as Pi does.
+      if (process.env.FAKE_PI_SLOW_COMPACT) {
+        compactPending = c;
+        return;
+      }
+      emit({ type: "compaction_end", reason: "manual", result, aborted: false, willRetry: false });
+      reply(c, result);
+      return;
+    }
     case "get_entries":
       if (process.env.FAKE_PI_BAD_ENTRIES === "cycle")
         reply(c, { entries: [{ type: "custom", id: "loop", parentId: "loop" }], leafId: "loop" });
@@ -190,6 +210,13 @@ async function handle(line: string) {
       reply(c);
       return;
     case "abort":
+      // A Stop ends a compaction still running, and the ask it was holding answers aborted.
+      if (compactPending) {
+        const running = compactPending;
+        compactPending = undefined;
+        emit({ type: "compaction_end", reason: "manual", aborted: true, willRetry: false });
+        reply(running, {});
+      }
       emit({
         type: "extension_ui_request",
         id: "abort-proof",

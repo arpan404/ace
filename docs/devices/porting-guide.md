@@ -287,3 +287,43 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
   behaviour.md that turned out wrong (with the code that shows it), anything you kept TypeScript
   because it couldn't be reproduced exactly, and the one test you added, if any, with the
   behaviour it covers that nothing did.
+
+## Intended differences from the TypeScript
+
+- **D4, a person's takeover during an agent's bind.** TypeScript's `claimForAgent` awaits its bind
+  with `changingBinding` set, so the person's `controller` request is refused `devicesDisabled`;
+  Rust lets the person's takeover through, reserves it, and the agent's claim loses. Only that
+  controller entry point passes: every other operation, the person's included, keeps the bind
+  guard, as TypeScript's `assertEnabled` does, so a `record.stop` cannot consume the previous
+  thread's completed slot mid-bind.
+- **D4, an agent resuming after a completed person's takeover.** TypeScript's `claimForAgent`
+  checks the lease only before its bind, so an agent whose bind ends after the person took and
+  finished can release the live human lease; Rust rechecks the bind's control revision after the
+  cleanup before it assigns, so the person keeps control.
+- **D4, a bind's reservation after a disable or a newer bind.** TypeScript's `finally` clears
+  `changingBinding` from whichever bind finishes, including one already superseded, and keeps the
+  reservation until then; Rust retires the reservation when devices are disabled or a newer bind
+  starts, and an obsolete completion changes nothing.
+- **D4, a takeover refused by a disable.** TypeScript runs the bind before it reserves control, so
+  a refused bind leaves no marker; Rust reserves first, so it cancels its own assignment when the
+  bind is refused and leaves any newer takeover alone.
+- **D4, a person's bind reservation after a hand-back or a drop.** TypeScript keeps
+  `changingBinding` until that bind's own cleanup finishes, even though the hand-back or disconnect
+  invalidated the assignment, so an agent binding in between is refused `bindingBusy`; Rust retires
+  the reservation the invalidated assignment left, and the person's stale continuation changes
+  nothing.
+- **D4, a takeover that loses control while it assigns.** TypeScript authorizes the requester once
+  the input release resolves (`service.ts:861`), so the takeover answers whatever that check says
+  by then; Rust answers `controlChanged` for the assignment whose revision or generation moved.
+- **D4, a failed cleanup after a hand-back or a drop.** TypeScript's `bindDevice` throws its
+  `AggregateError` before `assignController` runs, so the cleanup failure answers a hand-back or a
+  drop that landed meanwhile; Rust answers `controlChanged` for the assignment whose revision moved
+  while its cleanup failed, and lets the failure win only for a disable, which moves the generation.
+- **D4, a disable's delayed completion.** TypeScript clears `completed` and `recordingArtifact` after
+  the stop's await without checking the epoch, so a recording published after devices come back is
+  erased; Rust carries the disable's epoch and clears only the recording its own disable left.
+  That race lives in TypeScript's helper write, not in its service: `disableDeviceSessions` clears
+  after the await with no epoch check, and the service gate is what keeps it out of reach — a
+  re-enable is rejected busy while `disabling` is set (`service.ts:590`), so no bind or recording
+  can be published until every stop has finished. Rust has no such gate, and the epoch is what
+  keeps a later bind's recording apart from the disable that preceded it.

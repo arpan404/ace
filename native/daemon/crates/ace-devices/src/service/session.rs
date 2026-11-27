@@ -7,7 +7,7 @@
 //! decide about, so it stays pure and testable.
 
 use super::input_queue::PendingInput;
-use super::lease::ControllerLease;
+use super::lease::{ActorKind, ControllerLease};
 use crate::error::DeviceFailure;
 
 /// `session.lifecycle`.
@@ -68,10 +68,21 @@ pub struct Session {
     pub control_revision: u64,
     /// A Take control being applied; the shared input lane respects it.
     pub pending_controller: Option<String>,
+    /// Who began that takeover: a person's must never be superseded by an agent's.
+    pub pending_controller_kind: Option<ActorKind>,
+    /// The epoch of the cleanup bind that takeover began. A later bind for the same
+    /// owner holds a newer epoch and is not the one the assignment left in flight.
+    pub pending_bind_epoch: Option<u64>,
+    /// The epoch of the cleanup bind an agent's claim began, which no takeover
+    /// records. Its owner's drop retires exactly this one, never a newer bind.
+    pub claim_bind_epoch: Option<u64>,
     pub pending: PendingInput,
     pub generation: u64,
     pub binding_epoch: u64,
     pub changing_binding: bool,
+    /// The owner whose takeover started that bind, so an invalidated assignment
+    /// retires its own reservation and nobody else's.
+    pub binding_owner: Option<String>,
     pub recording_starting: bool,
     /// A recording that ended on its own, published, waiting for its `record.stop`.
     /// The shell holds the recording itself; this names it.
@@ -98,10 +109,14 @@ impl Session {
             lease: ControllerLease::new(),
             control_revision: 0,
             pending_controller: None,
+            pending_controller_kind: None,
+            pending_bind_epoch: None,
+            claim_bind_epoch: None,
             pending: PendingInput::new(),
             generation: 0,
             binding_epoch: 0,
             changing_binding: false,
+            binding_owner: None,
             recording_starting: false,
             completed: None,
             recording_artifact: None,

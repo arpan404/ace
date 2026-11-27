@@ -37,8 +37,7 @@ export function screenFailure(error: unknown): DeviceError | undefined {
     return permissionDenied("screenRecording");
   // Capture already proved Screen Recording; input is refused for Accessibility.
   if (/macOS permission denied/i.test(message)) return permissionDenied("accessibility");
-  if (/only while it is the frontmost app/.test(message))
-    return catalogRefusal("frontmostTyping");
+  if (/only while it is the frontmost app/.test(message)) return catalogRefusal("frontmostTyping");
   if (message === "Session limit") return catalogRefusal("screenLimit");
   return undefined;
 }

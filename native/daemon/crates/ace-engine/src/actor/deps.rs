@@ -7,8 +7,6 @@
 use crate::frames::live::LiveStore;
 use crate::{Core, EngineError, ThreadId};
 use ace_json::Value;
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Where a thread's frames go: its provider and backend (`index.ts:371`).
@@ -128,7 +126,7 @@ pub trait ActorLinks {
     /// `() => this.wake(id)` (`index.ts:547`, `:1256`).
     fn wake(&self, core: &Core, thread: &ThreadId);
     /// `lifetime.abort()`; with `true` also `session = translator = undefined` (`:206`).
-    fn abort_session(&self, core: &Core, thread: &ThreadId, drop_session: bool);
+    fn abort_session(&self, core: &Core, actor: &super::state::ActorRef, drop_session: bool);
     /// `onRetire` → `delivery.expire` (`index.ts:553`).
     fn expire(&self, core: &Core, thread: &ThreadId, generation: u64);
     /// `onProviderDiagnostic` (`:495`).
@@ -147,7 +145,6 @@ pub struct ActorDeps {
     pub links: Rc<dyn ActorLinks>,
     pub live: Rc<dyn LiveStore>,
     pub acks: Rc<dyn FrameAcks>,
-    pub translators: RefCell<HashMap<ThreadId, (u64, ActorTranslator)>>,
     /// `EngineOptions.idleMs`, the release delay a done thread keeps.
     pub idle_ms: f64,
 }
@@ -165,7 +162,6 @@ impl ActorDeps {
             links,
             live,
             acks,
-            translators: RefCell::new(HashMap::new()),
             idle_ms,
         }
     }
@@ -180,29 +176,6 @@ impl ActorDeps {
             Rc::new(UnportedAcks),
             idle_ms,
         )
-    }
-
-    /// Takes the thread's translator out for one call, so no borrow is held across it.
-    pub fn take_translator(&self, thread: &str) -> Option<(u64, ActorTranslator)> {
-        self.translators.borrow_mut().remove(thread)
-    }
-
-    /// Puts it back only if the session is still the one that was taken out.
-    pub fn return_translator(
-        &self,
-        thread: &str,
-        generation: u64,
-        translator: Option<(u64, ActorTranslator)>,
-    ) {
-        let Some((stored, translator)) = translator else {
-            return;
-        };
-        let mut map = self.translators.borrow_mut();
-        if map.contains_key(thread) || stored != generation {
-            // The session was replaced or retired during the call; the taken translator goes.
-            return;
-        }
-        map.insert(thread.to_string(), (stored, translator));
     }
 }
 
@@ -343,7 +316,7 @@ impl ActorLinks for Unported {
         core.ports
             .report(EngineError::not_ported("the actor wake", "E5.4").to_string());
     }
-    fn abort_session(&self, core: &Core, _thread: &ThreadId, drop_session: bool) {
+    fn abort_session(&self, core: &Core, _actor: &super::state::ActorRef, drop_session: bool) {
         let what = if drop_session {
             "the session abort with its session dropped"
         } else {

@@ -2,7 +2,7 @@ import type { DeviceOperation } from "@ace/protocol/devices";
 import type { DevicePlatform } from "./platform.ts";
 import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
-import { catalogRefusal } from "./catalog.ts";
+import { catalogRefusal } from "./sdk.ts";
 import { boundedClipboard } from "./clipboard.ts";
 import { keyRefusal } from "./key-support.ts";
 
