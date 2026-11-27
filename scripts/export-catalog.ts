@@ -35,6 +35,8 @@ import {
   knowledgeToolCatalog,
   metaToolCatalog,
   publicErrorCatalog,
+  publicErrorFallbacks,
+  permissionHints,
   PublicToolCode,
   staticToolsHeader,
   suitToolCatalog,
@@ -102,7 +104,12 @@ function tools(): Entry[] {
 
 const files: Record<string, unknown> = {
   "tools.json": { tools: tools() },
-  "errors.json": { codes: PublicToolCode.options, catalog: publicErrorCatalog },
+  "errors.json": {
+    codes: PublicToolCode.options,
+    catalog: publicErrorCatalog,
+    permissionHints,
+    fallbacks: publicErrorFallbacks,
+  },
   "instructions.json": {
     guideTopics,
     toolFamilies,

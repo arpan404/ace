@@ -227,16 +227,38 @@ pub fn public_failure(failure: &DeviceFailure, own: bool) -> PublicFailure {
     }
 }
 
-/// The hint `PublicToolError` gives a permission refusal, over the catalog's.
-fn permission_hint(permission: DevicePermission) -> &'static str {
-    match permission {
-        DevicePermission::ScreenRecording => {
-            "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper."
-        }
-        DevicePermission::Accessibility => {
-            "Open System Settings > Privacy & Security > Accessibility and enable Ace Screen Helper."
-        }
-    }
+/// The hint `PublicToolError` gives a permission refusal: the shared catalog's setting.
+fn permission_hint(permission: DevicePermission) -> String {
+    let Ok(catalog) = ace_mcp::catalog::catalog() else {
+        return String::from(INCOMPLETE_HINT);
+    };
+    catalog
+        .permission_hints
+        .get(permission.as_str())
+        .cloned()
+        .unwrap_or_else(|| String::from(INCOMPLETE_HINT))
+}
+
+/// The body when the embedded catalog does not parse at all: a daemon build bug,
+/// never a fact about the device, so it names the install instead of the device.
+const INCOMPLETE_MESSAGE: &str = "This failure has no entry in ace's error catalog";
+const INCOMPLETE_HINT: &str = "Reinstall ace; its error catalog is incomplete.";
+
+/// The words an agent sees for a public code, from the shared MCP catalog. The device
+/// failure's own words are never a source: a code the catalog does not know — which the
+/// completeness test rules out — renders the catalog's own words for that case.
+pub fn public_words(code: &str) -> ace_mcp::catalog::ErrorWords {
+    let Ok(catalog) = ace_mcp::catalog::catalog() else {
+        return ace_mcp::catalog::ErrorWords {
+            message: String::from(INCOMPLETE_MESSAGE),
+            hint: String::from(INCOMPLETE_HINT),
+        };
+    };
+    catalog
+        .errors
+        .get(code)
+        .unwrap_or(&catalog.fallbacks)
+        .clone()
 }
 
 /// `/[a-f0-9]{64}/gi`, over UTF-16 units: a lone surrogate in the text is neither
@@ -286,20 +308,12 @@ fn detail_text(message: &JsString) -> JsString {
 /// ace's own detail last when it wrote the failure.
 pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
     let public = public_failure(failure, own);
-    let words = ace_mcp::catalog::catalog()
-        .ok()
-        .and_then(|catalog| catalog.errors.get(public.code).cloned());
-    let (message, hint) = match words {
-        Some(words) => (JsString::from(words.message), JsString::from(words.hint)),
-        None => (failure.message.clone(), failure.hint.clone()),
-    };
-    let hint = public.permission.map_or(hint, |permission| {
-        JsString::from(permission_hint(permission))
-    });
+    let words = public_words(public.code);
+    let hint = public.permission.map_or(words.hint, permission_hint);
     let mut out = Map::new();
     out.insert("code", Value::String(JsString::from(public.code)));
-    out.insert("message", Value::String(message));
-    out.insert("hint", Value::String(hint));
+    out.insert("message", Value::String(JsString::from(words.message)));
+    out.insert("hint", Value::String(JsString::from(hint)));
     if let Some(detail) = public.message.filter(|detail| !detail.is_empty()) {
         out.insert("detail", Value::String(detail_text(&detail)));
     }
@@ -316,22 +330,11 @@ pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
 /// `invalid_arguments` code, its catalog words, the field issues in order, and —
 /// only when a field or variant does not exist — where to find the schema.
 pub fn arguments_body(tool: SimTool, error: &ArgumentError) -> Value {
-    let words = ace_mcp::catalog::catalog()
-        .ok()
-        .and_then(|catalog| catalog.errors.get("invalid_arguments").cloned());
-    let (message, hint) = match words {
-        Some(words) => (JsString::from(words.message), JsString::from(words.hint)),
-        None => (
-            JsString::from("Invalid tool arguments"),
-            JsString::from(
-                "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
-            ),
-        ),
-    };
+    let words = public_words("invalid_arguments");
     let mut out = Map::new();
     out.insert("code", Value::String(JsString::from("invalid_arguments")));
-    out.insert("message", Value::String(message));
-    out.insert("hint", Value::String(hint));
+    out.insert("message", Value::String(JsString::from(words.message)));
+    out.insert("hint", Value::String(JsString::from(words.hint)));
     let mut issues = Array::new();
     for issue in &error.issues {
         let mut entry = Map::new();

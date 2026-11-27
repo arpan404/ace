@@ -84,7 +84,14 @@ export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
 
 export { modelImageGeometry } from "./image-geometry.ts";
 
-export { PublicToolError, PublicToolCode, ErrorId, publicErrorCatalog } from "./public-error.ts";
+export {
+  PublicToolError,
+  PublicToolCode,
+  ErrorId,
+  publicErrorCatalog,
+  permissionHints,
+  publicErrorFallbacks,
+} from "./public-error.ts";
 export { controlHints } from "./control-hints.ts";
 export { advertisedInputSchema, advertisedOutputSchema } from "./advertised-schema.ts";
 export { parseToolArguments, toolFailure } from "./tool-failure.ts";

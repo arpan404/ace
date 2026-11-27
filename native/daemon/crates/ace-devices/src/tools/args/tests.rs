@@ -246,8 +246,9 @@ fn an_enum_field_set_to_anything_but_its_values_names_the_values() {
 fn a_number_past_the_safe_integer_range_reports_the_int_bound_first() {
     // Zod's `int()` is a safe integer: the safe bound, then the field's own bound,
     // and both continue so the per-action rules still read the field.
-    let error = act(json!({ "simId": IOS, "action": "record_start", "x": 9_007_199_254_740_992.0 }))
-        .expect_err("too big");
+    let error =
+        act(json!({ "simId": IOS, "action": "record_start", "x": 9_007_199_254_740_992.0 }))
+            .expect_err("too big");
     assert_eq!(
         issue_paths(&error),
         [
@@ -283,9 +284,12 @@ fn a_number_past_the_safe_integer_range_reports_the_int_bound_first() {
     );
 
     // A read limit too.
-    let error = decode(SimTool::Ui, &json!({
-        "simId": IOS, "limit": 9_007_199_254_740_992.0
-    }))
+    let error = decode(
+        SimTool::Ui,
+        &json!({
+            "simId": IOS, "limit": 9_007_199_254_740_992.0
+        }),
+    )
     .expect_err("limit");
     assert_eq!(
         issue_paths(&error),
@@ -294,9 +298,12 @@ fn a_number_past_the_safe_integer_range_reports_the_int_bound_first() {
             ("limit", "number <= 64"),
         ]
     );
-    let error = decode(SimTool::Logs, &json!({
-        "simId": IOS, "limit": -9_007_199_254_740_992.0
-    }))
+    let error = decode(
+        SimTool::Logs,
+        &json!({
+            "simId": IOS, "limit": -9_007_199_254_740_992.0
+        }),
+    )
     .expect_err("negative limit");
     assert_eq!(
         issue_paths(&error),

@@ -6,8 +6,8 @@
 //! decisions the shell renders.
 
 use super::{
-    android_without_video, arguments_body, failure_body, public_failure, screenshot_note, summary,
-    with_guidance, without_video,
+    android_without_video, arguments_body, failure_body, public_failure, public_words,
+    screenshot_note, summary, with_guidance, without_video,
 };
 use crate::error::{DeviceErrorCode, DeviceFailure};
 use ace_json::{JsString, Number, Value, json};
@@ -368,6 +368,106 @@ fn a_detail_keeps_utf16_units_and_is_left_out_when_empty() {
 
     // An empty message leaves no detail key at all.
     assert!(body(JsString::empty().clone()).get("detail").is_none());
+}
+
+#[test]
+fn a_permission_refusal_takes_its_hint_from_the_shared_error_catalog() {
+    // Both permission hints are authored once, in the MCP catalog the TypeScript and
+    // Rust share, so a settings path cannot drift between the backends.
+    let catalog =
+        ace_json::parse(include_str!("../../../../../catalog/errors.json")).expect("errors.json");
+    let hints = catalog
+        .get("permissionHints")
+        .and_then(Value::as_object)
+        .expect("errors.json names the permission hints");
+    for (permission, key) in [
+        (
+            crate::error::DevicePermission::ScreenRecording,
+            "screenRecording",
+        ),
+        (
+            crate::error::DevicePermission::Accessibility,
+            "accessibility",
+        ),
+    ] {
+        let expected = hints
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("errors.json names no {key} hint"));
+        let failure = DeviceFailure {
+            code: DeviceErrorCode::PermissionDenied,
+            message: JsString::from("the helper said something private"),
+            hint: JsString::from("a device hint"),
+            permission: Some(permission),
+            platform: None,
+        };
+        let body = failure_body(&failure, true);
+        assert_eq!(
+            body.get("hint").and_then(Value::as_str),
+            Some(expected),
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn every_simulator_failure_code_has_its_public_words() {
+    let catalog = ace_mcp::catalog::catalog().expect("the embedded catalog parses");
+    // Every code a `DeviceFailure` can carry has a catalog entry, so a body never has
+    // to reach for the device's own words.
+    for code in [
+        DeviceErrorCode::SdkMissing,
+        DeviceErrorCode::ToolMissing,
+        DeviceErrorCode::NotSupported,
+        DeviceErrorCode::ForegroundRequired,
+        DeviceErrorCode::NotFound,
+        DeviceErrorCode::NotBooted,
+        DeviceErrorCode::PermissionDenied,
+        DeviceErrorCode::Busy,
+        DeviceErrorCode::Timeout,
+        DeviceErrorCode::CommandFailed,
+        DeviceErrorCode::InvalidData,
+        DeviceErrorCode::LeaseRequired,
+        DeviceErrorCode::StaleRef,
+        DeviceErrorCode::Limit,
+        DeviceErrorCode::PersonBusy,
+    ] {
+        let failure = DeviceFailure {
+            code,
+            message: JsString::from("device-private-message"),
+            hint: JsString::from("device-private-hint"),
+            permission: None,
+            platform: None,
+        };
+        let public = public_failure(&failure, true).code;
+        let words = catalog
+            .errors
+            .get(public)
+            .unwrap_or_else(|| panic!("{} has no catalog entry", code.as_str()));
+        let body = failure_body(&failure, true);
+        assert_eq!(
+            body.get("message").and_then(Value::as_str),
+            Some(words.message.as_str()),
+            "{}",
+            code.as_str()
+        );
+        assert_eq!(
+            body.get("hint").and_then(Value::as_str),
+            Some(words.hint.as_str()),
+            "{}",
+            code.as_str()
+        );
+        assert!(!ace_json::to_string(&failure_body(&failure, false)).contains("device-private"));
+    }
+}
+
+#[test]
+fn a_code_the_catalog_lacks_says_the_catalog_is_incomplete() {
+    let catalog = ace_mcp::catalog::catalog().expect("the embedded catalog parses");
+    let words = public_words("no_such_public_code");
+    assert_eq!(words, catalog.fallbacks);
+    assert!(words.message.contains("catalog"));
+    assert!(words.hint.contains("Reinstall"));
 }
 
 #[test]
