@@ -26,7 +26,7 @@ pub const PART: &str = "pure";
 pub const ORIGIN_API_HOST: &str = "origin.cursor.com";
 
 /// Supported forge kinds (`ForgeKind`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ForgeKind {
     Github,
@@ -36,6 +36,14 @@ pub enum ForgeKind {
     Gitea,
     Forgejo,
     Origin,
+}
+
+impl<'de> Deserialize<'de> for ForgeKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        ForgeKind::parse_str(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown forge kind: {s}")))
+    }
 }
 
 impl ForgeKind {
