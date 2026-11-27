@@ -81,7 +81,27 @@ import Testing
         let local = try #require(port.updated.last)
         #expect(local.slot == 2 && local.state.seq == 42)
         #expect(local.state.rows?.map(\.id) == ["a"])
-        #expect(written == [MachineLockEntry(slot: 2, name: "Studio", seq: 42, rows: local.state.rows ?? [])])
+        #expect(written == [MachineLockEntry(slot: 2, name: "Studio", seq: 42, rows: local.state.rows ?? [], confirmed: true)])
+    }
+
+    @Test func workStillSyncingNeverReadsAsQuietEvenBesideAMatchingSnapshot() throws {
+        let port = FakeMachineActivity()
+        var written: [MachineLockEntry] = []
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, writeMachines: { written = $0 }, reloadWidgets: {}),
+                                now: { self.t0 }, sleep: { _ in })
+        let syncing = try LockRows.row("a", level: "quiet", icon: "none", confirmed: false)
+        hub.read = { ([.init(hostId: "studio", rows: [syncing], online: true, slot: 0)], [:]) }
+        hub.rebuild()
+        let shown = try #require(port.started.last?.state)
+        let entry = try #require(written.first)
+        #expect(!shown.settled && entry.seq == shown.seq && !entry.confirmed)
+        let look = MachineActivityLook(state: shown, snapshot: entry, stale: false)
+        #expect(look.headline == MachineActivityLook.unknown)
+        #expect(!look.summary.current)
+        // Even a confirmed snapshot can't make busy content with nothing counted read as quiet.
+        var confirmed = entry
+        confirmed.confirmed = true
+        #expect(MachineActivityLook(state: shown, snapshot: confirmed, stale: false).headline != "Nothing needs you")
     }
 
     @Test func twoBusyMachinesEachGetTheirOwnActivity() throws {

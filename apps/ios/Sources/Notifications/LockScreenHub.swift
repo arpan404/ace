@@ -182,7 +182,7 @@ import WidgetKit
         let seq = MachineActivityPlan.localSeq(shown: shown, written: sent[slot]?.state.seq)
         let state = MachineActivityPlan.local(content, seq: seq, at: at)
         entries[slot] = MachineLockEntry(slot: slot, name: machine.name, seq: seq, rows: content.rows,
-                                         request: summary.current ? content.request : nil)
+                                         request: summary.current ? content.request : nil, confirmed: summary.current)
         let stale = at.addingTimeInterval(MachineActivityPlan.staleAfter)
         switch step {
         case .none: return

@@ -43,6 +43,9 @@ struct MachineLockEntry: Codable, Hashable, Sendable {
     let seq: Int
     let rows: [LockRow]
     var request: LockRequest? = nil
+    /// Every row was confirmed by the machine when written. A matching `seq` says only that
+    /// the rows go with the counts, never that the machine is quiet.
+    var confirmed = false
 }
 
 /// The app-group file the machine activities read their names and rows from. Bounded, and
@@ -93,16 +96,20 @@ struct MachineActivityLook {
     var summary: LockSummary {
         LockSummary(needsYou: state.needsYou, working: state.working, failed: state.failed, waiting: state.waiting,
                     limited: state.limited, background: state.background, rows: rows, request: request,
-                    current: !stale && matched != nil, live: true, busy: !state.settled, updatedAt: state.computedAt)
+                    current: !stale && matched?.confirmed == true, live: true, busy: !state.settled, updatedAt: state.computedAt)
     }
-    /// "1 needs you · 2 working"; once settled, what finished ("3 done · 1 failed").
+    /// "1 needs you · 2 working"; once settled, what finished ("3 done · 1 failed"). Busy with
+    /// nothing counted (rows still syncing, a wake grace) can't say quiet: only `settled` can.
     var headline: String {
         if state.settled {
             let parts = [(state.done, "done"), (state.failed, "failed")].filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
             return parts.isEmpty ? "Nothing needs you" : parts.joined(separator: " · ")
         }
-        return summary.headline
+        let parts = summary.parts
+        return parts.isEmpty ? Self.unknown : parts.joined(separator: " · ")
     }
+    /// The headline while busy with nothing counted.
+    static let unknown = "Open ace to check"
     /// After the headline: "as of 7:26 AM" past the stale date, a nudge to open ace when the
     /// snapshot doesn't go with these counts, else the machine's name.
     var note: String {
