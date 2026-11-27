@@ -1215,3 +1215,64 @@ fn a_failed_start_releases_what_it_prepared_and_a_repaired_restart_runs() {
     );
     service.stop();
 }
+
+#[test]
+fn a_malformed_set_enabled_request_is_refused_before_it_can_pause_a_live_job() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let run = service
+        .trigger("triage", "first", variables("issues"), "manual", None)
+        .expect("run");
+    let run_id = run_id(&run);
+    service.take_actions();
+
+    // A missing flag is not false: it must not pause the automation and cancel its run.
+    for fields in [
+        r#""id":"triage""#,
+        r#""id":"triage","enabled":"false""#,
+        r#""id":"triage","enabled":0"#,
+        r#""id":"triage","enabled":null"#,
+    ] {
+        let refused = service.handle(&json(&format!(
+            r#"{{"type":"automation.setEnabled","requestId":"bad",{fields}}}"#
+        )));
+        assert_eq!(bv(&refused, "ok"), Some(false), "{fields}");
+        assert_eq!(sv(&refused, "error"), Some("Invalid automation request"));
+    }
+    assert_eq!(
+        sv(
+            &service.inbox(50, None, None, None).expect("inbox").0[0],
+            "status"
+        ),
+        Some("running"),
+        "the run was not cancelled"
+    );
+    assert!(service.take_actions().is_empty());
+
+    // An unreadable revision is refused rather than becoming a blind write.
+    let refused = service.handle(&json(
+        r#"{"type":"automation.setEnabled","requestId":"bad-cas","id":"triage","enabled":false,"expectedRevision":"1"}"#,
+    ));
+    assert_eq!(bv(&refused, "ok"), Some(false), "{refused:?}");
+    assert_eq!(
+        sv(
+            &service.inbox(50, None, None, None).expect("inbox").0[0],
+            "status"
+        ),
+        Some("running"),
+        "no blind pause"
+    );
+
+    // A well-formed request still pauses and cancels.
+    let paused = service.handle(&json(
+        r#"{"type":"automation.setEnabled","requestId":"ok","id":"triage","enabled":false,"expectedRevision":1}"#,
+    ));
+    assert_eq!(bv(&paused, "ok"), Some(true), "{paused:?}");
+    assert!(
+        service
+            .take_actions()
+            .iter()
+            .any(|action| matches!(action, Action::Interrupt { run_id: id, .. } if id == &run_id))
+    );
+}

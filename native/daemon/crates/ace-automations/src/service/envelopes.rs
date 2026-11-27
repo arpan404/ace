@@ -24,95 +24,99 @@ impl<'a> Service<'a> {
             .unwrap_or("")
             .to_owned();
         let kind = object.get("type").and_then(Value::as_str).unwrap_or("");
-        let outcome =
-            (|| -> Result<Map> {
-                let mut result = Map::new();
-                result.insert("type", Value::String("automation.result".into()));
-                result.insert("requestId", Value::String(request_id.as_str().into()));
-                match kind {
-                    "automation.put" => {
-                        let automation = object.get("automation").ok_or_else(|| {
-                            AutomationsError::message("Invalid automation request")
-                        })?;
-                        let definition = Definition::normalize(automation)?;
-                        let expected = expected_revision(object.get("expectedRevision"))?;
-                        self.put(&definition, expected)?;
-                    }
-                    "automation.remove" => {
-                        let id = object.get("id").and_then(Value::as_str).ok_or_else(|| {
-                            AutomationsError::message("Invalid automation request")
-                        })?;
-                        self.remove(id, expected_revision(object.get("expectedRevision"))?)?;
-                    }
-                    "automation.setEnabled" => {
-                        let id = object.get("id").and_then(Value::as_str).ok_or_else(|| {
-                            AutomationsError::message("Invalid automation request")
-                        })?;
-                        let enabled = object
-                            .get("enabled")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false);
-                        let expected = object.get("expectedRevision").and_then(Value::as_i64);
-                        self.set_enabled(id, enabled, expected)?;
-                    }
-                    "automation.retry" => {
-                        let id = object.get("id").and_then(Value::as_str).ok_or_else(|| {
-                            AutomationsError::message("Invalid automation request")
-                        })?;
-                        let expected = object.get("expectedRevision").and_then(Value::as_i64);
-                        self.retry(id, expected)?;
-                    }
-                    "automation.run" => {
-                        let id = object.get("id").and_then(Value::as_str).ok_or_else(|| {
-                            AutomationsError::message("Invalid automation request")
-                        })?;
-                        let key = format!("manual:{request_id}");
-                        let variables = variables(object.get("variables"))?;
-                        let note = object.get("message").and_then(Value::as_str);
-                        let run = self.trigger(id, &key, variables, "manual", note)?;
-                        result.insert("run", run);
-                    }
-                    "automation.list" => {
-                        let jobs = self.store.list()?;
-                        let runs: HashMap<String, Value> =
-                            self.store.latest_runs()?.into_iter().collect();
-                        let automations: Vec<Value> = jobs
-                            .iter()
-                            .map(|job| serialize_value(&job.automation))
-                            .collect::<Result<_>>()?;
-                        let schedules: Vec<Value> = jobs
-                            .iter()
-                            .map(|job| {
-                                schedule_entry(job, self.lives.live(), runs.get(&job.automation.id))
-                            })
-                            .collect();
-                        result.insert("automations", Value::Array(automations.into()));
-                        result.insert("schedules", Value::Array(schedules.into()));
-                    }
-                    "automation.inbox" => {
-                        let limit = object
-                            .get("limit")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(50)
-                            .clamp(1, 100) as usize;
-                        let before = object.get("before").and_then(Value::as_i64);
-                        let automation_id = object.get("automationId").and_then(Value::as_str);
-                        let finished_after = object.get("finishedAfter").and_then(Value::as_i64);
-                        let (runs, next) =
-                            self.inbox(limit, before, automation_id, finished_after)?;
-                        let mut inbox = Map::new();
-                        inbox.insert("runs", Value::Array(runs.into()));
-                        inbox.insert(
-                            "before",
-                            next.map_or(Value::Null, |value| Value::Number(value.into())),
-                        );
-                        result.insert("inbox", Value::Object(inbox));
-                    }
-                    _ => return Err(AutomationsError::message("Invalid automation request")),
+        let outcome = (|| -> Result<Map> {
+            let mut result = Map::new();
+            result.insert("type", Value::String("automation.result".into()));
+            result.insert("requestId", Value::String(request_id.as_str().into()));
+            match kind {
+                "automation.put" => {
+                    let automation = object
+                        .get("automation")
+                        .ok_or_else(|| AutomationsError::message("Invalid automation request"))?;
+                    let definition = Definition::normalize(automation)?;
+                    let expected = expected_revision(object.get("expectedRevision"))?;
+                    self.put(&definition, expected)?;
                 }
-                result.insert("ok", Value::Bool(true));
-                Ok(result)
-            })();
+                "automation.remove" => {
+                    let id = object
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| AutomationsError::message("Invalid automation request"))?;
+                    self.remove(id, expected_revision(object.get("expectedRevision"))?)?;
+                }
+                "automation.setEnabled" => {
+                    let id = object
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| AutomationsError::message("Invalid automation request"))?;
+                    // A missing or non-boolean flag is a malformed request, never a pause:
+                    // defaulting it to false would stop a live job and cancel its run.
+                    let enabled = object
+                        .get("enabled")
+                        .and_then(Value::as_bool)
+                        .ok_or_else(|| AutomationsError::message("Invalid automation request"))?;
+                    let expected = optional_revision(object.get("expectedRevision"))?;
+                    self.set_enabled(id, enabled, expected)?;
+                }
+                "automation.retry" => {
+                    let id = object
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| AutomationsError::message("Invalid automation request"))?;
+                    let expected = optional_revision(object.get("expectedRevision"))?;
+                    self.retry(id, expected)?;
+                }
+                "automation.run" => {
+                    let id = object
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| AutomationsError::message("Invalid automation request"))?;
+                    let key = format!("manual:{request_id}");
+                    let variables = variables(object.get("variables"))?;
+                    let note = object.get("message").and_then(Value::as_str);
+                    let run = self.trigger(id, &key, variables, "manual", note)?;
+                    result.insert("run", run);
+                }
+                "automation.list" => {
+                    let jobs = self.store.list()?;
+                    let runs: HashMap<String, Value> =
+                        self.store.latest_runs()?.into_iter().collect();
+                    let automations: Vec<Value> = jobs
+                        .iter()
+                        .map(|job| serialize_value(&job.automation))
+                        .collect::<Result<_>>()?;
+                    let schedules: Vec<Value> = jobs
+                        .iter()
+                        .map(|job| {
+                            schedule_entry(job, self.lives.live(), runs.get(&job.automation.id))
+                        })
+                        .collect();
+                    result.insert("automations", Value::Array(automations.into()));
+                    result.insert("schedules", Value::Array(schedules.into()));
+                }
+                "automation.inbox" => {
+                    let limit = object
+                        .get("limit")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(50)
+                        .clamp(1, 100) as usize;
+                    let before = object.get("before").and_then(Value::as_i64);
+                    let automation_id = object.get("automationId").and_then(Value::as_str);
+                    let finished_after = object.get("finishedAfter").and_then(Value::as_i64);
+                    let (runs, next) = self.inbox(limit, before, automation_id, finished_after)?;
+                    let mut inbox = Map::new();
+                    inbox.insert("runs", Value::Array(runs.into()));
+                    inbox.insert(
+                        "before",
+                        next.map_or(Value::Null, |value| Value::Number(value.into())),
+                    );
+                    result.insert("inbox", Value::Object(inbox));
+                }
+                _ => return Err(AutomationsError::message("Invalid automation request")),
+            }
+            result.insert("ok", Value::Bool(true));
+            Ok(result)
+        })();
         match outcome {
             Ok(result) => Value::Object(result),
             Err(error) => result_error(&request_id, &error.to_string()),
@@ -137,6 +141,19 @@ fn expected_revision(value: Option<&Value>) -> Result<Option<Option<i64>>> {
             .as_i64()
             .map(|revision| Some(Some(revision)))
             .ok_or_else(|| AutomationsError::message("Invalid automation request")),
+    }
+}
+
+/// An optional compare-and-swap revision. Anything but an absent or positive integer is a
+/// malformed request: reading an unparseable one as absent would turn a CAS into a blind write.
+fn optional_revision(value: Option<&Value>) -> Result<Option<i64>> {
+    match value {
+        None => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .filter(|revision| *revision > 0)
+            .ok_or_else(|| AutomationsError::message("Invalid automation request"))
+            .map(Some),
     }
 }
 
