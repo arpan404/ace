@@ -319,6 +319,14 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
   `AggregateError` before `assignController` runs, so the cleanup failure answers a hand-back or a
   drop that landed meanwhile; Rust answers `controlChanged` for the assignment whose revision moved
   while its cleanup failed, and lets the failure win only for a disable, which moves the generation.
+- **D4, an agent dropped during its claim's cleanup.** TypeScript keeps the bind guard until the
+  cleanup settles, so the device stays reserved for a continuation whose agent is gone; Rust
+  retires the claim's reservation when its owner is dropped, and the late successful continuation
+  is refused `controlChanged` and assigns nothing.
+- **D4, the pending controller a claim sees.** TypeScript's `claimForAgent` checks the live lease
+  only, so a claim that lands while a takeover's input is being released can reach
+  `assertEnabled` and answer `devicesDisabled`; Rust keeps the pending controller and its kind,
+  and answers `personControlling` or `otherAgentUsing` for the window instead.
 - **D4, a disable's delayed completion.** TypeScript clears `completed` and `recordingArtifact` after
   the stop's await without checking the epoch, so a recording published after devices come back is
   erased; Rust carries the disable's epoch and clears only the recording its own disable left.
