@@ -134,9 +134,13 @@ export interface KeyWay {
   next: string;
 }
 
+/** Providers whose key hand-off fails without the service it's for (`upstream`). */
+const needsUpstream = new Set<Provider>(["pi"]);
+
 /**
  * The key ways the daemon reports for this provider, the same capability the web reads. OpenCode
  * takes keys in its own sign-in terminal and Antigravity signs in with Google, as on the web.
+ * Pi stores a key only for a named service, so it offers none until the daemon lists services.
  */
 export function keyWays(provider: Provider, support: z.infer<typeof ApiKeySupport>): KeyWay[] {
   if (!support.supported || provider === "opencode" || provider === "antigravity") return [];
@@ -154,7 +158,8 @@ export function keyWays(provider: Provider, support: z.infer<typeof ApiKeySuppor
     const parsed = ApiKeyUpstream.safeParse(entry);
     return parsed.success ? [parsed.data] : [];
   });
-  return upstreams.length ? upstreams.map(offer) : [offer(null)];
+  if (upstreams.length) return upstreams.map(offer);
+  return needsUpstream.has(provider) ? [] : [offer(null)];
 }
 
 /** The line for a provider that takes keys when this phone can't hand one over: it's direct. */
