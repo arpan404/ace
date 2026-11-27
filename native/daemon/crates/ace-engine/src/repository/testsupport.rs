@@ -110,6 +110,8 @@ pub(crate) struct Shell {
     cancelled: RefCell<Vec<u64>>,
     /// What `onError` was told.
     reports: RefCell<Vec<String>>,
+    /// The events `writeEvents` handed the store, in order.
+    events: RefCell<Vec<(String, String, f64)>>,
     /// `admits`'s answer, the calls it saw, and the call number it starts throwing at.
     admits_answer: Cell<Option<bool>>,
     admits_calls: Cell<u32>,
@@ -198,6 +200,11 @@ impl Shell {
         self.reports.borrow().clone()
     }
 
+    /// The event batches `writeEvents` recorded: thread, payloads JSON, time.
+    pub fn events(&self) -> Vec<(String, String, f64)> {
+        self.events.borrow().clone()
+    }
+
     /// What `admits` answers; `None` is yes, as the port's default is.
     pub fn answer_admits(&self, answer: Option<bool>) {
         self.admits_answer.set(answer);
@@ -231,6 +238,7 @@ impl Shell {
             next_timer: Cell::new(0),
             cancelled: RefCell::new(Vec::new()),
             reports: RefCell::new(Vec::new()),
+            events: RefCell::new(Vec::new()),
             admits_answer: Cell::new(None),
             admits_calls: Cell::new(0),
             admits_throw_from: Cell::new(None),
@@ -377,7 +385,10 @@ impl Ports for Shell {
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
     fn finish_close(&self) {}
-    fn write_events(&self, _thread: &str, _payloads: &str, _at: f64) -> Result<(), PortError> {
+    fn write_events(&self, thread: &str, payloads: &str, at: f64) -> Result<(), PortError> {
+        self.events
+            .borrow_mut()
+            .push((thread.to_owned(), payloads.to_owned(), at));
         Ok(())
     }
     fn head_seq(&self) -> Result<f64, PortError> {

@@ -13,6 +13,7 @@ use ace_json::Value;
 use std::collections::HashSet;
 
 use crate::repository::collaborators::AccessFacts;
+use crate::text::utf16_prefix;
 use crate::{Core, EngineError, State};
 
 /// The catalog entry an ace tool call earns (`ApprovalTarget` in `@ace/mcp-server`).
@@ -67,6 +68,260 @@ impl AceAction {
         }
         Value::Object(value)
     }
+}
+
+/// `bareToolName` (`@ace/provider-kit`): the name without ace's server or legacy prefixes.
+pub fn bare_tool_name(name: &str) -> &str {
+    let mut bare = name.strip_prefix("mcp__ace__").unwrap_or(name);
+    while let Some(rest) = bare.strip_prefix("ace_") {
+        bare = rest;
+    }
+    bare
+}
+
+/// `dispatchedAceCall`: a `tools_call` runs its target's bare name and arguments; anything else,
+/// a malformed dispatch, or a meta tool comes back as it arrived.
+fn dispatched_ace_call(name: &str, input: Option<&Value>) -> (String, Option<Value>) {
+    if bare_tool_name(name) != "tools_call" {
+        return (name.to_owned(), input.cloned());
+    }
+    let Some(Value::Object(object)) = input else {
+        return (name.to_owned(), input.cloned());
+    };
+    let Some(target) = object.get("name").and_then(Value::as_str) else {
+        return (name.to_owned(), input.cloned());
+    };
+    let bare = bare_tool_name(target);
+    if bare == "tools_call" || bare == "tools_find" {
+        return (name.to_owned(), input.cloned());
+    }
+    let arguments = object
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(ace_json::Map::new()));
+    (bare.to_owned(), Some(arguments))
+}
+
+/// `aceToolAction` (`@ace/mcp-server`): ace's catalog entry for a tool call, with its arguments
+/// validated against the catalog's input schema. Undefined for a tool ace doesn't serve or
+/// arguments its schema refuses.
+pub fn ace_tool_action(name: &str, input: Option<&Value>) -> Option<AceAction> {
+    let (name, input) = dispatched_ace_call(name, input);
+    let bare = bare_tool_name(&name);
+    let catalog = ace_mcp::catalog::catalog().ok()?;
+    let tool = catalog.tools.iter().find(|tool| tool.name == bare)?;
+    // The catalog validates an object schema, so an absent input is refused, as zod's
+    // `safeParse(undefined)` is.
+    let input = input?;
+    if !schema_valid(&tool.input, &input) {
+        return None;
+    }
+    Some(describe_ace_action(
+        bare,
+        &tool.description,
+        &tool.risk_class,
+        &input,
+    ))
+}
+
+/// The keys `describeAceAction` repeats as the person's target.
+const SCOPE_KEYS: [&str; 20] = [
+    "threadId",
+    "workspaceId",
+    "provider",
+    "model",
+    "role",
+    "streamId",
+    "simId",
+    "appId",
+    "url",
+    "ref",
+    "action",
+    "interaction",
+    "sessionId",
+    "tabId",
+    "key",
+    "machine",
+    "parcelId",
+    "remote",
+    "project",
+    "repo",
+];
+
+/// `describeAceAction` (`@ace/mcp-server/action-target.ts`): the approval target a catalog entry
+/// shows the person, with the exact risk adjustments and the 2048-unit description bound.
+fn describe_ace_action(
+    tool: &str,
+    description: &str,
+    risk_class: &str,
+    input: &Value,
+) -> AceAction {
+    let mut risk = risk_class.to_owned();
+    if tool == "screen_measure" && input.get("action").is_none() {
+        risk = "read-only".to_owned();
+    }
+    if tool == "browser_measure" && input.get("interaction").is_none() {
+        risk = "read-only".to_owned();
+    }
+    if tool == "browser_history" && input.get("direction").is_none() {
+        risk = "read-only".to_owned();
+    }
+    if tool == "browser_tabs"
+        && input
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("list")
+            == "list"
+    {
+        risk = "read-only".to_owned();
+    }
+    if tool == "browser_settings"
+        && input.get("action").and_then(Value::as_str) == Some("extensions")
+    {
+        risk = "read-only".to_owned();
+    }
+    let mut scope = ace_json::Map::new();
+    if let Some(object) = input.as_object() {
+        for (key, value) in object {
+            if SCOPE_KEYS.contains(&key.as_str()) {
+                scope.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    let suffix = if scope.is_empty() {
+        String::new()
+    } else {
+        format!(" Target: {}.", ace_json::to_string(&Value::Object(scope)))
+    };
+    let access = if risk == "read-only" {
+        "read"
+    } else if risk == "agent-execution" {
+        "execute"
+    } else {
+        "write"
+    };
+    AceAction {
+        tool: tool.to_owned(),
+        origin: Some("ace".to_owned()),
+        description: Some(utf16_prefix(&format!("{description}{suffix}"), 2048).to_owned()),
+        risk_class: Some(risk),
+        command: None,
+        cwd: None,
+        paths: None,
+        access: access.to_owned(),
+        input: Some(input.clone()),
+    }
+}
+
+/// The subset of JSON Schema `tools.json` carries, validated the way the TypeScript's strict zod
+/// objects are: an unknown property is refused unless the schema allows additionals.
+fn schema_valid(schema: &Value, value: &Value) -> bool {
+    if let Some(any) = schema.get("anyOf").and_then(Value::as_array)
+        && !any.iter().any(|schema| schema_valid(schema, value))
+    {
+        return false;
+    }
+    if let Some(constant) = schema.get("const")
+        && constant != value
+    {
+        return false;
+    }
+    if let Some(values) = schema.get("enum").and_then(Value::as_array)
+        && !values.iter().any(|candidate| candidate == value)
+    {
+        return false;
+    }
+    if let Some(kind) = schema.get("type").and_then(Value::as_str) {
+        let matches = match kind {
+            "object" => value.as_object().is_some(),
+            "array" => value.as_array().is_some(),
+            "string" => value.as_str().is_some(),
+            "boolean" => value.as_bool().is_some(),
+            "number" => value.as_f64().is_some(),
+            "integer" => value.as_f64().is_some_and(|number| number.fract() == 0.0),
+            "null" => value.is_null(),
+            _ => true,
+        };
+        if !matches {
+            return false;
+        }
+    }
+    if let Some(number) = value.as_f64() {
+        if let Some(minimum) = schema.get("minimum").and_then(Value::as_f64)
+            && number < minimum
+        {
+            return false;
+        }
+        if let Some(exclusive) = schema.get("exclusiveMinimum").and_then(Value::as_f64)
+            && number <= exclusive
+        {
+            return false;
+        }
+        if let Some(maximum) = schema.get("maximum").and_then(Value::as_f64)
+            && number > maximum
+        {
+            return false;
+        }
+    }
+    if let Some(items) = schema.get("items")
+        && let Some(array) = value.as_array()
+        && !array.iter().all(|item| schema_valid(items, item))
+    {
+        return false;
+    }
+    if let Some(array) = value.as_array() {
+        if let Some(max) = schema.get("maxItems").and_then(Value::as_f64)
+            && array.len() as f64 > max
+        {
+            return false;
+        }
+        if let Some(min) = schema.get("minItems").and_then(Value::as_f64)
+            && (array.len() as f64) < min
+        {
+            return false;
+        }
+    }
+    let Some(object) = value.as_object() else {
+        return true;
+    };
+    let properties = schema.get("properties").and_then(Value::as_object);
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        for key in required {
+            let Some(key) = key.as_str() else {
+                continue;
+            };
+            if !object.contains_key(key) {
+                return false;
+            }
+        }
+    }
+    let additional = schema.get("additionalProperties");
+    let property_names = schema.get("propertyNames");
+    for (key, item) in object {
+        if let Some(field) = properties.and_then(|properties| properties.get(key)) {
+            if !schema_valid(field, item) {
+                return false;
+            }
+            continue;
+        }
+        match additional {
+            None | Some(Value::Bool(false)) => return false,
+            Some(Value::Bool(true)) => {}
+            Some(schema) => {
+                if !schema_valid(schema, item) {
+                    return false;
+                }
+            }
+        }
+    }
+    if let Some(names) = property_names {
+        for key in object.keys() {
+            if !schema_valid(names, &Value::from(key.as_str())) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// The agent's one in-flight call to ace's own MCP server, preferring the named tool.
@@ -437,14 +692,15 @@ impl AccessFacts for State {
     }
 
     /// `interactions.closed`: the facts a settled interaction emits.
-    fn interactions_closed(&mut self, event: &Value) -> Result<Vec<Value>, EngineError> {
+    fn interactions_closed(
+        &mut self,
+        thread: &str,
+        event: &mut Value,
+    ) -> Result<Vec<Value>, EngineError> {
         let Some(core) = self.approval_core()? else {
             return Ok(Vec::new());
         };
-        let Some(thread) = ledger::event_thread(&core.store, event)? else {
-            return Ok(Vec::new());
-        };
-        let Some(snapshot) = self.repo.state(&core.store, &thread)? else {
+        let Some(snapshot) = self.repo.state(&core.store, thread)? else {
             return Ok(Vec::new());
         };
         let facts = ledger::closed(&core.store, &mut snapshot.borrow_mut().state, event)?;
@@ -459,18 +715,18 @@ impl AccessFacts for State {
         ledger::observe(&core.store, thread, events)
     }
 
-    /// `attributeAceAction`: the binding supplies the catalog entry (`options.aceToolAction`).
-    fn attribute_ace_action(&mut self, _thread: &str, fact: Value) -> Result<Value, EngineError> {
-        // The pure port is `attribute_ace_action` above; the binding that owns the
-        // `aceToolAction` object port calls it. Until that port is bound the frame must fail
-        // rather than silently drop ace's attribution.
-        if self.repo.probe_passthrough {
+    /// `attributeAceAction`: the embedded MCP catalog answers, with no JavaScript port.
+    fn attribute_ace_action(&mut self, thread: &str, fact: Value) -> Result<Value, EngineError> {
+        let Some(core) = self.approval_core()? else {
             return Ok(fact);
-        }
-        Err(EngineError::not_ported(
-            "an ace action's attribution",
-            "E5.7",
-        ))
+        };
+        let snapshot = self.repo.require_state(&core.store, thread)?;
+        let borrowed = snapshot.borrow();
+        let attributed =
+            crate::approvals::attribute_ace_action(&borrowed.state, fact, &|tool, input| {
+                ace_tool_action(tool, input)
+            });
+        Ok(attributed)
     }
 }
 
@@ -652,6 +908,60 @@ mod tests {
             access: "read".to_owned(),
             ..AceAction::default()
         }
+    }
+
+    #[test]
+    fn the_embedded_catalog_resolves_ace_actions_and_refuses_invalid_arguments() {
+        let read = ace_tool_action(
+            "thread_read",
+            Some(&ace_json::parse(r#"{"threadId":"child"}"#).unwrap()),
+        )
+        .expect("thread_read");
+        assert_eq!(read.tool, "thread_read");
+        assert_eq!(read.origin.as_deref(), Some("ace"));
+        assert_eq!(read.risk_class.as_deref(), Some("read-only"));
+        assert_eq!(read.access, "read");
+        let description = read.description.as_deref().unwrap_or_default();
+        assert!(description.starts_with("Read a thread"));
+        assert!(
+            description.contains(r#"Target: {"threadId":"child"}."#),
+            "{description}"
+        );
+
+        // zod's strict object refuses the unknown `execute` property.
+        assert!(
+            ace_tool_action(
+                "thread_read",
+                Some(&ace_json::parse(r#"{"threadId":"child","execute":"rm"}"#).unwrap())
+            )
+            .is_none()
+        );
+        // A required argument is missing.
+        assert!(
+            ace_tool_action("automation_remove", Some(&ace_json::parse("{}").unwrap())).is_none()
+        );
+        // A `tools_call` is approved as the call it runs.
+        let dispatched = ace_tool_action(
+            "tools_call",
+            Some(
+                &ace_json::parse(r#"{"name":"automation_remove","arguments":{"id":"nightly"}}"#)
+                    .unwrap(),
+            ),
+        )
+        .expect("dispatched");
+        assert_eq!(dispatched.tool, "automation_remove");
+        assert_eq!(dispatched.risk_class.as_deref(), Some("thread-write"));
+        assert_eq!(dispatched.access, "write");
+        // A tool ace doesn't serve.
+        assert!(ace_tool_action("not_a_tool", Some(&ace_json::parse("{}").unwrap())).is_none());
+    }
+
+    #[test]
+    fn tool_names_read_bare_across_the_provider_prefixes() {
+        assert_eq!(bare_tool_name("mcp__ace__thread_read"), "thread_read");
+        assert_eq!(bare_tool_name("ace_thread_read"), "thread_read");
+        assert_eq!(bare_tool_name("thread_read"), "thread_read");
+        assert_eq!(bare_tool_name("ace_ace_context"), "context");
     }
 
     #[test]

@@ -12,14 +12,40 @@ use crate::State;
 use crate::inputs::provisional_title::{UNTITLED_THREAD, provisional_title};
 use crate::repository::residency::{cell_int, text};
 
-const SEQS: &str = "SELECT created_seq FROM items WHERE thread_id=? AND json_extract(item,'$.type')='message' AND json_extract(item,'$.role')='user'
-  AND COALESCE(json_extract(item,'$.synthetic'),0)=0
-  AND COALESCE(json_extract(item,'$.origin.kind'),'person') IN ('person','queue') AND created_seq > ? ORDER BY created_seq LIMIT 64";
+/// The creation index walk. It names no JSON predicate: the deferred partial index
+/// (`engine_first_person_input`) is not built at open on an old home, and a predicate without it
+/// rescans the thread's rows for every page. `items_thread_creation` bounds the page, and the
+/// person-input test runs on the item already loaded.
+const SEQS: &str = "SELECT created_seq FROM items WHERE thread_id=? AND created_seq > ? ORDER BY created_seq LIMIT 64";
+
+/// `title-input.ts`'s person-input predicate, applied to the loaded item: a user message ace
+/// did not synthesize, from the person or the queue.
+fn person_input(item: &Value) -> bool {
+    if item.get("type").and_then(Value::as_str) != Some("message")
+        || item.get("role").and_then(Value::as_str) != Some("user")
+    {
+        return false;
+    }
+    if item.get("synthetic").and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    match item
+        .get("origin")
+        .and_then(|origin| origin.get("kind"))
+        .and_then(Value::as_str)
+    {
+        None | Some("person" | "queue") => true,
+        Some(_) => false,
+    }
+}
 
 /// The page budget `oldestTitleInput` reads one item with (`title-input.ts:22`).
 const PAGE_BYTES: i64 = 256 * 1024;
 /// The person-input sequences one page of the index walk holds (`intents.ts`'s page size).
 const PAGE: usize = 64;
+/// The most items one title lookup reads before it gives up (ADR 0170: bounded per call). A
+/// thread still without a real input after this many rows keeps `Untitled`.
+pub const TITLE_SEARCH_BUDGET: usize = 4096;
 
 impl State {
     /// `oldestTitleInput` (`title-input.ts:17`): seek the first real prose input, skipping empty
@@ -30,14 +56,33 @@ impl State {
         store: &EngineStore,
         thread: &str,
     ) -> Result<Option<Value>, EngineError> {
+        Ok(self
+            .oldest_title_input_with_budget(store, thread, TITLE_SEARCH_BUDGET)?
+            .0)
+    }
+
+    /// `oldestTitleInput` with an explicit row budget. The returned count is the items read, so
+    /// a test can prove a no-match history stops at the bound.
+    pub fn oldest_title_input_with_budget(
+        &mut self,
+        store: &EngineStore,
+        thread: &str,
+        budget: usize,
+    ) -> Result<(Option<Value>, usize), EngineError> {
         let mut after = 0;
+        let mut seen = 0usize;
         loop {
+            if seen >= budget {
+                return Ok((None, seen));
+            }
             let rows =
                 stmt_cache::all_rows(store.conn(), SEQS, vec![text(thread), Cell::Integer(after)])?;
             if rows.is_empty() {
-                return Ok(None);
+                return Ok((None, seen));
             }
-            for row in &rows {
+            let take = rows.len().min(budget - seen);
+            seen += take;
+            for row in &rows[..take] {
                 let Some(seq) = row.get("created_seq").and_then(cell_int) else {
                     continue;
                 };
@@ -47,7 +92,7 @@ impl State {
                 let Some(item) = page.into_iter().next() else {
                     continue;
                 };
-                if item.get("type").and_then(Value::as_str) != Some("message") {
+                if !person_input(&item) {
                     continue;
                 }
                 let Some(list) = item
@@ -58,7 +103,7 @@ impl State {
                     continue;
                 };
                 if provisional_title(&list, UNTITLED_THREAD).as_str() != UNTITLED_THREAD {
-                    return Ok(Some(Value::Array(list.into())));
+                    return Ok((Some(Value::Array(list.into())), seen));
                 }
             }
             let last = rows
@@ -66,7 +111,7 @@ impl State {
                 .and_then(|row| row.get("created_seq").and_then(cell_int))
                 .unwrap_or(after);
             if rows.len() < PAGE || last <= after {
-                return Ok(None);
+                return Ok((None, seen));
             }
             after = last;
         }
@@ -129,6 +174,44 @@ mod tests {
                 .expect("read")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn without_the_title_index_the_walk_stays_bounded_and_still_finds_the_person_input() {
+        let conn = home("t", &crate::repository::testsupport::header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        conn.exec("DROP INDEX engine_first_person_input")
+            .expect("the deferred index is absent");
+        for seq in 1..=200 {
+            insert(&conn, &format!("input:{seq}"), seq, "[file: a.png]", 100);
+        }
+        insert(&conn, "input:queued", 201, "the real one", 100);
+        let parts = state
+            .oldest_title_input(&store, "t")
+            .expect("read")
+            .expect("parts");
+        let text = parts
+            .as_array()
+            .and_then(|parts| parts.first())
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str);
+        assert_eq!(text, Some("the real one"));
+    }
+
+    #[test]
+    fn a_thread_with_no_person_input_stops_at_the_call_budget() {
+        let conn = home("t", &crate::repository::testsupport::header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        for seq in 1..=200 {
+            insert(&conn, &format!("input:{seq}"), seq, "[file: a.png]", 100);
+        }
+        let (found, seen) = state
+            .oldest_title_input_with_budget(&store, "t", 100)
+            .expect("read");
+        assert!(found.is_none());
+        assert_eq!(seen, 100, "the walk stopped at its row budget");
     }
 
     #[test]

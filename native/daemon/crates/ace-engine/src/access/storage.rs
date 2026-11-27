@@ -16,9 +16,6 @@ use crate::repository::residency::cell_text;
 const READ: &str = "SELECT override,effective,parent,ceiling_provider,ceiling_mode,ceiling_identity FROM engine_permissions WHERE thread_id=?";
 const ENSURE: &str = "INSERT OR IGNORE INTO engine_permissions(thread_id,override,effective,parent) VALUES (?,?,?,NULL)";
 
-/// The four ace modes (`AccessMode`).
-const MODES: [&str; 4] = ["read-only", "ask", "auto-review", "full-access"];
-
 /// One thread's stored permission row (`permission-storage.ts:8`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PermissionRecord {
@@ -64,7 +61,7 @@ impl PermissionState {
 
 fn mode(stored: Option<&str>) -> Option<String> {
     stored
-        .filter(|value| MODES.contains(value))
+        .filter(|value| crate::access::modes::is_access_mode(value))
         .map(str::to_owned)
 }
 
@@ -95,7 +92,7 @@ pub fn permission_state(record: &PermissionRecord) -> PermissionState {
     }
 }
 
-fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
+pub(crate) fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
     row.get(column).and_then(cell_text).map(str::to_owned)
 }
 
@@ -138,88 +135,198 @@ pub fn ensure(
     state(store, id)
 }
 
-/// `migratePermissions` (`permission-storage.ts:54`): map every stored selection onto the four
-/// ace modes once, and republish threads whose permission state changed, so clients never read a
-/// native id as an ace mode.
+/// The marker a completed permission-mode fill leaves (`upgrade_cleanup`), so a restarted daemon
+/// never walks the rows again.
+pub(crate) const PERMISSION_FILL_DONE: &str = "engine-permission-modes-v1";
+
+/// The fill's batch size (ADR 0170: idle, bounded, resumable).
+pub const PERMISSION_FILL_BATCH: usize = 256;
+
+const PERMISSION_FILL_DONE_SQL: &str = "SELECT 1 FROM upgrade_cleanup WHERE id=?";
+const PERMISSION_PAGE: &str =
+    "SELECT * FROM engine_permissions WHERE thread_id > ? ORDER BY thread_id LIMIT ?";
+
+/// Whether the one-time permission-mode fill already completed on this home.
+pub fn permission_fill_done(store: &EngineStore) -> Result<bool, EngineError> {
+    Ok(stmt_cache::get_row(
+        store.conn(),
+        PERMISSION_FILL_DONE_SQL,
+        vec![Cell::Text(PERMISSION_FILL_DONE.to_owned())],
+    )?
+    .is_some())
+}
+
+/// One bounded step of `migratePermissions` (`permission-storage.ts:54`): map at most `limit`
+/// stored selections onto the four ace modes, and republish threads whose permission state
+/// changed, so clients never read a native id as an ace mode. Returns the next cursor and
+/// whether the fill is done.
+pub fn migrate_permissions_step(
+    store: &EngineStore,
+    after: Option<&str>,
+    limit: usize,
+) -> Result<(Option<String>, bool), EngineError> {
+    if permission_fill_done(store)? {
+        return Ok((None, true));
+    }
+    let cursor = match after {
+        Some(after) => Some(after.to_owned()),
+        None => permission_cursor(store)?,
+    };
+    store.atomic(|_| {
+        let rows = stmt_cache::all_rows(
+            store.conn(),
+            PERMISSION_PAGE,
+            vec![
+                Cell::Text(cursor.clone().unwrap_or_default()),
+                Cell::Integer(limit as i64),
+            ],
+        )?;
+        let mut next = cursor;
+        for row in &rows {
+            let Some(id) = row_text(row, "thread_id") else {
+                continue;
+            };
+            migrate_permission_row(store, row, &id)?;
+            next = Some(id);
+        }
+        let done = rows.len() < limit;
+        if done {
+            clear_permission_cursor(store)?;
+            stmt_cache::run(
+                store.conn(),
+                "INSERT OR IGNORE INTO upgrade_cleanup VALUES (?)",
+                vec![Cell::Text(PERMISSION_FILL_DONE.to_owned())],
+            )?;
+        } else {
+            // The cursor commits with the rows it covers, so a crash resumes after them.
+            write_permission_cursor(store, next.as_deref())?;
+        }
+        Ok((next, done))
+    })
+}
+
+const PERMISSION_CURSOR: &str = "engine-permission-cursor:";
+const PERMISSION_CURSOR_SQL: &str =
+    "SELECT id FROM upgrade_cleanup WHERE id LIKE 'engine-permission-cursor:%' LIMIT 1";
+const PERMISSION_CURSOR_CLEAR: &str =
+    "DELETE FROM upgrade_cleanup WHERE id LIKE 'engine-permission-cursor:%'";
+const PERMISSION_CURSOR_WRITE: &str = "INSERT OR REPLACE INTO upgrade_cleanup VALUES (?)";
+
+fn permission_cursor(store: &EngineStore) -> Result<Option<String>, EngineError> {
+    let Some(row) = stmt_cache::get_row(store.conn(), PERMISSION_CURSOR_SQL, vec![])? else {
+        return Ok(None);
+    };
+    Ok(row_text(&row, "id").and_then(|id| id.strip_prefix(PERMISSION_CURSOR).map(str::to_owned)))
+}
+
+fn clear_permission_cursor(store: &EngineStore) -> Result<(), EngineError> {
+    stmt_cache::run(store.conn(), PERMISSION_CURSOR_CLEAR, vec![])?;
+    Ok(())
+}
+
+fn write_permission_cursor(store: &EngineStore, after: Option<&str>) -> Result<(), EngineError> {
+    clear_permission_cursor(store)?;
+    if let Some(after) = after {
+        stmt_cache::run(
+            store.conn(),
+            PERMISSION_CURSOR_WRITE,
+            vec![Cell::Text(format!("{PERMISSION_CURSOR}{after}"))],
+        )?;
+    }
+    Ok(())
+}
+
+/// `migratePermissions` for a caller that can afford the whole pass (tests and the opener's
+/// proof): repeated bounded steps until the done marker exists.
 pub fn migrate_permissions(store: &EngineStore) -> Result<(), EngineError> {
-    const ROWS: &str = "SELECT * FROM engine_permissions";
+    let mut after: Option<String> = None;
+    loop {
+        let (next, done) =
+            migrate_permissions_step(store, after.as_deref(), PERMISSION_FILL_BATCH)?;
+        if done {
+            return Ok(());
+        }
+        after = next;
+    }
+}
+
+fn migrate_permission_row(
+    store: &EngineStore,
+    row: &stmt_cache::Row,
+    id: &str,
+) -> Result<(), EngineError> {
     const THREAD: &str = "SELECT provider,provider_metadata,updated_at FROM threads WHERE id=?";
     const UPDATE: &str =
         "UPDATE engine_permissions SET override=?,effective=?,ceiling_mode=? WHERE thread_id=?";
-    store.atomic(|_| {
-        for row in stmt_cache::all_rows(store.conn(), ROWS, vec![])? {
-            let Some(id) = row_text(&row, "thread_id") else {
-                continue;
-            };
-            let Some(thread) =
-                stmt_cache::get_row(store.conn(), THREAD, vec![Cell::Text(id.clone())])?
-            else {
-                continue;
-            };
-            let Some(provider) = row_text(&thread, "provider") else {
-                continue;
-            };
-            let metadata =
-                row_text(&thread, "provider_metadata").and_then(|text| ace_json::parse(&text).ok());
-            let shown = metadata
-                .as_ref()
-                .and_then(|metadata| metadata.get("permission"))
-                .cloned();
-            let record = PermissionRecord {
-                override_mode: migrate_selection(&provider, row_text(&row, "override").as_deref()),
-                effective: migrate_selection(&provider, row_text(&row, "effective").as_deref()),
-                parent: row_text(&row, "parent"),
-                ceiling_provider: row_text(&row, "ceiling_provider"),
-                ceiling_mode: match row_text(&row, "ceiling_provider") {
-                    Some(ceiling) => {
-                        migrate_selection(&ceiling, row_text(&row, "ceiling_mode").as_deref())
-                    }
-                    None => None,
-                },
-                ceiling_identity: row_text(&row, "ceiling_identity"),
-            };
-            let changed = record.override_mode.as_deref() != row_text(&row, "override").as_deref()
-                || record.effective.as_deref() != row_text(&row, "effective").as_deref()
-                || record.ceiling_mode.as_deref() != row_text(&row, "ceiling_mode").as_deref();
-            if changed {
-                stmt_cache::run(
-                    store.conn(),
-                    UPDATE,
-                    vec![
-                        record
-                            .override_mode
-                            .as_deref()
-                            .map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
-                        record
-                            .effective
-                            .as_deref()
-                            .map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
-                        record
-                            .ceiling_mode
-                            .as_deref()
-                            .map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
-                        Cell::Text(id.clone()),
-                    ],
-                )?;
-            }
-            let permission = permission_state(&record);
-            let same = shown.as_ref().is_none_or(|shown| {
-                field(shown, "override") == permission.override_mode.as_deref()
-                    && field(shown, "effective") == permission.effective.as_deref()
-                    && field(shown, "custom") == permission.custom.as_deref()
-            });
-            if same {
-                continue;
-            }
-            let at = match thread.get("updated_at") {
-                Some(Cell::Integer(value)) => *value as f64,
-                Some(Cell::Real(value)) => *value,
-                _ => 0.0,
-            };
-            let payload = permission_event(&permission);
-            store.write_events(&id, &payload, at)?;
-        }
-        Ok(())
+    let Some(thread) = stmt_cache::get_row(store.conn(), THREAD, vec![Cell::Text(id.to_owned())])?
+    else {
+        return Ok(());
+    };
+    let Some(provider) = row_text(&thread, "provider") else {
+        return Ok(());
+    };
+    let metadata =
+        row_text(&thread, "provider_metadata").and_then(|text| ace_json::parse(&text).ok());
+    let shown = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("permission"))
+        .cloned();
+    let record = PermissionRecord {
+        override_mode: migrate_selection(&provider, row_text(row, "override").as_deref()),
+        effective: migrate_selection(&provider, row_text(row, "effective").as_deref()),
+        parent: row_text(row, "parent"),
+        ceiling_provider: row_text(row, "ceiling_provider"),
+        ceiling_mode: match row_text(row, "ceiling_provider") {
+            Some(ceiling) => migrate_selection(&ceiling, row_text(row, "ceiling_mode").as_deref()),
+            None => None,
+        },
+        ceiling_identity: row_text(row, "ceiling_identity"),
+    };
+    let changed = record.override_mode.as_deref() != row_text(row, "override").as_deref()
+        || record.effective.as_deref() != row_text(row, "effective").as_deref()
+        || record.ceiling_mode.as_deref() != row_text(row, "ceiling_mode").as_deref();
+    if changed {
+        stmt_cache::run(
+            store.conn(),
+            UPDATE,
+            vec![
+                record
+                    .override_mode
+                    .as_deref()
+                    .map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
+                record
+                    .effective
+                    .as_deref()
+                    .map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
+                record
+                    .ceiling_mode
+                    .as_deref()
+                    .map_or(Cell::Null, |value| Cell::Text(value.to_owned())),
+                Cell::Text(id.to_owned()),
+            ],
+        )?;
+    }
+    let permission = permission_state(&record);
+    if !permission_published(shown.as_ref(), &permission) {
+        return Ok(());
+    }
+    let at = match thread.get("updated_at") {
+        Some(Cell::Integer(value)) => *value as f64,
+        Some(Cell::Real(value)) => *value,
+        _ => 0.0,
+    };
+    let payload = permission_event(&permission);
+    store.write_events(id, &payload, at)
+}
+
+/// Whether the mapped state is news to clients. A thread that displayed no permission before the
+/// mapping never read as an ace mode, so the mapped state publishes; only an identical displayed
+/// state skips.
+fn permission_published(shown: Option<&Value>, permission: &PermissionState) -> bool {
+    shown.is_none_or(|shown| {
+        field(shown, "override") != permission.override_mode.as_deref()
+            || field(shown, "effective") != permission.effective.as_deref()
+            || field(shown, "custom") != permission.custom.as_deref()
     })
 }
 
@@ -227,7 +334,7 @@ fn field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn permission_event(state: &PermissionState) -> String {
+pub(crate) fn permission_event(state: &PermissionState) -> String {
     let mut event = ace_json::Map::new();
     event.insert("type", Value::from("thread.updated"));
     event.insert("permission", state.to_json());
@@ -257,6 +364,65 @@ mod tests {
                 .to_string(),
             "{\"override\":null,\"effective\":null,\"pending\":false}"
         );
+    }
+
+    #[test]
+    fn a_mapped_permission_publishes_a_thread_updated_event_through_the_writer() {
+        let conn = home("pub", &crate::repository::testsupport::header("pub"));
+        conn.exec(
+            "INSERT INTO engine_permissions VALUES ('pub','acceptEdits','acceptEdits',NULL,NULL,NULL,NULL);",
+        )
+        .unwrap();
+        let (store, shell) = Shell::store_with_controls(&conn);
+        migrate_permissions_step(&store, None, PERMISSION_FILL_BATCH).expect("fill");
+        let events = shell.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "pub");
+        assert!(
+            events[0].1.contains(r#""permission":{"override":"auto-review","effective":"auto-review","pending":false}"#),
+            "{}",
+            events[0].1
+        );
+    }
+
+    #[test]
+    fn a_thread_with_no_displayed_permission_still_publishes_its_mapped_state() {
+        let permission = permission_state(&PermissionRecord {
+            override_mode: Some("auto-review".into()),
+            effective: Some("auto-review".into()),
+            ..PermissionRecord::default()
+        });
+        assert!(permission_published(None, &permission));
+        let shown = ace_json::parse(
+            r#"{"override":"auto-review","effective":"auto-review","pending":false}"#,
+        )
+        .unwrap();
+        assert!(!permission_published(Some(&shown), &permission));
+        let stale = ace_json::parse(r#"{"override":"ask","effective":"ask"}"#).unwrap();
+        assert!(permission_published(Some(&stale), &permission));
+    }
+
+    #[test]
+    fn a_stored_selection_migrates_to_its_ace_mode_and_a_custom_one_stays() {
+        // `permission-storage.ts:23`: native ids map once; an ace value or a `custom:` stays.
+        assert_eq!(
+            migrate_selection("claude", Some("plan")).as_deref(),
+            Some("read-only")
+        );
+        assert_eq!(
+            migrate_selection("claude", Some("acceptEdits")).as_deref(),
+            Some("auto-review")
+        );
+        assert_eq!(
+            migrate_selection("claude", Some("full-access")).as_deref(),
+            Some("full-access")
+        );
+        assert_eq!(
+            migrate_selection("claude", Some("custom:dontAsk")).as_deref(),
+            Some("custom:dontAsk")
+        );
+        assert_eq!(migrate_selection("pi", Some("unrestricted")), None);
+        assert_eq!(migrate_selection("claude", None), None);
     }
 
     #[test]

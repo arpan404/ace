@@ -8,17 +8,18 @@
 //! Open-time work stays bounded (ADR 0170): the history-sized passes the TypeScript constructors
 //! run (the queue-row backfill, the orphaned-input delete, the cursor-empty migration, the
 //! interaction backfill and the readiness rebuild) belong to E5.3's idle fills and are not run
-//! here. The permission row migration is E5.7's own and runs once per open over
-//! `engine_permissions` (one row per thread), as the TypeScript does.
+//! here. The permission row mapping is an idle fill too (`fills`), and the two partial indexes
+//! (`engine_first_person_input`, `thread_liveness_candidates`) are not built at all: a
+//! whole-table index build is not a bounded step, and their readers are bounded instead.
 
 pub mod ddl;
+pub mod fills;
 
 #[cfg(test)]
 mod tests;
 
 use ace_store::{Value as Cell, stmt_cache};
 
-use crate::access::storage;
 use crate::repository::residency::cell_text;
 use crate::{EngineError, EngineStore};
 
@@ -61,14 +62,13 @@ pub fn open(store: &EngineStore) -> Result<(), EngineError> {
     // `indexEngineRecords(store)`.
     atomic(store, |tx| tx.conn().exec(ddl::RECORD_INDEXES))?;
     // `migrateEmptyCursorThreads`: E5.3's idle fill (`cursor-empty`).
-    // `AttachmentCorrelations` and `indexTitleInputs`.
+    // `AttachmentCorrelations`. The title-input index is not built: the title walk is bounded
+    // per call, and the TypeScript opener may build its index when it opens the home.
     atomic(store, |tx| tx.conn().exec(ddl::ATTACHMENT_INPUTS))?;
-    atomic(store, |tx| tx.conn().exec(ddl::TITLE_INDEX))?;
     // The interaction and task entity index (`repository.ts:126`).
     atomic(store, |tx| tx.conn().exec(ddl::ENTITY_INDEX))?;
-    // `Permissions`: the table, then the one-time selection mapping.
+    // `Permissions`: the table; its one-time selection mapping is deferred to the idle fill.
     atomic(store, |tx| tx.conn().exec(ddl::PERMISSIONS))?;
-    storage::migrate_permissions(store)?;
     // `workspaceReservations.initializeSessions`: E5.3's fill (`workspace-sessions`).
     atomic(store, |tx| tx.conn().exec(ddl::SESSIONS_INDEX))?;
     // `ProviderRecovery`: its table; its cursor passes stay the Cursor item's reads.

@@ -49,6 +49,46 @@ pub struct Identity {
 }
 
 impl Identity {
+    /// `PermissionPolicyIdentity.parse` (`permissions.ts:6`-`:14`): a provider and backend from
+    /// their enums; every present id is 1–256 UTF-16 units (`AcpIdentity`'s bound); an ACP policy
+    /// carries all three ids.
+    pub fn valid(&self) -> bool {
+        const PROVIDERS: [&str; 7] = [
+            "claude",
+            "codex",
+            "opencode",
+            "cursor",
+            "pi",
+            "acp",
+            "antigravity",
+        ];
+        if !PROVIDERS.contains(&self.provider.as_str()) {
+            return false;
+        }
+        if let Some(backend) = self.backend.as_deref()
+            && backend != "acp"
+            && backend != "cursor-sdk"
+        {
+            return false;
+        }
+        let valid_id = |field: &Option<String>| {
+            field.as_deref().is_none_or(|value| {
+                let units = value.encode_utf16().count();
+                (1..=256).contains(&units)
+            })
+        };
+        if !valid_id(&self.acp_agent_id)
+            || !valid_id(&self.installation_id)
+            || !valid_id(&self.instance_id)
+        {
+            return false;
+        }
+        self.provider != "acp"
+            || (self.acp_agent_id.is_some()
+                && self.installation_id.is_some()
+                && self.instance_id.is_some())
+    }
+
     pub fn new(provider: &str) -> Identity {
         Identity {
             provider: provider.to_owned(),
@@ -673,6 +713,32 @@ mod tests {
             nearest_offer("read-only", &offers_of("pi", None)).map(|offer| offer.mode.as_str()),
             Some("read-only")
         );
+    }
+
+    #[test]
+    fn a_policy_identity_checks_its_enums_and_the_256_unit_id_bound() {
+        let acp = |agent: &str| Identity {
+            provider: "acp".to_owned(),
+            acp_agent_id: Some(agent.to_owned()),
+            installation_id: Some("installed".to_owned()),
+            instance_id: Some("one:default".to_owned()),
+            ..Identity::default()
+        };
+        // 128 astral characters are 256 UTF-16 units: the bound, not 256 characters.
+        assert!(acp(&"😀".repeat(128)).valid());
+        assert!(!acp(&"😀".repeat(129)).valid());
+        assert!(!acp("").valid());
+        assert!(!Identity::new("bogus").valid());
+        let mut backend = Identity::new("claude");
+        backend.backend = Some("bogus".to_owned());
+        assert!(!backend.valid());
+        backend.backend = Some("cursor-sdk".to_owned());
+        backend.instance_id = Some("x".repeat(257));
+        assert!(!backend.valid());
+        // Other providers may carry an ACP id, but it obeys the same bound.
+        backend.instance_id = Some("work".to_owned());
+        backend.acp_agent_id = Some("😀".repeat(129));
+        assert!(!backend.valid());
     }
 
     #[test]

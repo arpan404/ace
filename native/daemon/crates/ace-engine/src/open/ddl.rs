@@ -12,8 +12,6 @@ pub(crate) const CLEANUP: &str = r#"
       thread_id TEXT PRIMARY KEY REFERENCES threads(id), owner TEXT NOT NULL REFERENCES thread_cleanup(thread_id)
     );
     CREATE INDEX IF NOT EXISTS thread_cleanup_owner ON thread_cleanup_members(owner);
-    CREATE INDEX IF NOT EXISTS thread_liveness_candidates ON threads(id)
-      WHERE json_extract(client,'$.deletedAt') IS NULL AND json_extract(status,'$.state') NOT IN ('new','done','failed');
   "#;
 
 /// `AceInputs` (`ace-inputs.ts`): the outcomes ace recorded for its own inputs.
@@ -87,11 +85,6 @@ pub(crate) const ATTACHMENT_INPUTS: &str = r#"CREATE TABLE IF NOT EXISTS engine_
       sha256 TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(thread_id,sha256)
     ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS engine_attachment_read_paths ON engine_attachment_paths(thread_id,path);"#;
-
-/// `indexTitleInputs` (`title-input.ts:12`).
-pub(crate) const TITLE_INDEX: &str = r#"CREATE INDEX IF NOT EXISTS engine_first_person_input ON items(thread_id,created_seq) WHERE json_extract(item,'$.type')='message' AND json_extract(item,'$.role')='user'
-  AND COALESCE(json_extract(item,'$.synthetic'),0)=0
-  AND COALESCE(json_extract(item,'$.origin.kind'),'person') IN ('person','queue')"#;
 
 /// The interaction and task entity index (`repository.ts:126`).
 pub(crate) const ENTITY_INDEX: &str = r#"CREATE INDEX IF NOT EXISTS engine_entity_ids ON engine_state_records(thread_id,section,json_extract(value,'$.id')) WHERE section IN ('interactions','tasks')"#;

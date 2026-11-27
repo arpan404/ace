@@ -9,23 +9,24 @@
 
 use ace_json::Value;
 use ace_store::{Value as Cell, stmt_cache};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
+use crate::access::ceiling::thread_facts;
 use crate::access::modes::{
-    AccessSelection, Identity, Policy, allowed_child_modes, ceiling_mode, custom_native,
-    custom_selection, inherited_permission_mode, native_for, nearest_offer, offers_of,
-    permission_within_ceiling, supports_permission_mode,
+    AccessSelection, custom_native, custom_selection, native_for, nearest_offer, offers_of,
+    supports_permission_mode,
 };
-use crate::access::storage::{self, PermissionRecord, PermissionState};
+use crate::access::storage::{self, PermissionRecord, PermissionState, permission_event};
 use crate::access::{AccessDefaults, AccessError};
-use crate::repository::residency::cell_text;
 use crate::{EngineError, EngineStore, State, ThreadId};
 
 const UPDATE_OVERRIDE: &str = "UPDATE engine_permissions SET override=? WHERE thread_id=?";
 const UPDATE_EFFECTIVE: &str = "UPDATE engine_permissions SET effective=? WHERE thread_id=?";
 const UPDATE_BOTH: &str = "UPDATE engine_permissions SET override=?, effective=? WHERE thread_id=?";
-const UPDATE_PARENT: &str = "UPDATE engine_permissions SET parent=?,ceiling_provider=?,ceiling_mode=?,ceiling_identity=? WHERE thread_id=?";
-const CHILDREN: &str = "SELECT thread_id FROM engine_permissions WHERE parent=?";
+
+fn text_cell(value: Option<&str>) -> Cell {
+    value.map_or(Cell::Null, |text| Cell::Text(text.to_owned()))
+}
 
 /// Each accepted choice's revision, so an acknowledgement can tell it is about an older one.
 #[derive(Debug, Default)]
@@ -55,175 +56,7 @@ pub struct ResolvedAccess {
     pub revision: u64,
 }
 
-/// Why a child's access was refused, with the modes the target would accept (`CeilingRefusal`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CeilingRefusal {
-    pub provider: String,
-    pub mode: Option<AccessSelection>,
-    pub allowed: Vec<String>,
-    /// The request is broader than the parent, or the target doesn't offer it.
-    pub reason: &'static str,
-    pub offered: Vec<String>,
-}
-
-impl CeilingRefusal {
-    pub fn to_json(&self) -> Value {
-        let mut value = ace_json::Map::new();
-        value.insert("provider", Value::from(self.provider.as_str()));
-        value.insert(
-            "mode",
-            self.mode.as_deref().map_or(Value::Null, Value::from),
-        );
-        value.insert(
-            "allowed",
-            Value::Array(
-                self.allowed
-                    .iter()
-                    .map(|mode| Value::from(mode.as_str()))
-                    .collect::<Vec<_>>()
-                    .into(),
-            ),
-        );
-        value.insert("reason", Value::from(self.reason));
-        value.insert(
-            "offered",
-            Value::Array(
-                self.offered
-                    .iter()
-                    .map(|mode| Value::from(mode.as_str()))
-                    .collect::<Vec<_>>()
-                    .into(),
-            ),
-        );
-        Value::Object(value)
-    }
-}
-
-fn thread_row(store: &EngineStore, id: &str) -> Result<Option<Value>, EngineError> {
-    store
-        .get_thread(id)?
-        .map(|text| ace_json::parse(&text).map_err(|error| EngineError::Records(error.to_string())))
-        .transpose()
-}
-
-fn capability_field<'a>(thread: &'a Option<Value>, key: &str) -> Option<&'a Value> {
-    let thread = thread.as_ref()?;
-    thread
-        .get("effectiveCapabilities")
-        .or_else(|| thread.get("capabilities"))
-        .and_then(|capabilities| capabilities.get(key))
-}
-
-fn identity_from_row(thread: &Value) -> Identity {
-    let acp = thread.get("acp");
-    let text = |key: &str| {
-        thread
-            .get(key)
-            .and_then(Value::as_str)
-            .or_else(|| acp.and_then(|acp| acp.get(key)).and_then(Value::as_str))
-            .map(str::to_owned)
-    };
-    let provider = thread
-        .get("provider")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    Identity {
-        provider,
-        backend: thread
-            .get("backend")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        acp_agent_id: text("acpAgentId"),
-        installation_id: text("installationId"),
-        instance_id: text("instanceId"),
-    }
-}
-
-fn policy_json(identity: &Identity, mode: Option<&str>) -> Value {
-    let mut value = ace_json::Map::new();
-    value.insert("provider", Value::from(identity.provider.as_str()));
-    if let Some(backend) = &identity.backend {
-        value.insert("backend", Value::from(backend.as_str()));
-    }
-    if let Some(acp) = &identity.acp_agent_id {
-        value.insert("acpAgentId", Value::from(acp.as_str()));
-    }
-    if let Some(installation) = &identity.installation_id {
-        value.insert("installationId", Value::from(installation.as_str()));
-    }
-    if let Some(instance) = &identity.instance_id {
-        value.insert("instanceId", Value::from(instance.as_str()));
-    }
-    if let Some(mode) = mode {
-        value.insert("mode", Value::from(mode));
-    }
-    Value::Object(value)
-}
-
-fn policy_from_json(value: &Value) -> Result<Policy, EngineError> {
-    let provider = value
-        .get("provider")
-        .and_then(Value::as_str)
-        .ok_or_else(|| EngineError::Records("Invalid permission policy identity".to_owned()))?;
-    let identity = Identity {
-        provider: provider.to_owned(),
-        backend: value
-            .get("backend")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        acp_agent_id: value
-            .get("acpAgentId")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        installation_id: value
-            .get("installationId")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        instance_id: value
-            .get("instanceId")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    };
-    Ok(Policy::new(
-        identity,
-        value.get("mode").and_then(Value::as_str),
-    ))
-}
-
-fn text_cell(value: Option<&str>) -> Cell {
-    value.map_or(Cell::Null, |text| Cell::Text(text.to_owned()))
-}
-
-fn row_text(row: &stmt_cache::Row, column: &str) -> Option<String> {
-    row.get(column).and_then(cell_text).map(str::to_owned)
-}
-
 impl State {
-    fn permission_provider(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-    ) -> Result<String, EngineError> {
-        let snapshot = self.repo.require_state(store, id)?;
-        Ok(snapshot.borrow().state.config.provider.clone())
-    }
-
-    fn permission_offers(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-        provider: &str,
-    ) -> Result<Vec<crate::access::Offer>, EngineError> {
-        let row = thread_row(store, id)?;
-        let capabilities = capability_field(&row, "accessModes").map(|modes| {
-            let mut value = ace_json::Map::new();
-            value.insert("accessModes", modes.clone());
-            Value::Object(value)
-        });
-        Ok(offers_of(provider, capabilities.as_ref()))
-    }
-
     /// `Permissions.read` for the state functions that take the store directly.
     pub fn permission_record(
         &mut self,
@@ -265,231 +98,6 @@ impl State {
         self.permissions.revision(id)
     }
 
-    /// `Permissions.identity`: the policy identity a thread's session runs under.
-    fn permission_identity(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-        provider: &str,
-    ) -> Result<Identity, EngineError> {
-        let row = thread_row(store, id)?
-            .ok_or_else(|| EngineError::Records("permission_thread_not_found".to_owned()))?;
-        let session = crate::sessions::metadata::session(store, id)?;
-        let backend = self.backend(store, id)?;
-        if provider == "acp" {
-            let from_row = identity_from_row(&row);
-            let instance = session.instance_id.or_else(|| from_row.instance_id.clone());
-            Ok(Identity {
-                provider: "acp".to_owned(),
-                backend,
-                acp_agent_id: from_row.acp_agent_id,
-                installation_id: from_row.installation_id,
-                instance_id: instance,
-            })
-        } else {
-            Ok(Identity {
-                provider: provider.to_owned(),
-                backend,
-                acp_agent_id: None,
-                installation_id: None,
-                instance_id: Some(
-                    session
-                        .instance_id
-                        .unwrap_or_else(|| format!("{provider}-cli-default")),
-                ),
-            })
-        }
-    }
-
-    /// `Permissions.ceilingSelection`: a thread's own mode for its children, the stricter side of
-    /// a pending change.
-    fn permission_ceiling_selection(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-    ) -> Result<Option<String>, EngineError> {
-        let record = storage::read(store, id)?;
-        Ok(ceiling_mode(
-            record.effective.as_deref(),
-            record.override_mode.as_deref(),
-        ))
-    }
-
-    /// `Permissions.contained`: `selected` within the thread's ancestry.
-    fn permission_contained(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-        provider: &str,
-        selected: Option<AccessSelection>,
-        offers: &[crate::access::Offer],
-        depth: u32,
-    ) -> Result<Option<AccessSelection>, EngineError> {
-        let record = storage::read(store, id)?;
-        let Some(parent) = record.parent.as_deref() else {
-            return Ok(selected);
-        };
-        if depth >= 64 {
-            return Err(EngineError::Records(
-                "Permission ancestry exceeds capacity".to_owned(),
-            ));
-        }
-        let identity = self.permission_identity(store, id, provider)?;
-        let ceiling = self.permission_ceiling(store, parent, depth + 1)?;
-        let mut mode = selected.clone();
-        if !permission_within_ceiling(&ceiling, &Policy::new(identity.clone(), mode.as_deref())) {
-            let inherited = inherited_permission_mode(&ceiling, &identity, offers);
-            match inherited {
-                None => {
-                    return Err(EngineError::Records(
-                        "permission_ceiling_unverifiable".to_owned(),
-                    ));
-                }
-                Some(mode_inherited) => mode = mode_inherited,
-            }
-        }
-        let ceiling_ok = match record.ceiling_identity.as_deref() {
-            None => false,
-            Some(text) => {
-                let parsed = ace_json::parse(text)
-                    .map_err(|error| EngineError::Records(error.to_string()))?;
-                let policy = policy_from_json(&parsed)?;
-                permission_within_ceiling(
-                    &Policy::new(policy.identity, record.ceiling_mode.as_deref()),
-                    &Policy::new(identity, mode.as_deref()),
-                )
-            }
-        };
-        if !ceiling_ok {
-            return Err(EngineError::Records(
-                "permission_ceiling_unverifiable".to_owned(),
-            ));
-        }
-        Ok(mode)
-    }
-
-    /// `Permissions.ceiling`: the policy `parent`'s children are contained by, its ancestors
-    /// included.
-    fn permission_ceiling(
-        &mut self,
-        store: &EngineStore,
-        parent: &str,
-        depth: u32,
-    ) -> Result<Policy, EngineError> {
-        let row = thread_row(store, parent)?
-            .ok_or_else(|| EngineError::Records("permission_parent_not_found".to_owned()))?;
-        let provider = row
-            .get("provider")
-            .and_then(Value::as_str)
-            .ok_or_else(|| EngineError::Records("permission_parent_not_found".to_owned()))?
-            .to_owned();
-        let identity = self.permission_identity(store, parent, &provider)?;
-        let selected = self.permission_ceiling_selection(store, parent)?;
-        let offers = self.permission_offers(store, parent, &provider)?;
-        let mode = self.permission_contained(store, parent, &provider, selected, &offers, depth)?;
-        Ok(Policy::new(identity, mode.as_deref()))
-    }
-
-    /// `Permissions.within`: whether `selection` is no broader than the ancestry allows now.
-    pub fn permission_within(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-        selection: Option<&str>,
-    ) -> Result<bool, EngineError> {
-        let provider = self.permission_provider(store, id)?;
-        let offers = self.permission_offers(store, id, &provider)?;
-        Ok(self
-            .permission_contained(
-                store,
-                id,
-                &provider,
-                selection.map(str::to_owned),
-                &offers,
-                0,
-            )?
-            .as_deref()
-            == selection)
-    }
-
-    /// `Permissions.descendants`: every thread whose access is contained by `id`'s, nearest first.
-    pub fn permission_descendants(
-        &mut self,
-        store: &EngineStore,
-        id: &str,
-    ) -> Result<Vec<ThreadId>, EngineError> {
-        let mut found = Vec::new();
-        let mut seen: HashSet<String> = HashSet::from([id.to_owned()]);
-        let mut level = vec![id.to_owned()];
-        for _ in 0..64 {
-            if level.is_empty() {
-                break;
-            }
-            let mut next = Vec::new();
-            for parent in level {
-                let rows = stmt_cache::all_rows(store.conn(), CHILDREN, vec![Cell::Text(parent)])?;
-                for row in rows {
-                    let Some(child) = row_text(&row, "thread_id") else {
-                        continue;
-                    };
-                    if !seen.insert(child.clone()) {
-                        continue;
-                    }
-                    found.push(child.clone());
-                    next.push(child);
-                }
-            }
-            level = next;
-        }
-        Ok(found)
-    }
-
-    /// `Permissions.parent`: record a child's ancestry and the ceiling its parent grants.
-    pub fn permission_parent(
-        &mut self,
-        store: &EngineStore,
-        child: &str,
-        parent: &str,
-        _at: f64,
-    ) -> Result<(), EngineError> {
-        if child == parent {
-            return Err(EngineError::Records("Permission ancestry cycle".to_owned()));
-        }
-        storage::ensure(store, child, None)?;
-        let row = thread_row(store, parent)?;
-        let provider = row
-            .as_ref()
-            .and_then(|row| row.get("provider"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| EngineError::Records("permission_parent_not_found".to_owned()))?;
-        let identity = self.permission_identity(store, parent, provider)?;
-        let mode = self.permission_ceiling_selection(store, parent)?;
-        let encoded = ace_json::to_string(&policy_json(&identity, None));
-        store.atomic(|_| {
-            let existing = storage::read(store, child)?;
-            if let Some(existing_parent) = existing.parent.as_deref()
-                && existing_parent != parent
-            {
-                return Err(EngineError::Records("Permission owner conflict".to_owned()));
-            }
-            if existing.parent.is_none() {
-                stmt_cache::run(
-                    store.conn(),
-                    UPDATE_PARENT,
-                    vec![
-                        Cell::Text(parent.to_owned()),
-                        Cell::Text(provider.to_owned()),
-                        text_cell(mode.as_deref()),
-                        Cell::Text(encoded.clone()),
-                        Cell::Text(child.to_owned()),
-                    ],
-                )?;
-            }
-            Ok(())
-        })
-    }
-
-    /// `Permissions.hold`: a host thread's mode, its own effective mode at once.
     pub fn permission_hold(
         &mut self,
         store: &EngineStore,
@@ -522,80 +130,6 @@ impl State {
     }
 
     /// `Permissions.refusal`: why a child's access was refused.
-    pub fn permission_refusal(
-        &mut self,
-        store: &EngineStore,
-        parent: &str,
-        identity: &Identity,
-        offers: &[crate::access::Offer],
-        requested: Option<&str>,
-    ) -> Option<CeilingRefusal> {
-        let _ = identity;
-        let ceiling = self.permission_ceiling(store, parent, 0).ok()?;
-        let allowed = allowed_child_modes(&ceiling, offers);
-        let offered: Vec<String> = offers.iter().map(|offer| offer.mode.clone()).collect();
-        let reason = match requested {
-            Some(requested)
-                if requested != "inherit" && !offered.iter().any(|o| o == requested) =>
-            {
-                "access_unavailable"
-            }
-            Some(requested) if requested != "inherit" => "access_escalation_denied",
-            _ => "permission_ceiling_unverifiable",
-        };
-        Some(CeilingRefusal {
-            provider: ceiling.identity.provider,
-            mode: ceiling.mode,
-            allowed,
-            reason,
-            offered,
-        })
-    }
-
-    /// `Permissions.narrow`: a child's access under `parent`.
-    pub fn permission_narrow(
-        &mut self,
-        store: &EngineStore,
-        parent: &str,
-        identity: &Identity,
-        requested: Option<&str>,
-        offers: &[crate::access::Offer],
-    ) -> Result<Option<AccessSelection>, EngineError> {
-        let ceiling = self.permission_ceiling(store, parent, 0)?;
-        let requested = match requested {
-            None | Some("inherit") => {
-                let inherited = inherited_permission_mode(&ceiling, identity, offers);
-                match inherited {
-                    None => {
-                        return Err(AccessError::new(
-                            "permission_ceiling_unverifiable",
-                            "no offered mode fits",
-                        )
-                        .into());
-                    }
-                    Some(mode) => return Ok(mode),
-                }
-            }
-            Some(requested) => requested,
-        };
-        if !offers.iter().any(|offer| offer.mode == requested) {
-            return Err(AccessError::new(
-                "access_unavailable",
-                format!("{} doesn't offer {requested}", identity.provider),
-            )
-            .into());
-        }
-        if !permission_within_ceiling(&ceiling, &Policy::new(identity.clone(), Some(requested))) {
-            return Err(AccessError::new(
-                "access_escalation_denied",
-                format!("{requested} exceeds the parent"),
-            )
-            .into());
-        }
-        Ok(Some(requested.to_owned()))
-    }
-
-    /// `Permissions.set`: accept a choice, or say why it can't run.
     pub fn permission_set(
         &mut self,
         store: &EngineStore,
@@ -655,14 +189,11 @@ impl State {
     ) -> Result<ResolvedAccess, EngineError> {
         let provider = self.permission_provider(store, id)?;
         let revision = self.permission_revision(id);
-        let row = thread_row(store, id)?;
         let capabilities = native_capabilities.cloned().or_else(|| {
-            row.as_ref().and_then(|thread| {
-                thread
-                    .get("effectiveCapabilities")
-                    .or_else(|| thread.get("capabilities"))
-                    .cloned()
-            })
+            thread_facts(store, id)
+                .ok()
+                .flatten()
+                .and_then(|facts| facts.effective_capabilities.or(facts.capabilities))
         });
         let offers = offers_of(&provider, capabilities.as_ref());
         let mut wanted = None;
@@ -674,10 +205,10 @@ impl State {
             None
         } else {
             let override_value = storage::read(store, id)?.override_mode;
-            let requested = override_value
-                .as_deref()
+            let requested = storage::migrate_selection(&provider, override_value.as_deref())
                 .filter(|value| crate::access::modes::is_access_mode(value))
-                .unwrap_or(defaults.access.as_str());
+                .unwrap_or_else(|| defaults.access.clone());
+            let requested = requested.as_str();
             wanted = Some(requested.to_owned());
             let offer = nearest_offer(requested, &offers).ok_or_else(|| {
                 AccessError::new(
@@ -770,8 +301,9 @@ impl State {
         if revision != self.permission_revision(id) {
             return Ok(None);
         }
+        let provider = self.permission_provider(store, id)?;
         let requested = storage::read(store, id)?.override_mode;
-        let Some(requested) = requested
+        let Some(requested) = storage::migrate_selection(&provider, requested.as_deref())
             .filter(|value| crate::access::modes::is_access_mode(value))
             .filter(|value| Some(value.as_str()) != running)
             .filter(|_| custom_native(running).is_none())
@@ -929,13 +461,6 @@ impl State {
     }
 }
 
-fn permission_event(state: &PermissionState) -> String {
-    let mut event = ace_json::Map::new();
-    event.insert("type", Value::from("thread.updated"));
-    event.insert("permission", state.to_json());
-    ace_json::to_string(&Value::Array(vec![Value::Object(event)].into()))
-}
-
 fn command_result(command_id: &str, ok: bool, error: Option<&str>, thread_id: &str) -> Value {
     let mut value = ace_json::Map::new();
     value.insert("commandId", Value::from(command_id));
@@ -1072,6 +597,98 @@ mod tests {
         let shown = storage::permission_state(&record);
         assert_eq!(shown.effective, None);
         assert_eq!(shown.custom.as_deref(), Some("dontAsk"));
+    }
+
+    #[test]
+    fn an_unmapped_stored_selection_resolves_as_its_ace_mode_before_the_idle_fill() {
+        let (conn, store, mut state) = store_with_provider("legacy", "claude");
+        state.permission_ensure(&store, "legacy").expect("row");
+        conn.exec("UPDATE engine_permissions SET override='plan',effective='plan' WHERE thread_id='legacy'")
+            .unwrap();
+        let resolved = state
+            .permission_resolve(
+                &store,
+                "legacy",
+                &AccessDefaults {
+                    access: "full-access".to_owned(),
+                    custom: None,
+                },
+                None,
+            )
+            .expect("resolve");
+        assert_eq!(resolved.selection.as_deref(), Some("read-only"));
+        assert_eq!(resolved.wanted.as_deref(), Some("read-only"));
+        assert_eq!(resolved.native.as_deref(), Some("plan"));
+    }
+
+    #[test]
+    fn the_receipts_accept_types_apply_native_acknowledgements_and_report_unknown_threads() {
+        let (_conn, store, mut state) = store_with_provider("receipts", "claude");
+        let capabilities = ace_json::parse("{}").unwrap();
+        let set = ace_json::parse(
+            r#"{"id":"c1","payload":{"type":"thread.permission.set","threadId":"receipts","access":"full-access"}}"#,
+        )
+        .unwrap();
+        let result = state
+            .permission_accept(&store, &set, Some(&capabilities), 1.0)
+            .expect("accept")
+            .expect("result");
+        assert_eq!(result.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            state
+                .permission_state(&store, "receipts")
+                .expect("state")
+                .override_mode
+                .as_deref(),
+            Some("full-access")
+        );
+        // A native selector maps through the provider's offers.
+        let native = ace_json::parse(
+            r#"{"id":"c2","payload":{"type":"thread.mode.set","threadId":"receipts","mode":"plan"}}"#,
+        )
+        .unwrap();
+        let result = state
+            .permission_accept_native(&store, &native, Some(&capabilities), 2.0)
+            .expect("native")
+            .expect("result");
+        assert_eq!(result.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            state
+                .permission_state(&store, "receipts")
+                .expect("state")
+                .override_mode
+                .as_deref(),
+            Some("read-only")
+        );
+        state
+            .permission_applied_native(
+                &store,
+                "receipts",
+                Some("default"),
+                Some(&capabilities),
+                3.0,
+            )
+            .expect("applied");
+        assert_eq!(
+            state
+                .permission_state(&store, "receipts")
+                .expect("state")
+                .effective
+                .as_deref(),
+            Some("ask")
+        );
+        let missing = ace_json::parse(
+            r#"{"id":"c3","payload":{"type":"thread.permission.set","threadId":"absent","access":"ask"}}"#,
+        )
+        .unwrap();
+        let result = state
+            .permission_accept(&store, &missing, Some(&capabilities), 4.0)
+            .expect("missing")
+            .expect("result");
+        assert_eq!(
+            result.get("error").and_then(Value::as_str),
+            Some("thread_not_found")
+        );
     }
 
     #[test]

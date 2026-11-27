@@ -254,9 +254,12 @@ impl State {
                 events.extend(events_of(&core_events));
             }
             self.interactions_opened(id, &fact, generation)?;
-            for event in events.clone() {
-                if kind(&event) == "interaction.closed" {
-                    let settled = self.interactions_closed(&event)?;
+            for index in 0..events.len() {
+                if kind(&events[index]) != "interaction.closed" {
+                    continue;
+                }
+                {
+                    let settled = self.interactions_closed(id, &mut events[index])?;
                     let mut ids = StoreIds(store);
                     let mut context = ApplyContext {
                         now: now as i64,

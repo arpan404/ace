@@ -4,9 +4,12 @@
 //! change a thread's access. `approvals` holds ace's own approvals and the interaction ledger;
 //! `hosts` holds the daemon's host and guest threads.
 
+pub mod ceiling;
 pub mod modes;
 pub mod permissions;
+pub mod refusal;
 pub mod storage;
+pub mod target;
 
 pub use modes::{
     AccessSelection, Identity, Offer, Policy, access_mode_offers, allowed_child_modes,
@@ -15,7 +18,11 @@ pub use modes::{
     supports_permission_mode,
 };
 pub use permissions::{Permissions, ResolvedAccess};
+pub use refusal::CeilingRefusal;
 pub use storage::{PermissionRecord, PermissionState};
+pub use target::{
+    PermissionCatalog, Selection, access_mode, offered_modes, permission_target, target_instance,
+};
 
 /// The defaults a thread without its own choice follows: project, then this daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -284,8 +284,13 @@ pub trait AccessFacts: ProbeGate {
     ) -> Result<(), EngineError> {
         self.not_ported("an opened interaction", "E5.7", ())
     }
-    /// `interactions.closed`: the facts a settled interaction emits.
-    fn interactions_closed(&mut self, _event: &Value) -> Result<Vec<Value>, EngineError> {
+    /// `interactions.closed`: the facts a settled interaction emits, its event amended in place
+    /// (an expiry gains its reason before the event is stored).
+    fn interactions_closed(
+        &mut self,
+        _thread: &str,
+        _event: &mut Value,
+    ) -> Result<Vec<Value>, EngineError> {
         self.not_ported("a closed interaction", "E5.7", Vec::new())
     }
     /// `interactions.observe`.

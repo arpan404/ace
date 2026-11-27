@@ -399,6 +399,23 @@ itself. Every implementation keeps this order exactly; the status tests (section
   server reads on that call's row (`liveAceCall`, `engine/ace-approvals.ts:9`); host approvals
   (Spade, ADR 0121) go through `openHostApproval`/`resolveHostApproval`. Agents never answer
   approvals.
+- **The Rust opener's bounded work (intended difference, ADR 0170).** `ace-engine::open` creates
+  the permission table but does not map its rows. The mapping is an idle fill after `ready`: at
+  most 256 rows per step, read by primary-key range, with a cursor row in `upgrade_cleanup` that
+  commits in the same transaction as the rows it covers, and a done marker when finished. A
+  restart resumes at the cursor. Until a row is mapped, every policy read (resolution, the
+  ceiling's running and requested sides, the stored ceiling and an unhonoured choice) maps the
+  stored native id to its ace mode first, so an unmapped Claude `plan` reads `read-only`, never
+  the more permissive default. The table is one row per thread; every step is bounded.
+  The Rust opener does not build `engine_first_person_input` or `thread_liveness_candidates`:
+  a whole-table index build is not a bounded step. The title lookup pages
+  `items_thread_creation` and stops at 4,096 items read per call, applying the person-input
+  predicate in Rust; a thread with no person input in that window keeps `Untitled`. Rust has no
+  reader of the liveness index. A TypeScript daemon opening the home between Rust runs sees no
+  such indexes and creates them in its own open-time path (its existing behaviour); it also
+  repeats `migratePermissions` over the table, which converges with a partial Rust fill because
+  every mapped value is already an ace mode. The schema test compares every object and its SQL
+  text, excluding the FTS virtual tables and these two indexes.
 
 ## 12. Stop, settle and deletion
 

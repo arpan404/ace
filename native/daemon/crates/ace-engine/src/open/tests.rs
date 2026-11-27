@@ -71,11 +71,13 @@ fn seed_base(conn: &Arc<Connection>, base: &[SchemaRow]) {
     }
 }
 
-fn engine_objects(rows: &[SchemaRow], base: &[SchemaRow]) -> Vec<SchemaRow> {
-    let base_names: std::collections::HashSet<&str> =
-        base.iter().map(|row| row.name.as_str()).collect();
+/// Every schema object except the FTS virtual tables and their shadow rows (SQLite creates
+/// those itself, and seeding skipped them) and the two history-sized engine indexes the Rust
+/// opener deliberately never builds.
+fn comparable_objects(rows: &[SchemaRow]) -> Vec<SchemaRow> {
+    let omitted = ["engine_first_person_input", "thread_liveness_candidates"];
     rows.iter()
-        .filter(|row| !base_names.contains(row.name.as_str()))
+        .filter(|row| !row.name.starts_with("search_") && !omitted.contains(&row.name.as_str()))
         .cloned()
         .collect()
 }
@@ -119,8 +121,12 @@ fn the_rust_opener_leaves_the_same_sqlite_master_as_the_typescript_opener() {
     seed_base(&conn, &base);
     let store = Shell::store(&conn);
     open(&store).expect("the opener");
-    let actual = engine_objects(&schema(&conn), &base);
-    let opened = engine_objects(&opened, &base);
+    // These two partial indexes are history-sized builds; the Rust opener never runs them. The
+    // TypeScript opener may build them when it opens the home; Rust's readers do not need them.
+    let mut actual = comparable_objects(&schema(&conn));
+    let mut opened = comparable_objects(&opened);
+    actual.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
+    opened.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
     let names = |rows: &[SchemaRow]| {
         rows.iter()
             .map(|row| (row.kind.clone(), row.name.clone()))
@@ -129,7 +135,7 @@ fn the_rust_opener_leaves_the_same_sqlite_master_as_the_typescript_opener() {
     assert_eq!(
         names(&actual),
         names(&opened),
-        "schema objects, in creation order"
+        "every schema object, the opener's own and the base's"
     );
     // Every object's text is the TypeScript's byte for byte, not only its name.
     for (produced, expected) in actual.iter().zip(opened.iter()) {
@@ -186,7 +192,7 @@ fn the_opener_maps_a_stored_native_permission_to_its_ace_mode() {
          INSERT INTO engine_permissions VALUES ('t','acceptEdits','acceptEdits',NULL,NULL,NULL,NULL);",
     )
     .expect("a stored pre-ace selection");
-    open(&store).expect("the second open");
+    crate::access::storage::migrate_permissions(&store).expect("the permission fill");
     let row = stmt_cache::get_row(
         &conn,
         "SELECT override,effective FROM engine_permissions WHERE thread_id='t'",
