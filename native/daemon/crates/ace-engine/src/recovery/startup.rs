@@ -16,7 +16,6 @@ use crate::restart::{RestartDecision, RestartFacts, restart_decision, restart_no
 use crate::{Core, EngineError, State, ThreadId};
 
 use super::capture;
-use super::session_bound;
 use super::threads;
 
 /// One thread's share of the first pass, as it will be decided once sends' uncertainty is known.
@@ -27,8 +26,9 @@ type Interrupted = HashMap<ThreadId, RestartFacts>;
 pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
     core.store.atomic(|_| {
         crate::transitions::state::prune_guards(core.store.conn())?;
-        crate::repository::reads::clear_incomplete_blobs_store(&core.store, None)
+        super::blob_cleanup::prepare(core)
     })?;
+    core.with_state(|state| state.sessions.startup_task_sweep_pending = true)?;
     let processes_unverified = core.ports.previous_processes_unverified();
     let mut interrupted = Interrupted::new();
     let mut settled = std::collections::HashSet::new();
@@ -60,14 +60,6 @@ pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
         }
         let after = scan.after().to_owned();
         scan.restart(after);
-    }
-
-    // No provider process survives a restart: work that lived inside one has stopped, in any
-    // thread, settled or not. A done thread that left commands running (ADR 0109) is visited here,
-    // because the pass above never sees it.
-    for thread in session_bound::threads_with_open_tasks(core.store.conn())? {
-        isolated(core, &thread, || open_tasks(core, &thread))?;
-        crate::actor::yield_once().await;
     }
 
     // A Cursor host stores its attempt before it calls Cursor: a submitted send without one never
@@ -375,33 +367,6 @@ fn first_pass_in(
         apply(core, state, thread, &facts, now)?;
     }
     Ok(())
-}
-
-/// The open tasks' step for one thread (`restart.ts:229`).
-fn open_tasks(core: &Core, thread: &str) -> Result<(), EngineError> {
-    core.store.atomic(|_| {
-        core.with_state(|state| {
-            if state.repo.cleaning(thread) {
-                return Ok(());
-            }
-            let snapshot = state.repo.require_state(&core.store, thread)?;
-            let bound = session_bound::settle_session_bound_tasks(core, thread, &snapshot)?;
-            if !bound.is_empty() {
-                apply(core, state, thread, &bound, core.ports.now())?;
-            }
-            if state.backend(&core.store, thread)?.as_deref() == Some("cursor-sdk") {
-                return Ok(());
-            }
-            let lost = {
-                let borrowed = snapshot.try_borrow().map_err(|_| EngineError::Reentrant)?;
-                session_bound::settle_orphaned_tasks(&borrowed.state)
-            };
-            if !lost.is_empty() {
-                apply(core, state, thread, &lost, core.ports.now())?;
-            }
-            Ok(())
-        })?
-    })
 }
 
 /// The outstanding intents' step (`restart.ts:240`-`:341`).

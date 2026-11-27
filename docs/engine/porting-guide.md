@@ -2484,6 +2484,11 @@ Waiting on E5.6 and E5.9: `delivery.run` and `delivery.fail` (sessions, transiti
 `failure-copy`'s words for the notice), `steerNow` and `yieldTurn` (sessions), and
 `markYieldedEnd`'s call from `actor_repo.rs`, which is E5.3's file.
 
+The TypeScript restart pass deletes incomplete blobs globally and reads every thread with
+open tasks in one query. Rust pages both cleanup passes after readiness. Before opening a
+provider session, the engine checks that thread's own indexed records. The blob pass protects
+streams inserted in the current boot even if SQLite reuses a row id.
+
 ### E5.10's notes: what is ported and what waits
 
 Ported in `liveness/`, `settle.rs` and `delegation.rs`: `threadTree` and `resumable`

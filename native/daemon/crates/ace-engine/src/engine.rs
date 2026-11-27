@@ -71,6 +71,7 @@ impl Engine {
             inputs,
             phase: Cell::new("readiness"),
             sweep: Cell::new(None),
+            blob_recovery_cutoff: Cell::new(None),
             closing: Cell::new(false),
             admission_closed: Cell::new(false),
             wakes: RefCell::new(Wakes::default()),
@@ -222,11 +223,28 @@ fn start_ready(core: Rc<Core>) {
         let ready = outcome.is_ok();
         task_core.finish_ready(outcome);
         if ready {
+            start_recovery_cleanup(&task_core);
             crate::cursor_reconcile::start(&task_core);
         }
         start_open_fills(task_core);
     });
     core.tasks.borrow_mut().push(task);
+}
+
+fn start_recovery_cleanup(core: &Rc<Core>) {
+    let owner = Rc::clone(core);
+    let blobs = core.executor.spawn(Lane::Work, async move {
+        if let Err(error) = recovery::blob_cleanup::sweep(&owner).await {
+            owner.ports.report(format!("old streamed blobs: {error}"));
+        }
+    });
+    let owner = Rc::clone(core);
+    let tasks = core.executor.spawn(Lane::Work, async move {
+        if let Err(error) = recovery::session_bound::sweep(&owner).await {
+            owner.ports.report(format!("old provider tasks: {error}"));
+        }
+    });
+    core.tasks.borrow_mut().extend([blobs, tasks]);
 }
 
 /// The opener's deferred work (ADR 0170): the permission mapping runs after ready, one bounded

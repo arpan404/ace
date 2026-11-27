@@ -8,6 +8,12 @@ use crate::{Core, EngineError};
 
 /// Open the thread's stored binding through the Rust provider opener.
 pub(crate) async fn stored(core: &Rc<Core>, thread: &str) -> Result<(), OpenFailure> {
+    crate::recovery::blob_cleanup::before_dispatch(core, thread)
+        .await
+        .map_err(attach_error)?;
+    crate::recovery::session_bound::before_dispatch(core, thread)
+        .await
+        .map_err(attach_error)?;
     let metadata = super::metadata::session(&core.store, thread).map_err(attach_error)?;
     let row = crate::recovery::threads::get(&core.store, thread)
         .map_err(attach_error)?

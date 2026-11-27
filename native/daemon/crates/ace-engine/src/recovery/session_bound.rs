@@ -109,26 +109,117 @@ fn task_keys(conn: &Arc<ace_store::Connection>, thread: &str) -> Result<Vec<Stri
         .collect())
 }
 
-/// `threadsWithOpenTasks` (`:68`): a thread with a task still marked running (its provider is
-/// gone), or one of a provider with session-bound work that holds a lost one. The query restates
-/// the partial index's condition so SQLite scans it, not every record.
-pub fn threads_with_open_tasks(
-    conn: &Arc<ace_store::Connection>,
-) -> Result<Vec<String>, EngineError> {
-    const SQL: &str = "SELECT DISTINCT r.thread_id AS thread_id FROM engine_state_records r JOIN threads t ON t.id=r.thread_id
-      WHERE r.section IN ('interactions','tasks') AND r.section='tasks'
-      AND json_extract(r.value,'$.status') IN ('running','unknown')
-      AND (json_extract(r.value,'$.status')='running'
-        OR t.provider IN (?))";
-    let rows = stmt_cache::all_rows(conn, SQL, vec![Cell::Text("claude".to_owned())])?;
-    Ok(rows
-        .iter()
-        .filter_map(|row| {
-            row.get("thread_id")
+/// Check a thread in indexed record pages before starting its first new session.
+pub(crate) async fn before_dispatch(core: &Core, thread: &str) -> Result<(), EngineError> {
+    if !core.with_state(|state| {
+        state.sessions.startup_task_sweep_pending
+            || state.sessions.startup_task_cleanup_errors.contains(thread)
+    })? {
+        return Ok(());
+    }
+    let mut after = String::new();
+    loop {
+        if core.closing.get() {
+            return Ok(());
+        }
+        let Some(next) = reconcile_page(core, thread, &after)? else {
+            core.with_state(|state| state.sessions.startup_task_cleanup_errors.remove(thread))?;
+            return Ok(());
+        };
+        after = next;
+        crate::actor::yield_once().await;
+    }
+}
+
+/// Legacy done threads may still have records for an ambient shell. Their records are repaired
+/// after readiness, at most one indexed task page between yields.
+pub(crate) async fn sweep(core: &Rc<Core>) -> Result<(), EngineError> {
+    let mut after = String::new();
+    loop {
+        if core.closing.get() {
+            return Ok(());
+        }
+        let rows = stmt_cache::all_rows(
+            core.store.conn(),
+            "SELECT thread_id FROM thread_state WHERE thread_id>? ORDER BY thread_id LIMIT 64",
+            vec![Cell::Text(after.clone())],
+        )?;
+        if rows.is_empty() {
+            return core.with_state(|state| state.sessions.startup_task_sweep_pending = false);
+        }
+        for row in rows {
+            let Some(thread) = row
+                .get("thread_id")
                 .and_then(crate::repository::residency::cell_text)
-                .map(str::to_owned)
-        })
-        .collect())
+            else {
+                continue;
+            };
+            if let Err(error) = before_dispatch(core, thread).await {
+                if !error.skippable_at_startup() {
+                    return Err(error);
+                }
+                core.ports.report(format!("{thread}: {error}"));
+                core.with_state(|state| {
+                    state
+                        .sessions
+                        .startup_task_cleanup_errors
+                        .insert(thread.to_owned())
+                })?;
+            }
+            after = thread.to_owned();
+            crate::actor::yield_once().await;
+        }
+    }
+}
+
+fn reconcile_page(core: &Core, thread: &str, after: &str) -> Result<Option<String>, EngineError> {
+    core.store.atomic(|tx| {
+        core.with_state(|state| {
+            if state.repo.cleaning(thread) || state.sessions.attached.contains_key(thread)
+                || state.session_opening(thread) || crate::cursor_reconcile::holds(state, thread)
+            {
+                return Ok(None);
+            }
+            let rows = stmt_cache::all_rows(tx.conn(),
+                "SELECT key, json_extract(value,'$.status') AS status, json_extract(value,'$.owner') AS owner,
+                   json_extract(value,'$.kind') AS kind FROM engine_state_records
+                 WHERE thread_id=? AND section='tasks' AND key>? ORDER BY key LIMIT 64",
+                vec![Cell::Text(thread.to_owned()), Cell::Text(after.to_owned())],
+            )?;
+            if rows.is_empty() {
+                return Ok(None);
+            }
+            let Some(row) = super::threads::get(&core.store, thread)? else { return Ok(None); };
+            if row.backend.as_deref() == Some("cursor-sdk")
+                || state.session_backend(&core.store, thread)?.as_deref() == Some("cursor-sdk")
+            {
+                return Ok(None);
+            }
+            let mut facts = Vec::new();
+            for row_task in &rows {
+                use crate::repository::residency::cell_text;
+                let text = |column| row_task.get(column).and_then(cell_text);
+                let Some(key) = text("key") else { continue };
+                let status = text("status").unwrap_or_default();
+                if text("owner") == Some("ace") {
+                    continue;
+                }
+                let bound = bound(&row.provider).is_some_and(|is_bound| is_bound(key, text("kind").unwrap_or_default()));
+                if bound && matches!(status, "running" | "unknown") {
+                    facts.push(background_ended(key, "stopped"));
+                } else if status == "running" {
+                    facts.push(background_ended(key, "unknown"));
+                }
+            }
+            if !facts.is_empty() {
+                state.apply(&core.store, thread, &ace_json::to_string(&Value::Array(facts.into())), core.ports.now(), None)?;
+                crate::liveness::reconcile::ancestors(core, state, thread)?;
+            }
+            Ok(rows.last().filter(|_| rows.len() == 64)
+                .and_then(|row| row.get("key").and_then(crate::repository::residency::cell_text))
+                .map(str::to_owned))
+        })?
+    })
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@
 //! connection, and no logic reads the wall clock (`Date.now()` is banned in logic code).
 
 pub mod attempt;
+pub(crate) mod blob_cleanup;
 pub mod capture;
 pub mod children;
 pub mod cursor_attempt;

@@ -72,6 +72,7 @@ pub struct Core {
     pub(crate) inputs: Inputs,
     pub(crate) phase: Cell<&'static str>,
     pub(crate) sweep: Cell<Option<u64>>,
+    pub(crate) blob_recovery_cutoff: Cell<Option<i64>>,
     pub(crate) closing: Cell<bool>,
     pub(crate) admission_closed: Cell<bool>,
     /// Wakes released from the after-commit queue and the wakers parked actors registered.

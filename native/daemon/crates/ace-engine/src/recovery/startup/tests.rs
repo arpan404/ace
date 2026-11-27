@@ -430,3 +430,79 @@ fn a_corrupt_outstanding_intent_is_reported_and_later_intents_still_recover() {
         "{reports:?}"
     );
 }
+
+#[test]
+fn restart_reaches_readiness_before_blob_cleanup_and_keeps_new_streams() {
+    let conn = home("t", &crate::repository::testsupport::header("t"));
+    conn.exec(
+        "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<130)
+         INSERT INTO streamed_blobs(rowid,id,thread_id,size,sha256,storage_id)
+         SELECT i,'prior-'||i,'t',0,CASE WHEN i=130 THEN 'complete' END,'prior-'||i FROM n",
+    )
+    .unwrap();
+    let conn = reopen(conn);
+    let (engine, shell) = engine_on(&conn);
+    struct One;
+    impl crate::executor::Budget for One {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 1
+        }
+    }
+    let old_partial = || {
+        ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT count(*) AS n FROM streamed_blobs WHERE id LIKE 'prior-%' AND sha256 IS NULL",
+            Vec::new(),
+        )
+        .unwrap()
+        .and_then(|row| {
+            row.get("n")
+                .and_then(crate::repository::residency::cell_int)
+        })
+        .unwrap()
+    };
+    for _ in 0..512 {
+        engine.pump(&mut One);
+        if engine.is_ready() {
+            break;
+        }
+    }
+    assert!(engine.is_ready(), "{:?}", shell.reports());
+    assert_eq!(old_partial(), 129);
+    conn.exec(
+        "DELETE FROM streamed_blobs WHERE rowid=120;
+         INSERT INTO streamed_blobs(rowid,id,thread_id,size,storage_id)
+         VALUES (120,'new-stream','t',0,'new-stream')",
+    )
+    .unwrap();
+    let mut remaining = old_partial();
+    for _ in 0..64 {
+        engine.pump(&mut One);
+        let next = old_partial();
+        assert!(
+            remaining - next <= 64,
+            "a pump should delete one bounded batch"
+        );
+        remaining = next;
+        if remaining == 0 {
+            break;
+        }
+    }
+    assert_eq!(remaining, 0);
+    let survivors = ace_store::stmt_cache::all_rows(
+        &conn,
+        "SELECT id FROM streamed_blobs ORDER BY id",
+        Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        survivors
+            .iter()
+            .filter_map(|row| row
+                .get("id")
+                .and_then(crate::repository::residency::cell_text))
+            .collect::<Vec<_>>(),
+        vec!["new-stream", "prior-130"]
+    );
+}
